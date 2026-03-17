@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0%" stop-color="#4338ca"/>
+      <stop offset="100%" stop-color="#7c3aed"/>
+    </linearGradient>
+    <linearGradient id="barG" x1="0" y1="1" x2="0.3" y2="0">
+      <stop offset="0%" stop-color="rgba(255,255,255,0.7)"/>
+      <stop offset="100%" stop-color="rgba(255,255,255,1)"/>
+    </linearGradient>
+  </defs>
+  <!-- Rounded background -->
+  <rect width="100" height="100" rx="22" fill="url(#bg)"/>
+  <!-- Bar chart -->
+  <rect x="18" y="58" width="16" height="26" rx="3" fill="url(#barG)" opacity="0.6"/>
+  <rect x="40" y="42" width="16" height="42" rx="3" fill="url(#barG)" opacity="0.8"/>
+  <rect x="62" y="26" width="16" height="58" rx="3" fill="url(#barG)"/>
+  <!-- Upward arrow -->
+  <path d="M72 30 L86 16 L80 16 M86 16 L86 22" stroke="white" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <!-- Sparkle -->
+  <path d="M89 12 L91 8 L93 12" stroke="#fbbf24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <path d="M87 10 L95 10" stroke="#fbbf24" stroke-width="2" stroke-linecap="round" fill="none"/>
+</svg>

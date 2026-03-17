@@ -1,0 +1,42 @@
+[
+  {
+    "id": 1,
+    "stock_document_id": "doc-init-001",
+    "ingredient_id": 101,
+    "quantity": 5000,
+    "cost_per_unit": 200,
+    "type": "IN"
+  },
+  {
+    "id": 2,
+    "stock_document_id": "doc-init-001",
+    "ingredient_id": 102,
+    "quantity": 10000,
+    "cost_per_unit": 18,
+    "type": "IN"
+  },
+  {
+    "id": 3,
+    "stock_document_id": "doc-init-001",
+    "ingredient_id": 103,
+    "quantity": 5000,
+    "cost_per_unit": 40,
+    "type": "IN"
+  },
+  {
+    "id": 4,
+    "stock_document_id": "doc-init-001",
+    "ingredient_id": 104,
+    "quantity": 10000,
+    "cost_per_unit": 15,
+    "type": "IN"
+  },
+  {
+    "id": 5,
+    "stock_document_id": "doc-init-001",
+    "ingredient_id": 105,
+    "quantity": 100,
+    "cost_per_unit": 2000,
+    "type": "IN"
+  }
+]

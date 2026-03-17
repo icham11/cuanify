@@ -1,0 +1,8 @@
+[
+  { "id": 1, "product_id": "p-01", "ingredient_id": 101, "quantity": 18 }, // Kopsus: 18g Kopi
+  { "id": 2, "product_id": "p-01", "ingredient_id": 102, "quantity": 150 }, // Kopsus: 150ml Susu
+  { "id": 3, "product_id": "p-01", "ingredient_id": 103, "quantity": 30 }, // Kopsus: 30ml Aren
+  { "id": 4, "product_id": "p-02", "ingredient_id": 101, "quantity": 18 }, // Americano: 18g Kopi
+  { "id": 5, "product_id": "p-04", "ingredient_id": 104, "quantity": 200 }, // Nasgor: 200g Beras
+  { "id": 6, "product_id": "p-04", "ingredient_id": 105, "quantity": 1 } // Nasgor: 1 Telur
+]

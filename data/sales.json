@@ -1,0 +1,87 @@
+[
+  {
+    "id": "s-01",
+    "business_id": "biz_001",
+    "transaction_date": "2026-02-10T09:00:00Z",
+    "total_revenue": 33000,
+    "payment_method": "CASH"
+  },
+  {
+    "id": "s-02",
+    "business_id": "biz_001",
+    "transaction_date": "2026-02-11T12:30:00Z",
+    "total_revenue": 25000,
+    "payment_method": "QRIS"
+  },
+  {
+    "id": "s-03",
+    "business_id": "biz_001",
+    "transaction_date": "2026-02-12T10:00:00Z",
+    "total_revenue": 18000,
+    "payment_method": "CASH"
+  },
+
+  // JUMAT (Mulai Ramai)
+  {
+    "id": "s-04",
+    "business_id": "biz_001",
+    "transaction_date": "2026-02-13T18:00:00Z",
+    "total_revenue": 47000,
+    "payment_method": "QRIS"
+  },
+  {
+    "id": "s-05",
+    "business_id": "biz_001",
+    "transaction_date": "2026-02-13T19:30:00Z",
+    "total_revenue": 25000,
+    "payment_method": "CASH"
+  },
+
+  // SABTU (VALENTINE PEAK - 14 FEB)
+  {
+    "id": "s-06",
+    "business_id": "biz_001",
+    "transaction_date": "2026-02-14T14:00:00Z",
+    "total_revenue": 84000,
+    "payment_method": "QRIS"
+  },
+  {
+    "id": "s-07",
+    "business_id": "biz_001",
+    "transaction_date": "2026-02-14T15:00:00Z",
+    "total_revenue": 44000,
+    "payment_method": "QRIS"
+  },
+  {
+    "id": "s-08",
+    "business_id": "biz_001",
+    "transaction_date": "2026-02-14T19:00:00Z",
+    "total_revenue": 50000,
+    "payment_method": "CASH"
+  },
+
+  // MINGGU (Masih Ramai)
+  {
+    "id": "s-09",
+    "business_id": "biz_001",
+    "transaction_date": "2026-02-15T11:00:00Z",
+    "total_revenue": 43000,
+    "payment_method": "QRIS"
+  },
+  {
+    "id": "s-10",
+    "business_id": "biz_001",
+    "transaction_date": "2026-02-15T13:00:00Z",
+    "total_revenue": 22000,
+    "payment_method": "CASH"
+  },
+
+  // SENIN (Normal)
+  {
+    "id": "s-11",
+    "business_id": "biz_001",
+    "transaction_date": "2026-02-16T08:30:00Z",
+    "total_revenue": 18000,
+    "payment_method": "QRIS"
+  }
+]

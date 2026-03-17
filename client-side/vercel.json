@@ -1,0 +1,11 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npx prisma generate && npx next build --webpack",
+  "framework": "nextjs",
+  "crons": [
+    {
+      "path": "/api/cron/generate-analytics",
+      "schedule": "0 3 * * *"
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+[
+  {
+    "id": "p-01",
+    "business_id": "biz_001",
+    "category_id": 1,
+    "name": "Kopi Susu Senja",
+    "sell_price": 18000,
+    "is_active": true
+  },
+  {
+    "id": "p-02",
+    "business_id": "biz_001",
+    "category_id": 1,
+    "name": "Americano",
+    "sell_price": 15000,
+    "is_active": true
+  },
+  {
+    "id": "p-03",
+    "business_id": "biz_001",
+    "category_id": 2,
+    "name": "Ice Chocolate",
+    "sell_price": 22000,
+    "is_active": true
+  },
+  {
+    "id": "p-04",
+    "business_id": "biz_001",
+    "category_id": 3,
+    "name": "Nasi Goreng Special",
+    "sell_price": 25000,
+    "is_active": true
+  }
+]

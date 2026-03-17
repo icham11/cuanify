@@ -1,0 +1,99 @@
+[
+  // 10 Feb (s-01): 1 Kopsus + 1 Americano
+  {
+    "sale_id": "s-01",
+    "product_id": "p-01",
+    "quantity": 1,
+    "price_at_sale": 18000
+  },
+  {
+    "sale_id": "s-01",
+    "product_id": "p-02",
+    "quantity": 1,
+    "price_at_sale": 15000
+  },
+
+  // 11 Feb (s-02): 1 Nasi Goreng
+  {
+    "sale_id": "s-02",
+    "product_id": "p-04",
+    "quantity": 1,
+    "price_at_sale": 25000
+  },
+
+  // 12 Feb (s-03): 1 Kopsus
+  {
+    "sale_id": "s-03",
+    "product_id": "p-01",
+    "quantity": 1,
+    "price_at_sale": 18000
+  },
+
+  // 13 Feb (s-04): 1 Ice Choco + 1 Nasgor
+  {
+    "sale_id": "s-04",
+    "product_id": "p-03",
+    "quantity": 1,
+    "price_at_sale": 22000
+  },
+  {
+    "sale_id": "s-04",
+    "product_id": "p-04",
+    "quantity": 1,
+    "price_at_sale": 25000
+  },
+
+  // 14 Feb (Valentine Peak)
+  // s-06: 2 Ice Choco + 2 Kopsus (Couple Date)
+  {
+    "sale_id": "s-06",
+    "product_id": "p-03",
+    "quantity": 2,
+    "price_at_sale": 22000
+  },
+  {
+    "sale_id": "s-06",
+    "product_id": "p-01",
+    "quantity": 2,
+    "price_at_sale": 18000
+  }, // Warning: Susu banyak kepakai di sini
+
+  // s-07: 2 Ice Choco
+  {
+    "sale_id": "s-07",
+    "product_id": "p-03",
+    "quantity": 2,
+    "price_at_sale": 22000
+  },
+
+  // s-08: 2 Nasi Goreng
+  {
+    "sale_id": "s-08",
+    "product_id": "p-04",
+    "quantity": 2,
+    "price_at_sale": 25000
+  },
+
+  // 15 Feb
+  // s-09: 1 Nasgor + 1 Kopsus
+  {
+    "sale_id": "s-09",
+    "product_id": "p-04",
+    "quantity": 1,
+    "price_at_sale": 25000
+  },
+  {
+    "sale_id": "s-09",
+    "product_id": "p-01",
+    "quantity": 1,
+    "price_at_sale": 18000
+  },
+
+  // 16 Feb (Back to work)
+  {
+    "sale_id": "s-11",
+    "product_id": "p-01",
+    "quantity": 1,
+    "price_at_sale": 18000
+  }
+]

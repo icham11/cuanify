@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 460 110" fill="none">
+  <defs>
+    <linearGradient id="barGrad" x1="0" y1="1" x2="0.4" y2="0">
+      <stop offset="0%" stop-color="#4338ca"/>
+      <stop offset="100%" stop-color="#818cf8"/>
+    </linearGradient>
+    <linearGradient id="arrowGrad" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0%" stop-color="#4f46e5"/>
+      <stop offset="100%" stop-color="#818cf8"/>
+    </linearGradient>
+    <linearGradient id="ifyGrad" x1="0" y1="0.5" x2="1" y2="0.5">
+      <stop offset="0%" stop-color="#4f46e5"/>
+      <stop offset="100%" stop-color="#7c3aed"/>
+    </linearGradient>
+  </defs>
+  <!-- Bar chart - 3 bars increasing height -->
+  <rect x="6" y="62" width="22" height="40" rx="4" fill="url(#barGrad)" opacity="0.5"/>
+  <rect x="34" y="42" width="22" height="60" rx="4" fill="url(#barGrad)" opacity="0.7"/>
+  <rect x="62" y="20" width="22" height="82" rx="4" fill="url(#barGrad)"/>
+  <!-- Filled upward arrow from top of tallest bar -->
+  <polygon points="70,24 92,4 84,4 92,4 92,12" fill="none" stroke="url(#arrowGrad)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Sparkle / star burst -->
+  <path d="M96,2 L98,-3 L100,2" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <path d="M94,0 L102,0" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+  <!-- Text "Cuan" in dark indigo/navy -->
+  <text x="112" y="82" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="68" font-weight="800" fill="#1e1b4b" letter-spacing="-2">Cuan</text>
+  <!-- Text "ify" in indigo-to-purple gradient -->
+  <text x="273" y="82" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="68" font-weight="800" fill="url(#ifyGrad)" letter-spacing="-2">ify</text>
+</svg>

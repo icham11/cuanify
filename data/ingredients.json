@@ -1,0 +1,37 @@
+[
+  {
+    "id": 101,
+    "business_id": "biz_001",
+    "name": "Biji Kopi House Blend",
+    "unit": "gram",
+    "min_stock": 1000
+  },
+  {
+    "id": 102,
+    "business_id": "biz_001",
+    "name": "Susu Fresh Milk",
+    "unit": "ml",
+    "min_stock": 2000
+  },
+  {
+    "id": 103,
+    "business_id": "biz_001",
+    "name": "Gula Aren Cair",
+    "unit": "ml",
+    "min_stock": 500
+  },
+  {
+    "id": 104,
+    "business_id": "biz_001",
+    "name": "Beras Premium",
+    "unit": "gram",
+    "min_stock": 5000
+  },
+  {
+    "id": 105,
+    "business_id": "biz_001",
+    "name": "Telur Ayam",
+    "unit": "butir",
+    "min_stock": 10
+  }
+]

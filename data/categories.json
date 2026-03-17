@@ -1,0 +1,5 @@
+[
+  { "id": 1, "business_id": "biz_001", "name": "Coffee Based" },
+  { "id": 2, "business_id": "biz_001", "name": "Non-Coffee" },
+  { "id": 3, "business_id": "biz_001", "name": "Main Course" }
+]
