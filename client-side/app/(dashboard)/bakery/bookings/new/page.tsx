@@ -7,7 +7,7 @@ export default function NewBookingPage() {
     <div className="space-y-6 pb-10">
       <GradientPageHeader
         title="New Booking"
-        description="Capture customer details, pricing, and delivery notes in one view."
+        description="Create inquiry draft, check slot availability, calculate pricing, then proceed to approval."
         icon={PlusCircle}
       />
       <BookingForm />

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   BarChart3,
   Bot,
+  CalendarDays,
   ShoppingCart,
   History,
   Boxes,
@@ -12,8 +13,9 @@ import {
   Building2,
   User,
   FileDown,
+  FileText,
   Users,
-  BookOpen,
+  ClipboardList,
   Clock,
   Factory,
 } from "lucide-react";
@@ -60,6 +62,43 @@ export default function SidebarNav() {
         </div>
       )}
 
+      {/* Bakery — Owner only */}
+      {isOwner && (
+        <div>
+          <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-wider px-3 mb-1.5">Bakery</p>
+          <SidebarLink
+            href="/bakery/dashboard"
+            icon={BarChart3}
+            label="Dashboard"
+            active={isActive("/bakery/dashboard")}
+          />
+          <SidebarLink
+            href="/bakery/bookings"
+            icon={ClipboardList}
+            label="Bookings"
+            active={isActive("/bakery/bookings")}
+          />
+          <SidebarLink
+            href="/bakery/calendar"
+            icon={CalendarDays}
+            label="Calendar"
+            active={isActive("/bakery/calendar")}
+          />
+          <SidebarLink
+            href="/bakery/production"
+            icon={Factory}
+            label="Production"
+            active={isActive("/bakery/production")}
+          />
+          <SidebarLink
+            href="/bakery/reports"
+            icon={FileText}
+            label="Reports"
+            active={isActive("/bakery/reports")}
+          />
+        </div>
+      )}
+
       {/* AI Tools — Owner only */}
       {isOwner && (
         <div>
@@ -84,7 +123,7 @@ export default function SidebarNav() {
           label="Sales History"
           active={isActive("/dashboard/sales-history")}
         />
-        <SidebarLink href="/dashboard/debts" icon={BookOpen} label="Kasbon" active={isActive("/dashboard/debts")} />
+        <SidebarLink href="/dashboard/debts" icon={ClipboardList} label="Kasbon" active={isActive("/dashboard/debts")} />
         <SidebarLink
           href="/dashboard/shift-history"
           icon={Clock}
@@ -106,28 +145,10 @@ export default function SidebarNav() {
         <div>
           <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-wider px-3 mb-1.5">Inventory</p>
           <SidebarLink
-            href="/bakery/dashboard"
-            icon={Factory}
-            label="Bakery"
-            active={isActive("/bakery/dashboard")}
-          />
-          <SidebarLink
-            href="/bakery/bookings"
-            icon={BookOpen}
-            label="Orders"
-            active={isActive("/bakery/bookings")}
-          />
-          <SidebarLink
             href="/dashboard/products"
             icon={Package}
             label="Products"
             active={isActive("/dashboard/products")}
-          />
-          <SidebarLink
-            href="/dashboard/production"
-            icon={Factory}
-            label="Production"
-            active={isActive("/dashboard/production")}
           />
           <SidebarLink
             href="/dashboard/ingredients"

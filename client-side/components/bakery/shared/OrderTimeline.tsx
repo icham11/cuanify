@@ -1,23 +1,30 @@
 import { CheckCircle2, Clock, Factory, PackageCheck, Truck } from "lucide-react";
+import { OrderStatusLog } from "@/components/bakery/store";
 
 const timelineSteps = [
-  { label: "Booking Created", icon: Clock, offset: -4 },
-  { label: "Order Approved", icon: CheckCircle2, offset: -3 },
+  { label: "Inquiry Received", icon: Clock, offset: -5 },
+  { label: "Quote Shared", icon: CheckCircle2, offset: -4 },
+  { label: "DP Received", icon: CheckCircle2, offset: -3 },
   { label: "Sent to Production", icon: Factory, offset: -2 },
   { label: "Ready for Delivery", icon: PackageCheck, offset: -1 },
-  { label: "Delivered", icon: Truck, offset: 0 },
+  { label: "Completed", icon: Truck, offset: 0 },
 ];
 
 function resolveIndex(status: string) {
   switch (status) {
-    case "Confirmed":
+    case "Quoted":
       return 1;
-    case "In Production":
+    case "DP Paid":
       return 2;
-    case "Ready":
+    case "Confirmed":
       return 3;
-    case "Delivered":
+    case "In Production":
+      return 3;
+    case "Ready":
       return 4;
+    case "Completed":
+    case "Delivered":
+      return 5;
     default:
       return 0;
   }
@@ -32,10 +39,13 @@ function formatDate(baseDate: string, offset: number) {
 export default function OrderTimeline({
   status,
   deliveryDate,
+  history,
 }: {
   status: string;
   deliveryDate: string;
+  history?: OrderStatusLog[];
 }) {
+  const sortedHistory = (history ?? []).slice().sort((a, b) => a.timestamp.localeCompare(b.timestamp));
   const currentIndex = resolveIndex(status);
 
   return (
@@ -47,29 +57,55 @@ export default function OrderTimeline({
         </span>
       </div>
       <div className="space-y-4">
-        {timelineSteps.map((step, index) => {
-          const Icon = step.icon;
-          const isDone = index <= currentIndex;
-          return (
-            <div key={step.label} className="flex items-start gap-3">
-              <div
-                className={`flex h-9 w-9 items-center justify-center rounded-full border ${
-                  isDone
-                    ? "border-indigo-200 bg-indigo-50 text-indigo-700"
-                    : "border-gray-200 bg-gray-50 text-gray-400"
-                }`}
-              >
-                <Icon size={18} />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-gray-900">{step.label}</p>
-                <p className="text-xs text-gray-500">
-                  {formatDate(deliveryDate, step.offset)}
-                </p>
-              </div>
-            </div>
-          );
-        })}
+        {sortedHistory.length > 0
+          ? sortedHistory.map((entry, index) => {
+              const isPrimary = index === sortedHistory.length - 1;
+              return (
+                <div key={entry.id} className="flex items-start gap-3">
+                  <div
+                    className={`flex h-9 w-9 items-center justify-center rounded-full border ${
+                      isPrimary
+                        ? "border-indigo-200 bg-indigo-50 text-indigo-700"
+                        : "border-gray-200 bg-gray-50 text-gray-500"
+                    }`}
+                  >
+                    <Clock size={16} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">{entry.note}</p>
+                    <p className="text-xs text-gray-500">
+                      {new Date(entry.timestamp).toLocaleString("id-ID", {
+                        dateStyle: "medium",
+                        timeStyle: "short",
+                      })}
+                    </p>
+                  </div>
+                </div>
+              );
+            })
+          : timelineSteps.map((step, index) => {
+              const Icon = step.icon;
+              const isDone = index <= currentIndex;
+              return (
+                <div key={step.label} className="flex items-start gap-3">
+                  <div
+                    className={`flex h-9 w-9 items-center justify-center rounded-full border ${
+                      isDone
+                        ? "border-indigo-200 bg-indigo-50 text-indigo-700"
+                        : "border-gray-200 bg-gray-50 text-gray-400"
+                    }`}
+                  >
+                    <Icon size={18} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">{step.label}</p>
+                    <p className="text-xs text-gray-500">
+                      {formatDate(deliveryDate, step.offset)}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
       </div>
     </div>
   );

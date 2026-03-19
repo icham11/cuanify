@@ -20,7 +20,8 @@ export default function BookingListPage() {
     return orders.filter((order) => {
       const matchesQuery =
         order.customerName.toLowerCase().includes(query.toLowerCase()) ||
-        order.resi.toLowerCase().includes(query.toLowerCase());
+        order.resi.toLowerCase().includes(query.toLowerCase()) ||
+        order.bookingCode.toLowerCase().includes(query.toLowerCase());
       const matchesStatus = statusFilter
         ? order.orderStatus === statusFilter
         : true;

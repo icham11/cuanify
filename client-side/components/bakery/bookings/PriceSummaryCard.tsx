@@ -29,7 +29,7 @@ export default function PriceSummaryCard({
           <span>{formatCurrency(addOnTotal)}</span>
         </div>
         <div className="flex items-center justify-between text-sm text-gray-600">
-          <span>Delivery Fee</span>
+          <span>Ongkir</span>
           <span>{formatCurrency(deliveryFee)}</span>
         </div>
         <div className="h-px bg-gray-100" />
@@ -37,6 +37,9 @@ export default function PriceSummaryCard({
           <span>Total Price</span>
           <span className="text-lg">{formatCurrency(totalPrice)}</span>
         </div>
+        <p className="text-xs text-gray-500">
+          Auto-updated from product base price, add-ons, and delivery destination.
+        </p>
       </CardContent>
     </Card>
   );

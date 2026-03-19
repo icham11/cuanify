@@ -1,13 +1,38 @@
+"use client";
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { bakerySummaryCards } from "@/components/bakery/mockData";
+import { formatCurrency } from "@/components/orders/formatters";
+import { useOrders } from "@/components/bakery/store";
 import { BarChart3, CheckCircle2, Factory, PackageCheck, Wallet } from "lucide-react";
 
 const icons = [BarChart3, CheckCircle2, Factory, PackageCheck, Wallet];
 
 export default function OrdersStats() {
+  const { orders } = useOrders();
+
+  const summaryCards = [
+    { title: "Total Orders", value: String(orders.length) },
+    {
+      title: "Confirmed Orders",
+      value: String(orders.filter((order) => order.orderStatus === "Confirmed").length),
+    },
+    {
+      title: "In Production",
+      value: String(orders.filter((order) => order.orderStatus === "In Production").length),
+    },
+    {
+      title: "Completed",
+      value: String(orders.filter((order) => ["Completed", "Delivered"].includes(order.orderStatus)).length),
+    },
+    {
+      title: "Total Revenue",
+      value: formatCurrency(orders.reduce((sum, order) => sum + (order.totalPrice || 0), 0)),
+    },
+  ];
+
   return (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-      {bakerySummaryCards.map((card, index) => {
+      {summaryCards.map((card, index) => {
         const Icon = icons[index] ?? BarChart3;
         return (
           <Card key={card.title} className="rounded-xl shadow-sm">

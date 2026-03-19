@@ -36,7 +36,7 @@ export default function ProductionTable() {
 
   const readyOrders = useMemo(() => {
     return orders
-      .filter((order) => ["Ready", "Delivered"].includes(order.orderStatus))
+      .filter((order) => ["Ready", "Delivered", "Completed"].includes(order.orderStatus))
       .slice()
       .sort((a, b) => a.deliveryDate.localeCompare(b.deliveryDate));
   }, [orders]);
@@ -44,8 +44,16 @@ export default function ProductionTable() {
   const updateStatus = (id: string, status: string) => {
     updateOrderStatus(
       id,
-      status as "Confirmed" | "In Production" | "Ready" | "Delivered"
+      status as "Confirmed" | "In Production" | "Ready" | "Delivered" | "Completed"
     );
+  };
+
+  const getStatusOptions = (status: string) => {
+    if (status === "Confirmed") return ["Confirmed", "In Production", "Ready", "Delivered"];
+    if (status === "In Production") return ["In Production", "Ready", "Delivered"];
+    if (status === "Ready") return ["Ready", "Delivered"];
+    if (status === "Delivered") return ["Delivered", "Completed"];
+    return ["Confirmed", "In Production", "Ready", "Delivered", "Completed"];
   };
 
   if (activeOrders.length === 0 && readyOrders.length === 0) {
@@ -102,21 +110,21 @@ export default function ProductionTable() {
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
                     Order ID
                   </p>
-                  <p className="text-sm font-semibold text-gray-900">{order.id}</p>
-                  <p className="text-xs text-gray-500">{order.customerName}</p>
+                  <p className="text-sm font-semibold text-gray-900">{order.resi || `ORD-${order.id}`}</p>
+                  <p className="text-xs text-gray-500">{order.customerName || "Walk-in Customer"}</p>
                 </div>
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
                     Cake
                   </p>
-                  <p className="text-sm text-gray-700">{order.product}</p>
+                  <p className="text-sm text-gray-700">{order.product || "Custom Cake"}</p>
                 </div>
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
                     Delivery
                   </p>
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-sm text-gray-700">{order.deliveryDate}</p>
+                    <p className="text-sm text-gray-700">{order.deliveryDate || "-"}</p>
                     {(() => {
                       const priority = withPriority(order);
                       return <PriorityBadge label={priority.label} tone={priority.tone} />;
@@ -127,7 +135,7 @@ export default function ProductionTable() {
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
                     Notes
                   </p>
-                  <p className="text-sm text-gray-600">{order.notes}</p>
+                  <p className="text-sm text-gray-600">{order.notes || "No notes"}</p>
                 </div>
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
@@ -136,6 +144,7 @@ export default function ProductionTable() {
                   <StatusDropdown
                     value={order.orderStatus}
                     onChange={(value) => updateStatus(order.id, value)}
+                    options={getStatusOptions(order.orderStatus)}
                   />
                 </div>
               </div>
@@ -161,21 +170,21 @@ export default function ProductionTable() {
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
                     Order ID
                   </p>
-                  <p className="text-sm font-semibold text-gray-900">{order.id}</p>
-                  <p className="text-xs text-gray-500">{order.customerName}</p>
+                  <p className="text-sm font-semibold text-gray-900">{order.resi || `ORD-${order.id}`}</p>
+                  <p className="text-xs text-gray-500">{order.customerName || "Walk-in Customer"}</p>
                 </div>
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
                     Cake
                   </p>
-                  <p className="text-sm text-gray-700">{order.product}</p>
+                  <p className="text-sm text-gray-700">{order.product || "Custom Cake"}</p>
                 </div>
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
                     Delivery
                   </p>
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-sm text-gray-700">{order.deliveryDate}</p>
+                    <p className="text-sm text-gray-700">{order.deliveryDate || "-"}</p>
                     {(() => {
                       const priority = withPriority(order);
                       return <PriorityBadge label={priority.label} tone={priority.tone} />;
@@ -186,7 +195,7 @@ export default function ProductionTable() {
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
                     Notes
                   </p>
-                  <p className="text-sm text-gray-600">{order.notes}</p>
+                  <p className="text-sm text-gray-600">{order.notes || "No notes"}</p>
                 </div>
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
@@ -195,6 +204,7 @@ export default function ProductionTable() {
                   <StatusDropdown
                     value={order.orderStatus}
                     onChange={(value) => updateStatus(order.id, value)}
+                    options={getStatusOptions(order.orderStatus)}
                   />
                 </div>
               </div>

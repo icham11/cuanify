@@ -6,6 +6,7 @@ import Image from "next/image";
 import { usePathname } from "next/navigation";
 import {
   BarChart3,
+  CalendarDays,
   ShoppingCart,
   Package,
   Menu,
@@ -16,8 +17,9 @@ import {
   Building2,
   User,
   FileDown,
+  FileText,
   Users,
-  BookOpen,
+  ClipboardList,
   Clock,
   Factory,
 } from "lucide-react";
@@ -55,7 +57,7 @@ export default function MobileNav({
     : [
         { href: "/pos", icon: ShoppingCart, label: "POS" },
         { href: "/dashboard/sales-history", icon: History, label: "Riwayat" },
-        { href: "/dashboard/debts", icon: BookOpen, label: "Kasbon" },
+        { href: "/dashboard/debts", icon: ClipboardList, label: "Kasbon" },
       ];
 
   return (
@@ -197,7 +199,7 @@ export default function MobileNav({
               />
               <NavLink
                 href="/dashboard/debts"
-                icon={BookOpen}
+                icon={ClipboardList}
                 label="Kasbon"
                 active={isActive("/dashboard/debts")}
                 onClick={() => setIsDrawerOpen(false)}
@@ -222,34 +224,52 @@ export default function MobileNav({
               {isOwner && (
                 <>
                   <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-3 pt-4 pb-1">
-                    Inventory
+                    Bakery
                   </p>
                   <NavLink
                     href="/bakery/dashboard"
-                    icon={Factory}
-                    label="Bakery"
+                    icon={BarChart3}
+                    label="Dashboard"
                     active={isActive("/bakery/dashboard")}
                     onClick={() => setIsDrawerOpen(false)}
                   />
                   <NavLink
                     href="/bakery/bookings"
-                    icon={BookOpen}
-                    label="Orders"
+                    icon={ClipboardList}
+                    label="Bookings"
                     active={isActive("/bakery/bookings")}
                     onClick={() => setIsDrawerOpen(false)}
                   />
+                  <NavLink
+                    href="/bakery/calendar"
+                    icon={CalendarDays}
+                    label="Calendar"
+                    active={isActive("/bakery/calendar")}
+                    onClick={() => setIsDrawerOpen(false)}
+                  />
+                  <NavLink
+                    href="/bakery/production"
+                    icon={Factory}
+                    label="Production"
+                    active={isActive("/bakery/production")}
+                    onClick={() => setIsDrawerOpen(false)}
+                  />
+                  <NavLink
+                    href="/bakery/reports"
+                    icon={FileText}
+                    label="Reports"
+                    active={isActive("/bakery/reports")}
+                    onClick={() => setIsDrawerOpen(false)}
+                  />
+
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-3 pt-4 pb-1">
+                    Inventory
+                  </p>
                   <NavLink
                     href="/dashboard/products"
                     icon={Package}
                     label="Products"
                     active={isActive("/dashboard/products")}
-                    onClick={() => setIsDrawerOpen(false)}
-                  />
-                  <NavLink
-                    href="/dashboard/production"
-                    icon={Factory}
-                    label="Production"
-                    active={isActive("/dashboard/production")}
                     onClick={() => setIsDrawerOpen(false)}
                   />
                   <NavLink

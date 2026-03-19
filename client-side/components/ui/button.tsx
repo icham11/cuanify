@@ -15,10 +15,10 @@ export interface ButtonProps
 
 const variantClasses: Record<ButtonVariant, string> = {
   default:
-    "bg-emerald-600 text-white hover:bg-emerald-700 focus-visible:ring-emerald-500",
+    "bg-indigo-600 text-white hover:bg-indigo-700 focus-visible:ring-indigo-500",
   outline:
-    "border border-emerald-200 text-emerald-700 hover:bg-emerald-50 focus-visible:ring-emerald-400",
-  ghost: "text-emerald-700 hover:bg-emerald-50 focus-visible:ring-emerald-400",
+    "border border-indigo-200 text-indigo-700 hover:bg-indigo-50 focus-visible:ring-indigo-400",
+  ghost: "text-indigo-700 hover:bg-indigo-50 focus-visible:ring-indigo-400",
   secondary:
     "bg-gray-900 text-white hover:bg-gray-800 focus-visible:ring-gray-400",
 };

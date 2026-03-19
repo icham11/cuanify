@@ -12,7 +12,7 @@ export default function BookingStats({ orders }: { orders: BakeryOrder[] }) {
   const tomorrow = formatDate(tomorrowDate);
 
   const todayOrders = orders.filter((order) => order.deliveryDate === today).length;
-  const pendingApproval = orders.filter((order) => order.orderStatus === "Pending").length;
+  const pendingApproval = orders.filter((order) => ["Inquiry", "Quoted", "DP Paid"].includes(order.orderStatus)).length;
   const inProduction = orders.filter((order) => order.orderStatus === "In Production").length;
   const upcoming = orders.filter(
     (order) => order.deliveryDate >= today && order.deliveryDate <= tomorrow

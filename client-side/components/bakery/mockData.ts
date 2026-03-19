@@ -158,6 +158,6 @@ export const bakeryRevenueByWeek = [
 export const bakeryStatusMix = [
   { name: "Confirmed", value: 42, color: "#3b82f6" },
   { name: "In Production", value: 28, color: "#6366f1" },
-  { name: "Ready", value: 18, color: "#a855f7" },
-  { name: "Delivered", value: 65, color: "#10b981" },
+  { name: "Ready", value: 18, color: "#2563eb" },
+  { name: "Delivered", value: 65, color: "#1d4ed8" },
 ];

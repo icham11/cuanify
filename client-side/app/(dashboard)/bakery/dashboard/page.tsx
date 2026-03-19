@@ -1,11 +1,31 @@
+"use client";
+
+import { useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import OrdersStats from "@/components/bakery/dashboard/OrdersStats";
 import OrdersChart from "@/components/bakery/dashboard/OrdersChart";
-import { bakeryUpcomingDeliveries } from "@/components/bakery/mockData";
+import { useOrders } from "@/components/bakery/store";
 import { BarChart3 } from "lucide-react";
 
 export default function BakeryDashboardPage() {
+  const { orders } = useOrders();
+
+  const upcomingDeliveries = useMemo(
+    () =>
+      orders
+        .slice()
+        .sort((a, b) => a.deliveryDate.localeCompare(b.deliveryDate))
+        .slice(0, 5)
+        .map((order) => ({
+          id: order.resi || `ORD-${order.id}`,
+          customer: order.customerName || "Walk-in Customer",
+          product: order.product || "Custom Cake",
+          date: order.deliveryDate || "-",
+        })),
+    [orders]
+  );
+
   return (
     <div className="space-y-6 pb-10">
       <GradientPageHeader
@@ -30,12 +50,12 @@ export default function BakeryDashboardPage() {
           <CardTitle>Upcoming Deliveries</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 px-6 pb-6 pt-0">
-          {bakeryUpcomingDeliveries.length === 0 ? (
+          {upcomingDeliveries.length === 0 ? (
             <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/60 px-4 py-6 text-center text-sm text-gray-500">
               No upcoming deliveries yet.
             </div>
           ) : (
-            bakeryUpcomingDeliveries.map((delivery) => (
+            upcomingDeliveries.map((delivery) => (
               <div
                 key={delivery.id}
                 className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-100 bg-gray-50/60 px-4 py-3"

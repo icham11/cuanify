@@ -25,8 +25,15 @@ export default function ProductionPage() {
         <CardHeader className="p-6 pb-2">
           <CardTitle>Operational Notes</CardTitle>
         </CardHeader>
-        <CardContent className="px-6 pb-6 pt-0 text-sm text-gray-600">
-          Sort by delivery date to prioritize urgent cakes and update statuses as production progresses.
+        <CardContent className="space-y-3 px-6 pb-6 pt-0 text-sm text-gray-600">
+          <p>
+            Orders are sorted by delivery date to prioritize urgent jobs first.
+          </p>
+          <div className="flex flex-wrap gap-2 text-xs font-semibold">
+            <span className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-rose-700">Delivery Today</span>
+            <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-amber-700">Delivery Tomorrow</span>
+            <span className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-gray-600">Normal</span>
+          </div>
         </CardContent>
       </Card>
     </div>

@@ -14,19 +14,35 @@ import {
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatCurrency } from "@/components/orders/formatters";
-import {
-  bakeryOrdersPerDay,
-  bakeryRevenueTrend,
-} from "@/components/bakery/mockData";
+import { useOrders } from "@/components/bakery/store";
 import SkeletonBlock from "@/components/bakery/shared/SkeletonBlock";
 
 export default function OrdersChart() {
+  const { orders } = useOrders();
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const timer = setTimeout(() => setIsLoading(false), 350);
     return () => clearTimeout(timer);
   }, []);
+
+  const ordersPerDay = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day, index) => {
+    const count = orders.filter((order) => {
+      const date = new Date(order.deliveryDate);
+      return Number.isFinite(date.getTime()) && date.getDay() === (index + 1) % 7;
+    }).length;
+    return { day, orders: count };
+  });
+
+  const revenueTrend = ordersPerDay.map((dayItem) => {
+    const revenue = orders
+      .filter((order) => {
+        const date = new Date(order.deliveryDate);
+        return Number.isFinite(date.getTime()) && date.getDay() === (["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].indexOf(dayItem.day) + 1) % 7;
+      })
+      .reduce((sum, order) => sum + (order.totalPrice || 0), 0);
+    return { day: dayItem.day, revenue };
+  });
 
   return (
     <div className="grid gap-6 lg:grid-cols-2">
@@ -40,7 +56,7 @@ export default function OrdersChart() {
           ) : (
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={bakeryOrdersPerDay}>
+                <BarChart data={ordersPerDay}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                   <XAxis dataKey="day" tickLine={false} axisLine={false} />
                   <YAxis tickLine={false} axisLine={false} />
@@ -69,7 +85,7 @@ export default function OrdersChart() {
           ) : (
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={bakeryRevenueTrend}>
+                <LineChart data={revenueTrend}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                   <XAxis dataKey="day" tickLine={false} axisLine={false} />
                   <YAxis

@@ -1,23 +1,33 @@
-import { CheckCircle2, Circle, Clock, Factory, Truck } from "lucide-react";
+import { CheckCircle2, Circle, Clock, Factory, Truck, XCircle } from "lucide-react";
 
 const steps = [
-  { key: "Booking Created", label: "Booking Created", icon: Circle },
+  { key: "Inquiry", label: "Inquiry", icon: Circle },
+  { key: "Quoted", label: "Quoted", icon: Clock },
+  { key: "DP Paid", label: "DP Paid", icon: CheckCircle2 },
   { key: "Confirmed", label: "Confirmed", icon: CheckCircle2 },
   { key: "In Production", label: "In Production", icon: Factory },
   { key: "Ready", label: "Ready", icon: Clock },
-  { key: "Delivered", label: "Delivered", icon: Truck },
+  { key: "Completed", label: "Completed", icon: Truck },
+  { key: "Cancelled", label: "Cancelled", icon: XCircle },
 ];
 
 function resolveStepIndex(status: string) {
   switch (status) {
-    case "Confirmed":
+    case "Quoted":
       return 1;
-    case "In Production":
+    case "DP Paid":
       return 2;
-    case "Ready":
+    case "Confirmed":
       return 3;
-    case "Delivered":
+    case "In Production":
       return 4;
+    case "Ready":
+      return 5;
+    case "Delivered":
+    case "Completed":
+      return 6;
+    case "Cancelled":
+      return 7;
     default:
       return 0;
   }
@@ -28,9 +38,10 @@ export default function OrderStepper({ status }: { status: string }) {
 
   return (
     <div className="rounded-xl border border-gray-100 bg-white px-6 py-5 shadow-sm">
-      <div className="grid gap-3 md:grid-cols-5">
+      <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-8">
         {steps.map((step, index) => {
-          const isActive = index <= currentIndex;
+          const isActive =
+            status === "Cancelled" ? step.key === "Cancelled" : index <= currentIndex;
           const Icon = step.icon;
           return (
             <div key={step.key} className="flex items-center gap-3">

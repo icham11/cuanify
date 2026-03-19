@@ -7,11 +7,12 @@ interface StatusDropdownProps {
 }
 
 const defaultOptions = [
-  "Pending",
   "Confirmed",
   "In Production",
   "Ready",
   "Delivered",
+  "Completed",
+  "Cancelled",
 ];
 
 export default function StatusDropdown({

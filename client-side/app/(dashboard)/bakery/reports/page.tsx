@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -15,16 +16,71 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import { formatCurrency } from "@/components/orders/formatters";
 import { Download, PieChart as PieChartIcon } from "lucide-react";
-import {
-  bakeryReportStats,
-  bakeryRevenueByWeek,
-  bakeryStatusMix,
-} from "@/components/bakery/mockData";
+import { useOrders } from "@/components/bakery/store";
 
 export default function ReportsPage() {
+  const { orders } = useOrders();
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+
+  const filteredOrders = useMemo(() => {
+    return orders.filter((order) => {
+      if (fromDate && order.deliveryDate < fromDate) return false;
+      if (toDate && order.deliveryDate > toDate) return false;
+      if (statusFilter && order.orderStatus !== statusFilter) return false;
+      return true;
+    });
+  }, [orders, fromDate, toDate, statusFilter]);
+
+  const totalOrders = filteredOrders.length;
+  const totalRevenue = filteredOrders.reduce((sum, order) => sum + (order.totalPrice || 0), 0);
+  const aov = totalOrders > 0 ? Math.round(totalRevenue / totalOrders) : 0;
+  const completedCount = filteredOrders.filter((order) => ["Completed", "Delivered"].includes(order.orderStatus)).length;
+
+  const statusCounts = [
+    "Inquiry",
+    "Quoted",
+    "DP Paid",
+    "Confirmed",
+    "In Production",
+    "Ready",
+    "Completed",
+    "Cancelled",
+  ].map((status) => ({
+    name: status,
+    value: filteredOrders.filter((order) => order.orderStatus === status).length,
+  }));
+
+  const bakeryStatusMix = statusCounts
+    .filter((item) => item.value > 0)
+    .map((item, index) => ({
+      ...item,
+      color: ["#1d4ed8", "#2563eb", "#3b82f6", "#0ea5e9", "#6366f1", "#4f46e5", "#4338ca", "#e11d48"][index % 8],
+    }));
+
+  const weekday = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const bakeryRevenueByWeek = weekday.map((day) => {
+    const revenue = filteredOrders
+      .filter((order) => {
+        const date = new Date(order.deliveryDate);
+        return Number.isFinite(date.getTime()) && weekday[date.getDay()] === day;
+      })
+      .reduce((sum, order) => sum + (order.totalPrice || 0), 0);
+    return { week: day, revenue };
+  });
+
+  const reportStats = [
+    { title: "Total Orders", value: String(totalOrders) },
+    { title: "Total Revenue", value: formatCurrency(totalRevenue) },
+    { title: "AOV", value: formatCurrency(aov) },
+    { title: "Completed Orders", value: String(completedCount) },
+  ];
+
   return (
     <div className="space-y-6 pb-10">
       <GradientPageHeader
@@ -48,19 +104,35 @@ export default function ReportsPage() {
             <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
               From
             </span>
-            <Input type="date" className="max-w-50" />
+            <Input type="date" className="max-w-50" value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
           </div>
           <div className="grid gap-2">
             <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
               To
             </span>
-            <Input type="date" className="max-w-50" />
+            <Input type="date" className="max-w-50" value={toDate} onChange={(event) => setToDate(event.target.value)} />
+          </div>
+          <div className="grid gap-2">
+            <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+              Status
+            </span>
+            <Select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+              <option value="">All status</option>
+              <option value="Inquiry">Inquiry</option>
+              <option value="Quoted">Quoted</option>
+              <option value="DP Paid">DP Paid</option>
+              <option value="Confirmed">Confirmed</option>
+              <option value="In Production">In Production</option>
+              <option value="Ready">Ready</option>
+              <option value="Completed">Completed</option>
+              <option value="Cancelled">Cancelled</option>
+            </Select>
           </div>
         </CardContent>
       </Card>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {bakeryReportStats.map((stat) => (
+        {reportStats.map((stat) => (
           <Card key={stat.title} className="rounded-xl shadow-sm">
             <CardHeader className="p-6 pb-2">
               <CardTitle className="text-sm text-gray-600">
@@ -138,18 +210,22 @@ export default function ReportsPage() {
               </ResponsiveContainer>
             </div>
             <div className="mt-4 grid gap-2 text-sm text-gray-600">
-              {bakeryStatusMix.map((status) => (
-                <div key={status.name} className="flex items-center justify-between">
-                  <span className="flex items-center gap-2">
-                    <span
-                      className="h-2 w-2 rounded-full"
-                      style={{ background: status.color }}
-                    />
-                    {status.name}
-                  </span>
-                  <span>{status.value}%</span>
-                </div>
-              ))}
+              {bakeryStatusMix.length === 0 ? (
+                <p className="text-sm text-gray-500">No status data in selected range.</p>
+              ) : (
+                bakeryStatusMix.map((status) => (
+                  <div key={status.name} className="flex items-center justify-between">
+                    <span className="flex items-center gap-2">
+                      <span
+                        className="h-2 w-2 rounded-full"
+                        style={{ background: status.color }}
+                      />
+                      {status.name}
+                    </span>
+                    <span>{status.value}</span>
+                  </div>
+                ))
+              )}
             </div>
           </CardContent>
         </Card>

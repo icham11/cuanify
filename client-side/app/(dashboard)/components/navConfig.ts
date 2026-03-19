@@ -2,6 +2,7 @@ import type { ComponentType } from "react";
 import {
   BarChart3,
   Bot,
+  CalendarDays,
   ShoppingCart,
   History,
   Boxes,
@@ -10,9 +11,10 @@ import {
   User,
   FileDown,
   Users,
-  BookOpen,
+  ClipboardList,
   Clock,
   Factory,
+  FileText,
 } from "lucide-react";
 
 export interface NavItem {
@@ -53,7 +55,12 @@ export const navSections: NavSection[] = [
       {
         label: "Bookings",
         href: "/bakery/bookings",
-        icon: BookOpen,
+        icon: ClipboardList,
+      },
+      {
+        label: "Calendar",
+        href: "/bakery/calendar",
+        icon: CalendarDays,
       },
       {
         label: "Production",
@@ -63,7 +70,7 @@ export const navSections: NavSection[] = [
       {
         label: "Reports",
         href: "/bakery/reports",
-        icon: FileDown,
+        icon: FileText,
       },
     ],
   },
@@ -95,7 +102,7 @@ export const navSections: NavSection[] = [
       {
         label: "Kasbon",
         href: "/dashboard/debts",
-        icon: BookOpen,
+        icon: ClipboardList,
       },
       {
         label: "Closing",
@@ -118,11 +125,6 @@ export const navSections: NavSection[] = [
         label: "Products",
         href: "/dashboard/products",
         icon: Package,
-      },
-      {
-        label: "Production",
-        href: "/dashboard/production",
-        icon: Factory,
       },
       {
         label: "Ingredients",

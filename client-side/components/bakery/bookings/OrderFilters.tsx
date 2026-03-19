@@ -35,11 +35,15 @@ export default function OrderFilters({
           onChange={(event) => onStatusChange(event.target.value)}
         >
           <option value="">All status</option>
-          <option value="Pending">Pending</option>
+          <option value="Inquiry">Inquiry</option>
+          <option value="Quoted">Quoted</option>
+          <option value="DP Paid">DP Paid</option>
           <option value="Confirmed">Confirmed</option>
           <option value="In Production">In Production</option>
           <option value="Ready">Ready</option>
+          <option value="Completed">Completed</option>
           <option value="Delivered">Delivered</option>
+          <option value="Cancelled">Cancelled</option>
         </Select>
         <Input
           type="date"
