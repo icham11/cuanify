@@ -76,10 +76,23 @@ function toDateKey(value: Date) {
   return format(value, "yyyy-MM-dd");
 }
 
-function parseOrderDateTime(deliveryDate: string, deliverySlot?: string) {
+function safeToDateKey(value: Date) {
+  if (!Number.isFinite(value.getTime())) return "";
+  try {
+    return toDateKey(value);
+  } catch {
+    return "";
+  }
+}
+
+function parseOrderDateTime(deliveryDate?: string, deliverySlot?: string) {
+  if (!deliveryDate || !deliveryDate.includes("-")) return null;
   const [year, month, day] = deliveryDate.split("-").map(Number);
+  if (![year, month, day].every((part) => Number.isFinite(part))) {
+    return null;
+  }
   const [hours, minutes] = (deliverySlot ?? "09:00").split(":").map(Number);
-  return new Date(
+  const parsed = new Date(
     year,
     (month || 1) - 1,
     day || 1,
@@ -88,6 +101,7 @@ function parseOrderDateTime(deliveryDate: string, deliverySlot?: string) {
     0,
     0,
   );
+  return Number.isFinite(parsed.getTime()) ? parsed : null;
 }
 
 function statusColor(status: BakeryOrder["orderStatus"]) {
@@ -353,8 +367,9 @@ export default function BakeryCalendarPage() {
   }, [orders, listFilterMode]);
 
   const internalEvents = useMemo<CalendarOrderEvent[]>(() => {
-    return filteredInternalOrders.map((order) => {
+    return filteredInternalOrders.flatMap((order) => {
       const start = parseOrderDateTime(order.deliveryDate, order.deliverySlot);
+      if (!start) return [];
       return {
         id: order.id,
         title: `${order.customerName} - ${order.items?.[0]?.productName ?? order.product}`,
@@ -413,7 +428,7 @@ export default function BakeryCalendarPage() {
 
   const selectedEvents = selectedDateKey
     ? events
-        .filter((event) => toDateKey(event.start) === selectedDateKey)
+        .filter((event) => safeToDateKey(event.start) === selectedDateKey)
         .sort((a, b) => a.start.getTime() - b.start.getTime())
     : [];
 
@@ -444,7 +459,7 @@ export default function BakeryCalendarPage() {
     (order) => !order.simulations?.calendarEventCreated,
   ).length;
   const googleTodayCount = googleCalendarEvents.filter(
-    (entry) => toDateKey(entry.start) === todayKey,
+    (entry) => safeToDateKey(entry.start) === todayKey,
   ).length;
 
   const mismatchCount = useMemo(() => {
@@ -457,8 +472,9 @@ export default function BakeryCalendarPage() {
     if (bookingIdsOnGoogle.size === 0) return null;
 
     const { timeMin, timeMax } = getCalendarRange(currentDate, currentView);
-    const minDate = toDateKey(new Date(timeMin));
-    const maxDate = toDateKey(new Date(timeMax));
+    const minDate = safeToDateKey(new Date(timeMin));
+    const maxDate = safeToDateKey(new Date(timeMax));
+    if (!minDate || !maxDate) return null;
 
     return orders.filter((order) => {
       if (order.deliveryDate < minDate || order.deliveryDate > maxDate) {
@@ -472,7 +488,8 @@ export default function BakeryCalendarPage() {
   }, [googleEvents, currentDate, currentView, orders]);
 
   const DateHeader = ({ date, label }: DateHeaderProps) => {
-    const count = ordersByDate.get(toDateKey(date))?.length ?? 0;
+    const dateKey = safeToDateKey(date);
+    const count = dateKey ? (ordersByDate.get(dateKey)?.length ?? 0) : 0;
     return (
       <div className="flex flex-col">
         <span className="text-xs font-semibold text-gray-700">{label}</span>

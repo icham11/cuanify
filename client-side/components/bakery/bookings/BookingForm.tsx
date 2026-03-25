@@ -236,6 +236,8 @@ export default function BookingForm() {
     useState<ParserOrderType>("unknown");
   const [uploadedChatImages, setUploadedChatImages] = useState<File[]>([]);
   const [isParsingWhatsApp, setIsParsingWhatsApp] = useState(false);
+  const [isFetchingMarketplaceEmail, setIsFetchingMarketplaceEmail] =
+    useState(false);
   const [parsedPreview, setParsedPreview] =
     useState<ParsedWhatsAppOrder | null>(null);
   const [visionRawOutput, setVisionRawOutput] = useState("");
@@ -679,19 +681,24 @@ export default function BookingForm() {
     setValue(`items.${itemIndex}.addOns`, next, { shouldValidate: true });
   };
 
-  const importDraft = async () => {
-    if (parserSource !== "image" && !quickPaste.trim()) {
+  const importDraft = async (override?: {
+    sourceType?: ParserSource;
+    text?: string;
+    files?: File[];
+    successMessage?: string;
+  }) => {
+    const sourceType = override?.sourceType ?? parserSource;
+    const textInput = (override?.text ?? quickPaste).trim();
+    const sourceFiles = override?.files ?? uploadedChatImages;
+
+    if (sourceType !== "image" && !textInput) {
       toast.error(
         "Paste text WhatsApp atau isi template manual terlebih dulu.",
       );
       return;
     }
 
-    if (
-      parserSource === "image" &&
-      uploadedChatImages.length === 0 &&
-      !quickPaste.trim()
-    ) {
+    if (sourceType === "image" && sourceFiles.length === 0 && !textInput) {
       toast.error(
         "Upload gambar chat WA atau isi teks tambahan terlebih dulu.",
       );
@@ -701,13 +708,13 @@ export default function BookingForm() {
     setIsParsingWhatsApp(true);
     try {
       const formData = new FormData();
-      formData.append("sourceType", parserSource);
+      formData.append("sourceType", sourceType);
       formData.append("orderType", selectedOrderType);
-      if (quickPaste.trim()) {
-        formData.append("text", quickPaste.trim());
+      if (textInput) {
+        formData.append("text", textInput);
       }
-      if (uploadedChatImages.length > 0) {
-        uploadedChatImages.forEach((file) => formData.append("files", file));
+      if (sourceFiles.length > 0) {
+        sourceFiles.forEach((file) => formData.append("files", file));
       }
 
       const response = await fetch("/api/bookings/parse-whatsapp", {
@@ -770,7 +777,8 @@ export default function BookingForm() {
         toast.warning(payload.warnings.join(" "));
       } else {
         toast.success(
-          "Data WA berhasil diparse dan di-autofill. Mohon review sebelum submit.",
+          override?.successMessage ||
+            "Data WA berhasil diparse dan di-autofill. Mohon review sebelum submit.",
         );
       }
     } catch (error) {
@@ -796,6 +804,56 @@ export default function BookingForm() {
     toast.message(
       "Template manual berhasil diisi. Lanjutkan isi lalu klik Parse WhatsApp.",
     );
+  };
+
+  const fetchLatestMarketplaceEmail = async () => {
+    if (isFetchingMarketplaceEmail || isParsingWhatsApp) return;
+
+    setIsFetchingMarketplaceEmail(true);
+    try {
+      const response = await fetch("/api/bookings/marketplace-email/latest", {
+        cache: "no-store",
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        success?: boolean;
+        found?: boolean;
+        error?: string;
+        message?: {
+          subject?: string;
+          text?: string;
+        } | null;
+      };
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Gagal mengambil email marketplace.");
+      }
+
+      if (!payload.found || !payload.message?.text?.trim()) {
+        toast.message(
+          "Belum ada email Tokopedia/Shopee yang terdeteksi dalam 180 hari terakhir.",
+        );
+        return;
+      }
+
+      setParserSource("email");
+      setQuickPaste(payload.message.text);
+      await importDraft({
+        sourceType: "email",
+        text: payload.message.text,
+        files: [],
+        successMessage: payload.message.subject
+          ? `Email terbaru diparse: ${payload.message.subject}`
+          : "Email marketplace terbaru berhasil diparse.",
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Gagal mengambil email marketplace.";
+      toast.error(message);
+    } finally {
+      setIsFetchingMarketplaceEmail(false);
+    }
   };
 
   return (
@@ -878,11 +936,22 @@ export default function BookingForm() {
             <Button
               type="button"
               className="gap-2 bg-indigo-600 text-white hover:bg-indigo-700"
-              onClick={importDraft}
+              onClick={() => void importDraft()}
               disabled={isParsingWhatsApp}
             >
               <Upload size={16} />
               {isParsingWhatsApp ? "Parsing WhatsApp..." : "Parse WhatsApp"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="border-sky-200 text-sky-700 hover:bg-sky-50"
+              onClick={() => void fetchLatestMarketplaceEmail()}
+              disabled={isFetchingMarketplaceEmail || isParsingWhatsApp}
+            >
+              {isFetchingMarketplaceEmail
+                ? "Mengambil Email..."
+                : "Ambil Email Tokopedia/Shopee"}
             </Button>
             <Button
               type="button"
