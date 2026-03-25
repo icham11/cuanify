@@ -2,7 +2,8 @@ export type BookingAutomationEvent =
   | "order_created"
   | "order_confirmed"
   | "order_completed"
-  | "order_rescheduled";
+  | "order_rescheduled"
+  | "order_calendar_sync";
 
 export interface BookingAutomationItem {
   id: string;

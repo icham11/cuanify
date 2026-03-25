@@ -9,6 +9,7 @@ import PriceSummaryCard from "@/components/bakery/bookings/PriceSummaryCard";
 import OrderStepper from "@/components/bakery/shared/OrderStepper";
 import OrderTimeline from "@/components/bakery/shared/OrderTimeline";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { CheckCircle2, FileText, Printer } from "lucide-react";
 import { useOrders } from "@/components/bakery/store";
@@ -51,6 +52,8 @@ export default function OrderDetailPage() {
     approveOrder,
     updateOrderSchedule,
     updatePaymentStatus,
+    recordPayment,
+    syncOrderCalendar,
     getCustomerMessagePreview,
     setOrderShipment,
   } = useOrders();
@@ -59,7 +62,10 @@ export default function OrderDetailPage() {
   const [rescheduleDate, setRescheduleDate] = useState("");
   const [rescheduleSlot, setRescheduleSlot] = useState("");
   const [isApproving, setIsApproving] = useState(false);
+  const [isSyncingCalendar, setIsSyncingCalendar] = useState(false);
   const [isCreatingResi, setIsCreatingResi] = useState(false);
+  const [dpPaidDraft, setDpPaidDraft] = useState(0);
+  const [finalPaidDraft, setFinalPaidDraft] = useState(0);
 
   const order = useMemo(
     () => orders.find((item) => item.id === orderId),
@@ -107,6 +113,17 @@ export default function OrderDetailPage() {
 
   const totalPrice = order?.totalPrice ?? 0;
   const messagePreview = order ? getCustomerMessagePreview(order.id) : "";
+  const calendarSyncStatus = order?.simulations?.calendarEventCreated
+    ? "Synced"
+    : order?.simulations?.lastAutomationAt
+      ? "Failed / Pending"
+      : "Not synced yet";
+
+  useEffect(() => {
+    if (!order) return;
+    setDpPaidDraft(Number(order.dpPaidAmount ?? 0));
+    setFinalPaidDraft(Number(order.finalPaidAmount ?? 0));
+  }, [order]);
 
   const handleApprove = async () => {
     if (!order) return;
@@ -244,6 +261,25 @@ export default function OrderDetailPage() {
       toast.error(message);
     } finally {
       setIsCreatingResi(false);
+    }
+  };
+
+  const handleRecordPayment = () => {
+    if (!order) return;
+    recordPayment(order.id, {
+      dpPaidAmount: Math.max(0, Math.round(Number(dpPaidDraft || 0))),
+      finalPaidAmount: Math.max(0, Math.round(Number(finalPaidDraft || 0))),
+      note: "Payment verified from booking detail",
+    });
+  };
+
+  const handleManualCalendarSync = async () => {
+    if (!order || isSyncingCalendar) return;
+    setIsSyncingCalendar(true);
+    try {
+      await syncOrderCalendar(order.id);
+    } finally {
+      setIsSyncingCalendar(false);
     }
   };
 
@@ -656,9 +692,44 @@ export default function OrderDetailPage() {
                 <span>DP ({BAKERY_DOWN_PAYMENT_PERCENT}%)</span>
                 <span className="font-semibold text-gray-900">
                   Rp{" "}
-                  {Number(
-                    order.downPaymentAmount ?? calculateDownPayment(totalPrice),
-                  ).toLocaleString("id-ID")}
+                  {Number(calculateDownPayment(totalPrice)).toLocaleString(
+                    "id-ID",
+                  )}
+                </span>
+              </div>
+              <div className="grid gap-2">
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  DP Paid (Actual)
+                </span>
+                <Input
+                  type="number"
+                  min={0}
+                  step={1000}
+                  value={dpPaidDraft}
+                  onChange={(event) =>
+                    setDpPaidDraft(Number(event.target.value || 0))
+                  }
+                />
+              </div>
+              <div className="grid gap-2">
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  Final Paid (Actual)
+                </span>
+                <Input
+                  type="number"
+                  min={0}
+                  step={1000}
+                  value={finalPaidDraft}
+                  onChange={(event) =>
+                    setFinalPaidDraft(Number(event.target.value || 0))
+                  }
+                />
+              </div>
+              <div className="flex items-center justify-between text-sm text-gray-600">
+                <span>Total Paid</span>
+                <span className="font-semibold text-gray-900">
+                  Rp{" "}
+                  {Number(order.totalPaidAmount ?? 0).toLocaleString("id-ID")}
                 </span>
               </div>
               <div className="flex items-center justify-between text-sm text-gray-600">
@@ -668,6 +739,103 @@ export default function OrderDetailPage() {
                   {Number(order.remainingBalance ?? 0).toLocaleString("id-ID")}
                 </span>
               </div>
+              <Button
+                type="button"
+                variant="outline"
+                className="border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                onClick={handleRecordPayment}
+              >
+                Save Payment Verification
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-xl shadow-sm">
+            <CardHeader className="p-6 pb-2">
+              <CardTitle>Google Calendar Sync</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 px-6 pb-6 pt-0 text-sm">
+              <div className="flex items-center justify-between text-gray-600">
+                <span>Status</span>
+                <span
+                  className={`font-semibold ${
+                    calendarSyncStatus === "Synced"
+                      ? "text-emerald-700"
+                      : calendarSyncStatus === "Failed / Pending"
+                        ? "text-amber-700"
+                        : "text-gray-500"
+                  }`}
+                >
+                  {calendarSyncStatus}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between text-gray-600">
+                <span>Event ID</span>
+                <span className="max-w-48 truncate font-medium text-gray-900">
+                  {order.simulations?.calendarEventId || "-"}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between text-gray-600">
+                <span>Last Automation</span>
+                <span className="font-medium text-gray-900">
+                  {order.simulations?.lastAutomationAt
+                    ? new Date(
+                        order.simulations.lastAutomationAt,
+                      ).toLocaleString("id-ID")
+                    : "-"}
+                </span>
+              </div>
+
+              {order.simulations?.calendarEventLink ? (
+                <div className="flex flex-wrap gap-2">
+                  <a
+                    href={order.simulations.calendarEventLink}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex h-9 items-center justify-center rounded-xl border border-indigo-200 px-3 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-50"
+                  >
+                    Open Calendar Event
+                  </a>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-9 border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                    onClick={handleManualCalendarSync}
+                    disabled={isSyncingCalendar}
+                  >
+                    {isSyncingCalendar ? "Syncing..." : "Re-sync Calendar"}
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
+                    Event link belum tersedia. Pastikan env Google Calendar
+                    sudah lengkap dan order sudah menjalankan automation.
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-9 border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                    onClick={handleManualCalendarSync}
+                    disabled={isSyncingCalendar}
+                  >
+                    {isSyncingCalendar ? "Syncing..." : "Re-sync Calendar"}
+                  </Button>
+                </div>
+              )}
+
+              {order.simulations?.lastAutomationMessage ? (
+                <p className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
+                  {order.simulations.lastAutomationMessage}
+                </p>
+              ) : null}
+
+              <p className="text-xs text-gray-500">
+                Sinkronisasi kalender otomatis berjalan saat booking dibuat,
+                di-approve, dan saat reschedule.
+              </p>
             </CardContent>
           </Card>
 

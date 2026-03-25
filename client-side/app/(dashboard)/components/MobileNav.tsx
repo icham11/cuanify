@@ -22,6 +22,7 @@ import {
   ClipboardList,
   Clock,
   Factory,
+  Settings2,
 } from "lucide-react";
 import { useRole } from "@/context/RoleContext";
 import SidebarUserInfo from "./sidebar_user_info";
@@ -259,6 +260,13 @@ export default function MobileNav({
                     icon={FileText}
                     label="Reports"
                     active={isActive("/bakery/reports")}
+                    onClick={() => setIsDrawerOpen(false)}
+                  />
+                  <NavLink
+                    href="/bakery/catalog"
+                    icon={Settings2}
+                    label="Catalog"
+                    active={isActive("/bakery/catalog")}
                     onClick={() => setIsDrawerOpen(false)}
                   />
 

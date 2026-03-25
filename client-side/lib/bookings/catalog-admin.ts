@@ -1,0 +1,391 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import {
+  BOOKING_ADD_ON_CATALOG,
+  BOOKING_PRODUCT_CATALOG,
+  type CatalogAddOn,
+  type PricelistCategory,
+} from "@/lib/bookings/pricelist";
+
+export interface CustomProductEntry {
+  category: string;
+  subcategory: string;
+  productName: string;
+  variantLabel: string;
+  price: number;
+}
+
+export interface CustomAddOnEntry {
+  category: string;
+  id: string;
+  label: string;
+  price: number;
+}
+
+export interface CatalogAdminState {
+  productVariantPriceOverrides: Record<string, number>;
+  addOnPriceOverrides: Record<string, number>;
+  inactiveProducts: string[];
+  inactiveAddOns: string[];
+  customProducts: CustomProductEntry[];
+  customAddOns: CustomAddOnEntry[];
+}
+
+export type CatalogSyncStatus = "idle" | "syncing" | "synced" | "error";
+
+const STORAGE_KEY = "bakeryCatalogAdminState";
+const STORAGE_EVENT = "bakeryCatalogAdminUpdated";
+const CATALOG_CONFIG_API = "/api/bookings/catalog-config";
+
+const EMPTY_STATE: CatalogAdminState = {
+  productVariantPriceOverrides: {},
+  addOnPriceOverrides: {},
+  inactiveProducts: [],
+  inactiveAddOns: [],
+  customProducts: [],
+  customAddOns: [],
+};
+
+function normalizeMoney(value: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.max(0, Math.round(parsed));
+}
+
+function readStateFromStorage(): CatalogAdminState {
+  if (typeof window === "undefined") return EMPTY_STATE;
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return EMPTY_STATE;
+    const parsed = JSON.parse(raw) as CatalogAdminState;
+    return {
+      productVariantPriceOverrides: parsed.productVariantPriceOverrides ?? {},
+      addOnPriceOverrides: parsed.addOnPriceOverrides ?? {},
+      inactiveProducts: Array.isArray(parsed.inactiveProducts)
+        ? parsed.inactiveProducts
+        : [],
+      inactiveAddOns: Array.isArray(parsed.inactiveAddOns)
+        ? parsed.inactiveAddOns
+        : [],
+      customProducts: Array.isArray(parsed.customProducts)
+        ? parsed.customProducts
+        : [],
+      customAddOns: Array.isArray(parsed.customAddOns)
+        ? parsed.customAddOns
+        : [],
+    };
+  } catch {
+    return EMPTY_STATE;
+  }
+}
+
+function writeStateToStorage(next: CatalogAdminState) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  window.dispatchEvent(new Event(STORAGE_EVENT));
+}
+
+async function loadStateFromServer(): Promise<CatalogAdminState | null> {
+  try {
+    const response = await fetch(CATALOG_CONFIG_API, {
+      method: "GET",
+      cache: "no-store",
+    });
+    if (!response.ok) return null;
+
+    const payload = (await response.json()) as {
+      success?: boolean;
+      data?: CatalogAdminState | null;
+    };
+
+    if (!payload.success || !payload.data) return null;
+    return payload.data;
+  } catch {
+    return null;
+  }
+}
+
+async function saveStateToServer(next: CatalogAdminState) {
+  const response = await fetch(CATALOG_CONFIG_API, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(next),
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to save catalog config to server.");
+  }
+}
+
+export function makeProductKey(
+  category: string,
+  subcategory: string,
+  productName: string,
+): string {
+  return [category, subcategory, productName].join("||");
+}
+
+export function makeVariantKey(
+  category: string,
+  subcategory: string,
+  productName: string,
+  variantLabel: string,
+): string {
+  return [category, subcategory, productName, variantLabel].join("||");
+}
+
+export function makeAddOnKey(category: string, addOnId: string): string {
+  return [category, addOnId].join("||");
+}
+
+function cloneCatalog(base: PricelistCategory[]): PricelistCategory[] {
+  return base.map((category) => ({
+    ...category,
+    subcategories: category.subcategories.map((subcategory) => ({
+      ...subcategory,
+      products: subcategory.products.map((product) => ({
+        ...product,
+        variants: product.variants.map((variant) => ({ ...variant })),
+      })),
+    })),
+  }));
+}
+
+function buildEffectiveProductCatalog(
+  state: CatalogAdminState,
+): PricelistCategory[] {
+  const next = cloneCatalog(BOOKING_PRODUCT_CATALOG);
+
+  state.customProducts.forEach((entry) => {
+    const category = next.find((item) => item.category === entry.category);
+    if (!category) return;
+
+    const subcategory =
+      category.subcategories.find((item) => item.name === entry.subcategory) ??
+      category.subcategories[0];
+    if (!subcategory) return;
+
+    const targetProduct = subcategory.products.find(
+      (item) => item.name === entry.productName,
+    );
+
+    if (targetProduct) {
+      const hasVariant = targetProduct.variants.some(
+        (variant) => variant.label === entry.variantLabel,
+      );
+      if (!hasVariant) {
+        targetProduct.variants.push({
+          label: entry.variantLabel,
+          price: normalizeMoney(entry.price),
+        });
+      }
+      return;
+    }
+
+    subcategory.products.push({
+      name: entry.productName,
+      variants: [
+        {
+          label: entry.variantLabel,
+          price: normalizeMoney(entry.price),
+        },
+      ],
+      defaultVariant: entry.variantLabel,
+      keywords: [],
+    });
+  });
+
+  next.forEach((category) => {
+    category.subcategories.forEach((subcategory) => {
+      subcategory.products = subcategory.products
+        .filter((product) => {
+          const productKey = makeProductKey(
+            category.category,
+            subcategory.name,
+            product.name,
+          );
+          return !state.inactiveProducts.includes(productKey);
+        })
+        .map((product) => {
+          const variants = product.variants.map((variant) => {
+            const key = makeVariantKey(
+              category.category,
+              subcategory.name,
+              product.name,
+              variant.label,
+            );
+            const override = state.productVariantPriceOverrides[key];
+            return {
+              ...variant,
+              price:
+                override !== undefined
+                  ? normalizeMoney(override)
+                  : variant.price,
+            };
+          });
+
+          return {
+            ...product,
+            variants,
+            defaultVariant:
+              variants.find((item) => item.label === product.defaultVariant)
+                ?.label ??
+              variants[0]?.label ??
+              "Standard",
+          };
+        });
+    });
+  });
+
+  return next;
+}
+
+function buildEffectiveAddOnCatalog(
+  state: CatalogAdminState,
+): Record<string, CatalogAddOn[]> {
+  const next: Record<string, CatalogAddOn[]> = Object.fromEntries(
+    Object.entries(BOOKING_ADD_ON_CATALOG).map(([category, list]) => [
+      category,
+      list.map((item) => ({ ...item })),
+    ]),
+  );
+
+  state.customAddOns.forEach((entry) => {
+    const list = next[entry.category] ?? [];
+    const exists = list.some((item) => item.id === entry.id);
+    if (exists) return;
+    list.push({
+      id: entry.id,
+      label: entry.label,
+      price: normalizeMoney(entry.price),
+    });
+    next[entry.category] = list;
+  });
+
+  Object.entries(next).forEach(([category, list]) => {
+    next[category] = list
+      .filter(
+        (item) =>
+          !state.inactiveAddOns.includes(makeAddOnKey(category, item.id)),
+      )
+      .map((item) => {
+        const key = makeAddOnKey(category, item.id);
+        const override = state.addOnPriceOverrides[key];
+        return {
+          ...item,
+          price: override !== undefined ? normalizeMoney(override) : item.price,
+        };
+      });
+  });
+
+  return next;
+}
+
+export function useCatalogAdminState() {
+  const [state, setState] = useState<CatalogAdminState>(() =>
+    readStateFromStorage(),
+  );
+  const [syncStatus, setSyncStatus] = useState<CatalogSyncStatus>("idle");
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    void (async () => {
+      setSyncStatus("syncing");
+      const fromServer = await loadStateFromServer();
+      if (!isMounted) return;
+      if (!fromServer) {
+        setSyncStatus("error");
+        return;
+      }
+
+      setState(fromServer);
+      writeStateToStorage(fromServer);
+      setSyncStatus("synced");
+      setLastSyncedAt(new Date().toISOString());
+    })();
+
+    const onStorage = () => setState(readStateFromStorage());
+    window.addEventListener("storage", onStorage);
+    window.addEventListener(STORAGE_EVENT, onStorage as EventListener);
+
+    return () => {
+      isMounted = false;
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener(STORAGE_EVENT, onStorage as EventListener);
+    };
+  }, []);
+
+  const productCatalog = useMemo(
+    () => buildEffectiveProductCatalog(state),
+    [state],
+  );
+
+  const addOnCatalog = useMemo(
+    () => buildEffectiveAddOnCatalog(state),
+    [state],
+  );
+
+  const setCatalogAdminState = (
+    updater: (prev: CatalogAdminState) => CatalogAdminState,
+  ) => {
+    setState((prev) => {
+      const next = updater(prev);
+      writeStateToStorage(next);
+      setSyncStatus("syncing");
+      void (async () => {
+        try {
+          await saveStateToServer(next);
+          setSyncStatus("synced");
+          setLastSyncedAt(new Date().toISOString());
+        } catch {
+          setSyncStatus("error");
+        }
+      })();
+      return next;
+    });
+  };
+
+  const resetCatalogAdminState = () => {
+    setState(EMPTY_STATE);
+    writeStateToStorage(EMPTY_STATE);
+    setSyncStatus("syncing");
+    void (async () => {
+      try {
+        await saveStateToServer(EMPTY_STATE);
+        setSyncStatus("synced");
+        setLastSyncedAt(new Date().toISOString());
+      } catch {
+        setSyncStatus("error");
+      }
+    })();
+  };
+
+  const retrySync = () => {
+    setSyncStatus("syncing");
+    void (async () => {
+      try {
+        await saveStateToServer(state);
+        setSyncStatus("synced");
+        setLastSyncedAt(new Date().toISOString());
+      } catch {
+        setSyncStatus("error");
+      }
+    })();
+  };
+
+  return {
+    state,
+    productCatalog,
+    addOnCatalog,
+    syncStatus,
+    lastSyncedAt,
+    setCatalogAdminState,
+    resetCatalogAdminState,
+    retrySync,
+  };
+}

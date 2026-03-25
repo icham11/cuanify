@@ -38,12 +38,15 @@ function normalizeFonnteTarget(target: string): string {
 }
 
 function base64UrlEncode(value: Buffer | string): string {
-  const base64 = (typeof value === "string" ? Buffer.from(value) : value).toString("base64");
+  const base64 = (
+    typeof value === "string" ? Buffer.from(value) : value
+  ).toString("base64");
   return base64.replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
 }
 
 function getDeliverySummary(order: BookingAutomationOrderPayload): string {
-  const address = order.deliveryAddresses[0]?.addressLine || "Alamat belum diisi";
+  const address =
+    order.deliveryAddresses[0]?.addressLine || "Alamat belum diisi";
   return `${order.deliveryDate} ${order.deliverySlot} | ${address}`;
 }
 
@@ -78,10 +81,14 @@ function buildProductionMessage(order: BookingAutomationOrderPayload): string {
   ].join("\n");
 }
 
-function buildCalendarDescription(order: BookingAutomationOrderPayload): string {
+function buildCalendarDescription(
+  order: BookingAutomationOrderPayload,
+): string {
   const code = order.resi || order.bookingCode || order.id;
   const addresses = order.deliveryAddresses
-    .map((address) => `${address.label} (${address.area}): ${address.addressLine}`)
+    .map(
+      (address) => `${address.label} (${address.area}): ${address.addressLine}`,
+    )
     .join("\n");
 
   return [
@@ -159,13 +166,20 @@ async function getGoogleAccessToken(scopes: string[]): Promise<string> {
   };
 
   if (!tokenResponse.ok || !tokenData.access_token) {
-    throw new Error(tokenData.error_description || tokenData.error || "Failed to get Google access token.");
+    throw new Error(
+      tokenData.error_description ||
+        tokenData.error ||
+        "Failed to get Google access token.",
+    );
   }
 
   return tokenData.access_token;
 }
 
-async function sendFonnteMessage(target: string, message: string): Promise<AutomationActionResult> {
+async function sendFonnteMessage(
+  target: string,
+  message: string,
+): Promise<AutomationActionResult> {
   const token = process.env.FONNTE_TOKEN || "";
   if (!token) {
     return {
@@ -218,7 +232,71 @@ async function sendFonnteMessage(target: string, message: string): Promise<Autom
   };
 }
 
-async function createGoogleCalendarEvent(order: BookingAutomationOrderPayload): Promise<AutomationActionResult> {
+async function findExistingCalendarEvent(
+  calendarId: string,
+  accessToken: string,
+  order: BookingAutomationOrderPayload,
+): Promise<{ id: string; htmlLink?: string } | null> {
+  const bookingCode = order.resi || order.bookingCode || order.id;
+  const queryParams = new URLSearchParams({
+    maxResults: "1",
+    singleEvents: "true",
+    privateExtendedProperty: `bookingId=${order.id}`,
+  });
+
+  const response = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?${queryParams.toString()}`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    },
+  );
+
+  const data = (await response.json().catch(() => ({}))) as {
+    items?: Array<{ id?: string; htmlLink?: string }>;
+  };
+
+  if (response.ok && data.items?.[0]?.id) {
+    return {
+      id: data.items[0].id,
+      htmlLink: data.items[0].htmlLink,
+    };
+  }
+
+  // Fallback by text query for older events that were created before extendedProperties existed.
+  const fallbackParams = new URLSearchParams({
+    maxResults: "1",
+    singleEvents: "true",
+    q: bookingCode,
+  });
+  const fallbackResponse = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?${fallbackParams.toString()}`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    },
+  );
+  const fallbackData = (await fallbackResponse.json().catch(() => ({}))) as {
+    items?: Array<{ id?: string; htmlLink?: string }>;
+  };
+
+  if (fallbackResponse.ok && fallbackData.items?.[0]?.id) {
+    return {
+      id: fallbackData.items[0].id,
+      htmlLink: fallbackData.items[0].htmlLink,
+    };
+  }
+
+  return null;
+}
+
+async function upsertGoogleCalendarEvent(
+  order: BookingAutomationOrderPayload,
+): Promise<AutomationActionResult> {
   const calendarId = process.env.GOOGLE_CALENDAR_ID || "";
 
   if (!calendarId) {
@@ -239,6 +317,11 @@ async function createGoogleCalendarEvent(order: BookingAutomationOrderPayload): 
 
   const accessToken = await getGoogleAccessToken([GOOGLE_CALENDAR_SCOPE]);
   const bookingCode = order.resi || order.bookingCode || order.id;
+  const existingEvent = await findExistingCalendarEvent(
+    calendarId,
+    accessToken,
+    order,
+  );
 
   const startTime = order.deliverySlot;
   const endTime = parseSlotToEndTime(order.deliverySlot, 2);
@@ -261,19 +344,26 @@ async function createGoogleCalendarEvent(order: BookingAutomationOrderPayload): 
         { method: "popup", minutes: 2 * 60 }, // Hari-H (2 jam sebelum)
       ],
     },
+    extendedProperties: {
+      private: {
+        bookingId: order.id,
+        bookingCode,
+      },
+    },
   };
 
-  const response = await fetch(
-    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    }
-  );
+  const endpoint = existingEvent
+    ? `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(existingEvent.id)}`
+    : `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`;
+
+  const response = await fetch(endpoint, {
+    method: existingEvent ? "PATCH" : "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
 
   const data = (await response.json().catch(() => ({}))) as {
     id?: string;
@@ -284,19 +374,24 @@ async function createGoogleCalendarEvent(order: BookingAutomationOrderPayload): 
   if (!response.ok || !data.id) {
     return {
       ok: false,
-      message: data.error?.message || `Google Calendar error ${response.status}`,
+      message:
+        data.error?.message || `Google Calendar error ${response.status}`,
     };
   }
 
   return {
     ok: true,
-    message: "Event Google Calendar berhasil dibuat.",
+    message: existingEvent
+      ? "Event Google Calendar berhasil diperbarui."
+      : "Event Google Calendar berhasil dibuat.",
     externalId: data.id,
     externalLink: data.htmlLink,
   };
 }
 
-async function appendGoogleSheet(order: BookingAutomationOrderPayload): Promise<AutomationActionResult> {
+async function appendGoogleSheet(
+  order: BookingAutomationOrderPayload,
+): Promise<AutomationActionResult> {
   const spreadsheetId = process.env.GOOGLE_SHEETS_ID || "";
   const sheetRange = process.env.GOOGLE_SHEETS_RANGE || "Orders!A:Z";
 
@@ -311,7 +406,9 @@ async function appendGoogleSheet(order: BookingAutomationOrderPayload): Promise<
   const accessToken = await getGoogleAccessToken([GOOGLE_SHEETS_SCOPE]);
   const bookingCode = order.resi || order.bookingCode || order.id;
   const addresses = order.deliveryAddresses
-    .map((address) => `${address.label} (${address.area}) ${address.addressLine}`)
+    .map(
+      (address) => `${address.label} (${address.area}) ${address.addressLine}`,
+    )
     .join(" | ");
 
   const row = [
@@ -332,7 +429,7 @@ async function appendGoogleSheet(order: BookingAutomationOrderPayload): Promise<
 
   const response = await fetch(
     `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
-      spreadsheetId
+      spreadsheetId,
     )}/values/${encodeURIComponent(sheetRange)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
     {
       method: "POST",
@@ -341,7 +438,7 @@ async function appendGoogleSheet(order: BookingAutomationOrderPayload): Promise<
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ values: [row] }),
-    }
+    },
   );
 
   const data = (await response.json().catch(() => ({}))) as {
@@ -365,12 +462,17 @@ async function appendGoogleSheet(order: BookingAutomationOrderPayload): Promise<
 
 export async function runBookingAutomations(
   eventType: BookingAutomationEvent,
-  order: BookingAutomationOrderPayload
+  order: BookingAutomationOrderPayload,
 ): Promise<BookingAutomationResponse> {
   const customerPhone = normalizePhoneForFonnte(order.customerPhone || "");
-  const productionTarget = normalizeFonnteTarget(process.env.FONNTE_PRODUCTION_TARGET || "");
+  const productionTarget = normalizeFonnteTarget(
+    process.env.FONNTE_PRODUCTION_TARGET || "",
+  );
   const shouldSendProductionOnCreate =
     String(process.env.FONNTE_SEND_PRODUCTION_ON_CREATE || "true") === "true";
+  const shouldSyncSheetsOnProgressEvents =
+    String(process.env.GOOGLE_SHEETS_SYNC_ON_PROGRESS_EVENTS || "false") ===
+    "true";
 
   let fonnteCustomer: AutomationActionResult = {
     ok: false,
@@ -393,11 +495,21 @@ export async function runBookingAutomations(
     message: "Skipped: event ini tidak sinkron ke Sheets.",
   };
 
-  if (eventType === "order_confirmed" || eventType === "order_rescheduled") {
-    calendar = await createGoogleCalendarEvent(order).catch((error: unknown) => ({
-      ok: false,
-      message: error instanceof Error ? error.message : "Failed to create Google Calendar event.",
-    }));
+  if (
+    eventType === "order_created" ||
+    eventType === "order_confirmed" ||
+    eventType === "order_rescheduled" ||
+    eventType === "order_calendar_sync"
+  ) {
+    calendar = await upsertGoogleCalendarEvent(order).catch(
+      (error: unknown) => ({
+        ok: false,
+        message:
+          error instanceof Error
+            ? error.message
+            : "Failed to create Google Calendar event.",
+      }),
+    );
   }
 
   if (
@@ -406,10 +518,13 @@ export async function runBookingAutomations(
   ) {
     fonnteProduction = await sendFonnteMessage(
       productionTarget,
-      buildProductionMessage(order)
+      buildProductionMessage(order),
     ).catch((error: unknown) => ({
       ok: false,
-      message: error instanceof Error ? error.message : "Failed to send WhatsApp produksi.",
+      message:
+        error instanceof Error
+          ? error.message
+          : "Failed to send WhatsApp produksi.",
     }));
   } else if (eventType === "order_created") {
     fonnteProduction = {
@@ -420,14 +535,18 @@ export async function runBookingAutomations(
   }
 
   if (eventType === "order_confirmed") {
-    const shouldSendCustomer = String(process.env.FONNTE_SEND_CUSTOMER_ON_CONFIRM || "false") === "true";
+    const shouldSendCustomer =
+      String(process.env.FONNTE_SEND_CUSTOMER_ON_CONFIRM || "false") === "true";
     if (shouldSendCustomer) {
       fonnteCustomer = await sendFonnteMessage(
         customerPhone,
-        buildCustomerMessage(order)
+        buildCustomerMessage(order),
       ).catch((error: unknown) => ({
         ok: false,
-        message: error instanceof Error ? error.message : "Failed to send WhatsApp customer.",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Failed to send WhatsApp customer.",
       }));
     } else {
       fonnteCustomer = {
@@ -440,15 +559,19 @@ export async function runBookingAutomations(
 
   if (eventType === "order_rescheduled") {
     const shouldNotifyReschedule =
-      String(process.env.FONNTE_NOTIFY_RESCHEDULE_PRODUCTION || "true") === "true";
+      String(process.env.FONNTE_NOTIFY_RESCHEDULE_PRODUCTION || "true") ===
+      "true";
     if (shouldNotifyReschedule) {
       const rescheduleMessage = `${buildProductionMessage(order)}\n\n*Info:* Jadwal order telah di-reschedule.`;
       fonnteProduction = await sendFonnteMessage(
         productionTarget,
-        rescheduleMessage
+        rescheduleMessage,
       ).catch((error: unknown) => ({
         ok: false,
-        message: error instanceof Error ? error.message : "Failed to send reschedule WhatsApp produksi.",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Failed to send reschedule WhatsApp produksi.",
       }));
     } else {
       fonnteProduction = {
@@ -459,10 +582,18 @@ export async function runBookingAutomations(
     }
   }
 
-  if (eventType === "order_completed") {
+  const shouldSyncSheets =
+    eventType === "order_completed" ||
+    (shouldSyncSheetsOnProgressEvents &&
+      (eventType === "order_confirmed" || eventType === "order_rescheduled"));
+
+  if (shouldSyncSheets) {
     sheets = await appendGoogleSheet(order).catch((error: unknown) => ({
       ok: false,
-      message: error instanceof Error ? error.message : "Failed to append Google Sheets.",
+      message:
+        error instanceof Error
+          ? error.message
+          : "Failed to append Google Sheets.",
     }));
   }
 

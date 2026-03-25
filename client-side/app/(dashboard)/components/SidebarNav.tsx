@@ -18,6 +18,7 @@ import {
   ClipboardList,
   Clock,
   Factory,
+  Settings2,
 } from "lucide-react";
 import { useRole } from "@/context/RoleContext";
 
@@ -25,13 +26,18 @@ export default function SidebarNav() {
   const { isOwner, isCashier, userName, loading } = useRole();
   const pathname = usePathname();
 
-  const isActive = (href: string) => pathname === href || (href !== "/dashboard" && pathname?.startsWith(href + "/"));
+  const isActive = (href: string) =>
+    pathname === href ||
+    (href !== "/dashboard" && pathname?.startsWith(href + "/"));
 
   if (loading) {
     return (
       <div className="space-y-2">
         {[1, 2, 3, 4, 5].map((i) => (
-          <div key={i} className="h-8 bg-indigo-100/50 rounded-lg animate-pulse" />
+          <div
+            key={i}
+            className="h-8 bg-indigo-100/50 rounded-lg animate-pulse"
+          />
         ))}
       </div>
     );
@@ -49,23 +55,36 @@ export default function SidebarNav() {
             </span>
             <span className="text-xs font-bold text-amber-800">MODE KASIR</span>
           </div>
-          {userName && <p className="text-[11px] text-amber-700 font-medium truncate pl-4.5">👤 {userName}</p>}
+          {userName && (
+            <p className="text-[11px] text-amber-700 font-medium truncate pl-4.5">
+              👤 {userName}
+            </p>
+          )}
         </div>
       )}
 
       {/* Dashboard — Owner only */}
       {isOwner && (
         <div>
-          <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-wider px-3 mb-1.5">Dashboard</p>
+          <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-wider px-3 mb-1.5">
+            Dashboard
+          </p>
           {/*<SidebarLink href="/dashboard" icon={BarChart3} label="Overview" active={isActive("/dashboard") && pathname === "/dashboard"} />*/}
-          <SidebarLink href="/analytics" icon={BarChart3} label="Analytics" active={isActive("/analytics")} />
+          <SidebarLink
+            href="/analytics"
+            icon={BarChart3}
+            label="Analytics"
+            active={isActive("/analytics")}
+          />
         </div>
       )}
 
       {/* Bakery — Owner only */}
       {isOwner && (
         <div>
-          <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-wider px-3 mb-1.5">Bakery</p>
+          <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-wider px-3 mb-1.5">
+            Bakery
+          </p>
           <SidebarLink
             href="/bakery/dashboard"
             icon={BarChart3}
@@ -96,13 +115,21 @@ export default function SidebarNav() {
             label="Reports"
             active={isActive("/bakery/reports")}
           />
+          <SidebarLink
+            href="/bakery/catalog"
+            icon={Settings2}
+            label="Catalog"
+            active={isActive("/bakery/catalog")}
+          />
         </div>
       )}
 
       {/* AI Tools — Owner only */}
       {isOwner && (
         <div>
-          <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-wider px-3 mb-1.5">AI Tools</p>
+          <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-wider px-3 mb-1.5">
+            AI Tools
+          </p>
           <SidebarLink
             href="/dashboard/ai-analysis"
             icon={Bot}
@@ -115,15 +142,27 @@ export default function SidebarNav() {
 
       {/* Sales — All roles */}
       <div>
-        <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-wider px-3 mb-1.5">Sales</p>
-        <SidebarLink href="/pos" icon={ShoppingCart} label="POS" active={isActive("/pos")} />
+        <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-wider px-3 mb-1.5">
+          Sales
+        </p>
+        <SidebarLink
+          href="/pos"
+          icon={ShoppingCart}
+          label="POS"
+          active={isActive("/pos")}
+        />
         <SidebarLink
           href="/dashboard/sales-history"
           icon={History}
           label="Sales History"
           active={isActive("/dashboard/sales-history")}
         />
-        <SidebarLink href="/dashboard/debts" icon={ClipboardList} label="Kasbon" active={isActive("/dashboard/debts")} />
+        <SidebarLink
+          href="/dashboard/debts"
+          icon={ClipboardList}
+          label="Kasbon"
+          active={isActive("/dashboard/debts")}
+        />
         <SidebarLink
           href="/dashboard/shift-history"
           icon={Clock}
@@ -143,7 +182,9 @@ export default function SidebarNav() {
       {/* Inventory — Owner only */}
       {isOwner && (
         <div>
-          <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-wider px-3 mb-1.5">Inventory</p>
+          <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-wider px-3 mb-1.5">
+            Inventory
+          </p>
           <SidebarLink
             href="/dashboard/products"
             icon={Package}
@@ -162,15 +203,27 @@ export default function SidebarNav() {
       {/* Settings — Owner only */}
       {isOwner && (
         <div>
-          <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-wider px-3 mb-1.5">Settings</p>
+          <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-wider px-3 mb-1.5">
+            Settings
+          </p>
           <SidebarLink
             href="/dashboard/business"
             icon={Building2}
             label="Business"
             active={isActive("/dashboard/business")}
           />
-          <SidebarLink href="/dashboard/profile" icon={User} label="Profile" active={isActive("/dashboard/profile")} />
-          <SidebarLink href="/dashboard/staff" icon={Users} label="Staff" active={isActive("/dashboard/staff")} />
+          <SidebarLink
+            href="/dashboard/profile"
+            icon={User}
+            label="Profile"
+            active={isActive("/dashboard/profile")}
+          />
+          <SidebarLink
+            href="/dashboard/staff"
+            icon={Users}
+            label="Staff"
+            active={isActive("/dashboard/staff")}
+          />
         </div>
       )}
     </nav>

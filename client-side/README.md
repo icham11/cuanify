@@ -52,6 +52,8 @@ GOOGLE_CALENDAR_ID=
 # Google Sheets
 GOOGLE_SHEETS_ID=
 GOOGLE_SHEETS_RANGE=Orders!A:Z
+# Optional: true untuk sync juga saat confirmed/rescheduled
+GOOGLE_SHEETS_SYNC_ON_PROGRESS_EVENTS=false
 
 # Shipping (JNE/Paxel via Biteship, optional)
 BITESHIP_API_KEY=
@@ -69,6 +71,15 @@ NEXT_PUBLIC_BAKERY_DOWN_PAYMENT_PERCENT=50
 # Format: YYYY-MM-DD dipisah koma
 NEXT_PUBLIC_BAKERY_BLOCKED_DATES=2026-03-31,2026-04-18
 ```
+
+## Bakery Catalog Management
+
+- Buka menu `Bakery > Catalog` untuk edit harga varian produk.
+- Buka menu `Bakery > Catalog` untuk edit harga add-on.
+- Buka menu `Bakery > Catalog` untuk set produk/add-on `Active` atau `Inactive`.
+- Buka menu `Bakery > Catalog` untuk tambah custom product/add-on tanpa mengubah source code.
+- Perubahan katalog disimpan di browser (localStorage key: `bakeryCatalogAdminState`).
+- Booking form otomatis memakai katalog efektif tersebut saat hitung harga.
 
 ## Deploy on Vercel
 

@@ -29,14 +29,12 @@ import {
   WHATSAPP_ORDER_LABELS,
 } from "@/lib/bookings/whatsapp-parser";
 import {
-  BOOKING_ADD_ON_CATALOG,
-  BOOKING_PRODUCT_CATALOG,
-  ensureCatalogSelection,
   getDefaultCatalogSelection,
-  getDefaultCatalogSelectionForCategory,
-  getProductVariants,
-  getUnitPriceBySelection,
+  type CatalogAddOn,
+  type CatalogSelection,
+  type PricelistCategory,
 } from "@/lib/bookings/pricelist";
+import { useCatalogAdminState } from "@/lib/bookings/catalog-admin";
 import {
   CAPACITY_LABELS,
   CAPACITY_LIMITS,
@@ -91,6 +89,8 @@ const bookingSchema = z.object({
   deliverySlot: z.string().min(1, "Delivery slot is required"),
   customNotes: z.string().max(400).optional().or(z.literal("")),
   paymentStatus: z.enum(["Pending", "DP Paid", "Paid"]),
+  dpPaidAmount: z.number().default(0),
+  finalPaidAmount: z.number().default(0),
   manualAdjustment: z.number().default(0),
   items: z.array(itemSchema).min(1, "At least one item is required"),
   deliveryAddresses: z
@@ -126,8 +126,91 @@ const whatsappOrderTypeOptions: Array<{
   { value: "cookies_tower", label: WHATSAPP_ORDER_LABELS.cookies_tower },
 ];
 
-function getCategoryAddOns(category: string) {
-  return BOOKING_ADD_ON_CATALOG[category] ?? [];
+function getDefaultSelectionFromCatalog(
+  catalog: PricelistCategory[],
+  preferredCategory?: string,
+): CatalogSelection {
+  const categoryData =
+    catalog.find((entry) => entry.category === preferredCategory) ?? catalog[0];
+  const subcategoryData = categoryData?.subcategories[0];
+  const productData = subcategoryData?.products[0];
+  const variantData =
+    productData?.variants.find(
+      (entry) => entry.label === productData.defaultVariant,
+    ) ?? productData?.variants[0];
+
+  return {
+    category: categoryData?.category ?? "Cake",
+    subcategory: subcategoryData?.name ?? "",
+    productName: productData?.name ?? "",
+    size: variantData?.label ?? "",
+  };
+}
+
+function ensureSelectionFromCatalog(
+  catalog: PricelistCategory[],
+  partial: Partial<CatalogSelection>,
+): CatalogSelection {
+  const fallback = getDefaultSelectionFromCatalog(catalog, partial.category);
+  const categoryData =
+    catalog.find((entry) => entry.category === partial.category) ??
+    catalog.find((entry) => entry.category === fallback.category);
+
+  if (!categoryData) return fallback;
+
+  const subcategoryData =
+    categoryData.subcategories.find(
+      (entry) => entry.name === partial.subcategory,
+    ) ?? categoryData.subcategories[0];
+  const productData =
+    subcategoryData?.products.find(
+      (entry) => entry.name === partial.productName,
+    ) ?? subcategoryData?.products[0];
+  const variantData =
+    productData?.variants.find((entry) => entry.label === partial.size) ??
+    productData?.variants.find(
+      (entry) => entry.label === productData.defaultVariant,
+    ) ??
+    productData?.variants[0];
+
+  return {
+    category: categoryData.category,
+    subcategory: subcategoryData?.name ?? "",
+    productName: productData?.name ?? "",
+    size: variantData?.label ?? "",
+  };
+}
+
+function getVariantsFromCatalog(
+  catalog: PricelistCategory[],
+  selection: CatalogSelection,
+) {
+  const categoryData = catalog.find(
+    (entry) => entry.category === selection.category,
+  );
+  const subcategoryData = categoryData?.subcategories.find(
+    (entry) => entry.name === selection.subcategory,
+  );
+  const productData = subcategoryData?.products.find(
+    (entry) => entry.name === selection.productName,
+  );
+  return productData?.variants ?? [];
+}
+
+function getUnitPriceFromCatalog(
+  catalog: PricelistCategory[],
+  selection: CatalogSelection,
+): number {
+  const variants = getVariantsFromCatalog(catalog, selection);
+  const selected = variants.find((entry) => entry.label === selection.size);
+  return selected?.price ?? variants[0]?.price ?? 0;
+}
+
+function getCategoryAddOnsFromCatalog(
+  addOnCatalog: Record<string, CatalogAddOn[]>,
+  category: string,
+) {
+  return addOnCatalog[category] ?? [];
 }
 
 const WEIGHT_ESTIMATE_GRAM_BY_CATEGORY: Record<string, number> = {
@@ -146,6 +229,7 @@ function estimateItemWeightGram(category: string, quantity: number): number {
 
 export default function BookingForm() {
   const { addOrder, orders } = useOrders();
+  const { productCatalog, addOnCatalog } = useCatalogAdminState();
   const [quickPaste, setQuickPaste] = useState("");
   const [parserSource, setParserSource] = useState<ParserSource>("text");
   const [selectedOrderType, setSelectedOrderType] =
@@ -180,6 +264,8 @@ export default function BookingForm() {
       deliverySlot: "",
       customNotes: "",
       paymentStatus: "Pending",
+      dpPaidAmount: 0,
+      finalPaidAmount: 0,
       manualAdjustment: 0,
       items: [
         {
@@ -226,11 +312,12 @@ export default function BookingForm() {
   const deliveryDate = useWatch({ control, name: "deliveryDate" });
   const deliverySlot = useWatch({ control, name: "deliverySlot" });
   const manualAdjustment = useWatch({ control, name: "manualAdjustment" }) ?? 0;
-  const paymentStatus = useWatch({ control, name: "paymentStatus" });
+  const dpPaidInput = useWatch({ control, name: "dpPaidAmount" }) ?? 0;
+  const finalPaidInput = useWatch({ control, name: "finalPaidAmount" }) ?? 0;
 
   const basePrice = useMemo(() => {
     return watchedItems.reduce((sum, item) => {
-      const unit = getUnitPriceBySelection({
+      const unit = getUnitPriceFromCatalog(productCatalog, {
         category: item.category,
         subcategory: item.subcategory,
         productName: item.productName,
@@ -239,18 +326,21 @@ export default function BookingForm() {
       const qty = Number(item.quantity) || 0;
       return sum + unit * qty;
     }, 0);
-  }, [watchedItems]);
+  }, [watchedItems, productCatalog]);
 
   const addOnTotal = useMemo(() => {
     return watchedItems.reduce((sum, item) => {
-      const categoryAddOns = getCategoryAddOns(item.category);
+      const categoryAddOns = getCategoryAddOnsFromCatalog(
+        addOnCatalog,
+        item.category,
+      );
       const perItemAddOn = (item.addOns ?? []).reduce((addonSum, addonId) => {
         const found = categoryAddOns.find((entry) => entry.id === addonId);
         return addonSum + (found?.price ?? 0);
       }, 0);
       return sum + perItemAddOn * (Number(item.quantity) || 0);
     }, 0);
-  }, [watchedItems]);
+  }, [watchedItems, addOnCatalog]);
 
   const selectedShippingQuote = useMemo(
     () =>
@@ -266,16 +356,16 @@ export default function BookingForm() {
     basePrice + addOnTotal + deliveryFee + Number(manualAdjustment || 0),
   );
   const suggestedDownPaymentAmount = calculateDownPayment(totalPrice);
-  const downPaymentAmount =
-    paymentStatus === "DP Paid" || paymentStatus === "Paid"
-      ? suggestedDownPaymentAmount
-      : 0;
-  const remainingBalance =
-    paymentStatus === "Paid"
-      ? 0
-      : paymentStatus === "DP Paid"
-        ? Math.max(0, totalPrice - downPaymentAmount)
-        : totalPrice;
+  const normalizedDpPaid = Math.max(0, Number(dpPaidInput || 0));
+  const normalizedFinalPaid = Math.max(0, Number(finalPaidInput || 0));
+  const totalPaid = Math.min(
+    totalPrice,
+    normalizedDpPaid + normalizedFinalPaid,
+  );
+  const downPaymentAmount = normalizedDpPaid;
+  const remainingBalance = Math.max(0, totalPrice - totalPaid);
+  const effectivePaymentStatus =
+    totalPaid <= 0 ? "Pending" : remainingBalance <= 0 ? "Paid" : "DP Paid";
 
   const deliverySlots = useMemo(
     () => getDeliverySlotsForDate(deliveryDate),
@@ -357,7 +447,7 @@ export default function BookingForm() {
 
   const shippingItems = useMemo<ShippingQuoteItemInput[]>(() => {
     return watchedItems.map((item) => {
-      const unitPrice = getUnitPriceBySelection({
+      const unitPrice = getUnitPriceFromCatalog(productCatalog, {
         category: item.category,
         subcategory: item.subcategory,
         productName: item.productName,
@@ -377,7 +467,7 @@ export default function BookingForm() {
         ),
       };
     });
-  }, [watchedItems]);
+  }, [watchedItems, productCatalog]);
 
   const shippingPayload = useMemo(() => {
     if (
@@ -510,13 +600,16 @@ export default function BookingForm() {
     }
 
     const mappedItems = values.items.map((item, index) => {
-      const unitPrice = getUnitPriceBySelection({
+      const unitPrice = getUnitPriceFromCatalog(productCatalog, {
         category: item.category,
         subcategory: item.subcategory,
         productName: item.productName,
         size: item.size,
       });
-      const categoryAddOns = getCategoryAddOns(item.category);
+      const categoryAddOns = getCategoryAddOnsFromCatalog(
+        addOnCatalog,
+        item.category,
+      );
       const addOnTotalForItem =
         (item.addOns ?? []).reduce((sum, addonId) => {
           const addon = categoryAddOns.find((entry) => entry.id === addonId);
@@ -559,7 +652,9 @@ export default function BookingForm() {
       totalPrice,
       downPaymentAmount,
       remainingBalance,
-      paymentStatus: values.paymentStatus,
+      paymentStatus: effectivePaymentStatus,
+      dpPaidAmount: normalizedDpPaid,
+      finalPaidAmount: normalizedFinalPaid,
       whatsAppParsedData: parsedPreview ?? undefined,
       shippingQuote: selectedShippingQuote,
     });
@@ -635,7 +730,7 @@ export default function BookingForm() {
       if (draft.items?.length) {
         const normalizedItems: BookingFormInput["items"] = draft.items.map(
           (item) => {
-            const normalized = ensureCatalogSelection({
+            const normalized = ensureSelectionFromCatalog(productCatalog, {
               category: item.category,
               subcategory: item.subcategory,
               productName: item.productName,
@@ -995,7 +1090,8 @@ export default function BookingForm() {
                   variant="outline"
                   className="h-8 gap-1 border-indigo-200 text-indigo-700"
                   onClick={() => {
-                    const nextDefault = getDefaultCatalogSelection();
+                    const nextDefault =
+                      getDefaultSelectionFromCatalog(productCatalog);
                     appendItem({
                       category: nextDefault.category,
                       subcategory: nextDefault.subcategory,
@@ -1015,13 +1111,16 @@ export default function BookingForm() {
               <div className="space-y-4">
                 {itemFields.map((field, index) => {
                   const item = watchedItems[index];
-                  const normalizedSelection = ensureCatalogSelection({
-                    category: item?.category,
-                    subcategory: item?.subcategory,
-                    productName: item?.productName,
-                    size: item?.size,
-                  });
-                  const categoryData = BOOKING_PRODUCT_CATALOG.find(
+                  const normalizedSelection = ensureSelectionFromCatalog(
+                    productCatalog,
+                    {
+                      category: item?.category,
+                      subcategory: item?.subcategory,
+                      productName: item?.productName,
+                      size: item?.size,
+                    },
+                  );
+                  const categoryData = productCatalog.find(
                     (entry) => entry.category === normalizedSelection.category,
                   );
                   const subcategories = categoryData?.subcategories ?? [];
@@ -1030,12 +1129,12 @@ export default function BookingForm() {
                       (entry) => entry.name === normalizedSelection.subcategory,
                     ) ?? subcategories[0];
                   const products = subcategoryData?.products ?? [];
-                  const variants = getProductVariants(
-                    normalizedSelection.category,
-                    normalizedSelection.subcategory,
-                    normalizedSelection.productName,
+                  const variants = getVariantsFromCatalog(
+                    productCatalog,
+                    normalizedSelection,
                   );
-                  const addOns = getCategoryAddOns(
+                  const addOns = getCategoryAddOnsFromCatalog(
+                    addOnCatalog,
                     normalizedSelection.category,
                   );
 
@@ -1053,7 +1152,8 @@ export default function BookingForm() {
                             onChange={(event) => {
                               const nextCategory = event.target.value;
                               const nextSelection =
-                                getDefaultCatalogSelectionForCategory(
+                                getDefaultSelectionFromCatalog(
+                                  productCatalog,
                                   nextCategory,
                                 );
                               setValue(
@@ -1085,7 +1185,7 @@ export default function BookingForm() {
                               });
                             }}
                           >
-                            {BOOKING_PRODUCT_CATALOG.map((entry) => (
+                            {productCatalog.map((entry) => (
                               <option
                                 key={entry.category}
                                 value={entry.category}
@@ -1103,10 +1203,13 @@ export default function BookingForm() {
                             value={normalizedSelection.subcategory}
                             onChange={(event) => {
                               const nextSub = event.target.value;
-                              const nextSelection = ensureCatalogSelection({
-                                category: normalizedSelection.category,
-                                subcategory: nextSub,
-                              });
+                              const nextSelection = ensureSelectionFromCatalog(
+                                productCatalog,
+                                {
+                                  category: normalizedSelection.category,
+                                  subcategory: nextSub,
+                                },
+                              );
                               setValue(
                                 `items.${index}.subcategory`,
                                 nextSelection.subcategory,
@@ -1143,11 +1246,14 @@ export default function BookingForm() {
                             value={normalizedSelection.productName}
                             onChange={(event) => {
                               const nextProduct = event.target.value;
-                              const nextSelection = ensureCatalogSelection({
-                                category: normalizedSelection.category,
-                                subcategory: normalizedSelection.subcategory,
-                                productName: nextProduct,
-                              });
+                              const nextSelection = ensureSelectionFromCatalog(
+                                productCatalog,
+                                {
+                                  category: normalizedSelection.category,
+                                  subcategory: normalizedSelection.subcategory,
+                                  productName: nextProduct,
+                                },
+                              );
                               setValue(
                                 `items.${index}.productName`,
                                 nextSelection.productName,
@@ -1411,6 +1517,27 @@ export default function BookingForm() {
               </label>
             </div>
 
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="grid gap-2 text-sm font-medium text-gray-700">
+                DP Paid Amount (Actual)
+                <Input
+                  type="number"
+                  step="1000"
+                  min={0}
+                  {...register("dpPaidAmount", { valueAsNumber: true })}
+                />
+              </label>
+              <label className="grid gap-2 text-sm font-medium text-gray-700">
+                Final Payment Amount (Actual)
+                <Input
+                  type="number"
+                  step="1000"
+                  min={0}
+                  {...register("finalPaidAmount", { valueAsNumber: true })}
+                />
+              </label>
+            </div>
+
             <label className="grid gap-2 text-sm font-medium text-gray-700">
               Notes
               <Textarea
@@ -1465,19 +1592,35 @@ export default function BookingForm() {
               <p className="flex items-center justify-between">
                 <span>{getDownPaymentLabel()}</span>
                 <span className="font-semibold text-gray-900">
+                  {formatCurrency(suggestedDownPaymentAmount)}
+                </span>
+              </p>
+              <p className="flex items-center justify-between">
+                <span>DP Paid (Actual)</span>
+                <span className="font-semibold text-gray-900">
                   {formatCurrency(downPaymentAmount)}
                 </span>
               </p>
-              {paymentStatus === "Pending" && (
+              {effectivePaymentStatus === "Pending" && (
                 <p className="text-xs text-gray-500">
                   DP belum diinput/dibayar (status masih Pending).
                 </p>
               )}
               <p className="flex items-center justify-between">
+                <span>Total Paid (Actual)</span>
+                <span className="font-semibold text-gray-900">
+                  {formatCurrency(totalPaid)}
+                </span>
+              </p>
+              <p className="flex items-center justify-between">
                 <span>Remaining Balance</span>
                 <span className="font-semibold text-gray-900">
                   {formatCurrency(remainingBalance)}
                 </span>
+              </p>
+              <p className="text-xs text-gray-500">
+                Effective status from actual paid amounts:{" "}
+                {effectivePaymentStatus}.
               </p>
               <p className="rounded-lg bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
                 Formula: Final Price = Base + Add-ons + Ongkir + Manual

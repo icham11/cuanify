@@ -15,6 +15,7 @@ import {
   Clock,
   Factory,
   FileText,
+  Settings2,
 } from "lucide-react";
 
 export interface NavItem {
@@ -71,6 +72,11 @@ export const navSections: NavSection[] = [
         label: "Reports",
         href: "/bakery/reports",
         icon: FileText,
+      },
+      {
+        label: "Catalog",
+        href: "/bakery/catalog",
+        icon: Settings2,
       },
     ],
   },

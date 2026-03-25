@@ -11,19 +11,15 @@ import {
   type ToolbarProps,
   type View,
 } from "react-big-calendar";
-import {
-  addHours,
-  format,
-  getDay,
-  parse,
-  startOfWeek,
-} from "date-fns";
+import { addHours, format, getDay, parse, startOfWeek } from "date-fns";
 import { id as localeId } from "date-fns/locale";
 import "react-big-calendar/lib/css/react-big-calendar.css";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import { type BakeryOrder, useOrders } from "@/components/bakery/store";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
+import { toast } from "sonner";
 
 const locales = { id: localeId };
 
@@ -50,7 +46,15 @@ function toDateKey(value: Date) {
 function parseOrderDateTime(deliveryDate: string, deliverySlot?: string) {
   const [year, month, day] = deliveryDate.split("-").map(Number);
   const [hours, minutes] = (deliverySlot ?? "09:00").split(":").map(Number);
-  return new Date(year, (month || 1) - 1, day || 1, hours || 9, minutes || 0, 0, 0);
+  return new Date(
+    year,
+    (month || 1) - 1,
+    day || 1,
+    hours || 9,
+    minutes || 0,
+    0,
+    0,
+  );
 }
 
 function statusColor(status: BakeryOrder["orderStatus"]) {
@@ -68,7 +72,9 @@ function loadTone(totalOrders: number) {
 }
 
 function CalendarEventItem({ event }: EventProps<CalendarOrderEvent>) {
-  return <div className="truncate text-[11px] font-semibold">{event.title}</div>;
+  return (
+    <div className="truncate text-[11px] font-semibold">{event.title}</div>
+  );
 }
 
 function CalendarToolbar({
@@ -109,7 +115,9 @@ function CalendarToolbar({
         </button>
       </div>
 
-      <h3 className="text-base font-semibold text-indigo-900 sm:text-lg">{label}</h3>
+      <h3 className="text-base font-semibold text-indigo-900 sm:text-lg">
+        {label}
+      </h3>
 
       <div className="flex items-center gap-2">
         <button
@@ -141,10 +149,12 @@ function CalendarToolbar({
 
 export default function BakeryCalendarPage() {
   const router = useRouter();
-  const { orders } = useOrders();
+  const { orders, syncOrderCalendar } = useOrders();
   const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
   const [currentDate, setCurrentDate] = useState(new Date());
   const [currentView, setCurrentView] = useState<View>(Views.MONTH);
+  const [syncingIds, setSyncingIds] = useState<string[]>([]);
+  const [isSyncingAll, setIsSyncingAll] = useState(false);
 
   const events = useMemo<CalendarOrderEvent[]>(() => {
     return orders.map((order) => {
@@ -178,7 +188,8 @@ export default function BakeryCalendarPage() {
     : [];
 
   const selectedCount = selectedOrders.length;
-  const slotMessage = selectedCount >= 4 ? "Slots almost full" : "Slots available";
+  const slotMessage =
+    selectedCount >= 4 ? "Slots almost full" : "Slots available";
 
   const selectedDateLabel = selectedDate
     ? format(selectedDate, "EEEE, dd MMMM yyyy", { locale: localeId })
@@ -189,9 +200,38 @@ export default function BakeryCalendarPage() {
     return (
       <div className="flex flex-col">
         <span className="text-xs font-semibold text-gray-700">{label}</span>
-        {count > 0 && <span className="text-[10px] font-semibold text-indigo-600">{count} orders</span>}
+        {count > 0 && (
+          <span className="text-[10px] font-semibold text-indigo-600">
+            {count} orders
+          </span>
+        )}
       </div>
     );
+  };
+
+  const handleSyncSingle = async (orderId: string) => {
+    if (syncingIds.includes(orderId)) return;
+    setSyncingIds((prev) => [...prev, orderId]);
+    try {
+      await syncOrderCalendar(orderId);
+    } finally {
+      setSyncingIds((prev) => prev.filter((id) => id !== orderId));
+    }
+  };
+
+  const handleSyncAllSelectedDate = async () => {
+    if (!selectedOrders.length || isSyncingAll) return;
+    setIsSyncingAll(true);
+    try {
+      for (const order of selectedOrders) {
+        await syncOrderCalendar(order.id);
+      }
+      toast.success("Semua order pada tanggal terpilih berhasil di-sync.");
+    } catch {
+      toast.error("Sebagian sync gagal. Coba ulang untuk order tertentu.");
+    } finally {
+      setIsSyncingAll(false);
+    }
   };
 
   return (
@@ -219,7 +259,9 @@ export default function BakeryCalendarPage() {
             onNavigate={(newDate) => setCurrentDate(newDate)}
             onView={(nextView) => setCurrentView(nextView)}
             onSelectSlot={(slotInfo) => setSelectedDate(slotInfo.start)}
-            onSelectEvent={(event) => router.push(`/bakery/bookings/${event.id}`)}
+            onSelectEvent={(event) =>
+              router.push(`/bakery/bookings/${event.id}`)
+            }
             eventPropGetter={(event) => ({
               style: {
                 backgroundColor: statusColor(event.resource.orderStatus),
@@ -252,28 +294,47 @@ export default function BakeryCalendarPage() {
 
           <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-gray-500">
             <span className="inline-flex items-center gap-1">
-              <span className="h-2.5 w-2.5 rounded-full bg-indigo-400" /> 0-3 orders
+              <span className="h-2.5 w-2.5 rounded-full bg-indigo-400" /> 0-3
+              orders
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="h-2.5 w-2.5 rounded-full bg-amber-400" /> 4-6 orders
+              <span className="h-2.5 w-2.5 rounded-full bg-amber-400" /> 4-6
+              orders
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="h-2.5 w-2.5 rounded-full bg-rose-500" /> 7+ orders
+              <span className="h-2.5 w-2.5 rounded-full bg-rose-500" /> 7+
+              orders
             </span>
           </div>
 
           <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-gray-500">
             <span className="inline-flex items-center gap-1">
-              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: "#2563eb" }} /> Confirmed
+              <span
+                className="h-2.5 w-2.5 rounded-full"
+                style={{ backgroundColor: "#2563eb" }}
+              />{" "}
+              Confirmed
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: "#f97316" }} /> In Production
+              <span
+                className="h-2.5 w-2.5 rounded-full"
+                style={{ backgroundColor: "#f97316" }}
+              />{" "}
+              In Production
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: "#7c3aed" }} /> Ready
+              <span
+                className="h-2.5 w-2.5 rounded-full"
+                style={{ backgroundColor: "#7c3aed" }}
+              />{" "}
+              Ready
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: "#16a34a" }} /> Delivered
+              <span
+                className="h-2.5 w-2.5 rounded-full"
+                style={{ backgroundColor: "#16a34a" }}
+              />{" "}
+              Delivered
             </span>
           </div>
         </CardContent>
@@ -296,38 +357,85 @@ export default function BakeryCalendarPage() {
             <>
               <div className="mb-3 grid grid-cols-1 gap-3 rounded-xl border border-indigo-100 bg-indigo-50/60 p-4 text-sm sm:grid-cols-2">
                 <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-indigo-500">Total Orders</p>
-                  <p className="mt-1 text-xl font-bold text-indigo-900">{selectedCount}</p>
+                  <p className="text-xs font-medium uppercase tracking-wide text-indigo-500">
+                    Total Orders
+                  </p>
+                  <p className="mt-1 text-xl font-bold text-indigo-900">
+                    {selectedCount}
+                  </p>
                 </div>
                 <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-indigo-500">Capacity Status</p>
-                  <p className={`mt-1 text-sm font-semibold ${selectedCount >= 4 ? "text-amber-700" : "text-emerald-700"}`}>
+                  <p className="text-xs font-medium uppercase tracking-wide text-indigo-500">
+                    Capacity Status
+                  </p>
+                  <p
+                    className={`mt-1 text-sm font-semibold ${selectedCount >= 4 ? "text-amber-700" : "text-emerald-700"}`}
+                  >
                     {slotMessage}
                   </p>
                 </div>
               </div>
 
-              {selectedOrders.map((order) => (
-                <button
-                  key={order.id}
+              <div className="mb-3">
+                <Button
                   type="button"
-                  onClick={() => router.push(`/bakery/bookings/${order.id}`)}
-                  className="flex w-full flex-wrap items-center justify-between gap-2 rounded-xl border border-gray-100 bg-gray-50/60 px-4 py-3 text-left text-sm transition hover:border-indigo-200 hover:bg-indigo-50/40"
+                  variant="outline"
+                  className="border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                  onClick={handleSyncAllSelectedDate}
+                  disabled={!selectedOrders.length || isSyncingAll}
                 >
-                  <div>
-                    <p className="font-semibold text-gray-900">{order.customerName}</p>
-                    <p className="text-xs text-gray-500">
-                      {order.items?.[0]?.productName ?? order.product} - {order.deliverySlot}
-                    </p>
-                  </div>
-                  <span
-                    className="rounded-full px-3 py-1 text-xs font-semibold text-white"
-                    style={{ backgroundColor: statusColor(order.orderStatus) }}
+                  {isSyncingAll
+                    ? "Syncing..."
+                    : "Re-sync Calendar for Selected Date"}
+                </Button>
+              </div>
+
+              {selectedOrders.map((order) => {
+                const isSyncing = syncingIds.includes(order.id);
+
+                return (
+                  <div
+                    key={order.id}
+                    className="flex w-full flex-wrap items-center justify-between gap-2 rounded-xl border border-gray-100 bg-gray-50/60 px-4 py-3 text-left text-sm transition hover:border-indigo-200 hover:bg-indigo-50/40"
                   >
-                    {order.orderStatus}
-                  </span>
-                </button>
-              ))}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        router.push(`/bakery/bookings/${order.id}`)
+                      }
+                      className="min-w-0 flex-1 text-left"
+                    >
+                      <p className="font-semibold text-gray-900">
+                        {order.customerName}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {order.items?.[0]?.productName ?? order.product} -{" "}
+                        {order.deliverySlot}
+                      </p>
+                    </button>
+
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="rounded-full px-3 py-1 text-xs font-semibold text-white"
+                        style={{
+                          backgroundColor: statusColor(order.orderStatus),
+                        }}
+                      >
+                        {order.orderStatus}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-8 border-indigo-200 px-3 text-xs text-indigo-700 hover:bg-indigo-50"
+                        onClick={() => void handleSyncSingle(order.id)}
+                        disabled={isSyncing || isSyncingAll}
+                      >
+                        {isSyncing ? "Syncing..." : "Re-sync"}
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
             </>
           )}
         </CardContent>

@@ -22,6 +22,13 @@ import { formatCurrency } from "@/components/orders/formatters";
 import { Download, PieChart as PieChartIcon } from "lucide-react";
 import { useOrders } from "@/components/bakery/store";
 
+function toDateInputValue(date: Date) {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 export default function ReportsPage() {
   const { orders } = useOrders();
   const [fromDate, setFromDate] = useState("");
@@ -38,9 +45,14 @@ export default function ReportsPage() {
   }, [orders, fromDate, toDate, statusFilter]);
 
   const totalOrders = filteredOrders.length;
-  const totalRevenue = filteredOrders.reduce((sum, order) => sum + (order.totalPrice || 0), 0);
+  const totalRevenue = filteredOrders.reduce(
+    (sum, order) => sum + (order.totalPrice || 0),
+    0,
+  );
   const aov = totalOrders > 0 ? Math.round(totalRevenue / totalOrders) : 0;
-  const completedCount = filteredOrders.filter((order) => ["Completed", "Delivered"].includes(order.orderStatus)).length;
+  const completedCount = filteredOrders.filter((order) =>
+    ["Completed", "Delivered"].includes(order.orderStatus),
+  ).length;
 
   const statusCounts = [
     "Inquiry",
@@ -53,14 +65,24 @@ export default function ReportsPage() {
     "Cancelled",
   ].map((status) => ({
     name: status,
-    value: filteredOrders.filter((order) => order.orderStatus === status).length,
+    value: filteredOrders.filter((order) => order.orderStatus === status)
+      .length,
   }));
 
   const bakeryStatusMix = statusCounts
     .filter((item) => item.value > 0)
     .map((item, index) => ({
       ...item,
-      color: ["#1d4ed8", "#2563eb", "#3b82f6", "#0ea5e9", "#6366f1", "#4f46e5", "#4338ca", "#e11d48"][index % 8],
+      color: [
+        "#1d4ed8",
+        "#2563eb",
+        "#3b82f6",
+        "#0ea5e9",
+        "#6366f1",
+        "#4f46e5",
+        "#4338ca",
+        "#e11d48",
+      ][index % 8],
     }));
 
   const weekday = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -68,11 +90,26 @@ export default function ReportsPage() {
     const revenue = filteredOrders
       .filter((order) => {
         const date = new Date(order.deliveryDate);
-        return Number.isFinite(date.getTime()) && weekday[date.getDay()] === day;
+        return (
+          Number.isFinite(date.getTime()) && weekday[date.getDay()] === day
+        );
       })
       .reduce((sum, order) => sum + (order.totalPrice || 0), 0);
     return { week: day, revenue };
   });
+
+  const revenueBySize = useMemo(() => {
+    const map = new Map<string, number>();
+    filteredOrders.forEach((order) => {
+      const key = order.items?.[0]?.size || order.size || "Unknown";
+      const current = map.get(key) ?? 0;
+      map.set(key, current + (order.totalPrice || 0));
+    });
+
+    return Array.from(map.entries())
+      .map(([size, revenue]) => ({ size, revenue }))
+      .sort((a, b) => b.revenue - a.revenue);
+  }, [filteredOrders]);
 
   const reportStats = [
     { title: "Total Orders", value: String(totalOrders) },
@@ -81,6 +118,66 @@ export default function ReportsPage() {
     { title: "Completed Orders", value: String(completedCount) },
   ];
 
+  const setQuickRange = (days: number) => {
+    const now = new Date();
+    const from = new Date(now);
+    from.setDate(now.getDate() - (days - 1));
+    setFromDate(toDateInputValue(from));
+    setToDate(toDateInputValue(now));
+  };
+
+  const resetFilters = () => {
+    setFromDate("");
+    setToDate("");
+    setStatusFilter("");
+  };
+
+  const exportCsv = () => {
+    const headers = [
+      "Booking Code",
+      "Customer",
+      "Phone",
+      "Delivery Date",
+      "Delivery Slot",
+      "Order Status",
+      "Payment Status",
+      "Total Price",
+    ];
+
+    const escapeCsv = (value: string | number) => {
+      const text = String(value ?? "");
+      if (text.includes(",") || text.includes('"') || text.includes("\n")) {
+        return `"${text.replace(/"/g, '""')}"`;
+      }
+      return text;
+    };
+
+    const rows = filteredOrders.map((order) => [
+      order.bookingCode || order.resi || order.id,
+      order.customerName || "Walk-in Customer",
+      order.customerPhone || "",
+      order.deliveryDate || "",
+      order.deliverySlot || "",
+      order.orderStatus,
+      order.paymentStatus,
+      order.totalPrice || 0,
+    ]);
+
+    const csv = [headers, ...rows]
+      .map((row) => row.map((cell) => escapeCsv(cell)).join(","))
+      .join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `bakery-report-${toDateInputValue(new Date())}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="space-y-6 pb-10">
       <GradientPageHeader
@@ -88,9 +185,12 @@ export default function ReportsPage() {
         description="Analytics for revenue and order health across time."
         icon={PieChartIcon}
         actions={
-          <Button className="gap-2 bg-indigo-600 text-white hover:bg-indigo-700 focus-visible:ring-indigo-500">
+          <Button
+            className="gap-2 bg-indigo-600 text-white hover:bg-indigo-700 focus-visible:ring-indigo-500"
+            onClick={exportCsv}
+          >
             <Download size={16} />
-            Export to Excel
+            Export CSV
           </Button>
         }
       />
@@ -104,19 +204,32 @@ export default function ReportsPage() {
             <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
               From
             </span>
-            <Input type="date" className="max-w-50" value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
+            <Input
+              type="date"
+              className="max-w-50"
+              value={fromDate}
+              onChange={(event) => setFromDate(event.target.value)}
+            />
           </div>
           <div className="grid gap-2">
             <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
               To
             </span>
-            <Input type="date" className="max-w-50" value={toDate} onChange={(event) => setToDate(event.target.value)} />
+            <Input
+              type="date"
+              className="max-w-50"
+              value={toDate}
+              onChange={(event) => setToDate(event.target.value)}
+            />
           </div>
           <div className="grid gap-2">
             <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
               Status
             </span>
-            <Select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+            <Select
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value)}
+            >
               <option value="">All status</option>
               <option value="Inquiry">Inquiry</option>
               <option value="Quoted">Quoted</option>
@@ -127,6 +240,30 @@ export default function ReportsPage() {
               <option value="Completed">Completed</option>
               <option value="Cancelled">Cancelled</option>
             </Select>
+          </div>
+          <div className="grid gap-2">
+            <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+              Quick Range
+            </span>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setQuickRange(7)}
+              >
+                7D
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setQuickRange(30)}
+              >
+                30D
+              </Button>
+              <Button type="button" variant="outline" onClick={resetFilters}>
+                Reset
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -211,10 +348,15 @@ export default function ReportsPage() {
             </div>
             <div className="mt-4 grid gap-2 text-sm text-gray-600">
               {bakeryStatusMix.length === 0 ? (
-                <p className="text-sm text-gray-500">No status data in selected range.</p>
+                <p className="text-sm text-gray-500">
+                  No status data in selected range.
+                </p>
               ) : (
                 bakeryStatusMix.map((status) => (
-                  <div key={status.name} className="flex items-center justify-between">
+                  <div
+                    key={status.name}
+                    className="flex items-center justify-between"
+                  >
                     <span className="flex items-center gap-2">
                       <span
                         className="h-2 w-2 rounded-full"
@@ -236,7 +378,35 @@ export default function ReportsPage() {
           <CardTitle>Insights</CardTitle>
         </CardHeader>
         <CardContent className="px-6 pb-6 pt-0 text-sm text-gray-600">
-          Use these charts to highlight peak weeks and ensure production capacity matches demand.
+          Use these charts to highlight peak weeks and ensure production
+          capacity matches demand.
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-xl shadow-sm">
+        <CardHeader className="p-6 pb-2">
+          <CardTitle>Revenue by Size</CardTitle>
+        </CardHeader>
+        <CardContent className="px-6 pb-6 pt-0">
+          {revenueBySize.length === 0 ? (
+            <p className="text-sm text-gray-500">
+              No size data in selected range.
+            </p>
+          ) : (
+            <div className="space-y-2 text-sm text-gray-700">
+              {revenueBySize.map((row) => (
+                <div
+                  key={row.size}
+                  className="flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2"
+                >
+                  <span className="font-medium text-gray-600">{row.size}</span>
+                  <span className="font-semibold text-gray-900">
+                    {formatCurrency(row.revenue)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

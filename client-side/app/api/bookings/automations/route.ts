@@ -34,6 +34,7 @@ const requestSchema = z.object({
     "order_confirmed",
     "order_completed",
     "order_rescheduled",
+    "order_calendar_sync",
   ]),
   order: z.object({
     id: z.string(),
@@ -76,7 +77,7 @@ export async function POST(request: NextRequest) {
           error: "Invalid automation request payload.",
           details: parsed.error.issues,
         },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -105,7 +106,7 @@ export async function POST(request: NextRequest) {
         error: message || "Failed to execute booking automations",
         details: message,
       },
-      { status }
+      { status },
     );
   }
 }
@@ -117,10 +118,12 @@ export async function GET() {
       status: "ok",
       integrations: {
         fonnteConfigured: Boolean(process.env.FONNTE_TOKEN),
-        productionTargetConfigured: Boolean(process.env.FONNTE_PRODUCTION_TARGET),
+        productionTargetConfigured: Boolean(
+          process.env.FONNTE_PRODUCTION_TARGET,
+        ),
         googleServiceAccountConfigured: Boolean(
           process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL &&
-            process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY
+          process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
         ),
         googleCalendarConfigured: Boolean(process.env.GOOGLE_CALENDAR_ID),
         googleSheetsConfigured: Boolean(process.env.GOOGLE_SHEETS_ID),
@@ -130,6 +133,9 @@ export async function GET() {
     if (error instanceof AuthError) {
       return NextResponse.json({ error: error.message }, { status: 401 });
     }
-    return NextResponse.json({ error: "Failed to check automation status" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Failed to check automation status" },
+      { status: 500 },
+    );
   }
 }

@@ -38,6 +38,16 @@ export type OrderStatus =
 
 export type PaymentStatus = "Pending" | "DP Paid" | "Paid";
 
+export interface PaymentTransaction {
+  id: string;
+  timestamp: string;
+  amount: number;
+  type: "DP" | "Final";
+  note?: string;
+  userId?: number | null;
+  actorName?: string;
+}
+
 export interface OrderStatusLog {
   id: string;
   status: OrderStatus;
@@ -92,8 +102,12 @@ export interface BakeryOrder {
   addOnTotal?: number;
   deliveryFee?: number;
   manualAdjustment?: number;
+  dpPaidAmount?: number;
+  finalPaidAmount?: number;
+  totalPaidAmount?: number;
   downPaymentAmount?: number;
   remainingBalance?: number;
+  paymentTransactions?: PaymentTransaction[];
   items: OrderItem[];
   deliveryAddresses: DeliveryAddress[];
   product: string;
@@ -131,6 +145,8 @@ export interface NewOrderInput {
   addOnTotal: number;
   deliveryFee: number;
   manualAdjustment: number;
+  dpPaidAmount: number;
+  finalPaidAmount: number;
   totalPrice: number;
   downPaymentAmount: number;
   remainingBalance: number;
@@ -144,12 +160,21 @@ interface OrdersContextValue {
   addOrder: (order: NewOrderInput) => void;
   updateOrderStatus: (id: string, status: OrderStatus) => Promise<void>;
   updatePaymentStatus: (id: string, status: PaymentStatus) => void;
+  recordPayment: (
+    id: string,
+    payload: {
+      dpPaidAmount: number;
+      finalPaidAmount: number;
+      note?: string;
+    },
+  ) => void;
   updateOrderSchedule: (
     id: string,
     deliveryDate: string,
     deliverySlot: string,
   ) => void;
   approveOrder: (id: string) => Promise<void>;
+  syncOrderCalendar: (id: string) => Promise<void>;
   getCustomerMessagePreview: (id: string) => string;
   setOrderShipment: (id: string, shipment: ShippingShipment) => void;
 }
@@ -271,6 +296,21 @@ function appendAutomationLog(
   ];
 }
 
+function normalizeMoney(value: number | undefined | null): number {
+  const parsed = Number(value ?? 0);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.max(0, Math.round(parsed));
+}
+
+function inferPaymentStatus(
+  totalPrice: number,
+  totalPaidAmount: number,
+): PaymentStatus {
+  if (totalPaidAmount <= 0) return "Pending";
+  if (totalPaidAmount >= Math.max(0, normalizeMoney(totalPrice))) return "Paid";
+  return "DP Paid";
+}
+
 function buildAutomationPayload(
   order: BakeryOrder,
 ): BookingAutomationOrderPayload {
@@ -310,13 +350,13 @@ function summarizeAutomationResult(result: BookingAutomationResponse): {
   message: string;
 } {
   const actions = [
-    result.calendar,
-    result.fonnteProduction,
-    result.fonnteCustomer,
-    result.sheets,
+    { name: "Calendar", result: result.calendar },
+    { name: "WA Produksi", result: result.fonnteProduction },
+    { name: "WA Customer", result: result.fonnteCustomer },
+    { name: "Sheets", result: result.sheets },
   ];
-  const effective = actions.filter((item) => !item.skipped);
-  const successCount = effective.filter((item) => item.ok).length;
+  const effective = actions.filter((item) => !item.result.skipped);
+  const successCount = effective.filter((item) => item.result.ok).length;
   const failCount = effective.length - successCount;
 
   if (effective.length === 0) {
@@ -333,9 +373,14 @@ function summarizeAutomationResult(result: BookingAutomationResponse): {
     };
   }
 
+  const failedDetails = effective
+    .filter((item) => !item.result.ok)
+    .map((item) => `${item.name}: ${item.result.message}`)
+    .join(" | ");
+
   return {
     success: false,
-    message: `Automasi selesai dengan kendala (${successCount} berhasil, ${failCount} gagal).`,
+    message: `Automasi selesai dengan kendala (${successCount} berhasil, ${failCount} gagal). ${failedDetails}`,
   };
 }
 
@@ -580,8 +625,41 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         addOnTotal: order.addOnTotal,
         deliveryFee: order.deliveryFee,
         manualAdjustment: order.manualAdjustment,
+        dpPaidAmount: normalizeMoney(order.dpPaidAmount),
+        finalPaidAmount: normalizeMoney(order.finalPaidAmount),
+        totalPaidAmount:
+          normalizeMoney(order.dpPaidAmount) +
+          normalizeMoney(order.finalPaidAmount),
         downPaymentAmount: order.downPaymentAmount,
         remainingBalance: order.remainingBalance,
+        paymentTransactions: [
+          ...(normalizeMoney(order.dpPaidAmount) > 0
+            ? [
+                {
+                  id: `pay-${id}-dp`,
+                  timestamp: new Date().toISOString(),
+                  amount: normalizeMoney(order.dpPaidAmount),
+                  type: "DP" as const,
+                  note: "Initial DP recorded on create",
+                  userId: actorIdentity.userId,
+                  actorName: actorIdentity.name,
+                },
+              ]
+            : []),
+          ...(normalizeMoney(order.finalPaidAmount) > 0
+            ? [
+                {
+                  id: `pay-${id}-final`,
+                  timestamp: new Date().toISOString(),
+                  amount: normalizeMoney(order.finalPaidAmount),
+                  type: "Final" as const,
+                  note: "Initial final payment recorded on create",
+                  userId: actorIdentity.userId,
+                  actorName: actorIdentity.name,
+                },
+              ]
+            : []),
+        ],
         items: order.items,
         deliveryAddresses: order.deliveryAddresses,
         cakeType: order.items[0]?.subcategory,
@@ -687,19 +765,33 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
     (id: string, status: PaymentStatus) => {
       const nextOrders: BakeryOrder[] = orders.map((order) => {
         if (order.id !== id) return order;
-        const downPaymentAmount =
-          order.downPaymentAmount ??
-          calculateDownPayment(order.totalPrice ?? 0);
-        const remainingBalance =
-          status === "Paid"
-            ? 0
-            : status === "DP Paid"
-              ? Math.max(0, (order.totalPrice ?? 0) - downPaymentAmount)
-              : (order.totalPrice ?? 0);
+        const total = normalizeMoney(order.totalPrice);
+        const suggestedDp = calculateDownPayment(total);
+        let dpPaidAmount = normalizeMoney(order.dpPaidAmount);
+        let finalPaidAmount = normalizeMoney(order.finalPaidAmount);
+
+        if (status === "Pending") {
+          dpPaidAmount = 0;
+          finalPaidAmount = 0;
+        } else if (status === "DP Paid") {
+          dpPaidAmount = Math.max(dpPaidAmount, suggestedDp);
+          finalPaidAmount = 0;
+        } else {
+          const paidSoFar = dpPaidAmount + finalPaidAmount;
+          if (paidSoFar < total) {
+            finalPaidAmount += total - paidSoFar;
+          }
+        }
+
+        const totalPaidAmount = Math.min(total, dpPaidAmount + finalPaidAmount);
+        const remainingBalance = Math.max(0, total - totalPaidAmount);
         return {
           ...order,
           paymentStatus: status,
-          downPaymentAmount,
+          dpPaidAmount,
+          finalPaidAmount,
+          totalPaidAmount,
+          downPaymentAmount: dpPaidAmount,
           remainingBalance,
         };
       });
@@ -707,6 +799,67 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       toast.message("Payment status updated");
     },
     [orders, persistOrders],
+  );
+
+  const recordPayment = useCallback(
+    (
+      id: string,
+      payload: {
+        dpPaidAmount: number;
+        finalPaidAmount: number;
+        note?: string;
+      },
+    ) => {
+      const nextOrders: BakeryOrder[] = orders.map((order) => {
+        if (order.id !== id) return order;
+
+        const total = normalizeMoney(order.totalPrice);
+        const nextDpPaid = normalizeMoney(payload.dpPaidAmount);
+        const nextFinalPaid = normalizeMoney(payload.finalPaidAmount);
+        const totalPaidAmount = Math.min(total, nextDpPaid + nextFinalPaid);
+        const remainingBalance = Math.max(0, total - totalPaidAmount);
+        const inferredStatus = inferPaymentStatus(total, totalPaidAmount);
+
+        const transactions: PaymentTransaction[] = [];
+        if (nextDpPaid > 0) {
+          transactions.push({
+            id: `pay-${id}-dp-${Date.now()}`,
+            timestamp: new Date().toISOString(),
+            amount: nextDpPaid,
+            type: "DP",
+            note: payload.note || "DP verified",
+            userId: actorIdentity.userId,
+            actorName: actorIdentity.name,
+          });
+        }
+        if (nextFinalPaid > 0) {
+          transactions.push({
+            id: `pay-${id}-final-${Date.now()}`,
+            timestamp: new Date().toISOString(),
+            amount: nextFinalPaid,
+            type: "Final",
+            note: payload.note || "Final payment verified",
+            userId: actorIdentity.userId,
+            actorName: actorIdentity.name,
+          });
+        }
+
+        return {
+          ...order,
+          paymentStatus: inferredStatus,
+          dpPaidAmount: nextDpPaid,
+          finalPaidAmount: nextFinalPaid,
+          totalPaidAmount,
+          downPaymentAmount: nextDpPaid,
+          remainingBalance,
+          paymentTransactions: transactions,
+        };
+      });
+
+      persistOrders(nextOrders);
+      toast.success("Payment amounts recorded");
+    },
+    [orders, persistOrders, actorIdentity],
   );
 
   const updateOrderSchedule = useCallback(
@@ -737,6 +890,13 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       await updateOrderStatus(id, "Confirmed");
     },
     [updateOrderStatus],
+  );
+
+  const syncOrderCalendar = useCallback(
+    async (id: string) => {
+      await runAutomationsForOrder("order_calendar_sync", id);
+    },
+    [runAutomationsForOrder],
   );
 
   const setOrderShipment = useCallback(
@@ -813,8 +973,10 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       addOrder,
       updateOrderStatus,
       updatePaymentStatus,
+      recordPayment,
       updateOrderSchedule,
       approveOrder,
+      syncOrderCalendar,
       getCustomerMessagePreview,
       setOrderShipment,
     }),
@@ -823,8 +985,10 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       addOrder,
       updateOrderStatus,
       updatePaymentStatus,
+      recordPayment,
       updateOrderSchedule,
       approveOrder,
+      syncOrderCalendar,
       getCustomerMessagePreview,
       setOrderShipment,
     ],

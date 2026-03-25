@@ -223,6 +223,47 @@ export const BOOKING_PRODUCT_CATALOG: PricelistCategory[] = [
         ],
       },
       {
+        name: "Party Package",
+        keywords: [
+          "party package",
+          "bulk order",
+          "mama's kitchen party package",
+        ],
+        products: [
+          {
+            name: "Cake 16cm + 30 Box Single Box Cupcakes",
+            keywords: [
+              "cake 16",
+              "30 box",
+              "single box cupcakes",
+              "party package",
+            ],
+            defaultVariant: "Start From",
+            variants: [
+              variant("Start From", 1350000, [
+                "normal",
+                "start from",
+                "1,350,000",
+              ]),
+              variant("Best Deal!", 1215000, ["best deal", "promo", "1.215k"]),
+            ],
+          },
+          {
+            name: "Cake 16cm + 30 Cookies + 30 Box Single Box Cupcakes",
+            keywords: ["cake 16", "30 cookies", "30 box", "party package"],
+            defaultVariant: "Start From",
+            variants: [
+              variant("Start From", 1860000, [
+                "normal",
+                "start from",
+                "1,860,000",
+              ]),
+              variant("Best Deal!", 1599000, ["best deal", "promo", "1.599k"]),
+            ],
+          },
+        ],
+      },
+      {
         name: "Best Seller Kids Edition",
         keywords: ["kids", "best seller"],
         products: [
@@ -295,8 +336,13 @@ export const BOOKING_PRODUCT_CATALOG: PricelistCategory[] = [
           {
             name: "Individual Cookie",
             keywords: ["individual", "single cookie"],
-            defaultVariant: "Custom Text / Shape Simple (17K / pcs)",
+            defaultVariant: "Simple Character (15K / pcs)",
             variants: [
+              variant("Simple Character (15K / pcs)", 15000, [
+                "simple character",
+                "start from 15k",
+                "15k",
+              ]),
               variant("Custom Text / Shape Simple (17K / pcs)", 17000, [
                 "text",
                 "simple",
@@ -323,10 +369,18 @@ export const BOOKING_PRODUCT_CATALOG: PricelistCategory[] = [
                 "full body",
                 "30k",
               ]),
-              variant("Chibi Face (25K / pcs)", 25000, ["chibi face", "25k"]),
-              variant("Chibi Half Body (30K / pcs)", 30000, [
+              variant("Chibi Face (20K / pcs)", 20000, ["chibi face", "20k"]),
+              variant("Chibi Half Body (25K / pcs)", 25000, [
                 "chibi half",
+                "25k",
+              ]),
+              variant("Chibi Full Body (30K / pcs)", 30000, [
+                "chibi full",
                 "30k",
+              ]),
+              variant("Chibi Full Body + Accessories (35K / pcs)", 35000, [
+                "chibi accessories",
+                "35k",
               ]),
               variant("Chibi Full Body + Accessories (40K / pcs)", 40000, [
                 "chibi full",
@@ -597,10 +651,33 @@ export const BOOKING_PRODUCT_CATALOG: PricelistCategory[] = [
             keywords: ["dozen", "1 dozen", "12 pcs", "lusin"],
             variantLabel: "12 pcs",
           }),
-          fixedProduct("Individual Cupcakes", 30000, {
-            keywords: ["individual", "per pcs", "start from 30k"],
-            variantLabel: "Per pcs (Start From)",
-          }),
+          {
+            name: "Individual Cupcakes",
+            keywords: ["individual", "per pcs", "start from 30k", "box"],
+            defaultVariant: "10-24 Box (30K / pcs)",
+            variants: [
+              variant("10-24 Box (30K / pcs)", 30000, [
+                "10-24",
+                "30k",
+                "tier 1",
+              ]),
+              variant("25-49 Box (25K / pcs)", 25000, [
+                "25-49",
+                "25k",
+                "tier 2",
+              ]),
+              variant(">=50 Box (27K / pcs, after 10% discount)", 27000, [
+                "50",
+                "discount 10",
+                "27k",
+              ]),
+              variant(">=100 Box (25.5K / pcs, after 15% discount)", 25500, [
+                "100",
+                "discount 15",
+                "25.5k",
+              ]),
+            ],
+          },
           fixedProduct("Individual Cupcakes + Cookie", 47000, {
             keywords: ["cupcake + cookie", "cupcakes + cookie"],
             variantLabel: "Per pcs",
@@ -662,9 +739,26 @@ export const BOOKING_PRODUCT_CATALOG: PricelistCategory[] = [
 export const BOOKING_ADD_ON_CATALOG: Record<string, CatalogAddOn[]> = {
   Cake: [
     { id: "dark-color", label: "Dark Color Cake", price: 50000 },
-    { id: "fondant-name", label: "Fondant Name", price: 50000 },
+    { id: "fondant-name", label: "Fondant Name", price: 20000 },
+    { id: "mini-details", label: "Mini Details", price: 10000 },
+    { id: "small-cookies", label: "Small Cookies (4-6cm)", price: 20000 },
+    { id: "medium-cookies", label: "Medium Cookies (8-9cm)", price: 40000 },
+    { id: "large-cookies", label: "Large Cookies (10-18cm)", price: 70000 },
+    { id: "candy-background", label: "Candy Background", price: 50000 },
+    { id: "meringue-background", label: "Meringue Background", price: 50000 },
+    {
+      id: "transparent-sail-background",
+      label: "Transparent Sail Background",
+      price: 100000,
+    },
+    { id: "artificial-flower", label: "Artificial Flower", price: 50000 },
+    { id: "birthday-topper", label: "Birthday Topper", price: 30000 },
     { id: "custom-topper", label: "Custom Topper", price: 50000 },
-    { id: "edible-print", label: "Edible Print", price: 70000 },
+    { id: "ball-decorations", label: "Ball Decorations", price: 70000 },
+    { id: "paintings", label: "Paintings", price: 70000 },
+    { id: "cookie-crumbs", label: "Cookie Crumbs", price: 30000 },
+    { id: "edible-print", label: "Edible Print", price: 50000 },
+    { id: "macaroon", label: "Macaroon", price: 35000 },
     { id: "fondant-decor", label: "Fondant Decor", price: 100000 },
   ],
   Cookies: [
