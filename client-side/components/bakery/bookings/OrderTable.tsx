@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { formatCurrency } from "@/components/orders/formatters";
 import StatusBadge from "@/components/bakery/shared/StatusBadge";
@@ -22,7 +21,7 @@ type Highlight = {
 };
 
 export default function OrderTable({ orders }: OrderTableProps) {
-  const { updateOrderStatus, updatePaymentStatus } = useOrders();
+  const { updateOrderStatus, updatePaymentStatus, getCustomerMessagePreview } = useOrders();
   const [isLoading, setIsLoading] = useState(true);
   useEffect(() => {
     const timer = setTimeout(() => setIsLoading(false), 300);
@@ -51,10 +50,21 @@ export default function OrderTable({ orders }: OrderTableProps) {
     );
   }, [orders]);
 
-  const buildWhatsappLink = (phone: string | undefined, orderId: string) => {
-    const sanitized = (phone ?? "").replace(/\D/g, "");
-    if (!sanitized) return null;
-    return `https://wa.me/${sanitized}?text=${encodeURIComponent(`Hello, regarding order ${orderId}`)}`;
+  const buildWhatsappLink = (order: BakeryOrder) => {
+    const rawDigits = (order.customerPhone ?? "").replace(/\D/g, "");
+    if (!rawDigits) return null;
+
+    const normalized = rawDigits.startsWith("62")
+      ? rawDigits
+      : rawDigits.startsWith("0")
+      ? `62${rawDigits.slice(1)}`
+      : rawDigits.startsWith("8")
+      ? `62${rawDigits}`
+      : rawDigits;
+
+    if (normalized.length < 10) return null;
+    const message = getCustomerMessagePreview(order.id);
+    return `https://wa.me/${normalized}?text=${encodeURIComponent(message)}`;
   };
 
   return (
@@ -99,7 +109,7 @@ export default function OrderTable({ orders }: OrderTableProps) {
             </tr>
           ) : (
             orders.map((order, index) => {
-              const messageLink = buildWhatsappLink(order.customerPhone, order.id);
+              const messageLink = buildWhatsappLink(order);
               return (
               <tr
                 key={order.id}
@@ -192,14 +202,13 @@ export default function OrderTable({ orders }: OrderTableProps) {
                     >
                       View
                     </Link>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="gap-1.5 border-indigo-200 text-indigo-700 hover:bg-indigo-50 focus-visible:ring-indigo-400"
+                    <Link
+                      href={`/bakery/bookings/${order.id}#edit-delivery`}
+                      className="inline-flex h-8 items-center justify-center gap-1.5 rounded-xl border border-indigo-200 px-3 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-50"
                     >
                       <Pencil size={14} />
                       Edit
-                    </Button>
+                    </Link>
                     <a
                         href={messageLink ?? "#"}
                         target={messageLink ? "_blank" : undefined}

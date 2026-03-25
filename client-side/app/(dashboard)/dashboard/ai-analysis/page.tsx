@@ -2,11 +2,17 @@
 
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Bot, Brain, Camera, FileText, Sparkles } from "lucide-react";
+import { Bot, Brain, Camera, FileText, Sparkles, PackageCheck, Truck, BellRing, CalendarClock } from "lucide-react";
 import ImageAnalyzer from "@/app/(dashboard)/components/ai/ImageAnalyzer";
 import AIChatPage from "@/app/(dashboard)/components/ai/AIChatPage";
 import SmartInsightsPanel from "@/app/(dashboard)/components/ai/SmartInsightsPanel";
 import DocumentUploader from "@/app/(dashboard)/components/ai/DocumentUploader";
+import {
+  BAKERY_ORDERS_STORAGE_EVENT,
+  readLocalBakeryOrders,
+  summarizeLocalBakeryOrders,
+  type LocalBakerySummary,
+} from "@/lib/bookings/local-orders";
 
 type AITab = "chat" | "insights" | "documents" | "image";
 
@@ -32,11 +38,32 @@ const itemVariants: any = {
 export default function AIAnalysisPage() {
   const [activeTab, setActiveTab] = useState<AITab>("chat");
   const [mounted, setMounted] = useState(false);
+  const [bakerySummary, setBakerySummary] = useState<LocalBakerySummary>(() =>
+    summarizeLocalBakeryOrders([])
+  );
 
   useEffect(() => {
     const t = setTimeout(() => setMounted(true), 0);
     return () => clearTimeout(t);
   }, []);
+
+  useEffect(() => {
+    if (!mounted || typeof window === "undefined") return;
+
+    const refreshSummary = () => {
+      const orders = readLocalBakeryOrders();
+      setBakerySummary(summarizeLocalBakeryOrders(orders));
+    };
+
+    refreshSummary();
+    window.addEventListener("storage", refreshSummary);
+    window.addEventListener(BAKERY_ORDERS_STORAGE_EVENT, refreshSummary as EventListener);
+
+    return () => {
+      window.removeEventListener("storage", refreshSummary);
+      window.removeEventListener(BAKERY_ORDERS_STORAGE_EVENT, refreshSummary as EventListener);
+    };
+  }, [mounted]);
 
   if (!mounted) return null;
 
@@ -125,6 +152,56 @@ export default function AIAnalysisPage() {
               </motion.button>
             );
           })}
+        </motion.div>
+
+        {/* ─── Bakery Snapshot ─── */}
+        <motion.div
+          variants={itemVariants}
+          className="rounded-xl sm:rounded-2xl border border-amber-100 bg-linear-to-br from-amber-50 via-orange-50 to-rose-50 p-4 sm:p-5"
+        >
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-amber-900">Bakery Operations Snapshot</h3>
+              <p className="text-xs text-amber-700/80">
+                Ringkasan data terbaru dari modul Bakery (booking, resi, automasi)
+              </p>
+            </div>
+            <span className="rounded-full bg-white/70 px-2.5 py-1 text-xs font-medium text-amber-700">
+              Local live
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div className="rounded-lg border border-white/70 bg-white/70 p-3">
+              <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                <PackageCheck className="h-3.5 w-3.5" />
+                Total Booking
+              </p>
+              <p className="mt-1 text-xl font-bold text-gray-900">{bakerySummary.totalOrders}</p>
+            </div>
+            <div className="rounded-lg border border-white/70 bg-white/70 p-3">
+              <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                <Truck className="h-3.5 w-3.5" />
+                Resi Aktif
+              </p>
+              <p className="mt-1 text-xl font-bold text-gray-900">
+                {bakerySummary.withResi}/{bakerySummary.totalOrders}
+              </p>
+            </div>
+            <div className="rounded-lg border border-white/70 bg-white/70 p-3">
+              <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                <CalendarClock className="h-3.5 w-3.5" />
+                Kirim Hari Ini
+              </p>
+              <p className="mt-1 text-xl font-bold text-gray-900">{bakerySummary.deliveryToday}</p>
+            </div>
+            <div className="rounded-lg border border-white/70 bg-white/70 p-3">
+              <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                <BellRing className="h-3.5 w-3.5" />
+                Pending Automasi
+              </p>
+              <p className="mt-1 text-xl font-bold text-gray-900">{bakerySummary.pendingAutomation}</p>
+            </div>
+          </div>
         </motion.div>
 
         {/* ─── Tab Content ─── */}

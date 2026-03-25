@@ -36,6 +36,15 @@ function formatDate(baseDate: string, offset: number) {
   return `${date.toISOString().slice(0, 10)} 09:00`;
 }
 
+function formatActor(entry: OrderStatusLog): string {
+  if (entry.actorName && entry.userId) {
+    return `${entry.actorName} (#${entry.userId})`;
+  }
+  if (entry.actorName) return entry.actorName;
+  if (entry.userId) return `User #${entry.userId}`;
+  return "System";
+}
+
 export default function OrderTimeline({
   status,
   deliveryDate,
@@ -77,7 +86,8 @@ export default function OrderTimeline({
                       {new Date(entry.timestamp).toLocaleString("id-ID", {
                         dateStyle: "medium",
                         timeStyle: "short",
-                      })}
+                      })}{" "}
+                      · {formatActor(entry)}
                     </p>
                   </div>
                 </div>

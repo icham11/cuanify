@@ -1,0 +1,77 @@
+export type ShippingProvider = "JNE" | "PAXEL";
+export type ShippingDataSource = "biteship" | "fallback";
+
+export interface ShippingQuoteItemInput {
+  name: string;
+  quantity: number;
+  weightGram: number;
+  value: number;
+}
+
+export interface ShippingQuoteRequest {
+  destinationAddress: string;
+  destinationPostalCode?: string;
+  destinationArea?: string;
+  destinationLatitude?: number;
+  destinationLongitude?: number;
+  items: ShippingQuoteItemInput[];
+  totalValue: number;
+}
+
+export interface ShippingQuote {
+  id: string;
+  provider: ShippingProvider;
+  courierCode: string;
+  courierServiceCode: string;
+  courierServiceName: string;
+  price: number;
+  eta: string;
+  distanceKm: number;
+  source: ShippingDataSource;
+}
+
+export interface ShippingQuoteResponse {
+  success: boolean;
+  quotes: ShippingQuote[];
+  distanceKm: number;
+  destinationLatitude?: number;
+  destinationLongitude?: number;
+  warning?: string;
+  error?: string;
+}
+
+export interface ShippingResiRequest {
+  orderId: string;
+  bookingCode: string;
+  customerName: string;
+  customerPhone: string;
+  destinationAddress: string;
+  destinationPostalCode?: string;
+  destinationLatitude?: number;
+  destinationLongitude?: number;
+  deliveryDate?: string;
+  deliveryTime?: string;
+  selectedQuote: ShippingQuote;
+  items: ShippingQuoteItemInput[];
+  totalValue: number;
+}
+
+export interface ShippingShipment {
+  provider: ShippingProvider;
+  courierCode: string;
+  courierServiceCode: string;
+  courierServiceName: string;
+  trackingNumber: string;
+  status: "created" | "pending_waybill";
+  source: ShippingDataSource;
+  externalOrderId?: string;
+  trackingUrl?: string;
+  createdAt: string;
+}
+
+export interface ShippingResiResponse {
+  success: boolean;
+  shipment?: ShippingShipment;
+  warning?: string;
+  error?: string;
+}

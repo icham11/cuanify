@@ -6,10 +6,24 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useState,
   useSyncExternalStore,
 } from "react";
 import { toast } from "sonner";
-import { bakeryOrders } from "@/components/bakery/mockData";
+import type { ParsedWhatsAppOrder } from "@/lib/bookings/whatsapp-parser";
+import type {
+  BookingAutomationEvent,
+  BookingAutomationOrderPayload,
+  BookingAutomationResponse,
+} from "@/lib/bookings/automation-types";
+import type {
+  ShippingQuote,
+  ShippingShipment,
+} from "@/lib/bookings/shipping-types";
+import {
+  BAKERY_DOWN_PAYMENT_PERCENT,
+  calculateDownPayment,
+} from "@/lib/bookings/config";
 
 export type OrderStatus =
   | "Inquiry"
@@ -29,6 +43,16 @@ export interface OrderStatusLog {
   status: OrderStatus;
   timestamp: string;
   note: string;
+  userId?: number | null;
+  actorName?: string;
+}
+
+export interface OrderAutomationLog {
+  id: string;
+  eventType: BookingAutomationEvent;
+  timestamp: string;
+  success: boolean;
+  summary: string;
 }
 
 export interface OrderItem {
@@ -77,9 +101,21 @@ export interface BakeryOrder {
   paymentStatus: PaymentStatus;
   orderStatus: OrderStatus;
   statusHistory: OrderStatusLog[];
+  automationLogs?: OrderAutomationLog[];
+  whatsAppParsedData?: ParsedWhatsAppOrder;
+  shippingQuote?: ShippingQuote | null;
+  shipment?: ShippingShipment | null;
   simulations?: {
     whatsappSent: boolean;
+    productionWhatsappSent: boolean;
+    customerWhatsappSent: boolean;
     calendarEventCreated: boolean;
+    calendarEventId?: string;
+    calendarEventLink?: string;
+    googleSheetsSynced: boolean;
+    googleSheetsRange?: string;
+    lastAutomationMessage?: string;
+    lastAutomationAt?: string;
   };
 }
 
@@ -99,157 +135,110 @@ export interface NewOrderInput {
   downPaymentAmount: number;
   remainingBalance: number;
   paymentStatus: PaymentStatus;
+  whatsAppParsedData?: ParsedWhatsAppOrder;
+  shippingQuote?: ShippingQuote | null;
 }
 
 interface OrdersContextValue {
   orders: BakeryOrder[];
   addOrder: (order: NewOrderInput) => void;
-  updateOrderStatus: (id: string, status: OrderStatus) => void;
+  updateOrderStatus: (id: string, status: OrderStatus) => Promise<void>;
   updatePaymentStatus: (id: string, status: PaymentStatus) => void;
-  updateOrderSchedule: (id: string, deliveryDate: string, deliverySlot: string) => void;
-  approveOrder: (id: string) => void;
+  updateOrderSchedule: (
+    id: string,
+    deliveryDate: string,
+    deliverySlot: string,
+  ) => void;
+  approveOrder: (id: string) => Promise<void>;
   getCustomerMessagePreview: (id: string) => string;
+  setOrderShipment: (id: string, shipment: ShippingShipment) => void;
 }
 
 const OrdersContext = createContext<OrdersContextValue | null>(null);
 
-function normalizeOrders(): BakeryOrder[] {
-  type LegacyOrder = {
-    id: string;
-    resi?: string;
-    customerName: string;
-    deliveryDate: string;
-    product: string;
-    totalPrice: number;
-    paymentStatus: string;
-    orderStatus: string;
-  } & Partial<BakeryOrder>;
-
-  const normalizeStatus = (value: string): OrderStatus => {
-    if (value === "Pending") return "Inquiry";
-    if (value === "DP") return "DP Paid";
-    if (value === "Paid") return "Completed";
-    if (value === "Delivered") return "Delivered";
-    const allowed: OrderStatus[] = [
-      "Inquiry",
-      "Quoted",
-      "DP Paid",
-      "Confirmed",
-      "In Production",
-      "Ready",
-      "Completed",
-      "Cancelled",
-      "Delivered",
-    ];
-    return allowed.includes(value as OrderStatus)
-      ? (value as OrderStatus)
-      : "Inquiry";
-  };
-
-  const normalizePayment = (value: string): PaymentStatus => {
-    if (value === "Pending") return "Pending";
-    if (value === "DP") return "DP Paid";
-    if (value === "Paid") return "Paid";
-    return value === "DP Paid" ? "DP Paid" : value === "Paid" ? "Paid" : "Pending";
-  };
-
-  return bakeryOrders.map((legacyOrder) => {
-    const order = legacyOrder as LegacyOrder;
-    return {
-    ...order,
-    resi: order.resi ?? "",
-    bookingCode: order.resi ?? "",
-    customerPhone: order.customerPhone ?? "",
-    customerAddress: order.customerAddress ?? "",
-    deliverySlot: order.deliverySlot ?? "09:00",
-    basePrice: order.basePrice ?? order.totalPrice,
-    addOnTotal: order.addOnTotal ?? 0,
-    deliveryFee: order.deliveryFee ?? 0,
-    manualAdjustment: order.manualAdjustment ?? 0,
-    downPaymentAmount:
-      order.downPaymentAmount ?? Math.round((order.totalPrice ?? 0) * 0.5),
-    remainingBalance:
-      order.remainingBalance ??
-      Math.max(0, (order.totalPrice ?? 0) - Math.round((order.totalPrice ?? 0) * 0.5)),
-    items: order.items ?? [
-      {
-        id: `item-${order.id}`,
-        category: "Cake",
-        subcategory: "Custom",
-        productName: order.product,
-        size: order.size ?? "8 inch",
-        quantity: 1,
-        basePrice: order.basePrice ?? order.totalPrice,
-        addOns: order.addOns ? order.addOns.split(", ") : [],
-        addOnTotal: order.addOnTotal ?? 0,
-      },
-    ],
-    deliveryAddresses: order.deliveryAddresses ?? [
-      {
-        id: `addr-${order.id}`,
-        label: "Primary",
-        area: order.customerAddress ?? "Central City",
-        addressLine: order.customerAddress ?? "Not specified",
-      },
-    ],
-    orderStatus: normalizeStatus(order.orderStatus),
-    paymentStatus: normalizePayment(order.paymentStatus),
-    statusHistory: order.statusHistory ?? [
-      {
-        id: `log-${order.id}-created`,
-        status: normalizeStatus(order.orderStatus),
-        timestamp: `${order.deliveryDate}T09:00:00.000Z`,
-        note: "Booking created",
-      },
-    ],
-    simulations: order.simulations ?? {
-      whatsappSent: false,
-      calendarEventCreated: false,
-    },
-  };
-  });
-}
-
-const initialOrders = normalizeOrders();
+const initialOrders: BakeryOrder[] = [];
 const STORAGE_KEY = "bakeryOrdersState";
 const STORAGE_EVENT = "bakeryOrdersUpdated";
 const INITIAL_SNAPSHOT = JSON.stringify(initialOrders);
 let hasHydrated = false;
 
-function getInitialCounter(orders: BakeryOrder[]) {
-  const maxResi = orders.reduce((max, order) => {
-    const source = order.resi || order.id;
-    const match = /(\d+)/.exec(source);
-    if (!match) return max;
-    const value = Number(match[1]);
-    return Number.isNaN(value) ? max : Math.max(max, value);
-  }, 9300);
-  return maxResi + 1;
+function formatIdr(value: number): string {
+  return `Rp ${Math.round(Number(value || 0)).toLocaleString("id-ID")}`;
+}
+
+function paymentStatusLabel(status: PaymentStatus): string {
+  if (status === "Paid") return "Lunas";
+  if (status === "DP Paid") return "DP Sudah Dibayar";
+  return "Belum Bayar";
+}
+
+function toBookingDatePart(deliveryDate: string): string {
+  const isoMatch = deliveryDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoMatch) {
+    const yearShort = isoMatch[1].slice(-2);
+    return `${isoMatch[3]}${isoMatch[2]}${yearShort}`;
+  }
+
+  const parsed = new Date(deliveryDate);
+  if (Number.isNaN(parsed.getTime())) {
+    return "000000";
+  }
+
+  const dd = String(parsed.getDate()).padStart(2, "0");
+  const mm = String(parsed.getMonth() + 1).padStart(2, "0");
+  const yy = String(parsed.getFullYear()).slice(-2);
+  return `${dd}${mm}${yy}`;
+}
+
+function extractSequenceForDate(code: string, datePart: string): number {
+  const normalized = code.replace(/\s+/g, "").toUpperCase();
+  if (!normalized || !datePart || datePart === "000000") return 0;
+  const pattern = new RegExp(`^[A-Z]{2}\\d{3}-${datePart}-(\\d{3})$`);
+  const match = normalized.match(pattern);
+  if (!match?.[1]) return 0;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function getDailyBookingSequence(
+  orders: BakeryOrder[],
+  deliveryDate: string,
+): number {
+  const datePart = toBookingDatePart(deliveryDate);
+  const max = orders.reduce((currentMax, order) => {
+    const fromBooking = extractSequenceForDate(
+      order.bookingCode || "",
+      datePart,
+    );
+    const fromResi = extractSequenceForDate(order.resi || "", datePart);
+    return Math.max(currentMax, fromBooking, fromResi);
+  }, 0);
+  return max + 1;
 }
 
 function generateBookingCode(
   customerName: string,
   customerPhone: string,
   deliveryDate: string,
-  sequence: number
+  sequence: number,
 ) {
   const initials = customerName
-    .replace(/[^a-zA-Z\s]/g, "")
-    .trim()
+    .replace(/[^a-zA-Z]/g, "")
     .slice(0, 2)
     .toUpperCase()
     .padEnd(2, "X");
   const phoneDigits = customerPhone.replace(/\D/g, "");
   const lastThree = phoneDigits.slice(-3).padStart(3, "0");
-  const datePart = deliveryDate.replace(/-/g, "").slice(0, 8);
+  const datePart = toBookingDatePart(deliveryDate);
   const sequencePart = String(sequence).padStart(3, "0");
-  return `${initials}${lastThree}${datePart}${sequencePart}`;
+  return `${initials}${lastThree}-${datePart}-${sequencePart}`;
 }
 
 function appendStatusLog(
   history: OrderStatusLog[] | undefined,
   status: OrderStatus,
-  note: string
+  note: string,
+  actor?: { userId: number | null; name: string },
 ) {
   return [
     ...(history ?? []),
@@ -258,8 +247,96 @@ function appendStatusLog(
       status,
       timestamp: new Date().toISOString(),
       note,
+      userId: actor?.userId ?? null,
+      actorName: actor?.name || "System",
     },
   ];
+}
+
+function appendAutomationLog(
+  history: OrderAutomationLog[] | undefined,
+  eventType: BookingAutomationEvent,
+  success: boolean,
+  summary: string,
+) {
+  return [
+    ...(history ?? []),
+    {
+      id: `automation-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      eventType,
+      timestamp: new Date().toISOString(),
+      success,
+      summary,
+    },
+  ];
+}
+
+function buildAutomationPayload(
+  order: BakeryOrder,
+): BookingAutomationOrderPayload {
+  return {
+    id: order.id,
+    bookingCode: order.bookingCode || "",
+    resi: order.resi || "",
+    customerName: order.customerName || "",
+    customerPhone: order.customerPhone || "",
+    deliveryDate: order.deliveryDate || "",
+    deliverySlot: order.deliverySlot || "",
+    paymentStatus: order.paymentStatus,
+    orderStatus: order.orderStatus,
+    totalPrice: Number(order.totalPrice || 0),
+    deliveryFee: Number(order.deliveryFee || 0),
+    notes: order.notes || "",
+    items: (order.items ?? []).map((item) => ({
+      id: item.id,
+      category: item.category,
+      subcategory: item.subcategory,
+      productName: item.productName,
+      size: item.size,
+      quantity: Number(item.quantity || 0),
+      notes: item.notes || "",
+    })),
+    deliveryAddresses: (order.deliveryAddresses ?? []).map((address) => ({
+      id: address.id,
+      label: address.label,
+      area: address.area,
+      addressLine: address.addressLine,
+    })),
+  };
+}
+
+function summarizeAutomationResult(result: BookingAutomationResponse): {
+  success: boolean;
+  message: string;
+} {
+  const actions = [
+    result.calendar,
+    result.fonnteProduction,
+    result.fonnteCustomer,
+    result.sheets,
+  ];
+  const effective = actions.filter((item) => !item.skipped);
+  const successCount = effective.filter((item) => item.ok).length;
+  const failCount = effective.length - successCount;
+
+  if (effective.length === 0) {
+    return {
+      success: true,
+      message: "Tidak ada automasi aktif untuk event ini.",
+    };
+  }
+
+  if (failCount === 0) {
+    return {
+      success: true,
+      message: `Automasi berhasil (${successCount}/${effective.length}).`,
+    };
+  }
+
+  return {
+    success: false,
+    message: `Automasi selesai dengan kendala (${successCount} berhasil, ${failCount} gagal).`,
+  };
 }
 
 function subscribe(callback: () => void) {
@@ -296,9 +373,19 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
   const snapshot = useSyncExternalStore(
     subscribe,
     getSnapshot,
-    getServerSnapshot
+    getServerSnapshot,
   );
-  const orders = useMemo<BakeryOrder[]>(() => parseSnapshot(snapshot), [snapshot]);
+  const orders = useMemo<BakeryOrder[]>(
+    () => parseSnapshot(snapshot),
+    [snapshot],
+  );
+  const [actorIdentity, setActorIdentity] = useState<{
+    userId: number | null;
+    name: string;
+  }>({
+    userId: null,
+    name: "System",
+  });
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -308,26 +395,181 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    let isMounted = true;
+
+    const fetchActorIdentity = async () => {
+      try {
+        const response = await fetch("/api/auth/me", { cache: "no-store" });
+        if (!response.ok) return;
+        const payload = (await response.json()) as {
+          data?: { userId?: number; name?: string };
+        };
+        const parsedId = Number(payload.data?.userId);
+        if (!Number.isFinite(parsedId)) return;
+        if (!isMounted) return;
+        setActorIdentity({
+          userId: parsedId,
+          name: payload.data?.name?.trim() || `User #${parsedId}`,
+        });
+      } catch {
+        // Keep default actor when identity endpoint is unavailable.
+      }
+    };
+
+    void fetchActorIdentity();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   const persistOrders = useCallback((nextOrders: BakeryOrder[]) => {
     if (typeof window === "undefined") return;
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextOrders));
     window.dispatchEvent(new Event(STORAGE_EVENT));
   }, []);
 
+  const runAutomationsForOrder = useCallback(
+    async (eventType: BookingAutomationEvent, orderId: string) => {
+      if (typeof window === "undefined") return;
+
+      const currentSnapshot =
+        window.localStorage.getItem(STORAGE_KEY) ?? INITIAL_SNAPSHOT;
+      const currentOrders = parseSnapshot(currentSnapshot);
+      const targetOrder = currentOrders.find((item) => item.id === orderId);
+      if (!targetOrder) return;
+
+      try {
+        const response = await fetch("/api/bookings/automations", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            eventType,
+            order: buildAutomationPayload(targetOrder),
+          }),
+        });
+
+        const payload = (await response.json().catch(() => ({}))) as
+          | BookingAutomationResponse
+          | { error?: string; details?: string };
+
+        if (!response.ok || !("success" in payload)) {
+          const errorMessage =
+            "error" in payload && payload.error
+              ? payload.error
+              : "Automation API failed.";
+          throw new Error(errorMessage);
+        }
+
+        const summary = summarizeAutomationResult(payload);
+        const nextOrders = currentOrders.map((order) => {
+          if (order.id !== orderId) return order;
+
+          return {
+            ...order,
+            simulations: {
+              whatsappSent:
+                order.simulations?.whatsappSent ||
+                payload.fonnteCustomer.ok ||
+                payload.fonnteProduction.ok,
+              productionWhatsappSent:
+                order.simulations?.productionWhatsappSent ||
+                payload.fonnteProduction.ok,
+              customerWhatsappSent:
+                order.simulations?.customerWhatsappSent ||
+                payload.fonnteCustomer.ok,
+              calendarEventCreated:
+                order.simulations?.calendarEventCreated || payload.calendar.ok,
+              calendarEventId:
+                payload.calendar.externalId ||
+                order.simulations?.calendarEventId,
+              calendarEventLink:
+                payload.calendar.externalLink ||
+                order.simulations?.calendarEventLink,
+              googleSheetsSynced:
+                order.simulations?.googleSheetsSynced || payload.sheets.ok,
+              googleSheetsRange:
+                payload.sheets.externalId ||
+                order.simulations?.googleSheetsRange,
+              lastAutomationMessage: summary.message,
+              lastAutomationAt: new Date().toISOString(),
+            },
+            automationLogs: appendAutomationLog(
+              order.automationLogs,
+              eventType,
+              summary.success,
+              summary.message,
+            ),
+          };
+        });
+
+        persistOrders(nextOrders);
+        if (summary.success) {
+          toast.success(summary.message);
+        } else {
+          toast.warning(summary.message);
+        }
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Automation run failed.";
+        const nextOrders = currentOrders.map((order) => {
+          if (order.id !== orderId) return order;
+
+          return {
+            ...order,
+            simulations: {
+              whatsappSent: order.simulations?.whatsappSent ?? false,
+              productionWhatsappSent:
+                order.simulations?.productionWhatsappSent ?? false,
+              customerWhatsappSent:
+                order.simulations?.customerWhatsappSent ?? false,
+              calendarEventCreated:
+                order.simulations?.calendarEventCreated ?? false,
+              calendarEventId: order.simulations?.calendarEventId,
+              calendarEventLink: order.simulations?.calendarEventLink,
+              googleSheetsSynced:
+                order.simulations?.googleSheetsSynced ?? false,
+              googleSheetsRange: order.simulations?.googleSheetsRange,
+              lastAutomationMessage: message,
+              lastAutomationAt: new Date().toISOString(),
+            },
+            automationLogs: appendAutomationLog(
+              order.automationLogs,
+              eventType,
+              false,
+              message,
+            ),
+          };
+        });
+        persistOrders(nextOrders);
+        toast.error(`Automasi gagal: ${message}`);
+      }
+    },
+    [persistOrders],
+  );
+
   const addOrder = useCallback(
     (order: NewOrderInput) => {
-      const sequence = getInitialCounter(orders);
-      const id = String(sequence);
+      const nextId =
+        orders.reduce((max, item) => {
+          const parsed = Number(item.id);
+          return Number.isFinite(parsed) ? Math.max(max, parsed) : max;
+        }, 9300) + 1;
+      const id = String(nextId);
+      const sequence = getDailyBookingSequence(orders, order.deliveryDate);
       const bookingCode = generateBookingCode(
         order.customerName,
         order.customerPhone,
         order.deliveryDate,
-        sequence
+        sequence,
       );
       const newOrder: BakeryOrder = {
         id,
         resi: "",
-        bookingCode: "",
+        bookingCode,
         customerName: order.customerName,
         customerPhone: order.customerPhone,
         customerAddress: order.deliveryAddresses[0]?.addressLine ?? "",
@@ -344,57 +586,116 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         deliveryAddresses: order.deliveryAddresses,
         cakeType: order.items[0]?.subcategory,
         size: order.items[0]?.size,
-        addOns: order.items
-          .flatMap((item) => item.addOns)
-          .join(", "),
+        addOns: order.items.flatMap((item) => item.addOns).join(", "),
         product: `${order.items.length} item(s)`,
         totalPrice: order.totalPrice,
         paymentStatus: order.paymentStatus,
         orderStatus: "Inquiry",
+        whatsAppParsedData: order.whatsAppParsedData,
+        shippingQuote: order.shippingQuote ?? null,
+        shipment: null,
+        automationLogs: [],
         statusHistory: [
           {
             id: `log-${id}-created`,
             status: "Inquiry",
             timestamp: new Date().toISOString(),
             note: "Booking created",
+            userId: actorIdentity.userId,
+            actorName: actorIdentity.name,
           },
         ],
         simulations: {
           whatsappSent: false,
+          productionWhatsappSent: false,
+          customerWhatsappSent: false,
           calendarEventCreated: false,
+          googleSheetsSynced: false,
         },
       };
       const nextOrders = [newOrder, ...orders];
       persistOrders(nextOrders);
       toast.success(`Draft booking created: ${bookingCode}`);
+      void runAutomationsForOrder("order_created", id);
     },
-    [orders, persistOrders]
+    [orders, persistOrders, actorIdentity, runAutomationsForOrder],
   );
 
-  const updateOrderStatus = useCallback((id: string, status: OrderStatus) => {
-    const nextOrders: BakeryOrder[] = orders.map((order) => {
-      if (order.id !== id || order.orderStatus === status) return order;
-      return {
-        ...order,
-        orderStatus: status,
-        statusHistory: appendStatusLog(order.statusHistory, status, `Status changed to ${status}`),
-      };
-    });
-    persistOrders(nextOrders);
-    toast.message("Order status updated");
-  }, [orders, persistOrders]);
+  const updateOrderStatus = useCallback(
+    async (id: string, status: OrderStatus) => {
+      const targetOrder = orders.find((order) => order.id === id);
+      const sequence = targetOrder
+        ? getDailyBookingSequence(orders, targetOrder.deliveryDate)
+        : 1;
+      let hasChanged = false;
+      let triggeredEvent: BookingAutomationEvent | null = null;
+
+      const nextOrders: BakeryOrder[] = orders.map((order) => {
+        if (order.id !== id || order.orderStatus === status) return order;
+        hasChanged = true;
+
+        let bookingCode = order.bookingCode || "";
+        let resi = order.resi || "";
+        let note = `Status changed to ${status}`;
+
+        if (status === "Confirmed") {
+          bookingCode =
+            bookingCode ||
+            generateBookingCode(
+              order.customerName,
+              order.customerPhone,
+              order.deliveryDate,
+              sequence,
+            );
+          resi = resi || bookingCode;
+          note = "Order confirmed by admin";
+          triggeredEvent = "order_confirmed";
+        } else if (status === "Completed") {
+          triggeredEvent = "order_completed";
+        }
+
+        return {
+          ...order,
+          bookingCode,
+          resi,
+          orderStatus: status,
+          statusHistory: appendStatusLog(
+            order.statusHistory,
+            status,
+            note,
+            actorIdentity,
+          ),
+        };
+      });
+
+      if (!hasChanged) return;
+      persistOrders(nextOrders);
+      if (status === "Confirmed") {
+        toast.success("Order confirmed. Menjalankan automasi...");
+      } else {
+        toast.message("Order status updated");
+      }
+
+      if (triggeredEvent) {
+        await runAutomationsForOrder(triggeredEvent, id);
+      }
+    },
+    [orders, persistOrders, runAutomationsForOrder, actorIdentity],
+  );
 
   const updatePaymentStatus = useCallback(
     (id: string, status: PaymentStatus) => {
       const nextOrders: BakeryOrder[] = orders.map((order) => {
         if (order.id !== id) return order;
-        const downPaymentAmount = order.downPaymentAmount ?? Math.round((order.totalPrice ?? 0) * 0.5);
+        const downPaymentAmount =
+          order.downPaymentAmount ??
+          calculateDownPayment(order.totalPrice ?? 0);
         const remainingBalance =
           status === "Paid"
             ? 0
             : status === "DP Paid"
-            ? Math.max(0, (order.totalPrice ?? 0) - downPaymentAmount)
-            : order.totalPrice ?? 0;
+              ? Math.max(0, (order.totalPrice ?? 0) - downPaymentAmount)
+              : (order.totalPrice ?? 0);
         return {
           ...order,
           paymentStatus: status,
@@ -405,7 +706,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       persistOrders(nextOrders);
       toast.message("Payment status updated");
     },
-    [orders, persistOrders]
+    [orders, persistOrders],
   );
 
   const updateOrderSchedule = useCallback(
@@ -419,43 +720,39 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
           statusHistory: appendStatusLog(
             order.statusHistory,
             order.orderStatus,
-            `Rescheduled to ${deliveryDate} ${deliverySlot}`
+            `Rescheduled to ${deliveryDate} ${deliverySlot}`,
+            actorIdentity,
           ),
         };
       });
       persistOrders(nextOrders);
       toast.success("Order schedule updated");
+      void runAutomationsForOrder("order_rescheduled", id);
     },
-    [orders, persistOrders]
+    [orders, persistOrders, runAutomationsForOrder, actorIdentity],
   );
 
-  const approveOrder = useCallback((id: string) => {
-    const nextOrders: BakeryOrder[] = orders.map((order) => {
-      if (order.id !== id) return order;
-      const sequence = getInitialCounter(orders);
-      const bookingCode =
-        order.bookingCode ||
-        generateBookingCode(
-          order.customerName,
-          order.customerPhone,
-          order.deliveryDate,
-          sequence
-        );
-      return {
-        ...order,
-        bookingCode,
-        resi: bookingCode,
-        orderStatus: "Confirmed",
-        statusHistory: appendStatusLog(order.statusHistory, "Confirmed", "Order approved"),
-        simulations: {
-          whatsappSent: true,
-          calendarEventCreated: true,
-        },
-      };
-    });
-    persistOrders(nextOrders);
-    toast.success("Order approved. WhatsApp sent and calendar event created.");
-  }, [orders, persistOrders]);
+  const approveOrder = useCallback(
+    async (id: string) => {
+      await updateOrderStatus(id, "Confirmed");
+    },
+    [updateOrderStatus],
+  );
+
+  const setOrderShipment = useCallback(
+    (id: string, shipment: ShippingShipment) => {
+      const nextOrders: BakeryOrder[] = orders.map((order) => {
+        if (order.id !== id) return order;
+        return {
+          ...order,
+          shipment,
+        };
+      });
+      persistOrders(nextOrders);
+      toast.success(`Resi tersimpan: ${shipment.trackingNumber}`);
+    },
+    [orders, persistOrders],
+  );
 
   const getCustomerMessagePreview = useCallback(
     (id: string) => {
@@ -464,12 +761,50 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       const code = order.resi || order.bookingCode || "(pending code)";
       const productList =
         order.items?.length > 0
-          ? order.items.map((item) => `${item.quantity}x ${item.productName}`).join(", ")
-          : order.product;
-      const amount = (order.totalPrice ?? 0).toLocaleString("id-ID");
-      return `Hi ${order.customerName}, your order ${code} is confirmed. Items: ${productList}. Total: Rp ${amount}. Delivery: ${order.deliveryDate} ${order.deliverySlot}. Thank you.`;
+          ? order.items
+              .map(
+                (item) =>
+                  `${item.quantity}x ${item.productName} (${item.size})`,
+              )
+              .join(", ")
+          : order.product || "-";
+      const address =
+        order.deliveryAddresses?.[0]?.addressLine ||
+        order.customerAddress ||
+        "-";
+      const shippingMethod = order.shippingQuote
+        ? `${order.shippingQuote.provider} ${order.shippingQuote.courierServiceName}`
+        : "-";
+      const dpAmount =
+        order.downPaymentAmount ?? calculateDownPayment(order.totalPrice ?? 0);
+      const remainingBalance =
+        order.paymentStatus === "Paid"
+          ? 0
+          : (order.remainingBalance ??
+            Math.max(0, (order.totalPrice ?? 0) - dpAmount));
+      const tracking = order.shipment?.trackingNumber || "-";
+
+      return [
+        `Halo Kak ${order.customerName || "Customer"},`,
+        "Terima kasih sudah order di Crumbella.",
+        "",
+        `Kode Booking: ${code}`,
+        `Pesanan: ${productList}`,
+        `Tanggal Pengiriman: ${order.deliveryDate || "-"}`,
+        `Jam Pengiriman: ${order.deliverySlot || "-"}`,
+        `Metode Pengiriman: ${shippingMethod}`,
+        `Alamat Pengiriman: ${address}`,
+        "",
+        `Total: ${formatIdr(order.totalPrice ?? 0)}`,
+        `DP (${BAKERY_DOWN_PAYMENT_PERCENT}%): ${formatIdr(dpAmount)}`,
+        `Sisa Bayar: ${formatIdr(remainingBalance)}`,
+        `Status Pembayaran: ${paymentStatusLabel(order.paymentStatus)}`,
+        `No. Resi: ${tracking}`,
+        "",
+        "Mohon dicek ya Kak. Jika ada revisi, silakan balas chat ini.",
+      ].join("\n");
     },
-    [orders]
+    [orders],
   );
 
   const value = useMemo(
@@ -481,6 +816,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       updateOrderSchedule,
       approveOrder,
       getCustomerMessagePreview,
+      setOrderShipment,
     }),
     [
       orders,
@@ -490,7 +826,8 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       updateOrderSchedule,
       approveOrder,
       getCustomerMessagePreview,
-    ]
+      setOrderShipment,
+    ],
   );
 
   return (

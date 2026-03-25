@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import StatusBadge from "@/components/bakery/shared/StatusBadge";
@@ -15,6 +15,35 @@ import { useOrders } from "@/components/bakery/store";
 import { useParams } from "next/navigation";
 import { formatCurrency } from "@/components/orders/formatters";
 import { toast } from "sonner";
+import {
+  getDisplayFields,
+  WHATSAPP_ORDER_LABELS,
+} from "@/lib/bookings/whatsapp-parser";
+import type { ShippingResiResponse } from "@/lib/bookings/shipping-types";
+import {
+  countConcurrentOrdersForSlot,
+  getDeliverySlotsForDate,
+  getSlotLimitByItems,
+} from "@/lib/bookings/operations";
+import {
+  BAKERY_BLOCKED_DATES,
+  BAKERY_DOWN_PAYMENT_PERCENT,
+  calculateDownPayment,
+} from "@/lib/bookings/config";
+
+const WEIGHT_ESTIMATE_GRAM_BY_CATEGORY: Record<string, number> = {
+  Cake: 1800,
+  Cookies: 350,
+  Cupcakes: 450,
+  Buket: 1200,
+  "Cookies Tower": 3000,
+};
+
+function estimateItemWeightGram(category: string, quantity: number): number {
+  const base = WEIGHT_ESTIMATE_GRAM_BY_CATEGORY[category] ?? 500;
+  const qty = Math.max(1, Number(quantity) || 1);
+  return Math.max(100, Math.round(base * qty));
+}
 
 export default function OrderDetailPage() {
   const {
@@ -23,47 +52,70 @@ export default function OrderDetailPage() {
     updateOrderSchedule,
     updatePaymentStatus,
     getCustomerMessagePreview,
+    setOrderShipment,
   } = useOrders();
   const params = useParams();
   const orderId = typeof params?.id === "string" ? params.id : "";
   const [rescheduleDate, setRescheduleDate] = useState("");
-  const [rescheduleSlot, setRescheduleSlot] = useState("09:00");
+  const [rescheduleSlot, setRescheduleSlot] = useState("");
+  const [isApproving, setIsApproving] = useState(false);
+  const [isCreatingResi, setIsCreatingResi] = useState(false);
 
   const order = useMemo(
     () => orders.find((item) => item.id === orderId),
-    [orders, orderId]
+    [orders, orderId],
   );
 
-  const slotLimitPerHour = 3;
-  const blockedDates = ["2026-03-31", "2026-04-18"];
-  const deliverySlots = ["08:00", "09:00", "10:00", "11:00", "13:00", "14:00", "15:00", "16:00"];
-
   const effectiveDate = rescheduleDate || order?.deliveryDate || "";
-  const effectiveSlot = rescheduleSlot || order?.deliverySlot || "09:00";
+  const effectiveSlot = rescheduleSlot || order?.deliverySlot || "10:00";
+  const slotLimitPerHour = useMemo(
+    () => getSlotLimitByItems(order?.items ?? []),
+    [order?.items],
+  );
+  const deliverySlots = useMemo(
+    () => getDeliverySlotsForDate(effectiveDate),
+    [effectiveDate],
+  );
+
+  useEffect(() => {
+    if (!deliverySlots.length) return;
+    const preferred = rescheduleSlot || order?.deliverySlot || deliverySlots[0];
+    if (!deliverySlots.includes(preferred)) {
+      setRescheduleSlot(deliverySlots[0]);
+      return;
+    }
+    if (!rescheduleSlot) {
+      setRescheduleSlot(preferred);
+    }
+  }, [deliverySlots, rescheduleSlot, order?.deliverySlot]);
 
   const slotUsage = useMemo(() => {
     if (!effectiveDate || !effectiveSlot) return 0;
-    return orders.filter(
-      (item) =>
-        item.id !== orderId &&
-        item.deliveryDate === effectiveDate &&
-        item.deliverySlot === effectiveSlot &&
-        !["Cancelled", "Completed"].includes(item.orderStatus)
-    ).length;
-  }, [orders, orderId, effectiveDate, effectiveSlot]);
+    return countConcurrentOrdersForSlot({
+      orders,
+      deliveryDate: effectiveDate,
+      deliverySlot: effectiveSlot,
+      targetItems: order?.items ?? [],
+      excludeOrderId: orderId,
+    });
+  }, [orders, order, orderId, effectiveDate, effectiveSlot]);
 
   const isBlockedDate = Boolean(
-    effectiveDate &&
-      (blockedDates.includes(effectiveDate) || new Date(effectiveDate).getDay() === 0)
+    effectiveDate && BAKERY_BLOCKED_DATES.includes(effectiveDate),
   );
   const isSlotFull = slotUsage >= slotLimitPerHour;
 
   const totalPrice = order?.totalPrice ?? 0;
   const messagePreview = order ? getCustomerMessagePreview(order.id) : "";
 
-  const handleApprove = () => {
+  const handleApprove = async () => {
     if (!order) return;
-    approveOrder(order.id);
+    setIsApproving(true);
+    try {
+      await approveOrder(order.id);
+    } finally {
+      setIsApproving(false);
+    }
   };
 
   const handleReschedule = () => {
@@ -99,6 +151,7 @@ export default function OrderDetailPage() {
           <div class="label">
             <div class="title">ORDER LABEL</div>
             <div class="row"><strong>Code:</strong> ${order.resi || order.bookingCode || order.id}</div>
+            <div class="row"><strong>Resi:</strong> ${order.shipment?.trackingNumber || "-"}</div>
             <div class="row"><strong>Name:</strong> ${order.customerName}</div>
             <div class="row"><strong>Phone:</strong> ${order.customerPhone || "-"}</div>
             <div class="row"><strong>Address:</strong><br />${addressLines || "-"}</div>
@@ -120,6 +173,77 @@ export default function OrderDetailPage() {
       toast.success("Customer message copied");
     } catch {
       toast.error("Failed to copy message");
+    }
+  };
+
+  const handleCreateResi = async () => {
+    if (!order) return;
+    if (!order.shippingQuote) {
+      toast.error(
+        "Quote pengiriman belum dipilih. Cek ongkir dulu di form booking.",
+      );
+      return;
+    }
+
+    const primaryAddress =
+      order.deliveryAddresses?.[0]?.addressLine || order.customerAddress || "";
+    if (!primaryAddress) {
+      toast.error("Alamat penerima belum lengkap.");
+      return;
+    }
+
+    setIsCreatingResi(true);
+    try {
+      const items = (order.items ?? []).map((item) => ({
+        name: `${item.productName} (${item.size})`,
+        quantity: Math.max(1, Number(item.quantity) || 1),
+        weightGram: estimateItemWeightGram(
+          item.category,
+          Number(item.quantity) || 1,
+        ),
+        value: Math.max(
+          1000,
+          Math.round((item.basePrice || 0) + (item.addOnTotal || 0)),
+        ),
+      }));
+
+      const response = await fetch("/api/bookings/shipping/create-resi", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          orderId: order.id,
+          bookingCode: order.resi || order.bookingCode || order.id,
+          customerName: order.customerName,
+          customerPhone: order.customerPhone,
+          destinationAddress: primaryAddress,
+          destinationPostalCode: primaryAddress.match(/\b\d{5}\b/)?.[0],
+          deliveryDate: order.deliveryDate,
+          deliveryTime: order.deliverySlot,
+          selectedQuote: order.shippingQuote,
+          items,
+          totalValue: Math.max(1000, Math.round(order.totalPrice || 0)),
+        }),
+      });
+
+      const payload = (await response
+        .json()
+        .catch(() => ({}))) as ShippingResiResponse;
+      if (!response.ok || !payload.success || !payload.shipment) {
+        throw new Error(payload.error || "Gagal membuat resi.");
+      }
+
+      setOrderShipment(order.id, payload.shipment);
+      if (payload.warning) {
+        toast.warning(payload.warning);
+      }
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : "Gagal membuat resi.";
+      toast.error(message);
+    } finally {
+      setIsCreatingResi(false);
     }
   };
 
@@ -147,27 +271,61 @@ export default function OrderDetailPage() {
         actions={
           <Button
             onClick={handleApprove}
-            disabled={!(["Inquiry", "Quoted", "DP Paid"].includes(order.orderStatus))}
+            disabled={
+              isApproving ||
+              !["Inquiry", "Quoted", "DP Paid"].includes(order.orderStatus)
+            }
             className={
-              !(["Inquiry", "Quoted", "DP Paid"].includes(order.orderStatus))
+              !["Inquiry", "Quoted", "DP Paid"].includes(order.orderStatus)
                 ? "gap-2"
                 : "gap-2 bg-indigo-600 text-white hover:bg-indigo-700 focus-visible:ring-indigo-500"
             }
-            variant={!(["Inquiry", "Quoted", "DP Paid"].includes(order.orderStatus)) ? "secondary" : "default"}
+            variant={
+              !["Inquiry", "Quoted", "DP Paid"].includes(order.orderStatus)
+                ? "secondary"
+                : "default"
+            }
           >
             <CheckCircle2 size={16} />
-            {!(["Inquiry", "Quoted", "DP Paid"].includes(order.orderStatus)) ? "Approved" : "Approve Order"}
+            {isApproving
+              ? "Running Automations..."
+              : !["Inquiry", "Quoted", "DP Paid"].includes(order.orderStatus)
+                ? "Approved"
+                : "Approve Order"}
           </Button>
         }
       />
 
-      {order.orderStatus === "Confirmed" && (
+      {[
+        "Confirmed",
+        "In Production",
+        "Ready",
+        "Delivered",
+        "Completed",
+      ].includes(order.orderStatus) && (
         <div className="space-y-2 rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm font-semibold text-indigo-700">
-          <p>Order approved. Booking code generated: {order.resi || order.bookingCode}</p>
-          <p className="text-xs font-medium text-indigo-600">
-            {order.simulations?.whatsappSent ? "WhatsApp sent" : "WhatsApp pending"} | {" "}
-            {order.simulations?.calendarEventCreated ? "Calendar event created" : "Calendar event pending"}
+          <p>
+            Order approved. Booking code generated:{" "}
+            {order.resi || order.bookingCode}
           </p>
+          <p className="text-xs font-medium text-indigo-600">
+            {order.simulations?.productionWhatsappSent
+              ? "WA Produksi sent"
+              : "WA Produksi pending"}{" "}
+            |{" "}
+            {order.simulations?.calendarEventCreated
+              ? "Calendar created"
+              : "Calendar pending"}{" "}
+            |{" "}
+            {order.simulations?.googleSheetsSynced
+              ? "Google Sheets synced"
+              : "Google Sheets pending"}
+          </p>
+          {order.simulations?.lastAutomationMessage && (
+            <p className="text-xs font-medium text-indigo-600">
+              Last automation: {order.simulations.lastAutomationMessage}
+            </p>
+          )}
         </div>
       )}
 
@@ -181,13 +339,20 @@ export default function OrderDetailPage() {
             </CardHeader>
             <CardContent className="space-y-2 px-6 pb-6 pt-0 text-sm text-gray-700">
               <p>
-                <span className="font-semibold">Name:</span> {order.customerName}
+                <span className="font-semibold">Name:</span>{" "}
+                {order.customerName}
               </p>
               <p>
-                <span className="font-semibold">Phone:</span> {order.customerPhone ?? "-"}
+                <span className="font-semibold">Phone:</span>{" "}
+                {order.customerPhone ?? "-"}
               </p>
               <p>
-                <span className="font-semibold">Address:</span> {order.customerAddress ?? "-"}
+                <span className="font-semibold">Address:</span>{" "}
+                {order.customerAddress ?? "-"}
+              </p>
+              <p>
+                <span className="font-semibold">Tracking:</span>{" "}
+                {order.shipment?.trackingNumber ?? "-"}
               </p>
               <Button
                 type="button"
@@ -203,6 +368,76 @@ export default function OrderDetailPage() {
 
           <Card className="rounded-xl shadow-sm">
             <CardHeader className="p-6 pb-2">
+              <CardTitle>Courier & Resi</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 px-6 pb-6 pt-0 text-sm text-gray-700">
+              {order.shippingQuote ? (
+                <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+                  <p className="font-semibold">
+                    {order.shippingQuote.provider} -{" "}
+                    {order.shippingQuote.courierServiceName}
+                  </p>
+                  <p className="text-xs text-gray-600">
+                    Ongkir {formatCurrency(order.shippingQuote.price)} | ETA{" "}
+                    {order.shippingQuote.eta} | Jarak{" "}
+                    {order.shippingQuote.distanceKm} km
+                  </p>
+                </div>
+              ) : (
+                <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                  Belum ada quote kurir. Lengkapi alamat + item di form booking
+                  agar ongkir live otomatis muncul.
+                </p>
+              )}
+
+              {order.shipment && (
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+                  <p>
+                    Resi aktif:{" "}
+                    <span className="font-semibold">
+                      {order.shipment.trackingNumber}
+                    </span>
+                  </p>
+                  {order.shipment.externalOrderId && (
+                    <p>
+                      Biteship Order ID:{" "}
+                      <span className="font-semibold">
+                        {order.shipment.externalOrderId}
+                      </span>
+                    </p>
+                  )}
+                  {order.shipment.trackingUrl && (
+                    <p>
+                      Tracking URL:{" "}
+                      <a
+                        href={order.shipment.trackingUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="underline"
+                      >
+                        {order.shipment.trackingUrl}
+                      </a>
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {!order.shipment && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                  disabled={!order.shippingQuote || isCreatingResi}
+                  onClick={handleCreateResi}
+                >
+                  {isCreatingResi ? "Membuat Resi..." : "Generate Resi"}
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-xl shadow-sm">
+            <CardHeader className="p-6 pb-2">
               <CardTitle>Order Details</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 px-6 pb-6 pt-0 text-sm text-gray-700">
@@ -211,22 +446,27 @@ export default function OrderDetailPage() {
                 <div className="space-y-1">
                   {(order.items ?? []).map((item) => (
                     <p key={item.id}>
-                      {item.quantity}x {item.productName} ({item.category} / {item.subcategory} / {item.size})
+                      {item.quantity}x {item.productName} ({item.category} /{" "}
+                      {item.subcategory} / {item.size})
                     </p>
                   ))}
                 </div>
               </div>
               <p>
-                <span className="font-semibold">Delivery Date:</span> {order.deliveryDate}
+                <span className="font-semibold">Delivery Date:</span>{" "}
+                {order.deliveryDate}
               </p>
               <p>
-                <span className="font-semibold">Delivery Slot:</span> {order.deliverySlot}
+                <span className="font-semibold">Delivery Slot:</span>{" "}
+                {order.deliverySlot}
               </p>
               <p>
-                <span className="font-semibold">Add-ons:</span> {order.addOns ?? "-"}
+                <span className="font-semibold">Add-ons:</span>{" "}
+                {order.addOns ?? "-"}
               </p>
               <p>
-                <span className="font-semibold">Notes:</span> {order.notes ?? "-"}
+                <span className="font-semibold">Notes:</span>{" "}
+                {order.notes ?? "-"}
               </p>
               <div>
                 <p className="mb-1 font-semibold">Delivery Addresses:</p>
@@ -241,14 +481,80 @@ export default function OrderDetailPage() {
             </CardContent>
           </Card>
 
-          <Card className="rounded-xl shadow-sm">
+          {order.whatsAppParsedData && (
+            <Card className="rounded-xl shadow-sm">
+              <CardHeader className="p-6 pb-2">
+                <CardTitle>
+                  Parsed WhatsApp Data (
+                  {WHATSAPP_ORDER_LABELS[order.whatsAppParsedData.orderType]})
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 px-6 pb-6 pt-0 text-sm text-gray-700">
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {getDisplayFields(order.whatsAppParsedData).map(
+                    (field, index) => (
+                      <div
+                        key={`${field.label}-${index}`}
+                        className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2"
+                      >
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                          {field.label}
+                        </p>
+                        <p className="text-sm text-gray-800">{field.value}</p>
+                      </div>
+                    ),
+                  )}
+                </div>
+                {order.whatsAppParsedData.missingFields.length > 0 && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                    Field yang belum lengkap:{" "}
+                    {order.whatsAppParsedData.missingFields.join(", ")}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {(order.automationLogs?.length ?? 0) > 0 && (
+            <Card className="rounded-xl shadow-sm">
+              <CardHeader className="p-6 pb-2">
+                <CardTitle>Automation Logs</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 px-6 pb-6 pt-0 text-sm text-gray-700">
+                {(order.automationLogs ?? [])
+                  .slice()
+                  .reverse()
+                  .slice(0, 5)
+                  .map((log) => (
+                    <div
+                      key={log.id}
+                      className={`rounded-lg border px-3 py-2 ${
+                        log.success
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                          : "border-amber-200 bg-amber-50 text-amber-700"
+                      }`}
+                    >
+                      <p className="text-[11px] font-semibold uppercase tracking-wide">
+                        {log.eventType} -{" "}
+                        {new Date(log.timestamp).toLocaleString("id-ID")}
+                      </p>
+                      <p className="text-xs">{log.summary}</p>
+                    </div>
+                  ))}
+              </CardContent>
+            </Card>
+          )}
+
+          <Card id="edit-delivery" className="rounded-xl shadow-sm">
             <CardHeader className="p-6 pb-2">
               <CardTitle>Reschedule Delivery</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 px-6 pb-6 pt-0 text-sm text-gray-700">
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="grid gap-2">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Delivery Date</span>
+                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    Delivery Date
+                  </span>
                   <input
                     type="date"
                     value={rescheduleDate}
@@ -257,10 +563,17 @@ export default function OrderDetailPage() {
                   />
                 </label>
                 <label className="grid gap-2">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Delivery Slot</span>
-                  <Select value={rescheduleSlot} onChange={(event) => setRescheduleSlot(event.target.value)}>
+                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    Delivery Slot
+                  </span>
+                  <Select
+                    value={rescheduleSlot}
+                    onChange={(event) => setRescheduleSlot(event.target.value)}
+                  >
                     {deliverySlots.map((slot) => (
-                      <option key={slot} value={slot}>{slot}</option>
+                      <option key={slot} value={slot}>
+                        {slot}
+                      </option>
                     ))}
                   </Select>
                 </label>
@@ -308,7 +621,9 @@ export default function OrderDetailPage() {
           <PriceSummaryCard
             basePrice={order.basePrice ?? 0}
             addOnTotal={order.addOnTotal ?? 0}
-            deliveryFee={(order.deliveryFee ?? 0) + (order.manualAdjustment ?? 0)}
+            deliveryFee={
+              (order.deliveryFee ?? 0) + (order.manualAdjustment ?? 0)
+            }
             totalPrice={totalPrice}
           />
           <Card className="rounded-xl shadow-sm">
@@ -322,7 +637,12 @@ export default function OrderDetailPage() {
               </div>
               <Select
                 value={order.paymentStatus}
-                onChange={(event) => updatePaymentStatus(order.id, event.target.value as "Pending" | "DP Paid" | "Paid")}
+                onChange={(event) =>
+                  updatePaymentStatus(
+                    order.id,
+                    event.target.value as "Pending" | "DP Paid" | "Paid",
+                  )
+                }
               >
                 <option value="Pending">Pending</option>
                 <option value="DP Paid">DP Paid</option>
@@ -333,12 +653,20 @@ export default function OrderDetailPage() {
                 <StatusBadge status={order.orderStatus} />
               </div>
               <div className="flex items-center justify-between text-sm text-gray-600">
-                <span>DP</span>
-                <span className="font-semibold text-gray-900">Rp {Number(order.downPaymentAmount ?? 0).toLocaleString("id-ID")}</span>
+                <span>DP ({BAKERY_DOWN_PAYMENT_PERCENT}%)</span>
+                <span className="font-semibold text-gray-900">
+                  Rp{" "}
+                  {Number(
+                    order.downPaymentAmount ?? calculateDownPayment(totalPrice),
+                  ).toLocaleString("id-ID")}
+                </span>
               </div>
               <div className="flex items-center justify-between text-sm text-gray-600">
                 <span>Remaining</span>
-                <span className="font-semibold text-gray-900">Rp {Number(order.remainingBalance ?? 0).toLocaleString("id-ID")}</span>
+                <span className="font-semibold text-gray-900">
+                  Rp{" "}
+                  {Number(order.remainingBalance ?? 0).toLocaleString("id-ID")}
+                </span>
               </div>
             </CardContent>
           </Card>

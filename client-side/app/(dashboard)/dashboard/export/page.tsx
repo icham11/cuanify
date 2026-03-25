@@ -17,9 +17,10 @@ import {
   Table,
   BarChart3,
 } from "lucide-react";
+import { readLocalBakeryOrders } from "@/lib/bookings/local-orders";
 
 type ExportFormat = "csv" | "xlsx";
-type ExportType = "sales" | "stock" | "movements" | "inventory-all";
+type ExportType = "sales" | "stock" | "movements" | "inventory-all" | "bakery-bookings";
 
 interface ExportOption {
   id: ExportType;
@@ -63,6 +64,14 @@ const EXPORT_OPTIONS: ExportOption[] = [
     color: "purple",
     endpoint: "/api/export/inventory?type=all",
   },
+  {
+    id: "bakery-bookings",
+    title: "Bakery Bookings (Local)",
+    description: "Order bakery + ongkir, resi, automasi, parser WA dari snapshot terbaru",
+    icon: Boxes,
+    color: "amber",
+    endpoint: "",
+  },
 ];
 
 const COLOR_MAP: Record<string, { bg: string; border: string; icon: string; text: string; ring: string }> = {
@@ -94,7 +103,34 @@ const COLOR_MAP: Record<string, { bg: string; border: string; icon: string; text
     text: "text-purple-700",
     ring: "ring-purple-200",
   },
+  amber: {
+    bg: "bg-amber-50",
+    border: "border-amber-100 hover:border-amber-300",
+    icon: "bg-amber-100 text-amber-600",
+    text: "text-amber-700",
+    ring: "ring-amber-200",
+  },
 };
+
+function csvEscape(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  const text = String(value);
+  if (/[",\n]/.test(text)) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+  return text;
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const downloadUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = downloadUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(downloadUrl);
+}
 
 export default function ExportPage() {
   const [selected, setSelected] = useState<ExportType>("sales");
@@ -111,6 +147,93 @@ export default function ExportPage() {
     setLastExport(null);
 
     try {
+      if (selected === "bakery-bookings") {
+        const orders = readLocalBakeryOrders();
+        const filteredOrders = orders.filter((order) => {
+          if (startDate && order.deliveryDate && order.deliveryDate < startDate) return false;
+          if (endDate && order.deliveryDate && order.deliveryDate > endDate) return false;
+          return true;
+        });
+
+        if (filteredOrders.length === 0) {
+          toast.error("Data bakery belum ada untuk di-export pada rentang tanggal tersebut.");
+          return;
+        }
+
+        const rows = filteredOrders.map((order) => {
+          const items = (order.items ?? [])
+            .map((item) => `${Math.max(1, Number(item.quantity) || 1)}x ${item.productName || "-"} (${item.size || "-"})`)
+            .join(" | ");
+          const addresses = (order.deliveryAddresses ?? [])
+            .map((address) => `${address.label || "-"}: ${address.addressLine || "-"} (${address.area || "-"})`)
+            .join(" | ");
+          return {
+            orderId: order.id,
+            bookingCode: order.bookingCode || "",
+            resi: order.resi || "",
+            customerName: order.customerName || "",
+            customerPhone: order.customerPhone || "",
+            deliveryDate: order.deliveryDate || "",
+            deliverySlot: order.deliverySlot || "",
+            orderStatus: order.orderStatus || "",
+            paymentStatus: order.paymentStatus || "",
+            items,
+            deliveryAddresses: addresses,
+            basePrice: Number(order.basePrice || 0),
+            addOnTotal: Number(order.addOnTotal || 0),
+            deliveryFee: Number(order.deliveryFee || 0),
+            manualAdjustment: Number(order.manualAdjustment || 0),
+            totalPrice: Number(order.totalPrice || 0),
+            downPaymentAmount: Number(order.downPaymentAmount || 0),
+            remainingBalance: Number(order.remainingBalance || 0),
+            shippingProvider: order.shippingQuote?.provider || "",
+            shippingService: order.shippingQuote?.courierServiceName || "",
+            shippingPrice: Number(order.shippingQuote?.price || 0),
+            shippingEta: order.shippingQuote?.eta || "",
+            shippingDistanceKm: Number(order.shippingQuote?.distanceKm || 0),
+            trackingNumber: order.shipment?.trackingNumber || "",
+            shipmentStatus: order.shipment?.status || "",
+            shipmentOrderId: order.shipment?.externalOrderId || "",
+            automationProductionWa: order.simulations?.productionWhatsappSent ? "yes" : "no",
+            automationCustomerWa: order.simulations?.customerWhatsappSent ? "yes" : "no",
+            automationCalendar: order.simulations?.calendarEventCreated ? "yes" : "no",
+            automationSheets: order.simulations?.googleSheetsSynced ? "yes" : "no",
+          };
+        });
+
+        const dateLabel =
+          startDate && endDate
+            ? `${startDate}_${endDate}`
+            : new Date().toISOString().split("T")[0];
+        const filename = `bakery_bookings_${dateLabel}.${format}`;
+
+        if (format === "xlsx") {
+          const XLSX = await import("xlsx");
+          const sheet = XLSX.utils.json_to_sheet(rows);
+          const workbook = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(workbook, sheet, "Bakery Bookings");
+          const binary = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
+          downloadBlob(
+            new Blob([binary], {
+              type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            }),
+            filename
+          );
+        } else {
+          const headers = Object.keys(rows[0] || {});
+          const lines = [
+            headers.map(csvEscape).join(","),
+            ...rows.map((row) => headers.map((header) => csvEscape(row[header as keyof typeof row])).join(",")),
+          ];
+          const csv = "\uFEFF" + lines.join("\n");
+          downloadBlob(new Blob([csv], { type: "text/csv;charset=utf-8;" }), filename);
+        }
+
+        setLastExport(filename);
+        toast.success(`Berhasil mengexport ${filename}`);
+        return;
+      }
+
       const params = new URLSearchParams();
       params.set("format", format);
 
@@ -137,14 +260,7 @@ export default function ExportPage() {
       const filename = filenameMatch?.[1] || `export_${Date.now()}.${format}`;
 
       const blob = await res.blob();
-      const downloadUrl = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = downloadUrl;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(downloadUrl);
+      downloadBlob(blob, filename);
 
       setLastExport(filename);
       toast.success(`Berhasil mengexport ${filename}`);
@@ -257,7 +373,7 @@ export default function ExportPage() {
           </div>
 
           {/* Date Range (only for sales) */}
-          {selected === "sales" && (
+          {(selected === "sales" || selected === "bakery-bookings") && (
             <div>
               <label className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
                 <Calendar className="w-4 h-4" />
