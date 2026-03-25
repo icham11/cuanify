@@ -1,4 +1,5 @@
 import { createSign } from "crypto";
+import prisma from "@/lib/prisma";
 import type {
   AutomationActionResult,
   BookingAutomationEvent,
@@ -10,6 +11,11 @@ const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const GOOGLE_CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar";
 const GOOGLE_SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
 const FONNTE_API_URL = "https://api.fonnte.com/send";
+
+type GoogleCalendarOAuthMetadata = {
+  refreshToken?: string;
+  calendarId?: string;
+};
 
 function formatCurrency(value: number): string {
   return `Rp ${Number(value || 0).toLocaleString("id-ID")}`;
@@ -118,6 +124,82 @@ function parseSlotToEndTime(slot: string, durationHours: number): string {
 }
 
 async function getGoogleAccessToken(scopes: string[]): Promise<string> {
+  return getGoogleAccessTokenWithFallback(scopes);
+}
+
+async function getOAuthCalendarConfig(
+  businessId?: number,
+): Promise<GoogleCalendarOAuthMetadata | null> {
+  if (!businessId) return null;
+
+  const doc = await prisma.businessDocument.findFirst({
+    where: {
+      businessId,
+      sourceType: "google_calendar_oauth",
+    },
+    orderBy: {
+      updatedAt: "desc",
+    },
+    select: {
+      metadata: true,
+    },
+  });
+
+  if (!doc?.metadata || typeof doc.metadata !== "object") return null;
+  const metadata = doc.metadata as GoogleCalendarOAuthMetadata;
+  if (!metadata.refreshToken) return null;
+  return metadata;
+}
+
+async function getOAuthAccessTokenFromRefreshToken(
+  refreshToken: string,
+  scopes: string[],
+): Promise<string | null> {
+  const clientId = process.env.GOOGLE_CLIENT_ID || "";
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET || "";
+  if (!clientId || !clientSecret) return null;
+
+  const body = new URLSearchParams({
+    client_id: clientId,
+    client_secret: clientSecret,
+    grant_type: "refresh_token",
+    refresh_token: refreshToken,
+    scope: scopes.join(" "),
+  });
+
+  const tokenResponse = await fetch(GOOGLE_TOKEN_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: body.toString(),
+  });
+
+  const tokenData = (await tokenResponse.json().catch(() => ({}))) as {
+    access_token?: string;
+  };
+
+  if (!tokenResponse.ok || !tokenData.access_token) return null;
+  return tokenData.access_token;
+}
+
+async function getGoogleAccessTokenWithFallback(
+  scopes: string[],
+  businessId?: number,
+): Promise<string> {
+  if (businessId && scopes.includes(GOOGLE_CALENDAR_SCOPE)) {
+    const oauthConfig = await getOAuthCalendarConfig(businessId);
+    if (oauthConfig?.refreshToken) {
+      const oauthToken = await getOAuthAccessTokenFromRefreshToken(
+        oauthConfig.refreshToken,
+        scopes,
+      );
+      if (oauthToken) {
+        return oauthToken;
+      }
+    }
+  }
+
   const serviceEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || "";
   const privateKeyRaw = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || "";
   const privateKey = privateKeyRaw.replace(/\\n/g, "\n");
@@ -296,8 +378,11 @@ async function findExistingCalendarEvent(
 
 async function upsertGoogleCalendarEvent(
   order: BookingAutomationOrderPayload,
+  businessId?: number,
 ): Promise<AutomationActionResult> {
-  const calendarId = process.env.GOOGLE_CALENDAR_ID || "";
+  const oauthConfig = await getOAuthCalendarConfig(businessId);
+  const calendarId =
+    oauthConfig?.calendarId || process.env.GOOGLE_CALENDAR_ID || "";
 
   if (!calendarId) {
     return {
@@ -315,7 +400,10 @@ async function upsertGoogleCalendarEvent(
     };
   }
 
-  const accessToken = await getGoogleAccessToken([GOOGLE_CALENDAR_SCOPE]);
+  const accessToken = await getGoogleAccessTokenWithFallback(
+    [GOOGLE_CALENDAR_SCOPE],
+    businessId,
+  );
   const bookingCode = order.resi || order.bookingCode || order.id;
   const existingEvent = await findExistingCalendarEvent(
     calendarId,
@@ -463,6 +551,7 @@ async function appendGoogleSheet(
 export async function runBookingAutomations(
   eventType: BookingAutomationEvent,
   order: BookingAutomationOrderPayload,
+  businessId?: number,
 ): Promise<BookingAutomationResponse> {
   const customerPhone = normalizePhoneForFonnte(order.customerPhone || "");
   const productionTarget = normalizeFonnteTarget(
@@ -501,7 +590,7 @@ export async function runBookingAutomations(
     eventType === "order_rescheduled" ||
     eventType === "order_calendar_sync"
   ) {
-    calendar = await upsertGoogleCalendarEvent(order).catch(
+    calendar = await upsertGoogleCalendarEvent(order, businessId).catch(
       (error: unknown) => ({
         ok: false,
         message:

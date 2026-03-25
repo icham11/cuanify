@@ -66,7 +66,7 @@ function getErrorMessage(error: unknown): string {
 
 export async function POST(request: NextRequest) {
   try {
-    await requireAuth();
+    const auth = await requireAuth();
 
     const body = (await request.json()) as BookingAutomationRequest;
     const parsed = requestSchema.safeParse(body);
@@ -84,7 +84,11 @@ export async function POST(request: NextRequest) {
     const eventType = parsed.data.eventType as BookingAutomationEvent;
     const order = parsed.data.order as BookingAutomationOrderPayload;
 
-    const result = await runBookingAutomations(eventType, order);
+    const result = await runBookingAutomations(
+      eventType,
+      order,
+      auth.businessId,
+    );
 
     return NextResponse.json(result, { status: 200 });
   } catch (error: unknown) {
