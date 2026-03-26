@@ -18,6 +18,7 @@ import type {
 } from "@/lib/bookings/automation-types";
 import type {
   ShippingQuote,
+  ShippingResiResponse,
   ShippingShipment,
 } from "@/lib/bookings/shipping-types";
 import {
@@ -186,6 +187,20 @@ const STORAGE_KEY = "bakeryOrdersState";
 const STORAGE_EVENT = "bakeryOrdersUpdated";
 const INITIAL_SNAPSHOT = JSON.stringify(initialOrders);
 let hasHydrated = false;
+
+const WEIGHT_ESTIMATE_GRAM_BY_CATEGORY: Record<string, number> = {
+  Cake: 1800,
+  Cookies: 350,
+  Cupcakes: 450,
+  Buket: 1200,
+  "Cookies Tower": 3000,
+};
+
+function estimateItemWeightGram(category: string, quantity: number): number {
+  const base = WEIGHT_ESTIMATE_GRAM_BY_CATEGORY[category] ?? 500;
+  const qty = Math.max(1, Number(quantity) || 1);
+  return Math.max(100, Math.round(base * qty));
+}
 
 function formatIdr(value: number): string {
   return `Rp ${Math.round(Number(value || 0)).toLocaleString("id-ID")}`;
@@ -596,6 +611,101 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
     [persistOrders],
   );
 
+  const createShipmentForOrder = useCallback(
+    async (orderId: string) => {
+      if (typeof window === "undefined") return;
+
+      const currentSnapshot =
+        window.localStorage.getItem(STORAGE_KEY) ?? INITIAL_SNAPSHOT;
+      const currentOrders = parseSnapshot(currentSnapshot);
+      const order = currentOrders.find((item) => item.id === orderId);
+      if (!order || order.shipment || !order.shippingQuote) return;
+
+      const primaryAddress =
+        order.deliveryAddresses?.[0]?.addressLine ||
+        order.customerAddress ||
+        "";
+      if (!primaryAddress) return;
+
+      const items = (order.items ?? []).map((item) => ({
+        name: `${item.productName} (${item.size})`,
+        quantity: Math.max(1, Number(item.quantity) || 1),
+        weightGram: estimateItemWeightGram(
+          item.category,
+          Number(item.quantity) || 1,
+        ),
+        value: Math.max(
+          1000,
+          Math.round((item.basePrice || 0) + (item.addOnTotal || 0)),
+        ),
+      }));
+
+      if (!items.length) return;
+
+      try {
+        const response = await fetch("/api/bookings/shipping/create-resi", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            orderId: order.id,
+            bookingCode: order.resi || order.bookingCode || order.id,
+            customerName: order.customerName,
+            customerPhone: order.customerPhone,
+            destinationAddress: primaryAddress,
+            destinationPostalCode: primaryAddress.match(/\b\d{5}\b/)?.[0],
+            deliveryDate: order.deliveryDate,
+            deliveryTime: order.deliverySlot,
+            selectedQuote: order.shippingQuote,
+            items,
+            totalValue: Math.max(1000, Math.round(order.totalPrice || 0)),
+          }),
+        });
+
+        const payload = (await response
+          .json()
+          .catch(() => ({}))) as ShippingResiResponse;
+
+        if (!response.ok || !payload.success || !payload.shipment) {
+          throw new Error(payload.error || "Gagal membuat resi otomatis.");
+        }
+
+        const latestSnapshot =
+          window.localStorage.getItem(STORAGE_KEY) ?? INITIAL_SNAPSHOT;
+        const latestOrders = parseSnapshot(latestSnapshot);
+        const nextOrders = latestOrders.map((entry) => {
+          if (entry.id !== orderId) return entry;
+          return {
+            ...entry,
+            resi:
+              entry.resi ||
+              payload.shipment?.trackingNumber ||
+              entry.bookingCode,
+            shipment: payload.shipment,
+          };
+        });
+
+        persistOrders(nextOrders);
+        if (payload.warning) {
+          toast.warning(payload.warning);
+        }
+        toast.success(
+          `Resi otomatis dibuat: ${payload.shipment.trackingNumber}`,
+        );
+      } catch (error: unknown) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Resi otomatis belum bisa dibuat.";
+        toast.warning(
+          `Booking tersimpan, tapi resi belum otomatis: ${message}`,
+        );
+      }
+    },
+    [persistOrders],
+  );
+
   const addOrder = useCallback(
     (order: NewOrderInput) => {
       const nextId =
@@ -613,7 +723,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       );
       const newOrder: BakeryOrder = {
         id,
-        resi: "",
+        resi: bookingCode,
         bookingCode,
         customerName: order.customerName,
         customerPhone: order.customerPhone,
@@ -694,9 +804,16 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       const nextOrders = [newOrder, ...orders];
       persistOrders(nextOrders);
       toast.success(`Draft booking created: ${bookingCode}`);
+      void createShipmentForOrder(id);
       void runAutomationsForOrder("order_created", id);
     },
-    [orders, persistOrders, actorIdentity, runAutomationsForOrder],
+    [
+      orders,
+      persistOrders,
+      actorIdentity,
+      runAutomationsForOrder,
+      createShipmentForOrder,
+    ],
   );
 
   const updateOrderStatus = useCallback(
@@ -905,6 +1022,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         if (order.id !== id) return order;
         return {
           ...order,
+          resi: order.resi || shipment.trackingNumber || order.bookingCode,
           shipment,
         };
       });

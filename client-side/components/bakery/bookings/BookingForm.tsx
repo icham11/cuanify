@@ -79,6 +79,7 @@ const itemSchema = z.object({
 const addressSchema = z.object({
   label: z.string().min(1, "Address label is required"),
   area: z.string().default(""),
+  postalCode: z.string().default(""),
   addressLine: z.string().min(5, "Address is too short"),
 });
 
@@ -284,6 +285,7 @@ export default function BookingForm() {
         {
           label: "Primary",
           area: "",
+          postalCode: "",
           addressLine: "",
         },
       ],
@@ -350,6 +352,19 @@ export default function BookingForm() {
       null,
     [shippingQuotes, selectedShippingQuoteId],
   );
+
+  const displayedShippingDistanceKm = useMemo(() => {
+    if (shippingDistanceKm !== null && Number.isFinite(shippingDistanceKm)) {
+      return Number(shippingDistanceKm.toFixed(2));
+    }
+    if (
+      selectedShippingQuote &&
+      Number.isFinite(selectedShippingQuote.distanceKm)
+    ) {
+      return Number(selectedShippingQuote.distanceKm.toFixed(2));
+    }
+    return null;
+  }, [shippingDistanceKm, selectedShippingQuote]);
 
   const deliveryFee = selectedShippingQuote?.price ?? 0;
 
@@ -482,7 +497,9 @@ export default function BookingForm() {
     return {
       destinationAddress: primaryAddress.addressLine,
       destinationArea: primaryAddress.area || "",
-      destinationPostalCode: primaryAddress.addressLine.match(/\b\d{5}\b/)?.[0],
+      destinationPostalCode:
+        primaryAddress.postalCode?.trim() ||
+        primaryAddress.addressLine.match(/\b\d{5}\b/)?.[0],
       items: shippingItems,
       totalValue: Math.max(1000, Math.round(basePrice + addOnTotal)),
     };
@@ -491,6 +508,7 @@ export default function BookingForm() {
     basePrice,
     primaryAddress?.addressLine,
     primaryAddress?.area,
+    primaryAddress?.postalCode,
     shippingItems,
   ]);
 
@@ -1441,7 +1459,12 @@ export default function BookingForm() {
                   variant="outline"
                   className="h-8 gap-1 border-indigo-200 text-indigo-700"
                   onClick={() =>
-                    appendAddress({ label: "Extra", area: "", addressLine: "" })
+                    appendAddress({
+                      label: "Extra",
+                      area: "",
+                      postalCode: "",
+                      addressLine: "",
+                    })
                   }
                 >
                   <Plus size={14} />
@@ -1467,6 +1490,14 @@ export default function BookingForm() {
                       <Input
                         placeholder="Kecamatan / Kota"
                         {...register(`deliveryAddresses.${index}.area`)}
+                      />
+                    </label>
+                    <label className="grid gap-2 text-sm font-medium text-gray-700">
+                      Kode Pos (Opsional)
+                      <Input
+                        inputMode="numeric"
+                        placeholder="Contoh: 11470"
+                        {...register(`deliveryAddresses.${index}.postalCode`)}
                       />
                     </label>
                     <label className="grid gap-2 text-sm font-medium text-gray-700 sm:col-span-2">
@@ -1505,10 +1536,12 @@ export default function BookingForm() {
                 )}
               </div>
 
-              {shippingDistanceKm !== null && shippingDistanceKm > 0 && (
+              {displayedShippingDistanceKm !== null && (
                 <p className="text-xs text-gray-600">
                   Estimasi jarak gudang ke alamat:{" "}
-                  <span className="font-semibold">{shippingDistanceKm} km</span>
+                  <span className="font-semibold">
+                    {displayedShippingDistanceKm} km
+                  </span>
                 </p>
               )}
 
@@ -1542,7 +1575,8 @@ export default function BookingForm() {
                           </span>
                         </div>
                         <p className="text-xs">
-                          ETA {quote.eta} | Source: API Kurir
+                          ETA {quote.eta} | Jarak {quote.distanceKm} km |
+                          Source: API Kurir
                         </p>
                       </button>
                     );

@@ -1,0 +1,149 @@
+#!/usr/bin/env node
+
+import fs from "node:fs";
+import path from "node:path";
+import dotenv from "dotenv";
+
+const cwd = process.cwd();
+const envPath = path.join(cwd, ".env");
+
+if (fs.existsSync(envPath)) {
+  dotenv.config({ path: envPath, override: false });
+}
+
+const args = process.argv.slice(2);
+const targetArg = args.find((arg) => arg.startsWith("--target="));
+const strict = args.includes("--strict");
+const target = (targetArg?.split("=")[1] || "sandbox").toLowerCase();
+
+if (!["sandbox", "production"].includes(target)) {
+  console.error('Invalid --target value. Use "sandbox" or "production".');
+  process.exit(1);
+}
+
+const requiredByTarget = {
+  sandbox: [
+    "NEXTAUTH_URL",
+    "NEXTAUTH_SECRET",
+    "JWT_SECRET",
+    "DATABASE_URL",
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+    "GOOGLE_CALENDAR_OAUTH_REDIRECT_URI",
+    "GOOGLE_CALENDAR_ID",
+    "FONNTE_TOKEN",
+    "CRON_SECRET",
+  ],
+  production: [
+    "NODE_ENV",
+    "NEXTAUTH_URL",
+    "NEXTAUTH_SECRET",
+    "JWT_SECRET",
+    "DATABASE_URL",
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+    "GOOGLE_CALENDAR_OAUTH_REDIRECT_URI",
+    "GOOGLE_CALENDAR_ID",
+    "FONNTE_TOKEN",
+    "FONNTE_PRODUCTION_TARGET",
+    "CRON_SECRET",
+    "MIDTRANS_IS_PRODUCTION",
+    "NEXT_PUBLIC_MIDTRANS_IS_PRODUCTION",
+  ],
+};
+
+function getEnv(name) {
+  return (process.env[name] || "").trim();
+}
+
+const errors = [];
+const warnings = [];
+
+for (const key of requiredByTarget[target]) {
+  if (!getEnv(key)) {
+    errors.push(`Missing required env: ${key}`);
+  }
+}
+
+if (
+  target === "production" &&
+  getEnv("NODE_ENV") &&
+  getEnv("NODE_ENV") !== "production"
+) {
+  errors.push('NODE_ENV must be "production" for production target.');
+}
+
+const mtServer = getEnv("MIDTRANS_SERVER_KEY");
+const mtClient =
+  getEnv("NEXT_PUBLIC_MIDTRANS_CLIENT_KEY") || getEnv("MIDTRANS_CLIENT_KEY");
+const mtIsProd = getEnv("MIDTRANS_IS_PRODUCTION");
+const mtPublicIsProd = getEnv("NEXT_PUBLIC_MIDTRANS_IS_PRODUCTION");
+
+if (target === "production") {
+  if (!mtServer) errors.push("Missing required env: MIDTRANS_SERVER_KEY");
+  if (!mtClient)
+    errors.push(
+      "Missing required env: NEXT_PUBLIC_MIDTRANS_CLIENT_KEY (or MIDTRANS_CLIENT_KEY)",
+    );
+
+  if (mtIsProd && mtIsProd !== "true") {
+    errors.push('MIDTRANS_IS_PRODUCTION must be "true" for production target.');
+  }
+  if (mtPublicIsProd && mtPublicIsProd !== "true") {
+    errors.push(
+      'NEXT_PUBLIC_MIDTRANS_IS_PRODUCTION must be "true" for production target.',
+    );
+  }
+
+  if (mtServer && mtServer.startsWith("SB-Mid-")) {
+    warnings.push(
+      "MIDTRANS_SERVER_KEY looks like sandbox key (SB-Mid-...) while target=production.",
+    );
+  }
+  if (mtClient && mtClient.startsWith("SB-Mid-")) {
+    warnings.push(
+      "Midtrans client key looks like sandbox key (SB-Mid-...) while target=production.",
+    );
+  }
+}
+
+if (target === "sandbox") {
+  if (mtIsProd === "true" || mtPublicIsProd === "true") {
+    warnings.push("Midtrans production flags are true while target=sandbox.");
+  }
+}
+
+const blockedDates = getEnv("NEXT_PUBLIC_BAKERY_BLOCKED_DATES");
+if (!blockedDates) {
+  warnings.push(
+    "NEXT_PUBLIC_BAKERY_BLOCKED_DATES is empty. Set holiday closures before client UAT.",
+  );
+}
+
+const sheetsId = getEnv("GOOGLE_SHEETS_ID");
+if (!sheetsId) {
+  warnings.push(
+    "GOOGLE_SHEETS_ID is empty. Finance sync/export will be partially unavailable.",
+  );
+}
+
+console.log(`\nReadiness target: ${target}`);
+console.log(`Strict mode: ${strict ? "on" : "off"}`);
+
+if (errors.length > 0) {
+  console.log("\nBlocking issues:");
+  for (const issue of errors) console.log(`- ${issue}`);
+}
+
+if (warnings.length > 0) {
+  console.log("\nWarnings:");
+  for (const issue of warnings) console.log(`- ${issue}`);
+}
+
+if (errors.length === 0 && (!strict || warnings.length === 0)) {
+  console.log("\nReadiness check passed.");
+  process.exit(0);
+}
+
+console.log("\nReadiness check failed.");
+process.exit(1);
