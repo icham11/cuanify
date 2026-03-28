@@ -9,6 +9,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "check:ready:sandbox": "node ./scripts/check-prod-readiness.mjs --target=sandbox",
+    "check:ready:prod": "node ./scripts/check-prod-readiness.mjs --target=production",
     "fix:schema": "node ./scripts/fix-schema.mjs",
     "seed:mock-sales": "node ./scripts/seed-mock-sales.mjs",
     "seed:biz11-150": "node ./scripts/seed-biz11-150days.mjs",

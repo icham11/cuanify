@@ -41,6 +41,21 @@ interface BiteshipRateLike {
 interface BiteshipAreaLike {
   id?: string;
   name?: string;
+  latitude?: number | string;
+  longitude?: number | string;
+  lat?: number | string;
+  lng?: number | string;
+  coordinate?: {
+    latitude?: number | string;
+    longitude?: number | string;
+    lat?: number | string;
+    lng?: number | string;
+  };
+}
+
+interface AreaHints {
+  postalCode?: string;
+  point?: GeoPoint;
 }
 
 type RateDestination =
@@ -79,12 +94,22 @@ function parseNumber(value: string | undefined, fallback: number): number {
 function getOriginConfig(): OriginConfig {
   return {
     address: process.env.SHIPPING_ORIGIN_ADDRESS || DEFAULT_ORIGIN.address,
-    postalCode: process.env.SHIPPING_ORIGIN_POSTAL_CODE || DEFAULT_ORIGIN.postalCode,
-    latitude: parseNumber(process.env.SHIPPING_ORIGIN_LATITUDE, DEFAULT_ORIGIN.latitude),
-    longitude: parseNumber(process.env.SHIPPING_ORIGIN_LONGITUDE, DEFAULT_ORIGIN.longitude),
-    contactName: process.env.SHIPPING_ORIGIN_CONTACT_NAME || DEFAULT_ORIGIN.contactName,
-    contactPhone: process.env.SHIPPING_ORIGIN_CONTACT_PHONE || DEFAULT_ORIGIN.contactPhone,
-    contactEmail: process.env.SHIPPING_ORIGIN_CONTACT_EMAIL || DEFAULT_ORIGIN.contactEmail,
+    postalCode:
+      process.env.SHIPPING_ORIGIN_POSTAL_CODE || DEFAULT_ORIGIN.postalCode,
+    latitude: parseNumber(
+      process.env.SHIPPING_ORIGIN_LATITUDE,
+      DEFAULT_ORIGIN.latitude,
+    ),
+    longitude: parseNumber(
+      process.env.SHIPPING_ORIGIN_LONGITUDE,
+      DEFAULT_ORIGIN.longitude,
+    ),
+    contactName:
+      process.env.SHIPPING_ORIGIN_CONTACT_NAME || DEFAULT_ORIGIN.contactName,
+    contactPhone:
+      process.env.SHIPPING_ORIGIN_CONTACT_PHONE || DEFAULT_ORIGIN.contactPhone,
+    contactEmail:
+      process.env.SHIPPING_ORIGIN_CONTACT_EMAIL || DEFAULT_ORIGIN.contactEmail,
   };
 }
 
@@ -106,10 +131,32 @@ function haversineKm(origin: GeoPoint, destination: GeoPoint): number {
   return earthRadiusKm * c;
 }
 
-function parseProviderFromCourierCode(rawCode: string): ShippingProvider | null {
+function parseProviderFromCourierCode(
+  rawCode: string,
+): ShippingProvider | null {
   const code = rawCode.toLowerCase();
   if (code.includes("jne")) return "JNE";
   if (code.includes("paxel")) return "PAXEL";
+  return null;
+}
+
+function parseProviderFromRate(
+  entry: BiteshipRateLike,
+): ShippingProvider | null {
+  const candidates = [
+    asString(entry.courier_code),
+    asString(entry.courier_name),
+    asString(entry.company),
+    asString(entry.courier_service_name),
+    asString(entry.type),
+    asString(entry.description),
+  ];
+
+  for (const candidate of candidates) {
+    const provider = parseProviderFromCourierCode(candidate);
+    if (provider) return provider;
+  }
+
   return null;
 }
 
@@ -129,13 +176,81 @@ function cleanSpaces(value: string): string {
 function normalizeAddressForLookup(address: string): string {
   return cleanSpaces(
     address
+      .replace(/\([^)]*\)/g, " ")
       .replace(/\bjl\.?\b/gi, "jalan")
+      .replace(/\bkec\.?\b/gi, "kecamatan")
+      .replace(/\bkel\.?\b/gi, "kelurahan")
+      .replace(/\bno\.?\b/gi, "nomor")
       .replace(/\bjaksel\b/gi, "jakarta selatan")
       .replace(/\bjakbar\b/gi, "jakarta barat")
       .replace(/\bjakut\b/gi, "jakarta utara")
       .replace(/\bjakpus\b/gi, "jakarta pusat")
       .replace(/\bjaktim\b/gi, "jakarta timur")
+      .replace(/\brt\s*\d+\b/gi, " ")
+      .replace(/\brw\s*\d+\b/gi, " "),
   );
+}
+
+function simplifyAddressForGeocoding(address: string): string {
+  return cleanSpaces(
+    normalizeAddressForLookup(address)
+      .replace(
+        /\b(lantai|lt\.?|gedung|tower|blok|patokan|komplek|kompleks)\b.*$/gi,
+        " ",
+      )
+      .replace(/[;|]/g, ",")
+      .replace(/\s+,/g, ",")
+      .replace(/,+/g, ","),
+  );
+}
+
+function toFiniteNumber(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function pointFromArea(area: BiteshipAreaLike): GeoPoint | null {
+  const latitude =
+    toFiniteNumber(area.latitude) ??
+    toFiniteNumber(area.lat) ??
+    toFiniteNumber(area.coordinate?.latitude) ??
+    toFiniteNumber(area.coordinate?.lat);
+  const longitude =
+    toFiniteNumber(area.longitude) ??
+    toFiniteNumber(area.lng) ??
+    toFiniteNumber(area.coordinate?.longitude) ??
+    toFiniteNumber(area.coordinate?.lng);
+
+  if (latitude === null || longitude === null) return null;
+  return { latitude, longitude };
+}
+
+function buildGeocodeQueries(
+  address: string,
+  destinationArea?: string,
+): string[] {
+  const simplifiedAddress = simplifyAddressForGeocoding(address);
+  const baseParts = simplifiedAddress
+    .split(",")
+    .map((part) => cleanSpaces(part))
+    .filter(Boolean);
+
+  const rollingQueries: string[] = [];
+  for (let index = 0; index < baseParts.length; index += 1) {
+    const sliced = baseParts.slice(index).join(", ");
+    if (sliced) rollingQueries.push(sliced);
+  }
+
+  const candidates = [
+    simplifiedAddress,
+    `${simplifiedAddress} ${destinationArea || ""}`.trim(),
+    destinationArea || "",
+    ...rollingQueries,
+  ]
+    .map((entry) => cleanSpaces(entry))
+    .filter(Boolean);
+
+  return uniqueByKey(candidates, (entry) => entry.toLowerCase());
 }
 
 function extractPostalCode(text: string | undefined): string | undefined {
@@ -150,30 +265,42 @@ function sanitizePostalCode(value: string | undefined): string | undefined {
   return digits.length === 5 ? digits : undefined;
 }
 
-function buildAreaLookupQueries(address: string, destinationArea?: string): string[] {
+function buildAreaLookupQueries(
+  address: string,
+  destinationArea?: string,
+  destinationPostalCode?: string,
+): string[] {
   const normalizedAddress = normalizeAddressForLookup(address);
+  const sanitizedPostalCode = sanitizePostalCode(destinationPostalCode);
   const queries = [
+    sanitizedPostalCode || "",
     address,
     normalizedAddress,
     destinationArea || "",
     `${normalizedAddress} ${destinationArea || ""}`.trim(),
   ].map(cleanSpaces);
 
-  const uniqueQueries = uniqueByKey(
-    queries.filter(Boolean),
-    (entry) => entry.toLowerCase()
+  const uniqueQueries = uniqueByKey(queries.filter(Boolean), (entry) =>
+    entry.toLowerCase(),
   );
   return uniqueQueries;
 }
 
-async function resolvePostalCodeFromBiteshipArea(
+async function resolveAreaHintsFromBiteship(
   address: string,
-  destinationArea?: string
-): Promise<string | undefined> {
+  destinationArea?: string,
+  destinationPostalCode?: string,
+): Promise<AreaHints> {
   const apiKey = process.env.BITESHIP_API_KEY || "";
-  if (!apiKey) return undefined;
+  if (!apiKey) return {};
 
-  const queries = buildAreaLookupQueries(address, destinationArea);
+  const queries = buildAreaLookupQueries(
+    address,
+    destinationArea,
+    destinationPostalCode,
+  );
+  let fallbackPoint: GeoPoint | undefined;
+
   for (const queryText of queries) {
     const query = new URLSearchParams({
       countries: "ID",
@@ -182,12 +309,15 @@ async function resolvePostalCodeFromBiteshipArea(
 
     let response: Response;
     try {
-      response = await fetch(`${BITESHIP_BASE_URL}/maps/areas?${query.toString()}`, {
-        headers: {
-          Authorization: apiKey,
+      response = await fetch(
+        `${BITESHIP_BASE_URL}/maps/areas?${query.toString()}`,
+        {
+          headers: {
+            Authorization: apiKey,
+          },
+          cache: "no-store",
         },
-        cache: "no-store",
-      });
+      );
     } catch {
       continue;
     }
@@ -202,57 +332,146 @@ async function resolvePostalCodeFromBiteshipArea(
 
     const areas = Array.isArray(data.areas) ? data.areas : [];
     for (const area of areas) {
+      if (!fallbackPoint) {
+        fallbackPoint = pointFromArea(area) || undefined;
+      }
+
       const code = extractPostalCode(asString(area.name));
-      if (code) return code;
+      const point = pointFromArea(area) || fallbackPoint;
+      if (code || point) {
+        return {
+          postalCode: code,
+          point,
+        };
+      }
     }
   }
 
-  return undefined;
+  return {
+    point: fallbackPoint,
+  };
 }
 
-async function geocodeAddress(address: string): Promise<GeoPoint | null> {
-  const normalizedAddress = normalizeAddressForLookup(address);
-  if (!normalizedAddress) return null;
+async function geocodeAddress(
+  address: string,
+  destinationArea?: string,
+): Promise<GeoPoint | null> {
+  const queries = buildGeocodeQueries(address, destinationArea);
+  if (!queries.length) return null;
 
-  const query = new URLSearchParams({
-    format: "json",
-    limit: "1",
-    q: `${normalizedAddress}, Indonesia`,
-  });
-
-  let response: Response;
-  try {
-    response = await fetch(`https://nominatim.openstreetmap.org/search?${query.toString()}`, {
-      headers: {
-        "User-Agent": "cuanify-bakery-oms/1.0",
-      },
-      cache: "no-store",
+  for (const queryText of queries) {
+    const query = new URLSearchParams({
+      format: "json",
+      limit: "1",
+      q: `${queryText}, Indonesia`,
     });
-  } catch {
-    return null;
+
+    let response: Response;
+    try {
+      response = await fetch(
+        `https://nominatim.openstreetmap.org/search?${query.toString()}`,
+        {
+          headers: {
+            "User-Agent": "cuanify-bakery-oms/1.0",
+          },
+          cache: "no-store",
+        },
+      );
+    } catch {
+      continue;
+    }
+
+    if (!response.ok) continue;
+
+    const payload = (await response.json().catch(() => [])) as Array<{
+      lat?: string;
+      lon?: string;
+    }>;
+    const first = payload[0];
+    if (!first?.lat || !first?.lon) continue;
+
+    const latitude = Number(first.lat);
+    const longitude = Number(first.lon);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) continue;
+
+    return { latitude, longitude };
   }
 
-  if (!response.ok) return null;
+  return null;
+}
 
-  const payload = (await response.json().catch(() => [])) as Array<{
-    lat?: string;
-    lon?: string;
-  }>;
-  const first = payload[0];
-  if (!first?.lat || !first?.lon) return null;
+async function geocodeAddressWithArea(
+  address: string,
+  destinationArea?: string,
+): Promise<GeoPoint | null> {
+  const merged = cleanSpaces(`${address}, ${destinationArea || ""}`);
+  return geocodeAddress(merged || address, destinationArea);
+}
 
-  const latitude = Number(first.lat);
-  const longitude = Number(first.lon);
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+async function geocodeByPostalCode(
+  postalCode: string,
+  destinationArea?: string,
+): Promise<GeoPoint | null> {
+  const sanitizedPostalCode = sanitizePostalCode(postalCode);
+  if (!sanitizedPostalCode) return null;
 
-  return { latitude, longitude };
+  const queries = [
+    `${sanitizedPostalCode}, ${destinationArea || ""}, Indonesia`,
+    `${sanitizedPostalCode}, Indonesia`,
+  ]
+    .map((entry) => cleanSpaces(entry))
+    .filter(Boolean);
+
+  for (const queryText of queries) {
+    const query = new URLSearchParams({
+      format: "json",
+      limit: "1",
+      q: queryText,
+    });
+
+    let response: Response;
+    try {
+      response = await fetch(
+        `https://nominatim.openstreetmap.org/search?${query.toString()}`,
+        {
+          headers: {
+            "User-Agent": "cuanify-bakery-oms/1.0",
+          },
+          cache: "no-store",
+        },
+      );
+    } catch {
+      continue;
+    }
+
+    if (!response.ok) continue;
+
+    const payload = (await response.json().catch(() => [])) as Array<{
+      lat?: string;
+      lon?: string;
+    }>;
+    const first = payload[0];
+    if (!first?.lat || !first?.lon) continue;
+
+    const latitude = Number(first.lat);
+    const longitude = Number(first.lon);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) continue;
+
+    return { latitude, longitude };
+  }
+
+  return null;
 }
 
 async function resolveDestination(
   payload: Pick<
     ShippingQuoteRequest,
-    "destinationAddress" | "destinationArea" | "destinationPostalCode" | "destinationLatitude" | "destinationLongitude"
-  >
+    | "destinationAddress"
+    | "destinationArea"
+    | "destinationPostalCode"
+    | "destinationLatitude"
+    | "destinationLongitude"
+  >,
 ): Promise<DestinationResolution> {
   if (
     Number.isFinite(payload.destinationLatitude) &&
@@ -269,17 +488,40 @@ async function resolveDestination(
     };
   }
 
-  const postalCodeFromPayload = sanitizePostalCode(payload.destinationPostalCode);
+  const postalCodeFromPayload = sanitizePostalCode(
+    payload.destinationPostalCode,
+  );
   const postalCodeFromAddress = extractPostalCode(payload.destinationAddress);
-  const postalCodeFromAreaLookup =
-    postalCodeFromPayload ||
-    postalCodeFromAddress ||
-    (await resolvePostalCodeFromBiteshipArea(payload.destinationAddress, payload.destinationArea));
+  const areaHints = await resolveAreaHintsFromBiteship(
+    payload.destinationAddress,
+    payload.destinationArea,
+    payload.destinationPostalCode,
+  );
 
-  const point = await geocodeAddress(payload.destinationAddress);
+  const postalCodeFromAreaLookup =
+    postalCodeFromPayload || postalCodeFromAddress || areaHints.postalCode;
+
+  const point = await geocodeAddress(
+    payload.destinationAddress,
+    payload.destinationArea,
+  );
+  const pointWithArea =
+    point ||
+    (await geocodeAddressWithArea(
+      payload.destinationAddress,
+      payload.destinationArea,
+    )) ||
+    (postalCodeFromAreaLookup
+      ? await geocodeByPostalCode(
+          postalCodeFromAreaLookup,
+          payload.destinationArea,
+        )
+      : null) ||
+    areaHints.point ||
+    null;
 
   return {
-    point,
+    point: pointWithArea,
     postalCode: postalCodeFromAreaLookup,
   };
 }
@@ -313,7 +555,8 @@ async function getBiteshipRates(args: {
           destination_longitude: args.destination.longitude,
         }
       : {
-          origin_postal_code: sanitizePostalCode(origin.postalCode) || undefined,
+          origin_postal_code:
+            sanitizePostalCode(origin.postalCode) || undefined,
           destination_postal_code: args.destination.postalCode,
         }),
     couriers: "jne,paxel",
@@ -348,7 +591,9 @@ async function getBiteshipRates(args: {
   };
 
   if (!response.ok) {
-    throw new Error(data.error || data.message || `Biteship rates error ${response.status}`);
+    throw new Error(
+      data.error || data.message || `Biteship rates error ${response.status}`,
+    );
   }
 
   const rawRates = [
@@ -359,18 +604,24 @@ async function getBiteshipRates(args: {
 
   const mapped = rawRates
     .map((entry) => {
-      const courierCode = asString(entry.courier_code || entry.company).toLowerCase();
-      const provider = parseProviderFromCourierCode(courierCode);
+      const courierCode = asString(
+        entry.courier_code || entry.company,
+      ).toLowerCase();
+      const provider = parseProviderFromRate(entry);
       if (!provider) return null;
 
-      const serviceCode = asString(entry.courier_service_code || entry.type).toLowerCase() || "regular";
+      const serviceCode =
+        asString(entry.courier_service_code || entry.type).toLowerCase() ||
+        "regular";
       const serviceName =
         asString(entry.courier_service_name) ||
         asString(entry.description) ||
         asString(entry.type) ||
         "Regular";
       const price = Math.round(
-        asNumber(entry.price) || asNumber(entry.final_price) || asNumber(entry.amount)
+        asNumber(entry.price) ||
+          asNumber(entry.final_price) ||
+          asNumber(entry.amount),
       );
       if (price <= 0) return null;
 
@@ -398,7 +649,8 @@ async function getBiteshipRates(args: {
 
   return uniqueByKey(
     mapped,
-    (entry) => `${entry.provider}:${entry.courierCode}:${entry.courierServiceCode}:${entry.price}`
+    (entry) =>
+      `${entry.provider}:${entry.courierCode}:${entry.courierServiceCode}:${entry.price}`,
   ).map((entry) => ({
     id: `biteship-${entry.courierCode}-${entry.courierServiceCode}-${entry.price}`,
     provider: entry.provider,
@@ -438,7 +690,7 @@ function normalizeDeliveryTime(value: string | undefined): string {
 }
 
 export async function getShippingQuote(
-  payload: ShippingQuoteRequest
+  payload: ShippingQuoteRequest,
 ): Promise<ShippingQuoteResponse> {
   const origin = getOriginConfig();
   const destination = await resolveDestination(payload);
@@ -459,19 +711,26 @@ export async function getShippingQuote(
   let biteshipQuotes: ShippingQuote[] = [];
 
   try {
-    biteshipQuotes = await getBiteshipRates({
-      destination: destination.postalCode
-        ? {
-            mode: "postal",
-            postalCode: destination.postalCode,
-          }
-        : {
-            mode: "coordinate",
-            latitude: destination.point!.latitude,
-            longitude: destination.point!.longitude,
-          },
-      items: payload.items,
-    });
+    if (destination.point) {
+      biteshipQuotes = await getBiteshipRates({
+        destination: {
+          mode: "coordinate",
+          latitude: destination.point.latitude,
+          longitude: destination.point.longitude,
+        },
+        items: payload.items,
+      });
+    }
+
+    if (biteshipQuotes.length === 0 && destination.postalCode) {
+      biteshipQuotes = await getBiteshipRates({
+        destination: {
+          mode: "postal",
+          postalCode: destination.postalCode,
+        },
+        items: payload.items,
+      });
+    }
   } catch (error: unknown) {
     const message =
       error instanceof Error
@@ -510,7 +769,7 @@ export async function getShippingQuote(
 }
 
 export async function createShippingResi(
-  payload: ShippingResiRequest
+  payload: ShippingResiRequest,
 ): Promise<ShippingResiResponse> {
   const apiKey = process.env.BITESHIP_API_KEY || "";
   const origin = getOriginConfig();
@@ -533,11 +792,15 @@ export async function createShippingResi(
   const requestedDate = payload.deliveryDate || "";
   const todayJakarta = parseJakartaToday();
   const isFutureDelivery = Boolean(
-    requestedDate && /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) && requestedDate > todayJakarta
+    requestedDate &&
+    /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) &&
+    requestedDate > todayJakarta,
   );
   const deliveryType = isFutureDelivery ? "later" : "now";
   const deliveryDate = isFutureDelivery ? requestedDate : undefined;
-  const deliveryTime = isFutureDelivery ? normalizeDeliveryTime(payload.deliveryTime) : undefined;
+  const deliveryTime = isFutureDelivery
+    ? normalizeDeliveryTime(payload.deliveryTime)
+    : undefined;
 
   const response = await fetch(`${BITESHIP_BASE_URL}/orders`, {
     method: "POST",
@@ -564,8 +827,10 @@ export async function createShippingResi(
       destination_contact_email: origin.contactEmail,
       destination_address: payload.destinationAddress,
       destination_postal_code:
-        Number(destination.postalCode || extractPostalCode(payload.destinationAddress)) ||
-        undefined,
+        Number(
+          destination.postalCode ||
+            extractPostalCode(payload.destinationAddress),
+        ) || undefined,
       destination_coordinate:
         destination.point?.latitude && destination.point?.longitude
           ? {
@@ -594,10 +859,15 @@ export async function createShippingResi(
     cache: "no-store",
   });
 
-  const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  const data = (await response.json().catch(() => ({}))) as Record<
+    string,
+    unknown
+  >;
   if (!response.ok) {
     const message =
-      asString(data.error) || asString(data.message) || `Biteship create order error ${response.status}`;
+      asString(data.error) ||
+      asString(data.message) ||
+      `Biteship create order error ${response.status}`;
     return {
       success: false,
       error: message,
@@ -608,8 +878,12 @@ export async function createShippingResi(
     asString(data.waybill_id) ||
     asString(data.waybill) ||
     asString(data.tracking_number) ||
-    asString((data.courier as Record<string, unknown> | undefined)?.waybill_id) ||
-    asString((data.courier as Record<string, unknown> | undefined)?.tracking_number) ||
+    asString(
+      (data.courier as Record<string, unknown> | undefined)?.waybill_id,
+    ) ||
+    asString(
+      (data.courier as Record<string, unknown> | undefined)?.tracking_number,
+    ) ||
     "";
 
   const externalOrderId =
