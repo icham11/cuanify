@@ -204,6 +204,7 @@ const OrdersContext = createContext<OrdersContextValue | null>(null);
 const initialOrders: BakeryOrder[] = [];
 const STORAGE_KEY = "bakeryOrdersState";
 const STORAGE_EVENT = "bakeryOrdersUpdated";
+const ORDERS_SYNC_ENDPOINT = "/api/bookings/orders";
 const INITIAL_SNAPSHOT = JSON.stringify(initialOrders);
 let hasHydrated = false;
 
@@ -520,11 +521,80 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  const persistOrders = useCallback((nextOrders: BakeryOrder[]) => {
+  const syncOrdersToServer = useCallback(async (nextOrders: BakeryOrder[]) => {
     if (typeof window === "undefined") return;
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextOrders));
-    window.dispatchEvent(new Event(STORAGE_EVENT));
+
+    try {
+      await fetch(ORDERS_SYNC_ENDPOINT, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ orders: nextOrders }),
+      });
+    } catch {
+      // Keep local mode when network/auth is unavailable.
+    }
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    let active = true;
+
+    const hydrateOrdersFromServer = async () => {
+      const localSnapshot = window.localStorage.getItem(STORAGE_KEY);
+      const localOrders = parseSnapshot(localSnapshot ?? INITIAL_SNAPSHOT);
+
+      try {
+        const response = await fetch(ORDERS_SYNC_ENDPOINT, {
+          method: "GET",
+          cache: "no-store",
+        });
+        const payload = (await response.json().catch(() => ({}))) as {
+          success?: boolean;
+          data?: { orders?: BakeryOrder[] };
+        };
+
+        if (!active || !response.ok || !payload.success) return;
+
+        const serverOrders = Array.isArray(payload.data?.orders)
+          ? payload.data.orders
+          : [];
+
+        if (serverOrders.length > 0) {
+          window.localStorage.setItem(
+            STORAGE_KEY,
+            JSON.stringify(serverOrders),
+          );
+          window.dispatchEvent(new Event(STORAGE_EVENT));
+          return;
+        }
+
+        if (localOrders.length > 0) {
+          void syncOrdersToServer(localOrders);
+        }
+      } catch {
+        // Keep local snapshot if server is unreachable.
+      }
+    };
+
+    void hydrateOrdersFromServer();
+
+    return () => {
+      active = false;
+    };
+  }, [syncOrdersToServer]);
+
+  const persistOrders = useCallback(
+    (nextOrders: BakeryOrder[]) => {
+      if (typeof window === "undefined") return;
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextOrders));
+      window.dispatchEvent(new Event(STORAGE_EVENT));
+      void syncOrdersToServer(nextOrders);
+    },
+    [syncOrdersToServer],
+  );
 
   const runAutomationsForOrder = useCallback(
     async (eventType: BookingAutomationEvent, orderId: string) => {

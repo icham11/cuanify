@@ -1,0 +1,103 @@
+# Third-Party Pricing and User Journey Demo (Crumbella)
+
+Tanggal: 2026-03-29
+Dokumen ini dipakai untuk 2 kebutuhan:
+1. Transparansi penggunaan layanan 3rd-party (termasuk skema biaya).
+2. Narasi user journey end-to-end saat demo ke client.
+
+## 1) Prinsip Dokumentasi Biaya 3rd-Party
+
+- Semua layanan eksternal wajib dicatat: dipakai atau tidak dipakai.
+- Jika dipakai, wajib ada unit biaya (per request, per pesan, per transaksi, per GB, dst).
+- Jika belum ada angka final, tulis placeholder dan sumber verifikasi (invoice/dashboard provider).
+- Untuk demo sandbox, biaya aktual bisa nol/kecil, tetapi model biaya production tetap harus dijelaskan.
+
+## 2) Matriks 3rd-Party yang Digunakan
+
+| Layanan | Fungsi di Sistem | Status Saat Ini | Trigger Utama | Unit Biaya | Estimasi Biaya per Trigger | Catatan Verifikasi |
+| --- | --- | --- | --- | --- | --- | --- |
+| Biteship (JNE/Paxel) | Quote ongkir, create shipment/resi | Aktif (Sandbox/Test Key) | Cek ongkir, generate resi | Per request API / per order shipment | Isi dari dashboard Biteship | Cek log request route shipping + invoice Biteship |
+| Fonnte | Notifikasi WhatsApp (produksi/customer) | Aktif | Automasi order create/confirm/reschedule | Per pesan terkirim | Isi sesuai paket Fonnte | Cek dashboard Fonnte per periode |
+| Google Calendar API | Sinkron event produksi/pengiriman | Aktif | Approve order, reschedule | Umumnya kuota API | Tidak dikenakan per event (cek kuota) | Cek Google Cloud quota usage |
+| Google Sheets API | Sinkron data operasional/finance | Aktif (tergantung env) | Event automasi tertentu | Umumnya kuota API | Tidak dikenakan per row (cek kuota) | Cek Google Cloud quota usage |
+| ImageKit | Upload/hosting gambar parser/asset | Aktif | Upload image chat/asset | Storage + bandwidth + transform | Isi dari paket ImageKit | Cek usage dashboard bulanan |
+| Groq / LLM API | Parsing/analisis teks order | Aktif sesuai route AI | Parse dari chat/email | Per token atau per call | Isi sesuai model yang dipakai | Catat model + rata-rata token/request |
+| Gemini API | Embedding/AI support tertentu | Aktif opsional | Fitur AI tertentu | Per token / kuota model | Isi sesuai model | Cek billing GCP AI |
+| Midtrans | Payment gateway | Non-aktif (ditunda) | Checkout payment online | Per transaksi sukses | N/A saat ini | Aktifkan saat flow payment online disetujui client |
+| Xendit | Invoice/payment alternatif | Non-aktif (opsional) | Create invoice | Per invoice/transaksi | N/A saat ini | Aktifkan jika disetujui dalam scope |
+
+## 3) Template Pengisian Pricing Detail (Siap Kirim ke PM/Client)
+
+Isi tabel ini dengan angka final dari dashboard/invoice provider.
+
+| Layanan | Satuan Billing | Harga Satuan | Rata-rata Pemakaian per 1 Order | Perkiraan Biaya per 1 Order | Perkiraan Biaya per 100 Order |
+| --- | --- | --- | --- | --- | --- |
+| LLM Parser | per request / per token | xx | xx | xx | xx |
+| Biteship Quote | per request | xx | xx | xx | xx |
+| Biteship Create Resi | per shipment | xx | xx | xx | xx |
+| Fonnte WA | per pesan | xx | xx | xx | xx |
+| ImageKit | storage/bandwidth | xx | xx | xx | xx |
+
+Rumus cepat:
+- Biaya per order = Harga Satuan x Rata-rata Pemakaian per order
+- Biaya per 100 order = Biaya per order x 100
+
+## 4) User Journey End-to-End (Untuk Narasi Demo)
+
+### A. Entry Order
+
+1. Admin input order manual atau parse dari WhatsApp/email.
+2. Sistem mengisi data customer, item, alamat, jadwal.
+3. Admin review dan koreksi data jika perlu.
+
+### B. Shipping Calculation
+
+1. Admin isi alamat + kode pos.
+2. Sistem hitung ongkir live dari Biteship (JNE/Paxel).
+3. Sistem hitung estimasi jarak origin ke tujuan.
+4. Admin pilih service kurir yang paling sesuai.
+
+### C. Booking Creation
+
+1. Booking disimpan dengan item, harga, ongkir, jadwal.
+2. Sistem generate booking code.
+3. Sistem jalankan automasi sesuai event (jika aktif).
+
+### D. Approval and Fulfillment
+
+1. Admin approve order.
+2. Sistem kirim notifikasi WA produksi/customer sesuai policy.
+3. Sistem sinkron ke Google Calendar dan/atau Google Sheets.
+4. Generate resi pengiriman saat dibutuhkan.
+
+### E. Post-Order Tracking
+
+1. Status order bergerak: Inquiry -> Confirmed -> In Production -> Ready -> Delivered/Completed.
+2. Semua perubahan status tercatat di history/log.
+3. Data order masuk ke reporting/export.
+
+## 5) Checklist Responsiveness (Titipan Khusus untuk Demo)
+
+Tujuan: client bisa lihat konteks utuh di desktop dan mobile.
+
+- Sidebar/navigation masih terbaca di viewport mobile.
+- Form booking (item, address, shipping) tidak overflow horizontal.
+- Tabel order memiliki fallback mobile (stack/card) bila kolom banyak.
+- Tombol aksi utama (Create Booking, Approve, Generate Resi) tetap terlihat jelas di mobile.
+- Komponen penting (price summary, shipping options, status timeline) tidak terpotong di layar kecil.
+- Loading/error state tetap informatif di semua breakpoint.
+
+## 6) Scope Demo Malam Ini
+
+- Gunakan data yang mendekati data operasional Crumbella (produk dan kategori).
+- Tetap jalankan di sandbox untuk keamanan flow testing.
+- Jelaskan batasan saat ini secara jujur:
+  - Integrasi payment gateway belum diaktifkan production flow.
+  - Angka pricing 3rd-party final menunggu sinkron dashboard/invoice.
+
+## 7) Action Items Setelah Demo
+
+1. Isi tabel pricing final dari dashboard provider.
+2. Finalisasi daftar layanan aktif vs non-aktif sesuai keputusan client.
+3. Simpan snapshot hasil demo (screen + catatan pertanyaan client).
+4. Update dokumen ini sebagai baseline handover ke PM dan client.

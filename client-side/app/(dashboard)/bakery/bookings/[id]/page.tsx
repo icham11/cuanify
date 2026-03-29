@@ -184,6 +184,62 @@ export default function OrderDetailPage() {
     printWindow.document.close();
   };
 
+  const handlePrintResi = () => {
+    if (!order || !order.shipment) return;
+
+    const primaryAddress =
+      order.deliveryAddresses?.[0]?.addressLine || order.customerAddress || "-";
+    const itemSummary = (order.items ?? [])
+      .map((item) => `${item.quantity}x ${item.productName} (${item.size})`)
+      .join("<br />");
+
+    const printWindow = window.open("", "_blank", "width=480,height=760");
+    if (!printWindow) return;
+
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Print Resi</title>
+          <style>
+            @page { size: 100mm 150mm; margin: 0; }
+            html, body { width: 100mm; height: 150mm; }
+            body { font-family: Arial, sans-serif; margin: 0; padding: 4mm; color: #111827; box-sizing: border-box; }
+            .sheet { border: 1px solid #111827; border-radius: 6px; padding: 3.5mm; width: calc(100% - 2px); box-sizing: border-box; }
+            .title { font-size: 13px; font-weight: 800; margin-bottom: 6px; letter-spacing: .5px; text-transform: uppercase; }
+            .awb { border: 2px dashed #111827; border-radius: 6px; padding: 6px; margin-bottom: 8px; }
+            .awb-label { font-size: 9px; color: #4b5563; margin-bottom: 2px; }
+            .awb-value { font-size: 17px; font-weight: 800; letter-spacing: .8px; word-break: break-all; line-height: 1.1; }
+            .row { font-size: 11px; margin-bottom: 4px; line-height: 1.25; }
+            .label { font-weight: 700; }
+            .foot { font-size: 9px; color: #6b7280; margin-top: 7px; }
+          </style>
+        </head>
+        <body>
+          <div class="sheet">
+            <div class="title">RESI PENGIRIMAN</div>
+            <div class="awb">
+              <div class="awb-label">NO. RESI / AWB</div>
+              <div class="awb-value">${order.shipment.trackingNumber || "-"}</div>
+            </div>
+
+            <div class="row"><span class="label">Kurir:</span> ${order.shipment.provider} - ${order.shipment.courierServiceName}</div>
+            <div class="row"><span class="label">Kode Booking:</span> ${order.resi || order.bookingCode || order.id}</div>
+            <div class="row"><span class="label">Penerima:</span> ${order.customerName || "-"}</div>
+            <div class="row"><span class="label">No. HP:</span> ${order.customerPhone || "-"}</div>
+            <div class="row"><span class="label">Alamat:</span><br />${primaryAddress}</div>
+            <div class="row"><span class="label">Jadwal:</span> ${order.deliveryDate || "-"} ${order.deliverySlot || ""}</div>
+            <div class="row"><span class="label">Isi Paket:</span><br />${itemSummary || "-"}</div>
+            ${order.shipment.trackingUrl ? `<div class="row"><span class="label">Tracking URL:</span><br />${order.shipment.trackingUrl}</div>` : ""}
+
+            <div class="foot">Dicetak dari Bakery OMS (tanpa buka dashboard Biteship)</div>
+          </div>
+          <script>window.print();window.close();</script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
+
   const handleCopyMessage = async () => {
     try {
       await navigator.clipboard.writeText(messagePreview);
@@ -455,6 +511,17 @@ export default function OrderDetailPage() {
                       </a>
                     </p>
                   )}
+                  <div className="mt-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-8 gap-1 border-emerald-300 bg-white text-emerald-700 hover:bg-emerald-100"
+                      onClick={handlePrintResi}
+                    >
+                      <Printer size={14} />
+                      Print Resi
+                    </Button>
+                  </div>
                 </div>
               )}
 
