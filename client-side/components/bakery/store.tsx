@@ -25,6 +25,11 @@ import {
   BAKERY_DOWN_PAYMENT_PERCENT,
   calculateDownPayment,
 } from "@/lib/bookings/config";
+import {
+  checkSlotAvailability,
+  inferOrderTypeFromItems,
+  isWithinBusinessHours,
+} from "@/lib/bookings/operations";
 
 export type OrderStatus =
   | "Inquiry"
@@ -74,6 +79,20 @@ export interface OrderItem {
   size: string;
   quantity: number;
   basePrice: number;
+  productType?: "COOKIE" | "BOUQUET" | "CAKE" | "CUPCAKE" | "TOWER";
+  selectedPrice?: number;
+  cookiePrice?: number;
+  designCount?: number;
+  additionalDesignCount?: number;
+  additionalCost?: number;
+  bouquetType?: "HAND" | "STANDING";
+  bouquetCost?: number;
+  cakeDiameterCm?: number;
+  cakeHeightCm?: number;
+  cakeType?: "DUMMY" | "REAL";
+  cupcakePackType?: "DOZEN" | "INDIVIDUAL";
+  hasCookieTopper?: boolean;
+  lineTotal?: number;
   addOns: string[];
   addOnTotal: number;
   notes?: string;
@@ -349,6 +368,23 @@ function buildAutomationPayload(
       productName: item.productName,
       size: item.size,
       quantity: Number(item.quantity || 0),
+      productType: item.productType,
+      selectedPrice: item.selectedPrice,
+      basePrice: Number(item.basePrice || 0),
+      cookiePrice: item.cookiePrice,
+      designCount: item.designCount,
+      additionalDesignCount: item.additionalDesignCount,
+      additionalCost: item.additionalCost,
+      bouquetType: item.bouquetType,
+      bouquetCost: item.bouquetCost,
+      cakeDiameterCm: item.cakeDiameterCm,
+      cakeHeightCm: item.cakeHeightCm,
+      cakeType: item.cakeType,
+      cupcakePackType: item.cupcakePackType,
+      hasCookieTopper: item.hasCookieTopper,
+      lineTotal:
+        Number(item.lineTotal || 0) ||
+        Number(item.basePrice || 0) + Number(item.addOnTotal || 0),
       notes: item.notes || "",
     })),
     deliveryAddresses: (order.deliveryAddresses ?? []).map((address) => ({
@@ -708,6 +744,25 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
 
   const addOrder = useCallback(
     (order: NewOrderInput) => {
+      if (!isWithinBusinessHours(order.deliveryDate, order.deliverySlot)) {
+        toast.error(
+          "Selected slot is outside business hours (Mon-Sat 10:00-22:00, Sun 10:00-15:00).",
+        );
+        return;
+      }
+
+      const orderType = inferOrderTypeFromItems(order.items);
+      const slotStatus = checkSlotAvailability(
+        order.deliveryDate,
+        order.deliverySlot,
+        orderType,
+        { orders },
+      );
+      if (slotStatus === "FULL") {
+        toast.error("Selected time slot is full.");
+        return;
+      }
+
       const nextId =
         orders.reduce((max, item) => {
           const parsed = Number(item.id);
@@ -981,6 +1036,31 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
 
   const updateOrderSchedule = useCallback(
     (id: string, deliveryDate: string, deliverySlot: string) => {
+      if (!isWithinBusinessHours(deliveryDate, deliverySlot)) {
+        toast.error(
+          "Selected slot is outside business hours (Mon-Sat 10:00-22:00, Sun 10:00-15:00).",
+        );
+        return;
+      }
+
+      const targetOrder = orders.find((order) => order.id === id);
+      if (!targetOrder) return;
+
+      const targetType = inferOrderTypeFromItems(targetOrder.items || []);
+      const slotStatus = checkSlotAvailability(
+        deliveryDate,
+        deliverySlot,
+        targetType,
+        {
+          orders,
+          excludeOrderId: id,
+        },
+      );
+      if (slotStatus === "FULL") {
+        toast.error("Selected time slot is full.");
+        return;
+      }
+
       const nextOrders: BakeryOrder[] = orders.map((order) => {
         if (order.id !== id) return order;
         return {

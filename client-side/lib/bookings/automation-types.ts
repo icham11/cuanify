@@ -13,6 +13,21 @@ export interface BookingAutomationItem {
   size: string;
   quantity: number;
   notes?: string;
+  productType?: "COOKIE" | "BOUQUET" | "CAKE" | "CUPCAKE" | "TOWER";
+  selectedPrice?: number;
+  basePrice?: number;
+  cookiePrice?: number;
+  designCount?: number;
+  additionalDesignCount?: number;
+  additionalCost?: number;
+  bouquetType?: "HAND" | "STANDING";
+  bouquetCost?: number;
+  cakeDiameterCm?: number;
+  cakeHeightCm?: number;
+  cakeType?: "DUMMY" | "REAL";
+  cupcakePackType?: "DOZEN" | "INDIVIDUAL";
+  hasCookieTopper?: boolean;
+  lineTotal?: number;
 }
 
 export interface BookingAutomationAddress {
@@ -33,6 +48,7 @@ export interface BookingAutomationOrderPayload {
   paymentStatus: string;
   orderStatus: string;
   totalPrice: number;
+  manualAdjustment?: number;
   deliveryFee?: number;
   notes?: string;
   items: BookingAutomationItem[];

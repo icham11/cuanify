@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAuth, AuthError } from "@/lib/auth/session";
 import { runBookingAutomations } from "@/lib/bookings/automation-service";
+import { calculateOrderPriceSafe } from "@/lib/bookings/pricing-service";
 import type {
   BookingAutomationEvent,
   BookingAutomationOrderPayload,
@@ -19,6 +20,23 @@ const orderItemSchema = z.object({
   size: z.string(),
   quantity: z.number(),
   notes: z.string().optional(),
+  productType: z
+    .enum(["COOKIE", "BOUQUET", "CAKE", "CUPCAKE", "TOWER"])
+    .optional(),
+  selectedPrice: z.number().optional(),
+  basePrice: z.number().optional(),
+  cookiePrice: z.number().optional(),
+  designCount: z.number().int().optional(),
+  additionalDesignCount: z.number().int().optional(),
+  additionalCost: z.number().optional(),
+  bouquetType: z.enum(["HAND", "STANDING"]).optional(),
+  bouquetCost: z.number().optional(),
+  cakeDiameterCm: z.number().int().optional(),
+  cakeHeightCm: z.number().int().optional(),
+  cakeType: z.enum(["DUMMY", "REAL"]).optional(),
+  cupcakePackType: z.enum(["DOZEN", "INDIVIDUAL"]).optional(),
+  hasCookieTopper: z.boolean().optional(),
+  lineTotal: z.number().optional(),
 });
 
 const addressSchema = z.object({
@@ -48,6 +66,7 @@ const requestSchema = z.object({
     orderStatus: z.string().default("Inquiry"),
     totalPrice: z.number(),
     deliveryFee: z.number().default(0),
+    manualAdjustment: z.number().default(0),
     notes: z.string().optional(),
     items: z.array(orderItemSchema),
     deliveryAddresses: z.array(addressSchema),
@@ -84,9 +103,43 @@ export async function POST(request: NextRequest) {
     const eventType = parsed.data.eventType as BookingAutomationEvent;
     const order = parsed.data.order as BookingAutomationOrderPayload;
 
+    const pricing = calculateOrderPriceSafe({
+      items: order.items,
+      fallbackTotal: order.totalPrice,
+      deliveryFee: order.deliveryFee,
+      manualAdjustment: order.manualAdjustment,
+    });
+    const hasStructuredPricingSignals = order.items.some((item) => {
+      return (
+        Boolean(item.productType) ||
+        item.selectedPrice !== undefined ||
+        item.basePrice !== undefined ||
+        item.cookiePrice !== undefined ||
+        item.designCount !== undefined ||
+        item.additionalDesignCount !== undefined ||
+        item.additionalCost !== undefined ||
+        item.bouquetType !== undefined ||
+        item.bouquetCost !== undefined ||
+        item.cakeDiameterCm !== undefined ||
+        item.cakeHeightCm !== undefined ||
+        item.cakeType !== undefined ||
+        item.cupcakePackType !== undefined ||
+        item.hasCookieTopper !== undefined ||
+        item.lineTotal !== undefined
+      );
+    });
+
+    const orderForAutomation: BookingAutomationOrderPayload = {
+      ...order,
+      totalPrice:
+        hasStructuredPricingSignals && !pricing.usedOrderFallback
+          ? pricing.total
+          : order.totalPrice,
+    };
+
     const result = await runBookingAutomations(
       eventType,
-      order,
+      orderForAutomation,
       auth.businessId,
     );
 

@@ -27,6 +27,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import { type BakeryOrder, useOrders } from "@/components/bakery/store";
+import {
+  checkSlotAvailability,
+  countConcurrentOrdersByTypeForSlot,
+  getDeliverySlotsForDate,
+  getSlotLimitByOrderType,
+  type SlotOrderType,
+} from "@/lib/bookings/operations";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 
@@ -126,10 +133,24 @@ function getCalendarRange(date: Date, view: View) {
   };
 }
 
-function loadTone(totalOrders: number) {
-  if (totalOrders >= 7) return "full";
-  if (totalOrders >= 4) return "busy";
-  return "normal";
+type DayLoadTone = "normal" | "busy" | "full";
+
+function slotStatusBadge(status: "AVAILABLE" | "ALMOST_FULL" | "FULL"): string {
+  if (status === "FULL") return "FULL";
+  if (status === "ALMOST_FULL") return "ALMOST FULL";
+  return "AVAILABLE";
+}
+
+function slotStatusTextClass(status: "AVAILABLE" | "ALMOST_FULL" | "FULL"): string {
+  if (status === "FULL") return "text-rose-700";
+  if (status === "ALMOST_FULL") return "text-amber-700";
+  return "text-emerald-700";
+}
+
+function slotStatusTone(status: "AVAILABLE" | "ALMOST_FULL" | "FULL"): string {
+  if (status === "FULL") return "border-rose-200 bg-rose-50";
+  if (status === "ALMOST_FULL") return "border-amber-200 bg-amber-50";
+  return "border-emerald-200 bg-emerald-50";
 }
 
 function CalendarEventItem({ event }: EventProps<CalendarOrderEvent>) {
@@ -444,8 +465,6 @@ export default function BakeryCalendarPage() {
   });
 
   const selectedCount = filteredSelectedEvents.length;
-  const slotMessage =
-    selectedCount >= 4 ? "Slots almost full" : "Slots available";
 
   const selectedDateLabel = selectedDate
     ? format(selectedDate, "EEEE, dd MMMM yyyy", { locale: localeId })
@@ -486,6 +505,105 @@ export default function BakeryCalendarPage() {
       return !bookingIdsOnGoogle.has(order.id);
     }).length;
   }, [googleEvents, currentDate, currentView, orders]);
+
+  const dayToneByDate = useMemo(() => {
+    const result = new Map<string, DayLoadTone>();
+    if (calendarViewMode !== "internal") return result;
+
+    const rangeStart =
+      currentView === Views.WEEK
+        ? startOfWeek(currentDate, { weekStartsOn: 1 })
+        : startOfMonth(currentDate);
+    const rangeEnd =
+      currentView === Views.WEEK
+        ? endOfWeek(currentDate, { weekStartsOn: 1 })
+        : endOfMonth(currentDate);
+
+    const cursor = new Date(rangeStart);
+    while (cursor <= rangeEnd) {
+      const dateKey = safeToDateKey(cursor);
+      if (dateKey) {
+        const slots = getDeliverySlotsForDate(dateKey);
+        let tone: DayLoadTone = "normal";
+        for (const slot of slots) {
+          const customStatus = checkSlotAvailability(dateKey, slot, "CUSTOM", {
+            orders,
+          });
+          const seasonalStatus = checkSlotAvailability(
+            dateKey,
+            slot,
+            "SEASONAL",
+            { orders },
+          );
+          if (customStatus === "FULL" || seasonalStatus === "FULL") {
+            tone = "full";
+            break;
+          }
+          if (
+            customStatus === "ALMOST_FULL" ||
+            seasonalStatus === "ALMOST_FULL"
+          ) {
+            tone = "busy";
+          }
+        }
+        result.set(dateKey, tone);
+      }
+      cursor.setDate(cursor.getDate() + 1);
+    }
+
+    return result;
+  }, [calendarViewMode, currentDate, currentView, orders]);
+
+  const selectedDateSlotBoard = useMemo(() => {
+    if (!selectedDateKey || calendarViewMode !== "internal") return [];
+    const orderTypes: SlotOrderType[] = ["CUSTOM", "SEASONAL"];
+    return getDeliverySlotsForDate(selectedDateKey).map((slot) => {
+      const rows = orderTypes.map((orderType) => {
+        const used = countConcurrentOrdersByTypeForSlot({
+          orders,
+          deliveryDate: selectedDateKey,
+          deliverySlot: slot,
+          orderType,
+        });
+        const status = checkSlotAvailability(selectedDateKey, slot, orderType, {
+          orders,
+        });
+        return {
+          orderType,
+          used,
+          limit: getSlotLimitByOrderType(orderType),
+          status,
+        };
+      });
+      return {
+        slot,
+        rows,
+      };
+    });
+  }, [selectedDateKey, calendarViewMode, orders]);
+
+  const selectedDateOverallStatus = useMemo<
+    "AVAILABLE" | "ALMOST_FULL" | "FULL"
+  >(() => {
+    if (selectedDateSlotBoard.length === 0) return "AVAILABLE";
+
+    let hasAlmostFull = false;
+    for (const slot of selectedDateSlotBoard) {
+      for (const row of slot.rows) {
+        if (row.status === "FULL") return "FULL";
+        if (row.status === "ALMOST_FULL") hasAlmostFull = true;
+      }
+    }
+
+    return hasAlmostFull ? "ALMOST_FULL" : "AVAILABLE";
+  }, [selectedDateSlotBoard]);
+
+  const slotMessage =
+    selectedDateOverallStatus === "FULL"
+      ? "Ada slot yang sudah penuh"
+      : selectedDateOverallStatus === "ALMOST_FULL"
+        ? "Ada slot yang hampir penuh"
+        : "Slot masih tersedia";
 
   const DateHeader = ({ date, label }: DateHeaderProps) => {
     const dateKey = safeToDateKey(date);
@@ -754,8 +872,7 @@ export default function BakeryCalendarPage() {
               },
             })}
             dayPropGetter={(date) => {
-              const count = ordersByDate.get(toDateKey(date))?.length ?? 0;
-              const tone = loadTone(count);
+              const tone = dayToneByDate.get(toDateKey(date)) ?? "normal";
               if (tone === "full") {
                 return { className: "rbc-day-full" };
               }
@@ -776,16 +893,16 @@ export default function BakeryCalendarPage() {
 
           <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-gray-500">
             <span className="inline-flex items-center gap-1">
-              <span className="h-2.5 w-2.5 rounded-full bg-indigo-400" /> 0-3
-              orders
+              <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />{" "}
+              Slot available
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="h-2.5 w-2.5 rounded-full bg-amber-400" /> 4-6
-              orders
+              <span className="h-2.5 w-2.5 rounded-full bg-amber-500" /> Slot
+              almost full
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="h-2.5 w-2.5 rounded-full bg-rose-500" /> 7+
-              orders
+              <span className="h-2.5 w-2.5 rounded-full bg-rose-500" /> Slot
+              full
             </span>
           </div>
 
@@ -857,12 +974,65 @@ export default function BakeryCalendarPage() {
                     Capacity Status
                   </p>
                   <p
-                    className={`mt-1 text-sm font-semibold ${selectedCount >= 4 ? "text-amber-700" : "text-emerald-700"}`}
+                    className={`mt-1 text-sm font-semibold ${slotStatusTextClass(selectedDateOverallStatus)}`}
                   >
                     {slotMessage}
                   </p>
                 </div>
               </div>
+
+              {calendarViewMode === "internal" &&
+              selectedDateSlotBoard.length > 0 ? (
+                <div className="mb-3 rounded-xl border border-gray-200 bg-gray-50/60 p-4">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                      Slot Availability Board
+                    </p>
+                    <span
+                      className={`text-xs font-semibold ${slotStatusTextClass(selectedDateOverallStatus)}`}
+                    >
+                      {slotStatusBadge(selectedDateOverallStatus)}
+                    </span>
+                  </div>
+
+                  <div className="space-y-2">
+                    {selectedDateSlotBoard.map((slotEntry) => (
+                      <div
+                        key={slotEntry.slot}
+                        className="rounded-lg border border-gray-200 bg-white px-3 py-2"
+                      >
+                        <p className="text-xs font-semibold text-gray-600">
+                          {slotEntry.slot}
+                        </p>
+                        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          {slotEntry.rows.map((row) => (
+                            <div
+                              key={row.orderType}
+                              className={`rounded-lg border px-3 py-2 ${slotStatusTone(row.status)}`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-700">
+                                  {row.orderType === "SEASONAL"
+                                    ? "Seasonal"
+                                    : "Custom"}
+                                </span>
+                                <span
+                                  className={`text-[11px] font-bold ${slotStatusTextClass(row.status)}`}
+                                >
+                                  {slotStatusBadge(row.status)}
+                                </span>
+                              </div>
+                              <p className="mt-1 text-[11px] text-gray-600">
+                                {row.used}/{row.limit} orders
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
 
               <div className="mb-3">
                 <Button

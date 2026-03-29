@@ -584,7 +584,7 @@ export default function AnalyticsPage() {
   return (
     <div className="space-y-5 sm:space-y-6 lg:space-y-8">
       {/* Header */}
-      <div className="bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 rounded-2xl p-5 sm:p-8 shadow-lg shadow-indigo-200/30">
+      <div className="bg-linear-to-r from-indigo-600 via-purple-600 to-indigo-600 rounded-2xl p-5 sm:p-8 shadow-lg shadow-indigo-200/30">
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
           <div>
             <h1 className="text-xl sm:text-3xl font-bold text-white flex items-center gap-2 sm:gap-3">
@@ -1071,7 +1071,7 @@ function ProductsSection() {
                         className={`border-b border-gray-100 ${idx % 2 === 0 ? "bg-white" : "bg-indigo-50"} hover:bg-indigo-100`}
                       >
                         <td className="px-3 sm:px-5 py-2 sm:py-3 font-semibold text-indigo-700">
-                          <span className="inline-block bg-indigo-100 text-indigo-700 rounded-lg px-2 py-0.5 text-xs font-medium truncate max-w-[120px] sm:max-w-none">
+                          <span className="inline-block bg-indigo-100 text-indigo-700 rounded-lg px-2 py-0.5 text-xs font-medium truncate max-w-30 sm:max-w-none">
                             {p.productName}
                           </span>
                         </td>
@@ -1260,7 +1260,7 @@ function ProductsSection() {
                               backgroundColor: COLORS[idx % COLORS.length],
                             }}
                           />
-                          <span className="text-indigo-700 truncate max-w-[100px] sm:max-w-none">
+                          <span className="text-indigo-700 truncate max-w-25 sm:max-w-none">
                             {cat.categoryName}
                           </span>
                         </span>
@@ -2947,7 +2947,7 @@ function KasbonSection() {
               <tbody>
                 {topDebtors.map((d, i) => (
                   <tr key={i} className={`border-b border-gray-50 ${i % 2 === 0 ? "bg-white" : "bg-amber-50/30"}`}>
-                    <td className="px-3 sm:px-5 py-2 sm:py-3 font-semibold text-gray-800 truncate max-w-[120px] sm:max-w-none">
+                    <td className="px-3 sm:px-5 py-2 sm:py-3 font-semibold text-gray-800 truncate max-w-30 sm:max-w-none">
                       {d.customerName}
                     </td>
                     <td className="px-3 sm:px-5 py-2 sm:py-3 text-gray-500 hidden sm:table-cell">

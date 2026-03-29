@@ -77,116 +77,180 @@ export const BOOKING_PRODUCT_CATALOG: PricelistCategory[] = [
     keywords: ["cake", "kue"],
     subcategories: [
       {
-        name: "Cake 10 cm",
-        keywords: ["regular", "reg", "10 cm", "real cake", "dummy cake"],
+        name: "Cake Tinggi 10 cm",
+        keywords: [
+          "cake 10 cm",
+          "regular",
+          "reg",
+          "tinggi 10 cm",
+          "height 10 cm",
+          "real cake",
+          "dummy cake",
+        ],
         products: [
           {
             name: "Real Cake (10 cm)",
             keywords: ["regular", "real", "10 cm", "real cake"],
-            defaultVariant: "Real 16 cm",
+            defaultVariant: "Real Diameter 16 cm (Tinggi 10 cm)",
             variants: [
-              variant("Real 14 cm", 400000, [
+              variant("Real Diameter 14 cm (Tinggi 10 cm)", 400000, [
                 "14",
                 "14cm",
                 "size 14",
                 "real 14",
+                "real 14 cm",
+                "diameter 14",
               ]),
-              variant("Real 16 cm", 450000, [
+              variant("Real Diameter 16 cm (Tinggi 10 cm)", 450000, [
                 "16",
                 "16cm",
                 "size 16",
                 "real 16",
+                "real 16 cm",
+                "diameter 16",
               ]),
-              variant("Real 18 cm", 550000, [
+              variant("Real Diameter 18 cm (Tinggi 10 cm)", 550000, [
                 "18",
                 "18cm",
                 "size 18",
                 "real 18",
+                "real 18 cm",
+                "diameter 18",
               ]),
-              variant("Real 20 cm", 650000, [
+              variant("Real Diameter 20 cm (Tinggi 10 cm)", 650000, [
                 "20",
                 "20cm",
                 "size 20",
                 "real 20",
+                "real 20 cm",
+                "diameter 20",
               ]),
             ],
           },
           {
             name: "Dummy Cake (10 cm)",
             keywords: ["dummy", "dummy cake", "10 cm"],
-            defaultVariant: "Dummy 16 cm",
+            defaultVariant: "Dummy Diameter 16 cm (Tinggi 10 cm)",
             variants: [
-              variant("Dummy 14 cm", 250000, ["14", "14cm", "dummy 14"]),
-              variant("Dummy 16 cm", 275000, ["16", "16cm", "dummy 16"]),
-              variant("Dummy 18 cm", 300000, ["18", "18cm", "dummy 18"]),
-              variant("Dummy 20 cm", 350000, ["20", "20cm", "dummy 20"]),
+              variant("Dummy Diameter 14 cm (Tinggi 10 cm)", 250000, [
+                "14",
+                "14cm",
+                "dummy 14",
+                "dummy 14 cm",
+                "diameter 14",
+              ]),
+              variant("Dummy Diameter 16 cm (Tinggi 10 cm)", 275000, [
+                "16",
+                "16cm",
+                "dummy 16",
+                "dummy 16 cm",
+                "diameter 16",
+              ]),
+              variant("Dummy Diameter 18 cm (Tinggi 10 cm)", 300000, [
+                "18",
+                "18cm",
+                "dummy 18",
+                "dummy 18 cm",
+                "diameter 18",
+              ]),
+              variant("Dummy Diameter 20 cm (Tinggi 10 cm)", 350000, [
+                "20",
+                "20cm",
+                "dummy 20",
+                "dummy 20 cm",
+                "diameter 20",
+              ]),
             ],
           },
         ],
       },
       {
-        name: "Cake 15 cm",
-        keywords: ["tall", "15 cm", "real cake", "dummy cake"],
+        name: "Cake Tinggi 15 cm",
+        keywords: [
+          "cake 15 cm",
+          "tall",
+          "15 cm",
+          "tinggi 15 cm",
+          "height 15 cm",
+          "real cake",
+          "dummy cake",
+        ],
         products: [
           {
             name: "Real Cake (15 cm)",
             keywords: ["tall", "15 cm", "real", "real cake"],
-            defaultVariant: "Real Tall 16 cm",
+            defaultVariant: "Real Diameter 16 cm (Tinggi 15 cm)",
             variants: [
-              variant("Real Tall 14 cm", 500000, [
+              variant("Real Diameter 14 cm (Tinggi 15 cm)", 500000, [
                 "14",
                 "14cm",
                 "real 14",
+                "real 14 cm",
                 "tall 14",
+                "diameter 14",
               ]),
-              variant("Real Tall 16 cm", 550000, [
+              variant("Real Diameter 16 cm (Tinggi 15 cm)", 550000, [
                 "16",
                 "16cm",
                 "real 16",
+                "real 16 cm",
                 "tall 16",
+                "diameter 16",
               ]),
-              variant("Real Tall 18 cm", 650000, [
+              variant("Real Diameter 18 cm (Tinggi 15 cm)", 650000, [
                 "18",
                 "18cm",
                 "real 18",
+                "real 18 cm",
                 "tall 18",
+                "diameter 18",
               ]),
-              variant("Real Tall 20 cm", 750000, [
+              variant("Real Diameter 20 cm (Tinggi 15 cm)", 750000, [
                 "20",
                 "20cm",
                 "real 20",
+                "real 20 cm",
                 "tall 20",
+                "diameter 20",
               ]),
             ],
           },
           {
             name: "Dummy Cake (15 cm)",
             keywords: ["dummy", "dummy cake", "15 cm", "tall dummy"],
-            defaultVariant: "Dummy Tall 16 cm",
+            defaultVariant: "Dummy Diameter 16 cm (Tinggi 15 cm)",
             variants: [
-              variant("Dummy Tall 14 cm", 300000, [
+              variant("Dummy Diameter 14 cm (Tinggi 15 cm)", 300000, [
                 "14",
                 "14cm",
                 "dummy 14",
+                "dummy 14 cm",
                 "tall dummy 14",
+                "diameter 14",
               ]),
-              variant("Dummy Tall 16 cm", 325000, [
+              variant("Dummy Diameter 16 cm (Tinggi 15 cm)", 325000, [
                 "16",
                 "16cm",
                 "dummy 16",
+                "dummy 16 cm",
                 "tall dummy 16",
+                "diameter 16",
               ]),
-              variant("Dummy Tall 18 cm", 350000, [
+              variant("Dummy Diameter 18 cm (Tinggi 15 cm)", 350000, [
                 "18",
                 "18cm",
                 "dummy 18",
+                "dummy 18 cm",
                 "tall dummy 18",
+                "diameter 18",
               ]),
-              variant("Dummy Tall 20 cm", 400000, [
+              variant("Dummy Diameter 20 cm (Tinggi 15 cm)", 400000, [
                 "20",
                 "20cm",
                 "dummy 20",
+                "dummy 20 cm",
                 "tall dummy 20",
+                "diameter 20",
               ]),
             ],
           },
@@ -355,8 +419,18 @@ export const BOOKING_PRODUCT_CATALOG: PricelistCategory[] = [
                 "20k",
                 "custom shape",
               ]),
+              variant("Cartoon Face (17K / pcs)", 17000, [
+                "cartoon face",
+                "17k",
+                "face only",
+              ]),
               variant("Cartoon Face (20K / pcs)", 20000, [
                 "cartoon face",
+                "20k",
+              ]),
+              variant("Cartoon Half Body (20K / pcs)", 20000, [
+                "cartoon half",
+                "half body",
                 "20k",
               ]),
               variant("Cartoon Half Body (25K / pcs)", 25000, [
@@ -370,13 +444,25 @@ export const BOOKING_PRODUCT_CATALOG: PricelistCategory[] = [
                 "30k",
               ]),
               variant("Chibi Face (20K / pcs)", 20000, ["chibi face", "20k"]),
+              variant("Chibi Face (25K / pcs)", 25000, [
+                "chibi face",
+                "25k",
+              ]),
               variant("Chibi Half Body (25K / pcs)", 25000, [
                 "chibi half",
                 "25k",
               ]),
+              variant("Chibi Half Body (30K / pcs)", 30000, [
+                "chibi half",
+                "30k",
+              ]),
               variant("Chibi Full Body (30K / pcs)", 30000, [
                 "chibi full",
                 "30k",
+              ]),
+              variant("Chibi Full Body (35K / pcs)", 35000, [
+                "chibi full",
+                "35k",
               ]),
               variant("Chibi Full Body + Accessories (35K / pcs)", 35000, [
                 "chibi accessories",
@@ -387,14 +473,29 @@ export const BOOKING_PRODUCT_CATALOG: PricelistCategory[] = [
                 "accessories",
                 "40k",
               ]),
+              variant("Anime/Caricature Face (25K / pcs)", 25000, [
+                "anime",
+                "caricature face",
+                "25k",
+              ]),
               variant("Anime/Caricature Face (30K / pcs)", 30000, [
                 "anime",
                 "caricature face",
                 "30k",
               ]),
+              variant("Anime/Caricature Half Body (30K / pcs)", 30000, [
+                "anime half",
+                "caricature half",
+                "30k",
+              ]),
               variant("Anime/Caricature Half Body (35K / pcs)", 35000, [
                 "anime half",
                 "caricature half",
+                "35k",
+              ]),
+              variant("Anime/Caricature Full Body (35K / pcs)", 35000, [
+                "anime full",
+                "caricature full",
                 "35k",
               ]),
               variant("Anime/Caricature Full Body (40K / pcs)", 40000, [
@@ -412,6 +513,11 @@ export const BOOKING_PRODUCT_CATALOG: PricelistCategory[] = [
                 "edible print",
                 "custom shape",
                 "25k",
+              ]),
+              variant("Edible Print Custom Shape (30K / pcs)", 30000, [
+                "edible print",
+                "custom shape",
+                "30k",
               ]),
             ],
           },
@@ -807,14 +913,82 @@ function getSubcategory(
   categoryData: PricelistCategory,
   subcategory: string,
 ): PricelistSubcategory | undefined {
-  return categoryData.subcategories.find((entry) => entry.name === subcategory);
+  const exact = categoryData.subcategories.find(
+    (entry) => entry.name === subcategory,
+  );
+  if (exact) return exact;
+
+  const normalizedQuery = normalize(subcategory);
+  if (!normalizedQuery) return undefined;
+
+  return categoryData.subcategories.find((entry) => {
+    const normalizedName = normalize(entry.name);
+    if (
+      normalizedName === normalizedQuery ||
+      normalizedName.includes(normalizedQuery) ||
+      normalizedQuery.includes(normalizedName)
+    ) {
+      return true;
+    }
+
+    return (entry.keywords ?? []).some((keyword) =>
+      includesKeyword(normalizedQuery, keyword),
+    );
+  });
 }
 
 function getProduct(
   subcategoryData: PricelistSubcategory,
   productName: string,
 ): PricelistProduct | undefined {
-  return subcategoryData.products.find((entry) => entry.name === productName);
+  const exact = subcategoryData.products.find(
+    (entry) => entry.name === productName,
+  );
+  if (exact) return exact;
+
+  const normalizedQuery = normalize(productName);
+  if (!normalizedQuery) return undefined;
+
+  return subcategoryData.products.find((entry) => {
+    const normalizedName = normalize(entry.name);
+    if (
+      normalizedName === normalizedQuery ||
+      normalizedName.includes(normalizedQuery) ||
+      normalizedQuery.includes(normalizedName)
+    ) {
+      return true;
+    }
+
+    return (entry.keywords ?? []).some((keyword) =>
+      includesKeyword(normalizedQuery, keyword),
+    );
+  });
+}
+
+function findVariantBySelection(
+  variants: PricelistVariant[],
+  size: string,
+): PricelistVariant | undefined {
+  const exact = variants.find((entry) => entry.label === size);
+  if (exact) return exact;
+
+  const normalizedSize = normalize(size);
+  if (!normalizedSize) return undefined;
+
+  return variants.find((entry) => {
+    const normalizedLabel = normalize(entry.label);
+    if (
+      normalizedLabel === normalizedSize ||
+      normalizedLabel.includes(normalizedSize) ||
+      normalizedSize.includes(normalizedLabel)
+    ) {
+      return true;
+    }
+
+    return (entry.keywords ?? []).some((keyword) =>
+      includesKeyword(normalizedSize, keyword),
+    );
+  });
 }
 
 function getDefaultVariantLabel(product: PricelistProduct): string {
@@ -874,7 +1048,7 @@ export function getUnitPriceBySelection(selection: CatalogSelection): number {
     selection.subcategory,
     selection.productName,
   );
-  const chosen = variants.find((entry) => entry.label === selection.size);
+  const chosen = findVariantBySelection(variants, selection.size);
   if (chosen) return chosen.price;
   return variants[0]?.price ?? 0;
 }
@@ -900,8 +1074,7 @@ export function ensureCatalogSelection(
     subcategoryData?.products[0];
 
   const variants = productData?.variants ?? [];
-  const size =
-    variants.find((entry) => entry.label === partial.size)?.label ??
+  const size = findVariantBySelection(variants, partial.size ?? "")?.label ??
     (productData ? getDefaultVariantLabel(productData) : "");
 
   return {

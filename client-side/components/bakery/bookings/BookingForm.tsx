@@ -16,7 +16,7 @@ import { Select } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import PriceSummaryCard from "@/components/bakery/bookings/PriceSummaryCard";
 import { formatCurrency } from "@/components/orders/formatters";
-import { useOrders } from "@/components/bakery/store";
+import { useOrders, type OrderItem } from "@/components/bakery/store";
 import { toast } from "sonner";
 import { Plus, Trash2, Upload } from "lucide-react";
 import {
@@ -38,12 +38,17 @@ import { useCatalogAdminState } from "@/lib/bookings/catalog-admin";
 import {
   CAPACITY_LABELS,
   CAPACITY_LIMITS,
-  countConcurrentOrdersForSlot,
+  checkSlotAvailability,
+  countConcurrentOrdersByTypeForSlot,
+  getSlotLimitByOrderType,
   getCapacityOverflows,
   getDeliverySlotsForDate,
-  getSlotLimitByItems,
+  inferOrderTypeFromItems,
+  isWithinBusinessHours,
   summarizeCapacityByItems,
   summarizeCapacityByOrdersForDate,
+  type SlotAvailabilityStatus,
+  type SlotOrderType,
   type CapacityBucket,
 } from "@/lib/bookings/operations";
 import {
@@ -72,6 +77,7 @@ const itemSchema = z.object({
   productName: z.string().min(1, "Product is required"),
   size: z.string().min(1, "Size is required"),
   quantity: z.number().int().min(1, "Minimum quantity is 1"),
+  cookiePrice: z.number().min(0).optional(),
   addOns: z.array(z.string()),
   notes: z.string().max(200).optional().or(z.literal("")),
 });
@@ -101,10 +107,30 @@ const bookingSchema = z.object({
 
 type BookingFormInput = z.input<typeof bookingSchema>;
 type BookingFormValues = z.output<typeof bookingSchema>;
+type BookingItemInput = BookingFormInput["items"][number];
 type ParserSource = WhatsAppSourceType;
 type ParserOrderType = WhatsAppOrderType | "unknown";
 const EMPTY_ITEMS: BookingFormInput["items"] = [];
 const EMPTY_ADDRESSES: BookingFormInput["deliveryAddresses"] = [];
+
+type BouquetFormType = "HAND" | "STANDING";
+
+const BOUQUET_HAND_COST = 100000;
+const BOUQUET_STANDING_COST = 250000;
+const BOUQUET_HAND_MIN_QTY = 7;
+const BOUQUET_HAND_MAX_QTY = 10;
+const BOUQUET_STANDING_MIN_QTY = 12;
+const BOUQUET_STANDING_MAX_QTY = 20;
+
+function orderTypeLabel(orderType: SlotOrderType): string {
+  return orderType === "SEASONAL" ? "Seasonal/Bulk" : "Custom";
+}
+
+function slotStatusLabel(status: SlotAvailabilityStatus): string {
+  if (status === "FULL") return "FULL";
+  if (status === "ALMOST_FULL") return "ALMOST_FULL";
+  return "AVAILABLE";
+}
 
 interface ParseWhatsAppApiResponse {
   success: boolean;
@@ -214,6 +240,67 @@ function getCategoryAddOnsFromCatalog(
   return addOnCatalog[category] ?? [];
 }
 
+function detectBouquetTypeFromItem(item: BookingItemInput): BouquetFormType | null {
+  if (item.category !== "Buket") return null;
+  const source =
+    `${item.subcategory || ""} ${item.productName || ""} ${item.size || ""}`.toLowerCase();
+  if (source.includes("standing")) return "STANDING";
+  if (source.includes("hand")) return "HAND";
+  return null;
+}
+
+function getBouquetCostByType(type: BouquetFormType): number {
+  return type === "HAND" ? BOUQUET_HAND_COST : BOUQUET_STANDING_COST;
+}
+
+function isValidBouquetQuantity(quantity: number, type: BouquetFormType): boolean {
+  if (type === "HAND") {
+    return quantity >= BOUQUET_HAND_MIN_QTY && quantity <= BOUQUET_HAND_MAX_QTY;
+  }
+  return (
+    quantity >= BOUQUET_STANDING_MIN_QTY &&
+    quantity <= BOUQUET_STANDING_MAX_QTY
+  );
+}
+
+function getBouquetQtyRangeLabel(type: BouquetFormType): string {
+  if (type === "HAND") {
+    return `${BOUQUET_HAND_MIN_QTY}-${BOUQUET_HAND_MAX_QTY}`;
+  }
+  return `${BOUQUET_STANDING_MIN_QTY}-${BOUQUET_STANDING_MAX_QTY}`;
+}
+
+function getBouquetLineTotal(item: BookingItemInput): number | null {
+  const bouquetType = detectBouquetTypeFromItem(item);
+  if (!bouquetType) return null;
+
+  const quantity = Number(item.quantity) || 0;
+  const cookiePrice = Number(item.cookiePrice) || 0;
+  if (quantity <= 0 || cookiePrice <= 0) return null;
+  if (!isValidBouquetQuantity(quantity, bouquetType)) return null;
+
+  return Math.round(cookiePrice * quantity + getBouquetCostByType(bouquetType));
+}
+
+function getItemBasePrice(
+  catalog: PricelistCategory[],
+  item: BookingItemInput,
+): number {
+  const bouquetLineTotal = getBouquetLineTotal(item);
+  if (item.category === "Buket" && bouquetLineTotal !== null) {
+    return bouquetLineTotal;
+  }
+
+  const unit = getUnitPriceFromCatalog(catalog, {
+    category: item.category,
+    subcategory: item.subcategory,
+    productName: item.productName,
+    size: item.size,
+  });
+  const qty = Number(item.quantity) || 0;
+  return unit * qty;
+}
+
 const WEIGHT_ESTIMATE_GRAM_BY_CATEGORY: Record<string, number> = {
   Cake: 1800,
   Cookies: 350,
@@ -277,6 +364,7 @@ export default function BookingForm() {
           productName: defaultItemSelection.productName,
           size: defaultItemSelection.size,
           quantity: 1,
+          cookiePrice: undefined,
           addOns: [],
           notes: "",
         },
@@ -321,14 +409,7 @@ export default function BookingForm() {
 
   const basePrice = useMemo(() => {
     return watchedItems.reduce((sum, item) => {
-      const unit = getUnitPriceFromCatalog(productCatalog, {
-        category: item.category,
-        subcategory: item.subcategory,
-        productName: item.productName,
-        size: item.size,
-      });
-      const qty = Number(item.quantity) || 0;
-      return sum + unit * qty;
+      return sum + getItemBasePrice(productCatalog, item);
     }, 0);
   }, [watchedItems, productCatalog]);
 
@@ -388,49 +469,85 @@ export default function BookingForm() {
     () => getDeliverySlotsForDate(deliveryDate),
     [deliveryDate],
   );
-  const slotLimitPerHour = useMemo(
-    () => getSlotLimitByItems(watchedItems),
+  const draftOrderType = useMemo<SlotOrderType>(
+    () => inferOrderTypeFromItems(watchedItems),
     [watchedItems],
   );
-  const slotProfileLabel = slotLimitPerHour === 7 ? "Seasonal/Bulk" : "Custom";
+  const slotLimitPerHour = useMemo(
+    () => getSlotLimitByOrderType(draftOrderType),
+    [draftOrderType],
+  );
+  const slotProfileLabel = useMemo(
+    () => orderTypeLabel(draftOrderType),
+    [draftOrderType],
+  );
   const isBlockedDate = Boolean(
     deliveryDate && BAKERY_BLOCKED_DATES.includes(deliveryDate),
   );
 
   useEffect(() => {
     if (!deliveryDate) return;
-    if (!deliverySlot || deliverySlots.includes(deliverySlot)) return;
-    setValue("deliverySlot", deliverySlots[0] ?? "", { shouldValidate: true });
-  }, [deliveryDate, deliverySlot, deliverySlots, setValue]);
+    const currentIsValid =
+      Boolean(deliverySlot) &&
+      deliverySlots.includes(deliverySlot) &&
+      checkSlotAvailability(deliveryDate, deliverySlot, draftOrderType, {
+        orders,
+      }) !== "FULL";
+    if (currentIsValid) return;
+
+    const firstAvailable = deliverySlots.find((slot) => {
+      return (
+        checkSlotAvailability(deliveryDate, slot, draftOrderType, {
+          orders,
+        }) !== "FULL"
+      );
+    });
+
+    setValue("deliverySlot", firstAvailable ?? "", { shouldValidate: true });
+  }, [deliveryDate, deliverySlot, deliverySlots, draftOrderType, orders, setValue]);
 
   const slotUsage = useMemo(() => {
     if (!deliveryDate || !deliverySlot) return 0;
-    return countConcurrentOrdersForSlot({
+    return countConcurrentOrdersByTypeForSlot({
       orders,
       deliveryDate,
       deliverySlot,
-      targetItems: watchedItems,
+      orderType: draftOrderType,
     });
-  }, [orders, deliveryDate, deliverySlot, watchedItems]);
+  }, [orders, deliveryDate, deliverySlot, draftOrderType]);
 
-  const isSlotFull = slotUsage >= slotLimitPerHour;
+  const selectedSlotStatus = useMemo<SlotAvailabilityStatus>(() => {
+    if (!deliveryDate || !deliverySlot) return "AVAILABLE";
+    return checkSlotAvailability(deliveryDate, deliverySlot, draftOrderType, {
+      orders,
+    });
+  }, [deliveryDate, deliverySlot, draftOrderType, orders]);
+
+  const isSlotFull = selectedSlotStatus === "FULL";
 
   const slotAvailability = useMemo(() => {
     if (!deliveryDate) return [];
     return deliverySlots.map((slot) => {
-      const used = countConcurrentOrdersForSlot({
+      const used = countConcurrentOrdersByTypeForSlot({
         orders,
         deliveryDate,
         deliverySlot: slot,
-        targetItems: watchedItems,
+        orderType: draftOrderType,
+      });
+      const status = checkSlotAvailability(deliveryDate, slot, draftOrderType, {
+        orders,
       });
       return {
         slot,
         used,
-        full: used >= slotLimitPerHour,
+        status,
       };
     });
-  }, [orders, deliveryDate, deliverySlots, slotLimitPerHour, watchedItems]);
+  }, [orders, deliveryDate, deliverySlots, draftOrderType]);
+
+  const slotStatusByTime = useMemo(() => {
+    return new Map(slotAvailability.map((entry) => [entry.slot, entry.status]));
+  }, [slotAvailability]);
 
   const existingCapacityUsage = useMemo(() => {
     if (!deliveryDate) return null;
@@ -464,12 +581,7 @@ export default function BookingForm() {
 
   const shippingItems = useMemo<ShippingQuoteItemInput[]>(() => {
     return watchedItems.map((item) => {
-      const unitPrice = getUnitPriceFromCatalog(productCatalog, {
-        category: item.category,
-        subcategory: item.subcategory,
-        productName: item.productName,
-        size: item.size,
-      });
+      const itemBasePrice = getItemBasePrice(productCatalog, item);
 
       return {
         name: `${item.productName} (${item.size})`,
@@ -478,10 +590,7 @@ export default function BookingForm() {
           item.category,
           Number(item.quantity) || 1,
         ),
-        value: Math.max(
-          1000,
-          Math.round(unitPrice * (Number(item.quantity) || 1)),
-        ),
+        value: Math.max(1000, Math.round(itemBasePrice)),
       };
     });
   }, [watchedItems, productCatalog]);
@@ -595,7 +704,21 @@ export default function BookingForm() {
       toast.error("Selected date is blocked. Please choose another date.");
       return;
     }
-    if (isSlotFull) {
+    if (!isWithinBusinessHours(values.deliveryDate, values.deliverySlot)) {
+      toast.error(
+        "Selected slot is outside business hours (Mon-Sat 10:00-22:00, Sun 10:00-15:00).",
+      );
+      return;
+    }
+
+    const submissionOrderType = inferOrderTypeFromItems(values.items);
+    const submissionSlotStatus = checkSlotAvailability(
+      values.deliveryDate,
+      values.deliverySlot,
+      submissionOrderType,
+      { orders },
+    );
+    if (submissionSlotStatus === "FULL") {
       toast.error("Delivery slot is full. Please choose another hour.");
       return;
     }
@@ -619,13 +742,37 @@ export default function BookingForm() {
       return;
     }
 
-    const mappedItems = values.items.map((item, index) => {
-      const unitPrice = getUnitPriceFromCatalog(productCatalog, {
-        category: item.category,
-        subcategory: item.subcategory,
-        productName: item.productName,
-        size: item.size,
-      });
+    for (const item of values.items) {
+      if (item.category !== "Buket") continue;
+
+      const bouquetType = detectBouquetTypeFromItem(item);
+      if (!bouquetType) {
+        toast.error(
+          "Tipe bouquet belum terbaca. Gunakan product Hand Bouquet atau Standing Bouquet.",
+        );
+        return;
+      }
+
+      const quantity = Number(item.quantity) || 0;
+      if (!isValidBouquetQuantity(quantity, bouquetType)) {
+        toast.error(
+          `${bouquetType === "HAND" ? "Hand" : "Standing"} bouquet wajib qty ${getBouquetQtyRangeLabel(bouquetType)} cookies.`,
+        );
+        return;
+      }
+
+      const cookiePrice = Number(item.cookiePrice) || 0;
+      if (cookiePrice <= 0) {
+        toast.error(
+          "Isi Harga Cookie / pcs untuk item bouquet supaya formula bisa dihitung.",
+        );
+        return;
+      }
+    }
+
+    const mappedItems: OrderItem[] = values.items.map((item, index) => {
+      const bouquetType = detectBouquetTypeFromItem(item);
+      const itemBasePrice = getItemBasePrice(productCatalog, item);
       const categoryAddOns = getCategoryAddOnsFromCatalog(
         addOnCatalog,
         item.category,
@@ -643,7 +790,18 @@ export default function BookingForm() {
         productName: item.productName,
         size: item.size,
         quantity: item.quantity,
-        basePrice: unitPrice * item.quantity,
+        basePrice: itemBasePrice,
+        productType:
+          item.category === "Buket" ? ("BOUQUET" as const) : undefined,
+        cookiePrice:
+          item.category === "Buket"
+            ? Math.max(0, Number(item.cookiePrice) || 0) || undefined
+            : undefined,
+        bouquetType: bouquetType ?? undefined,
+        bouquetCost: bouquetType
+          ? getBouquetCostByType(bouquetType)
+          : undefined,
+        lineTotal: itemBasePrice,
         addOns: item.addOns,
         addOnTotal: addOnTotalForItem,
         notes: item.notes ?? "",
@@ -770,6 +928,7 @@ export default function BookingForm() {
               quantity: Number.isFinite(item.quantity)
                 ? Math.max(1, Number(item.quantity))
                 : 1,
+              cookiePrice: undefined,
               addOns: Array.isArray(item.addOns) ? item.addOns : [],
               notes: item.notes ?? "",
             };
@@ -1089,11 +1248,15 @@ export default function BookingForm() {
                 Delivery Slot
                 <Select {...register("deliverySlot")}>
                   <option value="">Select hour</option>
-                  {deliverySlots.map((slot) => (
-                    <option key={slot} value={slot}>
-                      {slot}
-                    </option>
-                  ))}
+                  {deliverySlots.map((slot) => {
+                    const status = slotStatusByTime.get(slot) ?? "AVAILABLE";
+                    const disabled = status === "FULL";
+                    return (
+                      <option key={slot} value={slot} disabled={disabled}>
+                        {slot} - {slotStatusLabel(status)}
+                      </option>
+                    );
+                  })}
                 </Select>
                 {errors.deliverySlot && (
                   <span className="text-xs text-rose-500">
@@ -1122,18 +1285,20 @@ export default function BookingForm() {
                     <div
                       key={entry.slot}
                       className={`rounded-lg border px-3 py-2 text-xs font-semibold ${
-                        entry.full
+                        entry.status === "FULL"
                           ? "border-rose-200 bg-rose-50 text-rose-700"
-                          : entry.used > 0
+                          : entry.status === "ALMOST_FULL"
                             ? "border-amber-200 bg-amber-50 text-amber-700"
                             : "border-emerald-200 bg-emerald-50 text-emerald-700"
                       }`}
                     >
                       <div>{entry.slot}</div>
                       <div className="font-normal">
-                        {entry.full
-                          ? "Full"
-                          : `${entry.used}/${slotLimitPerHour} used`}
+                        {entry.status === "FULL"
+                          ? "🔴 FULL"
+                          : entry.status === "ALMOST_FULL"
+                            ? `🟡 ALMOST_FULL (${entry.used}/${slotLimitPerHour})`
+                            : `🟢 AVAILABLE (${entry.used}/${slotLimitPerHour})`}
                       </div>
                     </div>
                   ))}
@@ -1185,6 +1350,7 @@ export default function BookingForm() {
                       productName: nextDefault.productName,
                       size: nextDefault.size,
                       quantity: 1,
+                      cookiePrice: undefined,
                       addOns: [],
                       notes: "",
                     });
@@ -1195,7 +1361,7 @@ export default function BookingForm() {
                 </Button>
               </div>
 
-              <div className="space-y-4">
+              <div className="space-y-3">
                 {itemFields.map((field, index) => {
                   const item = watchedItems[index];
                   const normalizedSelection = ensureSelectionFromCatalog(
@@ -1224,13 +1390,38 @@ export default function BookingForm() {
                     addOnCatalog,
                     normalizedSelection.category,
                   );
+                  const bouquetProbeItem: BookingItemInput = {
+                    category: normalizedSelection.category,
+                    subcategory: normalizedSelection.subcategory,
+                    productName: normalizedSelection.productName,
+                    size: normalizedSelection.size,
+                    quantity: Number(item?.quantity) || 0,
+                    cookiePrice:
+                      Number(item?.cookiePrice) > 0
+                        ? Number(item?.cookiePrice)
+                        : undefined,
+                    addOns: item?.addOns ?? [],
+                    notes: item?.notes ?? "",
+                  };
+                  const bouquetType = detectBouquetTypeFromItem(bouquetProbeItem);
+                  const isBouquet = normalizedSelection.category === "Buket";
+                  const bouquetQtyRange = bouquetType
+                    ? getBouquetQtyRangeLabel(bouquetType)
+                    : "";
+                  const bouquetLineTotal = getBouquetLineTotal(bouquetProbeItem);
+                  const quantityMin =
+                    bouquetType === "HAND"
+                      ? BOUQUET_HAND_MIN_QTY
+                      : bouquetType === "STANDING"
+                        ? BOUQUET_STANDING_MIN_QTY
+                        : 1;
 
                   return (
                     <div
                       key={field.id}
-                      className="space-y-3 rounded-xl border border-gray-200 p-4"
+                      className="space-y-2 rounded-xl border border-gray-200 p-3"
                     >
-                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                      <div className="grid gap-x-3 gap-y-2 sm:grid-cols-2 lg:grid-cols-4">
                         <label className="grid gap-2 text-sm font-medium text-gray-700">
                           Category
                           <Select
@@ -1268,6 +1459,9 @@ export default function BookingForm() {
                                 { shouldValidate: true },
                               );
                               setValue(`items.${index}.addOns`, [], {
+                                shouldValidate: true,
+                              });
+                              setValue(`items.${index}.cookiePrice`, undefined, {
                                 shouldValidate: true,
                               });
                             }}
@@ -1388,18 +1582,60 @@ export default function BookingForm() {
                           </Select>
                         </label>
 
-                        <label className="grid gap-2 text-sm font-medium text-gray-700">
+                        <label className="grid gap-1.5 text-sm font-medium text-gray-700">
                           Quantity
                           <Input
                             type="number"
-                            min={1}
+                            min={quantityMin}
                             {...register(`items.${index}.quantity`, {
                               valueAsNumber: true,
                             })}
                           />
+                          {bouquetType && (
+                            <span className="min-h-4 text-[11px] font-normal leading-4 text-gray-500">
+                              {bouquetType === "HAND" ? "Hand" : "Standing"} bouquet
+                              qty wajib {bouquetQtyRange}.
+                            </span>
+                          )}
                         </label>
 
-                        <label className="grid gap-2 text-sm font-medium text-gray-700 sm:col-span-2 lg:col-span-3">
+                        {isBouquet && (
+                          <label className="grid gap-1.5 text-sm font-medium text-gray-700">
+                            Harga Cookie / pcs
+                            <Input
+                              type="number"
+                              min={0}
+                              step={500}
+                              placeholder="Contoh: 20000"
+                              {...register(`items.${index}.cookiePrice`, {
+                                setValueAs: (value) => {
+                                  const parsed = Number(value);
+                                  return Number.isFinite(parsed) && parsed > 0
+                                    ? parsed
+                                    : undefined;
+                                },
+                              })}
+                            />
+                            <span className="min-h-4 text-[11px] font-normal leading-4 text-gray-500">
+                              Formula: (harga cookie x qty) +{" "}
+                              {formatCurrency(
+                                bouquetType
+                                  ? getBouquetCostByType(bouquetType)
+                                  : BOUQUET_HAND_COST,
+                              )}
+                              .
+                            </span>
+
+                            {bouquetLineTotal !== null && (
+                              <span className="text-[11px] font-normal leading-4 text-indigo-600">
+                                Estimasi subtotal bouquet:{" "}
+                                {formatCurrency(bouquetLineTotal)}
+                              </span>
+                            )}
+                          </label>
+                        )}
+
+                        <label className="grid gap-1.5 text-sm font-medium text-gray-700 sm:col-span-2 lg:col-span-4">
                           Item Notes
                           <Input
                             placeholder="Decoration instructions"
@@ -1408,11 +1644,11 @@ export default function BookingForm() {
                         </label>
                       </div>
 
-                      <div className="grid gap-2 sm:grid-cols-3">
+                      <div className="grid gap-1.5 sm:grid-cols-3">
                         {addOns.map((addon) => (
                           <label
                             key={addon.id}
-                            className="flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700"
+                            className="flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm text-gray-700"
                           >
                             <span>
                               {addon.label}{" "}

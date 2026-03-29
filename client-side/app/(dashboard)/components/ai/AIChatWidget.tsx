@@ -496,7 +496,7 @@ export default function AIChatWidget() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 20, scale: 0.92 }}
             transition={{ type: "spring", stiffness: 300, damping: 25 }}
-            className="fixed bottom-40 md:bottom-24 right-3 md:right-6 z-40 w-[calc(100vw-24px)] sm:w-[400px] h-[60vh] md:h-[600px] bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/60 flex flex-col overflow-hidden"
+            className="fixed bottom-40 md:bottom-24 right-3 md:right-6 z-40 w-[calc(100vw-24px)] sm:w-100 h-[60vh] md:h-150 bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/60 flex flex-col overflow-hidden"
             style={{ boxShadow: "0 25px 50px -12px rgba(99, 102, 241, 0.15), 0 12px 24px -8px rgba(0, 0, 0, 0.1)" }}
             onDragOver={(e) => {
               e.preventDefault();
@@ -510,7 +510,7 @@ export default function AIChatWidget() {
           >
             {/* ─── Header ─── */}
             <div className="relative overflow-hidden shrink-0">
-              <div className="absolute inset-0 bg-gradient-to-r from-indigo-600 via-violet-600 to-purple-600" />
+              <div className="absolute inset-0 bg-linear-to-r from-indigo-600 via-violet-600 to-purple-600" />
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_20%,rgba(255,255,255,0.12),transparent)]" />
               <div className="relative px-4 py-3 flex items-center gap-3">
                 {view === "history" ? (
@@ -750,7 +750,7 @@ export default function AIChatWidget() {
             {/* ─── Chat View ─── */}
             {view === "chat" && (
               <>
-                <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gradient-to-b from-gray-50/50 to-white">
+                <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-linear-to-b from-gray-50/50 to-white">
                   {/* Empty state */}
                   {messages.length === 0 && !streamingContent && (
                     <motion.div
@@ -760,7 +760,7 @@ export default function AIChatWidget() {
                       className="text-center py-8"
                     >
                       <motion.div
-                        className="w-14 h-14 bg-gradient-to-br from-indigo-100 to-violet-100 rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-sm"
+                        className="w-14 h-14 bg-linear-to-br from-indigo-100 to-violet-100 rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-sm"
                         animate={{ y: [0, -3, 0] }}
                         transition={{ repeat: Infinity, duration: 2.5, ease: "easeInOut" }}
                       >
@@ -781,7 +781,7 @@ export default function AIChatWidget() {
                             whileTap={{ scale: 0.97 }}
                           >
                             <div
-                              className={`w-7 h-7 rounded-lg bg-gradient-to-br ${qp.color} flex items-center justify-center shrink-0 shadow-sm group-hover:shadow transition-shadow`}
+                              className={`w-7 h-7 rounded-lg bg-linear-to-br ${qp.color} flex items-center justify-center shrink-0 shadow-sm group-hover:shadow transition-shadow`}
                             >
                               <qp.icon className="w-3.5 h-3.5 text-white" />
                             </div>
@@ -805,7 +805,7 @@ export default function AIChatWidget() {
                     >
                       <div className={`flex items-end gap-2 ${msg.role === "user" ? "max-w-[85%]" : "max-w-[90%]"}`}>
                         {msg.role === "assistant" && (
-                          <div className="w-6 h-6 bg-gradient-to-br from-indigo-100 to-violet-100 rounded-full flex items-center justify-center shrink-0 mb-0.5 shadow-sm">
+                          <div className="w-6 h-6 bg-linear-to-br from-indigo-100 to-violet-100 rounded-full flex items-center justify-center shrink-0 mb-0.5 shadow-sm">
                             <Bot className="w-3.5 h-3.5 text-indigo-600" />
                           </div>
                         )}
@@ -843,12 +843,12 @@ export default function AIChatWidget() {
                       className="flex justify-start"
                     >
                       <div className="flex items-end gap-2 max-w-[90%]">
-                        <div className="w-6 h-6 bg-gradient-to-br from-indigo-100 to-violet-100 rounded-full flex items-center justify-center shrink-0 mb-0.5 shadow-sm">
+                        <div className="w-6 h-6 bg-linear-to-br from-indigo-100 to-violet-100 rounded-full flex items-center justify-center shrink-0 mb-0.5 shadow-sm">
                           <Bot className="w-3.5 h-3.5 text-indigo-600" />
                         </div>
                         <div className="rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed bg-white text-gray-700 border border-gray-100 rounded-bl-md shadow-sm">
                           <MarkdownRenderer content={streamingContent} />
-                          <span className="inline-block w-1.5 h-4 bg-gradient-to-b from-indigo-500 to-violet-500 rounded-full animate-pulse ml-0.5" />
+                          <span className="inline-block w-1.5 h-4 bg-linear-to-b from-indigo-500 to-violet-500 rounded-full animate-pulse ml-0.5" />
                         </div>
                       </div>
                     </motion.div>
@@ -862,7 +862,7 @@ export default function AIChatWidget() {
                       className="flex justify-start"
                     >
                       <div className="flex items-end gap-2">
-                        <div className="w-6 h-6 bg-gradient-to-br from-indigo-100 to-violet-100 rounded-full flex items-center justify-center shrink-0 shadow-sm">
+                        <div className="w-6 h-6 bg-linear-to-br from-indigo-100 to-violet-100 rounded-full flex items-center justify-center shrink-0 shadow-sm">
                           <Bot className="w-3.5 h-3.5 text-indigo-600" />
                         </div>
                         <div className="bg-white rounded-2xl px-4 py-3 border border-gray-100 shadow-sm">

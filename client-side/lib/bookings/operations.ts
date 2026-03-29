@@ -14,6 +14,9 @@ export interface BookingOrderForOperations {
   items: BookingItemForOperations[];
 }
 
+export type SlotOrderType = "CUSTOM" | "SEASONAL";
+export type SlotAvailabilityStatus = "AVAILABLE" | "ALMOST_FULL" | "FULL";
+
 export type CapacityBucket =
   | "seasonal_cookies"
   | "custom_cookies"
@@ -151,6 +154,16 @@ export function getSlotLimitByItems(items: BookingItemForOperations[]): number {
   return isSeasonalOrderItems(items) ? 7 : 3;
 }
 
+export function getSlotLimitByOrderType(orderType: SlotOrderType): number {
+  return orderType === "SEASONAL" ? 7 : 3;
+}
+
+export function inferOrderTypeFromItems(
+  items: BookingItemForOperations[],
+): SlotOrderType {
+  return isSeasonalOrderItems(items) ? "SEASONAL" : "CUSTOM";
+}
+
 function parseLocalDay(deliveryDate: string): number {
   if (!deliveryDate) return 1;
   const parsed = new Date(`${deliveryDate}T00:00:00`);
@@ -171,8 +184,21 @@ export function getDeliverySlotsForDate(deliveryDate: string): string[] {
   return slots;
 }
 
+export function isWithinBusinessHours(
+  deliveryDate: string,
+  deliverySlot: string,
+): boolean {
+  if (!deliveryDate || !deliverySlot) return false;
+  if (!/^\d{2}:\d{2}$/.test(deliverySlot)) return false;
+  return getDeliverySlotsForDate(deliveryDate).includes(deliverySlot);
+}
+
 function isActiveOrder(orderStatus: string | undefined): boolean {
   return !["Cancelled", "Completed", "Delivered"].includes(orderStatus || "");
+}
+
+function inferOrderTypeFromOrder(order: BookingOrderForOperations): SlotOrderType {
+  return inferOrderTypeFromItems(order.items || []);
 }
 
 function classifyCapacityBucket(item: BookingItemForOperations): CapacityBucket | null {
@@ -300,4 +326,46 @@ export function countConcurrentOrdersForSlot(args: {
     const orderSeasonal = isSeasonalOrderItems(order.items || []);
     return orderSeasonal === targetSeasonal;
   }).length;
+}
+
+export function countConcurrentOrdersByTypeForSlot(args: {
+  orders: BookingOrderForOperations[];
+  deliveryDate: string;
+  deliverySlot: string;
+  orderType: SlotOrderType;
+  excludeOrderId?: string;
+}): number {
+  return args.orders.filter((order) => {
+    if (args.excludeOrderId && order.id === args.excludeOrderId) return false;
+    if (order.deliveryDate !== args.deliveryDate) return false;
+    if (order.deliverySlot !== args.deliverySlot) return false;
+    if (!isActiveOrder(order.orderStatus)) return false;
+    return inferOrderTypeFromOrder(order) === args.orderType;
+  }).length;
+}
+
+export function checkSlotAvailability(
+  date: string,
+  time: string,
+  orderType: SlotOrderType,
+  options?: {
+    orders?: BookingOrderForOperations[];
+    excludeOrderId?: string;
+  },
+): SlotAvailabilityStatus {
+  if (!isWithinBusinessHours(date, time)) return "FULL";
+
+  const orders = options?.orders ?? [];
+  const currentCount = countConcurrentOrdersByTypeForSlot({
+    orders,
+    deliveryDate: date,
+    deliverySlot: time,
+    orderType,
+    excludeOrderId: options?.excludeOrderId,
+  });
+
+  const limit = getSlotLimitByOrderType(orderType);
+  if (currentCount >= limit) return "FULL";
+  if (currentCount >= Math.max(1, limit - 1)) return "ALMOST_FULL";
+  return "AVAILABLE";
 }
