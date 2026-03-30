@@ -12,6 +12,10 @@ import "dotenv/config";
 import nodemailer from "nodemailer";
 
 const recipientEmail = process.argv[2] || "test@example.com";
+const appUrl =
+  process.env.NEXTAUTH_URL ||
+  process.env.SMOKE_BASE_URL ||
+  "https://crumbella-demo.vercel.app";
 
 console.log("📧 Testing Nodemailer Configuration...\n");
 
@@ -71,7 +75,7 @@ const testHTML = `
     <h1>✅ Test Email - UMKM Helper</h1>
     <p>Halo!</p>
     <p>Ini adalah test email dari aplikasi UMKM Helper. Jika Anda menerima email ini, berarti konfigurasi nodemailer sudah bekerja dengan baik!</p>
-    <a href="http://localhost:3000" class="button">Buka UMKM Helper</a>
+    <a href="${appUrl}" class="button">Buka UMKM Helper</a>
     <hr>
     <p style="color: #666; font-size: 12px;">
       Email ini dikirim dari script test-email.mjs<br>
@@ -109,4 +113,3 @@ try {
   console.log("4. Try using Mailtrap for testing (https://mailtrap.io/)\n");
   process.exit(1);
 }
-

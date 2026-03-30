@@ -19,9 +19,12 @@ export function startCleanupScheduler() {
   setTimeout(() => runCleanup(), 30_000);
 
   // Then run every 5 minutes
-  cleanupInterval = setInterval(() => {
-    runCleanup();
-  }, 5 * 60 * 1000);
+  cleanupInterval = setInterval(
+    () => {
+      runCleanup();
+    },
+    5 * 60 * 1000,
+  );
 
   logCron.info("Image cleanup scheduler started", { intervalMin: 5 });
 }
@@ -41,17 +44,21 @@ export function stopCleanupScheduler() {
  */
 async function runCleanup() {
   try {
-    const cronSecret = process.env.CRON_SECRET || 'development-secret';
-    const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
+    const cronSecret = process.env.CRON_SECRET || "development-secret";
+    const baseUrl =
+      process.env.NEXTAUTH_URL ||
+      (process.env.VERCEL_URL
+        ? `https://${process.env.VERCEL_URL}`
+        : "https://crumbella-demo.vercel.app");
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 25_000); // 25s timeout
 
     const response = await fetch(`${baseUrl}/api/cleanup-images`, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Authorization': `Bearer ${cronSecret}`,
-        'Content-Type': 'application/json',
+        Authorization: `Bearer ${cronSecret}`,
+        "Content-Type": "application/json",
       },
       signal: controller.signal,
     });
@@ -59,7 +66,10 @@ async function runCleanup() {
     clearTimeout(timeout);
 
     if (!response.ok) {
-      logCron.warn("Cleanup HTTP error", { status: response.status, statusText: response.statusText });
+      logCron.warn("Cleanup HTTP error", {
+        status: response.status,
+        statusText: response.statusText,
+      });
       return;
     }
 
@@ -69,18 +79,22 @@ async function runCleanup() {
     }
   } catch (error) {
     // Silently ignore abort/network errors — they're expected during build or cold start
-    if (error instanceof Error && error.name === 'AbortError') {
+    if (error instanceof Error && error.name === "AbortError") {
       logCron.warn("Cleanup request timed out, will retry next cycle");
     } else {
-      logCron.warn("Cleanup skipped", { error: error instanceof Error ? error.message : "Unknown error" });
+      logCron.warn("Cleanup skipped", {
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
     }
   }
 }
 
 // Auto-start in Node.js environment
-if (typeof window === 'undefined') {
-  if (process.env.NODE_ENV === 'production' || process.env.ENABLE_AUTO_CLEANUP === 'true') {
+if (typeof window === "undefined") {
+  if (
+    process.env.NODE_ENV === "production" ||
+    process.env.ENABLE_AUTO_CLEANUP === "true"
+  ) {
     startCleanupScheduler();
   }
 }
-
