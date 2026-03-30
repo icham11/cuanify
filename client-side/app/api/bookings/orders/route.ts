@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { AuthError, requireAuth } from "@/lib/auth/session";
+import { z } from "zod";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -87,6 +88,51 @@ interface DbAddressRow {
   order_external_id: string;
   address_index: number;
   payload: unknown;
+}
+
+const normalizedOrderSchema = z.object({
+  id: z.string().trim().min(1, "id is required"),
+  bookingCode: z.string(),
+  resi: z.string(),
+  customerName: z.string().trim().min(2, "customerName is required"),
+  customerPhone: z.string().trim().min(8, "customerPhone is required"),
+  customerAddress: z.string(),
+  deliveryDate: z.string().trim().min(1, "deliveryDate is required"),
+  deliverySlot: z.string().trim().min(1, "deliverySlot is required"),
+  notes: z.string(),
+  basePrice: z.number().finite().min(0, "basePrice must be >= 0"),
+  addOnTotal: z.number().finite().min(0, "addOnTotal must be >= 0"),
+  deliveryFee: z.number().finite().min(0, "deliveryFee must be >= 0"),
+  manualAdjustment: z.number().finite(),
+  dpPaidAmount: z.number().finite().min(0, "dpPaidAmount must be >= 0"),
+  finalPaidAmount: z.number().finite().min(0, "finalPaidAmount must be >= 0"),
+  totalPaidAmount: z.number().finite().min(0, "totalPaidAmount must be >= 0"),
+  downPaymentAmount: z.number().finite().min(0, "downPaymentAmount must be >= 0"),
+  remainingBalance: z.number().finite().min(0, "remainingBalance must be >= 0"),
+  product: z.string(),
+  totalPrice: z.number().finite().min(0, "totalPrice must be >= 0"),
+  paymentStatus: z.string().trim().min(1, "paymentStatus is required"),
+  orderStatus: z.string().trim().min(1, "orderStatus is required"),
+  shippingQuote: z.unknown().nullable(),
+  shipment: z.unknown().nullable(),
+  simulations: z.unknown().nullable(),
+  whatsAppParsedData: z.unknown().nullable(),
+  statusHistory: z.array(z.record(z.string(), z.unknown())),
+  automationLogs: z.array(z.record(z.string(), z.unknown())),
+  paymentTransactions: z.array(z.record(z.string(), z.unknown())),
+  items: z
+    .array(z.record(z.string(), z.unknown()))
+    .min(1, "items must contain at least one entry"),
+  deliveryAddresses: z
+    .array(z.record(z.string(), z.unknown()))
+    .min(1, "deliveryAddresses must contain at least one entry"),
+});
+
+function formatValidationIssues(error: z.ZodError): string[] {
+  return error.issues.map((issue) => {
+    const path = issue.path.length > 0 ? issue.path.join(".") : "root";
+    return `${path}: ${issue.message}`;
+  });
 }
 
 function parseOrdersContent(content: string | null | undefined): unknown[] {
@@ -406,27 +452,79 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const requestStartedAt = Date.now();
+
   try {
     const { businessId, userId } = await requireAuth();
+    const contentType = request.headers.get("content-type") ?? "";
+    if (!contentType.toLowerCase().includes("application/json")) {
+      return NextResponse.json(
+        {
+          error:
+            "Invalid content type. Use 'application/json' for bookings sync payload.",
+        },
+        { status: 415 },
+      );
+    }
+
     const body = (await request.json().catch(() => ({}))) as {
       orders?: unknown;
     };
-    const orders = Array.isArray(body.orders)
-      ? body.orders
-          .map((entry, index) => normalizeOrder(entry, index))
-          .filter((entry): entry is NormalizedOrder => Boolean(entry))
-      : null;
-
-    if (!orders) {
+    if (!Array.isArray(body.orders)) {
       return NextResponse.json(
         { error: "Invalid payload. 'orders' must be an array." },
         { status: 400 },
       );
     }
 
+    const normalizedOrders = body.orders
+      .map((entry, index) => normalizeOrder(entry, index))
+      .filter((entry): entry is NormalizedOrder => Boolean(entry));
+
+    if (normalizedOrders.length !== body.orders.length) {
+      return NextResponse.json(
+        {
+          error: "Invalid payload. One or more orders could not be normalized.",
+        },
+        { status: 400 },
+      );
+    }
+
+    const parsedOrders = z.array(normalizedOrderSchema).safeParse(normalizedOrders);
+    if (!parsedOrders.success) {
+      const details = formatValidationIssues(parsedOrders.error);
+      console.warn("[api/bookings/orders] validation failed", {
+        businessId,
+        userId,
+        detailCount: details.length,
+        details,
+      });
+      return NextResponse.json(
+        {
+          error: "Validation error for bookings payload.",
+          details,
+        },
+        { status: 400 },
+      );
+    }
+
+    const orders = parsedOrders.data;
+
+    console.info("[api/bookings/orders] request received", {
+      businessId,
+      userId,
+      orderCount: orders.length,
+      ids: orders.map((order) => order.id),
+    });
+
     await ensureBakeryTables();
 
-    await prisma.$transaction(async (tx) => {
+    const transactionSummary = await prisma.$transaction(async (tx) => {
+      let deletedOrderCount = 0;
+      let upsertedOrderCount = 0;
+      let insertedItemCount = 0;
+      let insertedAddressCount = 0;
+
       const existingRows = await tx.$queryRaw<{ external_id: string }[]>`
         SELECT external_id
         FROM bakery_orders
@@ -450,9 +548,12 @@ export async function POST(request: NextRequest) {
           DELETE FROM bakery_orders
           WHERE business_id = ${businessId} AND external_id = ${externalId}
         `;
+        deletedOrderCount += 1;
       }
 
       for (const order of orders) {
+        upsertedOrderCount += 1;
+
         await tx.$executeRaw`
           INSERT INTO bakery_orders (
             business_id,
@@ -572,6 +673,7 @@ export async function POST(request: NextRequest) {
               ${JSON.stringify(item)}::jsonb
             )
           `;
+          insertedItemCount += 1;
         }
 
         await tx.$executeRaw`
@@ -598,6 +700,7 @@ export async function POST(request: NextRequest) {
               ${JSON.stringify(address)}::jsonb
             )
           `;
+          insertedAddressCount += 1;
         }
       }
 
@@ -641,6 +744,21 @@ export async function POST(request: NextRequest) {
           },
         });
       }
+
+      return {
+        deletedOrderCount,
+        upsertedOrderCount,
+        insertedItemCount,
+        insertedAddressCount,
+      };
+    });
+
+    const durationMs = Date.now() - requestStartedAt;
+    console.info("[api/bookings/orders] database upsert complete", {
+      businessId,
+      userId,
+      durationMs,
+      ...transactionSummary,
     });
 
     return NextResponse.json({
@@ -648,6 +766,8 @@ export async function POST(request: NextRequest) {
       data: {
         mode: "rows",
         itemCount: orders.length,
+        durationMs,
+        ...transactionSummary,
       },
     });
   } catch (error) {
@@ -655,8 +775,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 401 });
     }
 
+    console.error("[api/bookings/orders] failed", {
+      message: error instanceof Error ? error.message : "Unknown error",
+    });
+
     return NextResponse.json(
-      { error: "Failed to persist bakery orders." },
+      {
+        error: "Failed to persist bakery orders.",
+        details:
+          error instanceof Error
+            ? error.message
+            : "Unexpected server error while writing to database.",
+      },
       { status: 500 },
     );
   }

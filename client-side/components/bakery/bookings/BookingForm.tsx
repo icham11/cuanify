@@ -16,7 +16,11 @@ import { Select } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import PriceSummaryCard from "@/components/bakery/bookings/PriceSummaryCard";
 import { formatCurrency } from "@/components/orders/formatters";
-import { useOrders, type OrderItem } from "@/components/bakery/store";
+import {
+  useOrders,
+  type NewOrderInput,
+  type OrderItem,
+} from "@/components/bakery/store";
 import { toast } from "sonner";
 import { Plus, Trash2, Upload } from "lucide-react";
 import {
@@ -337,6 +341,8 @@ export default function BookingForm() {
   );
   const [shippingWarning, setShippingWarning] = useState("");
   const [isCheckingShipping, setIsCheckingShipping] = useState(false);
+  const [submitError, setSubmitError] = useState("");
+  const [submitSuccess, setSubmitSuccess] = useState("");
 
   const {
     register,
@@ -344,7 +350,7 @@ export default function BookingForm() {
     setValue,
     control,
     reset,
-    formState: { errors },
+    formState: { errors, isSubmitting },
   } = useForm<BookingFormInput, unknown, BookingFormValues>({
     resolver: zodResolver(bookingSchema),
     defaultValues: {
@@ -685,7 +691,10 @@ export default function BookingForm() {
     };
   }, [shippingPayload]);
 
-  const onSubmit: SubmitHandler<BookingFormValues> = (values) => {
+  const onSubmit: SubmitHandler<BookingFormValues> = async (values) => {
+    setSubmitError("");
+    setSubmitSuccess("");
+
     if (isCheckingShipping) {
       toast.error(
         "Ongkir masih dihitung otomatis. Tunggu beberapa detik lalu submit ulang.",
@@ -815,7 +824,7 @@ export default function BookingForm() {
       addressLine: address.addressLine,
     }));
 
-    addOrder({
+    const submissionPayload: NewOrderInput = {
       customerName: values.customerName,
       customerPhone: values.phoneNumber,
       deliveryDate: values.deliveryDate,
@@ -835,18 +844,42 @@ export default function BookingForm() {
       finalPaidAmount: normalizedFinalPaid,
       whatsAppParsedData: parsedPreview ?? undefined,
       shippingQuote: selectedShippingQuote,
+    };
+
+    console.info("[bookings][frontend] create booking payload", {
+      endpoint: "/api/bookings/orders",
+      method: "POST",
+      customerName: submissionPayload.customerName,
+      customerPhone: submissionPayload.customerPhone,
+      deliveryDate: submissionPayload.deliveryDate,
+      deliverySlot: submissionPayload.deliverySlot,
+      itemCount: submissionPayload.items.length,
+      addressCount: submissionPayload.deliveryAddresses.length,
+      totalPrice: submissionPayload.totalPrice,
     });
 
-    setDraftImported(false);
-    setQuickPaste("");
-    setUploadedChatImages([]);
-    setParsedPreview(null);
-    setVisionRawOutput("");
-    setShippingQuotes([]);
-    setSelectedShippingQuoteId("");
-    setShippingDistanceKm(null);
-    setShippingWarning("");
-    reset();
+    try {
+      await addOrder(submissionPayload);
+      setSubmitSuccess("Booking berhasil disimpan ke server.");
+
+      setDraftImported(false);
+      setQuickPaste("");
+      setUploadedChatImages([]);
+      setParsedPreview(null);
+      setVisionRawOutput("");
+      setShippingQuotes([]);
+      setSelectedShippingQuoteId("");
+      setShippingDistanceKm(null);
+      setShippingWarning("");
+      reset();
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Gagal menyimpan booking ke server.";
+      setSubmitError(message);
+      toast.error(message);
+    }
   };
 
   const toggleItemAddOn = (itemIndex: number, addonId: string) => {
@@ -1889,15 +1922,19 @@ export default function BookingForm() {
               <Button
                 type="submit"
                 className="gap-2 bg-indigo-600 text-white hover:bg-indigo-700 focus-visible:ring-indigo-500"
-                disabled={isBlockedDate || isSlotFull}
+                disabled={
+                  isSubmitting || isCheckingShipping || isBlockedDate || isSlotFull
+                }
               >
-                Create Booking
+                {isSubmitting ? "Saving Booking..." : "Create Booking"}
               </Button>
               <Button
                 variant="outline"
                 type="button"
                 onClick={() => {
                   reset();
+                  setSubmitError("");
+                  setSubmitSuccess("");
                   setQuickPaste("");
                   setUploadedChatImages([]);
                   setParsedPreview(null);
@@ -1909,10 +1946,19 @@ export default function BookingForm() {
                   setShippingWarning("");
                 }}
                 className="border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                disabled={isSubmitting}
               >
                 Reset Form
               </Button>
             </div>
+            {submitError ? (
+              <p className="text-sm font-medium text-rose-600">{submitError}</p>
+            ) : null}
+            {submitSuccess ? (
+              <p className="text-sm font-medium text-emerald-600">
+                {submitSuccess}
+              </p>
+            ) : null}
           </CardContent>
         </Card>
 

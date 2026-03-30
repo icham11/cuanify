@@ -177,7 +177,7 @@ export interface NewOrderInput {
 
 interface OrdersContextValue {
   orders: BakeryOrder[];
-  addOrder: (order: NewOrderInput) => void;
+  addOrder: (order: NewOrderInput) => Promise<void>;
   updateOrderStatus: (id: string, status: OrderStatus) => Promise<void>;
   updatePaymentStatus: (id: string, status: PaymentStatus) => void;
   recordPayment: (
@@ -204,9 +204,23 @@ const OrdersContext = createContext<OrdersContextValue | null>(null);
 const initialOrders: BakeryOrder[] = [];
 const STORAGE_KEY = "bakeryOrdersState";
 const STORAGE_EVENT = "bakeryOrdersUpdated";
-const ORDERS_SYNC_ENDPOINT = "/api/bookings/orders";
+const RAW_BOOKINGS_API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || "";
+const NORMALIZED_BOOKINGS_API_BASE = RAW_BOOKINGS_API_BASE.replace(/\/+$/, "");
+const ORDERS_SYNC_ENDPOINT = NORMALIZED_BOOKINGS_API_BASE
+  ? `${NORMALIZED_BOOKINGS_API_BASE}/api/bookings/orders`
+  : "/api/bookings/orders";
 const INITIAL_SNAPSHOT = JSON.stringify(initialOrders);
 let hasHydrated = false;
+
+type OrdersSyncResponse = {
+  success?: boolean;
+  error?: string;
+  details?: string[] | string;
+  data?: {
+    mode?: string;
+    itemCount?: number;
+  };
+};
 
 const WEIGHT_ESTIMATE_GRAM_BY_CATEGORY: Record<string, number> = {
   Cake: 1800,
@@ -466,6 +480,26 @@ function parseSnapshot(snapshot: string): BakeryOrder[] {
   }
 }
 
+function writeOrdersSnapshot(nextOrders: BakeryOrder[]) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextOrders));
+  window.dispatchEvent(new Event(STORAGE_EVENT));
+}
+
+function parseOrdersSyncError(
+  payload: OrdersSyncResponse,
+  fallback: string,
+): string {
+  if (payload.error) return payload.error;
+  if (Array.isArray(payload.details) && payload.details.length > 0) {
+    return payload.details.join("; ");
+  }
+  if (typeof payload.details === "string" && payload.details.trim()) {
+    return payload.details;
+  }
+  return fallback;
+}
+
 export function OrdersProvider({ children }: { children: React.ReactNode }) {
   const snapshot = useSyncExternalStore(
     subscribe,
@@ -521,21 +555,61 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  const syncOrdersToServer = useCallback(async (nextOrders: BakeryOrder[]) => {
-    if (typeof window === "undefined") return;
+  const syncOrdersToServer = useCallback(
+    async (nextOrders: BakeryOrder[]) => {
+      if (typeof window === "undefined") {
+        return null as OrdersSyncResponse | null;
+      }
 
-    try {
-      await fetch(ORDERS_SYNC_ENDPOINT, {
+      const requestBody = { orders: nextOrders };
+      console.info("[bookings][frontend] sync request", {
+        endpoint: ORDERS_SYNC_ENDPOINT,
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ orders: nextOrders }),
+        orderCount: nextOrders.length,
+        ids: nextOrders.map((order) => order.id),
       });
-    } catch {
-      // Keep local mode when network/auth is unavailable.
-    }
-  }, []);
+
+      let response: Response;
+      try {
+        response = await fetch(ORDERS_SYNC_ENDPOINT, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(requestBody),
+        });
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Network error while syncing bookings.";
+        throw new Error(`Network error saat sinkron booking: ${message}`);
+      }
+
+      const payload = (await response
+        .json()
+        .catch(() => ({}))) as OrdersSyncResponse;
+
+      console.info("[bookings][frontend] sync response", {
+        endpoint: ORDERS_SYNC_ENDPOINT,
+        status: response.status,
+        ok: response.ok,
+        success: payload.success ?? false,
+        mode: payload.data?.mode,
+        itemCount: payload.data?.itemCount,
+        error: payload.error,
+      });
+
+      if (!response.ok || !payload.success) {
+        const fallback = `Booking sync failed (${response.status}).`;
+        const message = parseOrdersSyncError(payload, fallback);
+        throw new Error(message);
+      }
+
+      return payload;
+    },
+    [],
+  );
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -563,16 +637,17 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
           : [];
 
         if (serverOrders.length > 0) {
-          window.localStorage.setItem(
-            STORAGE_KEY,
-            JSON.stringify(serverOrders),
-          );
-          window.dispatchEvent(new Event(STORAGE_EVENT));
+          writeOrdersSnapshot(serverOrders);
           return;
         }
 
         if (localOrders.length > 0) {
-          void syncOrdersToServer(localOrders);
+          void syncOrdersToServer(localOrders).catch((error) => {
+            console.warn("[bookings][frontend] hydrate sync failed", {
+              endpoint: ORDERS_SYNC_ENDPOINT,
+              message: error instanceof Error ? error.message : String(error),
+            });
+          });
         }
       } catch {
         // Keep local snapshot if server is unreachable.
@@ -589,9 +664,18 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
   const persistOrders = useCallback(
     (nextOrders: BakeryOrder[]) => {
       if (typeof window === "undefined") return;
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextOrders));
-      window.dispatchEvent(new Event(STORAGE_EVENT));
-      void syncOrdersToServer(nextOrders);
+      writeOrdersSnapshot(nextOrders);
+      void syncOrdersToServer(nextOrders).catch((error) => {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Gagal sinkron perubahan booking ke server.";
+        console.error("[bookings][frontend] persist sync failed", {
+          endpoint: ORDERS_SYNC_ENDPOINT,
+          message,
+        });
+        toast.error(`Perubahan lokal tersimpan, tetapi sinkron gagal: ${message}`);
+      });
     },
     [syncOrdersToServer],
   );
@@ -813,12 +897,11 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
   );
 
   const addOrder = useCallback(
-    (order: NewOrderInput) => {
+    async (order: NewOrderInput) => {
       if (!isWithinBusinessHours(order.deliveryDate, order.deliverySlot)) {
-        toast.error(
+        throw new Error(
           "Selected slot is outside business hours (Mon-Sat 10:00-22:00, Sun 10:00-15:00).",
         );
-        return;
       }
 
       const orderType = inferOrderTypeFromItems(order.items);
@@ -829,8 +912,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         { orders },
       );
       if (slotStatus === "FULL") {
-        toast.error("Selected time slot is full.");
-        return;
+        throw new Error("Selected time slot is full.");
       }
 
       const nextId =
@@ -927,17 +1009,20 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         },
       };
       const nextOrders = [newOrder, ...orders];
-      persistOrders(nextOrders);
+
+      await syncOrdersToServer(nextOrders);
+      writeOrdersSnapshot(nextOrders);
+
       toast.success(`Draft booking created: ${bookingCode}`);
       void createShipmentForOrder(id);
       void runAutomationsForOrder("order_created", id);
     },
     [
       orders,
-      persistOrders,
       actorIdentity,
       runAutomationsForOrder,
       createShipmentForOrder,
+      syncOrdersToServer,
     ],
   );
 

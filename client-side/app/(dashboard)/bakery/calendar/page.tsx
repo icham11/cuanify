@@ -32,9 +32,10 @@ import {
   countConcurrentOrdersByTypeForSlot,
   getDeliverySlotsForDate,
   getSlotLimitByOrderType,
+  inferOrderTypeFromItems,
   type SlotOrderType,
 } from "@/lib/bookings/operations";
-import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { toast } from "sonner";
 
 const locales = { id: localeId };
@@ -233,6 +234,7 @@ export default function BakeryCalendarPage() {
   const router = useRouter();
   const { orders, syncOrderCalendar } = useOrders();
   const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
+  const [isDateOrdersPopupOpen, setIsDateOrdersPopupOpen] = useState(false);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [currentView, setCurrentView] = useState<View>(Views.MONTH);
   const [syncingIds, setSyncingIds] = useState<string[]>([]);
@@ -470,6 +472,15 @@ export default function BakeryCalendarPage() {
     ? format(selectedDate, "EEEE, dd MMMM yyyy", { locale: localeId })
     : "Select a date";
 
+  const selectedDateOrdersAll = useMemo(() => {
+    if (!selectedDateKey) return [];
+
+    return orders
+      .filter((order) => order.deliveryDate === selectedDateKey)
+      .slice()
+      .sort((a, b) => a.deliverySlot.localeCompare(b.deliverySlot));
+  }, [orders, selectedDateKey]);
+
   const todayKey = toDateKey(new Date());
   const internalTodayCount = orders.filter(
     (order) => order.deliveryDate === todayKey,
@@ -605,12 +616,27 @@ export default function BakeryCalendarPage() {
         ? "Ada slot yang hampir penuh"
         : "Slot masih tersedia";
 
+  const openDateOrdersPopup = (date: Date) => {
+    setSelectedDate(date);
+    setIsDateOrdersPopupOpen(true);
+  };
+
   const DateHeader = ({ date, label }: DateHeaderProps) => {
     const dateKey = safeToDateKey(date);
     const count = dateKey ? (ordersByDate.get(dateKey)?.length ?? 0) : 0;
     return (
       <div className="flex flex-col">
-        <span className="text-xs font-semibold text-gray-700">{label}</span>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            openDateOrdersPopup(date);
+          }}
+          className="w-fit rounded px-1 text-xs font-semibold text-gray-700 transition hover:bg-indigo-50 hover:text-indigo-700"
+        >
+          {label}
+        </button>
         {count > 0 && (
           <span className="text-[10px] font-semibold text-indigo-600">
             {count} orders
@@ -844,7 +870,9 @@ export default function BakeryCalendarPage() {
             popup
             onNavigate={(newDate) => setCurrentDate(newDate)}
             onView={(nextView) => setCurrentView(nextView)}
-            onSelectSlot={(slotInfo) => setSelectedDate(slotInfo.start)}
+            onSelectSlot={(slotInfo) => {
+              openDateOrdersPopup(slotInfo.start);
+            }}
             onSelectEvent={(event) => {
               if (event.resource.source === "internal") {
                 router.push(`/bakery/bookings/${event.resource.order.id}`);
@@ -945,7 +973,100 @@ export default function BakeryCalendarPage() {
         </CardContent>
       </Card>
 
-      <Card className="rounded-xl shadow-sm">
+      {isDateOrdersPopupOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="date-orders-popup-title"
+          onClick={() => setIsDateOrdersPopupOpen(false)}
+        >
+          <div
+            className="w-full max-w-2xl overflow-hidden rounded-2xl border border-indigo-100 bg-white shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between border-b border-gray-100 px-5 py-4">
+              <div>
+                <h3
+                  id="date-orders-popup-title"
+                  className="text-base font-semibold text-gray-900"
+                >
+                  Orders on {selectedDateLabel}
+                </h3>
+                <p className="mt-1 text-xs text-gray-500">
+                  {selectedDateOrdersAll.length} order(s)
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label="Close popup"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 text-gray-600 transition hover:bg-gray-100"
+                onClick={() => setIsDateOrdersPopupOpen(false)}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="max-h-[70vh] space-y-2 overflow-y-auto px-5 py-4">
+              {!selectedDate ? (
+                <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/60 px-4 py-5 text-sm text-gray-500">
+                  Pilih tanggal di kalender untuk melihat order.
+                </div>
+              ) : selectedDateOrdersAll.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/60 px-4 py-5 text-sm text-gray-500">
+                  Tidak ada order pada tanggal ini.
+                </div>
+              ) : (
+                selectedDateOrdersAll.map((order) => {
+                  const orderType = inferOrderTypeFromItems(order.items || []);
+                  const isSeasonal = orderType === "SEASONAL";
+
+                  return (
+                    <button
+                      key={order.id}
+                      type="button"
+                      className="flex w-full flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-100 bg-gray-50/70 px-4 py-3 text-left transition hover:border-indigo-200 hover:bg-indigo-50/50"
+                      onClick={() => {
+                        setIsDateOrdersPopupOpen(false);
+                        router.push(`/bakery/bookings/${order.id}`);
+                      }}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <p className="truncate font-semibold text-gray-900">
+                            {order.customerName}
+                          </p>
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                              isSeasonal
+                                ? "bg-amber-100 text-amber-700"
+                                : "bg-sky-100 text-sky-700"
+                            }`}
+                          >
+                            {isSeasonal ? "Seasonal Order" : "Custom Order"}
+                          </span>
+                        </div>
+                        <p className="mt-1 truncate text-xs text-gray-500">
+                          {order.items?.[0]?.productName ?? order.product} -{" "}
+                          {order.deliverySlot || "-"}
+                        </p>
+                      </div>
+                      <span
+                        className="rounded-full px-3 py-1 text-xs font-semibold text-white"
+                        style={{ backgroundColor: statusColor(order.orderStatus) }}
+                      >
+                        {order.orderStatus}
+                      </span>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <Card className="hidden rounded-xl shadow-sm">
         <CardHeader className="p-6 pb-2">
           <CardTitle>Orders on {selectedDateLabel}</CardTitle>
         </CardHeader>
