@@ -624,6 +624,28 @@ export default function BookingForm() {
     });
   }, [watchedItems, productCatalog]);
 
+  const shippingWeightSummary = useMemo(() => {
+    const rows = shippingItems.map((item) => {
+      const qty = Math.max(1, Number(item.quantity) || 1);
+      const totalGram = Math.max(100, Number(item.weightGram) || 100);
+      const perPcsGram = Math.max(1, Math.round(totalGram / qty));
+
+      return {
+        name: item.name,
+        qty,
+        totalGram,
+        perPcsGram,
+      };
+    });
+
+    const totalGram = rows.reduce((sum, row) => sum + row.totalGram, 0);
+    return {
+      rows,
+      totalGram,
+      totalKg: Number((totalGram / 1000).toFixed(2)),
+    };
+  }, [shippingItems]);
+
   const shippingPayload = useMemo(() => {
     if (!shouldUseShippingEngine) return null;
     if (
@@ -1864,6 +1886,28 @@ export default function BookingForm() {
                 }
               </p>
 
+              <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600">
+                <p>
+                  Total berat kirim: {shippingWeightSummary.totalGram} gram (
+                  {shippingWeightSummary.totalKg} kg)
+                </p>
+                {shippingWeightSummary.rows.length > 0 && (
+                  <details className="mt-1">
+                    <summary className="cursor-pointer text-gray-700">
+                      Lihat rincian berat per item
+                    </summary>
+                    <div className="mt-2 space-y-1">
+                      {shippingWeightSummary.rows.map((row) => (
+                        <p key={row.name}>
+                          {row.name}: {row.qty} pcs x {row.perPcsGram} gram ={" "}
+                          {row.totalGram} gram
+                        </p>
+                      ))}
+                    </div>
+                  </details>
+                )}
+              </div>
+
               {isGrabCarOnlyOrder && (
                 <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
                   Produk {grabCarOnlyReasons.join(", ")} wajib GrabCar sesuai
@@ -1996,7 +2040,10 @@ export default function BookingForm() {
                 type="submit"
                 className="gap-2 bg-indigo-600 text-white hover:bg-indigo-700 focus-visible:ring-indigo-500"
                 disabled={
-                  isSubmitting || isCheckingShipping || isBlockedDate || isSlotFull
+                  isSubmitting ||
+                  isCheckingShipping ||
+                  isBlockedDate ||
+                  isSlotFull
                 }
               >
                 {isSubmitting ? "Saving Booking..." : "Create Booking"}
