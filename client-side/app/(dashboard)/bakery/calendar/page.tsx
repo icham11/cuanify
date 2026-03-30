@@ -35,6 +35,7 @@ import {
   inferOrderTypeFromItems,
   type SlotOrderType,
 } from "@/lib/bookings/operations";
+import { BAKERY_BLOCKED_DATES } from "@/lib/bookings/config";
 import { CalendarDays, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { toast } from "sonner";
 
@@ -142,7 +143,9 @@ function slotStatusBadge(status: "AVAILABLE" | "ALMOST_FULL" | "FULL"): string {
   return "AVAILABLE";
 }
 
-function slotStatusTextClass(status: "AVAILABLE" | "ALMOST_FULL" | "FULL"): string {
+function slotStatusTextClass(
+  status: "AVAILABLE" | "ALMOST_FULL" | "FULL",
+): string {
   if (status === "FULL") return "text-rose-700";
   if (status === "ALMOST_FULL") return "text-amber-700";
   return "text-emerald-700";
@@ -448,6 +451,9 @@ export default function BakeryCalendarPage() {
   }, [filteredInternalOrders]);
 
   const selectedDateKey = selectedDate ? toDateKey(selectedDate) : "";
+  const blockedDateSet = useMemo(() => new Set(BAKERY_BLOCKED_DATES), []);
+  const isSelectedBlockedDate =
+    Boolean(selectedDateKey) && blockedDateSet.has(selectedDateKey);
 
   const selectedEvents = selectedDateKey
     ? events
@@ -534,6 +540,12 @@ export default function BakeryCalendarPage() {
     while (cursor <= rangeEnd) {
       const dateKey = safeToDateKey(cursor);
       if (dateKey) {
+        if (blockedDateSet.has(dateKey)) {
+          result.set(dateKey, "full");
+          cursor.setDate(cursor.getDate() + 1);
+          continue;
+        }
+
         const slots = getDeliverySlotsForDate(dateKey);
         let tone: DayLoadTone = "normal";
         for (const slot of slots) {
@@ -563,7 +575,7 @@ export default function BakeryCalendarPage() {
     }
 
     return result;
-  }, [calendarViewMode, currentDate, currentView, orders]);
+  }, [blockedDateSet, calendarViewMode, currentDate, currentView, orders]);
 
   const selectedDateSlotBoard = useMemo(() => {
     if (!selectedDateKey || calendarViewMode !== "internal") return [];
@@ -596,6 +608,7 @@ export default function BakeryCalendarPage() {
   const selectedDateOverallStatus = useMemo<
     "AVAILABLE" | "ALMOST_FULL" | "FULL"
   >(() => {
+    if (isSelectedBlockedDate) return "FULL";
     if (selectedDateSlotBoard.length === 0) return "AVAILABLE";
 
     let hasAlmostFull = false;
@@ -607,10 +620,11 @@ export default function BakeryCalendarPage() {
     }
 
     return hasAlmostFull ? "ALMOST_FULL" : "AVAILABLE";
-  }, [selectedDateSlotBoard]);
+  }, [isSelectedBlockedDate, selectedDateSlotBoard]);
 
-  const slotMessage =
-    selectedDateOverallStatus === "FULL"
+  const slotMessage = isSelectedBlockedDate
+    ? "Tanggal ini libur operasional"
+    : selectedDateOverallStatus === "FULL"
       ? "Ada slot yang sudah penuh"
       : selectedDateOverallStatus === "ALMOST_FULL"
         ? "Ada slot yang hampir penuh"
@@ -624,6 +638,7 @@ export default function BakeryCalendarPage() {
   const DateHeader = ({ date, label }: DateHeaderProps) => {
     const dateKey = safeToDateKey(date);
     const count = dateKey ? (ordersByDate.get(dateKey)?.length ?? 0) : 0;
+    const isBlockedDate = dateKey ? blockedDateSet.has(dateKey) : false;
     return (
       <div className="flex flex-col">
         <button
@@ -641,6 +656,9 @@ export default function BakeryCalendarPage() {
           <span className="text-[10px] font-semibold text-indigo-600">
             {count} orders
           </span>
+        )}
+        {isBlockedDate && (
+          <span className="text-[10px] font-semibold text-rose-600">LIBUR</span>
         )}
       </div>
     );
@@ -900,7 +918,12 @@ export default function BakeryCalendarPage() {
               },
             })}
             dayPropGetter={(date) => {
-              const tone = dayToneByDate.get(toDateKey(date)) ?? "normal";
+              const dateKey = toDateKey(date);
+              if (blockedDateSet.has(dateKey)) {
+                return { className: "rbc-day-blocked" };
+              }
+
+              const tone = dayToneByDate.get(dateKey) ?? "normal";
               if (tone === "full") {
                 return { className: "rbc-day-full" };
               }
@@ -921,8 +944,8 @@ export default function BakeryCalendarPage() {
 
           <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-gray-500">
             <span className="inline-flex items-center gap-1">
-              <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />{" "}
-              Slot available
+              <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /> Slot
+              available
             </span>
             <span className="inline-flex items-center gap-1">
               <span className="h-2.5 w-2.5 rounded-full bg-amber-500" /> Slot
@@ -931,6 +954,10 @@ export default function BakeryCalendarPage() {
             <span className="inline-flex items-center gap-1">
               <span className="h-2.5 w-2.5 rounded-full bg-rose-500" /> Slot
               full
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="h-2.5 w-2.5 rounded-full bg-rose-300" /> Hari
+              libur
             </span>
           </div>
 
@@ -1053,7 +1080,9 @@ export default function BakeryCalendarPage() {
                       </div>
                       <span
                         className="rounded-full px-3 py-1 text-xs font-semibold text-white"
-                        style={{ backgroundColor: statusColor(order.orderStatus) }}
+                        style={{
+                          backgroundColor: statusColor(order.orderStatus),
+                        }}
                       >
                         {order.orderStatus}
                       </span>
@@ -1284,6 +1313,16 @@ export default function BakeryCalendarPage() {
 
         .rbc-day-full {
           background: #fff1f2;
+        }
+
+        .rbc-day-blocked {
+          background: repeating-linear-gradient(
+            -45deg,
+            #fff1f2,
+            #fff1f2 8px,
+            #ffe4e6 8px,
+            #ffe4e6 16px
+          );
         }
 
         .rbc-today {
