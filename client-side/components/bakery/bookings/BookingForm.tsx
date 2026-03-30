@@ -60,6 +60,7 @@ import {
   DELIVERY_METHOD_OPTIONS,
   estimateOperationalWeightGram,
   getGrabCarOnlyReasons,
+  isGrabCarOnlyItem,
   type DeliveryMethod,
   usesShippingEngine,
 } from "@/lib/bookings/delivery-rules";
@@ -1451,6 +1452,7 @@ export default function BookingForm() {
                     : "";
                   const bouquetLineTotal =
                     getBouquetLineTotal(bouquetProbeItem);
+                  const itemGrabCarOnly = isGrabCarOnlyItem(bouquetProbeItem);
                   const quantityMin =
                     bouquetType === "HAND"
                       ? BOUQUET_HAND_MIN_QTY
@@ -1601,6 +1603,11 @@ export default function BookingForm() {
                               </option>
                             ))}
                           </Select>
+                          {itemGrabCarOnly && (
+                            <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-700">
+                              GrabCar only
+                            </span>
+                          )}
                         </label>
 
                         <label className="grid gap-2 text-sm font-medium text-gray-700">
