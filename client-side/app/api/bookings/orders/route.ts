@@ -90,6 +90,9 @@ interface DbAddressRow {
   payload: unknown;
 }
 
+type SnapshotSource = "rows" | "snapshot-fallback";
+type SnapshotStore = Pick<typeof prisma, "businessDocument">;
+
 const normalizedOrderSchema = z.object({
   id: z.string().trim().min(1, "id is required"),
   bookingCode: z.string(),
@@ -107,7 +110,10 @@ const normalizedOrderSchema = z.object({
   dpPaidAmount: z.number().finite().min(0, "dpPaidAmount must be >= 0"),
   finalPaidAmount: z.number().finite().min(0, "finalPaidAmount must be >= 0"),
   totalPaidAmount: z.number().finite().min(0, "totalPaidAmount must be >= 0"),
-  downPaymentAmount: z.number().finite().min(0, "downPaymentAmount must be >= 0"),
+  downPaymentAmount: z
+    .number()
+    .finite()
+    .min(0, "downPaymentAmount must be >= 0"),
   remainingBalance: z.number().finite().min(0, "remainingBalance must be >= 0"),
   product: z.string(),
   totalPrice: z.number().finite().min(0, "totalPrice must be >= 0"),
@@ -177,6 +183,88 @@ function parseJsonField(value: unknown): unknown {
   } catch {
     return value;
   }
+}
+
+function extractErrorDetails(error: unknown): {
+  message: string;
+  name?: string;
+  code?: string;
+  meta?: unknown;
+} {
+  const message = error instanceof Error ? error.message : "Unknown error";
+  const name = error instanceof Error ? error.name : undefined;
+  const record = asRecord(error);
+  const code = typeof record?.code === "string" ? record.code : undefined;
+  const meta = record?.meta;
+  return { message, name, code, meta };
+}
+
+async function readOrdersSnapshot(businessId: number) {
+  return prisma.businessDocument.findFirst({
+    where: {
+      businessId,
+      sourceType: SNAPSHOT_SOURCE_TYPE,
+    },
+    orderBy: { updatedAt: "desc" },
+    select: {
+      id: true,
+      content: true,
+      updatedAt: true,
+    },
+  });
+}
+
+async function upsertOrdersSnapshot(
+  db: SnapshotStore,
+  params: {
+    businessId: number;
+    userId: number;
+    orders: NormalizedOrder[];
+    source: SnapshotSource;
+  },
+) {
+  const { businessId, userId, orders, source } = params;
+  const existingSnapshot = await db.businessDocument.findFirst({
+    where: {
+      businessId,
+      sourceType: SNAPSHOT_SOURCE_TYPE,
+    },
+    orderBy: { updatedAt: "desc" },
+    select: { id: true },
+  });
+
+  const content = JSON.stringify(orders);
+  const metadata = {
+    kind: SNAPSHOT_SOURCE_TYPE,
+    itemCount: orders.length,
+    updatedByUserId: userId,
+    updatedAt: new Date().toISOString(),
+    source,
+  };
+
+  if (existingSnapshot) {
+    await db.businessDocument.update({
+      where: { id: existingSnapshot.id },
+      data: {
+        content,
+        metadata,
+        sourceId: businessId,
+        chunkIndex: 0,
+      },
+    });
+    return;
+  }
+
+  await db.businessDocument.create({
+    data: {
+      businessId,
+      sourceType: SNAPSHOT_SOURCE_TYPE,
+      sourceId: businessId,
+      content,
+      chunkIndex: 0,
+      metadata,
+    },
+  });
 }
 
 function normalizeOrder(raw: unknown, index: number): NormalizedOrder | null {
@@ -302,138 +390,140 @@ export async function GET() {
   try {
     const { businessId } = await requireAuth();
 
-    await ensureBakeryTables();
+    let rowReadFailed = false;
+    try {
+      await ensureBakeryTables();
 
-    const orderRows = await prisma.$queryRaw<DbOrderRow[]>`
-      SELECT
-        external_id,
-        booking_code,
-        resi,
-        customer_name,
-        customer_phone,
-        customer_address,
-        delivery_date,
-        delivery_slot,
-        notes,
-        base_price,
-        add_on_total,
-        delivery_fee,
-        manual_adjustment,
-        dp_paid_amount,
-        final_paid_amount,
-        total_paid_amount,
-        down_payment_amount,
-        remaining_balance,
-        product,
-        total_price,
-        payment_status,
-        order_status,
-        shipping_quote,
-        shipment,
-        simulations,
-        whatsapp_parsed_data,
-        status_history,
-        automation_logs,
-        payment_transactions,
-        created_at,
-        updated_at
-      FROM bakery_orders
-      WHERE business_id = ${businessId}
-      ORDER BY updated_at DESC
-    `;
-
-    if (orderRows.length > 0) {
-      const itemRows = await prisma.$queryRaw<DbItemRow[]>`
-        SELECT order_external_id, item_index, payload
-        FROM bakery_order_items
+      const orderRows = await prisma.$queryRaw<DbOrderRow[]>`
+        SELECT
+          external_id,
+          booking_code,
+          resi,
+          customer_name,
+          customer_phone,
+          customer_address,
+          delivery_date,
+          delivery_slot,
+          notes,
+          base_price,
+          add_on_total,
+          delivery_fee,
+          manual_adjustment,
+          dp_paid_amount,
+          final_paid_amount,
+          total_paid_amount,
+          down_payment_amount,
+          remaining_balance,
+          product,
+          total_price,
+          payment_status,
+          order_status,
+          shipping_quote,
+          shipment,
+          simulations,
+          whatsapp_parsed_data,
+          status_history,
+          automation_logs,
+          payment_transactions,
+          created_at,
+          updated_at
+        FROM bakery_orders
         WHERE business_id = ${businessId}
-        ORDER BY order_external_id ASC, item_index ASC
+        ORDER BY updated_at DESC
       `;
 
-      const addressRows = await prisma.$queryRaw<DbAddressRow[]>`
-        SELECT order_external_id, address_index, payload
-        FROM bakery_order_addresses
-        WHERE business_id = ${businessId}
-        ORDER BY order_external_id ASC, address_index ASC
-      `;
+      if (orderRows.length > 0) {
+        const itemRows = await prisma.$queryRaw<DbItemRow[]>`
+          SELECT order_external_id, item_index, payload
+          FROM bakery_order_items
+          WHERE business_id = ${businessId}
+          ORDER BY order_external_id ASC, item_index ASC
+        `;
 
-      const itemsMap = new Map<string, JsonRecord[]>();
-      for (const row of itemRows) {
-        const current = itemsMap.get(row.order_external_id) ?? [];
-        const payload = asRecord(parseJsonField(row.payload));
-        if (payload) current.push(payload);
-        itemsMap.set(row.order_external_id, current);
+        const addressRows = await prisma.$queryRaw<DbAddressRow[]>`
+          SELECT order_external_id, address_index, payload
+          FROM bakery_order_addresses
+          WHERE business_id = ${businessId}
+          ORDER BY order_external_id ASC, address_index ASC
+        `;
+
+        const itemsMap = new Map<string, JsonRecord[]>();
+        for (const row of itemRows) {
+          const current = itemsMap.get(row.order_external_id) ?? [];
+          const payload = asRecord(parseJsonField(row.payload));
+          if (payload) current.push(payload);
+          itemsMap.set(row.order_external_id, current);
+        }
+
+        const addressesMap = new Map<string, JsonRecord[]>();
+        for (const row of addressRows) {
+          const current = addressesMap.get(row.order_external_id) ?? [];
+          const payload = asRecord(parseJsonField(row.payload));
+          if (payload) current.push(payload);
+          addressesMap.set(row.order_external_id, current);
+        }
+
+        const orders = orderRows.map((row) => ({
+          id: row.external_id,
+          bookingCode: row.booking_code ?? "",
+          resi: row.resi ?? "",
+          customerName: row.customer_name ?? "",
+          customerPhone: row.customer_phone ?? "",
+          customerAddress: row.customer_address ?? "",
+          deliveryDate: row.delivery_date ?? "",
+          deliverySlot: row.delivery_slot ?? "",
+          notes: row.notes ?? "",
+          basePrice: asNumber(row.base_price),
+          addOnTotal: asNumber(row.add_on_total),
+          deliveryFee: asNumber(row.delivery_fee),
+          manualAdjustment: asNumber(row.manual_adjustment),
+          dpPaidAmount: asNumber(row.dp_paid_amount),
+          finalPaidAmount: asNumber(row.final_paid_amount),
+          totalPaidAmount: asNumber(row.total_paid_amount),
+          downPaymentAmount: asNumber(row.down_payment_amount),
+          remainingBalance: asNumber(row.remaining_balance),
+          product: row.product ?? "",
+          totalPrice: asNumber(row.total_price),
+          paymentStatus: row.payment_status ?? "Pending",
+          orderStatus: row.order_status ?? "Inquiry",
+          shippingQuote: parseJsonField(row.shipping_quote),
+          shipment: parseJsonField(row.shipment),
+          simulations: parseJsonField(row.simulations),
+          whatsAppParsedData: parseJsonField(row.whatsapp_parsed_data),
+          statusHistory: parseJsonField(row.status_history) ?? [],
+          automationLogs: parseJsonField(row.automation_logs) ?? [],
+          paymentTransactions: parseJsonField(row.payment_transactions) ?? [],
+          items: itemsMap.get(row.external_id) ?? [],
+          deliveryAddresses: addressesMap.get(row.external_id) ?? [],
+        }));
+
+        return NextResponse.json({
+          success: true,
+          data: {
+            source: "rows",
+            orders,
+            updatedAt: orderRows[0]?.updated_at?.toISOString() ?? null,
+          },
+        });
       }
-
-      const addressesMap = new Map<string, JsonRecord[]>();
-      for (const row of addressRows) {
-        const current = addressesMap.get(row.order_external_id) ?? [];
-        const payload = asRecord(parseJsonField(row.payload));
-        if (payload) current.push(payload);
-        addressesMap.set(row.order_external_id, current);
-      }
-
-      const orders = orderRows.map((row) => ({
-        id: row.external_id,
-        bookingCode: row.booking_code ?? "",
-        resi: row.resi ?? "",
-        customerName: row.customer_name ?? "",
-        customerPhone: row.customer_phone ?? "",
-        customerAddress: row.customer_address ?? "",
-        deliveryDate: row.delivery_date ?? "",
-        deliverySlot: row.delivery_slot ?? "",
-        notes: row.notes ?? "",
-        basePrice: asNumber(row.base_price),
-        addOnTotal: asNumber(row.add_on_total),
-        deliveryFee: asNumber(row.delivery_fee),
-        manualAdjustment: asNumber(row.manual_adjustment),
-        dpPaidAmount: asNumber(row.dp_paid_amount),
-        finalPaidAmount: asNumber(row.final_paid_amount),
-        totalPaidAmount: asNumber(row.total_paid_amount),
-        downPaymentAmount: asNumber(row.down_payment_amount),
-        remainingBalance: asNumber(row.remaining_balance),
-        product: row.product ?? "",
-        totalPrice: asNumber(row.total_price),
-        paymentStatus: row.payment_status ?? "Pending",
-        orderStatus: row.order_status ?? "Inquiry",
-        shippingQuote: parseJsonField(row.shipping_quote),
-        shipment: parseJsonField(row.shipment),
-        simulations: parseJsonField(row.simulations),
-        whatsAppParsedData: parseJsonField(row.whatsapp_parsed_data),
-        statusHistory: parseJsonField(row.status_history) ?? [],
-        automationLogs: parseJsonField(row.automation_logs) ?? [],
-        paymentTransactions: parseJsonField(row.payment_transactions) ?? [],
-        items: itemsMap.get(row.external_id) ?? [],
-        deliveryAddresses: addressesMap.get(row.external_id) ?? [],
-      }));
-
-      return NextResponse.json({
-        success: true,
-        data: {
-          source: "rows",
-          orders,
-          updatedAt: orderRows[0]?.updated_at?.toISOString() ?? null,
+    } catch (rowError) {
+      rowReadFailed = true;
+      const detail = extractErrorDetails(rowError);
+      console.warn(
+        "[api/bookings/orders] rows read failed, fallback to snapshot",
+        {
+          businessId,
+          ...detail,
         },
-      });
+      );
     }
 
-    const snapshot = await prisma.businessDocument.findFirst({
-      where: {
-        businessId,
-        sourceType: SNAPSHOT_SOURCE_TYPE,
-      },
-      orderBy: { updatedAt: "desc" },
-      select: {
-        id: true,
-        content: true,
-        updatedAt: true,
-      },
-    });
+    const snapshot = await readOrdersSnapshot(businessId);
 
     return NextResponse.json({
       success: true,
       data: {
-        source: "snapshot",
+        source: rowReadFailed ? "snapshot-fallback" : "snapshot",
         id: snapshot?.id ?? null,
         orders: parseOrdersContent(snapshot?.content),
         updatedAt: snapshot?.updatedAt?.toISOString() ?? null,
@@ -490,7 +580,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const parsedOrders = z.array(normalizedOrderSchema).safeParse(normalizedOrders);
+    const parsedOrders = z
+      .array(normalizedOrderSchema)
+      .safeParse(normalizedOrders);
     if (!parsedOrders.success) {
       const details = formatValidationIssues(parsedOrders.error);
       console.warn("[api/bookings/orders] validation failed", {
@@ -517,257 +609,260 @@ export async function POST(request: NextRequest) {
       ids: orders.map((order) => order.id),
     });
 
-    await ensureBakeryTables();
+    const durationMs = Date.now() - requestStartedAt;
+    try {
+      await ensureBakeryTables();
 
-    const transactionSummary = await prisma.$transaction(async (tx) => {
-      let deletedOrderCount = 0;
-      let upsertedOrderCount = 0;
-      let insertedItemCount = 0;
-      let insertedAddressCount = 0;
+      const transactionSummary = await prisma.$transaction(
+        async (tx) => {
+          let deletedOrderCount = 0;
+          let upsertedOrderCount = 0;
+          let insertedItemCount = 0;
+          let insertedAddressCount = 0;
 
-      const existingRows = await tx.$queryRaw<{ external_id: string }[]>`
-        SELECT external_id
-        FROM bakery_orders
-        WHERE business_id = ${businessId}
-      `;
-
-      const existingIds = new Set(existingRows.map((row) => row.external_id));
-      const incomingIds = new Set(orders.map((order) => order.id));
-
-      for (const externalId of existingIds) {
-        if (incomingIds.has(externalId)) continue;
-        await tx.$executeRaw`
-          DELETE FROM bakery_order_items
-          WHERE business_id = ${businessId} AND order_external_id = ${externalId}
-        `;
-        await tx.$executeRaw`
-          DELETE FROM bakery_order_addresses
-          WHERE business_id = ${businessId} AND order_external_id = ${externalId}
-        `;
-        await tx.$executeRaw`
-          DELETE FROM bakery_orders
-          WHERE business_id = ${businessId} AND external_id = ${externalId}
-        `;
-        deletedOrderCount += 1;
-      }
-
-      for (const order of orders) {
-        upsertedOrderCount += 1;
-
-        await tx.$executeRaw`
-          INSERT INTO bakery_orders (
-            business_id,
-            external_id,
-            booking_code,
-            resi,
-            customer_name,
-            customer_phone,
-            customer_address,
-            delivery_date,
-            delivery_slot,
-            notes,
-            base_price,
-            add_on_total,
-            delivery_fee,
-            manual_adjustment,
-            dp_paid_amount,
-            final_paid_amount,
-            total_paid_amount,
-            down_payment_amount,
-            remaining_balance,
-            product,
-            total_price,
-            payment_status,
-            order_status,
-            shipping_quote,
-            shipment,
-            simulations,
-            whatsapp_parsed_data,
-            status_history,
-            automation_logs,
-            payment_transactions,
-            updated_at
-          ) VALUES (
-            ${businessId},
-            ${order.id},
-            ${order.bookingCode || null},
-            ${order.resi || null},
-            ${order.customerName || null},
-            ${order.customerPhone || null},
-            ${order.customerAddress || null},
-            ${order.deliveryDate || null},
-            ${order.deliverySlot || null},
-            ${order.notes || null},
-            ${order.basePrice},
-            ${order.addOnTotal},
-            ${order.deliveryFee},
-            ${order.manualAdjustment},
-            ${order.dpPaidAmount},
-            ${order.finalPaidAmount},
-            ${order.totalPaidAmount},
-            ${order.downPaymentAmount},
-            ${order.remainingBalance},
-            ${order.product || null},
-            ${order.totalPrice},
-            ${order.paymentStatus || null},
-            ${order.orderStatus || null},
-            ${JSON.stringify(order.shippingQuote ?? null)}::jsonb,
-            ${JSON.stringify(order.shipment ?? null)}::jsonb,
-            ${JSON.stringify(order.simulations ?? null)}::jsonb,
-            ${JSON.stringify(order.whatsAppParsedData ?? null)}::jsonb,
-            ${JSON.stringify(order.statusHistory ?? [])}::jsonb,
-            ${JSON.stringify(order.automationLogs ?? [])}::jsonb,
-            ${JSON.stringify(order.paymentTransactions ?? [])}::jsonb,
-            NOW()
-          )
-          ON CONFLICT (business_id, external_id)
-          DO UPDATE SET
-            booking_code = EXCLUDED.booking_code,
-            resi = EXCLUDED.resi,
-            customer_name = EXCLUDED.customer_name,
-            customer_phone = EXCLUDED.customer_phone,
-            customer_address = EXCLUDED.customer_address,
-            delivery_date = EXCLUDED.delivery_date,
-            delivery_slot = EXCLUDED.delivery_slot,
-            notes = EXCLUDED.notes,
-            base_price = EXCLUDED.base_price,
-            add_on_total = EXCLUDED.add_on_total,
-            delivery_fee = EXCLUDED.delivery_fee,
-            manual_adjustment = EXCLUDED.manual_adjustment,
-            dp_paid_amount = EXCLUDED.dp_paid_amount,
-            final_paid_amount = EXCLUDED.final_paid_amount,
-            total_paid_amount = EXCLUDED.total_paid_amount,
-            down_payment_amount = EXCLUDED.down_payment_amount,
-            remaining_balance = EXCLUDED.remaining_balance,
-            product = EXCLUDED.product,
-            total_price = EXCLUDED.total_price,
-            payment_status = EXCLUDED.payment_status,
-            order_status = EXCLUDED.order_status,
-            shipping_quote = EXCLUDED.shipping_quote,
-            shipment = EXCLUDED.shipment,
-            simulations = EXCLUDED.simulations,
-            whatsapp_parsed_data = EXCLUDED.whatsapp_parsed_data,
-            status_history = EXCLUDED.status_history,
-            automation_logs = EXCLUDED.automation_logs,
-            payment_transactions = EXCLUDED.payment_transactions,
-            updated_at = NOW()
+          const existingRows = await tx.$queryRaw<{ external_id: string }[]>`
+          SELECT external_id
+          FROM bakery_orders
+          WHERE business_id = ${businessId}
         `;
 
-        await tx.$executeRaw`
-          DELETE FROM bakery_order_items
-          WHERE business_id = ${businessId} AND order_external_id = ${order.id}
-        `;
+          const existingIds = new Set(
+            existingRows.map((row) => row.external_id),
+          );
+          const incomingIds = new Set(orders.map((order) => order.id));
 
-        for (let index = 0; index < order.items.length; index += 1) {
-          const item = order.items[index];
-          await tx.$executeRaw`
-            INSERT INTO bakery_order_items (
+          for (const externalId of existingIds) {
+            if (incomingIds.has(externalId)) continue;
+            await tx.$executeRaw`
+            DELETE FROM bakery_order_items
+            WHERE business_id = ${businessId} AND order_external_id = ${externalId}
+          `;
+            await tx.$executeRaw`
+            DELETE FROM bakery_order_addresses
+            WHERE business_id = ${businessId} AND order_external_id = ${externalId}
+          `;
+            await tx.$executeRaw`
+            DELETE FROM bakery_orders
+            WHERE business_id = ${businessId} AND external_id = ${externalId}
+          `;
+            deletedOrderCount += 1;
+          }
+
+          for (const order of orders) {
+            upsertedOrderCount += 1;
+
+            await tx.$executeRaw`
+            INSERT INTO bakery_orders (
               business_id,
-              order_external_id,
-              item_index,
-              payload
+              external_id,
+              booking_code,
+              resi,
+              customer_name,
+              customer_phone,
+              customer_address,
+              delivery_date,
+              delivery_slot,
+              notes,
+              base_price,
+              add_on_total,
+              delivery_fee,
+              manual_adjustment,
+              dp_paid_amount,
+              final_paid_amount,
+              total_paid_amount,
+              down_payment_amount,
+              remaining_balance,
+              product,
+              total_price,
+              payment_status,
+              order_status,
+              shipping_quote,
+              shipment,
+              simulations,
+              whatsapp_parsed_data,
+              status_history,
+              automation_logs,
+              payment_transactions,
+              updated_at
             ) VALUES (
               ${businessId},
               ${order.id},
-              ${index},
-              ${JSON.stringify(item)}::jsonb
+              ${order.bookingCode || null},
+              ${order.resi || null},
+              ${order.customerName || null},
+              ${order.customerPhone || null},
+              ${order.customerAddress || null},
+              ${order.deliveryDate || null},
+              ${order.deliverySlot || null},
+              ${order.notes || null},
+              ${order.basePrice},
+              ${order.addOnTotal},
+              ${order.deliveryFee},
+              ${order.manualAdjustment},
+              ${order.dpPaidAmount},
+              ${order.finalPaidAmount},
+              ${order.totalPaidAmount},
+              ${order.downPaymentAmount},
+              ${order.remainingBalance},
+              ${order.product || null},
+              ${order.totalPrice},
+              ${order.paymentStatus || null},
+              ${order.orderStatus || null},
+              ${JSON.stringify(order.shippingQuote ?? null)}::jsonb,
+              ${JSON.stringify(order.shipment ?? null)}::jsonb,
+              ${JSON.stringify(order.simulations ?? null)}::jsonb,
+              ${JSON.stringify(order.whatsAppParsedData ?? null)}::jsonb,
+              ${JSON.stringify(order.statusHistory ?? [])}::jsonb,
+              ${JSON.stringify(order.automationLogs ?? [])}::jsonb,
+              ${JSON.stringify(order.paymentTransactions ?? [])}::jsonb,
+              NOW()
             )
+            ON CONFLICT (business_id, external_id)
+            DO UPDATE SET
+              booking_code = EXCLUDED.booking_code,
+              resi = EXCLUDED.resi,
+              customer_name = EXCLUDED.customer_name,
+              customer_phone = EXCLUDED.customer_phone,
+              customer_address = EXCLUDED.customer_address,
+              delivery_date = EXCLUDED.delivery_date,
+              delivery_slot = EXCLUDED.delivery_slot,
+              notes = EXCLUDED.notes,
+              base_price = EXCLUDED.base_price,
+              add_on_total = EXCLUDED.add_on_total,
+              delivery_fee = EXCLUDED.delivery_fee,
+              manual_adjustment = EXCLUDED.manual_adjustment,
+              dp_paid_amount = EXCLUDED.dp_paid_amount,
+              final_paid_amount = EXCLUDED.final_paid_amount,
+              total_paid_amount = EXCLUDED.total_paid_amount,
+              down_payment_amount = EXCLUDED.down_payment_amount,
+              remaining_balance = EXCLUDED.remaining_balance,
+              product = EXCLUDED.product,
+              total_price = EXCLUDED.total_price,
+              payment_status = EXCLUDED.payment_status,
+              order_status = EXCLUDED.order_status,
+              shipping_quote = EXCLUDED.shipping_quote,
+              shipment = EXCLUDED.shipment,
+              simulations = EXCLUDED.simulations,
+              whatsapp_parsed_data = EXCLUDED.whatsapp_parsed_data,
+              status_history = EXCLUDED.status_history,
+              automation_logs = EXCLUDED.automation_logs,
+              payment_transactions = EXCLUDED.payment_transactions,
+              updated_at = NOW()
           `;
-          insertedItemCount += 1;
-        }
 
-        await tx.$executeRaw`
-          DELETE FROM bakery_order_addresses
-          WHERE business_id = ${businessId} AND order_external_id = ${order.id}
-        `;
-
-        for (
-          let index = 0;
-          index < order.deliveryAddresses.length;
-          index += 1
-        ) {
-          const address = order.deliveryAddresses[index];
-          await tx.$executeRaw`
-            INSERT INTO bakery_order_addresses (
-              business_id,
-              order_external_id,
-              address_index,
-              payload
-            ) VALUES (
-              ${businessId},
-              ${order.id},
-              ${index},
-              ${JSON.stringify(address)}::jsonb
-            )
+            await tx.$executeRaw`
+            DELETE FROM bakery_order_items
+            WHERE business_id = ${businessId} AND order_external_id = ${order.id}
           `;
-          insertedAddressCount += 1;
-        }
-      }
 
-      const existingSnapshot = await tx.businessDocument.findFirst({
-        where: {
-          businessId,
-          sourceType: SNAPSHOT_SOURCE_TYPE,
+            for (let index = 0; index < order.items.length; index += 1) {
+              const item = order.items[index];
+              await tx.$executeRaw`
+              INSERT INTO bakery_order_items (
+                business_id,
+                order_external_id,
+                item_index,
+                payload
+              ) VALUES (
+                ${businessId},
+                ${order.id},
+                ${index},
+                ${JSON.stringify(item)}::jsonb
+              )
+            `;
+              insertedItemCount += 1;
+            }
+
+            await tx.$executeRaw`
+            DELETE FROM bakery_order_addresses
+            WHERE business_id = ${businessId} AND order_external_id = ${order.id}
+          `;
+
+            for (
+              let index = 0;
+              index < order.deliveryAddresses.length;
+              index += 1
+            ) {
+              const address = order.deliveryAddresses[index];
+              await tx.$executeRaw`
+              INSERT INTO bakery_order_addresses (
+                business_id,
+                order_external_id,
+                address_index,
+                payload
+              ) VALUES (
+                ${businessId},
+                ${order.id},
+                ${index},
+                ${JSON.stringify(address)}::jsonb
+              )
+            `;
+              insertedAddressCount += 1;
+            }
+          }
+
+          await upsertOrdersSnapshot(tx, {
+            businessId,
+            userId,
+            orders,
+            source: "rows",
+          });
+
+          return {
+            deletedOrderCount,
+            upsertedOrderCount,
+            insertedItemCount,
+            insertedAddressCount,
+          };
         },
-        orderBy: { updatedAt: "desc" },
-        select: { id: true },
+        {
+          maxWait: 10_000,
+          timeout: 30_000,
+        },
+      );
+
+      console.info("[api/bookings/orders] database upsert complete", {
+        businessId,
+        userId,
+        durationMs,
+        ...transactionSummary,
       });
 
-      const content = JSON.stringify(orders);
-      const metadata = {
-        kind: SNAPSHOT_SOURCE_TYPE,
-        itemCount: orders.length,
-        updatedByUserId: userId,
-        updatedAt: new Date().toISOString(),
-        source: "rows",
-      };
+      return NextResponse.json({
+        success: true,
+        data: {
+          mode: "rows",
+          itemCount: orders.length,
+          durationMs,
+          ...transactionSummary,
+        },
+      });
+    } catch (rowError) {
+      const detail = extractErrorDetails(rowError);
+      console.warn(
+        "[api/bookings/orders] rows write failed, fallback to snapshot",
+        {
+          businessId,
+          userId,
+          durationMs,
+          ...detail,
+        },
+      );
+    }
 
-      if (existingSnapshot) {
-        await tx.businessDocument.update({
-          where: { id: existingSnapshot.id },
-          data: {
-            content,
-            metadata,
-            sourceId: businessId,
-            chunkIndex: 0,
-          },
-        });
-      } else {
-        await tx.businessDocument.create({
-          data: {
-            businessId,
-            sourceType: SNAPSHOT_SOURCE_TYPE,
-            sourceId: businessId,
-            content,
-            chunkIndex: 0,
-            metadata,
-          },
-        });
-      }
-
-      return {
-        deletedOrderCount,
-        upsertedOrderCount,
-        insertedItemCount,
-        insertedAddressCount,
-      };
-    });
-
-    const durationMs = Date.now() - requestStartedAt;
-    console.info("[api/bookings/orders] database upsert complete", {
+    await upsertOrdersSnapshot(prisma, {
       businessId,
       userId,
-      durationMs,
-      ...transactionSummary,
+      orders,
+      source: "snapshot-fallback",
     });
 
     return NextResponse.json({
       success: true,
       data: {
-        mode: "rows",
+        mode: "snapshot-fallback",
         itemCount: orders.length,
         durationMs,
-        ...transactionSummary,
       },
     });
   } catch (error) {
@@ -775,17 +870,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 401 });
     }
 
+    const detail = extractErrorDetails(error);
     console.error("[api/bookings/orders] failed", {
-      message: error instanceof Error ? error.message : "Unknown error",
+      ...detail,
     });
 
     return NextResponse.json(
       {
         error: "Failed to persist bakery orders.",
         details:
-          error instanceof Error
-            ? error.message
-            : "Unexpected server error while writing to database.",
+          detail.message ||
+          "Unexpected server error while writing to database.",
       },
       { status: 500 },
     );
