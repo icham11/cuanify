@@ -1,3 +1,5 @@
+import { BAKERY_BLOCKED_DATES } from "@/lib/bookings/config";
+
 export interface BookingItemForOperations {
   category: string;
   subcategory?: string;
@@ -116,7 +118,7 @@ function getQuantity(item: BookingItemForOperations): number {
 
 function getItemSource(item: BookingItemForOperations): string {
   return normalize(
-    `${item.subcategory || ""} ${item.productName || ""} ${item.size || ""}`
+    `${item.subcategory || ""} ${item.productName || ""} ${item.size || ""}`,
   );
 }
 
@@ -145,9 +147,13 @@ function isBulkCookiesItem(item: BookingItemForOperations): boolean {
   return bulkCookieHints.some((hint) => source.includes(normalize(hint)));
 }
 
-export function isSeasonalOrderItems(items: BookingItemForOperations[]): boolean {
+export function isSeasonalOrderItems(
+  items: BookingItemForOperations[],
+): boolean {
   if (!items.length) return false;
-  return items.every((item) => item.category === "Cookies" && isBulkCookiesItem(item));
+  return items.every(
+    (item) => item.category === "Cookies" && isBulkCookiesItem(item),
+  );
 }
 
 export function getSlotLimitByItems(items: BookingItemForOperations[]): number {
@@ -172,6 +178,10 @@ function parseLocalDay(deliveryDate: string): number {
 }
 
 export function getDeliverySlotsForDate(deliveryDate: string): string[] {
+  if (deliveryDate && BAKERY_BLOCKED_DATES.includes(deliveryDate)) {
+    return [];
+  }
+
   const day = parseLocalDay(deliveryDate);
   const startHour = 10;
   const endHour = day === 0 ? 15 : 22;
@@ -189,6 +199,7 @@ export function isWithinBusinessHours(
   deliverySlot: string,
 ): boolean {
   if (!deliveryDate || !deliverySlot) return false;
+  if (BAKERY_BLOCKED_DATES.includes(deliveryDate)) return false;
   if (!/^\d{2}:\d{2}$/.test(deliverySlot)) return false;
   return getDeliverySlotsForDate(deliveryDate).includes(deliverySlot);
 }
@@ -197,11 +208,15 @@ function isActiveOrder(orderStatus: string | undefined): boolean {
   return !["Cancelled", "Completed", "Delivered"].includes(orderStatus || "");
 }
 
-function inferOrderTypeFromOrder(order: BookingOrderForOperations): SlotOrderType {
+function inferOrderTypeFromOrder(
+  order: BookingOrderForOperations,
+): SlotOrderType {
   return inferOrderTypeFromItems(order.items || []);
 }
 
-function classifyCapacityBucket(item: BookingItemForOperations): CapacityBucket | null {
+function classifyCapacityBucket(
+  item: BookingItemForOperations,
+): CapacityBucket | null {
   if (item.category === "Cookies") {
     return isBulkCookiesItem(item) ? "seasonal_cookies" : "custom_cookies";
   }
@@ -226,7 +241,9 @@ function getCookieUnitsPerOrder(item: BookingItemForOperations): number {
   const fromIsi = parseIsiCount(source);
   if (fromIsi) return fromIsi;
 
-  const known = cookieUnitMap.find((entry) => source.includes(normalize(entry.probe)));
+  const known = cookieUnitMap.find((entry) =>
+    source.includes(normalize(entry.probe)),
+  );
   if (known) return known.units;
 
   return 1;
@@ -252,7 +269,9 @@ function getCapacityUnitsPerOrder(item: BookingItemForOperations): number {
   return 1;
 }
 
-export function summarizeCapacityByItems(items: BookingItemForOperations[]): Record<CapacityBucket, number> {
+export function summarizeCapacityByItems(
+  items: BookingItemForOperations[],
+): Record<CapacityBucket, number> {
   const result: Record<CapacityBucket, number> = {
     seasonal_cookies: 0,
     custom_cookies: 0,
@@ -275,7 +294,7 @@ export function summarizeCapacityByItems(items: BookingItemForOperations[]): Rec
 export function summarizeCapacityByOrdersForDate(
   orders: BookingOrderForOperations[],
   deliveryDate: string,
-  excludeOrderId?: string
+  excludeOrderId?: string,
 ): Record<CapacityBucket, number> {
   const result: Record<CapacityBucket, number> = {
     seasonal_cookies: 0,
@@ -301,7 +320,7 @@ export function summarizeCapacityByOrdersForDate(
 
 export function getCapacityOverflows(
   existing: Record<CapacityBucket, number>,
-  incoming: Record<CapacityBucket, number>
+  incoming: Record<CapacityBucket, number>,
 ): CapacityBucket[] {
   return CAPACITY_BUCKET_ORDER.filter((bucket) => {
     return existing[bucket] + incoming[bucket] > CAPACITY_LIMITS[bucket];

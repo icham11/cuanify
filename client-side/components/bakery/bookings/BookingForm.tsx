@@ -60,6 +60,14 @@ import {
   calculateDownPayment,
   getDownPaymentLabel,
 } from "@/lib/bookings/config";
+import {
+  DELIVERY_METHOD_OPTIONS,
+  estimateOperationalWeightGram,
+  getGrabCarOnlyReasons,
+  isGrabCarOnlyItem,
+  type DeliveryMethod,
+  usesShippingEngine,
+} from "@/lib/bookings/delivery-rules";
 import type {
   ShippingQuote,
   ShippingQuoteItemInput,
@@ -98,6 +106,12 @@ const bookingSchema = z.object({
   phoneNumber: z.string().min(8, "Phone number is required"),
   deliveryDate: z.string().min(1, "Delivery date is required"),
   deliverySlot: z.string().min(1, "Delivery slot is required"),
+  deliveryMethod: z.enum([
+    "PICKUP",
+    "CUSTOMER_APP_COURIER",
+    "ASSISTED_SAME_DAY",
+    "REGULAR_JNE_JNT",
+  ]),
   customNotes: z.string().max(400).optional().or(z.literal("")),
   paymentStatus: z.enum(["Pending", "DP Paid", "Paid"]),
   dpPaidAmount: z.number().default(0),
@@ -244,7 +258,9 @@ function getCategoryAddOnsFromCatalog(
   return addOnCatalog[category] ?? [];
 }
 
-function detectBouquetTypeFromItem(item: BookingItemInput): BouquetFormType | null {
+function detectBouquetTypeFromItem(
+  item: BookingItemInput,
+): BouquetFormType | null {
   if (item.category !== "Buket") return null;
   const source =
     `${item.subcategory || ""} ${item.productName || ""} ${item.size || ""}`.toLowerCase();
@@ -257,13 +273,15 @@ function getBouquetCostByType(type: BouquetFormType): number {
   return type === "HAND" ? BOUQUET_HAND_COST : BOUQUET_STANDING_COST;
 }
 
-function isValidBouquetQuantity(quantity: number, type: BouquetFormType): boolean {
+function isValidBouquetQuantity(
+  quantity: number,
+  type: BouquetFormType,
+): boolean {
   if (type === "HAND") {
     return quantity >= BOUQUET_HAND_MIN_QTY && quantity <= BOUQUET_HAND_MAX_QTY;
   }
   return (
-    quantity >= BOUQUET_STANDING_MIN_QTY &&
-    quantity <= BOUQUET_STANDING_MAX_QTY
+    quantity >= BOUQUET_STANDING_MIN_QTY && quantity <= BOUQUET_STANDING_MAX_QTY
   );
 }
 
@@ -305,20 +323,6 @@ function getItemBasePrice(
   return unit * qty;
 }
 
-const WEIGHT_ESTIMATE_GRAM_BY_CATEGORY: Record<string, number> = {
-  Cake: 1800,
-  Cookies: 350,
-  Cupcakes: 450,
-  Buket: 1200,
-  "Cookies Tower": 3000,
-};
-
-function estimateItemWeightGram(category: string, quantity: number): number {
-  const base = WEIGHT_ESTIMATE_GRAM_BY_CATEGORY[category] ?? 500;
-  const qty = Math.max(1, Number(quantity) || 1);
-  return Math.max(100, Math.round(base * qty));
-}
-
 export default function BookingForm() {
   const { addOrder, orders } = useOrders();
   const { productCatalog, addOnCatalog } = useCatalogAdminState();
@@ -358,6 +362,7 @@ export default function BookingForm() {
       phoneNumber: "",
       deliveryDate: "",
       deliverySlot: "",
+      deliveryMethod: "REGULAR_JNE_JNT",
       customNotes: "",
       paymentStatus: "Pending",
       dpPaidAmount: 0,
@@ -409,6 +414,8 @@ export default function BookingForm() {
     useWatch({ control, name: "deliveryAddresses" }) ?? EMPTY_ADDRESSES;
   const deliveryDate = useWatch({ control, name: "deliveryDate" });
   const deliverySlot = useWatch({ control, name: "deliverySlot" });
+  const deliveryMethod =
+    useWatch({ control, name: "deliveryMethod" }) ?? "REGULAR_JNE_JNT";
   const manualAdjustment = useWatch({ control, name: "manualAdjustment" }) ?? 0;
   const dpPaidInput = useWatch({ control, name: "dpPaidAmount" }) ?? 0;
   const finalPaidInput = useWatch({ control, name: "finalPaidAmount" }) ?? 0;
@@ -440,6 +447,16 @@ export default function BookingForm() {
     [shippingQuotes, selectedShippingQuoteId],
   );
 
+  const shouldUseShippingEngine = useMemo(
+    () => usesShippingEngine(deliveryMethod as DeliveryMethod),
+    [deliveryMethod],
+  );
+
+  const grabCarOnlyReasons = useMemo(
+    () => getGrabCarOnlyReasons(watchedItems),
+    [watchedItems],
+  );
+  const isGrabCarOnlyOrder = grabCarOnlyReasons.length > 0;
   const displayedShippingDistanceKm = useMemo(() => {
     if (shippingDistanceKm !== null && Number.isFinite(shippingDistanceKm)) {
       return Number(shippingDistanceKm.toFixed(2));
@@ -453,7 +470,9 @@ export default function BookingForm() {
     return null;
   }, [shippingDistanceKm, selectedShippingQuote]);
 
-  const deliveryFee = selectedShippingQuote?.price ?? 0;
+  const deliveryFee = shouldUseShippingEngine
+    ? (selectedShippingQuote?.price ?? 0)
+    : 0;
 
   const totalPrice = Math.max(
     0,
@@ -510,7 +529,14 @@ export default function BookingForm() {
     });
 
     setValue("deliverySlot", firstAvailable ?? "", { shouldValidate: true });
-  }, [deliveryDate, deliverySlot, deliverySlots, draftOrderType, orders, setValue]);
+  }, [
+    deliveryDate,
+    deliverySlot,
+    deliverySlots,
+    draftOrderType,
+    orders,
+    setValue,
+  ]);
 
   const slotUsage = useMemo(() => {
     if (!deliveryDate || !deliverySlot) return 0;
@@ -592,16 +618,14 @@ export default function BookingForm() {
       return {
         name: `${item.productName} (${item.size})`,
         quantity: Math.max(1, Number(item.quantity) || 1),
-        weightGram: estimateItemWeightGram(
-          item.category,
-          Number(item.quantity) || 1,
-        ),
+        weightGram: estimateOperationalWeightGram(item),
         value: Math.max(1000, Math.round(itemBasePrice)),
       };
     });
   }, [watchedItems, productCatalog]);
 
   const shippingPayload = useMemo(() => {
+    if (!shouldUseShippingEngine) return null;
     if (
       !primaryAddress?.addressLine ||
       primaryAddress.addressLine.trim().length < 8
@@ -624,6 +648,7 @@ export default function BookingForm() {
     primaryAddress?.addressLine,
     primaryAddress?.area,
     primaryAddress?.postalCode,
+    shouldUseShippingEngine,
     shippingItems,
   ]);
 
@@ -655,7 +680,7 @@ export default function BookingForm() {
           .catch(() => ({}))) as ShippingQuoteResponse;
         if (!response.ok || !payload.success || !payload.quotes?.length) {
           throw new Error(
-            payload.error || "Gagal mengambil ongkir live JNE/Paxel.",
+            payload.error || "Gagal mengambil ongkir live JNE/Paxel/J&T.",
           );
         }
 
@@ -702,7 +727,14 @@ export default function BookingForm() {
       return;
     }
 
-    if (!selectedShippingQuote) {
+    if (isGrabCarOnlyOrder && deliveryMethod === "REGULAR_JNE_JNT") {
+      toast.error(
+        `Produk ${grabCarOnlyReasons.join(", ")} wajib GrabCar. Pilih metode GoSend/Grab customer atau dibantu admin.`,
+      );
+      return;
+    }
+
+    if (shouldUseShippingEngine && !selectedShippingQuote) {
       toast.error(
         "Ongkir live belum tersedia. Lengkapi alamat/item lalu pilih layanan kurir.",
       );
@@ -829,7 +861,16 @@ export default function BookingForm() {
       customerPhone: values.phoneNumber,
       deliveryDate: values.deliveryDate,
       deliverySlot: values.deliverySlot,
-      notes: values.customNotes ?? "",
+      notes: [
+        values.customNotes ?? "",
+        `Delivery Method: ${
+          DELIVERY_METHOD_OPTIONS.find(
+            (option) => option.value === values.deliveryMethod,
+          )?.label || values.deliveryMethod
+        }`,
+      ]
+        .filter((line) => line.trim().length > 0)
+        .join("\n"),
       items: mappedItems,
       deliveryAddresses: mappedAddresses,
       basePrice,
@@ -845,18 +886,6 @@ export default function BookingForm() {
       whatsAppParsedData: parsedPreview ?? undefined,
       shippingQuote: selectedShippingQuote,
     };
-
-    console.info("[bookings][frontend] create booking payload", {
-      endpoint: "/api/bookings/orders",
-      method: "POST",
-      customerName: submissionPayload.customerName,
-      customerPhone: submissionPayload.customerPhone,
-      deliveryDate: submissionPayload.deliveryDate,
-      deliverySlot: submissionPayload.deliverySlot,
-      itemCount: submissionPayload.items.length,
-      addressCount: submissionPayload.deliveryAddresses.length,
-      totalPrice: submissionPayload.totalPrice,
-    });
 
     try {
       await addOrder(submissionPayload);
@@ -1436,12 +1465,15 @@ export default function BookingForm() {
                     addOns: item?.addOns ?? [],
                     notes: item?.notes ?? "",
                   };
-                  const bouquetType = detectBouquetTypeFromItem(bouquetProbeItem);
+                  const bouquetType =
+                    detectBouquetTypeFromItem(bouquetProbeItem);
                   const isBouquet = normalizedSelection.category === "Buket";
                   const bouquetQtyRange = bouquetType
                     ? getBouquetQtyRangeLabel(bouquetType)
                     : "";
-                  const bouquetLineTotal = getBouquetLineTotal(bouquetProbeItem);
+                  const bouquetLineTotal =
+                    getBouquetLineTotal(bouquetProbeItem);
+                  const itemGrabCarOnly = isGrabCarOnlyItem(bouquetProbeItem);
                   const quantityMin =
                     bouquetType === "HAND"
                       ? BOUQUET_HAND_MIN_QTY
@@ -1494,9 +1526,13 @@ export default function BookingForm() {
                               setValue(`items.${index}.addOns`, [], {
                                 shouldValidate: true,
                               });
-                              setValue(`items.${index}.cookiePrice`, undefined, {
-                                shouldValidate: true,
-                              });
+                              setValue(
+                                `items.${index}.cookiePrice`,
+                                undefined,
+                                {
+                                  shouldValidate: true,
+                                },
+                              );
                             }}
                           >
                             {productCatalog.map((entry) => (
@@ -1588,6 +1624,11 @@ export default function BookingForm() {
                               </option>
                             ))}
                           </Select>
+                          {itemGrabCarOnly && (
+                            <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-700">
+                              GrabCar only
+                            </span>
+                          )}
                         </label>
 
                         <label className="grid gap-2 text-sm font-medium text-gray-700">
@@ -1626,8 +1667,8 @@ export default function BookingForm() {
                           />
                           {bouquetType && (
                             <span className="min-h-4 text-[11px] font-normal leading-4 text-gray-500">
-                              {bouquetType === "HAND" ? "Hand" : "Standing"} bouquet
-                              qty wajib {bouquetQtyRange}.
+                              {bouquetType === "HAND" ? "Hand" : "Standing"}{" "}
+                              bouquet qty wajib {bouquetQtyRange}.
                             </span>
                           )}
                         </label>
@@ -1658,7 +1699,6 @@ export default function BookingForm() {
                               )}
                               .
                             </span>
-
                             {bouquetLineTotal !== null && (
                               <span className="text-[11px] font-normal leading-4 text-indigo-600">
                                 Estimasi subtotal bouquet:{" "}
@@ -1796,7 +1836,7 @@ export default function BookingForm() {
             <div className="space-y-3 rounded-xl border border-gray-200 bg-gray-50/60 p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                  Shipping Engine (JNE & Paxel)
+                  Shipping & Delivery Method
                 </p>
                 {isCheckingShipping && (
                   <span className="text-xs text-indigo-600">
@@ -1804,6 +1844,38 @@ export default function BookingForm() {
                   </span>
                 )}
               </div>
+
+              <label className="grid gap-2 text-sm font-medium text-gray-700">
+                Metode Pengiriman
+                <Select {...register("deliveryMethod")}>
+                  {DELIVERY_METHOD_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </Select>
+              </label>
+
+              <p className="text-xs text-gray-500">
+                {
+                  DELIVERY_METHOD_OPTIONS.find(
+                    (option) => option.value === deliveryMethod,
+                  )?.description
+                }
+              </p>
+
+              {isGrabCarOnlyOrder && (
+                <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                  Produk {grabCarOnlyReasons.join(", ")} wajib GrabCar sesuai
+                  SOP.
+                </p>
+              )}
+
+              {!shouldUseShippingEngine && (
+                <p className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+                  Metode ini tidak memakai kalkulasi ongkir live JNE/Paxel/J&T.
+                </p>
+              )}
 
               {displayedShippingDistanceKm !== null && (
                 <p className="text-xs text-gray-600">
@@ -1855,8 +1927,9 @@ export default function BookingForm() {
 
               {!shippingQuotes.length && !shippingPayload && (
                 <p className="text-xs text-gray-500">
-                  Lengkapi alamat penerima dan item order untuk kalkulasi ongkir
-                  otomatis.
+                  {shouldUseShippingEngine
+                    ? "Lengkapi alamat penerima dan item order untuk kalkulasi ongkir otomatis."
+                    : "Pilih metode berbasis kurir reguler/admin jika ingin kalkulasi ongkir otomatis."}
                 </p>
               )}
 

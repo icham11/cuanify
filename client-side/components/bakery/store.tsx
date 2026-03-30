@@ -30,6 +30,7 @@ import {
   inferOrderTypeFromItems,
   isWithinBusinessHours,
 } from "@/lib/bookings/operations";
+import { estimateOperationalWeightGram } from "@/lib/bookings/delivery-rules";
 
 export type OrderStatus =
   | "Inquiry"
@@ -221,20 +222,6 @@ type OrdersSyncResponse = {
     itemCount?: number;
   };
 };
-
-const WEIGHT_ESTIMATE_GRAM_BY_CATEGORY: Record<string, number> = {
-  Cake: 1800,
-  Cookies: 350,
-  Cupcakes: 450,
-  Buket: 1200,
-  "Cookies Tower": 3000,
-};
-
-function estimateItemWeightGram(category: string, quantity: number): number {
-  const base = WEIGHT_ESTIMATE_GRAM_BY_CATEGORY[category] ?? 500;
-  const qty = Math.max(1, Number(quantity) || 1);
-  return Math.max(100, Math.round(base * qty));
-}
 
 function formatIdr(value: number): string {
   return `Rp ${Math.round(Number(value || 0)).toLocaleString("id-ID")}`;
@@ -820,10 +807,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       const items = (order.items ?? []).map((item) => ({
         name: `${item.productName} (${item.size})`,
         quantity: Math.max(1, Number(item.quantity) || 1),
-        weightGram: estimateItemWeightGram(
-          item.category,
-          Number(item.quantity) || 1,
-        ),
+        weightGram: estimateOperationalWeightGram(item),
         value: Math.max(
           1000,
           Math.round((item.basePrice || 0) + (item.addOnTotal || 0)),

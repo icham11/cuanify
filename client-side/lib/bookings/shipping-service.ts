@@ -136,6 +136,7 @@ function parseProviderFromCourierCode(
 ): ShippingProvider | null {
   const code = rawCode.toLowerCase();
   if (code.includes("jne")) return "JNE";
+  if (code.includes("jnt") || code.includes("j&t")) return "JNT";
   if (code.includes("paxel")) return "PAXEL";
   return null;
 }
@@ -559,7 +560,7 @@ async function getBiteshipRates(args: {
             sanitizePostalCode(origin.postalCode) || undefined,
           destination_postal_code: args.destination.postalCode,
         }),
-    couriers: "jne,paxel",
+    couriers: "jne,jnt,paxel",
     items: args.items.map((item) => ({
       name: item.name || "Order Item",
       description: "Bakery item",
