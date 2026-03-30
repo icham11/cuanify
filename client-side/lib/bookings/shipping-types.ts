@@ -1,4 +1,4 @@
-export type ShippingProvider = "JNE" | "PAXEL";
+export type ShippingProvider = "JNE" | "PAXEL" | "JNT";
 export type ShippingDataSource = "biteship" | "fallback";
 
 export interface ShippingQuoteItemInput {
