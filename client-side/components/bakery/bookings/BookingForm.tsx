@@ -150,6 +150,17 @@ function slotStatusLabel(status: SlotAvailabilityStatus): string {
   return "AVAILABLE";
 }
 
+function formatIsoDateToIdLabel(value: string): string {
+  const parsed = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleDateString("id-ID", {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
 interface ParseWhatsAppApiResponse {
   success: boolean;
   parsed: ParsedWhatsAppOrder;
@@ -1327,6 +1338,34 @@ export default function BookingForm() {
                     {errors.deliveryDate.message}
                   </span>
                 )}
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">
+                    Kalender Libur
+                  </p>
+                  <div className="mt-1 flex flex-wrap gap-1.5">
+                    {BAKERY_BLOCKED_DATES.map((blockedDate) => {
+                      const active = deliveryDate === blockedDate;
+                      return (
+                        <button
+                          key={blockedDate}
+                          type="button"
+                          onClick={() =>
+                            setValue("deliveryDate", blockedDate, {
+                              shouldValidate: true,
+                            })
+                          }
+                          className={`rounded-md border px-2 py-1 text-[11px] ${
+                            active
+                              ? "border-rose-300 bg-rose-100 text-rose-700"
+                              : "border-amber-200 bg-white text-amber-700"
+                          }`}
+                        >
+                          {formatIsoDateToIdLabel(blockedDate)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </label>
               <label className="grid gap-2 text-sm font-medium text-gray-700">
                 Delivery Slot
