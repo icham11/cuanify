@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import StatusDropdown from "@/components/bakery/production/StatusDropdown";
 import PriorityBadge from "@/components/bakery/production/PriorityBadge";
 import { useOrders } from "@/components/bakery/store";
+import { summarizeProductionTokensByItems } from "@/lib/bookings/operations";
 
 export default function ProductionTable() {
   const { orders, updateOrderStatus } = useOrders();
@@ -15,7 +16,7 @@ export default function ProductionTable() {
     .toISOString()
     .slice(0, 10);
 
-  const withPriority = (order: typeof orders[number]) => {
+  const withPriority = (order: (typeof orders)[number]) => {
     if (order.deliveryDate === todayDate) {
       return { label: "Delivery Today", tone: "danger" as const };
     }
@@ -28,7 +29,7 @@ export default function ProductionTable() {
   const activeOrders = useMemo(() => {
     return orders
       .filter((order) =>
-        ["Confirmed", "In Production"].includes(order.orderStatus)
+        ["Confirmed", "In Production"].includes(order.orderStatus),
       )
       .slice()
       .sort((a, b) => a.deliveryDate.localeCompare(b.deliveryDate));
@@ -36,7 +37,9 @@ export default function ProductionTable() {
 
   const readyOrders = useMemo(() => {
     return orders
-      .filter((order) => ["Ready", "Delivered", "Completed"].includes(order.orderStatus))
+      .filter((order) =>
+        ["Ready", "Delivered", "Completed"].includes(order.orderStatus),
+      )
       .slice()
       .sort((a, b) => a.deliveryDate.localeCompare(b.deliveryDate));
   }, [orders]);
@@ -44,13 +47,20 @@ export default function ProductionTable() {
   const updateStatus = (id: string, status: string) => {
     updateOrderStatus(
       id,
-      status as "Confirmed" | "In Production" | "Ready" | "Delivered" | "Completed"
+      status as
+        | "Confirmed"
+        | "In Production"
+        | "Ready"
+        | "Delivered"
+        | "Completed",
     );
   };
 
   const getStatusOptions = (status: string) => {
-    if (status === "Confirmed") return ["Confirmed", "In Production", "Ready", "Delivered"];
-    if (status === "In Production") return ["In Production", "Ready", "Delivered"];
+    if (status === "Confirmed")
+      return ["Confirmed", "In Production", "Ready", "Delivered"];
+    if (status === "In Production")
+      return ["In Production", "Ready", "Delivered"];
     if (status === "Ready") return ["Ready", "Delivered"];
     if (status === "Delivered") return ["Delivered", "Completed"];
     return ["Confirmed", "In Production", "Ready", "Delivered", "Completed"];
@@ -110,24 +120,41 @@ export default function ProductionTable() {
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
                     Order ID
                   </p>
-                  <p className="text-sm font-semibold text-gray-900">{order.resi || `ORD-${order.id}`}</p>
-                  <p className="text-xs text-gray-500">{order.customerName || "Walk-in Customer"}</p>
+                  <p className="text-sm font-semibold text-gray-900">
+                    {order.resi || `ORD-${order.id}`}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {order.customerName || "Walk-in Customer"}
+                  </p>
                 </div>
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
                     Cake
                   </p>
-                  <p className="text-sm text-gray-700">{order.product || "Custom Cake"}</p>
+                  <p className="text-sm text-gray-700">
+                    {order.product || "Custom Cake"}
+                  </p>
+                  <p className="mt-1 text-xs font-medium text-sky-700">
+                    Workload{" "}
+                    {summarizeProductionTokensByItems(order.items ?? [])} token
+                  </p>
                 </div>
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
                     Delivery
                   </p>
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-sm text-gray-700">{order.deliveryDate || "-"}</p>
+                    <p className="text-sm text-gray-700">
+                      {order.deliveryDate || "-"}
+                    </p>
                     {(() => {
                       const priority = withPriority(order);
-                      return <PriorityBadge label={priority.label} tone={priority.tone} />;
+                      return (
+                        <PriorityBadge
+                          label={priority.label}
+                          tone={priority.tone}
+                        />
+                      );
                     })()}
                   </div>
                 </div>
@@ -135,7 +162,9 @@ export default function ProductionTable() {
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
                     Notes
                   </p>
-                  <p className="text-sm text-gray-600">{order.notes || "No notes"}</p>
+                  <p className="text-sm text-gray-600">
+                    {order.notes || "No notes"}
+                  </p>
                 </div>
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
@@ -170,24 +199,41 @@ export default function ProductionTable() {
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
                     Order ID
                   </p>
-                  <p className="text-sm font-semibold text-gray-900">{order.resi || `ORD-${order.id}`}</p>
-                  <p className="text-xs text-gray-500">{order.customerName || "Walk-in Customer"}</p>
+                  <p className="text-sm font-semibold text-gray-900">
+                    {order.resi || `ORD-${order.id}`}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {order.customerName || "Walk-in Customer"}
+                  </p>
                 </div>
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
                     Cake
                   </p>
-                  <p className="text-sm text-gray-700">{order.product || "Custom Cake"}</p>
+                  <p className="text-sm text-gray-700">
+                    {order.product || "Custom Cake"}
+                  </p>
+                  <p className="mt-1 text-xs font-medium text-sky-700">
+                    Workload{" "}
+                    {summarizeProductionTokensByItems(order.items ?? [])} token
+                  </p>
                 </div>
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
                     Delivery
                   </p>
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-sm text-gray-700">{order.deliveryDate || "-"}</p>
+                    <p className="text-sm text-gray-700">
+                      {order.deliveryDate || "-"}
+                    </p>
                     {(() => {
                       const priority = withPriority(order);
-                      return <PriorityBadge label={priority.label} tone={priority.tone} />;
+                      return (
+                        <PriorityBadge
+                          label={priority.label}
+                          tone={priority.tone}
+                        />
+                      );
                     })()}
                   </div>
                 </div>
@@ -195,7 +241,9 @@ export default function ProductionTable() {
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
                     Notes
                   </p>
-                  <p className="text-sm text-gray-600">{order.notes || "No notes"}</p>
+                  <p className="text-sm text-gray-600">
+                    {order.notes || "No notes"}
+                  </p>
                 </div>
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">

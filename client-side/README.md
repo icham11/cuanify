@@ -1,3 +1,5 @@
+# Client-side App
+
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Complete Documentation
@@ -74,6 +76,21 @@ SHIPPING_ORIGIN_CONTACT_EMAIL=
 NEXT_PUBLIC_BAKERY_DOWN_PAYMENT_PERCENT=50
 # Format: YYYY-MM-DD dipisah koma
 NEXT_PUBLIC_BAKERY_BLOCKED_DATES=2026-04-14,2026-04-15,2026-04-16,2026-04-17,2026-04-18,2026-04-19,2026-04-20,2026-04-21,2026-04-22,2026-04-23
+# Default 600 token/hari
+NEXT_PUBLIC_BAKERY_DAILY_TOKEN_LIMIT=600
+# Cutoff H-1 jam 10 pagi
+NEXT_PUBLIC_BAKERY_H_MINUS_1_CUTOFF_HOUR=10
+# Boleh ambil sisa token dari 2 hari sebelumnya
+NEXT_PUBLIC_BAKERY_TOKEN_CARRY_OVER_DAYS=2
+# Bobot token per unit difficulty (default 5/10/15)
+NEXT_PUBLIC_BAKERY_TOKEN_SIMPLE_PER_UNIT=5
+NEXT_PUBLIC_BAKERY_TOKEN_MEDIUM_PER_UNIT=10
+NEXT_PUBLIC_BAKERY_TOKEN_DIFFICULT_PER_UNIT=15
+# Multiplier token per kategori (default 1 / 1.1 / 1.25 / 1.4)
+NEXT_PUBLIC_BAKERY_TOKEN_MULTIPLIER_COOKIES=1
+NEXT_PUBLIC_BAKERY_TOKEN_MULTIPLIER_CUPCAKES=1.1
+NEXT_PUBLIC_BAKERY_TOKEN_MULTIPLIER_BUKET=1.25
+NEXT_PUBLIC_BAKERY_TOKEN_MULTIPLIER_CAKE_TOWER=1.4
 ```
 
 ## Bakery Catalog Management
