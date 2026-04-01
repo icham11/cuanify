@@ -7,10 +7,14 @@
  * Priority order: PAST → FULL → CUTOFF → WARNING → AVAILABLE
  */
 
-import { BAKERY_DAILY_PRODUCTION_TOKEN_LIMIT } from "@/lib/bookings/config";
+import {
+  BAKERY_BLOCKED_DATES,
+  BAKERY_DAILY_PRODUCTION_TOKEN_LIMIT,
+} from "@/lib/bookings/config";
 
 export type CalendarStatus =
   | "PAST"
+  | "BLOCKED"
   | "AVAILABLE"
   | "WARNING"
   | "FULL"
@@ -83,15 +87,20 @@ function isCutoff(dateStr: string, now: Date = new Date()): boolean {
   return now.getHours() >= 10;
 }
 
+function isBlockedDate(dateStr: string): boolean {
+  return BAKERY_BLOCKED_DATES.includes(dateStr);
+}
+
 /**
  * Determines the calendar status for a given day based on token capacity.
  *
  * Rules (in priority order):
  * 1. PAST:      date is before today (local timezone)
- * 2. FULL:      usedToken >= maxToken
- * 3. CUTOFF:    date is tomorrow AND current time >= 10:00
- * 4. WARNING:   usedToken >= 0.8 * maxToken
- * 5. AVAILABLE: usedToken < 0.8 * maxToken
+ * 2. BLOCKED:   date is in configured bakery holiday dates
+ * 3. FULL:      usedToken >= maxToken
+ * 4. CUTOFF:    date is tomorrow AND current time >= 10:00
+ * 5. WARNING:   usedToken >= 0.8 * maxToken
+ * 6. AVAILABLE: usedToken < 0.8 * maxToken
  *
  * @param day - The capacity data for the day
  * @param now - Optional current date/time for testing (defaults to new Date())
@@ -108,22 +117,27 @@ export function getCalendarStatus(
     return "PAST";
   }
 
-  // Priority 2: FULL
+  // Priority 2: BLOCKED (admin holiday)
+  if (isBlockedDate(date)) {
+    return "BLOCKED";
+  }
+
+  // Priority 3: FULL
   if (usedToken >= maxToken) {
     return "FULL";
   }
 
-  // Priority 3: CUTOFF — H-1 rule (tomorrow after 10:00)
+  // Priority 4: CUTOFF — H-1 rule (tomorrow after 10:00)
   if (isCutoff(date, now)) {
     return "CUTOFF";
   }
 
-  // Priority 4: WARNING — 80% threshold
+  // Priority 5: WARNING — 80% threshold
   if (usedToken >= 0.8 * maxToken) {
     return "WARNING";
   }
 
-  // Priority 5: AVAILABLE
+  // Priority 6: AVAILABLE
   return "AVAILABLE";
 }
 
@@ -142,6 +156,13 @@ export function getCalendarStatusUI(status: CalendarStatus): {
         label: "Passed",
         bgClass: "bg-gray-200",
         textClass: "text-gray-600",
+        disabled: true,
+      };
+    case "BLOCKED":
+      return {
+        label: "Libur",
+        bgClass: "bg-rose-200",
+        textClass: "text-rose-700",
         disabled: true,
       };
     case "FULL":

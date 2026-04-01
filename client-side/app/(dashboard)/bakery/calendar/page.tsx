@@ -27,9 +27,18 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import { type BakeryOrder, useOrders } from "@/components/bakery/store";
-import { CalendarDays, ChevronLeft, ChevronRight, X, Loader2 } from "lucide-react";
+import {
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  X,
+  Loader2,
+} from "lucide-react";
 import { toast } from "sonner";
-import { getCalendarStatus, type CalendarStatus } from "@/lib/calendar/getCalendarStatus";
+import {
+  getCalendarStatus,
+  type CalendarStatus,
+} from "@/lib/calendar/getCalendarStatus";
 import { useCalendarCapacity } from "@/hooks/useCalendarCapacity";
 import CalendarCell from "@/components/calendar/CalendarCell";
 
@@ -208,9 +217,15 @@ export default function BakeryCalendarPage() {
   const [currentView, setCurrentView] = useState<View>(Views.MONTH);
   const [isOAuthLoading, setIsOAuthLoading] = useState(true);
   const [isDisconnectingOAuth, setIsDisconnectingOAuth] = useState(false);
-  const [calendarViewMode, setCalendarViewMode] = useState<"internal" | "google">("internal");
-  const [listFilterMode, setListFilterMode] = useState<"all" | "needs-sync" | "synced">("all");
-  const [googleEvents, setGoogleEvents] = useState<GoogleCalendarApiEvent[]>([]);
+  const [calendarViewMode, setCalendarViewMode] = useState<
+    "internal" | "google"
+  >("internal");
+  const [listFilterMode, setListFilterMode] = useState<
+    "all" | "needs-sync" | "synced"
+  >("all");
+  const [googleEvents, setGoogleEvents] = useState<GoogleCalendarApiEvent[]>(
+    [],
+  );
   const [isLoadingGoogleEvents, setIsLoadingGoogleEvents] = useState(false);
   const [oauthStatus, setOauthStatus] = useState<{
     connected: boolean;
@@ -233,7 +248,10 @@ export default function BakeryCalendarPage() {
 
   const capacitySyncKey = useMemo(() => {
     return orders
-      .map((order) => `${order.id}:${order.deliveryDate}:${order.orderStatus}:${order.items?.length ?? 0}`)
+      .map(
+        (order) =>
+          `${order.id}:${order.deliveryDate}:${order.orderStatus}:${order.items?.length ?? 0}`,
+      )
       .sort()
       .join("|");
   }, [orders]);
@@ -257,7 +275,11 @@ export default function BakeryCalendarPage() {
       if (dateKey) {
         const capacity = getCapacity(dateKey);
         const status = getCalendarStatus(
-          { usedToken: capacity.usedToken, maxToken: capacity.maxToken, date: dateKey },
+          {
+            usedToken: capacity.usedToken,
+            maxToken: capacity.maxToken,
+            date: dateKey,
+          },
           now,
         );
         result.set(dateKey, status);
@@ -268,7 +290,9 @@ export default function BakeryCalendarPage() {
   }, [calendarRange, getCapacity]);
 
   const selectedDateKey = selectedDate ? toDateKey(selectedDate) : "";
-  const selectedCapacity = selectedDateKey ? getCapacity(selectedDateKey) : null;
+  const selectedCapacity = selectedDateKey
+    ? getCapacity(selectedDateKey)
+    : null;
   const selectedStatus = selectedDateKey
     ? (statusByDate.get(selectedDateKey) ?? "AVAILABLE")
     : "AVAILABLE";
@@ -277,7 +301,9 @@ export default function BakeryCalendarPage() {
   const loadOAuthStatus = async () => {
     setIsOAuthLoading(true);
     try {
-      const response = await fetch("/api/bookings/google-calendar/status", { cache: "no-store" });
+      const response = await fetch("/api/bookings/google-calendar/status", {
+        cache: "no-store",
+      });
       const payload = (await response.json().catch(() => ({}))) as {
         connected?: boolean;
         connectedEmail?: string | null;
@@ -308,7 +334,11 @@ export default function BakeryCalendarPage() {
       params.delete("gcal");
       params.delete("reason");
       const next = params.toString();
-      window.history.replaceState({}, "", next ? `?${next}` : window.location.pathname);
+      window.history.replaceState(
+        {},
+        "",
+        next ? `?${next}` : window.location.pathname,
+      );
       return;
     }
     if (gcal === "error") {
@@ -317,7 +347,11 @@ export default function BakeryCalendarPage() {
       params.delete("gcal");
       params.delete("reason");
       const next = params.toString();
-      window.history.replaceState({}, "", next ? `?${next}` : window.location.pathname);
+      window.history.replaceState(
+        {},
+        "",
+        next ? `?${next}` : window.location.pathname,
+      );
     }
   }, []);
 
@@ -329,7 +363,9 @@ export default function BakeryCalendarPage() {
     if (isDisconnectingOAuth) return;
     setIsDisconnectingOAuth(true);
     try {
-      const response = await fetch("/api/bookings/google-calendar/disconnect", { method: "POST" });
+      const response = await fetch("/api/bookings/google-calendar/disconnect", {
+        method: "POST",
+      });
       if (!response.ok) {
         toast.error("Failed to disconnect Google Calendar.");
         return;
@@ -345,7 +381,11 @@ export default function BakeryCalendarPage() {
     const { timeMin, timeMax } = getCalendarRangeISO(date, view);
     setIsLoadingGoogleEvents(true);
     try {
-      const params = new URLSearchParams({ timeMin, timeMax, maxResults: "500" });
+      const params = new URLSearchParams({
+        timeMin,
+        timeMax,
+        maxResults: "500",
+      });
       const response = await fetch(
         `/api/bookings/google-calendar/events?${params.toString()}`,
         { cache: "no-store" },
@@ -375,7 +415,9 @@ export default function BakeryCalendarPage() {
       return orders.filter((order) => !order.simulations?.calendarEventCreated);
     }
     if (listFilterMode === "synced") {
-      return orders.filter((order) => Boolean(order.simulations?.calendarEventCreated));
+      return orders.filter((order) =>
+        Boolean(order.simulations?.calendarEventCreated),
+      );
     }
     return orders;
   }, [orders, listFilterMode]);
@@ -408,13 +450,18 @@ export default function BakeryCalendarPage() {
         title: event.summary || "Google Calendar Event",
         start,
         end,
-        resource: { source: "google" as const, htmlLink: event.htmlLink, status: event.status },
+        resource: {
+          source: "google" as const,
+          htmlLink: event.htmlLink,
+          status: event.status,
+        },
       });
     });
     return mapped;
   }, [googleEvents]);
 
-  const events = calendarViewMode === "google" ? googleCalendarEvents : internalEvents;
+  const events =
+    calendarViewMode === "google" ? googleCalendarEvents : internalEvents;
 
   const ordersByDate = useMemo(() => {
     const result = new Map<string, BakeryOrder[]>();
@@ -440,8 +487,12 @@ export default function BakeryCalendarPage() {
 
   // ─── Stats ──────────────────────────────────────────────────────────────────
   const todayKey = toDateKey(new Date());
-  const internalTodayCount = orders.filter((order) => order.deliveryDate === todayKey).length;
-  const needsSyncCount = orders.filter((order) => !order.simulations?.calendarEventCreated).length;
+  const internalTodayCount = orders.filter(
+    (order) => order.deliveryDate === todayKey,
+  ).length;
+  const needsSyncCount = orders.filter(
+    (order) => !order.simulations?.calendarEventCreated,
+  ).length;
   const googleTodayCount = googleCalendarEvents.filter(
     (entry) => safeToDateKey(entry.start) === todayKey,
   ).length;
@@ -458,8 +509,10 @@ export default function BakeryCalendarPage() {
     const maxDate = safeToDateKey(new Date(timeMax));
     if (!minDate || !maxDate) return null;
     return orders.filter((order) => {
-      if (order.deliveryDate < minDate || order.deliveryDate > maxDate) return false;
-      if (["Cancelled", "Delivered", "Completed"].includes(order.orderStatus)) return false;
+      if (order.deliveryDate < minDate || order.deliveryDate > maxDate)
+        return false;
+      if (["Cancelled", "Delivered", "Completed"].includes(order.orderStatus))
+        return false;
       return !bookingIdsOnGoogle.has(order.id);
     }).length;
   }, [googleEvents, currentDate, currentView, orders]);
@@ -470,6 +523,8 @@ export default function BakeryCalendarPage() {
     switch (selectedStatus) {
       case "PAST":
         return "Tanggal sudah terlewat";
+      case "BLOCKED":
+        return "Tanggal libur admin — tidak bisa menerima order";
       case "FULL":
         return "Kapasitas penuh — tidak bisa menerima order baru";
       case "CUTOFF":
@@ -486,7 +541,13 @@ export default function BakeryCalendarPage() {
   const openDateOrdersPopup = (date: Date) => {
     const dateKey = toDateKey(date);
     const status = statusByDate.get(dateKey) ?? "AVAILABLE";
-    if (status === "PAST" || status === "FULL" || status === "CUTOFF") return;
+    if (
+      status === "PAST" ||
+      status === "BLOCKED" ||
+      status === "FULL" ||
+      status === "CUTOFF"
+    )
+      return;
     setSelectedDate(date);
     setIsDateOrdersPopupOpen(true);
   };
@@ -497,7 +558,9 @@ export default function BakeryCalendarPage() {
     const capacity = dateKey
       ? getCapacity(dateKey)
       : { usedToken: 0, maxToken: 600, date: dateKey };
-    const status = dateKey ? (statusByDate.get(dateKey) ?? "AVAILABLE") : "AVAILABLE";
+    const status = dateKey
+      ? (statusByDate.get(dateKey) ?? "AVAILABLE")
+      : "AVAILABLE";
 
     return (
       <CalendarCell
@@ -525,7 +588,9 @@ export default function BakeryCalendarPage() {
       <Card className="rounded-xl border-indigo-100 shadow-sm">
         <CardContent className="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
           <div className="text-sm">
-            <p className="font-semibold text-gray-900">Google Calendar Account</p>
+            <p className="font-semibold text-gray-900">
+              Google Calendar Account
+            </p>
             <p className="text-xs text-gray-600">
               {isOAuthLoading
                 ? "Checking OAuth status..."
@@ -565,7 +630,9 @@ export default function BakeryCalendarPage() {
               className="border-indigo-200 text-indigo-700 hover:bg-indigo-50"
               onClick={connectGoogleCalendar}
             >
-              {oauthStatus.connected ? "Reconnect OAuth" : "Connect Google OAuth"}
+              {oauthStatus.connected
+                ? "Reconnect OAuth"
+                : "Connect Google OAuth"}
             </Button>
             {oauthStatus.connected ? (
               <Button
@@ -609,7 +676,9 @@ export default function BakeryCalendarPage() {
               onClick={() => void fetchGoogleEvents(currentDate, currentView)}
               disabled={isLoadingGoogleEvents}
             >
-              {isLoadingGoogleEvents ? "Refreshing..." : "Refresh Google Snapshot"}
+              {isLoadingGoogleEvents
+                ? "Refreshing..."
+                : "Refresh Google Snapshot"}
             </Button>
             <Button
               type="button"
@@ -684,7 +753,9 @@ export default function BakeryCalendarPage() {
               </Button>
               <Button
                 type="button"
-                variant={listFilterMode === "needs-sync" ? "default" : "outline"}
+                variant={
+                  listFilterMode === "needs-sync" ? "default" : "outline"
+                }
                 className={
                   listFilterMode === "needs-sync"
                     ? "bg-amber-600 text-white hover:bg-amber-700"
@@ -716,7 +787,9 @@ export default function BakeryCalendarPage() {
         <Card className="rounded-xl border-indigo-100 shadow-sm">
           <CardContent className="flex items-center justify-center gap-3 px-6 py-8">
             <Loader2 className="h-5 w-5 animate-spin text-indigo-500" />
-            <p className="text-sm font-medium text-indigo-600">Loading capacity data...</p>
+            <p className="text-sm font-medium text-indigo-600">
+              Loading capacity data...
+            </p>
           </CardContent>
         </Card>
       ) : null}
@@ -747,7 +820,11 @@ export default function BakeryCalendarPage() {
                 return;
               }
               if (event.resource.htmlLink) {
-                window.open(event.resource.htmlLink, "_blank", "noopener,noreferrer");
+                window.open(
+                  event.resource.htmlLink,
+                  "_blank",
+                  "noopener,noreferrer",
+                );
               }
             }}
             eventPropGetter={(event) => ({
@@ -767,6 +844,7 @@ export default function BakeryCalendarPage() {
               const status = statusByDate.get(dateKey) ?? "AVAILABLE";
 
               if (status === "PAST") return { className: "rbc-day-past" };
+              if (status === "BLOCKED") return { className: "rbc-day-blocked" };
               if (status === "FULL") return { className: "rbc-day-full" };
               if (status === "CUTOFF") return { className: "rbc-day-cutoff" };
               if (status === "WARNING") return { className: "rbc-day-warning" };
@@ -788,36 +866,62 @@ export default function BakeryCalendarPage() {
               <span className="h-2.5 w-2.5 rounded-full bg-gray-400" /> Passed
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /> Available
+              <span className="h-2.5 w-2.5 rounded-full bg-rose-300" /> Libur
+              Admin
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="h-2.5 w-2.5 rounded-full bg-amber-500" /> Almost Full (≥80%)
+              <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />{" "}
+              Available
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="h-2.5 w-2.5 rounded-full bg-red-500" /> Full (100%)
+              <span className="h-2.5 w-2.5 rounded-full bg-amber-500" /> Almost
+              Full (≥80%)
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="h-2.5 w-2.5 rounded-full bg-rose-300" /> Closed (H-1)
+              <span className="h-2.5 w-2.5 rounded-full bg-red-500" /> Full
+              (100%)
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="h-2.5 w-2.5 rounded-full bg-rose-300" /> Closed
+              (H-1)
             </span>
           </div>
 
           <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-gray-500">
             <span className="inline-flex items-center gap-1">
-              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: "#2563eb" }} /> Confirmed
+              <span
+                className="h-2.5 w-2.5 rounded-full"
+                style={{ backgroundColor: "#2563eb" }}
+              />{" "}
+              Confirmed
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: "#f97316" }} /> In Production
+              <span
+                className="h-2.5 w-2.5 rounded-full"
+                style={{ backgroundColor: "#f97316" }}
+              />{" "}
+              In Production
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: "#7c3aed" }} /> Ready
+              <span
+                className="h-2.5 w-2.5 rounded-full"
+                style={{ backgroundColor: "#7c3aed" }}
+              />{" "}
+              Ready
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: "#16a34a" }} /> Delivered
+              <span
+                className="h-2.5 w-2.5 rounded-full"
+                style={{ backgroundColor: "#16a34a" }}
+              />{" "}
+              Delivered
             </span>
           </div>
 
           {calendarViewMode === "google" && isLoadingGoogleEvents ? (
-            <p className="mt-2 text-xs text-indigo-600">Loading Google Calendar events...</p>
+            <p className="mt-2 text-xs text-indigo-600">
+              Loading Google Calendar events...
+            </p>
           ) : null}
         </CardContent>
       </Card>
@@ -837,7 +941,10 @@ export default function BakeryCalendarPage() {
           >
             <div className="flex items-start justify-between border-b border-gray-100 px-5 py-4">
               <div>
-                <h3 id="date-orders-popup-title" className="text-base font-semibold text-gray-900">
+                <h3
+                  id="date-orders-popup-title"
+                  className="text-base font-semibold text-gray-900"
+                >
                   Orders on {selectedDateLabel}
                 </h3>
                 <div className="mt-1 flex flex-wrap items-center gap-2">
@@ -849,16 +956,19 @@ export default function BakeryCalendarPage() {
                       className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
                         selectedStatus === "PAST"
                           ? "bg-gray-200 text-gray-700"
-                          : selectedStatus === "FULL"
-                          ? "bg-red-100 text-red-700"
-                          : selectedStatus === "WARNING"
-                            ? "bg-amber-100 text-amber-700"
-                            : selectedStatus === "CUTOFF"
-                              ? "bg-rose-100 text-rose-700"
-                              : "bg-emerald-100 text-emerald-700"
+                          : selectedStatus === "BLOCKED"
+                            ? "bg-rose-100 text-rose-700"
+                            : selectedStatus === "FULL"
+                              ? "bg-red-100 text-red-700"
+                              : selectedStatus === "WARNING"
+                                ? "bg-amber-100 text-amber-700"
+                                : selectedStatus === "CUTOFF"
+                                  ? "bg-rose-100 text-rose-700"
+                                  : "bg-emerald-100 text-emerald-700"
                       }`}
                     >
-                      {selectedCapacity.usedToken} / {selectedCapacity.maxToken} token used
+                      {selectedCapacity.usedToken} / {selectedCapacity.maxToken}{" "}
+                      token used
                     </span>
                   ) : null}
                 </div>
@@ -867,13 +977,15 @@ export default function BakeryCalendarPage() {
                     className={`mt-1 text-xs font-medium ${
                       selectedStatus === "PAST"
                         ? "text-gray-600"
-                        : selectedStatus === "FULL"
-                        ? "text-red-600"
-                        : selectedStatus === "WARNING"
-                          ? "text-amber-600"
-                          : selectedStatus === "CUTOFF"
-                            ? "text-rose-600"
-                            : "text-emerald-600"
+                        : selectedStatus === "BLOCKED"
+                          ? "text-rose-600"
+                          : selectedStatus === "FULL"
+                            ? "text-red-600"
+                            : selectedStatus === "WARNING"
+                              ? "text-amber-600"
+                              : selectedStatus === "CUTOFF"
+                                ? "text-rose-600"
+                                : "text-emerald-600"
                     }`}
                   >
                     {selectedStatusMessage}
@@ -915,12 +1027,15 @@ export default function BakeryCalendarPage() {
                         {order.customerName}
                       </p>
                       <p className="mt-1 truncate text-xs text-gray-500">
-                        {order.items?.[0]?.productName ?? order.product} - {order.deliverySlot || "-"}
+                        {order.items?.[0]?.productName ?? order.product} -{" "}
+                        {order.deliverySlot || "-"}
                       </p>
                     </div>
                     <span
                       className="rounded-full px-3 py-1 text-xs font-semibold text-white"
-                      style={{ backgroundColor: statusColor(order.orderStatus) }}
+                      style={{
+                        backgroundColor: statusColor(order.orderStatus),
+                      }}
                     >
                       {order.orderStatus}
                     </span>
@@ -963,6 +1078,16 @@ export default function BakeryCalendarPage() {
 
         .rbc-day-past {
           background: #f3f4f6;
+        }
+
+        .rbc-day-blocked {
+          background: repeating-linear-gradient(
+            -45deg,
+            #fff1f2,
+            #fff1f2 8px,
+            #ffe4e6 8px,
+            #ffe4e6 16px
+          );
         }
 
         .rbc-day-full {

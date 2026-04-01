@@ -1,6 +1,9 @@
 "use client";
 
-import { type CalendarStatus, getCalendarStatusUI } from "@/lib/calendar/getCalendarStatus";
+import {
+  type CalendarStatus,
+  getCalendarStatusUI,
+} from "@/lib/calendar/getCalendarStatus";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -76,13 +79,15 @@ export default function CalendarCell({
           className={`inline-block w-fit rounded-sm px-1 py-px text-[9px] font-bold leading-tight ${
             status === "PAST"
               ? "bg-gray-200 text-gray-600"
-              : status === "FULL"
-              ? "bg-red-500 text-white"
-              : status === "CUTOFF"
+              : status === "BLOCKED"
                 ? "bg-rose-200 text-rose-700"
-                : status === "WARNING"
-                  ? "bg-amber-200 text-amber-800"
-                  : ""
+                : status === "FULL"
+                  ? "bg-red-500 text-white"
+                  : status === "CUTOFF"
+                    ? "bg-rose-200 text-rose-700"
+                    : status === "WARNING"
+                      ? "bg-amber-200 text-amber-800"
+                      : ""
           }`}
         >
           {ui.label}
@@ -94,13 +99,15 @@ export default function CalendarCell({
         className={`text-[9px] font-medium leading-tight ${
           status === "PAST"
             ? "text-gray-500"
-            : status === "FULL"
-            ? "text-red-600"
-            : status === "WARNING"
-              ? "text-amber-700"
-              : status === "CUTOFF"
-                ? "text-rose-500"
-                : "text-gray-400"
+            : status === "BLOCKED"
+              ? "text-rose-500"
+              : status === "FULL"
+                ? "text-red-600"
+                : status === "WARNING"
+                  ? "text-amber-700"
+                  : status === "CUTOFF"
+                    ? "text-rose-500"
+                    : "text-gray-400"
         }`}
         title={`${usedToken} / ${maxToken} token used`}
       >
