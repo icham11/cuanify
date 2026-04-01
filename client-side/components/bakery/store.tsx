@@ -79,6 +79,7 @@ export interface OrderItem {
   productName: string;
   size: string;
   quantity: number;
+  tokenDifficulty?: "SIMPLE" | "MEDIUM" | "DIFFICULT";
   basePrice: number;
   productType?: "COOKIE" | "BOUQUET" | "CAKE" | "CUPCAKE" | "TOWER";
   selectedPrice?: number;
@@ -205,7 +206,8 @@ const OrdersContext = createContext<OrdersContextValue | null>(null);
 const initialOrders: BakeryOrder[] = [];
 const STORAGE_KEY = "bakeryOrdersState";
 const STORAGE_EVENT = "bakeryOrdersUpdated";
-const RAW_BOOKINGS_API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || "";
+const RAW_BOOKINGS_API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || "";
 const NORMALIZED_BOOKINGS_API_BASE = RAW_BOOKINGS_API_BASE.replace(/\/+$/, "");
 const ORDERS_SYNC_ENDPOINT = NORMALIZED_BOOKINGS_API_BASE
   ? `${NORMALIZED_BOOKINGS_API_BASE}/api/bookings/orders`
@@ -542,61 +544,58 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  const syncOrdersToServer = useCallback(
-    async (nextOrders: BakeryOrder[]) => {
-      if (typeof window === "undefined") {
-        return null as OrdersSyncResponse | null;
-      }
+  const syncOrdersToServer = useCallback(async (nextOrders: BakeryOrder[]) => {
+    if (typeof window === "undefined") {
+      return null as OrdersSyncResponse | null;
+    }
 
-      const requestBody = { orders: nextOrders };
-      console.info("[bookings][frontend] sync request", {
-        endpoint: ORDERS_SYNC_ENDPOINT,
+    const requestBody = { orders: nextOrders };
+    console.info("[bookings][frontend] sync request", {
+      endpoint: ORDERS_SYNC_ENDPOINT,
+      method: "POST",
+      orderCount: nextOrders.length,
+      ids: nextOrders.map((order) => order.id),
+    });
+
+    let response: Response;
+    try {
+      response = await fetch(ORDERS_SYNC_ENDPOINT, {
         method: "POST",
-        orderCount: nextOrders.length,
-        ids: nextOrders.map((order) => order.id),
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(requestBody),
       });
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Network error while syncing bookings.";
+      throw new Error(`Network error saat sinkron booking: ${message}`);
+    }
 
-      let response: Response;
-      try {
-        response = await fetch(ORDERS_SYNC_ENDPOINT, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(requestBody),
-        });
-      } catch (error) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : "Network error while syncing bookings.";
-        throw new Error(`Network error saat sinkron booking: ${message}`);
-      }
+    const payload = (await response
+      .json()
+      .catch(() => ({}))) as OrdersSyncResponse;
 
-      const payload = (await response
-        .json()
-        .catch(() => ({}))) as OrdersSyncResponse;
+    console.info("[bookings][frontend] sync response", {
+      endpoint: ORDERS_SYNC_ENDPOINT,
+      status: response.status,
+      ok: response.ok,
+      success: payload.success ?? false,
+      mode: payload.data?.mode,
+      itemCount: payload.data?.itemCount,
+      error: payload.error,
+    });
 
-      console.info("[bookings][frontend] sync response", {
-        endpoint: ORDERS_SYNC_ENDPOINT,
-        status: response.status,
-        ok: response.ok,
-        success: payload.success ?? false,
-        mode: payload.data?.mode,
-        itemCount: payload.data?.itemCount,
-        error: payload.error,
-      });
+    if (!response.ok || !payload.success) {
+      const fallback = `Booking sync failed (${response.status}).`;
+      const message = parseOrdersSyncError(payload, fallback);
+      throw new Error(message);
+    }
 
-      if (!response.ok || !payload.success) {
-        const fallback = `Booking sync failed (${response.status}).`;
-        const message = parseOrdersSyncError(payload, fallback);
-        throw new Error(message);
-      }
-
-      return payload;
-    },
-    [],
-  );
+    return payload;
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -661,7 +660,9 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
           endpoint: ORDERS_SYNC_ENDPOINT,
           message,
         });
-        toast.error(`Perubahan lokal tersimpan, tetapi sinkron gagal: ${message}`);
+        toast.error(
+          `Perubahan lokal tersimpan, tetapi sinkron gagal: ${message}`,
+        );
       });
     },
     [syncOrdersToServer],

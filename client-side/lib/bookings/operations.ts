@@ -11,6 +11,7 @@ export interface BookingItemForOperations {
   productName?: string;
   size?: string;
   quantity?: number;
+  tokenDifficulty?: string;
 }
 
 export interface BookingOrderForOperations {
@@ -324,6 +325,23 @@ function getCapacityUnitsPerOrder(item: BookingItemForOperations): number {
 }
 
 function getDifficultyTokenPerUnit(item: BookingItemForOperations): number {
+  const manualDifficulty = normalize(item.tokenDifficulty || "");
+  if (
+    manualDifficulty.includes("difficult") ||
+    manualDifficulty.includes("hard")
+  ) {
+    return 3;
+  }
+  if (manualDifficulty.includes("medium")) {
+    return 2;
+  }
+  if (
+    manualDifficulty.includes("simple") ||
+    manualDifficulty.includes("easy")
+  ) {
+    return 1;
+  }
+
   const source = getItemSource(item);
 
   const hardHints = [

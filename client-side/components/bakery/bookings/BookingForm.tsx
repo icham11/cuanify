@@ -86,12 +86,24 @@ const CAPACITY_BUCKET_ORDER: CapacityBucket[] = [
   "bouquet",
 ];
 
+type TokenDifficulty = "SIMPLE" | "MEDIUM" | "DIFFICULT";
+
+const TOKEN_DIFFICULTY_OPTIONS: Array<{
+  value: TokenDifficulty;
+  label: string;
+}> = [
+  { value: "SIMPLE", label: "Simple (1 token)" },
+  { value: "MEDIUM", label: "Medium (2 token)" },
+  { value: "DIFFICULT", label: "Difficult (3 token)" },
+];
+
 const itemSchema = z.object({
   category: z.string().min(1, "Category is required"),
   subcategory: z.string().min(1, "Subcategory is required"),
   productName: z.string().min(1, "Product is required"),
   size: z.string().min(1, "Size is required"),
   quantity: z.number().int().min(1, "Minimum quantity is 1"),
+  tokenDifficulty: z.enum(["SIMPLE", "MEDIUM", "DIFFICULT"]),
   cookiePrice: z.number().min(0).optional(),
   addOns: z.array(z.string()),
   notes: z.string().max(200).optional().or(z.literal("")),
@@ -272,6 +284,42 @@ function getCategoryAddOnsFromCatalog(
   return addOnCatalog[category] ?? [];
 }
 
+function getDefaultTokenDifficulty(category: string): TokenDifficulty {
+  if (category === "Cake" || category === "Cookies Tower") {
+    return "DIFFICULT";
+  }
+  if (category === "Buket" || category === "Cupcakes") {
+    return "MEDIUM";
+  }
+  return "SIMPLE";
+}
+
+function getTokenDifficultyMeta(value: TokenDifficulty): {
+  label: string;
+  tokens: number;
+  className: string;
+} {
+  if (value === "DIFFICULT") {
+    return {
+      label: "Difficult",
+      tokens: 3,
+      className: "border-rose-200 bg-rose-50 text-rose-700",
+    };
+  }
+  if (value === "MEDIUM") {
+    return {
+      label: "Medium",
+      tokens: 2,
+      className: "border-amber-200 bg-amber-50 text-amber-700",
+    };
+  }
+  return {
+    label: "Simple",
+    tokens: 1,
+    className: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  };
+}
+
 function detectBouquetTypeFromItem(
   item: BookingItemInput,
 ): BouquetFormType | null {
@@ -389,6 +437,9 @@ export default function BookingForm() {
           productName: defaultItemSelection.productName,
           size: defaultItemSelection.size,
           quantity: 1,
+          tokenDifficulty: getDefaultTokenDifficulty(
+            defaultItemSelection.category,
+          ),
           cookiePrice: undefined,
           addOns: [],
           notes: "",
@@ -901,6 +952,7 @@ export default function BookingForm() {
         productName: item.productName,
         size: item.size,
         quantity: item.quantity,
+        tokenDifficulty: item.tokenDifficulty,
         basePrice: itemBasePrice,
         productType:
           item.category === "Buket" ? ("BOUQUET" as const) : undefined,
@@ -1060,6 +1112,7 @@ export default function BookingForm() {
               quantity: Number.isFinite(item.quantity)
                 ? Math.max(1, Number(item.quantity))
                 : 1,
+              tokenDifficulty: getDefaultTokenDifficulty(normalized.category),
               cookiePrice: undefined,
               addOns: Array.isArray(item.addOns) ? item.addOns : [],
               notes: item.notes ?? "",
@@ -1528,6 +1581,9 @@ export default function BookingForm() {
                       productName: nextDefault.productName,
                       size: nextDefault.size,
                       quantity: 1,
+                      tokenDifficulty: getDefaultTokenDifficulty(
+                        nextDefault.category,
+                      ),
                       cookiePrice: undefined,
                       addOns: [],
                       notes: "",
@@ -1574,6 +1630,9 @@ export default function BookingForm() {
                     productName: normalizedSelection.productName,
                     size: normalizedSelection.size,
                     quantity: Number(item?.quantity) || 0,
+                    tokenDifficulty:
+                      item?.tokenDifficulty ||
+                      getDefaultTokenDifficulty(normalizedSelection.category),
                     cookiePrice:
                       Number(item?.cookiePrice) > 0
                         ? Number(item?.cookiePrice)
@@ -1596,12 +1655,29 @@ export default function BookingForm() {
                       : bouquetType === "STANDING"
                         ? BOUQUET_STANDING_MIN_QTY
                         : 1;
+                  const selectedTokenDifficulty: TokenDifficulty =
+                    item?.tokenDifficulty ||
+                    getDefaultTokenDifficulty(normalizedSelection.category);
+                  const difficultyMeta = getTokenDifficultyMeta(
+                    selectedTokenDifficulty,
+                  );
 
                   return (
                     <div
                       key={field.id}
                       className="space-y-2 rounded-xl border border-gray-200 p-3"
                     >
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                          Item {index + 1}
+                        </p>
+                        <span
+                          className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${difficultyMeta.className}`}
+                        >
+                          {difficultyMeta.label} ({difficultyMeta.tokens} token)
+                        </span>
+                      </div>
+
                       <div className="grid gap-x-3 gap-y-2 sm:grid-cols-2 lg:grid-cols-4">
                         <label className="grid gap-2 text-sm font-medium text-gray-700">
                           Category
@@ -1637,6 +1713,13 @@ export default function BookingForm() {
                               setValue(
                                 `items.${index}.size`,
                                 nextSelection.size,
+                                { shouldValidate: true },
+                              );
+                              setValue(
+                                `items.${index}.tokenDifficulty`,
+                                getDefaultTokenDifficulty(
+                                  nextSelection.category,
+                                ),
                                 { shouldValidate: true },
                               );
                               setValue(`items.${index}.addOns`, [], {
@@ -1787,6 +1870,27 @@ export default function BookingForm() {
                               bouquet qty wajib {bouquetQtyRange}.
                             </span>
                           )}
+                        </label>
+
+                        <label className="grid gap-1.5 text-sm font-medium text-gray-700">
+                          Difficulty
+                          <Select
+                            {...register(`items.${index}.tokenDifficulty`)}
+                            value={selectedTokenDifficulty}
+                            onChange={(event) => {
+                              setValue(
+                                `items.${index}.tokenDifficulty`,
+                                event.target.value as TokenDifficulty,
+                                { shouldValidate: true },
+                              );
+                            }}
+                          >
+                            {TOKEN_DIFFICULTY_OPTIONS.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </Select>
                         </label>
 
                         {isBouquet && (
