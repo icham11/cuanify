@@ -94,11 +94,11 @@ const normalizedOrderSchema = z.object({
   id: z.string().trim().min(1, "id is required"),
   bookingCode: z.string(),
   resi: z.string(),
-  customerName: z.string().trim().min(2, "customerName is required"),
-  customerPhone: z.string().trim().min(8, "customerPhone is required"),
+  customerName: z.string(),
+  customerPhone: z.string(),
   customerAddress: z.string(),
-  deliveryDate: z.string().trim().min(1, "deliveryDate is required"),
-  deliverySlot: z.string().trim().min(1, "deliverySlot is required"),
+  deliveryDate: z.string(),
+  deliverySlot: z.string(),
   notes: z.string(),
   basePrice: z.number().finite().min(0, "basePrice must be >= 0"),
   addOnTotal: z.number().finite().min(0, "addOnTotal must be >= 0"),
@@ -120,12 +120,8 @@ const normalizedOrderSchema = z.object({
   statusHistory: z.array(z.record(z.string(), z.unknown())),
   automationLogs: z.array(z.record(z.string(), z.unknown())),
   paymentTransactions: z.array(z.record(z.string(), z.unknown())),
-  items: z
-    .array(z.record(z.string(), z.unknown()))
-    .min(1, "items must contain at least one entry"),
-  deliveryAddresses: z
-    .array(z.record(z.string(), z.unknown()))
-    .min(1, "deliveryAddresses must contain at least one entry"),
+  items: z.array(z.record(z.string(), z.unknown())),
+  deliveryAddresses: z.array(z.record(z.string(), z.unknown())),
 });
 
 function formatValidationIssues(error: z.ZodError): string[] {

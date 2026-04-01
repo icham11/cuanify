@@ -29,7 +29,37 @@ export default function PWAProvider() {
 
   useEffect(() => {
     // ─── Register Service Worker ───
-    if ("serviceWorker" in navigator) {
+    const isDev = process.env.NODE_ENV !== "production";
+
+    if (isDev && "serviceWorker" in navigator) {
+      navigator.serviceWorker
+        .getRegistrations()
+        .then((registrations) =>
+          Promise.all(
+            registrations.map((registration) => registration.unregister()),
+          ),
+        )
+        .catch((err) => {
+          console.warn("[PWA] Failed to unregister service workers in dev:", err);
+        });
+
+      if ("caches" in window) {
+        caches
+          .keys()
+          .then((keys) =>
+            Promise.all(
+              keys
+                .filter((key) => key.startsWith("umkm-"))
+                .map((key) => caches.delete(key)),
+            ),
+          )
+          .catch((err) => {
+            console.warn("[PWA] Failed to clear SW caches in dev:", err);
+          });
+      }
+    }
+
+    if ("serviceWorker" in navigator && !isDev) {
       navigator.serviceWorker
         .register("/sw.js")
         .then((reg) => {

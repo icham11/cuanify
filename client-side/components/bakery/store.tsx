@@ -657,7 +657,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
           error instanceof Error
             ? error.message
             : "Gagal sinkron perubahan booking ke server.";
-        console.error("[bookings][frontend] persist sync failed", {
+        console.warn("[bookings][frontend] persist sync failed", {
           endpoint: ORDERS_SYNC_ENDPOINT,
           message,
         });

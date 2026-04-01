@@ -146,14 +146,14 @@ function slotStatusBadge(status: "AVAILABLE" | "ALMOST_FULL" | "FULL"): string {
 function slotStatusTextClass(
   status: "AVAILABLE" | "ALMOST_FULL" | "FULL",
 ): string {
-  if (status === "FULL") return "text-rose-700";
-  if (status === "ALMOST_FULL") return "text-amber-700";
+  if (status === "FULL") return "text-rose-800";
+  if (status === "ALMOST_FULL") return "text-amber-800";
   return "text-emerald-700";
 }
 
 function slotStatusTone(status: "AVAILABLE" | "ALMOST_FULL" | "FULL"): string {
-  if (status === "FULL") return "border-rose-200 bg-rose-50";
-  if (status === "ALMOST_FULL") return "border-amber-200 bg-amber-50";
+  if (status === "FULL") return "border-rose-300 bg-rose-100";
+  if (status === "ALMOST_FULL") return "border-amber-300 bg-amber-100";
   return "border-emerald-200 bg-emerald-50";
 }
 

@@ -8,7 +8,7 @@
  *  - Offline fallback page for navigations
  */
 
-const CACHE_VERSION = "umkm-v1";
+const CACHE_VERSION = "umkm-v2";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const DYNAMIC_CACHE = `${CACHE_VERSION}-dynamic`;
 const API_CACHE = `${CACHE_VERSION}-api`;
@@ -65,7 +65,9 @@ self.addEventListener("fetch", (event) => {
 
   // Strategy: Next.js static assets (_next/static) → Cache-first
   if (url.pathname.startsWith("/_next/static/")) {
-    event.respondWith(cacheFirst(request, STATIC_CACHE));
+    event.respondWith(
+      networkFirstWithCache(request, STATIC_CACHE, 60 * 60 * 24 * 7)
+    );
     return;
   }
 
