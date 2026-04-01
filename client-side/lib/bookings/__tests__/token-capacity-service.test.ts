@@ -39,6 +39,7 @@ import {
   getCapacityForDate,
   getCapacityForDateRange,
 } from "../token-capacity-service";
+import { TOKEN_DIFFICULTY_POINTS } from "../operations";
 
 // ─── Unit Tests (no DB required) ─────────────────────────────────────────────
 
@@ -49,39 +50,57 @@ describe("Token Capacity Service — Unit Tests", () => {
     });
 
     it("TOKEN_MAP should map difficulties correctly", () => {
-      expect(TOKEN_MAP.simple).toBe(1);
-      expect(TOKEN_MAP.medium).toBe(2);
-      expect(TOKEN_MAP.difficult).toBe(3);
+      expect(TOKEN_MAP.simple).toBe(TOKEN_DIFFICULTY_POINTS.SIMPLE);
+      expect(TOKEN_MAP.medium).toBe(TOKEN_DIFFICULTY_POINTS.MEDIUM);
+      expect(TOKEN_MAP.difficult).toBe(TOKEN_DIFFICULTY_POINTS.DIFFICULT);
     });
   });
 
   describe("calculateOrderToken", () => {
-    it("should return 1 for 'simple'", () => {
-      expect(calculateOrderToken("simple")).toBe(1);
+    it("should return configured value for 'simple'", () => {
+      expect(calculateOrderToken("simple")).toBe(
+        TOKEN_DIFFICULTY_POINTS.SIMPLE,
+      );
     });
 
-    it("should return 2 for 'medium'", () => {
-      expect(calculateOrderToken("medium")).toBe(2);
+    it("should return configured value for 'medium'", () => {
+      expect(calculateOrderToken("medium")).toBe(
+        TOKEN_DIFFICULTY_POINTS.MEDIUM,
+      );
     });
 
-    it("should return 3 for 'difficult'", () => {
-      expect(calculateOrderToken("difficult")).toBe(3);
+    it("should return configured value for 'difficult'", () => {
+      expect(calculateOrderToken("difficult")).toBe(
+        TOKEN_DIFFICULTY_POINTS.DIFFICULT,
+      );
     });
 
     it("should be case-insensitive", () => {
-      expect(calculateOrderToken("SIMPLE")).toBe(1);
-      expect(calculateOrderToken("Medium")).toBe(2);
-      expect(calculateOrderToken("DIFFICULT")).toBe(3);
+      expect(calculateOrderToken("SIMPLE")).toBe(
+        TOKEN_DIFFICULTY_POINTS.SIMPLE,
+      );
+      expect(calculateOrderToken("Medium")).toBe(
+        TOKEN_DIFFICULTY_POINTS.MEDIUM,
+      );
+      expect(calculateOrderToken("DIFFICULT")).toBe(
+        TOKEN_DIFFICULTY_POINTS.DIFFICULT,
+      );
     });
 
     it("should handle whitespace", () => {
-      expect(calculateOrderToken("  simple  ")).toBe(1);
+      expect(calculateOrderToken("  simple  ")).toBe(
+        TOKEN_DIFFICULTY_POINTS.SIMPLE,
+      );
     });
 
-    it("should fallback to 1 (simple) for unknown values", () => {
-      expect(calculateOrderToken("unknown")).toBe(1);
-      expect(calculateOrderToken("")).toBe(1);
-      expect(calculateOrderToken("extreme")).toBe(1);
+    it("should fallback to simple token for unknown values", () => {
+      expect(calculateOrderToken("unknown")).toBe(
+        TOKEN_DIFFICULTY_POINTS.SIMPLE,
+      );
+      expect(calculateOrderToken("")).toBe(TOKEN_DIFFICULTY_POINTS.SIMPLE);
+      expect(calculateOrderToken("extreme")).toBe(
+        TOKEN_DIFFICULTY_POINTS.SIMPLE,
+      );
     });
   });
 });
@@ -191,26 +210,43 @@ describe.skip("Token Capacity Service — Integration Tests", () => {
       expect(successes.length).toBeLessThanOrEqual(1);
 
       // Verify final state doesn't exceed max
-      const finalCapacity = await getCapacityForDate(TEST_BUSINESS_ID, TEST_DATE);
-      expect(finalCapacity.usedToken).toBeLessThanOrEqual(finalCapacity.maxToken);
+      const finalCapacity = await getCapacityForDate(
+        TEST_BUSINESS_ID,
+        TEST_DATE,
+      );
+      expect(finalCapacity.usedToken).toBeLessThanOrEqual(
+        finalCapacity.maxToken,
+      );
     });
   });
 
   // ── Test: checkTokenAvailability ──
   describe("checkTokenAvailability", () => {
     it("should return true when capacity is available", async () => {
-      const available = await checkTokenAvailability(TEST_BUSINESS_ID, TEST_DATE, 100);
+      const available = await checkTokenAvailability(
+        TEST_BUSINESS_ID,
+        TEST_DATE,
+        100,
+      );
       expect(available).toBe(true);
     });
 
     it("should return false when capacity is full", async () => {
       await consumeToken(TEST_BUSINESS_ID, TEST_DATE, 599);
-      const available = await checkTokenAvailability(TEST_BUSINESS_ID, TEST_DATE, 2);
+      const available = await checkTokenAvailability(
+        TEST_BUSINESS_ID,
+        TEST_DATE,
+        2,
+      );
       expect(available).toBe(false);
     });
 
     it("should return true for zero tokens needed", async () => {
-      const available = await checkTokenAvailability(TEST_BUSINESS_ID, TEST_DATE, 0);
+      const available = await checkTokenAvailability(
+        TEST_BUSINESS_ID,
+        TEST_DATE,
+        0,
+      );
       expect(available).toBe(true);
     });
   });

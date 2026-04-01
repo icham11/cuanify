@@ -55,6 +55,7 @@ import {
   summarizeCapacityByOrdersForDate,
   summarizeProductionTokensByItems,
   summarizeProductionTokensByOrdersForDate,
+  resolveTokenPerUnit,
   type SlotAvailabilityStatus,
   type SlotOrderType,
   type CapacityBucket,
@@ -73,7 +74,10 @@ import {
   usesShippingEngine,
 } from "@/lib/bookings/delivery-rules";
 import { useCalendarCapacity } from "@/hooks/useCalendarCapacity";
-import { getCalendarStatus, isPastDate } from "@/lib/calendar/getCalendarStatus";
+import {
+  getCalendarStatus,
+  isPastDate,
+} from "@/lib/calendar/getCalendarStatus";
 import type {
   ShippingQuote,
   ShippingQuoteItemInput,
@@ -95,6 +99,8 @@ const itemSchema = z.object({
   productName: z.string().min(1, "Product is required"),
   size: z.string().min(1, "Size is required"),
   quantity: z.number().int().min(1, "Minimum quantity is 1"),
+  tokenDifficulty: z.enum(["SIMPLE", "MEDIUM", "DIFFICULT"]).optional(),
+  customTokenPerUnit: z.number().int().min(1).max(999).optional(),
   cookiePrice: z.number().min(0).optional(),
   addOns: z.array(z.string()),
   notes: z.string().max(200).optional().or(z.literal("")),
@@ -405,6 +411,8 @@ export default function BookingForm() {
           productName: defaultItemSelection.productName,
           size: defaultItemSelection.size,
           quantity: 1,
+          tokenDifficulty: "SIMPLE",
+          customTokenPerUnit: undefined,
           cookiePrice: undefined,
           addOns: [],
           notes: "",
@@ -934,7 +942,7 @@ export default function BookingForm() {
 
       const status = getCalendarStatus({
         usedToken: Number(payload.data.usedToken) || 0,
-        maxToken: Number(payload.data.maxToken) || 600,
+        maxToken: Number(payload.data.maxToken) || DAILY_PRODUCTION_TOKEN_LIMIT,
         date: values.deliveryDate,
       });
 
@@ -1013,6 +1021,8 @@ export default function BookingForm() {
         productName: item.productName,
         size: item.size,
         quantity: item.quantity,
+        tokenDifficulty: item.tokenDifficulty,
+        customTokenPerUnit: item.customTokenPerUnit,
         basePrice: itemBasePrice,
         productType:
           item.category === "Buket" ? ("BOUQUET" as const) : undefined,
@@ -1172,6 +1182,8 @@ export default function BookingForm() {
               quantity: Number.isFinite(item.quantity)
                 ? Math.max(1, Number(item.quantity))
                 : 1,
+              tokenDifficulty: "SIMPLE",
+              customTokenPerUnit: undefined,
               cookiePrice: undefined,
               addOns: Array.isArray(item.addOns) ? item.addOns : [],
               notes: item.notes ?? "",
@@ -1646,6 +1658,8 @@ export default function BookingForm() {
                       productName: nextDefault.productName,
                       size: nextDefault.size,
                       quantity: 1,
+                      tokenDifficulty: "SIMPLE",
+                      customTokenPerUnit: undefined,
                       cookiePrice: undefined,
                       addOns: [],
                       notes: "",
@@ -1692,6 +1706,11 @@ export default function BookingForm() {
                     productName: normalizedSelection.productName,
                     size: normalizedSelection.size,
                     quantity: Number(item?.quantity) || 0,
+                    tokenDifficulty: item?.tokenDifficulty,
+                    customTokenPerUnit:
+                      Number(item?.customTokenPerUnit) > 0
+                        ? Number(item?.customTokenPerUnit)
+                        : undefined,
                     cookiePrice:
                       Number(item?.cookiePrice) > 0
                         ? Number(item?.cookiePrice)
@@ -1714,6 +1733,18 @@ export default function BookingForm() {
                       : bouquetType === "STANDING"
                         ? BOUQUET_STANDING_MIN_QTY
                         : 1;
+                  const effectiveTokenPerUnit = resolveTokenPerUnit({
+                    category: normalizedSelection.category,
+                    subcategory: normalizedSelection.subcategory,
+                    productName: normalizedSelection.productName,
+                    size: normalizedSelection.size,
+                    quantity: Number(item?.quantity) || 0,
+                    tokenDifficulty: item?.tokenDifficulty,
+                    customTokenPerUnit:
+                      Number(item?.customTokenPerUnit) > 0
+                        ? Number(item?.customTokenPerUnit)
+                        : undefined,
+                  });
 
                   return (
                     <div
@@ -1905,6 +1936,38 @@ export default function BookingForm() {
                               bouquet qty wajib {bouquetQtyRange}.
                             </span>
                           )}
+                        </label>
+
+                        <label className="grid gap-1.5 text-sm font-medium text-gray-700">
+                          Difficulty
+                          <Select
+                            {...register(`items.${index}.tokenDifficulty`)}
+                          >
+                            <option value="SIMPLE">Simple</option>
+                            <option value="MEDIUM">Medium</option>
+                            <option value="DIFFICULT">Difficult</option>
+                          </Select>
+                        </label>
+
+                        <label className="grid gap-1.5 text-sm font-medium text-gray-700">
+                          Custom Token / Unit
+                          <Input
+                            type="number"
+                            min={1}
+                            max={999}
+                            placeholder="Opsional"
+                            {...register(`items.${index}.customTokenPerUnit`, {
+                              setValueAs: (value) => {
+                                const parsed = Number(value);
+                                return Number.isFinite(parsed) && parsed > 0
+                                  ? Math.round(parsed)
+                                  : undefined;
+                              },
+                            })}
+                          />
+                          <span className="min-h-4 text-[11px] font-normal leading-4 text-gray-500">
+                            Token efektif per unit: {effectiveTokenPerUnit}
+                          </span>
                         </label>
 
                         {isBouquet && (

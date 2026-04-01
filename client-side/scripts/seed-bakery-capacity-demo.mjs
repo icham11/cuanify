@@ -84,6 +84,8 @@ function makeOrder({
         productName,
         size,
         quantity: qty,
+        tokenDifficulty: "SIMPLE",
+        customTokenPerUnit: 1,
         basePrice,
         addOns: [],
         addOnTotal,

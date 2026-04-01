@@ -19,25 +19,34 @@
  */
 
 import prisma from "@/lib/prisma";
+import {
+  BAKERY_DAILY_PRODUCTION_TOKEN_LIMIT,
+  BAKERY_TOKEN_DIFFICULT_PER_UNIT,
+  BAKERY_TOKEN_MEDIUM_PER_UNIT,
+  BAKERY_TOKEN_SIMPLE_PER_UNIT,
+} from "@/lib/bookings/config";
 
 interface SqlExecutor {
   $queryRaw<T = unknown>(
     query: TemplateStringsArray,
     ...values: unknown[]
   ): Promise<T>;
-  $executeRaw(query: TemplateStringsArray, ...values: unknown[]): Promise<number>;
+  $executeRaw(
+    query: TemplateStringsArray,
+    ...values: unknown[]
+  ): Promise<number>;
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-export const DEFAULT_MAX_TOKEN = 600;
+export const DEFAULT_MAX_TOKEN = BAKERY_DAILY_PRODUCTION_TOKEN_LIMIT;
 
 export type Difficulty = "simple" | "medium" | "difficult";
 
 export const TOKEN_MAP: Record<Difficulty, number> = {
-  simple: 1,
-  medium: 2,
-  difficult: 3,
+  simple: BAKERY_TOKEN_SIMPLE_PER_UNIT,
+  medium: BAKERY_TOKEN_MEDIUM_PER_UNIT,
+  difficult: BAKERY_TOKEN_DIFFICULT_PER_UNIT,
 };
 
 // ─── Types ───────────────────────────────────────────────────────────────────

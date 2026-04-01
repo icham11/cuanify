@@ -7,9 +7,16 @@
  * Priority order: PAST → FULL → CUTOFF → WARNING → AVAILABLE
  */
 
-export type CalendarStatus = "PAST" | "AVAILABLE" | "WARNING" | "FULL" | "CUTOFF";
+import { BAKERY_DAILY_PRODUCTION_TOKEN_LIMIT } from "@/lib/bookings/config";
 
-export const DEFAULT_MAX_TOKEN = 600;
+export type CalendarStatus =
+  | "PAST"
+  | "AVAILABLE"
+  | "WARNING"
+  | "FULL"
+  | "CUTOFF";
+
+export const DEFAULT_MAX_TOKEN = BAKERY_DAILY_PRODUCTION_TOKEN_LIMIT;
 
 export interface CalendarDayInput {
   usedToken: number;
@@ -52,7 +59,11 @@ function isCutoff(dateStr: string, now: Date = new Date()): boolean {
   const month = Number(monthStr);
   const day = Number(dayStr);
 
-  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+  if (
+    !Number.isFinite(year) ||
+    !Number.isFinite(month) ||
+    !Number.isFinite(day)
+  ) {
     return false;
   }
 

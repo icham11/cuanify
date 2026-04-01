@@ -11,7 +11,10 @@ import {
   DEFAULT_MAX_TOKEN,
 } from "@/lib/bookings/token-capacity-service";
 import { summarizeProductionTokensByItems } from "@/lib/bookings/operations";
-import { getCalendarStatus, isPastDate } from "@/lib/calendar/getCalendarStatus";
+import {
+  getCalendarStatus,
+  isPastDate,
+} from "@/lib/calendar/getCalendarStatus";
 
 // ─── Custom Error for capacity-full rejections ───────────────────────────────
 
@@ -761,7 +764,14 @@ export async function POST(request: NextRequest) {
           let insertedItemCount = 0;
           let insertedAddressCount = 0;
 
-          const existingRows = await tx.$queryRaw<{ external_id: string; delivery_date: string | null; token_used: number; order_status: string | null }[]>`
+          const existingRows = await tx.$queryRaw<
+            {
+              external_id: string;
+              delivery_date: string | null;
+              token_used: number;
+              order_status: string | null;
+            }[]
+          >`
           SELECT external_id, delivery_date, token_used, order_status
           FROM bakery_orders
           WHERE business_id = ${businessId}
@@ -808,25 +818,50 @@ export async function POST(request: NextRequest) {
             // ── Token capacity: calculate tokens for this order ──
             const orderItems = (order.items || []).map((item) => ({
               category: typeof item.category === "string" ? item.category : "",
-              subcategory: typeof item.subcategory === "string" ? item.subcategory : undefined,
-              productName: typeof item.productName === "string" ? item.productName : undefined,
+              subcategory:
+                typeof item.subcategory === "string"
+                  ? item.subcategory
+                  : undefined,
+              productName:
+                typeof item.productName === "string"
+                  ? item.productName
+                  : undefined,
               size: typeof item.size === "string" ? item.size : undefined,
-              quantity: typeof item.quantity === "number" ? item.quantity : undefined,
+              quantity:
+                typeof item.quantity === "number" ? item.quantity : undefined,
+              tokenDifficulty:
+                typeof item.tokenDifficulty === "string"
+                  ? item.tokenDifficulty
+                  : undefined,
+              customTokenPerUnit:
+                typeof item.customTokenPerUnit === "number"
+                  ? item.customTokenPerUnit
+                  : undefined,
             }));
             const tokenForOrder = summarizeProductionTokensByItems(orderItems);
 
-            // Determine difficulty label based on token per item ratio
+            // Keep legacy difficulty column aligned with item-level manual settings.
             let difficulty: string | null = null;
             if (tokenForOrder > 0) {
-              const avgToken = orderItems.length > 0 ? tokenForOrder / orderItems.length : tokenForOrder;
-              if (avgToken >= 3) difficulty = "difficult";
-              else if (avgToken >= 2) difficulty = "medium";
-              else difficulty = "simple";
+              const mappedDifficulties = orderItems
+                .map((entry) =>
+                  String(entry.tokenDifficulty || "").toUpperCase(),
+                )
+                .filter(Boolean);
+              if (mappedDifficulties.includes("DIFFICULT")) {
+                difficulty = "difficult";
+              } else if (mappedDifficulties.includes("MEDIUM")) {
+                difficulty = "medium";
+              } else {
+                difficulty = "simple";
+              }
             }
 
             // ── Handle token changes for existing orders ──
             const existingOrder = existingOrderMap.get(order.id);
-            const isActiveStatus = !INACTIVE_STATUSES.includes(order.orderStatus || "");
+            const isActiveStatus = !INACTIVE_STATUSES.includes(
+              order.orderStatus || "",
+            );
             const wasActive = existingOrder
               ? !INACTIVE_STATUSES.includes(existingOrder.order_status || "")
               : false;
@@ -853,9 +888,15 @@ export async function POST(request: NextRequest) {
               }
             }
 
-            if (existingOrder && existingOrder.delivery_date && existingOrder.token_used > 0 && wasActive) {
+            if (
+              existingOrder &&
+              existingOrder.delivery_date &&
+              existingOrder.token_used > 0 &&
+              wasActive
+            ) {
               // Release old tokens if date changed, status changed to inactive, or token amount changed
-              const dateChanged = existingOrder.delivery_date !== (order.deliveryDate || null);
+              const dateChanged =
+                existingOrder.delivery_date !== (order.deliveryDate || null);
               const becameInactive = !isActiveStatus;
               const tokenChanged = existingOrder.token_used !== tokenForOrder;
 
@@ -872,10 +913,11 @@ export async function POST(request: NextRequest) {
             // Consume tokens for active orders with a delivery date
             let finalTokenUsed = 0;
             if (isActiveStatus && order.deliveryDate && tokenForOrder > 0) {
-              const shouldConsume = !existingOrder
-                || !wasActive
-                || existingOrder.delivery_date !== (order.deliveryDate || null)
-                || existingOrder.token_used !== tokenForOrder;
+              const shouldConsume =
+                !existingOrder ||
+                !wasActive ||
+                existingOrder.delivery_date !== (order.deliveryDate || null) ||
+                existingOrder.token_used !== tokenForOrder;
 
               if (shouldConsume) {
                 const consumeResult = await consumeToken(
@@ -888,8 +930,8 @@ export async function POST(request: NextRequest) {
                   // Capacity full — reject this entire sync
                   throw new CapacityFullError(
                     `Production capacity full for ${order.deliveryDate}. ` +
-                    `Used: ${consumeResult.usedToken}/${consumeResult.maxToken}, ` +
-                    `Needed: ${tokenForOrder} for order ${order.id}.`,
+                      `Used: ${consumeResult.usedToken}/${consumeResult.maxToken}, ` +
+                      `Needed: ${tokenForOrder} for order ${order.id}.`,
                     order.deliveryDate,
                     consumeResult.usedToken,
                     consumeResult.maxToken,
