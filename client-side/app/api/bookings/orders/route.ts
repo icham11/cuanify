@@ -2,6 +2,61 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { AuthError, requireAuth } from "@/lib/auth/session";
 import { z } from "zod";
+import {
+  ensureCapacityTable,
+  consumeToken,
+  getCapacityForDate,
+  releaseToken,
+  DEFAULT_MAX_TOKEN,
+} from "@/lib/bookings/token-capacity-service";
+import { summarizeProductionTokensByItems } from "@/lib/bookings/operations";
+import { getCalendarStatus, isPastDate } from "@/lib/calendar/getCalendarStatus";
+
+// ─── Custom Error for capacity-full rejections ───────────────────────────────
+
+class CapacityFullError extends Error {
+  public readonly date: string;
+  public readonly usedToken: number;
+  public readonly maxToken: number;
+  public readonly tokenNeeded: number;
+
+  constructor(
+    message: string,
+    date: string,
+    usedToken: number,
+    maxToken: number,
+    tokenNeeded: number,
+  ) {
+    super(message);
+    this.name = "CapacityFullError";
+    this.date = date;
+    this.usedToken = usedToken;
+    this.maxToken = maxToken;
+    this.tokenNeeded = tokenNeeded;
+  }
+}
+
+class CapacityCutoffError extends Error {
+  public readonly date: string;
+
+  constructor(date: string) {
+    super("Pemesanan H-1 sudah ditutup (setelah jam 10 pagi)");
+    this.name = "CapacityCutoffError";
+    this.date = date;
+  }
+}
+
+class PastDateError extends Error {
+  public readonly date: string;
+
+  constructor(date: string) {
+    super("Tanggal sudah terlewat");
+    this.name = "PastDateError";
+    this.date = date;
+  }
+}
+
+const INACTIVE_STATUSES = ["Cancelled", "Completed", "Delivered"];
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -380,6 +435,20 @@ async function ensureBakeryTables() {
     CREATE INDEX IF NOT EXISTS idx_bakery_order_addresses_lookup
     ON bakery_order_addresses (business_id, order_external_id, address_index);
   `);
+
+  // ── Token capacity columns on bakery_orders ──
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE bakery_orders
+    ADD COLUMN IF NOT EXISTS difficulty TEXT DEFAULT NULL;
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE bakery_orders
+    ADD COLUMN IF NOT EXISTS token_used INTEGER NOT NULL DEFAULT 0;
+  `);
+
+  // ── Ensure production_capacity table exists ──
+  await ensureCapacityTable();
 }
 
 export async function GET() {
@@ -616,8 +685,8 @@ export async function POST(request: NextRequest) {
           let insertedItemCount = 0;
           let insertedAddressCount = 0;
 
-          const existingRows = await tx.$queryRaw<{ external_id: string }[]>`
-          SELECT external_id
+          const existingRows = await tx.$queryRaw<{ external_id: string; delivery_date: string | null; token_used: number; order_status: string | null }[]>`
+          SELECT external_id, delivery_date, token_used, order_status
           FROM bakery_orders
           WHERE business_id = ${businessId}
         `;
@@ -625,10 +694,23 @@ export async function POST(request: NextRequest) {
           const existingIds = new Set(
             existingRows.map((row) => row.external_id),
           );
+          const existingOrderMap = new Map(
+            existingRows.map((row) => [row.external_id, row]),
+          );
           const incomingIds = new Set(orders.map((order) => order.id));
 
+          // ── Release tokens for deleted orders ──
           for (const externalId of existingIds) {
             if (incomingIds.has(externalId)) continue;
+            const oldOrder = existingOrderMap.get(externalId);
+            if (oldOrder && oldOrder.delivery_date && oldOrder.token_used > 0) {
+              await releaseToken(
+                businessId,
+                oldOrder.delivery_date,
+                oldOrder.token_used,
+                tx,
+              );
+            }
             await tx.$executeRaw`
             DELETE FROM bakery_order_items
             WHERE business_id = ${businessId} AND order_external_id = ${externalId}
@@ -646,6 +728,104 @@ export async function POST(request: NextRequest) {
 
           for (const order of orders) {
             upsertedOrderCount += 1;
+
+            // ── Token capacity: calculate tokens for this order ──
+            const orderItems = (order.items || []).map((item) => ({
+              category: typeof item.category === "string" ? item.category : "",
+              subcategory: typeof item.subcategory === "string" ? item.subcategory : undefined,
+              productName: typeof item.productName === "string" ? item.productName : undefined,
+              size: typeof item.size === "string" ? item.size : undefined,
+              quantity: typeof item.quantity === "number" ? item.quantity : undefined,
+            }));
+            const tokenForOrder = summarizeProductionTokensByItems(orderItems);
+
+            // Determine difficulty label based on token per item ratio
+            let difficulty: string | null = null;
+            if (tokenForOrder > 0) {
+              const avgToken = orderItems.length > 0 ? tokenForOrder / orderItems.length : tokenForOrder;
+              if (avgToken >= 3) difficulty = "difficult";
+              else if (avgToken >= 2) difficulty = "medium";
+              else difficulty = "simple";
+            }
+
+            // ── Handle token changes for existing orders ──
+            const existingOrder = existingOrderMap.get(order.id);
+            const isActiveStatus = !INACTIVE_STATUSES.includes(order.orderStatus || "");
+            const wasActive = existingOrder
+              ? !INACTIVE_STATUSES.includes(existingOrder.order_status || "")
+              : false;
+
+            // Enforce H-1 cutoff policy in backend as final authority.
+            if (isActiveStatus && order.deliveryDate) {
+              if (isPastDate(order.deliveryDate)) {
+                throw new PastDateError(order.deliveryDate);
+              }
+
+              const capacity = await getCapacityForDate(
+                businessId,
+                order.deliveryDate,
+                tx,
+              );
+              const status = getCalendarStatus({
+                usedToken: capacity.usedToken,
+                maxToken: capacity.maxToken,
+                date: order.deliveryDate,
+              });
+
+              if (status === "CUTOFF") {
+                throw new CapacityCutoffError(order.deliveryDate);
+              }
+            }
+
+            if (existingOrder && existingOrder.delivery_date && existingOrder.token_used > 0 && wasActive) {
+              // Release old tokens if date changed, status changed to inactive, or token amount changed
+              const dateChanged = existingOrder.delivery_date !== (order.deliveryDate || null);
+              const becameInactive = !isActiveStatus;
+              const tokenChanged = existingOrder.token_used !== tokenForOrder;
+
+              if (dateChanged || becameInactive || tokenChanged) {
+                await releaseToken(
+                  businessId,
+                  existingOrder.delivery_date,
+                  existingOrder.token_used,
+                  tx,
+                );
+              }
+            }
+
+            // Consume tokens for active orders with a delivery date
+            let finalTokenUsed = 0;
+            if (isActiveStatus && order.deliveryDate && tokenForOrder > 0) {
+              const shouldConsume = !existingOrder
+                || !wasActive
+                || existingOrder.delivery_date !== (order.deliveryDate || null)
+                || existingOrder.token_used !== tokenForOrder;
+
+              if (shouldConsume) {
+                const consumeResult = await consumeToken(
+                  businessId,
+                  order.deliveryDate,
+                  tokenForOrder,
+                  tx,
+                );
+                if (!consumeResult.success) {
+                  // Capacity full — reject this entire sync
+                  throw new CapacityFullError(
+                    `Production capacity full for ${order.deliveryDate}. ` +
+                    `Used: ${consumeResult.usedToken}/${consumeResult.maxToken}, ` +
+                    `Needed: ${tokenForOrder} for order ${order.id}.`,
+                    order.deliveryDate,
+                    consumeResult.usedToken,
+                    consumeResult.maxToken,
+                    tokenForOrder,
+                  );
+                }
+                finalTokenUsed = tokenForOrder;
+              } else {
+                // No change needed, keep existing token
+                finalTokenUsed = existingOrder?.token_used ?? 0;
+              }
+            }
 
             await tx.$executeRaw`
             INSERT INTO bakery_orders (
@@ -679,6 +859,8 @@ export async function POST(request: NextRequest) {
               status_history,
               automation_logs,
               payment_transactions,
+              difficulty,
+              token_used,
               updated_at
             ) VALUES (
               ${businessId},
@@ -711,6 +893,8 @@ export async function POST(request: NextRequest) {
               ${JSON.stringify(order.statusHistory ?? [])}::jsonb,
               ${JSON.stringify(order.automationLogs ?? [])}::jsonb,
               ${JSON.stringify(order.paymentTransactions ?? [])}::jsonb,
+              ${difficulty},
+              ${finalTokenUsed},
               NOW()
             )
             ON CONFLICT (business_id, external_id)
@@ -743,6 +927,8 @@ export async function POST(request: NextRequest) {
               status_history = EXCLUDED.status_history,
               automation_logs = EXCLUDED.automation_logs,
               payment_transactions = EXCLUDED.payment_transactions,
+              difficulty = EXCLUDED.difficulty,
+              token_used = EXCLUDED.token_used,
               updated_at = NOW()
           `;
 
@@ -797,6 +983,59 @@ export async function POST(request: NextRequest) {
             }
           }
 
+          // Hard reconcile token ledger to guarantee DB consistency.
+          await tx.$executeRaw`
+            WITH active_tokens AS (
+              SELECT
+                delivery_date::date AS delivery_date,
+                GREATEST(0, COALESCE(SUM(token_used), 0))::integer AS used_token
+              FROM bakery_orders
+              WHERE business_id = ${businessId}
+                AND delivery_date IS NOT NULL
+                AND order_status NOT IN (${INACTIVE_STATUSES[0]}, ${INACTIVE_STATUSES[1]}, ${INACTIVE_STATUSES[2]})
+              GROUP BY delivery_date::date
+            )
+            INSERT INTO production_capacity (
+              business_id,
+              date,
+              max_token,
+              used_token,
+              created_at,
+              updated_at
+            )
+            SELECT
+              ${businessId},
+              active_tokens.delivery_date,
+              ${DEFAULT_MAX_TOKEN},
+              LEAST(${DEFAULT_MAX_TOKEN}, active_tokens.used_token),
+              NOW(),
+              NOW()
+            FROM active_tokens
+            ON CONFLICT (business_id, date)
+            DO UPDATE SET
+              used_token = LEAST(
+                production_capacity.max_token,
+                GREATEST(0, EXCLUDED.used_token)
+              ),
+              updated_at = NOW()
+          `;
+
+          await tx.$executeRaw`
+            UPDATE production_capacity pc
+            SET used_token = 0,
+                updated_at = NOW()
+            WHERE pc.business_id = ${businessId}
+              AND NOT EXISTS (
+                SELECT 1
+                FROM bakery_orders bo
+                WHERE bo.business_id = pc.business_id
+                  AND bo.delivery_date IS NOT NULL
+                  AND bo.delivery_date::date = pc.date
+                  AND bo.order_status NOT IN (${INACTIVE_STATUSES[0]}, ${INACTIVE_STATUSES[1]}, ${INACTIVE_STATUSES[2]})
+                  AND bo.token_used > 0
+              )
+          `;
+
           await upsertOrdersSnapshot(tx, {
             businessId,
             userId,
@@ -834,6 +1073,43 @@ export async function POST(request: NextRequest) {
         },
       });
     } catch (rowError) {
+      // ── Handle capacity-full errors with 409 ──
+      if (rowError instanceof CapacityFullError) {
+        return NextResponse.json(
+          {
+            error: "Production capacity full",
+            details: rowError.message,
+            capacity: {
+              date: rowError.date,
+              usedToken: rowError.usedToken,
+              maxToken: rowError.maxToken,
+              tokenNeeded: rowError.tokenNeeded,
+            },
+          },
+          { status: 409 },
+        );
+      }
+
+      if (rowError instanceof CapacityCutoffError) {
+        return NextResponse.json(
+          {
+            error: rowError.message,
+            details: `Tanggal ${rowError.date} termasuk cutoff H-1 setelah jam 10 pagi.`,
+          },
+          { status: 409 },
+        );
+      }
+
+      if (rowError instanceof PastDateError) {
+        return NextResponse.json(
+          {
+            error: "Tanggal sudah terlewat",
+            details: `Tanggal ${rowError.date} berada di masa lalu.`,
+          },
+          { status: 400 },
+        );
+      }
+
       const detail = extractErrorDetails(rowError);
       console.warn(
         "[api/bookings/orders] rows write failed, fallback to snapshot",
@@ -864,6 +1140,42 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (error instanceof AuthError) {
       return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+
+    if (error instanceof CapacityFullError) {
+      return NextResponse.json(
+        {
+          error: "Production capacity full",
+          details: error.message,
+          capacity: {
+            date: error.date,
+            usedToken: error.usedToken,
+            maxToken: error.maxToken,
+            tokenNeeded: error.tokenNeeded,
+          },
+        },
+        { status: 409 },
+      );
+    }
+
+    if (error instanceof CapacityCutoffError) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          details: `Tanggal ${error.date} termasuk cutoff H-1 setelah jam 10 pagi.`,
+        },
+        { status: 409 },
+      );
+    }
+
+    if (error instanceof PastDateError) {
+      return NextResponse.json(
+        {
+          error: "Tanggal sudah terlewat",
+          details: `Tanggal ${error.date} berada di masa lalu.`,
+        },
+        { status: 400 },
+      );
     }
 
     const detail = extractErrorDetails(error);

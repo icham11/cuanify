@@ -24,20 +24,14 @@ import {
 import { id as localeId } from "date-fns/locale";
 import "react-big-calendar/lib/css/react-big-calendar.css";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import { type BakeryOrder, useOrders } from "@/components/bakery/store";
-import {
-  checkSlotAvailability,
-  countConcurrentOrdersByTypeForSlot,
-  getDeliverySlotsForDate,
-  getSlotLimitByOrderType,
-  isDateBlockedForOrdering,
-  inferOrderTypeFromItems,
-  type SlotOrderType,
-} from "@/lib/bookings/operations";
-import { CalendarDays, ChevronLeft, ChevronRight, X } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, X, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { getCalendarStatus, type CalendarStatus } from "@/lib/calendar/getCalendarStatus";
+import { useCalendarCapacity } from "@/hooks/useCalendarCapacity";
+import CalendarCell from "@/components/calendar/CalendarCell";
 
 const locales = { id: localeId };
 
@@ -55,15 +49,8 @@ type CalendarOrderEvent = {
   start: Date;
   end: Date;
   resource:
-    | {
-        source: "internal";
-        order: BakeryOrder;
-      }
-    | {
-        source: "google";
-        htmlLink?: string;
-        status?: string;
-      };
+    | { source: "internal"; order: BakeryOrder }
+    | { source: "google"; htmlLink?: string; status?: string };
 };
 
 type GoogleCalendarApiEvent = {
@@ -74,15 +61,15 @@ type GoogleCalendarApiEvent = {
   start?: { dateTime?: string; date?: string };
   end?: { dateTime?: string; date?: string };
   extendedProperties?: {
-    private?: {
-      bookingId?: string;
-      bookingCode?: string;
-    };
+    private?: { bookingId?: string; bookingCode?: string };
   };
 };
 
 function toDateKey(value: Date) {
-  return format(value, "yyyy-MM-dd");
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function safeToDateKey(value: Date) {
@@ -97,9 +84,7 @@ function safeToDateKey(value: Date) {
 function parseOrderDateTime(deliveryDate?: string, deliverySlot?: string) {
   if (!deliveryDate || !deliveryDate.includes("-")) return null;
   const [year, month, day] = deliveryDate.split("-").map(Number);
-  if (![year, month, day].every((part) => Number.isFinite(part))) {
-    return null;
-  }
+  if (![year, month, day].every((part) => Number.isFinite(part))) return null;
   const [hours, minutes] = (deliverySlot ?? "09:00").split(":").map(Number);
   const parsed = new Date(
     year,
@@ -124,37 +109,22 @@ function statusColor(status: BakeryOrder["orderStatus"]) {
 function getCalendarRange(date: Date, view: View) {
   if (view === Views.WEEK) {
     return {
-      timeMin: startOfWeek(date, { weekStartsOn: 1 }).toISOString(),
-      timeMax: endOfWeek(date, { weekStartsOn: 1 }).toISOString(),
+      start: startOfWeek(date, { weekStartsOn: 1 }),
+      end: endOfWeek(date, { weekStartsOn: 1 }),
     };
   }
-
   return {
-    timeMin: startOfMonth(date).toISOString(),
-    timeMax: endOfMonth(date).toISOString(),
+    start: startOfMonth(date),
+    end: endOfMonth(date),
   };
 }
 
-type DayLoadTone = "normal" | "busy" | "full";
-
-function slotStatusBadge(status: "AVAILABLE" | "ALMOST_FULL" | "FULL"): string {
-  if (status === "FULL") return "FULL";
-  if (status === "ALMOST_FULL") return "ALMOST FULL";
-  return "AVAILABLE";
-}
-
-function slotStatusTextClass(
-  status: "AVAILABLE" | "ALMOST_FULL" | "FULL",
-): string {
-  if (status === "FULL") return "text-rose-800";
-  if (status === "ALMOST_FULL") return "text-amber-800";
-  return "text-emerald-700";
-}
-
-function slotStatusTone(status: "AVAILABLE" | "ALMOST_FULL" | "FULL"): string {
-  if (status === "FULL") return "border-rose-300 bg-rose-100";
-  if (status === "ALMOST_FULL") return "border-amber-300 bg-amber-100";
-  return "border-emerald-200 bg-emerald-50";
+function getCalendarRangeISO(date: Date, view: View) {
+  const range = getCalendarRange(date, view);
+  return {
+    timeMin: range.start.toISOString(),
+    timeMax: range.end.toISOString(),
+  };
 }
 
 function CalendarEventItem({ event }: EventProps<CalendarOrderEvent>) {
@@ -182,7 +152,6 @@ function CalendarToolbar({
         >
           <ChevronLeft className="h-4 w-4" />
         </button>
-
         <button
           type="button"
           onClick={() => onNavigate("NEXT")}
@@ -191,7 +160,6 @@ function CalendarToolbar({
         >
           <ChevronRight className="h-4 w-4" />
         </button>
-
         <button
           type="button"
           onClick={() => onNavigate("TODAY")}
@@ -200,11 +168,9 @@ function CalendarToolbar({
           Today
         </button>
       </div>
-
       <h3 className="text-base font-semibold text-indigo-900 sm:text-lg">
         {label}
       </h3>
-
       <div className="flex items-center gap-2">
         <button
           type="button"
@@ -235,41 +201,83 @@ function CalendarToolbar({
 
 export default function BakeryCalendarPage() {
   const router = useRouter();
-  const { orders, syncOrderCalendar } = useOrders();
+  const { orders } = useOrders();
   const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
   const [isDateOrdersPopupOpen, setIsDateOrdersPopupOpen] = useState(false);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [currentView, setCurrentView] = useState<View>(Views.MONTH);
-  const [syncingIds, setSyncingIds] = useState<string[]>([]);
-  const [isSyncingAll, setIsSyncingAll] = useState(false);
   const [isOAuthLoading, setIsOAuthLoading] = useState(true);
   const [isDisconnectingOAuth, setIsDisconnectingOAuth] = useState(false);
-  const [calendarViewMode, setCalendarViewMode] = useState<
-    "internal" | "google"
-  >("internal");
-  const [listFilterMode, setListFilterMode] = useState<
-    "all" | "needs-sync" | "synced"
-  >("all");
-  const [googleEvents, setGoogleEvents] = useState<GoogleCalendarApiEvent[]>(
-    [],
-  );
+  const [calendarViewMode, setCalendarViewMode] = useState<"internal" | "google">("internal");
+  const [listFilterMode, setListFilterMode] = useState<"all" | "needs-sync" | "synced">("all");
+  const [googleEvents, setGoogleEvents] = useState<GoogleCalendarApiEvent[]>([]);
   const [isLoadingGoogleEvents, setIsLoadingGoogleEvents] = useState(false);
   const [oauthStatus, setOauthStatus] = useState<{
     connected: boolean;
     connectedEmail: string | null;
     calendarId: string | null;
-  }>({
-    connected: false,
-    connectedEmail: null,
-    calendarId: null,
-  });
+  }>({ connected: false, connectedEmail: null, calendarId: null });
 
+  // ─── Token Capacity System ──────────────────────────────────────────────────
+  const calendarRange = useMemo(
+    () => getCalendarRange(currentDate, currentView),
+    [currentDate, currentView],
+  );
+
+  const {
+    getCapacity,
+    isLoading: isCapacityLoading,
+    error: capacityError,
+    refetch: refetchCapacity,
+  } = useCalendarCapacity(calendarRange.start, calendarRange.end);
+
+  const capacitySyncKey = useMemo(() => {
+    return orders
+      .map((order) => `${order.id}:${order.deliveryDate}:${order.orderStatus}:${order.items?.length ?? 0}`)
+      .sort()
+      .join("|");
+  }, [orders]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      refetchCapacity();
+    }, 150);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [capacitySyncKey, refetchCapacity]);
+
+  const statusByDate = useMemo(() => {
+    const result = new Map<string, CalendarStatus>();
+    const now = new Date();
+    const cursor = new Date(calendarRange.start);
+    while (cursor <= calendarRange.end) {
+      const dateKey = safeToDateKey(cursor);
+      if (dateKey) {
+        const capacity = getCapacity(dateKey);
+        const status = getCalendarStatus(
+          { usedToken: capacity.usedToken, maxToken: capacity.maxToken, date: dateKey },
+          now,
+        );
+        result.set(dateKey, status);
+      }
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    return result;
+  }, [calendarRange, getCapacity]);
+
+  const selectedDateKey = selectedDate ? toDateKey(selectedDate) : "";
+  const selectedCapacity = selectedDateKey ? getCapacity(selectedDateKey) : null;
+  const selectedStatus = selectedDateKey
+    ? (statusByDate.get(selectedDateKey) ?? "AVAILABLE")
+    : "AVAILABLE";
+
+  // ─── OAuth ──────────────────────────────────────────────────────────────────
   const loadOAuthStatus = async () => {
     setIsOAuthLoading(true);
     try {
-      const response = await fetch("/api/bookings/google-calendar/status", {
-        cache: "no-store",
-      });
+      const response = await fetch("/api/bookings/google-calendar/status", { cache: "no-store" });
       const payload = (await response.json().catch(() => ({}))) as {
         connected?: boolean;
         connectedEmail?: string | null;
@@ -300,25 +308,16 @@ export default function BakeryCalendarPage() {
       params.delete("gcal");
       params.delete("reason");
       const next = params.toString();
-      window.history.replaceState(
-        {},
-        "",
-        next ? `?${next}` : window.location.pathname,
-      );
+      window.history.replaceState({}, "", next ? `?${next}` : window.location.pathname);
       return;
     }
-
     if (gcal === "error") {
       const reason = params.get("reason") || "unknown";
       toast.error(`Google OAuth failed: ${reason}`);
       params.delete("gcal");
       params.delete("reason");
       const next = params.toString();
-      window.history.replaceState(
-        {},
-        "",
-        next ? `?${next}` : window.location.pathname,
-      );
+      window.history.replaceState({}, "", next ? `?${next}` : window.location.pathname);
     }
   }, []);
 
@@ -330,9 +329,7 @@ export default function BakeryCalendarPage() {
     if (isDisconnectingOAuth) return;
     setIsDisconnectingOAuth(true);
     try {
-      const response = await fetch("/api/bookings/google-calendar/disconnect", {
-        method: "POST",
-      });
+      const response = await fetch("/api/bookings/google-calendar/disconnect", { method: "POST" });
       if (!response.ok) {
         toast.error("Failed to disconnect Google Calendar.");
         return;
@@ -345,30 +342,22 @@ export default function BakeryCalendarPage() {
   };
 
   const fetchGoogleEvents = async (date: Date, view: View) => {
-    const { timeMin, timeMax } = getCalendarRange(date, view);
+    const { timeMin, timeMax } = getCalendarRangeISO(date, view);
     setIsLoadingGoogleEvents(true);
     try {
-      const params = new URLSearchParams({
-        timeMin,
-        timeMax,
-        maxResults: "500",
-      });
+      const params = new URLSearchParams({ timeMin, timeMax, maxResults: "500" });
       const response = await fetch(
         `/api/bookings/google-calendar/events?${params.toString()}`,
-        {
-          cache: "no-store",
-        },
+        { cache: "no-store" },
       );
       const payload = (await response.json().catch(() => ({}))) as {
         events?: GoogleCalendarApiEvent[];
         error?: string;
       };
-
       if (!response.ok) {
         toast.error(payload.error || "Failed to load Google Calendar events.");
         return;
       }
-
       setGoogleEvents(payload.events || []);
     } finally {
       setIsLoadingGoogleEvents(false);
@@ -380,14 +369,13 @@ export default function BakeryCalendarPage() {
     void fetchGoogleEvents(currentDate, currentView);
   }, [calendarViewMode, currentDate, currentView]);
 
+  // ─── Events ─────────────────────────────────────────────────────────────────
   const filteredInternalOrders = useMemo(() => {
     if (listFilterMode === "needs-sync") {
       return orders.filter((order) => !order.simulations?.calendarEventCreated);
     }
     if (listFilterMode === "synced") {
-      return orders.filter((order) =>
-        Boolean(order.simulations?.calendarEventCreated),
-      );
+      return orders.filter((order) => Boolean(order.simulations?.calendarEventCreated));
     }
     return orders;
   }, [orders, listFilterMode]);
@@ -401,44 +389,32 @@ export default function BakeryCalendarPage() {
         title: `${order.customerName} - ${order.items?.[0]?.productName ?? order.product}`,
         start,
         end: addHours(start, 1),
-        resource: {
-          source: "internal",
-          order,
-        },
+        resource: { source: "internal" as const, order },
       };
     });
   }, [filteredInternalOrders]);
 
   const googleCalendarEvents = useMemo<CalendarOrderEvent[]>(() => {
     const mapped: CalendarOrderEvent[] = [];
-
     googleEvents.forEach((event) => {
       const startRaw = event.start?.dateTime || event.start?.date;
       const endRaw = event.end?.dateTime || event.end?.date;
       if (!startRaw) return;
-
       const start = new Date(startRaw);
       const end = endRaw ? new Date(endRaw) : addHours(start, 1);
       if (!Number.isFinite(start.getTime())) return;
-
       mapped.push({
         id: event.id || `google-${startRaw}`,
         title: event.summary || "Google Calendar Event",
         start,
         end,
-        resource: {
-          source: "google",
-          htmlLink: event.htmlLink,
-          status: event.status,
-        },
+        resource: { source: "google" as const, htmlLink: event.htmlLink, status: event.status },
       });
     });
-
     return mapped;
   }, [googleEvents]);
 
-  const events =
-    calendarViewMode === "google" ? googleCalendarEvents : internalEvents;
+  const events = calendarViewMode === "google" ? googleCalendarEvents : internalEvents;
 
   const ordersByDate = useMemo(() => {
     const result = new Map<string, BakeryOrder[]>();
@@ -450,49 +426,22 @@ export default function BakeryCalendarPage() {
     return result;
   }, [filteredInternalOrders]);
 
-  const selectedDateKey = selectedDate ? toDateKey(selectedDate) : "";
-  const isSelectedBlockedDate =
-    Boolean(selectedDateKey) && isDateBlockedForOrdering(selectedDateKey);
-
-  const selectedEvents = selectedDateKey
-    ? events
-        .filter((event) => safeToDateKey(event.start) === selectedDateKey)
-        .sort((a, b) => a.start.getTime() - b.start.getTime())
-    : [];
-
-  const filteredSelectedEvents = selectedEvents.filter((entry) => {
-    if (entry.resource.source !== "internal") return true;
-    if (listFilterMode === "needs-sync") {
-      return !entry.resource.order.simulations?.calendarEventCreated;
-    }
-    if (listFilterMode === "synced") {
-      return Boolean(entry.resource.order.simulations?.calendarEventCreated);
-    }
-    return true;
-  });
-
-  const selectedCount = filteredSelectedEvents.length;
-
   const selectedDateLabel = selectedDate
     ? format(selectedDate, "EEEE, dd MMMM yyyy", { locale: localeId })
     : "Select a date";
 
   const selectedDateOrdersAll = useMemo(() => {
     if (!selectedDateKey) return [];
-
     return orders
       .filter((order) => order.deliveryDate === selectedDateKey)
       .slice()
       .sort((a, b) => a.deliverySlot.localeCompare(b.deliverySlot));
   }, [orders, selectedDateKey]);
 
+  // ─── Stats ──────────────────────────────────────────────────────────────────
   const todayKey = toDateKey(new Date());
-  const internalTodayCount = orders.filter(
-    (order) => order.deliveryDate === todayKey,
-  ).length;
-  const needsSyncCount = orders.filter(
-    (order) => !order.simulations?.calendarEventCreated,
-  ).length;
+  const internalTodayCount = orders.filter((order) => order.deliveryDate === todayKey).length;
+  const needsSyncCount = orders.filter((order) => !order.simulations?.calendarEventCreated).length;
   const googleTodayCount = googleCalendarEvents.filter(
     (entry) => safeToDateKey(entry.start) === todayKey,
   ).length;
@@ -503,153 +452,41 @@ export default function BakeryCalendarPage() {
         .map((event) => event.extendedProperties?.private?.bookingId)
         .filter((value): value is string => Boolean(value)),
     );
-
     if (bookingIdsOnGoogle.size === 0) return null;
-
-    const { timeMin, timeMax } = getCalendarRange(currentDate, currentView);
+    const { timeMin, timeMax } = getCalendarRangeISO(currentDate, currentView);
     const minDate = safeToDateKey(new Date(timeMin));
     const maxDate = safeToDateKey(new Date(timeMax));
     if (!minDate || !maxDate) return null;
-
     return orders.filter((order) => {
-      if (order.deliveryDate < minDate || order.deliveryDate > maxDate) {
-        return false;
-      }
-      if (["Cancelled", "Delivered", "Completed"].includes(order.orderStatus)) {
-        return false;
-      }
+      if (order.deliveryDate < minDate || order.deliveryDate > maxDate) return false;
+      if (["Cancelled", "Delivered", "Completed"].includes(order.orderStatus)) return false;
       return !bookingIdsOnGoogle.has(order.id);
     }).length;
   }, [googleEvents, currentDate, currentView, orders]);
 
-  const dayToneByDate = useMemo(() => {
-    const result = new Map<string, DayLoadTone>();
-    if (calendarViewMode !== "internal") return result;
-
-    const rangeStart =
-      currentView === Views.WEEK
-        ? startOfWeek(currentDate, { weekStartsOn: 1 })
-        : startOfMonth(currentDate);
-    const rangeEnd =
-      currentView === Views.WEEK
-        ? endOfWeek(currentDate, { weekStartsOn: 1 })
-        : endOfMonth(currentDate);
-
-    const cursor = new Date(rangeStart);
-    while (cursor <= rangeEnd) {
-      const dateKey = safeToDateKey(cursor);
-      if (dateKey) {
-        if (isDateBlockedForOrdering(dateKey)) {
-          result.set(dateKey, "full");
-          cursor.setDate(cursor.getDate() + 1);
-          continue;
-        }
-
-        const slots = getDeliverySlotsForDate(dateKey);
-        if (slots.length === 0) {
-          result.set(dateKey, "full");
-          cursor.setDate(cursor.getDate() + 1);
-          continue;
-        }
-        let tone: DayLoadTone = "normal";
-        let allSlotsFullyBlocked = true;
-        for (const slot of slots) {
-          const customStatus = checkSlotAvailability(dateKey, slot, "CUSTOM", {
-            orders,
-          });
-          const seasonalStatus = checkSlotAvailability(
-            dateKey,
-            slot,
-            "SEASONAL",
-            { orders },
-          );
-          const isSlotFullyBlocked =
-            customStatus === "FULL" && seasonalStatus === "FULL";
-          if (!isSlotFullyBlocked) {
-            allSlotsFullyBlocked = false;
-          }
-          if (
-            customStatus === "ALMOST_FULL" ||
-            customStatus === "FULL" ||
-            seasonalStatus === "FULL" ||
-            seasonalStatus === "ALMOST_FULL"
-          ) {
-            tone = "busy";
-          }
-        }
-        if (allSlotsFullyBlocked) {
-          tone = "full";
-        }
-        result.set(dateKey, tone);
-      }
-      cursor.setDate(cursor.getDate() + 1);
+  // ─── Token status message ──────────────────────────────────────────────────
+  const selectedStatusMessage = useMemo(() => {
+    if (!selectedCapacity) return "";
+    switch (selectedStatus) {
+      case "PAST":
+        return "Tanggal sudah terlewat";
+      case "FULL":
+        return "Kapasitas penuh — tidak bisa menerima order baru";
+      case "CUTOFF":
+        return "Closed (H-1) — cutoff jam 10:00 sudah lewat";
+      case "WARNING":
+        return "Hampir penuh — segera capai batas kapasitas";
+      case "AVAILABLE":
+      default:
+        return "Kapasitas masih tersedia";
     }
+  }, [selectedStatus, selectedCapacity]);
 
-    return result;
-  }, [calendarViewMode, currentDate, currentView, orders]);
-
-  const selectedDateSlotBoard = useMemo(() => {
-    if (!selectedDateKey || calendarViewMode !== "internal") return [];
-    const orderTypes: SlotOrderType[] = ["CUSTOM", "SEASONAL"];
-    return getDeliverySlotsForDate(selectedDateKey).map((slot) => {
-      const rows = orderTypes.map((orderType) => {
-        const used = countConcurrentOrdersByTypeForSlot({
-          orders,
-          deliveryDate: selectedDateKey,
-          deliverySlot: slot,
-          orderType,
-        });
-        const status = checkSlotAvailability(selectedDateKey, slot, orderType, {
-          orders,
-        });
-        return {
-          orderType,
-          used,
-          limit: getSlotLimitByOrderType(orderType),
-          status,
-        };
-      });
-      return {
-        slot,
-        rows,
-      };
-    });
-  }, [selectedDateKey, calendarViewMode, orders]);
-
-  const selectedDateOverallStatus = useMemo<
-    "AVAILABLE" | "ALMOST_FULL" | "FULL"
-  >(() => {
-    if (isSelectedBlockedDate) return "FULL";
-    if (selectedDateSlotBoard.length === 0) return "AVAILABLE";
-
-    let hasLoadWarning = false;
-    let allRowsFull = true;
-    for (const slot of selectedDateSlotBoard) {
-      for (const row of slot.rows) {
-        if (row.status !== "FULL") {
-          allRowsFull = false;
-        }
-        if (row.status === "ALMOST_FULL" || row.status === "FULL") {
-          hasLoadWarning = true;
-        }
-      }
-    }
-
-    if (allRowsFull) return "FULL";
-    if (hasLoadWarning) return "ALMOST_FULL";
-
-    return "AVAILABLE";
-  }, [isSelectedBlockedDate, selectedDateSlotBoard]);
-
-  const slotMessage = isSelectedBlockedDate
-    ? "Tanggal ini tertutup (libur admin atau cutoff H-1 jam 10:00 sudah lewat)"
-    : selectedDateOverallStatus === "FULL"
-      ? "Semua slot penuh total"
-      : selectedDateOverallStatus === "ALMOST_FULL"
-        ? "Warning: ada kategori slot yang penuh / hampir penuh"
-        : "Slot masih tersedia";
-
+  // ─── Handlers ───────────────────────────────────────────────────────────────
   const openDateOrdersPopup = (date: Date) => {
+    const dateKey = toDateKey(date);
+    const status = statusByDate.get(dateKey) ?? "AVAILABLE";
+    if (status === "PAST" || status === "FULL" || status === "CUTOFF") return;
     setSelectedDate(date);
     setIsDateOrdersPopupOpen(true);
   };
@@ -657,82 +494,38 @@ export default function BakeryCalendarPage() {
   const DateHeader = ({ date, label }: DateHeaderProps) => {
     const dateKey = safeToDateKey(date);
     const count = dateKey ? (ordersByDate.get(dateKey)?.length ?? 0) : 0;
-    const isBlockedDate = dateKey ? isDateBlockedForOrdering(dateKey) : false;
+    const capacity = dateKey
+      ? getCapacity(dateKey)
+      : { usedToken: 0, maxToken: 600, date: dateKey };
+    const status = dateKey ? (statusByDate.get(dateKey) ?? "AVAILABLE") : "AVAILABLE";
+
     return (
-      <div className="flex flex-col">
-        <button
-          type="button"
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            openDateOrdersPopup(date);
-          }}
-          className="w-fit rounded px-1 text-xs font-semibold text-gray-700 transition hover:bg-indigo-50 hover:text-indigo-700"
-        >
-          {label}
-        </button>
-        {count > 0 && (
-          <span className="text-[10px] font-semibold text-indigo-600">
-            {count} orders
-          </span>
-        )}
-        {isBlockedDate && (
-          <span className="text-[10px] font-semibold text-rose-600">
-            BLOCKED
-          </span>
-        )}
-      </div>
+      <CalendarCell
+        label={label}
+        date={date}
+        usedToken={capacity.usedToken}
+        maxToken={capacity.maxToken}
+        status={status}
+        orderCount={count}
+        onDateClick={openDateOrdersPopup}
+      />
     );
   };
 
-  const handleSyncSingle = async (orderId: string) => {
-    if (syncingIds.includes(orderId)) return;
-    setSyncingIds((prev) => [...prev, orderId]);
-    try {
-      await syncOrderCalendar(orderId);
-    } finally {
-      setSyncingIds((prev) => prev.filter((id) => id !== orderId));
-    }
-  };
-
-  const handleSyncAllSelectedDate = async () => {
-    if (calendarViewMode !== "internal") {
-      toast.message("Mode Google tidak membutuhkan re-sync internal.");
-      return;
-    }
-
-    const selectedOrders = filteredSelectedEvents.flatMap((entry) =>
-      entry.resource.source === "internal" ? [entry.resource.order] : [],
-    );
-
-    if (!selectedOrders.length || isSyncingAll) return;
-    setIsSyncingAll(true);
-    try {
-      for (const order of selectedOrders) {
-        await syncOrderCalendar(order.id);
-      }
-      toast.success("Semua order pada tanggal terpilih berhasil di-sync.");
-    } catch {
-      toast.error("Sebagian sync gagal. Coba ulang untuk order tertentu.");
-    } finally {
-      setIsSyncingAll(false);
-    }
-  };
-
+  // ─── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6 pb-10">
       <GradientPageHeader
         title="Delivery Calendar"
-        description="Visual scheduling board for delivery workload, slot load, and quick booking navigation."
+        description="Visual scheduling board for delivery workload, token capacity, and quick booking navigation."
         icon={CalendarDays}
       />
 
+      {/* Google Calendar Account Card */}
       <Card className="rounded-xl border-indigo-100 shadow-sm">
         <CardContent className="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
           <div className="text-sm">
-            <p className="font-semibold text-gray-900">
-              Google Calendar Account
-            </p>
+            <p className="font-semibold text-gray-900">Google Calendar Account</p>
             <p className="text-xs text-gray-600">
               {isOAuthLoading
                 ? "Checking OAuth status..."
@@ -772,9 +565,7 @@ export default function BakeryCalendarPage() {
               className="border-indigo-200 text-indigo-700 hover:bg-indigo-50"
               onClick={connectGoogleCalendar}
             >
-              {oauthStatus.connected
-                ? "Reconnect OAuth"
-                : "Connect Google OAuth"}
+              {oauthStatus.connected ? "Reconnect OAuth" : "Connect Google OAuth"}
             </Button>
             {oauthStatus.connected ? (
               <Button
@@ -791,6 +582,7 @@ export default function BakeryCalendarPage() {
         </CardContent>
       </Card>
 
+      {/* Stats Bar */}
       <Card className="rounded-xl border-indigo-100 shadow-sm">
         <CardContent className="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
           <div className="flex flex-wrap gap-2 text-xs font-semibold">
@@ -809,20 +601,49 @@ export default function BakeryCalendarPage() {
                 : `Mismatch in view: ${mismatchCount}`}
             </span>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            className="border-indigo-200 text-indigo-700 hover:bg-indigo-50"
-            onClick={() => void fetchGoogleEvents(currentDate, currentView)}
-            disabled={isLoadingGoogleEvents}
-          >
-            {isLoadingGoogleEvents
-              ? "Refreshing..."
-              : "Refresh Google Snapshot"}
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+              onClick={() => void fetchGoogleEvents(currentDate, currentView)}
+              disabled={isLoadingGoogleEvents}
+            >
+              {isLoadingGoogleEvents ? "Refreshing..." : "Refresh Google Snapshot"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+              onClick={refetchCapacity}
+              disabled={isCapacityLoading}
+            >
+              {isCapacityLoading ? "Loading..." : "Refresh Capacity"}
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
+      {/* Capacity Error Banner */}
+      {capacityError ? (
+        <Card className="rounded-xl border-rose-200 bg-rose-50 shadow-sm">
+          <CardContent className="px-6 py-3">
+            <p className="text-sm font-medium text-rose-700">
+              Failed to load capacity data: {capacityError}
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              className="mt-2 border-rose-200 text-rose-700 hover:bg-rose-100"
+              onClick={refetchCapacity}
+            >
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {/* Quick Navigation + Filters */}
       <Card className="rounded-xl border-indigo-100 shadow-sm">
         <CardContent className="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
           <div className="flex flex-wrap gap-2">
@@ -847,7 +668,6 @@ export default function BakeryCalendarPage() {
               Tomorrow
             </Button>
           </div>
-
           {calendarViewMode === "internal" ? (
             <div className="flex flex-wrap gap-2">
               <Button
@@ -864,9 +684,7 @@ export default function BakeryCalendarPage() {
               </Button>
               <Button
                 type="button"
-                variant={
-                  listFilterMode === "needs-sync" ? "default" : "outline"
-                }
+                variant={listFilterMode === "needs-sync" ? "default" : "outline"}
                 className={
                   listFilterMode === "needs-sync"
                     ? "bg-amber-600 text-white hover:bg-amber-700"
@@ -893,6 +711,17 @@ export default function BakeryCalendarPage() {
         </CardContent>
       </Card>
 
+      {/* Loading State */}
+      {isCapacityLoading ? (
+        <Card className="rounded-xl border-indigo-100 shadow-sm">
+          <CardContent className="flex items-center justify-center gap-3 px-6 py-8">
+            <Loader2 className="h-5 w-5 animate-spin text-indigo-500" />
+            <p className="text-sm font-medium text-indigo-600">Loading capacity data...</p>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {/* Calendar */}
       <Card className="rounded-xl border-indigo-100 shadow-sm">
         <CardContent className="px-3 pb-4 pt-4 sm:px-6 sm:pb-6 sm:pt-6">
           <Calendar
@@ -917,13 +746,8 @@ export default function BakeryCalendarPage() {
                 router.push(`/bakery/bookings/${event.resource.order.id}`);
                 return;
               }
-
               if (event.resource.htmlLink) {
-                window.open(
-                  event.resource.htmlLink,
-                  "_blank",
-                  "noopener,noreferrer",
-                );
+                window.open(event.resource.htmlLink, "_blank", "noopener,noreferrer");
               }
             }}
             eventPropGetter={(event) => ({
@@ -940,17 +764,12 @@ export default function BakeryCalendarPage() {
             })}
             dayPropGetter={(date) => {
               const dateKey = toDateKey(date);
-              if (isDateBlockedForOrdering(dateKey)) {
-                return { className: "rbc-day-blocked" };
-              }
+              const status = statusByDate.get(dateKey) ?? "AVAILABLE";
 
-              const tone = dayToneByDate.get(dateKey) ?? "normal";
-              if (tone === "full") {
-                return { className: "rbc-day-full" };
-              }
-              if (tone === "busy") {
-                return { className: "rbc-day-busy" };
-              }
+              if (status === "PAST") return { className: "rbc-day-past" };
+              if (status === "FULL") return { className: "rbc-day-full" };
+              if (status === "CUTOFF") return { className: "rbc-day-cutoff" };
+              if (status === "WARNING") return { className: "rbc-day-warning" };
               return { className: "rbc-day-normal" };
             }}
             components={{
@@ -963,64 +782,47 @@ export default function BakeryCalendarPage() {
             className="rounded-xl"
           />
 
+          {/* Legend */}
           <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-gray-500">
             <span className="inline-flex items-center gap-1">
-              <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /> Slot
-              available
+              <span className="h-2.5 w-2.5 rounded-full bg-gray-400" /> Passed
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="h-2.5 w-2.5 rounded-full bg-amber-500" /> Slot
-              almost full
+              <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /> Available
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="h-2.5 w-2.5 rounded-full bg-rose-500" /> Slot
-              full
+              <span className="h-2.5 w-2.5 rounded-full bg-amber-500" /> Almost Full (≥80%)
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="h-2.5 w-2.5 rounded-full bg-rose-300" /> Hari
-              libur
+              <span className="h-2.5 w-2.5 rounded-full bg-red-500" /> Full (100%)
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="h-2.5 w-2.5 rounded-full bg-rose-300" /> Closed (H-1)
             </span>
           </div>
 
           <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-gray-500">
             <span className="inline-flex items-center gap-1">
-              <span
-                className="h-2.5 w-2.5 rounded-full"
-                style={{ backgroundColor: "#2563eb" }}
-              />{" "}
-              Confirmed
+              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: "#2563eb" }} /> Confirmed
             </span>
             <span className="inline-flex items-center gap-1">
-              <span
-                className="h-2.5 w-2.5 rounded-full"
-                style={{ backgroundColor: "#f97316" }}
-              />{" "}
-              In Production
+              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: "#f97316" }} /> In Production
             </span>
             <span className="inline-flex items-center gap-1">
-              <span
-                className="h-2.5 w-2.5 rounded-full"
-                style={{ backgroundColor: "#7c3aed" }}
-              />{" "}
-              Ready
+              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: "#7c3aed" }} /> Ready
             </span>
             <span className="inline-flex items-center gap-1">
-              <span
-                className="h-2.5 w-2.5 rounded-full"
-                style={{ backgroundColor: "#16a34a" }}
-              />{" "}
-              Delivered
+              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: "#16a34a" }} /> Delivered
             </span>
           </div>
 
           {calendarViewMode === "google" && isLoadingGoogleEvents ? (
-            <p className="mt-2 text-xs text-indigo-600">
-              Loading Google Calendar events...
-            </p>
+            <p className="mt-2 text-xs text-indigo-600">Loading Google Calendar events...</p>
           ) : null}
         </CardContent>
       </Card>
 
+      {/* Date Orders Popup */}
       {isDateOrdersPopupOpen ? (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4"
@@ -1035,15 +837,48 @@ export default function BakeryCalendarPage() {
           >
             <div className="flex items-start justify-between border-b border-gray-100 px-5 py-4">
               <div>
-                <h3
-                  id="date-orders-popup-title"
-                  className="text-base font-semibold text-gray-900"
-                >
+                <h3 id="date-orders-popup-title" className="text-base font-semibold text-gray-900">
                   Orders on {selectedDateLabel}
                 </h3>
-                <p className="mt-1 text-xs text-gray-500">
-                  {selectedDateOrdersAll.length} order(s)
-                </p>
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <p className="text-xs text-gray-500">
+                    {selectedDateOrdersAll.length} order(s)
+                  </p>
+                  {selectedCapacity ? (
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                        selectedStatus === "PAST"
+                          ? "bg-gray-200 text-gray-700"
+                          : selectedStatus === "FULL"
+                          ? "bg-red-100 text-red-700"
+                          : selectedStatus === "WARNING"
+                            ? "bg-amber-100 text-amber-700"
+                            : selectedStatus === "CUTOFF"
+                              ? "bg-rose-100 text-rose-700"
+                              : "bg-emerald-100 text-emerald-700"
+                      }`}
+                    >
+                      {selectedCapacity.usedToken} / {selectedCapacity.maxToken} token used
+                    </span>
+                  ) : null}
+                </div>
+                {selectedStatusMessage ? (
+                  <p
+                    className={`mt-1 text-xs font-medium ${
+                      selectedStatus === "PAST"
+                        ? "text-gray-600"
+                        : selectedStatus === "FULL"
+                        ? "text-red-600"
+                        : selectedStatus === "WARNING"
+                          ? "text-amber-600"
+                          : selectedStatus === "CUTOFF"
+                            ? "text-rose-600"
+                            : "text-emerald-600"
+                    }`}
+                  >
+                    {selectedStatusMessage}
+                  </p>
+                ) : null}
               </div>
               <button
                 type="button"
@@ -1065,245 +900,39 @@ export default function BakeryCalendarPage() {
                   Tidak ada order pada tanggal ini.
                 </div>
               ) : (
-                selectedDateOrdersAll.map((order) => {
-                  const orderType = inferOrderTypeFromItems(order.items || []);
-                  const isSeasonal = orderType === "SEASONAL";
-
-                  return (
-                    <button
-                      key={order.id}
-                      type="button"
-                      className="flex w-full flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-100 bg-gray-50/70 px-4 py-3 text-left transition hover:border-indigo-200 hover:bg-indigo-50/50"
-                      onClick={() => {
-                        setIsDateOrdersPopupOpen(false);
-                        router.push(`/bakery/bookings/${order.id}`);
-                      }}
+                selectedDateOrdersAll.map((order) => (
+                  <button
+                    key={order.id}
+                    type="button"
+                    className="flex w-full flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-100 bg-gray-50/70 px-4 py-3 text-left transition hover:border-indigo-200 hover:bg-indigo-50/50"
+                    onClick={() => {
+                      setIsDateOrdersPopupOpen(false);
+                      router.push(`/bakery/bookings/${order.id}`);
+                    }}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-semibold text-gray-900">
+                        {order.customerName}
+                      </p>
+                      <p className="mt-1 truncate text-xs text-gray-500">
+                        {order.items?.[0]?.productName ?? order.product} - {order.deliverySlot || "-"}
+                      </p>
+                    </div>
+                    <span
+                      className="rounded-full px-3 py-1 text-xs font-semibold text-white"
+                      style={{ backgroundColor: statusColor(order.orderStatus) }}
                     >
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <p className="truncate font-semibold text-gray-900">
-                            {order.customerName}
-                          </p>
-                          <span
-                            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                              isSeasonal
-                                ? "bg-amber-100 text-amber-700"
-                                : "bg-sky-100 text-sky-700"
-                            }`}
-                          >
-                            {isSeasonal ? "Seasonal Order" : "Custom Order"}
-                          </span>
-                        </div>
-                        <p className="mt-1 truncate text-xs text-gray-500">
-                          {order.items?.[0]?.productName ?? order.product} -{" "}
-                          {order.deliverySlot || "-"}
-                        </p>
-                      </div>
-                      <span
-                        className="rounded-full px-3 py-1 text-xs font-semibold text-white"
-                        style={{
-                          backgroundColor: statusColor(order.orderStatus),
-                        }}
-                      >
-                        {order.orderStatus}
-                      </span>
-                    </button>
-                  );
-                })
+                      {order.orderStatus}
+                    </span>
+                  </button>
+                ))
               )}
             </div>
           </div>
         </div>
       ) : null}
 
-      <Card className="hidden rounded-xl shadow-sm">
-        <CardHeader className="p-6 pb-2">
-          <CardTitle>Orders on {selectedDateLabel}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2 px-6 pb-6 pt-0">
-          {!selectedDate ? (
-            <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/60 px-4 py-5 text-sm text-gray-500">
-              Click a date in the calendar to view its delivery schedule.
-            </div>
-          ) : filteredSelectedEvents.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/60 px-4 py-5 text-sm text-gray-500">
-              No entries match current filters on this date.
-            </div>
-          ) : (
-            <>
-              <div className="mb-3 grid grid-cols-1 gap-3 rounded-xl border border-indigo-100 bg-indigo-50/60 p-4 text-sm sm:grid-cols-2">
-                <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-indigo-500">
-                    Total Orders
-                  </p>
-                  <p className="mt-1 text-xl font-bold text-indigo-900">
-                    {selectedCount}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-indigo-500">
-                    Capacity Status
-                  </p>
-                  <p
-                    className={`mt-1 text-sm font-semibold ${slotStatusTextClass(selectedDateOverallStatus)}`}
-                  >
-                    {slotMessage}
-                  </p>
-                </div>
-              </div>
-
-              {calendarViewMode === "internal" &&
-              selectedDateSlotBoard.length > 0 ? (
-                <div className="mb-3 rounded-xl border border-gray-200 bg-gray-50/60 p-4">
-                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                      Slot Availability Board
-                    </p>
-                    <span
-                      className={`text-xs font-semibold ${slotStatusTextClass(selectedDateOverallStatus)}`}
-                    >
-                      {slotStatusBadge(selectedDateOverallStatus)}
-                    </span>
-                  </div>
-
-                  <div className="space-y-2">
-                    {selectedDateSlotBoard.map((slotEntry) => (
-                      <div
-                        key={slotEntry.slot}
-                        className="rounded-lg border border-gray-200 bg-white px-3 py-2"
-                      >
-                        <p className="text-xs font-semibold text-gray-600">
-                          {slotEntry.slot}
-                        </p>
-                        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                          {slotEntry.rows.map((row) => (
-                            <div
-                              key={row.orderType}
-                              className={`rounded-lg border px-3 py-2 ${slotStatusTone(row.status)}`}
-                            >
-                              <div className="flex items-center justify-between">
-                                <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-700">
-                                  {row.orderType === "SEASONAL"
-                                    ? "Seasonal"
-                                    : "Custom"}
-                                </span>
-                                <span
-                                  className={`text-[11px] font-bold ${slotStatusTextClass(row.status)}`}
-                                >
-                                  {slotStatusBadge(row.status)}
-                                </span>
-                              </div>
-                              <p className="mt-1 text-[11px] text-gray-600">
-                                {row.used}/{row.limit} orders
-                              </p>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-
-              <div className="mb-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="border-indigo-200 text-indigo-700 hover:bg-indigo-50"
-                  onClick={handleSyncAllSelectedDate}
-                  disabled={
-                    calendarViewMode !== "internal" ||
-                    !filteredSelectedEvents.length ||
-                    isSyncingAll
-                  }
-                >
-                  {isSyncingAll
-                    ? "Syncing..."
-                    : "Re-sync Calendar for Selected Date"}
-                </Button>
-              </div>
-
-              {filteredSelectedEvents.map((entry) => {
-                if (entry.resource.source === "google") {
-                  return (
-                    <div
-                      key={entry.id}
-                      className="flex w-full flex-wrap items-center justify-between gap-2 rounded-xl border border-sky-100 bg-sky-50/50 px-4 py-3 text-left text-sm"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <p className="font-semibold text-gray-900">
-                          {entry.title}
-                        </p>
-                        <p className="text-xs text-gray-500">
-                          {format(entry.start, "HH:mm")} -{" "}
-                          {format(entry.end, "HH:mm")}
-                        </p>
-                      </div>
-                      {entry.resource.htmlLink ? (
-                        <a
-                          href={entry.resource.htmlLink}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex h-8 items-center justify-center rounded-lg border border-sky-200 px-3 text-xs font-semibold text-sky-700 hover:bg-sky-100"
-                        >
-                          Open
-                        </a>
-                      ) : null}
-                    </div>
-                  );
-                }
-
-                const order = entry.resource.order;
-                const isSyncing = syncingIds.includes(order.id);
-
-                return (
-                  <div
-                    key={entry.id}
-                    className="flex w-full flex-wrap items-center justify-between gap-2 rounded-xl border border-gray-100 bg-gray-50/60 px-4 py-3 text-left text-sm transition hover:border-indigo-200 hover:bg-indigo-50/40"
-                  >
-                    <button
-                      type="button"
-                      onClick={() =>
-                        router.push(`/bakery/bookings/${order.id}`)
-                      }
-                      className="min-w-0 flex-1 text-left"
-                    >
-                      <p className="font-semibold text-gray-900">
-                        {order.customerName}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        {order.items?.[0]?.productName ?? order.product} -{" "}
-                        {order.deliverySlot}
-                      </p>
-                    </button>
-
-                    <div className="flex items-center gap-2">
-                      <span
-                        className="rounded-full px-3 py-1 text-xs font-semibold text-white"
-                        style={{
-                          backgroundColor: statusColor(order.orderStatus),
-                        }}
-                      >
-                        {order.orderStatus}
-                      </span>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="h-8 border-indigo-200 px-3 text-xs text-indigo-700 hover:bg-indigo-50"
-                        onClick={() => void handleSyncSingle(order.id)}
-                        disabled={isSyncing || isSyncingAll}
-                      >
-                        {isSyncing ? "Syncing..." : "Re-sync"}
-                      </Button>
-                    </div>
-                  </div>
-                );
-              })}
-            </>
-          )}
-        </CardContent>
-      </Card>
-
+      {/* Global Styles */}
       <style jsx global>{`
         .rbc-calendar {
           font-family: inherit;
@@ -1328,15 +957,19 @@ export default function BakeryCalendarPage() {
           background: #ffffff;
         }
 
-        .rbc-day-busy {
+        .rbc-day-warning {
           background: #fffbeb;
         }
 
-        .rbc-day-full {
-          background: #fff1f2;
+        .rbc-day-past {
+          background: #f3f4f6;
         }
 
-        .rbc-day-blocked {
+        .rbc-day-full {
+          background: #fef2f2;
+        }
+
+        .rbc-day-cutoff {
           background: repeating-linear-gradient(
             -45deg,
             #fff1f2,

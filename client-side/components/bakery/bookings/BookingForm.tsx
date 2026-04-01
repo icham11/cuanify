@@ -72,6 +72,8 @@ import {
   type DeliveryMethod,
   usesShippingEngine,
 } from "@/lib/bookings/delivery-rules";
+import { useCalendarCapacity } from "@/hooks/useCalendarCapacity";
+import { getCalendarStatus, isPastDate } from "@/lib/calendar/getCalendarStatus";
 import type {
   ShippingQuote,
   ShippingQuoteItemInput,
@@ -172,6 +174,18 @@ interface ParseWhatsAppApiResponse {
   warnings?: string[];
   visionRawOutput?: string | null;
   error?: string;
+}
+
+interface CapacitySingleDateResponse {
+  success?: boolean;
+  error?: string;
+  data?: {
+    date?: string;
+    usedToken?: number;
+    maxToken?: number;
+    isAvailable?: boolean;
+    tokenNeeded?: number;
+  };
 }
 
 const whatsappOrderTypeOptions: Array<{
@@ -360,6 +374,7 @@ export default function BookingForm() {
   );
   const [shippingWarning, setShippingWarning] = useState("");
   const [isCheckingShipping, setIsCheckingShipping] = useState(false);
+  const [isCapacityValidating, setIsCapacityValidating] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [submitSuccess, setSubmitSuccess] = useState("");
 
@@ -434,6 +449,49 @@ export default function BookingForm() {
   const manualAdjustment = useWatch({ control, name: "manualAdjustment" }) ?? 0;
   const dpPaidInput = useWatch({ control, name: "dpPaidAmount" }) ?? 0;
   const finalPaidInput = useWatch({ control, name: "finalPaidAmount" }) ?? 0;
+
+  const selectedCalendarDate = useMemo(() => {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(deliveryDate)) {
+      return new Date(`${deliveryDate}T00:00:00`);
+    }
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  }, [deliveryDate]);
+
+  const {
+    getCapacity: getCalendarCapacity,
+    isLoading: isCalendarCapacityLoading,
+  } = useCalendarCapacity(selectedCalendarDate, selectedCalendarDate);
+
+  const selectedCalendarStatus = useMemo(() => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(deliveryDate)) {
+      return "AVAILABLE" as const;
+    }
+    const selectedCapacity = getCalendarCapacity(deliveryDate);
+    return getCalendarStatus({
+      usedToken: selectedCapacity.usedToken,
+      maxToken: selectedCapacity.maxToken,
+      date: deliveryDate,
+    });
+  }, [deliveryDate, getCalendarCapacity]);
+
+  const calendarDateError = useMemo(() => {
+    if (selectedCalendarStatus === "PAST") {
+      return "Tanggal sudah terlewat";
+    }
+    if (selectedCalendarStatus === "FULL") {
+      return "Tanggal sudah penuh";
+    }
+    if (selectedCalendarStatus === "CUTOFF") {
+      return "Pemesanan H-1 sudah ditutup (setelah jam 10 pagi)";
+    }
+    return "";
+  }, [selectedCalendarStatus]);
+
+  const isCalendarDateInvalid =
+    selectedCalendarStatus === "PAST" ||
+    selectedCalendarStatus === "FULL" ||
+    selectedCalendarStatus === "CUTOFF";
 
   const basePrice = useMemo(() => {
     return watchedItems.reduce((sum, item) => {
@@ -799,6 +857,17 @@ export default function BookingForm() {
       );
       return;
     }
+
+    if (isCalendarDateInvalid) {
+      toast.error(calendarDateError || "Tanggal dipilih tidak tersedia.");
+      return;
+    }
+
+    if (isPastDate(values.deliveryDate)) {
+      toast.error("Tanggal sudah terlewat");
+      return;
+    }
+
     if (!isWithinBusinessHours(values.deliveryDate, values.deliverySlot)) {
       toast.error(
         "Selected slot is outside business hours (Mon-Sat 10:00-22:00, Sun 10:00-15:00).",
@@ -842,6 +911,52 @@ export default function BookingForm() {
       values.deliveryDate,
     );
     const incomingTokens = summarizeProductionTokensByItems(values.items);
+
+    setIsCapacityValidating(true);
+    try {
+      const params = new URLSearchParams({
+        date: values.deliveryDate,
+        tokenNeeded: String(incomingTokens),
+      });
+      const response = await fetch(
+        `/api/bookings/capacity?${params.toString()}`,
+        {
+          cache: "no-store",
+        },
+      );
+      const payload = (await response
+        .json()
+        .catch(() => ({}))) as CapacitySingleDateResponse;
+
+      if (!response.ok || !payload.success || !payload.data) {
+        throw new Error(payload.error || "Gagal validasi kapasitas produksi.");
+      }
+
+      const status = getCalendarStatus({
+        usedToken: Number(payload.data.usedToken) || 0,
+        maxToken: Number(payload.data.maxToken) || 600,
+        date: values.deliveryDate,
+      });
+
+      if (status === "FULL") {
+        throw new Error("Tanggal sudah penuh");
+      }
+
+      if (status === "PAST") {
+        throw new Error("Tanggal sudah terlewat");
+      }
+
+      if (status === "CUTOFF") {
+        throw new Error("Pemesanan H-1 sudah ditutup (setelah jam 10 pagi)");
+      }
+
+      if (payload.data.isAvailable === false) {
+        throw new Error("Slot produksi sudah penuh");
+      }
+    } finally {
+      setIsCapacityValidating(false);
+    }
+
     const plannedTokens = existingTokens + incomingTokens;
     if (plannedTokens > DAILY_PRODUCTION_TOKEN_LIMIT) {
       toast.error(
@@ -1372,6 +1487,16 @@ export default function BookingForm() {
                     {errors.deliveryDate.message}
                   </span>
                 )}
+                {deliveryDate && isCalendarCapacityLoading ? (
+                  <span className="text-xs text-slate-500">
+                    Mengecek kapasitas produksi...
+                  </span>
+                ) : null}
+                {deliveryDate && calendarDateError ? (
+                  <span className="text-xs font-medium text-rose-600">
+                    {calendarDateError}
+                  </span>
+                ) : null}
                 <div className="rounded-lg border border-amber-200 bg-amber-50 p-2">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">
                     Kalender Libur
@@ -2128,12 +2253,18 @@ export default function BookingForm() {
                 className="gap-2 bg-indigo-600 text-white hover:bg-indigo-700 focus-visible:ring-indigo-500"
                 disabled={
                   isSubmitting ||
+                  isCapacityValidating ||
                   isCheckingShipping ||
                   isBlockedDate ||
-                  isSlotFull
+                  isSlotFull ||
+                  isCalendarDateInvalid
                 }
               >
-                {isSubmitting ? "Saving Booking..." : "Create Booking"}
+                {isSubmitting
+                  ? "Saving Booking..."
+                  : isCapacityValidating
+                    ? "Validating Capacity..."
+                    : "Create Booking"}
               </Button>
               <Button
                 variant="outline"
