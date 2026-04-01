@@ -33,6 +33,48 @@ import {
 } from "@/lib/bookings/config";
 import { estimateOperationalWeightGram } from "@/lib/bookings/delivery-rules";
 
+type TokenDifficulty = "SIMPLE" | "MEDIUM" | "DIFFICULT";
+
+function resolveItemDifficulty(item: {
+  category: string;
+  tokenDifficulty?: TokenDifficulty;
+}): TokenDifficulty {
+  if (item.tokenDifficulty) return item.tokenDifficulty;
+  if (item.category === "Cake" || item.category === "Cookies Tower") {
+    return "DIFFICULT";
+  }
+  if (item.category === "Buket" || item.category === "Cupcakes") {
+    return "MEDIUM";
+  }
+  return "SIMPLE";
+}
+
+function getDifficultyMeta(value: TokenDifficulty): {
+  label: string;
+  token: number;
+  className: string;
+} {
+  if (value === "DIFFICULT") {
+    return {
+      label: "Difficult",
+      token: 3,
+      className: "border-rose-200 bg-rose-50 text-rose-700",
+    };
+  }
+  if (value === "MEDIUM") {
+    return {
+      label: "Medium",
+      token: 2,
+      className: "border-amber-200 bg-amber-50 text-amber-700",
+    };
+  }
+  return {
+    label: "Simple",
+    token: 1,
+    className: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  };
+}
+
 export default function OrderDetailPage() {
   const {
     orders,
@@ -99,6 +141,14 @@ export default function OrderDetailPage() {
   const isSlotFull = slotUsage >= slotLimitPerHour;
 
   const totalPrice = order?.totalPrice ?? 0;
+  const totalWorkloadTokens = useMemo(() => {
+    if (!order) return 0;
+    return (order.items ?? []).reduce((sum, item) => {
+      const difficulty = resolveItemDifficulty(item);
+      const tokenPerUnit = getDifficultyMeta(difficulty).token;
+      return sum + tokenPerUnit * Math.max(0, Number(item.quantity) || 0);
+    }, 0);
+  }, [order]);
   const messagePreview = order ? getCustomerMessagePreview(order.id) : "";
   const calendarSyncStatus = order?.simulations?.calendarEventCreated
     ? "Synced"
@@ -529,14 +579,41 @@ export default function OrderDetailPage() {
             </CardHeader>
             <CardContent className="space-y-2 px-6 pb-6 pt-0 text-sm text-gray-700">
               <div>
-                <p className="mb-1 font-semibold">Items:</p>
-                <div className="space-y-1">
-                  {(order.items ?? []).map((item) => (
-                    <p key={item.id}>
-                      {item.quantity}x {item.productName} ({item.category} /{" "}
-                      {item.subcategory} / {item.size})
-                    </p>
-                  ))}
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <p className="font-semibold">Items:</p>
+                  <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-700">
+                    Total workload {totalWorkloadTokens} token
+                  </span>
+                </div>
+                <div className="space-y-2">
+                  {(order.items ?? []).map((item) => {
+                    const difficulty = resolveItemDifficulty(item);
+                    const meta = getDifficultyMeta(difficulty);
+                    const quantity = Math.max(0, Number(item.quantity) || 0);
+                    const itemTokens = quantity * meta.token;
+
+                    return (
+                      <div
+                        key={item.id}
+                        className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2"
+                      >
+                        <p className="font-medium text-gray-800">
+                          {item.quantity}x {item.productName} ({item.category} /{" "}
+                          {item.subcategory} / {item.size})
+                        </p>
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                          <span
+                            className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${meta.className}`}
+                          >
+                            {meta.label} ({meta.token} token/unit)
+                          </span>
+                          <span className="text-[11px] font-medium text-gray-500">
+                            Item workload: {itemTokens} token
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
               <p>
