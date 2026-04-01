@@ -45,6 +45,7 @@ import {
   DAILY_PRODUCTION_TOKEN_LIMIT,
   checkSlotAvailability,
   countConcurrentOrdersByTypeForSlot,
+  evaluateProductionTokenCapacity,
   getSlotLimitByOrderType,
   getCapacityOverflows,
   getDeliverySlotsForDate,
@@ -53,8 +54,6 @@ import {
   isDateBlockedForOrdering,
   summarizeCapacityByItems,
   summarizeCapacityByOrdersForDate,
-  summarizeProductionTokensByItems,
-  summarizeProductionTokensByOrdersForDate,
   type SlotAvailabilityStatus,
   type SlotOrderType,
   type CapacityBucket,
@@ -605,20 +604,25 @@ export default function BookingForm() {
     return summarizeCapacityByItems(watchedItems);
   }, [watchedItems]);
 
-  const existingProductionTokens = useMemo(() => {
-    if (!deliveryDate) return 0;
-    return summarizeProductionTokensByOrdersForDate(orders, deliveryDate);
-  }, [orders, deliveryDate]);
+  const tokenCapacity = useMemo(() => {
+    if (!deliveryDate) {
+      return {
+        usedToday: 0,
+        incoming: 0,
+        carryOver: 0,
+        allowed: DAILY_PRODUCTION_TOKEN_LIMIT,
+        planned: 0,
+        overflow: 0,
+        isOverflow: false,
+      };
+    }
 
-  const incomingProductionTokens = useMemo(() => {
-    return summarizeProductionTokensByItems(watchedItems);
-  }, [watchedItems]);
-
-  const plannedProductionTokens =
-    existingProductionTokens + incomingProductionTokens;
-  const remainingProductionTokens =
-    DAILY_PRODUCTION_TOKEN_LIMIT - plannedProductionTokens;
-  const isTokenCapacityOverflow = remainingProductionTokens < 0;
+    return evaluateProductionTokenCapacity({
+      orders,
+      deliveryDate,
+      incomingItems: watchedItems,
+    });
+  }, [orders, deliveryDate, watchedItems]);
 
   const capacityRows = useMemo(() => {
     return CAPACITY_BUCKET_ORDER.map((bucket) => {
@@ -837,15 +841,14 @@ export default function BookingForm() {
       return;
     }
 
-    const existingTokens = summarizeProductionTokensByOrdersForDate(
+    const tokenCheck = evaluateProductionTokenCapacity({
       orders,
-      values.deliveryDate,
-    );
-    const incomingTokens = summarizeProductionTokensByItems(values.items);
-    const plannedTokens = existingTokens + incomingTokens;
-    if (plannedTokens > DAILY_PRODUCTION_TOKEN_LIMIT) {
+      deliveryDate: values.deliveryDate,
+      incomingItems: values.items,
+    });
+    if (tokenCheck.isOverflow) {
       toast.error(
-        `Token produksi harian terlampaui (${plannedTokens}/${DAILY_PRODUCTION_TOKEN_LIMIT}). Pilih tanggal lain atau sederhanakan item difficulty tinggi.`,
+        `Token produksi terlampaui (${tokenCheck.planned}/${tokenCheck.allowed}). Kurangi difficulty, ubah tanggal, atau manfaatkan alokasi kuota hari sebelumnya.`,
       );
       return;
     }
@@ -1488,16 +1491,20 @@ export default function BookingForm() {
                 </div>
                 <div
                   className={`rounded-lg border px-3 py-2 text-xs ${
-                    isTokenCapacityOverflow
+                    tokenCapacity.isOverflow
                       ? "border-rose-200 bg-rose-50 text-rose-700"
                       : "border-sky-200 bg-sky-50 text-sky-700"
                   }`}
                 >
                   <p className="font-semibold">Production Token System</p>
                   <p className="mt-1 font-normal">
-                    Existing {existingProductionTokens} + Draft{" "}
-                    {incomingProductionTokens} = {plannedProductionTokens}/
-                    {DAILY_PRODUCTION_TOKEN_LIMIT}
+                    Existing {tokenCapacity.usedToday} + Draft{" "}
+                    {tokenCapacity.incoming} = {tokenCapacity.planned}/
+                    {tokenCapacity.allowed}
+                  </p>
+                  <p className="mt-1 font-normal">
+                    Daily base {DAILY_PRODUCTION_TOKEN_LIMIT} + carry-over{" "}
+                    {tokenCapacity.carryOver}
                   </p>
                 </div>
               </div>

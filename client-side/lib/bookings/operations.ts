@@ -1,4 +1,9 @@
-import { BAKERY_BLOCKED_DATES } from "@/lib/bookings/config";
+import {
+  BAKERY_BLOCKED_DATES,
+  BAKERY_DAILY_PRODUCTION_TOKEN_LIMIT,
+  BAKERY_H_MINUS_1_CUTOFF_HOUR,
+  BAKERY_TOKEN_CARRY_OVER_DAYS,
+} from "@/lib/bookings/config";
 
 export interface BookingItemForOperations {
   category: string;
@@ -42,8 +47,9 @@ export const CAPACITY_LABELS: Record<CapacityBucket, string> = {
   bouquet: "Bouquet",
 };
 
-export const DAILY_PRODUCTION_TOKEN_LIMIT = 600;
-export const H_MINUS_1_CUTOFF_HOUR = 10;
+export const DAILY_PRODUCTION_TOKEN_LIMIT = BAKERY_DAILY_PRODUCTION_TOKEN_LIMIT;
+export const H_MINUS_1_CUTOFF_HOUR = BAKERY_H_MINUS_1_CUTOFF_HOUR;
+export const TOKEN_CARRY_OVER_DAYS = BAKERY_TOKEN_CARRY_OVER_DAYS;
 
 const CAPACITY_BUCKET_ORDER: CapacityBucket[] = [
   "seasonal_cookies",
@@ -376,6 +382,71 @@ export function summarizeProductionTokensByOrdersForDate(
     if (!isActiveOrder(order.orderStatus)) return sum;
     return sum + summarizeProductionTokensByItems(order.items || []);
   }, 0);
+}
+
+function formatDateKey(value: Date): string {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function shiftDateKey(dateKey: string, offsetDays: number): string | null {
+  const parsed = parseLocalDateOnly(dateKey);
+  if (!parsed) return null;
+  parsed.setDate(parsed.getDate() + offsetDays);
+  return formatDateKey(parsed);
+}
+
+export function summarizeCarryOverTokensForDate(
+  orders: BookingOrderForOperations[],
+  deliveryDate: string,
+  windowDays: number = TOKEN_CARRY_OVER_DAYS,
+): number {
+  if (windowDays <= 0) return 0;
+
+  let carryOver = 0;
+  for (let dayOffset = 1; dayOffset <= windowDays; dayOffset += 1) {
+    const previousDate = shiftDateKey(deliveryDate, -dayOffset);
+    if (!previousDate) continue;
+    const used = summarizeProductionTokensByOrdersForDate(orders, previousDate);
+    const spare = Math.max(0, DAILY_PRODUCTION_TOKEN_LIMIT - used);
+    carryOver += spare;
+  }
+
+  return carryOver;
+}
+
+export function evaluateProductionTokenCapacity(args: {
+  orders: BookingOrderForOperations[];
+  deliveryDate: string;
+  incomingItems: BookingItemForOperations[];
+  carryOverDays?: number;
+  excludeOrderId?: string;
+}) {
+  const usedToday = summarizeProductionTokensByOrdersForDate(
+    args.orders,
+    args.deliveryDate,
+    args.excludeOrderId,
+  );
+  const incoming = summarizeProductionTokensByItems(args.incomingItems);
+  const carryOver = summarizeCarryOverTokensForDate(
+    args.orders,
+    args.deliveryDate,
+    args.carryOverDays,
+  );
+  const allowed = DAILY_PRODUCTION_TOKEN_LIMIT + carryOver;
+  const planned = usedToday + incoming;
+
+  return {
+    usedToday,
+    incoming,
+    carryOver,
+    allowed,
+    planned,
+    overflow: Math.max(0, planned - allowed),
+    isOverflow: planned > allowed,
+  };
 }
 
 export function summarizeCapacityByItems(
