@@ -3,6 +3,10 @@ import {
   BAKERY_DAILY_PRODUCTION_TOKEN_LIMIT,
   BAKERY_H_MINUS_1_CUTOFF_HOUR,
   BAKERY_TOKEN_DIFFICULT_PER_UNIT,
+  BAKERY_TOKEN_MULTIPLIER_BUKET,
+  BAKERY_TOKEN_MULTIPLIER_CAKE_TOWER,
+  BAKERY_TOKEN_MULTIPLIER_COOKIES,
+  BAKERY_TOKEN_MULTIPLIER_CUPCAKES,
   BAKERY_TOKEN_CARRY_OVER_DAYS,
   BAKERY_TOKEN_MEDIUM_PER_UNIT,
   BAKERY_TOKEN_SIMPLE_PER_UNIT,
@@ -60,6 +64,22 @@ export const TOKEN_DIFFICULTY_POINTS = {
   MEDIUM: BAKERY_TOKEN_MEDIUM_PER_UNIT,
   DIFFICULT: BAKERY_TOKEN_DIFFICULT_PER_UNIT,
 } as const;
+
+function getCategoryTokenMultiplier(item: BookingItemForOperations): number {
+  if (item.category === "Cake" || item.category === "Cookies Tower") {
+    return BAKERY_TOKEN_MULTIPLIER_CAKE_TOWER;
+  }
+  if (item.category === "Buket") {
+    return BAKERY_TOKEN_MULTIPLIER_BUKET;
+  }
+  if (item.category === "Cupcakes") {
+    return BAKERY_TOKEN_MULTIPLIER_CUPCAKES;
+  }
+  if (item.category === "Cookies") {
+    return BAKERY_TOKEN_MULTIPLIER_COOKIES;
+  }
+  return 1;
+}
 
 const CAPACITY_BUCKET_ORDER: CapacityBucket[] = [
   "seasonal_cookies",
@@ -356,6 +376,7 @@ function getDifficultyTokenPerUnit(item: BookingItemForOperations): number {
     return TOKEN_DIFFICULTY_POINTS.SIMPLE;
   }
 
+  let baseTokenPerUnit = TOKEN_DIFFICULTY_POINTS.SIMPLE;
   const source = getItemSource(item);
 
   const hardHints = [
@@ -369,7 +390,11 @@ function getDifficultyTokenPerUnit(item: BookingItemForOperations): number {
     "tower",
   ];
   if (hardHints.some((hint) => source.includes(hint))) {
-    return TOKEN_DIFFICULTY_POINTS.DIFFICULT;
+    baseTokenPerUnit = TOKEN_DIFFICULTY_POINTS.DIFFICULT;
+    return Math.max(
+      1,
+      Math.round(baseTokenPerUnit * getCategoryTokenMultiplier(item)),
+    );
   }
 
   const mediumHints = [
@@ -382,17 +407,33 @@ function getDifficultyTokenPerUnit(item: BookingItemForOperations): number {
     "cupcake",
   ];
   if (mediumHints.some((hint) => source.includes(hint))) {
-    return TOKEN_DIFFICULTY_POINTS.MEDIUM;
+    baseTokenPerUnit = TOKEN_DIFFICULTY_POINTS.MEDIUM;
+    return Math.max(
+      1,
+      Math.round(baseTokenPerUnit * getCategoryTokenMultiplier(item)),
+    );
   }
 
   if (item.category === "Cake" || item.category === "Cookies Tower") {
-    return TOKEN_DIFFICULTY_POINTS.DIFFICULT;
+    baseTokenPerUnit = TOKEN_DIFFICULTY_POINTS.DIFFICULT;
+    return Math.max(
+      1,
+      Math.round(baseTokenPerUnit * getCategoryTokenMultiplier(item)),
+    );
   }
   if (item.category === "Buket" || item.category === "Cupcakes") {
-    return TOKEN_DIFFICULTY_POINTS.MEDIUM;
+    baseTokenPerUnit = TOKEN_DIFFICULTY_POINTS.MEDIUM;
+    return Math.max(
+      1,
+      Math.round(baseTokenPerUnit * getCategoryTokenMultiplier(item)),
+    );
   }
 
-  return TOKEN_DIFFICULTY_POINTS.SIMPLE;
+  baseTokenPerUnit = TOKEN_DIFFICULTY_POINTS.SIMPLE;
+  return Math.max(
+    1,
+    Math.round(baseTokenPerUnit * getCategoryTokenMultiplier(item)),
+  );
 }
 
 export function resolveTokenPerUnit(item: BookingItemForOperations): number {

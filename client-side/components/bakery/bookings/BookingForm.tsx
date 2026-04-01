@@ -54,6 +54,7 @@ import {
   inferOrderTypeFromItems,
   isWithinBusinessHours,
   isDateBlockedForOrdering,
+  resolveTokenPerUnit,
   summarizeCapacityByItems,
   summarizeCapacityByOrdersForDate,
   type SlotAvailabilityStatus,
@@ -96,15 +97,15 @@ const TOKEN_DIFFICULTY_OPTIONS: Array<{
 }> = [
   {
     value: "SIMPLE",
-    label: `Simple (${TOKEN_DIFFICULTY_POINTS.SIMPLE} token/unit)`,
+    label: `Simple (base ${TOKEN_DIFFICULTY_POINTS.SIMPLE})`,
   },
   {
     value: "MEDIUM",
-    label: `Medium (${TOKEN_DIFFICULTY_POINTS.MEDIUM} token/unit)`,
+    label: `Medium (base ${TOKEN_DIFFICULTY_POINTS.MEDIUM})`,
   },
   {
     value: "DIFFICULT",
-    label: `Difficult (${TOKEN_DIFFICULTY_POINTS.DIFFICULT} token/unit)`,
+    label: `Difficult (base ${TOKEN_DIFFICULTY_POINTS.DIFFICULT})`,
   },
 ];
 
@@ -978,6 +979,7 @@ export default function BookingForm() {
         size: item.size,
         quantity: item.quantity,
         tokenDifficulty: item.tokenDifficulty,
+        customTokenPerUnit: item.customTokenPerUnit,
         basePrice: itemBasePrice,
         productType:
           item.category === "Buket" ? ("BOUQUET" as const) : undefined,
@@ -1642,7 +1644,6 @@ export default function BookingForm() {
                       size: item?.size,
                     },
                   );
-                      customTokenPerUnit: item.customTokenPerUnit,
                   const categoryData = productCatalog.find(
                     (entry) => entry.category === normalizedSelection.category,
                   );
@@ -1705,6 +1706,8 @@ export default function BookingForm() {
                     Number(item?.customTokenPerUnit) > 0
                       ? Math.round(Number(item?.customTokenPerUnit))
                       : null;
+                  const effectiveTokenPerUnit =
+                    resolveTokenPerUnit(bouquetProbeItem);
 
                   return (
                     <div
@@ -1718,7 +1721,8 @@ export default function BookingForm() {
                         <span
                           className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${difficultyMeta.className}`}
                         >
-                          {difficultyMeta.label} ({difficultyMeta.tokens} token/unit)
+                          {difficultyMeta.label} ({effectiveTokenPerUnit}{" "}
+                          token/unit)
                         </span>
                         {customTokenPerUnit ? (
                           <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-700">
@@ -1729,7 +1733,8 @@ export default function BookingForm() {
 
                       {customTokenPerUnit ? (
                         <p className="text-[11px] font-medium text-sky-700">
-                          Override aktif: perhitungan token memakai custom token, bukan preset difficulty.
+                          Override aktif: perhitungan token memakai custom
+                          token, bukan preset difficulty.
                         </p>
                       ) : null}
 
@@ -1971,7 +1976,8 @@ export default function BookingForm() {
                             })}
                           />
                           <span className="min-h-4 text-[11px] font-normal leading-4 text-gray-500">
-                            Kosongkan jika ingin pakai preset difficulty.
+                            Kosongkan jika ingin pakai preset difficulty + bobot
+                            kategori.
                           </span>
                         </label>
 

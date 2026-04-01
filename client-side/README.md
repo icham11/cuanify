@@ -1,3 +1,5 @@
+# Client-side App
+
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Complete Documentation
@@ -84,6 +86,11 @@ NEXT_PUBLIC_BAKERY_TOKEN_CARRY_OVER_DAYS=2
 NEXT_PUBLIC_BAKERY_TOKEN_SIMPLE_PER_UNIT=5
 NEXT_PUBLIC_BAKERY_TOKEN_MEDIUM_PER_UNIT=10
 NEXT_PUBLIC_BAKERY_TOKEN_DIFFICULT_PER_UNIT=15
+# Multiplier token per kategori (default 1 / 1.1 / 1.25 / 1.4)
+NEXT_PUBLIC_BAKERY_TOKEN_MULTIPLIER_COOKIES=1
+NEXT_PUBLIC_BAKERY_TOKEN_MULTIPLIER_CUPCAKES=1.1
+NEXT_PUBLIC_BAKERY_TOKEN_MULTIPLIER_BUKET=1.25
+NEXT_PUBLIC_BAKERY_TOKEN_MULTIPLIER_CAKE_TOWER=1.4
 ```
 
 ## Bakery Catalog Management

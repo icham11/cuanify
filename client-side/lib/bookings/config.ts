@@ -5,6 +5,10 @@ const DEFAULT_TOKEN_CARRY_OVER_DAYS = 2;
 const DEFAULT_TOKEN_SIMPLE_PER_UNIT = 5;
 const DEFAULT_TOKEN_MEDIUM_PER_UNIT = 10;
 const DEFAULT_TOKEN_DIFFICULT_PER_UNIT = 15;
+const DEFAULT_TOKEN_MULTIPLIER_COOKIES = 1;
+const DEFAULT_TOKEN_MULTIPLIER_CUPCAKES = 1.1;
+const DEFAULT_TOKEN_MULTIPLIER_BUKET = 1.25;
+const DEFAULT_TOKEN_MULTIPLIER_CAKE_TOWER = 1.4;
 const DEFAULT_BLOCKED_DATES = [
   "2026-04-14",
   "2026-04-15",
@@ -41,6 +45,19 @@ function parseIntegerWithRange(
   const rounded = Math.round(parsed);
   if (rounded < min || rounded > max) return fallback;
   return rounded;
+}
+
+function parseFloatWithRange(
+  value: string | undefined,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  if (!value) return fallback;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  if (parsed < min || parsed > max) return fallback;
+  return Number(parsed.toFixed(2));
 }
 
 function parseBlockedDates(): string[] {
@@ -93,6 +110,30 @@ export const BAKERY_TOKEN_DIFFICULT_PER_UNIT = parseIntegerWithRange(
   DEFAULT_TOKEN_DIFFICULT_PER_UNIT,
   1,
   200,
+);
+export const BAKERY_TOKEN_MULTIPLIER_COOKIES = parseFloatWithRange(
+  process.env.NEXT_PUBLIC_BAKERY_TOKEN_MULTIPLIER_COOKIES,
+  DEFAULT_TOKEN_MULTIPLIER_COOKIES,
+  0.5,
+  3,
+);
+export const BAKERY_TOKEN_MULTIPLIER_CUPCAKES = parseFloatWithRange(
+  process.env.NEXT_PUBLIC_BAKERY_TOKEN_MULTIPLIER_CUPCAKES,
+  DEFAULT_TOKEN_MULTIPLIER_CUPCAKES,
+  0.5,
+  3,
+);
+export const BAKERY_TOKEN_MULTIPLIER_BUKET = parseFloatWithRange(
+  process.env.NEXT_PUBLIC_BAKERY_TOKEN_MULTIPLIER_BUKET,
+  DEFAULT_TOKEN_MULTIPLIER_BUKET,
+  0.5,
+  3,
+);
+export const BAKERY_TOKEN_MULTIPLIER_CAKE_TOWER = parseFloatWithRange(
+  process.env.NEXT_PUBLIC_BAKERY_TOKEN_MULTIPLIER_CAKE_TOWER,
+  DEFAULT_TOKEN_MULTIPLIER_CAKE_TOWER,
+  0.5,
+  3,
 );
 
 export function calculateDownPayment(totalPrice: number): number {
