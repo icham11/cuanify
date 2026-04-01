@@ -9,6 +9,7 @@ import PaymentBadge from "@/components/bakery/shared/PaymentBadge";
 import OrderHighlightBadge from "@/components/bakery/bookings/OrderHighlightBadge";
 import SkeletonBlock from "@/components/bakery/shared/SkeletonBlock";
 import { BakeryOrder, useOrders } from "@/components/bakery/store";
+import { summarizeProductionTokensByItems } from "@/lib/bookings/operations";
 import { MessageCircle, Pencil } from "lucide-react";
 
 interface OrderTableProps {
@@ -161,15 +162,8 @@ export default function OrderTable({ orders }: OrderTableProps) {
           ) : (
             orders.map((order, index) => {
               const messageLink = buildWhatsappLink(order);
-              const orderTokenTotal = (order.items ?? []).reduce(
-                (sum, item) => {
-                  const difficulty = resolveItemDifficulty(item);
-                  const tokenPerUnit = getDifficultyMeta(difficulty).token;
-                  return (
-                    sum + tokenPerUnit * Math.max(0, Number(item.quantity) || 0)
-                  );
-                },
-                0,
+              const orderTokenTotal = summarizeProductionTokensByItems(
+                order.items ?? [],
               );
               return (
                 <tr
@@ -214,6 +208,16 @@ export default function OrderTable({ orders }: OrderTableProps) {
                             Workload {orderTokenTotal} token
                           </span>
                           {order.items.slice(0, 2).map((item) => {
+                            if (Number(item.customTokenPerUnit) > 0) {
+                              return (
+                                <span
+                                  key={`${order.id}-${item.id}`}
+                                  className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-700"
+                                >
+                                  Custom
+                                </span>
+                              );
+                            }
                             const difficulty = resolveItemDifficulty(item);
                             const meta = getDifficultyMeta(difficulty);
                             return (

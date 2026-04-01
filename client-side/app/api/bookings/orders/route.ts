@@ -209,6 +209,7 @@ function toTokenOpsOrders(orders: NormalizedOrder[]) {
       size: asString(item.size),
       quantity: asNumber(item.quantity),
       tokenDifficulty: asString(item.tokenDifficulty) || undefined,
+      customTokenPerUnit: asNumber(item.customTokenPerUnit) || undefined,
     }));
 
     return {

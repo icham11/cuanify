@@ -4,28 +4,7 @@ import { useMemo, useState } from "react";
 import StatusDropdown from "@/components/bakery/production/StatusDropdown";
 import PriorityBadge from "@/components/bakery/production/PriorityBadge";
 import { useOrders } from "@/components/bakery/store";
-
-type TokenDifficulty = "SIMPLE" | "MEDIUM" | "DIFFICULT";
-
-function resolveItemDifficulty(item: {
-  category: string;
-  tokenDifficulty?: TokenDifficulty;
-}): TokenDifficulty {
-  if (item.tokenDifficulty) return item.tokenDifficulty;
-  if (item.category === "Cake" || item.category === "Cookies Tower") {
-    return "DIFFICULT";
-  }
-  if (item.category === "Buket" || item.category === "Cupcakes") {
-    return "MEDIUM";
-  }
-  return "SIMPLE";
-}
-
-function getTokenPerUnit(difficulty: TokenDifficulty): number {
-  if (difficulty === "DIFFICULT") return 3;
-  if (difficulty === "MEDIUM") return 2;
-  return 1;
-}
+import { summarizeProductionTokensByItems } from "@/lib/bookings/operations";
 
 export default function ProductionTable() {
   const { orders, updateOrderStatus } = useOrders();
@@ -157,15 +136,7 @@ export default function ProductionTable() {
                   </p>
                   <p className="mt-1 text-xs font-medium text-sky-700">
                     Workload{" "}
-                    {(order.items ?? []).reduce((sum, item) => {
-                      const difficulty = resolveItemDifficulty(item);
-                      return (
-                        sum +
-                        getTokenPerUnit(difficulty) *
-                          Math.max(0, Number(item.quantity) || 0)
-                      );
-                    }, 0)}{" "}
-                    token
+                    {summarizeProductionTokensByItems(order.items ?? [])} token
                   </p>
                 </div>
                 <div>
@@ -244,15 +215,7 @@ export default function ProductionTable() {
                   </p>
                   <p className="mt-1 text-xs font-medium text-sky-700">
                     Workload{" "}
-                    {(order.items ?? []).reduce((sum, item) => {
-                      const difficulty = resolveItemDifficulty(item);
-                      return (
-                        sum +
-                        getTokenPerUnit(difficulty) *
-                          Math.max(0, Number(item.quantity) || 0)
-                      );
-                    }, 0)}{" "}
-                    token
+                    {summarizeProductionTokensByItems(order.items ?? [])} token
                   </p>
                 </div>
                 <div>

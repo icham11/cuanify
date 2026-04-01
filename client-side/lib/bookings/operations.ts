@@ -2,7 +2,10 @@ import {
   BAKERY_BLOCKED_DATES,
   BAKERY_DAILY_PRODUCTION_TOKEN_LIMIT,
   BAKERY_H_MINUS_1_CUTOFF_HOUR,
+  BAKERY_TOKEN_DIFFICULT_PER_UNIT,
   BAKERY_TOKEN_CARRY_OVER_DAYS,
+  BAKERY_TOKEN_MEDIUM_PER_UNIT,
+  BAKERY_TOKEN_SIMPLE_PER_UNIT,
 } from "@/lib/bookings/config";
 
 export interface BookingItemForOperations {
@@ -12,6 +15,7 @@ export interface BookingItemForOperations {
   size?: string;
   quantity?: number;
   tokenDifficulty?: string;
+  customTokenPerUnit?: number;
 }
 
 export interface BookingOrderForOperations {
@@ -51,6 +55,11 @@ export const CAPACITY_LABELS: Record<CapacityBucket, string> = {
 export const DAILY_PRODUCTION_TOKEN_LIMIT = BAKERY_DAILY_PRODUCTION_TOKEN_LIMIT;
 export const H_MINUS_1_CUTOFF_HOUR = BAKERY_H_MINUS_1_CUTOFF_HOUR;
 export const TOKEN_CARRY_OVER_DAYS = BAKERY_TOKEN_CARRY_OVER_DAYS;
+export const TOKEN_DIFFICULTY_POINTS = {
+  SIMPLE: BAKERY_TOKEN_SIMPLE_PER_UNIT,
+  MEDIUM: BAKERY_TOKEN_MEDIUM_PER_UNIT,
+  DIFFICULT: BAKERY_TOKEN_DIFFICULT_PER_UNIT,
+} as const;
 
 const CAPACITY_BUCKET_ORDER: CapacityBucket[] = [
   "seasonal_cookies",
@@ -325,21 +334,26 @@ function getCapacityUnitsPerOrder(item: BookingItemForOperations): number {
 }
 
 function getDifficultyTokenPerUnit(item: BookingItemForOperations): number {
+  const customToken = Number(item.customTokenPerUnit || 0);
+  if (Number.isFinite(customToken) && customToken > 0) {
+    return Math.round(customToken);
+  }
+
   const manualDifficulty = normalize(item.tokenDifficulty || "");
   if (
     manualDifficulty.includes("difficult") ||
     manualDifficulty.includes("hard")
   ) {
-    return 3;
+    return TOKEN_DIFFICULTY_POINTS.DIFFICULT;
   }
   if (manualDifficulty.includes("medium")) {
-    return 2;
+    return TOKEN_DIFFICULTY_POINTS.MEDIUM;
   }
   if (
     manualDifficulty.includes("simple") ||
     manualDifficulty.includes("easy")
   ) {
-    return 1;
+    return TOKEN_DIFFICULTY_POINTS.SIMPLE;
   }
 
   const source = getItemSource(item);
@@ -354,7 +368,9 @@ function getDifficultyTokenPerUnit(item: BookingItemForOperations): number {
     "wedding",
     "tower",
   ];
-  if (hardHints.some((hint) => source.includes(hint))) return 3;
+  if (hardHints.some((hint) => source.includes(hint))) {
+    return TOKEN_DIFFICULTY_POINTS.DIFFICULT;
+  }
 
   const mediumHints = [
     "medium",
@@ -365,12 +381,22 @@ function getDifficultyTokenPerUnit(item: BookingItemForOperations): number {
     "bouquet",
     "cupcake",
   ];
-  if (mediumHints.some((hint) => source.includes(hint))) return 2;
+  if (mediumHints.some((hint) => source.includes(hint))) {
+    return TOKEN_DIFFICULTY_POINTS.MEDIUM;
+  }
 
-  if (item.category === "Cake" || item.category === "Cookies Tower") return 3;
-  if (item.category === "Buket" || item.category === "Cupcakes") return 2;
+  if (item.category === "Cake" || item.category === "Cookies Tower") {
+    return TOKEN_DIFFICULTY_POINTS.DIFFICULT;
+  }
+  if (item.category === "Buket" || item.category === "Cupcakes") {
+    return TOKEN_DIFFICULTY_POINTS.MEDIUM;
+  }
 
-  return 1;
+  return TOKEN_DIFFICULTY_POINTS.SIMPLE;
+}
+
+export function resolveTokenPerUnit(item: BookingItemForOperations): number {
+  return getDifficultyTokenPerUnit(item);
 }
 
 function getTokenUnitsPerOrder(item: BookingItemForOperations): number {

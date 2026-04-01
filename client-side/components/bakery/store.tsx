@@ -80,6 +80,7 @@ export interface OrderItem {
   size: string;
   quantity: number;
   tokenDifficulty?: "SIMPLE" | "MEDIUM" | "DIFFICULT";
+  customTokenPerUnit?: number;
   basePrice: number;
   productType?: "COOKIE" | "BOUQUET" | "CAKE" | "CUPCAKE" | "TOWER";
   selectedPrice?: number;

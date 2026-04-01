@@ -43,6 +43,7 @@ import {
   CAPACITY_LABELS,
   CAPACITY_LIMITS,
   DAILY_PRODUCTION_TOKEN_LIMIT,
+  TOKEN_DIFFICULTY_POINTS,
   checkSlotAvailability,
   countConcurrentOrdersByTypeForSlot,
   evaluateProductionTokenCapacity,
@@ -93,9 +94,18 @@ const TOKEN_DIFFICULTY_OPTIONS: Array<{
   value: TokenDifficulty;
   label: string;
 }> = [
-  { value: "SIMPLE", label: "Simple (1 token)" },
-  { value: "MEDIUM", label: "Medium (2 token)" },
-  { value: "DIFFICULT", label: "Difficult (3 token)" },
+  {
+    value: "SIMPLE",
+    label: `Simple (${TOKEN_DIFFICULTY_POINTS.SIMPLE} token/unit)`,
+  },
+  {
+    value: "MEDIUM",
+    label: `Medium (${TOKEN_DIFFICULTY_POINTS.MEDIUM} token/unit)`,
+  },
+  {
+    value: "DIFFICULT",
+    label: `Difficult (${TOKEN_DIFFICULTY_POINTS.DIFFICULT} token/unit)`,
+  },
 ];
 
 const itemSchema = z.object({
@@ -105,6 +115,7 @@ const itemSchema = z.object({
   size: z.string().min(1, "Size is required"),
   quantity: z.number().int().min(1, "Minimum quantity is 1"),
   tokenDifficulty: z.enum(["SIMPLE", "MEDIUM", "DIFFICULT"]),
+  customTokenPerUnit: z.number().int().min(1).max(200).optional(),
   cookiePrice: z.number().min(0).optional(),
   addOns: z.array(z.string()),
   notes: z.string().max(200).optional().or(z.literal("")),
@@ -303,20 +314,20 @@ function getTokenDifficultyMeta(value: TokenDifficulty): {
   if (value === "DIFFICULT") {
     return {
       label: "Difficult",
-      tokens: 3,
+      tokens: TOKEN_DIFFICULTY_POINTS.DIFFICULT,
       className: "border-rose-200 bg-rose-50 text-rose-700",
     };
   }
   if (value === "MEDIUM") {
     return {
       label: "Medium",
-      tokens: 2,
+      tokens: TOKEN_DIFFICULTY_POINTS.MEDIUM,
       className: "border-amber-200 bg-amber-50 text-amber-700",
     };
   }
   return {
     label: "Simple",
-    tokens: 1,
+    tokens: TOKEN_DIFFICULTY_POINTS.SIMPLE,
     className: "border-emerald-200 bg-emerald-50 text-emerald-700",
   };
 }
@@ -441,6 +452,7 @@ export default function BookingForm() {
           tokenDifficulty: getDefaultTokenDifficulty(
             defaultItemSelection.category,
           ),
+          customTokenPerUnit: undefined,
           cookiePrice: undefined,
           addOns: [],
           notes: "",
@@ -1126,6 +1138,7 @@ export default function BookingForm() {
                 ? Math.max(1, Number(item.quantity))
                 : 1,
               tokenDifficulty: getDefaultTokenDifficulty(normalized.category),
+              customTokenPerUnit: undefined,
               cookiePrice: undefined,
               addOns: Array.isArray(item.addOns) ? item.addOns : [],
               notes: item.notes ?? "",
@@ -1605,6 +1618,7 @@ export default function BookingForm() {
                       tokenDifficulty: getDefaultTokenDifficulty(
                         nextDefault.category,
                       ),
+                      customTokenPerUnit: undefined,
                       cookiePrice: undefined,
                       addOns: [],
                       notes: "",
@@ -1628,6 +1642,7 @@ export default function BookingForm() {
                       size: item?.size,
                     },
                   );
+                      customTokenPerUnit: item.customTokenPerUnit,
                   const categoryData = productCatalog.find(
                     (entry) => entry.category === normalizedSelection.category,
                   );
@@ -1654,6 +1669,10 @@ export default function BookingForm() {
                     tokenDifficulty:
                       item?.tokenDifficulty ||
                       getDefaultTokenDifficulty(normalizedSelection.category),
+                    customTokenPerUnit:
+                      Number(item?.customTokenPerUnit) > 0
+                        ? Number(item?.customTokenPerUnit)
+                        : undefined,
                     cookiePrice:
                       Number(item?.cookiePrice) > 0
                         ? Number(item?.cookiePrice)
@@ -1682,6 +1701,10 @@ export default function BookingForm() {
                   const difficultyMeta = getTokenDifficultyMeta(
                     selectedTokenDifficulty,
                   );
+                  const customTokenPerUnit =
+                    Number(item?.customTokenPerUnit) > 0
+                      ? Math.round(Number(item?.customTokenPerUnit))
+                      : null;
 
                   return (
                     <div
@@ -1695,9 +1718,20 @@ export default function BookingForm() {
                         <span
                           className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${difficultyMeta.className}`}
                         >
-                          {difficultyMeta.label} ({difficultyMeta.tokens} token)
+                          {difficultyMeta.label} ({difficultyMeta.tokens} token/unit)
                         </span>
+                        {customTokenPerUnit ? (
+                          <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-700">
+                            Custom {customTokenPerUnit} token/unit
+                          </span>
+                        ) : null}
                       </div>
+
+                      {customTokenPerUnit ? (
+                        <p className="text-[11px] font-medium text-sky-700">
+                          Override aktif: perhitungan token memakai custom token, bukan preset difficulty.
+                        </p>
+                      ) : null}
 
                       <div className="grid gap-x-3 gap-y-2 sm:grid-cols-2 lg:grid-cols-4">
                         <label className="grid gap-2 text-sm font-medium text-gray-700">
@@ -1746,6 +1780,11 @@ export default function BookingForm() {
                               setValue(`items.${index}.addOns`, [], {
                                 shouldValidate: true,
                               });
+                              setValue(
+                                `items.${index}.customTokenPerUnit`,
+                                undefined,
+                                { shouldValidate: true },
+                              );
                               setValue(
                                 `items.${index}.cookiePrice`,
                                 undefined,
@@ -1912,6 +1951,28 @@ export default function BookingForm() {
                               </option>
                             ))}
                           </Select>
+                        </label>
+
+                        <label className="grid gap-1.5 text-sm font-medium text-gray-700">
+                          Custom Token / unit (opsional)
+                          <Input
+                            type="number"
+                            min={1}
+                            max={200}
+                            step={1}
+                            placeholder="Contoh: 18"
+                            {...register(`items.${index}.customTokenPerUnit`, {
+                              setValueAs: (value) => {
+                                const parsed = Number(value);
+                                return Number.isFinite(parsed) && parsed > 0
+                                  ? Math.round(parsed)
+                                  : undefined;
+                              },
+                            })}
+                          />
+                          <span className="min-h-4 text-[11px] font-normal leading-4 text-gray-500">
+                            Kosongkan jika ingin pakai preset difficulty.
+                          </span>
                         </label>
 
                         {isBouquet && (
