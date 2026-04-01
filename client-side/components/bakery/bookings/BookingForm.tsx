@@ -42,6 +42,7 @@ import { useCatalogAdminState } from "@/lib/bookings/catalog-admin";
 import {
   CAPACITY_LABELS,
   CAPACITY_LIMITS,
+  DAILY_PRODUCTION_TOKEN_LIMIT,
   checkSlotAvailability,
   countConcurrentOrdersByTypeForSlot,
   getSlotLimitByOrderType,
@@ -49,8 +50,11 @@ import {
   getDeliverySlotsForDate,
   inferOrderTypeFromItems,
   isWithinBusinessHours,
+  isDateBlockedForOrdering,
   summarizeCapacityByItems,
   summarizeCapacityByOrdersForDate,
+  summarizeProductionTokensByItems,
+  summarizeProductionTokensByOrdersForDate,
   type SlotAvailabilityStatus,
   type SlotOrderType,
   type CapacityBucket,
@@ -518,7 +522,7 @@ export default function BookingForm() {
     [draftOrderType],
   );
   const isBlockedDate = Boolean(
-    deliveryDate && BAKERY_BLOCKED_DATES.includes(deliveryDate),
+    deliveryDate && isDateBlockedForOrdering(deliveryDate),
   );
 
   useEffect(() => {
@@ -600,6 +604,21 @@ export default function BookingForm() {
   const incomingCapacityUsage = useMemo(() => {
     return summarizeCapacityByItems(watchedItems);
   }, [watchedItems]);
+
+  const existingProductionTokens = useMemo(() => {
+    if (!deliveryDate) return 0;
+    return summarizeProductionTokensByOrdersForDate(orders, deliveryDate);
+  }, [orders, deliveryDate]);
+
+  const incomingProductionTokens = useMemo(() => {
+    return summarizeProductionTokensByItems(watchedItems);
+  }, [watchedItems]);
+
+  const plannedProductionTokens =
+    existingProductionTokens + incomingProductionTokens;
+  const remainingProductionTokens =
+    DAILY_PRODUCTION_TOKEN_LIMIT - plannedProductionTokens;
+  const isTokenCapacityOverflow = remainingProductionTokens < 0;
 
   const capacityRows = useMemo(() => {
     return CAPACITY_BUCKET_ORDER.map((bucket) => {
@@ -775,7 +794,9 @@ export default function BookingForm() {
     }
 
     if (isBlockedDate) {
-      toast.error("Selected date is blocked. Please choose another date.");
+      toast.error(
+        "Tanggal dipilih tidak tersedia. H-1 hanya bisa booking sampai jam 10:00 pagi atau tanggal sedang diblokir admin.",
+      );
       return;
     }
     if (!isWithinBusinessHours(values.deliveryDate, values.deliverySlot)) {
@@ -812,6 +833,19 @@ export default function BookingForm() {
         .join(", ");
       toast.error(
         `Kapasitas harian terlampaui: ${labels}. Pilih tanggal lain atau kurangi kuantitas.`,
+      );
+      return;
+    }
+
+    const existingTokens = summarizeProductionTokensByOrdersForDate(
+      orders,
+      values.deliveryDate,
+    );
+    const incomingTokens = summarizeProductionTokensByItems(values.items);
+    const plannedTokens = existingTokens + incomingTokens;
+    if (plannedTokens > DAILY_PRODUCTION_TOKEN_LIMIT) {
+      toast.error(
+        `Token produksi harian terlampaui (${plannedTokens}/${DAILY_PRODUCTION_TOKEN_LIMIT}). Pilih tanggal lain atau sederhanakan item difficulty tinggi.`,
       );
       return;
     }
@@ -1392,7 +1426,7 @@ export default function BookingForm() {
             {(isBlockedDate || isSlotFull) && (
               <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
                 {isBlockedDate
-                  ? "Selected date is unavailable (blocked by admin)."
+                  ? "Tanggal tidak tersedia (libur admin atau cutoff H-1 jam 10:00 sudah lewat)."
                   : `Selected slot is full for ${slotProfileLabel} orders (${slotUsage}/${slotLimitPerHour}). Please choose another hour.`}
               </div>
             )}
@@ -1451,6 +1485,20 @@ export default function BookingForm() {
                       </p>
                     </div>
                   ))}
+                </div>
+                <div
+                  className={`rounded-lg border px-3 py-2 text-xs ${
+                    isTokenCapacityOverflow
+                      ? "border-rose-200 bg-rose-50 text-rose-700"
+                      : "border-sky-200 bg-sky-50 text-sky-700"
+                  }`}
+                >
+                  <p className="font-semibold">Production Token System</p>
+                  <p className="mt-1 font-normal">
+                    Existing {existingProductionTokens} + Draft{" "}
+                    {incomingProductionTokens} = {plannedProductionTokens}/
+                    {DAILY_PRODUCTION_TOKEN_LIMIT}
+                  </p>
                 </div>
               </div>
             )}

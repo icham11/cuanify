@@ -1,4 +1,5 @@
-const baseUrl = process.env.SMOKE_BASE_URL || "http://localhost:3000";
+const baseUrl =
+  process.env.SMOKE_BASE_URL || "https://crumbella-demo.vercel.app";
 
 async function run() {
   const response = await fetch(`${baseUrl}/api/sales`, {

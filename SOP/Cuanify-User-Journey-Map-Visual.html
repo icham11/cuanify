@@ -1,0 +1,480 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cuanify User Journey Map</title>
+    <style>
+      :root {
+        --bg: #f4f2ec;
+        --paper: #fffdf7;
+        --ink: #1e1d1b;
+        --muted: #5e5a53;
+        --line: #d8d2c7;
+        --brand: #1e5f4c;
+        --brand-soft: #e5f1ec;
+        --accent: #b35d2f;
+        --accent-soft: #f9ece4;
+        --warn: #8c2f39;
+        --warn-soft: #fae7ea;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background:
+          radial-gradient(circle at 15% 5%, #efe8d9 0%, transparent 32%),
+          radial-gradient(circle at 85% 10%, #e6efe9 0%, transparent 30%),
+          var(--bg);
+        color: var(--ink);
+        font-family: "Avenir Next", "Segoe UI", sans-serif;
+        line-height: 1.45;
+      }
+
+      .wrap {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 28px 20px 48px;
+      }
+
+      .hero {
+        background: var(--paper);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 28px;
+        box-shadow: 0 10px 24px rgba(34, 31, 24, 0.06);
+        margin-bottom: 18px;
+      }
+
+      .kicker {
+        font-size: 12px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin: 0 0 8px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(24px, 3.2vw, 42px);
+        line-height: 1.1;
+      }
+
+      .subtitle {
+        margin: 12px 0 0;
+        color: var(--muted);
+        max-width: 860px;
+        font-size: clamp(14px, 1.6vw, 18px);
+      }
+
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 16px;
+      }
+
+      .chip {
+        border: 1px solid var(--line);
+        background: #fff;
+        border-radius: 999px;
+        padding: 6px 10px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .card {
+        background: var(--paper);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 20px;
+        margin-top: 14px;
+        box-shadow: 0 8px 20px rgba(34, 31, 24, 0.05);
+      }
+
+      .card h2 {
+        margin: 0 0 12px;
+        font-size: 22px;
+      }
+
+      .phase-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .phase {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 14px;
+        background: #fff;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .phase::before {
+        content: "";
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 5px;
+        background: var(--brand);
+      }
+
+      .phase h3 {
+        margin: 0 0 6px;
+        font-size: 16px;
+      }
+
+      .phase p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .journey-map {
+        overflow-x: auto;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: #fff;
+      }
+
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        min-width: 940px;
+      }
+
+      th,
+      td {
+        border-bottom: 1px solid var(--line);
+        border-right: 1px solid var(--line);
+        padding: 12px;
+        vertical-align: top;
+        font-size: 13px;
+      }
+
+      th:last-child,
+      td:last-child {
+        border-right: 0;
+      }
+
+      tr:last-child td {
+        border-bottom: 0;
+      }
+
+      th {
+        text-align: left;
+        background: #f8f6f1;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: #4f4a43;
+      }
+
+      .tag {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 600;
+        border: 1px solid transparent;
+      }
+
+      .tag-owner {
+        color: #204739;
+        background: var(--brand-soft);
+        border-color: #b7d8cb;
+      }
+
+      .tag-cashier {
+        color: #6f3a1f;
+        background: var(--accent-soft);
+        border-color: #e9c6b1;
+      }
+
+      .tag-bakery {
+        color: #5f2b31;
+        background: var(--warn-soft);
+        border-color: #e7bcc2;
+      }
+
+      .cols {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .mini {
+        border: 1px solid var(--line);
+        background: #fff;
+        border-radius: 12px;
+        padding: 14px;
+      }
+
+      .mini h3 {
+        margin: 0 0 8px;
+        font-size: 15px;
+      }
+
+      .mini ul {
+        margin: 0;
+        padding-left: 18px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .footer-note {
+        margin-top: 14px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      @media (max-width: 960px) {
+        .phase-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .cols {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media print {
+        body {
+          background: #fff;
+        }
+
+        .wrap {
+          max-width: none;
+          padding: 0;
+        }
+
+        .card,
+        .hero {
+          box-shadow: none;
+          break-inside: avoid;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <section class="hero">
+        <p class="kicker">Journey Map Presentation</p>
+        <h1>Cuanify User Journey Per Fase</h1>
+        <p class="subtitle">
+          Versi visual untuk presentasi tim produk, engineering, dan
+          operasional. Fokus pada alur lintas persona dari onboarding hingga
+          optimasi bisnis berbasis data.
+        </p>
+        <div class="chips">
+          <span class="chip">Persona: Owner</span>
+          <span class="chip">Persona: Cashier</span>
+          <span class="chip">Persona: Bakery Ops</span>
+          <span class="chip">Scope: POS + Booking + Analytics</span>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>1) Timeline Journey Utama</h2>
+        <div class="phase-grid">
+          <article class="phase">
+            <h3>Fase A: Onboarding & Aktivasi</h3>
+            <p>
+              Setup akun, business profile, master data, dan readiness transaksi
+              pertama.
+            </p>
+          </article>
+          <article class="phase">
+            <h3>Fase B: Operasi Harian POS</h3>
+            <p>
+              Open shift, transaksi, kontrol kas, dan sinkron stok real-time.
+            </p>
+          </article>
+          <article class="phase">
+            <h3>Fase C: Operasi Bakery Booking</h3>
+            <p>
+              Parse order, validasi jadwal/ongkir, automasi produksi, dan
+              fulfillment.
+            </p>
+          </article>
+          <article class="phase">
+            <h3>Fase D: Monitoring & Optimasi</h3>
+            <p>
+              Analitik, insight AI, dan keputusan perbaikan margin serta
+              efisiensi.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>2) Journey Map Per Fase (Swimlane)</h2>
+        <div class="journey-map">
+          <table>
+            <thead>
+              <tr>
+                <th>Fase</th>
+                <th>Persona</th>
+                <th>Goal</th>
+                <th>Aktivitas Inti</th>
+                <th>Touchpoint Sistem</th>
+                <th>Pain / Risiko</th>
+                <th>KPI Fase</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>A</td>
+                <td>
+                  <span class="tag tag-owner">Owner</span>
+                </td>
+                <td>Go-live secepat mungkin dengan data dasar yang benar.</td>
+                <td>
+                  Register, buat bisnis, isi produk/kategori/ingredient, setup
+                  staff.
+                </td>
+                <td>Auth, onboarding, master data, role management.</td>
+                <td>Setup tidak lengkap membuat analitik bias.</td>
+                <td>Time to first transaction, data completeness.</td>
+              </tr>
+              <tr>
+                <td>B</td>
+                <td>
+                  <span class="tag tag-cashier">Cashier</span>
+                </td>
+                <td>Proses transaksi cepat tanpa kehilangan akurasi.</td>
+                <td>
+                  Open shift, input penjualan, close shift, rekonsiliasi kas.
+                </td>
+                <td>POS, cashier shift, debt, inventory deduction.</td>
+                <td>Salah input saat jam ramai, mismatch kas akhir shift.</td>
+                <td>Tx/sec kasir, shift discrepancy rate.</td>
+              </tr>
+              <tr>
+                <td>C</td>
+                <td>
+                  <span class="tag tag-bakery">Bakery Ops</span>
+                </td>
+                <td>
+                  Order-to-fulfillment rapi, minim miskomunikasi produksi.
+                </td>
+                <td>
+                  Parse WA, validasi slot/libur/ongkir, create booking, update
+                  status.
+                </td>
+                <td>
+                  Booking form, shipping quote/resi, automations, calendar.
+                </td>
+                <td>
+                  Jadwal bentrok, notifikasi gagal, data alamat tidak valid.
+                </td>
+                <td>On-time fulfillment, automation delivery rate.</td>
+              </tr>
+              <tr>
+                <td>D</td>
+                <td>
+                  <span class="tag tag-owner">Owner</span>
+                </td>
+                <td>Ambil keputusan berbasis data, bukan intuisi semata.</td>
+                <td>
+                  Pantau dashboard, review insight AI, eksekusi aksi korektif.
+                </td>
+                <td>Analytics, forecast, AI insights, exports.</td>
+                <td>Insight tidak diterjemahkan jadi aksi operasional.</td>
+                <td>Revenue growth, margin lift, waste reduction.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>3) Momen Kritis per Persona</h2>
+        <div class="cols">
+          <article class="mini">
+            <h3>Owner</h3>
+            <ul>
+              <li>
+                Hari 1: data master harus valid sebelum traffic transaksi naik.
+              </li>
+              <li>Minggu 1: konsistensi tim input transaksi dan stok.</li>
+              <li>Minggu 2: keputusan pertama berbasis dashboard.</li>
+            </ul>
+          </article>
+          <article class="mini">
+            <h3>Cashier</h3>
+            <ul>
+              <li>Jam puncak: UI transaksi wajib tetap cepat dan jelas.</li>
+              <li>
+                Tutup shift: expected cash vs actual cash harus transparan.
+              </li>
+              <li>Edge case kasbon/split payment perlu guardrail kuat.</li>
+            </ul>
+          </article>
+          <article class="mini">
+            <h3>Bakery Ops</h3>
+            <ul>
+              <li>
+                Validasi tanggal libur dan kapasitas sebelum order disimpan.
+              </li>
+              <li>Rule pengiriman dan berat item harus konsisten.</li>
+              <li>
+                Automasi WA/Calendar/Sheets harus bisa dipantau dan di-retry.
+              </li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>4) Unhappy Path & Recovery Map</h2>
+        <div class="journey-map">
+          <table>
+            <thead>
+              <tr>
+                <th>Skenario Gagal</th>
+                <th>Dampak</th>
+                <th>Recovery Cepat</th>
+                <th>Preventive Control</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>WA automasi gagal terkirim</td>
+                <td>Tim produksi/customer tidak menerima update</td>
+                <td>Retry manual + fallback kanal notifikasi</td>
+                <td>Dashboard status automasi + alert error rate</td>
+              </tr>
+              <tr>
+                <td>Shipping quote/resi gagal</td>
+                <td>Order tertunda masuk tahap fulfillment</td>
+                <td>Simpan order dulu, retry setelah data alamat diperbaiki</td>
+                <td>Validasi format alamat/kode pos sebelum submit</td>
+              </tr>
+              <tr>
+                <td>Sinkron order timeout</td>
+                <td>Data order tidak persist penuh</td>
+                <td>Fallback snapshot + retry sinkron</td>
+                <td>Tuning timeout transaksi + monitoring latency DB</td>
+              </tr>
+              <tr>
+                <td>Google Calendar/Sheets tidak sync</td>
+                <td>Operasional manual meningkat dan rentan miss</td>
+                <td>Re-auth OAuth/service account dan sync ulang</td>
+                <td>Readiness check env sebelum go-live</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="footer-note">
+          Catatan: Konten ini disejajarkan dengan dokumen SOP dan user journey
+          naratif yang sudah tersedia di folder SOP.
+        </p>
+      </section>
+    </div>
+  </body>
+</html>

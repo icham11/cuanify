@@ -42,6 +42,9 @@ export const CAPACITY_LABELS: Record<CapacityBucket, string> = {
   bouquet: "Bouquet",
 };
 
+export const DAILY_PRODUCTION_TOKEN_LIMIT = 600;
+export const H_MINUS_1_CUTOFF_HOUR = 10;
+
 const CAPACITY_BUCKET_ORDER: CapacityBucket[] = [
   "seasonal_cookies",
   "custom_cookies",
@@ -177,8 +180,52 @@ function parseLocalDay(deliveryDate: string): number {
   return parsed.getDay();
 }
 
-export function getDeliverySlotsForDate(deliveryDate: string): string[] {
-  if (deliveryDate && BAKERY_BLOCKED_DATES.includes(deliveryDate)) {
+function parseLocalDateOnly(value: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const parsed = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed;
+}
+
+function isSameLocalDate(left: Date, right: Date): boolean {
+  return (
+    left.getFullYear() === right.getFullYear() &&
+    left.getMonth() === right.getMonth() &&
+    left.getDate() === right.getDate()
+  );
+}
+
+export function isNextDayCutoffBlocked(
+  deliveryDate: string,
+  now: Date = new Date(),
+): boolean {
+  const targetDate = parseLocalDateOnly(deliveryDate);
+  if (!targetDate) return false;
+
+  const tomorrow = new Date(now);
+  tomorrow.setHours(0, 0, 0, 0);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+
+  return (
+    isSameLocalDate(targetDate, tomorrow) &&
+    now.getHours() >= H_MINUS_1_CUTOFF_HOUR
+  );
+}
+
+export function isDateBlockedForOrdering(
+  deliveryDate: string,
+  now: Date = new Date(),
+): boolean {
+  if (!deliveryDate) return true;
+  if (BAKERY_BLOCKED_DATES.includes(deliveryDate)) return true;
+  return isNextDayCutoffBlocked(deliveryDate, now);
+}
+
+export function getDeliverySlotsForDate(
+  deliveryDate: string,
+  now: Date = new Date(),
+): string[] {
+  if (isDateBlockedForOrdering(deliveryDate, now)) {
     return [];
   }
 
@@ -197,11 +244,12 @@ export function getDeliverySlotsForDate(deliveryDate: string): string[] {
 export function isWithinBusinessHours(
   deliveryDate: string,
   deliverySlot: string,
+  now: Date = new Date(),
 ): boolean {
   if (!deliveryDate || !deliverySlot) return false;
-  if (BAKERY_BLOCKED_DATES.includes(deliveryDate)) return false;
+  if (isDateBlockedForOrdering(deliveryDate, now)) return false;
   if (!/^\d{2}:\d{2}$/.test(deliverySlot)) return false;
-  return getDeliverySlotsForDate(deliveryDate).includes(deliverySlot);
+  return getDeliverySlotsForDate(deliveryDate, now).includes(deliverySlot);
 }
 
 function isActiveOrder(orderStatus: string | undefined): boolean {
@@ -267,6 +315,67 @@ function getCapacityUnitsPerOrder(item: BookingItemForOperations): number {
   }
 
   return 1;
+}
+
+function getDifficultyTokenPerUnit(item: BookingItemForOperations): number {
+  const source = getItemSource(item);
+
+  const hardHints = [
+    "difficult",
+    "hard",
+    "3d",
+    "portrait",
+    "character",
+    "standing",
+    "wedding",
+    "tower",
+  ];
+  if (hardHints.some((hint) => source.includes(hint))) return 3;
+
+  const mediumHints = [
+    "medium",
+    "semi",
+    "logo",
+    "painted",
+    "custom",
+    "bouquet",
+    "cupcake",
+  ];
+  if (mediumHints.some((hint) => source.includes(hint))) return 2;
+
+  if (item.category === "Cake" || item.category === "Cookies Tower") return 3;
+  if (item.category === "Buket" || item.category === "Cupcakes") return 2;
+
+  return 1;
+}
+
+function getTokenUnitsPerOrder(item: BookingItemForOperations): number {
+  const quantity = getQuantity(item);
+  if (quantity <= 0) return 0;
+  return quantity * getCapacityUnitsPerOrder(item);
+}
+
+export function summarizeProductionTokensByItems(
+  items: BookingItemForOperations[],
+): number {
+  return items.reduce((sum, item) => {
+    const unitTokens = getDifficultyTokenPerUnit(item);
+    const workloadUnits = getTokenUnitsPerOrder(item);
+    return sum + unitTokens * workloadUnits;
+  }, 0);
+}
+
+export function summarizeProductionTokensByOrdersForDate(
+  orders: BookingOrderForOperations[],
+  deliveryDate: string,
+  excludeOrderId?: string,
+): number {
+  return orders.reduce((sum, order) => {
+    if (excludeOrderId && order.id === excludeOrderId) return sum;
+    if (order.deliveryDate !== deliveryDate) return sum;
+    if (!isActiveOrder(order.orderStatus)) return sum;
+    return sum + summarizeProductionTokensByItems(order.items || []);
+  }, 0);
 }
 
 export function summarizeCapacityByItems(

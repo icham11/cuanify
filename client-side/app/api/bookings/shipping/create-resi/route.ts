@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 const shippingQuoteSchema = z.object({
   id: z.string(),
-  provider: z.enum(["JNE", "PAXEL"]),
+  provider: z.enum(["JNE", "PAXEL", "JNT"]),
   courierCode: z.string().min(1),
   courierServiceCode: z.string().min(1),
   courierServiceName: z.string().min(1),
