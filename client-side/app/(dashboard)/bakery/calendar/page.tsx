@@ -32,10 +32,10 @@ import {
   countConcurrentOrdersByTypeForSlot,
   getDeliverySlotsForDate,
   getSlotLimitByOrderType,
+  isDateBlockedForOrdering,
   inferOrderTypeFromItems,
   type SlotOrderType,
 } from "@/lib/bookings/operations";
-import { BAKERY_BLOCKED_DATES } from "@/lib/bookings/config";
 import { CalendarDays, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { toast } from "sonner";
 
@@ -451,9 +451,8 @@ export default function BakeryCalendarPage() {
   }, [filteredInternalOrders]);
 
   const selectedDateKey = selectedDate ? toDateKey(selectedDate) : "";
-  const blockedDateSet = useMemo(() => new Set(BAKERY_BLOCKED_DATES), []);
   const isSelectedBlockedDate =
-    Boolean(selectedDateKey) && blockedDateSet.has(selectedDateKey);
+    Boolean(selectedDateKey) && isDateBlockedForOrdering(selectedDateKey);
 
   const selectedEvents = selectedDateKey
     ? events
@@ -540,14 +539,20 @@ export default function BakeryCalendarPage() {
     while (cursor <= rangeEnd) {
       const dateKey = safeToDateKey(cursor);
       if (dateKey) {
-        if (blockedDateSet.has(dateKey)) {
+        if (isDateBlockedForOrdering(dateKey)) {
           result.set(dateKey, "full");
           cursor.setDate(cursor.getDate() + 1);
           continue;
         }
 
         const slots = getDeliverySlotsForDate(dateKey);
+        if (slots.length === 0) {
+          result.set(dateKey, "full");
+          cursor.setDate(cursor.getDate() + 1);
+          continue;
+        }
         let tone: DayLoadTone = "normal";
+        let allSlotsFullyBlocked = true;
         for (const slot of slots) {
           const customStatus = checkSlotAvailability(dateKey, slot, "CUSTOM", {
             orders,
@@ -558,16 +563,22 @@ export default function BakeryCalendarPage() {
             "SEASONAL",
             { orders },
           );
-          if (customStatus === "FULL" || seasonalStatus === "FULL") {
-            tone = "full";
-            break;
+          const isSlotFullyBlocked =
+            customStatus === "FULL" && seasonalStatus === "FULL";
+          if (!isSlotFullyBlocked) {
+            allSlotsFullyBlocked = false;
           }
           if (
             customStatus === "ALMOST_FULL" ||
+            customStatus === "FULL" ||
+            seasonalStatus === "FULL" ||
             seasonalStatus === "ALMOST_FULL"
           ) {
             tone = "busy";
           }
+        }
+        if (allSlotsFullyBlocked) {
+          tone = "full";
         }
         result.set(dateKey, tone);
       }
@@ -575,7 +586,7 @@ export default function BakeryCalendarPage() {
     }
 
     return result;
-  }, [blockedDateSet, calendarViewMode, currentDate, currentView, orders]);
+  }, [calendarViewMode, currentDate, currentView, orders]);
 
   const selectedDateSlotBoard = useMemo(() => {
     if (!selectedDateKey || calendarViewMode !== "internal") return [];
@@ -611,23 +622,31 @@ export default function BakeryCalendarPage() {
     if (isSelectedBlockedDate) return "FULL";
     if (selectedDateSlotBoard.length === 0) return "AVAILABLE";
 
-    let hasAlmostFull = false;
+    let hasLoadWarning = false;
+    let allRowsFull = true;
     for (const slot of selectedDateSlotBoard) {
       for (const row of slot.rows) {
-        if (row.status === "FULL") return "FULL";
-        if (row.status === "ALMOST_FULL") hasAlmostFull = true;
+        if (row.status !== "FULL") {
+          allRowsFull = false;
+        }
+        if (row.status === "ALMOST_FULL" || row.status === "FULL") {
+          hasLoadWarning = true;
+        }
       }
     }
 
-    return hasAlmostFull ? "ALMOST_FULL" : "AVAILABLE";
+    if (allRowsFull) return "FULL";
+    if (hasLoadWarning) return "ALMOST_FULL";
+
+    return "AVAILABLE";
   }, [isSelectedBlockedDate, selectedDateSlotBoard]);
 
   const slotMessage = isSelectedBlockedDate
-    ? "Tanggal ini libur operasional"
+    ? "Tanggal ini tertutup (libur admin atau cutoff H-1 jam 10:00 sudah lewat)"
     : selectedDateOverallStatus === "FULL"
-      ? "Ada slot yang sudah penuh"
+      ? "Semua slot penuh total"
       : selectedDateOverallStatus === "ALMOST_FULL"
-        ? "Ada slot yang hampir penuh"
+        ? "Warning: ada kategori slot yang penuh / hampir penuh"
         : "Slot masih tersedia";
 
   const openDateOrdersPopup = (date: Date) => {
@@ -638,7 +657,7 @@ export default function BakeryCalendarPage() {
   const DateHeader = ({ date, label }: DateHeaderProps) => {
     const dateKey = safeToDateKey(date);
     const count = dateKey ? (ordersByDate.get(dateKey)?.length ?? 0) : 0;
-    const isBlockedDate = dateKey ? blockedDateSet.has(dateKey) : false;
+    const isBlockedDate = dateKey ? isDateBlockedForOrdering(dateKey) : false;
     return (
       <div className="flex flex-col">
         <button
@@ -658,7 +677,9 @@ export default function BakeryCalendarPage() {
           </span>
         )}
         {isBlockedDate && (
-          <span className="text-[10px] font-semibold text-rose-600">LIBUR</span>
+          <span className="text-[10px] font-semibold text-rose-600">
+            BLOCKED
+          </span>
         )}
       </div>
     );
@@ -919,7 +940,7 @@ export default function BakeryCalendarPage() {
             })}
             dayPropGetter={(date) => {
               const dateKey = toDateKey(date);
-              if (blockedDateSet.has(dateKey)) {
+              if (isDateBlockedForOrdering(dateKey)) {
                 return { className: "rbc-day-blocked" };
               }
 
