@@ -32,6 +32,7 @@ import {
   countConcurrentOrdersByTypeForSlot,
   getDeliverySlotsForDate,
   getSlotLimitByOrderType,
+  isDateClosedByTokenCapacity,
   isDateBlockedForOrdering,
   inferOrderTypeFromItems,
   type SlotOrderType,
@@ -452,7 +453,12 @@ export default function BakeryCalendarPage() {
 
   const selectedDateKey = selectedDate ? toDateKey(selectedDate) : "";
   const isSelectedBlockedDate =
-    Boolean(selectedDateKey) && isDateBlockedForOrdering(selectedDateKey);
+    Boolean(selectedDateKey) &&
+    (isDateBlockedForOrdering(selectedDateKey) ||
+      isDateClosedByTokenCapacity({
+        orders,
+        deliveryDate: selectedDateKey,
+      }));
 
   const selectedEvents = selectedDateKey
     ? events
@@ -545,6 +551,17 @@ export default function BakeryCalendarPage() {
           continue;
         }
 
+        if (
+          isDateClosedByTokenCapacity({
+            orders,
+            deliveryDate: dateKey,
+          })
+        ) {
+          result.set(dateKey, "full");
+          cursor.setDate(cursor.getDate() + 1);
+          continue;
+        }
+
         const slots = getDeliverySlotsForDate(dateKey);
         if (slots.length === 0) {
           result.set(dateKey, "full");
@@ -590,6 +607,7 @@ export default function BakeryCalendarPage() {
 
   const selectedDateSlotBoard = useMemo(() => {
     if (!selectedDateKey || calendarViewMode !== "internal") return [];
+    if (isSelectedBlockedDate) return [];
     const orderTypes: SlotOrderType[] = ["CUSTOM", "SEASONAL"];
     return getDeliverySlotsForDate(selectedDateKey).map((slot) => {
       const rows = orderTypes.map((orderType) => {
@@ -614,7 +632,7 @@ export default function BakeryCalendarPage() {
         rows,
       };
     });
-  }, [selectedDateKey, calendarViewMode, orders]);
+  }, [selectedDateKey, calendarViewMode, isSelectedBlockedDate, orders]);
 
   const selectedDateOverallStatus = useMemo<
     "AVAILABLE" | "ALMOST_FULL" | "FULL"
@@ -642,7 +660,13 @@ export default function BakeryCalendarPage() {
   }, [isSelectedBlockedDate, selectedDateSlotBoard]);
 
   const slotMessage = isSelectedBlockedDate
-    ? "Tanggal ini tertutup (libur admin atau cutoff H-1 jam 10:00 sudah lewat)"
+    ? selectedDateKey &&
+      isDateClosedByTokenCapacity({
+        orders,
+        deliveryDate: selectedDateKey,
+      })
+      ? "Tanggal ini tertutup karena token produksi harian sudah habis"
+      : "Tanggal ini tertutup (libur admin atau cutoff H-1 jam 10:00 sudah lewat)"
     : selectedDateOverallStatus === "FULL"
       ? "Semua slot penuh total"
       : selectedDateOverallStatus === "ALMOST_FULL"
@@ -657,7 +681,19 @@ export default function BakeryCalendarPage() {
   const DateHeader = ({ date, label }: DateHeaderProps) => {
     const dateKey = safeToDateKey(date);
     const count = dateKey ? (ordersByDate.get(dateKey)?.length ?? 0) : 0;
-    const isBlockedDate = dateKey ? isDateBlockedForOrdering(dateKey) : false;
+    const isBlockedDate =
+      Boolean(dateKey) &&
+      (isDateBlockedForOrdering(dateKey) ||
+        isDateClosedByTokenCapacity({
+          orders,
+          deliveryDate: dateKey,
+        }));
+    const isTokenFullDate =
+      Boolean(dateKey) &&
+      isDateClosedByTokenCapacity({
+        orders,
+        deliveryDate: dateKey,
+      });
     return (
       <div className="flex flex-col">
         <button
@@ -678,7 +714,7 @@ export default function BakeryCalendarPage() {
         )}
         {isBlockedDate && (
           <span className="text-[10px] font-semibold text-rose-600">
-            BLOCKED
+            {isTokenFullDate ? "TOKEN FULL" : "BLOCKED"}
           </span>
         )}
       </div>

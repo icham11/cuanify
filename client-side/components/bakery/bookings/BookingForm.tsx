@@ -49,6 +49,7 @@ import {
   getSlotLimitByOrderType,
   getCapacityOverflows,
   getDeliverySlotsForDate,
+  isDateClosedByTokenCapacity,
   inferOrderTypeFromItems,
   isWithinBusinessHours,
   isDateBlockedForOrdering,
@@ -555,10 +556,22 @@ export default function BookingForm() {
   const effectivePaymentStatus =
     totalPaid <= 0 ? "Pending" : remainingBalance <= 0 ? "Paid" : "DP Paid";
 
-  const deliverySlots = useMemo(
-    () => getDeliverySlotsForDate(deliveryDate),
-    [deliveryDate],
+  const isScheduleBlockedDate = Boolean(
+    deliveryDate && isDateBlockedForOrdering(deliveryDate),
   );
+  const isTokenClosedDate = Boolean(
+    deliveryDate &&
+    isDateClosedByTokenCapacity({
+      orders,
+      deliveryDate,
+    }),
+  );
+
+  const deliverySlots = useMemo(() => {
+    if (!deliveryDate) return [];
+    if (isTokenClosedDate) return [];
+    return getDeliverySlotsForDate(deliveryDate);
+  }, [deliveryDate, isTokenClosedDate]);
   const draftOrderType = useMemo<SlotOrderType>(
     () => inferOrderTypeFromItems(watchedItems),
     [watchedItems],
@@ -571,9 +584,7 @@ export default function BookingForm() {
     () => orderTypeLabel(draftOrderType),
     [draftOrderType],
   );
-  const isBlockedDate = Boolean(
-    deliveryDate && isDateBlockedForOrdering(deliveryDate),
-  );
+  const isBlockedDate = isScheduleBlockedDate || isTokenClosedDate;
 
   useEffect(() => {
     if (!deliveryDate) return;
@@ -850,7 +861,9 @@ export default function BookingForm() {
 
     if (isBlockedDate) {
       toast.error(
-        "Tanggal dipilih tidak tersedia. H-1 hanya bisa booking sampai jam 10:00 pagi atau tanggal sedang diblokir admin.",
+        isTokenClosedDate
+          ? "Tanggal dipilih sudah ditutup karena token produksi hari tersebut habis. Pilih tanggal lain."
+          : "Tanggal dipilih tidak tersedia. H-1 hanya bisa booking sampai jam 10:00 pagi atau tanggal sedang diblokir admin.",
       );
       return;
     }
@@ -1482,7 +1495,9 @@ export default function BookingForm() {
             {(isBlockedDate || isSlotFull) && (
               <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
                 {isBlockedDate
-                  ? "Tanggal tidak tersedia (libur admin atau cutoff H-1 jam 10:00 sudah lewat)."
+                  ? isTokenClosedDate
+                    ? "Tanggal ditutup karena token produksi hari itu sudah habis (day closed)."
+                    : "Tanggal tidak tersedia (libur admin atau cutoff H-1 jam 10:00 sudah lewat)."
                   : `Selected slot is full for ${slotProfileLabel} orders (${slotUsage}/${slotLimitPerHour}). Please choose another hour.`}
               </div>
             )}
@@ -1559,6 +1574,12 @@ export default function BookingForm() {
                     Daily base {DAILY_PRODUCTION_TOKEN_LIMIT} + carry-over{" "}
                     {tokenCapacity.carryOver}
                   </p>
+                  {isTokenClosedDate && (
+                    <p className="mt-1 font-semibold text-rose-700">
+                      Day closed: token harian sudah habis, order baru otomatis
+                      ditutup.
+                    </p>
+                  )}
                 </div>
               </div>
             )}

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { AuthError, requireAuth } from "@/lib/auth/session";
+import { evaluateProductionTokenCapacity } from "@/lib/bookings/operations";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -197,6 +198,66 @@ function extractErrorDetails(error: unknown): {
   const code = typeof record?.code === "string" ? record.code : undefined;
   const meta = record?.meta;
   return { message, name, code, meta };
+}
+
+function toTokenOpsOrders(orders: NormalizedOrder[]) {
+  return orders.map((order) => {
+    const items = (order.items ?? []).map((item) => ({
+      category: asString(item.category),
+      subcategory: asString(item.subcategory),
+      productName: asString(item.productName),
+      size: asString(item.size),
+      quantity: asNumber(item.quantity),
+      tokenDifficulty: asString(item.tokenDifficulty) || undefined,
+    }));
+
+    return {
+      id: order.id,
+      deliveryDate: order.deliveryDate,
+      deliverySlot: order.deliverySlot,
+      orderStatus: order.orderStatus,
+      items,
+    };
+  });
+}
+
+function validateDailyTokenCapacity(orders: NormalizedOrder[]) {
+  const tokenOrders = toTokenOpsOrders(orders);
+  const activeDates = Array.from(
+    new Set(
+      tokenOrders
+        .filter(
+          (order) =>
+            Boolean(order.deliveryDate) &&
+            !["Cancelled", "Completed", "Delivered"].includes(
+              order.orderStatus || "",
+            ),
+        )
+        .map((order) => order.deliveryDate),
+    ),
+  );
+
+  const overflows = activeDates
+    .map((deliveryDate) => {
+      const capacity = evaluateProductionTokenCapacity({
+        orders: tokenOrders,
+        deliveryDate,
+        incomingItems: [],
+      });
+
+      return {
+        deliveryDate,
+        used: capacity.usedToday,
+        allowed: capacity.allowed,
+        overflow: Math.max(0, capacity.usedToday - capacity.allowed),
+      };
+    })
+    .filter((entry) => entry.overflow > 0);
+
+  return {
+    isValid: overflows.length === 0,
+    overflows,
+  };
 }
 
 async function readOrdersSnapshot(businessId: number) {
@@ -601,6 +662,20 @@ export async function POST(request: NextRequest) {
     }
 
     const orders = parsedOrders.data;
+
+    const tokenValidation = validateDailyTokenCapacity(orders);
+    if (!tokenValidation.isValid) {
+      return NextResponse.json(
+        {
+          error:
+            "Payload ditolak karena melebihi kapasitas token produksi harian pada satu atau lebih tanggal.",
+          details: tokenValidation.overflows.map((entry) => {
+            return `Tanggal ${entry.deliveryDate}: ${entry.used}/${entry.allowed} (overflow ${entry.overflow})`;
+          }),
+        },
+        { status: 409 },
+      );
+    }
 
     console.info("[api/bookings/orders] request received", {
       businessId,

@@ -467,6 +467,23 @@ export function evaluateProductionTokenCapacity(args: {
   };
 }
 
+export function isDateClosedByTokenCapacity(args: {
+  orders: BookingOrderForOperations[];
+  deliveryDate: string;
+  carryOverDays?: number;
+}): boolean {
+  if (!args.deliveryDate) return false;
+
+  const capacity = evaluateProductionTokenCapacity({
+    orders: args.orders,
+    deliveryDate: args.deliveryDate,
+    incomingItems: [],
+    carryOverDays: args.carryOverDays,
+  });
+
+  return capacity.usedToday >= capacity.allowed;
+}
+
 export function summarizeCapacityByItems(
   items: BookingItemForOperations[],
 ): Record<CapacityBucket, number> {
