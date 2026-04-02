@@ -1,6 +1,7 @@
 export type DeliveryMethod =
   | "PICKUP"
   | "CUSTOMER_APP_COURIER"
+  | "ASSISTED_GOSEND"
   | "ASSISTED_GRAB"
   | "ASSISTED_GOCAR"
   | "ASSISTED_PAXEL"
@@ -48,6 +49,11 @@ export const DELIVERY_METHOD_OPTIONS: DeliveryMethodOption[] = [
     value: "CUSTOMER_APP_COURIER",
     label: "Grab/GoCar (pesan customer)",
     description: "Customer pesan kurir sendiri via aplikasi.",
+  },
+  {
+    value: "ASSISTED_GOSEND",
+    label: "GoSend (dibantu admin)",
+    description: "Admin bantu pemesanan GoSend same-day.",
   },
   {
     value: "ASSISTED_GRAB",
@@ -147,6 +153,7 @@ export function getGrabCarOnlyReasons(items: DeliveryRuleItem[]): string[] {
 export function usesShippingEngine(method: DeliveryMethod): boolean {
   return (
     method === "ASSISTED_SAME_DAY" ||
+    method === "ASSISTED_GOSEND" ||
     method === "ASSISTED_GRAB" ||
     method === "ASSISTED_GOCAR" ||
     method === "ASSISTED_PAXEL" ||

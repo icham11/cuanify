@@ -60,7 +60,12 @@ const commonFieldDefinitions: FieldDefinition[] = [
   {
     key: "deliveryDate",
     label: "Tanggal Pengiriman",
-    aliases: ["tanggal pengiriman", "tgl pengiriman", "tanggal kirim", "tgl kirim"],
+    aliases: [
+      "tanggal pengiriman",
+      "tgl pengiriman",
+      "tanggal kirim",
+      "tgl kirim",
+    ],
   },
   {
     key: "bookingCode",
@@ -90,7 +95,13 @@ const commonFieldDefinitions: FieldDefinition[] = [
   {
     key: "recipientPhone",
     label: "No. telp penerima",
-    aliases: ["no telp penerima", "no. telp penerima", "nomor penerima", "telepon penerima", "no hp penerima"],
+    aliases: [
+      "no telp penerima",
+      "no. telp penerima",
+      "nomor penerima",
+      "telepon penerima",
+      "no hp penerima",
+    ],
   },
   {
     key: "fullAddress",
@@ -138,7 +149,12 @@ const detailFieldDefinitions: Record<WhatsAppOrderType, FieldDefinition[]> = {
     {
       key: "cupcakeCount",
       label: "Jumlah Cupcakes",
-      aliases: ["jumlah cupcakes", "jumlah cupcake", "qty cupcakes", "qty cupcake"],
+      aliases: [
+        "jumlah cupcakes",
+        "jumlah cupcake",
+        "qty cupcakes",
+        "qty cupcake",
+      ],
     },
     {
       key: "cupcakeFlavor",
@@ -165,7 +181,12 @@ const detailFieldDefinitions: Record<WhatsAppOrderType, FieldDefinition[]> = {
     {
       key: "bouquetPaperColor",
       label: "Warna kertas bouquet",
-      aliases: ["warna kertas bouquet", "warna kertas bouquet", "warna kertas buket", "warna kertas"],
+      aliases: [
+        "warna kertas bouquet",
+        "warna kertas bouquet",
+        "warna kertas buket",
+        "warna kertas",
+      ],
     },
     {
       key: "flowerCount",
@@ -207,6 +228,14 @@ const detailFieldDefinitions: Record<WhatsAppOrderType, FieldDefinition[]> = {
   ],
 };
 
+const optionalDetailFieldKeys: Record<WhatsAppOrderType, string[]> = {
+  cake: [],
+  cookies: ["toFromNotes"],
+  cupcakes: [],
+  buket: [],
+  cookies_tower: [],
+};
+
 const allFieldDefinitions: FieldDefinition[] = [
   ...commonFieldDefinitions,
   ...Object.values(detailFieldDefinitions).flat(),
@@ -241,6 +270,15 @@ export interface BookingFormAutoFill {
   phoneNumber: string;
   deliveryDate: string;
   deliverySlot: string;
+  deliveryMethod:
+    | "PICKUP"
+    | "CUSTOMER_APP_COURIER"
+    | "ASSISTED_GOSEND"
+    | "ASSISTED_GRAB"
+    | "ASSISTED_GOCAR"
+    | "ASSISTED_PAXEL"
+    | "ASSISTED_SAME_DAY"
+    | "REGULAR_JNE_JNT";
   customNotes: string;
   deliveryAddresses: Array<{
     label: string;
@@ -267,7 +305,9 @@ function normalizeLabel(value: string): string {
 }
 
 function cleanupValue(value: string): string {
-  const cleaned = normalizeSpaces(value.replace(/^[:\-=\s]+/, "").replace(/[\s]+$/, ""));
+  const cleaned = normalizeSpaces(
+    value.replace(/^[:\-=\s]+/, "").replace(/[\s]+$/, ""),
+  );
   if (!cleaned || cleaned === "-" || cleaned.toLowerCase() === "n/a") {
     return "";
   }
@@ -296,11 +336,15 @@ function looksLikeLabeledLine(value: string): boolean {
   if (/^[a-z0-9\s]{2,60}\s*[:=-]\s*/i.test(value.trim())) return true;
 
   return allFieldDefinitions.some((field) =>
-    field.aliases.some((alias) => normalized.startsWith(normalizeLabel(alias)))
+    field.aliases.some((alias) => normalized.startsWith(normalizeLabel(alias))),
   );
 }
 
-function collectBlockValue(lines: string[], startIndex: number, firstLineValue: string): string {
+function collectBlockValue(
+  lines: string[],
+  startIndex: number,
+  firstLineValue: string,
+): string {
   const parts: string[] = [];
   if (firstLineValue) {
     parts.push(firstLineValue);
@@ -342,9 +386,11 @@ function readFieldValue(
   rawText: string,
   lines: string[],
   lookup: Map<string, string>,
-  definition: FieldDefinition
+  definition: FieldDefinition,
 ): string {
-  const normalizedAliases = definition.aliases.map((alias) => normalizeLabel(alias));
+  const normalizedAliases = definition.aliases.map((alias) =>
+    normalizeLabel(alias),
+  );
 
   for (const alias of normalizedAliases) {
     const direct = lookup.get(alias);
@@ -365,7 +411,11 @@ function readFieldValue(
     const normalizedLine = normalizeLabel(line);
     if (!normalizedLine) continue;
 
-    for (let aliasIndex = 0; aliasIndex < definition.aliases.length; aliasIndex += 1) {
+    for (
+      let aliasIndex = 0;
+      aliasIndex < definition.aliases.length;
+      aliasIndex += 1
+    ) {
       const alias = definition.aliases[aliasIndex];
       const normalizedAlias = normalizedAliases[aliasIndex];
       if (!normalizedLine.startsWith(normalizedAlias)) continue;
@@ -399,7 +449,11 @@ function normalizeYear(year: number): number {
 }
 
 function toIsoDate(year: number, month: number, day: number): string {
-  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(month) ||
+    !Number.isInteger(day)
+  ) {
     return "";
   }
 
@@ -435,7 +489,9 @@ function parseDate(value: string): string {
     return toIsoDate(year, Number(dmy[2]), Number(dmy[1]));
   }
 
-  const dayMonthWordYearWithSlash = text.match(/\b(\d{1,2})[\/-]([a-zA-Z]+)[\/-](\d{2,4})\b/i);
+  const dayMonthWordYearWithSlash = text.match(
+    /\b(\d{1,2})[\/-]([a-zA-Z]+)[\/-](\d{2,4})\b/i,
+  );
   if (dayMonthWordYearWithSlash) {
     const day = Number(dayMonthWordYearWithSlash[1]);
     const month = MONTH_MAP[normalizeLabel(dayMonthWordYearWithSlash[2])];
@@ -445,7 +501,9 @@ function parseDate(value: string): string {
     }
   }
 
-  const dayMonthWordYear = text.match(/\b(\d{1,2})\s+([a-zA-Z]+)\s+(\d{2,4})\b/i);
+  const dayMonthWordYear = text.match(
+    /\b(\d{1,2})\s+([a-zA-Z]+)\s+(\d{2,4})\b/i,
+  );
   if (dayMonthWordYear) {
     const day = Number(dayMonthWordYear[1]);
     const month = MONTH_MAP[normalizeLabel(dayMonthWordYear[2])];
@@ -455,7 +513,9 @@ function parseDate(value: string): string {
     }
   }
 
-  const monthWordDayYear = text.match(/\b([a-zA-Z]+)\s+(\d{1,2})\s+(\d{2,4})\b/i);
+  const monthWordDayYear = text.match(
+    /\b([a-zA-Z]+)\s+(\d{1,2})\s+(\d{2,4})\b/i,
+  );
   if (monthWordDayYear) {
     const month = MONTH_MAP[normalizeLabel(monthWordDayYear[1])];
     const day = Number(monthWordDayYear[2]);
@@ -507,14 +567,58 @@ function normalizeDeliveryMethod(value: string): string {
   const lowered = normalizeLabel(value);
   if (!lowered) return "";
 
-  if (lowered.includes("pickup") || lowered.includes("ambil sendiri")) return "Pickup";
+  if (lowered.includes("pickup") || lowered.includes("ambil sendiri"))
+    return "Pickup";
   if (lowered.includes("gosend")) return "GoSend";
   if (lowered.includes("gojek")) return "Gojek";
   if (lowered.includes("grab")) return "Grab";
   if (lowered.includes("kurir")) return "Kurir";
-  if (lowered.includes("delivery") || lowered.includes("antar")) return "Delivery";
+  if (lowered.includes("delivery") || lowered.includes("antar"))
+    return "Delivery";
 
   return value;
+}
+
+function mapDeliveryMethodToFormValue(
+  rawMethod: string,
+): BookingFormAutoFill["deliveryMethod"] {
+  const normalized = normalizeLabel(rawMethod);
+  if (!normalized) return "REGULAR_JNE_JNT";
+
+  if (normalized.includes("pickup") || normalized.includes("ambil sendiri")) {
+    return "PICKUP";
+  }
+
+  if (normalized.includes("paxel")) {
+    return "ASSISTED_PAXEL";
+  }
+
+  const isAdminAssisted =
+    normalized.includes("dibantu") ||
+    normalized.includes("admin") ||
+    normalized.includes("assisted");
+
+  if (normalized.includes("gocar") || normalized.includes("go car")) {
+    return isAdminAssisted ? "ASSISTED_GOCAR" : "CUSTOMER_APP_COURIER";
+  }
+
+  if (normalized.includes("grab")) {
+    return isAdminAssisted ? "ASSISTED_GRAB" : "CUSTOMER_APP_COURIER";
+  }
+
+  if (normalized.includes("gosend") || normalized.includes("gojek")) {
+    return "ASSISTED_GOSEND";
+  }
+
+  if (
+    normalized.includes("jne") ||
+    normalized.includes("jnt") ||
+    normalized.includes("j t")
+  ) {
+    return "REGULAR_JNE_JNT";
+  }
+
+  return "REGULAR_JNE_JNT";
 }
 
 function normalizeByKey(key: string, value: string): string {
@@ -538,7 +642,7 @@ function normalizeByKey(key: string, value: string): string {
 function detectOrderType(
   rawText: string,
   lookup: Map<string, string>,
-  preferredOrderType: WhatsAppOrderTypeOrUnknown
+  preferredOrderType: WhatsAppOrderTypeOrUnknown,
 ): WhatsAppOrderType {
   if (preferredOrderType !== "unknown") return preferredOrderType;
 
@@ -604,10 +708,14 @@ function guessDeliveryArea(address: string): string {
   const normalized = normalizeLabel(address);
   if (!normalized) return "Outside Area";
 
-  if (normalized.includes("pusat") || normalized.includes("central")) return "Central City";
-  if (normalized.includes("utara") || normalized.includes("north")) return "North District";
-  if (normalized.includes("selatan") || normalized.includes("south")) return "South District";
-  if (normalized.includes("barat") || normalized.includes("west")) return "West District";
+  if (normalized.includes("pusat") || normalized.includes("central"))
+    return "Central City";
+  if (normalized.includes("utara") || normalized.includes("north"))
+    return "North District";
+  if (normalized.includes("selatan") || normalized.includes("south"))
+    return "South District";
+  if (normalized.includes("barat") || normalized.includes("west"))
+    return "West District";
 
   return "Outside Area";
 }
@@ -637,10 +745,7 @@ function chooseCatalogSelection(parsed: ParsedWhatsAppOrder): {
 } {
   const category = getCategoryByOrderType(parsed.orderType);
   const fallback = getDefaultCatalogSelectionForCategory(category);
-  const searchSource = [
-    parsed.common.order,
-    ...Object.values(parsed.details),
-  ]
+  const searchSource = [parsed.common.order, ...Object.values(parsed.details)]
     .filter(Boolean)
     .join(" ");
 
@@ -658,7 +763,7 @@ function extractOrderQuantity(value: string): number | null {
   if (!text) return null;
 
   const explicit = text.match(
-    /(?:qty|jumlah|order|pesan|x)\s*[:=\-]?\s*(\d{1,4})\b/i
+    /(?:qty|jumlah|order|pesan|x)\s*[:=\-]?\s*(\d{1,4})\b/i,
   );
   if (explicit?.[1]) {
     const quantity = Number(explicit[1]);
@@ -675,7 +780,11 @@ function extractOrderQuantity(value: string): number | null {
 }
 
 function chooseQuantity(parsed: ParsedWhatsAppOrder): number {
-  if (parsed.orderType === "cake" || parsed.orderType === "buket" || parsed.orderType === "cookies_tower") {
+  if (
+    parsed.orderType === "cake" ||
+    parsed.orderType === "buket" ||
+    parsed.orderType === "cookies_tower"
+  ) {
     return 1;
   }
 
@@ -779,7 +888,7 @@ export function parseWhatsAppOrderText(
   options?: {
     preferredOrderType?: WhatsAppOrderTypeOrUnknown;
     sourceType?: WhatsAppSourceType;
-  }
+  },
 ): ParsedWhatsAppOrder {
   const sourceType = options?.sourceType ?? "text";
   const preferredOrderType = options?.preferredOrderType ?? "unknown";
@@ -814,7 +923,8 @@ export function parseWhatsAppOrderText(
   }
 
   for (const field of detailDefinitions) {
-    if (!details[field.key]) {
+    const isOptional = optionalDetailFieldKeys[orderType]?.includes(field.key);
+    if (!details[field.key] && !isOptional) {
       missingFields.push(field.label);
     }
   }
@@ -829,7 +939,9 @@ export function parseWhatsAppOrderText(
   };
 }
 
-export function formatParsedWhatsAppForNotes(parsed: ParsedWhatsAppOrder): string {
+export function formatParsedWhatsAppForNotes(
+  parsed: ParsedWhatsAppOrder,
+): string {
   const lines: string[] = [];
   lines.push(`[WA Parser] ${WHATSAPP_ORDER_LABELS[parsed.orderType]}`);
 
@@ -848,7 +960,9 @@ export function formatParsedWhatsAppForNotes(parsed: ParsedWhatsAppOrder): strin
   return lines.join("\n");
 }
 
-export function buildBookingAutoFillFromParsed(parsed: ParsedWhatsAppOrder): BookingFormAutoFill {
+export function buildBookingAutoFillFromParsed(
+  parsed: ParsedWhatsAppOrder,
+): BookingFormAutoFill {
   const catalog = chooseCatalogSelection(parsed);
   const quantity = chooseQuantity(parsed);
 
@@ -862,7 +976,10 @@ export function buildBookingAutoFillFromParsed(parsed: ParsedWhatsAppOrder): Boo
     .join(" | ");
 
   const orderLine = parsed.common.order ? `Order: ${parsed.common.order}` : "";
-  const itemNotes = [orderLine, detailNotes].filter(Boolean).join(" | ").slice(0, 200);
+  const itemNotes = [orderLine, detailNotes]
+    .filter(Boolean)
+    .join(" | ")
+    .slice(0, 200);
 
   const address = parsed.common.fullAddress || "Alamat belum terisi";
   const area = guessDeliveryArea(address);
@@ -875,11 +992,18 @@ export function buildBookingAutoFillFromParsed(parsed: ParsedWhatsAppOrder): Boo
   const deliverySlot = /^\d{2}:\d{2}$/.test(parsed.common.deliveryTime)
     ? parsed.common.deliveryTime
     : "09:00";
+  const deliveryMethod = mapDeliveryMethodToFormValue(
+    parsed.common.deliveryMethod,
+  );
 
   const notesSections = [
     formatParsedWhatsAppForNotes(parsed),
-    parsed.common.deliveryMethod ? `Metode Pengiriman: ${parsed.common.deliveryMethod}` : "",
-    parsed.common.bookingCode ? `KODE BOOKING: ${parsed.common.bookingCode}` : "",
+    parsed.common.deliveryMethod
+      ? `Metode Pengiriman: ${parsed.common.deliveryMethod}`
+      : "",
+    parsed.common.bookingCode
+      ? `KODE BOOKING: ${parsed.common.bookingCode}`
+      : "",
   ]
     .filter(Boolean)
     .join("\n")
@@ -890,6 +1014,7 @@ export function buildBookingAutoFillFromParsed(parsed: ParsedWhatsAppOrder): Boo
     phoneNumber,
     deliveryDate,
     deliverySlot,
+    deliveryMethod,
     customNotes: notesSections,
     deliveryAddresses: [
       {
@@ -912,7 +1037,9 @@ export function buildBookingAutoFillFromParsed(parsed: ParsedWhatsAppOrder): Boo
   };
 }
 
-export function getDisplayFields(parsed: ParsedWhatsAppOrder): Array<{ label: string; value: string }> {
+export function getDisplayFields(
+  parsed: ParsedWhatsAppOrder,
+): Array<{ label: string; value: string }> {
   const rows: Array<{ label: string; value: string }> = [];
 
   for (const field of commonFieldDefinitions) {

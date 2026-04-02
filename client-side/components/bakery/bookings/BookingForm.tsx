@@ -127,6 +127,7 @@ const bookingSchema = z.object({
   deliveryMethod: z.enum([
     "PICKUP",
     "CUSTOMER_APP_COURIER",
+    "ASSISTED_GOSEND",
     "ASSISTED_GRAB",
     "ASSISTED_GOCAR",
     "ASSISTED_PAXEL",
@@ -538,7 +539,7 @@ export default function BookingForm() {
     [deliveryMethod],
   );
 
-  const filteredShippingQuotes = useMemo(() => {
+  const methodSpecificShippingQuotes = useMemo(() => {
     if (!shouldUseShippingEngine) return [];
 
     const isCarService = (quote: ShippingQuote) => {
@@ -547,18 +548,50 @@ export default function BookingForm() {
       return source.includes("car") || source.includes("4w");
     };
 
+    const isBikeService = (quote: ShippingQuote) => {
+      const source =
+        `${quote.courierServiceCode} ${quote.courierServiceName}`.toLowerCase();
+      return (
+        source.includes("gosend") ||
+        source.includes("go send") ||
+        source.includes("bike") ||
+        source.includes("motor") ||
+        source.includes("instant") ||
+        source.includes("same day") ||
+        source.includes("sameday") ||
+        source.includes("2w")
+      );
+    };
+
+    const gojekQuotes = shippingQuotes.filter(
+      (quote) => quote.provider === "GOJEK",
+    );
+    const grabQuotes = shippingQuotes.filter(
+      (quote) => quote.provider === "GRAB",
+    );
+
     if (deliveryMethod === "ASSISTED_PAXEL") {
       return shippingQuotes.filter((quote) => quote.provider === "PAXEL");
     }
 
     if (deliveryMethod === "ASSISTED_GRAB") {
-      return shippingQuotes.filter((quote) => quote.provider === "GRAB");
+      if (grabQuotes.length > 0) {
+        return grabQuotes;
+      }
+
+      // If Grab is unavailable, prefer GOJEK bike quotes before global fallback.
+      const gojekBikeQuotes = gojekQuotes.filter(isBikeService);
+      return gojekBikeQuotes.length > 0 ? gojekBikeQuotes : gojekQuotes;
+    }
+
+    if (deliveryMethod === "ASSISTED_GOSEND") {
+      const gojekBikeQuotes = gojekQuotes.filter(isBikeService);
+      return gojekBikeQuotes.length > 0 ? gojekBikeQuotes : gojekQuotes;
     }
 
     if (deliveryMethod === "ASSISTED_GOCAR") {
-      return shippingQuotes.filter(
-        (quote) => quote.provider === "GOJEK" && isCarService(quote),
-      );
+      const gojekCarQuotes = gojekQuotes.filter(isCarService);
+      return gojekCarQuotes.length > 0 ? gojekCarQuotes : gojekQuotes;
     }
 
     if (deliveryMethod === "REGULAR_JNE_JNT") {
@@ -578,6 +611,47 @@ export default function BookingForm() {
 
     return shippingQuotes;
   }, [deliveryMethod, shippingQuotes, shouldUseShippingEngine]);
+
+  const isStrictDeliveryMethod =
+    deliveryMethod === "ASSISTED_PAXEL" ||
+    deliveryMethod === "ASSISTED_GOSEND" ||
+    deliveryMethod === "ASSISTED_GRAB" ||
+    deliveryMethod === "ASSISTED_GOCAR" ||
+    deliveryMethod === "REGULAR_JNE_JNT";
+
+  const isShippingFallbackActive =
+    shouldUseShippingEngine &&
+    isStrictDeliveryMethod &&
+    shippingQuotes.length > 0 &&
+    methodSpecificShippingQuotes.length === 0;
+
+  const filteredShippingQuotes = useMemo(() => {
+    if (isShippingFallbackActive) {
+      return shippingQuotes;
+    }
+    return methodSpecificShippingQuotes;
+  }, [isShippingFallbackActive, shippingQuotes, methodSpecificShippingQuotes]);
+
+  const shippingFallbackMessage = useMemo(() => {
+    if (!isShippingFallbackActive) return "";
+
+    if (deliveryMethod === "ASSISTED_PAXEL") {
+      return "Layanan Paxel belum tersedia untuk alamat ini. Ditampilkan opsi kurir lain dari Biteship sebagai fallback.";
+    }
+    if (deliveryMethod === "ASSISTED_GRAB") {
+      return "Layanan Grab belum tersedia untuk alamat ini. Ditampilkan opsi kurir lain dari Biteship sebagai fallback.";
+    }
+    if (deliveryMethod === "ASSISTED_GOSEND") {
+      return "Layanan GoSend belum tersedia untuk alamat ini. Ditampilkan opsi kurir lain dari Biteship sebagai fallback.";
+    }
+    if (deliveryMethod === "ASSISTED_GOCAR") {
+      return "Layanan GoCar belum tersedia untuk alamat ini. Ditampilkan opsi kurir lain dari Biteship sebagai fallback.";
+    }
+    if (deliveryMethod === "REGULAR_JNE_JNT") {
+      return "Layanan JNE/J&T belum tersedia untuk alamat ini. Ditampilkan opsi kurir lain dari Biteship sebagai fallback.";
+    }
+    return "Layanan kurir pada metode terpilih belum tersedia. Ditampilkan opsi fallback dari Biteship.";
+  }, [deliveryMethod, isShippingFallbackActive]);
 
   const selectedShippingQuote = useMemo(
     () =>
@@ -609,6 +683,20 @@ export default function BookingForm() {
     [watchedItems],
   );
   const isGrabCarOnlyOrder = grabCarOnlyReasons.length > 0;
+  const grabCarCompatibleMethods: DeliveryMethod[] = [
+    "CUSTOMER_APP_COURIER",
+    "ASSISTED_GRAB",
+    "ASSISTED_GOCAR",
+  ];
+  const isGrabCarMethodSelected = grabCarCompatibleMethods.includes(
+    deliveryMethod as DeliveryMethod,
+  );
+
+  const primaryAddressLine = watchedAddresses[0]?.addressLine?.trim() || "";
+  const isAddressTooShortForShipping =
+    shouldUseShippingEngine &&
+    primaryAddressLine.length > 0 &&
+    primaryAddressLine.length < 8;
   const displayedShippingDistanceKm = useMemo(() => {
     if (shippingDistanceKm !== null && Number.isFinite(shippingDistanceKm)) {
       return Number(shippingDistanceKm.toFixed(2));
@@ -972,11 +1060,6 @@ export default function BookingForm() {
       return;
     }
 
-    const grabCarCompatibleMethods: DeliveryMethod[] = [
-      "CUSTOMER_APP_COURIER",
-      "ASSISTED_GRAB",
-      "ASSISTED_GOCAR",
-    ];
     if (
       isGrabCarOnlyOrder &&
       !grabCarCompatibleMethods.includes(deliveryMethod as DeliveryMethod)
@@ -1293,6 +1376,8 @@ export default function BookingForm() {
         }
       }
       if (draft.deliverySlot) setValue("deliverySlot", draft.deliverySlot);
+      if (draft.deliveryMethod)
+        setValue("deliveryMethod", draft.deliveryMethod);
       if (draft.customNotes) setValue("customNotes", draft.customNotes);
       if (draft.items?.length) {
         const normalizedItems: BookingFormInput["items"] = draft.items.map(
@@ -1481,20 +1566,18 @@ export default function BookingForm() {
             </label>
           )}
 
-          <Textarea
-            value={quickPaste}
-            onChange={(event) => setQuickPaste(event.target.value)}
-            placeholder={
-              parserSource === "manual"
-                ? "Klik tombol 'Isi Template Manual' lalu lengkapi field-nya."
-                : parserSource === "image"
-                  ? "Opsional: tambahkan konteks jika ada bagian gambar yang blur."
-                  : parserSource === "email"
-                    ? "Paste email notifikasi e-commerce untuk dibuatkan draft otomatis."
-                    : "Paste chat WA customer di sini untuk auto-parse."
-            }
-            className="min-h-28"
-          />
+          {(parserSource === "text" || parserSource === "manual") && (
+            <Textarea
+              value={quickPaste}
+              onChange={(event) => setQuickPaste(event.target.value)}
+              placeholder={
+                parserSource === "manual"
+                  ? "Klik tombol 'Isi Template Manual' lalu lengkapi field-nya."
+                  : "Paste chat WA customer di sini untuk auto-parse."
+              }
+              className="min-h-28"
+            />
+          )}
 
           <div className="flex flex-wrap gap-3">
             <Button
@@ -2392,9 +2475,16 @@ export default function BookingForm() {
               </div>
 
               {isGrabCarOnlyOrder && (
-                <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                  Produk {grabCarOnlyReasons.join(", ")} wajib GrabCar sesuai
-                  SOP.
+                <p
+                  className={`rounded-lg px-3 py-2 text-xs ${
+                    isGrabCarMethodSelected
+                      ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
+                      : "border border-amber-200 bg-amber-50 text-amber-700"
+                  }`}
+                >
+                  {isGrabCarMethodSelected
+                    ? `Produk ${grabCarOnlyReasons.join(", ")} sudah menggunakan metode yang sesuai SOP (Grab/GoCar).`
+                    : `Produk ${grabCarOnlyReasons.join(", ")} wajib GrabCar/GoCar sesuai SOP.`}
                 </p>
               )}
 
@@ -2416,6 +2506,12 @@ export default function BookingForm() {
               {shippingWarning && (
                 <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
                   {shippingWarning}
+                </p>
+              )}
+
+              {shippingFallbackMessage && (
+                <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                  {shippingFallbackMessage}
                 </p>
               )}
 
@@ -2455,7 +2551,9 @@ export default function BookingForm() {
               {!filteredShippingQuotes.length && !shippingPayload && (
                 <p className="text-xs text-gray-500">
                   {shouldUseShippingEngine
-                    ? "Lengkapi alamat penerima dan item order untuk kalkulasi ongkir otomatis."
+                    ? isAddressTooShortForShipping
+                      ? "Alamat terlalu pendek untuk kalkulasi ongkir. Lengkapi alamat minimal 8 karakter."
+                      : "Lengkapi alamat penerima dan item order untuk kalkulasi ongkir otomatis."
                     : "Pilih metode berbasis kurir reguler/admin jika ingin kalkulasi ongkir otomatis."}
                 </p>
               )}

@@ -135,18 +135,22 @@ function parseProviderFromCourierCode(
   rawCode: string,
 ): ShippingProvider | null {
   const code = rawCode.toLowerCase();
+  const compactCode = code.replace(/[^a-z0-9]/g, "");
   if (
-    code.includes("gojek") ||
-    code.includes("gosend") ||
-    code.includes("gocar") ||
-    code.includes("go_car")
+    compactCode.includes("gojek") ||
+    compactCode.includes("gosend") ||
+    compactCode.includes("gocar")
   ) {
     return "GOJEK";
   }
-  if (code.includes("grab")) return "GRAB";
-  if (code.includes("jne")) return "JNE";
-  if (code.includes("jnt") || code.includes("j&t")) return "JNT";
-  if (code.includes("paxel")) return "PAXEL";
+  if (compactCode.includes("grab")) return "GRAB";
+  if (compactCode.includes("jne")) return "JNE";
+  if (compactCode.includes("jnt") || compactCode.includes("jandt")) {
+    return "JNT";
+  }
+  if (compactCode.includes("paxel") || compactCode.includes("pxl")) {
+    return "PAXEL";
+  }
   return null;
 }
 
@@ -717,11 +721,12 @@ export async function getShippingQuote(
   const distanceKm = destination.point
     ? Number(haversineKm(origin, destination.point).toFixed(2))
     : 0;
-  let biteshipQuotes: ShippingQuote[] = [];
+  const collectedQuotes: ShippingQuote[] = [];
+  const quoteErrors: string[] = [];
 
-  try {
-    if (destination.point) {
-      biteshipQuotes = await getBiteshipRates({
+  if (destination.point) {
+    try {
+      const coordinateQuotes = await getBiteshipRates({
         destination: {
           mode: "coordinate",
           latitude: destination.point.latitude,
@@ -729,22 +734,43 @@ export async function getShippingQuote(
         },
         items: payload.items,
       });
+      collectedQuotes.push(...coordinateQuotes);
+    } catch (error: unknown) {
+      quoteErrors.push(
+        error instanceof Error
+          ? error.message
+          : "Gagal mengambil ongkir mode koordinat.",
+      );
     }
+  }
 
-    if (biteshipQuotes.length === 0 && destination.postalCode) {
-      biteshipQuotes = await getBiteshipRates({
+  if (destination.postalCode) {
+    try {
+      const postalQuotes = await getBiteshipRates({
         destination: {
           mode: "postal",
           postalCode: destination.postalCode,
         },
         items: payload.items,
       });
+      collectedQuotes.push(...postalQuotes);
+    } catch (error: unknown) {
+      quoteErrors.push(
+        error instanceof Error
+          ? error.message
+          : "Gagal mengambil ongkir mode kode pos.",
+      );
     }
-  } catch (error: unknown) {
-    const message =
-      error instanceof Error
-        ? `Gagal mengambil ongkir live dari Biteship: ${error.message}`
-        : "Gagal mengambil ongkir live dari Biteship.";
+  }
+
+  const biteshipQuotes = uniqueByKey(
+    collectedQuotes,
+    (entry) =>
+      `${entry.provider}:${entry.courierCode}:${entry.courierServiceCode}:${entry.price}`,
+  );
+
+  if (biteshipQuotes.length === 0 && quoteErrors.length > 0) {
+    const message = `Gagal mengambil ongkir live dari Biteship: ${quoteErrors[0]}`;
     return {
       success: false,
       quotes: [],
