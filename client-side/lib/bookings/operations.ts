@@ -11,6 +11,11 @@ import {
   BAKERY_TOKEN_MEDIUM_PER_UNIT,
   BAKERY_TOKEN_SIMPLE_PER_UNIT,
 } from "@/lib/bookings/config";
+import {
+  normalizeDateInput,
+  parseSafeDate,
+} from "@/lib/helpers/date-normalization";
+import { calculateOrderTokenFromItems } from "@/lib/bookings/order-token-calculator";
 
 export interface BookingItemForOperations {
   category: string;
@@ -210,51 +215,39 @@ export function inferOrderTypeFromItems(
 }
 
 function parseLocalDay(deliveryDate: string): number {
-  if (!deliveryDate) return 1;
-  const parsed = new Date(`${deliveryDate}T00:00:00`);
-  if (Number.isNaN(parsed.getTime())) return 1;
+  const parsed = parseSafeDate(deliveryDate);
+  if (!parsed) return 1;
   return parsed.getDay();
 }
 
 function parseLocalDateOnly(value: string): Date | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
-  const parsed = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return parsed;
-}
-
-function isSameLocalDate(left: Date, right: Date): boolean {
-  return (
-    left.getFullYear() === right.getFullYear() &&
-    left.getMonth() === right.getMonth() &&
-    left.getDate() === right.getDate()
-  );
+  return parseSafeDate(value);
 }
 
 export function isNextDayCutoffBlocked(
   deliveryDate: string,
   now: Date = new Date(),
 ): boolean {
+  if (!deliveryDate) return false;
+
   const targetDate = parseLocalDateOnly(deliveryDate);
   if (!targetDate) return false;
 
-  const tomorrow = new Date(now);
-  tomorrow.setHours(0, 0, 0, 0);
-  tomorrow.setDate(tomorrow.getDate() + 1);
+  const cutoffDate = new Date(targetDate);
+  cutoffDate.setDate(cutoffDate.getDate() - 1);
+  cutoffDate.setHours(H_MINUS_1_CUTOFF_HOUR, 0, 0, 0);
 
-  return (
-    isSameLocalDate(targetDate, tomorrow) &&
-    now.getHours() >= H_MINUS_1_CUTOFF_HOUR
-  );
+  return now.getTime() > cutoffDate.getTime();
 }
 
 export function isDateBlockedForOrdering(
   deliveryDate: string,
   now: Date = new Date(),
 ): boolean {
-  if (!deliveryDate) return true;
-  if (BAKERY_BLOCKED_DATES.includes(deliveryDate)) return true;
-  return isNextDayCutoffBlocked(deliveryDate, now);
+  const normalized = normalizeDateInput(deliveryDate);
+  if (!normalized) return true;
+  if (BAKERY_BLOCKED_DATES.includes(normalized)) return true;
+  return isNextDayCutoffBlocked(normalized, now);
 }
 
 export function getDeliverySlotsForDate(
@@ -440,20 +433,26 @@ export function resolveTokenPerUnit(item: BookingItemForOperations): number {
   return getDifficultyTokenPerUnit(item);
 }
 
-function getTokenUnitsPerOrder(item: BookingItemForOperations): number {
-  const quantity = getQuantity(item);
-  if (quantity <= 0) return 0;
-  return quantity * getCapacityUnitsPerOrder(item);
-}
-
 export function summarizeProductionTokensByItems(
   items: BookingItemForOperations[],
 ): number {
-  return items.reduce((sum, item) => {
-    const unitTokens = getDifficultyTokenPerUnit(item);
-    const workloadUnits = getTokenUnitsPerOrder(item);
-    return sum + unitTokens * workloadUnits;
-  }, 0);
+  return calculateOrderTokenFromItems(
+    items.map((item) => {
+      const difficultyFromPayload =
+        typeof (item as { difficulty?: unknown }).difficulty === "string"
+          ? ((item as { difficulty?: string }).difficulty ?? "")
+          : "";
+
+      return {
+        category: item.category,
+        subcategory: item.subcategory,
+        productName: item.productName,
+        tokenDifficulty: item.tokenDifficulty,
+        difficulty: difficultyFromPayload,
+        quantity: item.quantity,
+      };
+    }),
+  );
 }
 
 export function summarizeProductionTokensByOrdersForDate(

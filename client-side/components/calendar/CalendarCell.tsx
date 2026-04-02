@@ -21,6 +21,22 @@ export interface CalendarCellProps {
   onDateClick?: (date: Date) => void;
 }
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function getBarColor(ratio: number): string {
+  if (ratio >= 1) return "bg-red-500";
+  if (ratio >= 0.8) return "bg-amber-400";
+  return "bg-emerald-500";
+}
+
+function getTokenTextColor(status: CalendarStatus): string {
+  if (status === "PAST") return "text-gray-400";
+  if (status === "FULL") return "text-red-600";
+  if (status === "WARNING") return "text-amber-700";
+  if (status === "CUTOFF") return "text-rose-500";
+  return "text-gray-400";
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 /**
@@ -29,7 +45,9 @@ export interface CalendarCellProps {
  * Displays:
  * - Date number
  * - Status badge (Passed / Full / Almost Full / Closed H-1)
+ * - Token progress bar with color coding
  * - Token usage info (e.g., "580 / 600")
+ * - Remaining token count
  * - Order count
  *
  * Disables interaction for PAST, FULL and CUTOFF statuses.
@@ -45,6 +63,11 @@ export default function CalendarCell({
 }: CalendarCellProps) {
   const ui = getCalendarStatusUI(status);
   const isDisabled = ui.disabled;
+  const safeMax = maxToken > 0 ? maxToken : 600;
+  const ratio = Math.min(1, usedToken / safeMax);
+  const barColor = getBarColor(ratio);
+  const remaining = safeMax - usedToken;
+  const tooltipText = `Digunakan: ${usedToken} / ${safeMax} — Sisa: ${remaining}`;
 
   const handleClick = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -60,12 +83,12 @@ export default function CalendarCell({
         type="button"
         onClick={handleClick}
         disabled={isDisabled}
+        title={tooltipText}
         className={`w-fit rounded px-1 text-xs font-semibold transition ${
           isDisabled
             ? "cursor-not-allowed text-gray-400"
             : "text-gray-700 hover:bg-indigo-50 hover:text-indigo-700"
         }`}
-        title={`${usedToken} / ${maxToken} token used`}
       >
         {label}
       </button>
@@ -77,34 +100,37 @@ export default function CalendarCell({
             status === "PAST"
               ? "bg-gray-200 text-gray-600"
               : status === "FULL"
-              ? "bg-red-500 text-white"
-              : status === "CUTOFF"
-                ? "bg-rose-200 text-rose-700"
-                : status === "WARNING"
-                  ? "bg-amber-200 text-amber-800"
-                  : ""
+                ? "bg-red-500 text-white"
+                : status === "CUTOFF"
+                  ? "bg-rose-200 text-rose-700"
+                  : status === "WARNING"
+                    ? "bg-amber-200 text-amber-800"
+                    : ""
           }`}
         >
           {ui.label}
         </span>
       )}
 
+      {/* Token progress bar */}
+      {status !== "PAST" && (
+        <div
+          className="h-1 w-full overflow-hidden rounded-full bg-gray-200"
+          title={tooltipText}
+        >
+          <div
+            className={`h-1 rounded-full transition-all duration-300 ${barColor}`}
+            style={{ width: `${Math.round(ratio * 100)}%` }}
+          />
+        </div>
+      )}
+
       {/* Token usage info */}
       <span
-        className={`text-[9px] font-medium leading-tight ${
-          status === "PAST"
-            ? "text-gray-500"
-            : status === "FULL"
-            ? "text-red-600"
-            : status === "WARNING"
-              ? "text-amber-700"
-              : status === "CUTOFF"
-                ? "text-rose-500"
-                : "text-gray-400"
-        }`}
-        title={`${usedToken} / ${maxToken} token used`}
+        className={`text-[9px] font-medium leading-tight ${getTokenTextColor(status)}`}
+        title={tooltipText}
       >
-        {usedToken} / {maxToken}
+        {usedToken} / {safeMax}
       </span>
 
       {/* Order count */}

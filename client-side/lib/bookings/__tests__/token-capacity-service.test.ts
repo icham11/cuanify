@@ -33,6 +33,7 @@ import {
   DEFAULT_MAX_TOKEN,
   TOKEN_MAP,
   calculateOrderToken,
+  calculateOrderTokenFromItems,
   checkTokenAvailability,
   consumeToken,
   releaseToken,
@@ -82,6 +83,107 @@ describe("Token Capacity Service — Unit Tests", () => {
       expect(calculateOrderToken("unknown")).toBe(1);
       expect(calculateOrderToken("")).toBe(1);
       expect(calculateOrderToken("extreme")).toBe(1);
+    });
+  });
+
+  describe("calculateOrderTokenFromItems", () => {
+    it("should return 0 for empty items array", () => {
+      expect(calculateOrderTokenFromItems([])).toBe(0);
+    });
+
+    it("should return 0 for null/undefined gracefully", () => {
+      expect(calculateOrderTokenFromItems(null as unknown as [])).toBe(0);
+    });
+
+    // ── Cookies ──────────────────────────────────────────────────────────
+    it("Cookies simple: 1 token × quantity", () => {
+      expect(calculateOrderTokenFromItems([{ category: "Cookies", difficulty: "simple", quantity: 3 }])).toBe(3);
+    });
+
+    it("Cookies normal: 2 token × quantity", () => {
+      expect(calculateOrderTokenFromItems([{ category: "Cookies", difficulty: "normal", quantity: 5 }])).toBe(10);
+    });
+
+    it("Cookies hard: 3 token × quantity", () => {
+      expect(calculateOrderTokenFromItems([{ category: "Cookies", difficulty: "hard", quantity: 4 }])).toBe(12);
+    });
+
+    it("Cookies advanced: 4 token × quantity", () => {
+      expect(calculateOrderTokenFromItems([{ category: "Cookies", difficulty: "advanced", quantity: 2 }])).toBe(8);
+    });
+
+    it("Cookies expert: 5 token × quantity", () => {
+      expect(calculateOrderTokenFromItems([{ category: "Cookies", difficulty: "expert", quantity: 1 }])).toBe(5);
+    });
+
+    it("Cookies tokenDifficulty overrides difficulty", () => {
+      expect(calculateOrderTokenFromItems([{ category: "Cookies", tokenDifficulty: "expert", difficulty: "simple", quantity: 2 }])).toBe(10);
+    });
+
+    // ── Bouquet ──────────────────────────────────────────────────────────
+    it("Bouquet hand_bouquet: 20 tokens flat", () => {
+      expect(calculateOrderTokenFromItems([{ category: "Buket", subcategory: "Hand Bouquet" }])).toBe(20);
+    });
+
+    it("Bouquet standing_bouquet: 50 tokens flat", () => {
+      expect(calculateOrderTokenFromItems([{ category: "Buket", subcategory: "Standing Bouquet" }])).toBe(50);
+    });
+
+    it("Bouquet standing from productName even with generic subcategory", () => {
+      expect(
+        calculateOrderTokenFromItems([
+          {
+            category: "Buket",
+            subcategory: "Bouquet",
+            productName: "Standing Bouquet (12-20 pcs)",
+          },
+        ]),
+      ).toBe(50);
+    });
+
+    it("Bouquet without subcategory defaults to hand_bouquet (20)", () => {
+      expect(calculateOrderTokenFromItems([{ category: "Buket" }])).toBe(20);
+    });
+
+    // ── Cake ─────────────────────────────────────────────────────────────
+    it("Cake: 100 tokens flat (all sizes)", () => {
+      expect(calculateOrderTokenFromItems([{ category: "Cake", quantity: 1 }])).toBe(100);
+    });
+
+    // ── Cupcakes ─────────────────────────────────────────────────────────
+    it("Cupcakes dozen: 2 tokens", () => {
+      expect(calculateOrderTokenFromItems([{ category: "Cupcakes", productName: "Dozen Box" }])).toBe(2);
+    });
+
+    it("Cupcakes individual: 5 tokens", () => {
+      expect(calculateOrderTokenFromItems([{ category: "Cupcakes", productName: "Single Cupcake" }])).toBe(5);
+    });
+
+    // ── Cookies Tower ────────────────────────────────────────────────────
+    it("Cookies Tower: 100 tokens flat", () => {
+      expect(calculateOrderTokenFromItems([{ category: "Cookies Tower" }])).toBe(100);
+    });
+
+    // ── Unknown type ─────────────────────────────────────────────────────
+    it("Unknown category: 0 tokens (no crash)", () => {
+      expect(calculateOrderTokenFromItems([{ category: "Gift", quantity: 5 }])).toBe(0);
+      expect(calculateOrderTokenFromItems([{ category: "" }])).toBe(0);
+    });
+
+    // ── Mixed orders ─────────────────────────────────────────────────────
+    it("Mixed order: sum of all item tokens", () => {
+      const items = [
+        { category: "Cookies", difficulty: "hard", quantity: 2 },  // 3 × 2 = 6
+        { category: "Cake", quantity: 1 },                          // 100
+        { category: "Buket", subcategory: "Hand Bouquet" },         // 20
+      ];
+      expect(calculateOrderTokenFromItems(items)).toBe(126);
+    });
+
+    // ── Non-negative guarantee ────────────────────────────────────────────
+    it("should never return negative values", () => {
+      const result = calculateOrderTokenFromItems([{ category: "Cookies", difficulty: "simple", quantity: 0 }]);
+      expect(result).toBe(0);
     });
   });
 });

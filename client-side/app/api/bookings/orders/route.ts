@@ -9,9 +9,14 @@ import {
   getCapacityForDate,
   releaseToken,
   DEFAULT_MAX_TOKEN,
+  calculateOrderTokenFromItems,
 } from "@/lib/bookings/token-capacity-service";
-import { summarizeProductionTokensByItems } from "@/lib/bookings/operations";
 import { getCalendarStatus, isPastDate } from "@/lib/calendar/getCalendarStatus";
+import { normalizeDateInput } from "@/lib/helpers/date-normalization";
+import {
+  sendOrderToWhatsApp,
+  type SendOrderToWhatsAppInput,
+} from "@/lib/whatsapp/sendOrderToWhatsApp";
 
 // ─── Custom Error for capacity-full rejections ───────────────────────────────
 
@@ -237,6 +242,59 @@ function parseJsonField(value: unknown): unknown {
   }
 }
 
+function extractNotificationImageUrl(order: NormalizedOrder): string {
+  const parsedData = asRecord(order.whatsAppParsedData);
+  const parsedDataImage = asString(parsedData?.imageUrl);
+  if (parsedDataImage) return parsedDataImage;
+
+  const parsedDataUploaded = Array.isArray(parsedData?.uploadedImageUrls)
+    ? parsedData.uploadedImageUrls
+    : [];
+  for (const entry of parsedDataUploaded) {
+    const parsedEntry = asString(entry);
+    if (parsedEntry) return parsedEntry;
+  }
+
+  for (const item of order.items) {
+    const imageCandidate =
+      asString(item.imageUrl) ||
+      asString(item.productImageUrl) ||
+      asString(item.designImageUrl) ||
+      asString(item.thumbnailUrl) ||
+      asString(item.photoUrl);
+    if (imageCandidate) return imageCandidate;
+  }
+
+  const shippingQuote = asRecord(order.shippingQuote);
+  const shippingQuoteImage = asString(shippingQuote?.imageUrl);
+  if (shippingQuoteImage) return shippingQuoteImage;
+
+  const shipment = asRecord(order.shipment);
+  return asString(shipment?.imageUrl);
+}
+
+function toWhatsAppPayload(order: NormalizedOrder): SendOrderToWhatsAppInput {
+  const itemSummary = order.items
+    .map((item) => asString(item.productName))
+    .filter(Boolean)
+    .join(", ");
+
+  const firstAddress = asRecord(order.deliveryAddresses[0]);
+  const address =
+    asString(firstAddress?.addressLine) || asString(order.customerAddress);
+
+  return {
+    customerName: asString(order.customerName) || "Customer",
+    phone: asString(order.customerPhone),
+    deliveryDate: asString(order.deliveryDate),
+    deliveryTime: asString(order.deliverySlot),
+    item: itemSummary || asString(order.product),
+    notes: asString(order.notes),
+    address,
+    imageUrl: extractNotificationImageUrl(order),
+  };
+}
+
 function extractErrorDetails(error: unknown): {
   message: string;
   name?: string;
@@ -386,6 +444,10 @@ function normalizeOrder(raw: unknown, index: number): NormalizedOrder | null {
 
   const id = asString(record.id).trim() || `legacy-${index + 1}`;
 
+  const rawDeliveryDate = asString(record.deliveryDate);
+  const normalizedDeliveryDate =
+    normalizeDateInput(rawDeliveryDate) ?? rawDeliveryDate.trim();
+
   return {
     id,
     bookingCode: asString(record.bookingCode),
@@ -393,7 +455,7 @@ function normalizeOrder(raw: unknown, index: number): NormalizedOrder | null {
     customerName: asString(record.customerName),
     customerPhone: asString(record.customerPhone),
     customerAddress: asString(record.customerAddress),
-    deliveryDate: asString(record.deliveryDate),
+    deliveryDate: normalizedDeliveryDate,
     deliverySlot: asString(record.deliverySlot),
     notes: asString(record.notes),
     basePrice: asNumber(record.basePrice),
@@ -597,7 +659,9 @@ export async function GET() {
           customerName: row.customer_name ?? "",
           customerPhone: row.customer_phone ?? "",
           customerAddress: row.customer_address ?? "",
-          deliveryDate: row.delivery_date ?? "",
+          deliveryDate:
+            normalizeDateInput(row.delivery_date ?? "") ??
+            (row.delivery_date ?? ""),
           deliverySlot: row.delivery_slot ?? "",
           notes: row.notes ?? "",
           basePrice: asNumber(row.base_price),
@@ -727,7 +791,37 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const orders = parsedOrders.data;
+    const dateNormalizationIssues: string[] = [];
+    const orders = parsedOrders.data.map((order) => {
+      if (!order.deliveryDate) return order;
+
+      const normalizedDeliveryDate = normalizeDateInput(order.deliveryDate);
+      if (!normalizedDeliveryDate) {
+        dateNormalizationIssues.push(
+          `order ${order.id}: deliveryDate '${order.deliveryDate}' is invalid. Use YYYY-MM-DD.`,
+        );
+        return order;
+      }
+
+      if (normalizedDeliveryDate === order.deliveryDate) {
+        return order;
+      }
+
+      return {
+        ...order,
+        deliveryDate: normalizedDeliveryDate,
+      };
+    });
+
+    if (dateNormalizationIssues.length > 0) {
+      return NextResponse.json(
+        {
+          error: "Validation error for deliveryDate.",
+          details: dateNormalizationIssues,
+        },
+        { status: 400 },
+      );
+    }
 
     const tokenValidation = validateDailyTokenCapacity(orders);
     if (!tokenValidation.isValid) {
@@ -760,6 +854,7 @@ export async function POST(request: NextRequest) {
           let upsertedOrderCount = 0;
           let insertedItemCount = 0;
           let insertedAddressCount = 0;
+          const createdOrdersForWhatsApp: SendOrderToWhatsAppInput[] = [];
 
           const existingRows = await tx.$queryRaw<{ external_id: string; delivery_date: string | null; token_used: number; order_status: string | null }[]>`
           SELECT external_id, delivery_date, token_used, order_status
@@ -813,7 +908,7 @@ export async function POST(request: NextRequest) {
               size: typeof item.size === "string" ? item.size : undefined,
               quantity: typeof item.quantity === "number" ? item.quantity : undefined,
             }));
-            const tokenForOrder = summarizeProductionTokensByItems(orderItems);
+            const tokenForOrder = calculateOrderTokenFromItems(orderItems);
 
             // Determine difficulty label based on token per item ratio
             let difficulty: string | null = null;
@@ -1057,6 +1152,11 @@ export async function POST(request: NextRequest) {
             `;
               insertedAddressCount += 1;
             }
+
+            const isNewOrder = !existingOrder;
+            if (isNewOrder && isActiveStatus) {
+              createdOrdersForWhatsApp.push(toWhatsAppPayload(order));
+            }
           }
 
           // Hard reconcile token ledger to guarantee DB consistency.
@@ -1124,6 +1224,7 @@ export async function POST(request: NextRequest) {
             upsertedOrderCount,
             insertedItemCount,
             insertedAddressCount,
+            createdOrdersForWhatsApp,
           };
         },
         {
@@ -1132,12 +1233,20 @@ export async function POST(request: NextRequest) {
         },
       );
 
+      const { createdOrdersForWhatsApp, ...summaryStats } = transactionSummary;
+
       console.info("[api/bookings/orders] database upsert complete", {
         businessId,
         userId,
         durationMs,
-        ...transactionSummary,
+        ...summaryStats,
+        waNotificationQueued: createdOrdersForWhatsApp.length,
       });
+
+      // Fire-and-forget to avoid blocking order sync response.
+      for (const orderPayload of createdOrdersForWhatsApp) {
+        void sendOrderToWhatsApp(orderPayload);
+      }
 
       return NextResponse.json({
         success: true,
@@ -1145,7 +1254,8 @@ export async function POST(request: NextRequest) {
           mode: "rows",
           itemCount: orders.length,
           durationMs,
-          ...transactionSummary,
+          ...summaryStats,
+          waNotificationQueued: createdOrdersForWhatsApp.length,
         },
       });
     } catch (rowError) {

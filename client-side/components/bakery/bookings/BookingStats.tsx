@@ -1,18 +1,20 @@
+import { addDays } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BakeryOrder } from "@/components/bakery/store";
 import {
   DAILY_PRODUCTION_TOKEN_LIMIT,
   evaluateProductionTokenCapacity,
 } from "@/lib/bookings/operations";
+import { toIsoDateString } from "@/lib/helpers/date-normalization";
 
 function formatDate(value: Date) {
-  return value.toISOString().slice(0, 10);
+  return toIsoDateString(value);
 }
 
 export default function BookingStats({ orders }: { orders: BakeryOrder[] }) {
   const todayDate = new Date();
   const today = formatDate(todayDate);
-  const tomorrowDate = new Date(todayDate.getTime() + 24 * 60 * 60 * 1000);
+  const tomorrowDate = addDays(todayDate, 1);
   const tomorrow = formatDate(tomorrowDate);
 
   const todayOrders = orders.filter(

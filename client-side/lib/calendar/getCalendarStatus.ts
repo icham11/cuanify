@@ -1,3 +1,6 @@
+import { startOfDay } from "date-fns";
+import { parseSafeDate } from "@/lib/helpers/date-normalization";
+
 /**
  * Token-based Calendar Status Utility
  *
@@ -19,11 +22,7 @@ export interface CalendarDayInput {
 }
 
 function parseLocalDateOnly(dateStr: string): Date | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return null;
-  const parsed = new Date(`${dateStr}T00:00:00`);
-  if (Number.isNaN(parsed.getTime())) return null;
-  parsed.setHours(0, 0, 0, 0);
-  return parsed;
+  return parseSafeDate(dateStr);
 }
 
 /**
@@ -33,43 +32,29 @@ export function isPastDate(dateStr: string, now: Date = new Date()): boolean {
   const target = parseLocalDateOnly(dateStr);
   if (!target) return false;
 
-  const today = new Date(now);
-  today.setHours(0, 0, 0, 0);
+  const today = startOfDay(now);
 
   return target.getTime() < today.getTime();
 }
 
 /**
- * Checks if a given date string (YYYY-MM-DD) is tomorrow relative to `now`,
- * AND the current time is >= 10:00 (H-1 cutoff rule).
+ * Checks H-1 cutoff rule using local Date objects.
+ *
+ * Block only when current time has passed deliveryDate - 1 day at 10:00.
  *
  * Uses local date comparison to avoid timezone shift issues.
  */
 function isCutoff(dateStr: string, now: Date = new Date()): boolean {
-  // Parse the date string as local date (no timezone shift)
-  const [yearStr, monthStr, dayStr] = dateStr.split("-");
-  const year = Number(yearStr);
-  const month = Number(monthStr);
-  const day = Number(dayStr);
+  if (!dateStr) return false;
 
-  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
-    return false;
-  }
+  const targetDate = parseLocalDateOnly(dateStr);
+  if (!targetDate) return false;
 
-  // Create a proper tomorrow date to handle month/year rollover
-  const tomorrowDate = new Date(now);
-  tomorrowDate.setHours(0, 0, 0, 0);
-  tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+  const cutoffDate = new Date(targetDate);
+  cutoffDate.setDate(cutoffDate.getDate() - 1);
+  cutoffDate.setHours(10, 0, 0, 0);
 
-  const isTomorrow =
-    year === tomorrowDate.getFullYear() &&
-    month === tomorrowDate.getMonth() + 1 &&
-    day === tomorrowDate.getDate();
-
-  if (!isTomorrow) return false;
-
-  // Check if current time is >= 10:00
-  return now.getHours() >= 10;
+  return now.getTime() > cutoffDate.getTime();
 }
 
 /**
@@ -78,7 +63,7 @@ function isCutoff(dateStr: string, now: Date = new Date()): boolean {
  * Rules (in priority order):
  * 1. PAST:      date is before today (local timezone)
  * 2. FULL:      usedToken >= maxToken
- * 3. CUTOFF:    date is tomorrow AND current time >= 10:00
+ * 3. CUTOFF:    now > (deliveryDate - 1 day at 10:00)
  * 4. WARNING:   usedToken >= 0.8 * maxToken
  * 5. AVAILABLE: usedToken < 0.8 * maxToken
  *
@@ -102,7 +87,7 @@ export function getCalendarStatus(
     return "FULL";
   }
 
-  // Priority 3: CUTOFF — H-1 rule (tomorrow after 10:00)
+  // Priority 3: CUTOFF — H-1 rule
   if (isCutoff(date, now)) {
     return "CUTOFF";
   }

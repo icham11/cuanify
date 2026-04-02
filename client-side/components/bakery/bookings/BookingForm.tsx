@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { startOfDay } from "date-fns";
 import {
   SubmitHandler,
   useFieldArray,
@@ -64,6 +65,11 @@ import {
   calculateDownPayment,
   getDownPaymentLabel,
 } from "@/lib/bookings/config";
+import { calculateOrderTokenFromItems } from "@/lib/bookings/order-token-calculator";
+import {
+  normalizeDateInput,
+  parseSafeDate,
+} from "@/lib/helpers/date-normalization";
 import {
   DELIVERY_METHOD_OPTIONS,
   estimateOperationalWeightGram,
@@ -157,8 +163,8 @@ function slotStatusLabel(status: SlotAvailabilityStatus): string {
 }
 
 function formatIsoDateToIdLabel(value: string): string {
-  const parsed = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(parsed.getTime())) return value;
+  const parsed = parseSafeDate(value);
+  if (!parsed) return value;
   return parsed.toLocaleDateString("id-ID", {
     weekday: "short",
     day: "2-digit",
@@ -450,30 +456,33 @@ export default function BookingForm() {
   const dpPaidInput = useWatch({ control, name: "dpPaidAmount" }) ?? 0;
   const finalPaidInput = useWatch({ control, name: "finalPaidAmount" }) ?? 0;
 
+  const normalizedDeliveryDate = useMemo(
+    () => normalizeDateInput(deliveryDate) ?? "",
+    [deliveryDate],
+  );
+
   const selectedCalendarDate = useMemo(() => {
-    if (/^\d{4}-\d{2}-\d{2}$/.test(deliveryDate)) {
-      return new Date(`${deliveryDate}T00:00:00`);
-    }
-    const now = new Date();
-    return new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  }, [deliveryDate]);
+    const parsed = parseSafeDate(normalizedDeliveryDate);
+    return parsed ?? startOfDay(new Date());
+  }, [normalizedDeliveryDate]);
 
   const {
     getCapacity: getCalendarCapacity,
     isLoading: isCalendarCapacityLoading,
+    refetch: refetchSelectedDateCapacity,
   } = useCalendarCapacity(selectedCalendarDate, selectedCalendarDate);
 
   const selectedCalendarStatus = useMemo(() => {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(deliveryDate)) {
+    if (!normalizedDeliveryDate) {
       return "AVAILABLE" as const;
     }
-    const selectedCapacity = getCalendarCapacity(deliveryDate);
+    const selectedCapacity = getCalendarCapacity(normalizedDeliveryDate);
     return getCalendarStatus({
       usedToken: selectedCapacity.usedToken,
       maxToken: selectedCapacity.maxToken,
-      date: deliveryDate,
+      date: normalizedDeliveryDate,
     });
-  }, [deliveryDate, getCalendarCapacity]);
+  }, [normalizedDeliveryDate, getCalendarCapacity]);
 
   const calendarDateError = useMemo(() => {
     if (selectedCalendarStatus === "PAST") {
@@ -678,6 +687,100 @@ export default function BookingForm() {
     DAILY_PRODUCTION_TOKEN_LIMIT - plannedProductionTokens;
   const isTokenCapacityOverflow = remainingProductionTokens < 0;
 
+  // ── Real-time token preview (new business rules via calculateOrderTokenFromItems) ──
+  const newTokenPreview = useMemo(
+    () => calculateOrderTokenFromItems(watchedItems),
+    [watchedItems],
+  );
+
+  // ── DB-backed capacity for the selected delivery date ────────────────────────
+  const dbCapacity = useMemo(() => {
+    if (!normalizedDeliveryDate) {
+      return { usedToken: 0, maxToken: 600 };
+    }
+    const entry = getCalendarCapacity(normalizedDeliveryDate);
+    return {
+      usedToken: entry.usedToken,
+      maxToken: entry.maxToken,
+    };
+  }, [normalizedDeliveryDate, getCalendarCapacity]);
+
+  const dbRemainingToken = dbCapacity.maxToken - dbCapacity.usedToken;
+  const dbWillExceed = newTokenPreview > dbRemainingToken;
+  const dbIsWarning = !dbWillExceed && dbRemainingToken <= 50;
+
+  // ── Smart Date Recommendation — 30-day window ────────────────────────────────
+  const recommendationWindowStart = useMemo(() => startOfDay(new Date()), []);
+  const recommendationWindowEnd = useMemo(() => {
+    const end = new Date();
+    end.setDate(end.getDate() + 30);
+    return startOfDay(end);
+  }, []);
+
+  const {
+    getCapacity: getRecommendationCapacity,
+    isLoading: isRecommendationLoading,
+  } = useCalendarCapacity(recommendationWindowStart, recommendationWindowEnd);
+
+  const shouldShowDateRecommendations =
+    Boolean(normalizedDeliveryDate) && (dbWillExceed || isCalendarDateInvalid);
+
+  const suggestedDates = useMemo(() => {
+    if (!shouldShowDateRecommendations || newTokenPreview <= 0) return [];
+
+    const now = new Date();
+    const suggestions: Array<{ dateKey: string; remaining: number }> = [];
+
+    const cursor = new Date(recommendationWindowStart);
+    while (cursor <= recommendationWindowEnd) {
+      const dateKey = normalizeDateInput(
+        `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}-${String(cursor.getDate()).padStart(2, "0")}`,
+      );
+      if (dateKey) {
+        if (dateKey === normalizedDeliveryDate) {
+          cursor.setDate(cursor.getDate() + 1);
+          continue;
+        }
+
+        // Skip blocked dates
+        if (!BAKERY_BLOCKED_DATES.includes(dateKey)) {
+          // Skip past and cutoff
+          if (!isDateBlockedForOrdering(dateKey, now)) {
+            const cap = getRecommendationCapacity(dateKey);
+            const remaining = cap.maxToken - cap.usedToken;
+            if (remaining >= newTokenPreview) {
+              suggestions.push({ dateKey, remaining });
+            }
+          }
+        }
+      }
+      cursor.setDate(cursor.getDate() + 1);
+    }
+
+    // Sort priority: earliest date first, then highest remaining capacity.
+    suggestions.sort((a, b) => {
+      const dateDiff = a.dateKey.localeCompare(b.dateKey);
+      if (dateDiff !== 0) return dateDiff;
+      return b.remaining - a.remaining;
+    });
+
+    return suggestions.slice(0, 3);
+  }, [
+    shouldShowDateRecommendations,
+    normalizedDeliveryDate,
+    newTokenPreview,
+    recommendationWindowStart,
+    recommendationWindowEnd,
+    getRecommendationCapacity,
+  ]);
+
+  const handleSuggestionClick = (dateKey: string) => {
+    setValue("deliveryDate", dateKey, { shouldValidate: true });
+    setTimeout(() => {
+      refetchSelectedDateCapacity();
+    }, 0);
+  };
+
   const capacityRows = useMemo(() => {
     return CAPACITY_BUCKET_ORDER.map((bucket) => {
       const existing = existingCapacityUsage?.[bucket] ?? 0;
@@ -863,12 +966,18 @@ export default function BookingForm() {
       return;
     }
 
-    if (isPastDate(values.deliveryDate)) {
+    const normalizedDeliveryDate = normalizeDateInput(values.deliveryDate);
+    if (!normalizedDeliveryDate) {
+      toast.error("Format tanggal tidak valid. Gunakan YYYY-MM-DD.");
+      return;
+    }
+
+    if (isPastDate(normalizedDeliveryDate)) {
       toast.error("Tanggal sudah terlewat");
       return;
     }
 
-    if (!isWithinBusinessHours(values.deliveryDate, values.deliverySlot)) {
+    if (!isWithinBusinessHours(normalizedDeliveryDate, values.deliverySlot)) {
       toast.error(
         "Selected slot is outside business hours (Mon-Sat 10:00-22:00, Sun 10:00-15:00).",
       );
@@ -877,7 +986,7 @@ export default function BookingForm() {
 
     const submissionOrderType = inferOrderTypeFromItems(values.items);
     const submissionSlotStatus = checkSlotAvailability(
-      values.deliveryDate,
+      normalizedDeliveryDate,
       values.deliverySlot,
       submissionOrderType,
       { orders },
@@ -889,7 +998,7 @@ export default function BookingForm() {
 
     const existingCapacity = summarizeCapacityByOrdersForDate(
       orders,
-      values.deliveryDate,
+      normalizedDeliveryDate,
     );
     const incomingCapacity = summarizeCapacityByItems(values.items);
     const overflowBuckets = getCapacityOverflows(
@@ -908,14 +1017,14 @@ export default function BookingForm() {
 
     const existingTokens = summarizeProductionTokensByOrdersForDate(
       orders,
-      values.deliveryDate,
+      normalizedDeliveryDate,
     );
-    const incomingTokens = summarizeProductionTokensByItems(values.items);
+    const incomingTokens = calculateOrderTokenFromItems(values.items);
 
     setIsCapacityValidating(true);
     try {
       const params = new URLSearchParams({
-        date: values.deliveryDate,
+        date: normalizedDeliveryDate,
         tokenNeeded: String(incomingTokens),
       });
       const response = await fetch(
@@ -935,7 +1044,7 @@ export default function BookingForm() {
       const status = getCalendarStatus({
         usedToken: Number(payload.data.usedToken) || 0,
         maxToken: Number(payload.data.maxToken) || 600,
-        date: values.deliveryDate,
+        date: normalizedDeliveryDate,
       });
 
       if (status === "FULL") {
@@ -1041,7 +1150,7 @@ export default function BookingForm() {
     const submissionPayload: NewOrderInput = {
       customerName: values.customerName,
       customerPhone: values.phoneNumber,
-      deliveryDate: values.deliveryDate,
+      deliveryDate: normalizedDeliveryDate,
       deliverySlot: values.deliverySlot,
       notes: [
         values.customNotes ?? "",
@@ -1151,7 +1260,16 @@ export default function BookingForm() {
       const draft = payload.autoFill;
       if (draft.customerName) setValue("customerName", draft.customerName);
       if (draft.phoneNumber) setValue("phoneNumber", draft.phoneNumber);
-      if (draft.deliveryDate) setValue("deliveryDate", draft.deliveryDate);
+      if (draft.deliveryDate) {
+        const normalizedDraftDate = normalizeDateInput(draft.deliveryDate);
+        if (normalizedDraftDate) {
+          setValue("deliveryDate", normalizedDraftDate);
+        } else {
+          toast.warning(
+            "Format tanggal dari parser tidak valid. Silakan pilih ulang tanggal delivery.",
+          );
+        }
+      }
       if (draft.deliverySlot) setValue("deliverySlot", draft.deliverySlot);
       if (draft.customNotes) setValue("customNotes", draft.customNotes);
       if (draft.items?.length) {
@@ -1625,6 +1743,87 @@ export default function BookingForm() {
                     {DAILY_PRODUCTION_TOKEN_LIMIT}
                   </p>
                 </div>
+
+                {/* ── Token Preview (real-time, new business rules) ── */}
+                <div
+                  className={`rounded-lg border px-3 py-2 text-xs ${
+                    dbWillExceed
+                      ? "border-rose-300 bg-rose-50 text-rose-700"
+                      : dbIsWarning
+                        ? "border-amber-300 bg-amber-50 text-amber-700"
+                        : "border-emerald-200 bg-emerald-50 text-emerald-700"
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <p className="font-semibold">Token Preview (Order)</p>
+                    {isCalendarCapacityLoading && (
+                      <span className="text-gray-400">memuat...</span>
+                    )}
+                  </div>
+                  <p className="mt-1 font-normal">
+                    Token dibutuhkan:{" "}
+                    <span className="font-semibold">{newTokenPreview}</span>
+                  </p>
+                  <p className="mt-0.5 font-normal">
+                    Kapasitas:{" "}
+                    <span className="font-semibold">
+                      {dbCapacity.usedToken}/{dbCapacity.maxToken}
+                    </span>{" "}
+                    &mdash; Sisa:{" "}
+                    <span className="font-semibold">{dbRemainingToken}</span>
+                  </p>
+                  {dbWillExceed && (
+                    <p className="mt-1 font-semibold text-rose-600">
+                      Kapasitas produksi tidak mencukupi untuk tanggal ini
+                    </p>
+                  )}
+                  {dbIsWarning && (
+                    <p className="mt-1 font-semibold text-amber-600">
+                      Kapasitas hampir penuh — sisa {dbRemainingToken} token
+                    </p>
+                  )}
+                </div>
+
+                {/* ── Smart Date Recommendations ── */}
+                {shouldShowDateRecommendations && (
+                  <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 px-3 py-2 text-xs">
+                    <p className="font-semibold text-rose-600">
+                      {dbWillExceed
+                        ? "Kapasitas tidak mencukupi untuk tanggal ini"
+                        : calendarDateError || "Tanggal dipilih tidak tersedia"}
+                    </p>
+
+                    {isRecommendationLoading ? (
+                      <p className="mt-1 text-indigo-500">Mencari tanggal…</p>
+                    ) : suggestedDates.length > 0 ? (
+                      <>
+                        <p className="mt-1 font-medium text-indigo-700">
+                          Tanggal tersedia:
+                        </p>
+                        <div className="mt-1.5 flex flex-wrap gap-2">
+                          {suggestedDates.map(({ dateKey, remaining }) => (
+                            <button
+                              key={dateKey}
+                              type="button"
+                              onClick={() => handleSuggestionClick(dateKey)}
+                              className="rounded-md border border-indigo-300 bg-white px-2 py-1 font-medium text-indigo-700 shadow-[0_0_0_0_rgba(99,102,241,0.35)] transition-all duration-300 hover:-translate-y-0.5 hover:border-indigo-500 hover:bg-indigo-100 hover:shadow-[0_0_0_4px_rgba(99,102,241,0.18)]"
+                              title={`Sisa kapasitas: ${remaining} token`}
+                            >
+                              {formatIsoDateToIdLabel(dateKey)}
+                              <span className="ml-1 text-indigo-400">
+                                ({remaining} sisa)
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    ) : (
+                      <p className="mt-1 font-medium text-rose-600">
+                        Semua tanggal dalam 30 hari penuh
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
@@ -2257,7 +2456,8 @@ export default function BookingForm() {
                   isCheckingShipping ||
                   isBlockedDate ||
                   isSlotFull ||
-                  isCalendarDateInvalid
+                  isCalendarDateInvalid ||
+                  dbWillExceed
                 }
               >
                 {isSubmitting

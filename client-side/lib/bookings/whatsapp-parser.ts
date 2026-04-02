@@ -229,6 +229,8 @@ export interface ParsedWhatsAppOrder {
   orderType: WhatsAppOrderType;
   sourceType: WhatsAppSourceType;
   rawText: string;
+  imageUrl?: string;
+  uploadedImageUrls?: string[];
   common: ParsedCommonFields;
   details: Record<string, string>;
   missingFields: string[];

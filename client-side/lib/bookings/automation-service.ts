@@ -261,6 +261,7 @@ async function getGoogleAccessTokenWithFallback(
 async function sendFonnteMessage(
   target: string,
   message: string,
+  imageUrl?: string,
 ): Promise<AutomationActionResult> {
   const token = process.env.FONNTE_TOKEN || "";
   if (!token) {
@@ -279,10 +280,18 @@ async function sendFonnteMessage(
     };
   }
 
-  const payload = {
+  const payload: {
+    target: string;
+    message: string;
+    url?: string;
+  } = {
     target,
     message,
   };
+
+  if (imageUrl) {
+    payload.url = imageUrl;
+  }
 
   const response = await fetch(FONNTE_API_URL, {
     method: "POST",
@@ -312,6 +321,14 @@ async function sendFonnteMessage(
     message: "WhatsApp terkirim.",
     externalId: data.id,
   };
+}
+
+export async function sendWhatsAppImage(
+  target: string,
+  imageUrl: string,
+  caption: string = "",
+): Promise<AutomationActionResult> {
+  return sendFonnteMessage(target, caption, imageUrl);
 }
 
 async function findExistingCalendarEvent(
@@ -557,8 +574,6 @@ export async function runBookingAutomations(
   const productionTarget = normalizeFonnteTarget(
     process.env.FONNTE_PRODUCTION_TARGET || "",
   );
-  const shouldSendProductionOnCreate =
-    String(process.env.FONNTE_SEND_PRODUCTION_ON_CREATE || "true") === "true";
   const shouldSyncSheetsOnProgressEvents =
     String(process.env.GOOGLE_SHEETS_SYNC_ON_PROGRESS_EVENTS || "false") ===
     "true";
@@ -601,10 +616,7 @@ export async function runBookingAutomations(
     );
   }
 
-  if (
-    eventType === "order_confirmed" ||
-    (eventType === "order_created" && shouldSendProductionOnCreate)
-  ) {
+  if (eventType === "order_confirmed") {
     fonnteProduction = await sendFonnteMessage(
       productionTarget,
       buildProductionMessage(order),
@@ -619,7 +631,8 @@ export async function runBookingAutomations(
     fonnteProduction = {
       ok: false,
       skipped: true,
-      message: "Skipped: FONNTE_SEND_PRODUCTION_ON_CREATE bukan true.",
+      message:
+        "Skipped: text WA on order_created disabled; image notification handled by sendOrderToWhatsApp.",
     };
   }
 

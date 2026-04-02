@@ -791,7 +791,7 @@ export default function BakeryCalendarPage() {
               <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /> Available
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="h-2.5 w-2.5 rounded-full bg-amber-500" /> Almost Full (≥80%)
+              <span className="h-2.5 w-2.5 rounded-full bg-amber-400" /> Almost Full (≥80%)
             </span>
             <span className="inline-flex items-center gap-1">
               <span className="h-2.5 w-2.5 rounded-full bg-red-500" /> Full (100%)
@@ -822,6 +822,97 @@ export default function BakeryCalendarPage() {
         </CardContent>
       </Card>
 
+      {/* Selected Date Detail Panel (Step 7) */}
+      {selectedDate && selectedCapacity && (
+        <Card className="rounded-xl border-indigo-100 shadow-sm">
+          <CardContent className="px-6 py-4">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              {/* Left: date label + status message */}
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-gray-900">
+                  {selectedDateLabel}
+                </p>
+                <p
+                  className={`text-xs font-medium ${
+                    selectedStatus === "PAST"
+                      ? "text-gray-500"
+                      : selectedStatus === "FULL"
+                        ? "text-red-600"
+                        : selectedStatus === "WARNING"
+                          ? "text-amber-600"
+                          : selectedStatus === "CUTOFF"
+                            ? "text-rose-600"
+                            : "text-emerald-600"
+                  }`}
+                >
+                  {selectedStatusMessage}
+                </p>
+              </div>
+
+              {/* Right: capacity numbers */}
+              <div className="flex flex-wrap items-center gap-4 text-xs">
+                <div className="text-center">
+                  <p className="font-semibold text-gray-900 text-sm">
+                    {selectedCapacity.usedToken}
+                  </p>
+                  <p className="text-gray-500">Digunakan</p>
+                </div>
+                <div className="text-center">
+                  <p className="font-semibold text-gray-900 text-sm">
+                    {selectedCapacity.maxToken}
+                  </p>
+                  <p className="text-gray-500">Maks</p>
+                </div>
+                <div className="text-center">
+                  <p
+                    className={`font-semibold text-sm ${
+                      selectedCapacity.maxToken - selectedCapacity.usedToken <= 0
+                        ? "text-red-600"
+                        : selectedCapacity.maxToken - selectedCapacity.usedToken <= selectedCapacity.maxToken * 0.2
+                          ? "text-amber-600"
+                          : "text-emerald-600"
+                    }`}
+                  >
+                    {selectedCapacity.maxToken - selectedCapacity.usedToken}
+                  </p>
+                  <p className="text-gray-500">Sisa</p>
+                </div>
+                <div className="text-center">
+                  <p className="font-semibold text-gray-900 text-sm">
+                    {selectedDateOrdersAll.length}
+                  </p>
+                  <p className="text-gray-500">Orders</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Progress bar */}
+            <div className="mt-3">
+              <div className="mb-1 flex items-center justify-between text-[11px] text-gray-500">
+                <span>Kapasitas Token</span>
+                <span>
+                  {Math.round((selectedCapacity.usedToken / (selectedCapacity.maxToken || 600)) * 100)}%
+                </span>
+              </div>
+              <div className="h-2 w-full overflow-hidden rounded-full bg-gray-200">
+                <div
+                  className={`h-2 rounded-full transition-all duration-500 ${
+                    selectedCapacity.usedToken >= selectedCapacity.maxToken
+                      ? "bg-red-500"
+                      : selectedCapacity.usedToken >= selectedCapacity.maxToken * 0.8
+                        ? "bg-amber-400"
+                        : "bg-emerald-500"
+                  }`}
+                  style={{
+                    width: `${Math.min(100, Math.round((selectedCapacity.usedToken / (selectedCapacity.maxToken || 600)) * 100))}%`,
+                  }}
+                />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Date Orders Popup */}
       {isDateOrdersPopupOpen ? (
         <div
@@ -846,19 +937,20 @@ export default function BakeryCalendarPage() {
                   </p>
                   {selectedCapacity ? (
                     <span
-                      className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold ${
                         selectedStatus === "PAST"
                           ? "bg-gray-200 text-gray-700"
                           : selectedStatus === "FULL"
-                          ? "bg-red-100 text-red-700"
-                          : selectedStatus === "WARNING"
-                            ? "bg-amber-100 text-amber-700"
-                            : selectedStatus === "CUTOFF"
-                              ? "bg-rose-100 text-rose-700"
-                              : "bg-emerald-100 text-emerald-700"
+                            ? "bg-red-100 text-red-700"
+                            : selectedStatus === "WARNING"
+                              ? "bg-amber-100 text-amber-700"
+                              : selectedStatus === "CUTOFF"
+                                ? "bg-rose-100 text-rose-700"
+                                : "bg-emerald-100 text-emerald-700"
                       }`}
                     >
-                      {selectedCapacity.usedToken} / {selectedCapacity.maxToken} token used
+                      {selectedCapacity.usedToken} / {selectedCapacity.maxToken} token
+                      &mdash; sisa {selectedCapacity.maxToken - selectedCapacity.usedToken}
                     </span>
                   ) : null}
                 </div>

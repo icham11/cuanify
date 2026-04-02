@@ -1,20 +1,20 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { addDays } from "date-fns";
 import StatusDropdown from "@/components/bakery/production/StatusDropdown";
 import PriorityBadge from "@/components/bakery/production/PriorityBadge";
 import { useOrders } from "@/components/bakery/store";
 import { summarizeProductionTokensByItems } from "@/lib/bookings/operations";
+import { toIsoDateString } from "@/lib/helpers/date-normalization";
 
 export default function ProductionTable() {
   const { orders, updateOrderStatus } = useOrders();
   const [activeTab, setActiveTab] = useState<"active" | "ready">("active");
 
   const today = new Date();
-  const todayDate = today.toISOString().slice(0, 10);
-  const tomorrowDate = new Date(today.getTime() + 24 * 60 * 60 * 1000)
-    .toISOString()
-    .slice(0, 10);
+  const todayDate = toIsoDateString(today);
+  const tomorrowDate = toIsoDateString(addDays(today, 1));
 
   const withPriority = (order: (typeof orders)[number]) => {
     if (order.deliveryDate === todayDate) {

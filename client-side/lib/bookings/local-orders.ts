@@ -1,3 +1,10 @@
+import { addDays } from "date-fns";
+import {
+  normalizeDateInput,
+  parseSafeDate,
+  toIsoDateString,
+} from "@/lib/helpers/date-normalization";
+
 export const BAKERY_ORDERS_STORAGE_KEY = "bakeryOrdersState";
 export const BAKERY_ORDERS_STORAGE_EVENT = "bakeryOrdersUpdated";
 
@@ -92,7 +99,10 @@ function normalizeOrder(raw: unknown): LocalBakeryOrder | null {
     resi: typeof order.resi === "string" ? order.resi : "",
     customerName: typeof order.customerName === "string" ? order.customerName : "",
     customerPhone: typeof order.customerPhone === "string" ? order.customerPhone : "",
-    deliveryDate: typeof order.deliveryDate === "string" ? order.deliveryDate : "",
+    deliveryDate:
+      typeof order.deliveryDate === "string"
+        ? (normalizeDateInput(order.deliveryDate) ?? order.deliveryDate.trim())
+        : "",
     deliverySlot: typeof order.deliverySlot === "string" ? order.deliverySlot : "",
     items: Array.isArray(order.items)
       ? order.items.map((item) => {
@@ -201,12 +211,9 @@ export function summarizeLocalBakeryOrders(
   orders: LocalBakeryOrder[],
   todayIsoDate?: string
 ): LocalBakerySummary {
-  const nowDate = todayIsoDate || new Date().toISOString().slice(0, 10);
-  const tomorrow = new Date(nowDate);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const tomorrowIso = Number.isNaN(tomorrow.getTime())
-    ? ""
-    : tomorrow.toISOString().slice(0, 10);
+  const nowDate = normalizeDateInput(todayIsoDate ?? "") ?? toIsoDateString(new Date());
+  const tomorrowBase = parseSafeDate(nowDate);
+  const tomorrowIso = tomorrowBase ? toIsoDateString(addDays(tomorrowBase, 1)) : "";
 
   return orders.reduce<LocalBakerySummary>(
     (acc, order) => {
@@ -234,9 +241,12 @@ export function summarizeLocalBakeryOrders(
       if (hasQuote) acc.withShippingQuote += 1;
       if (hasAutomationGap) acc.pendingAutomation += 1;
 
-      if (order.deliveryDate === nowDate) acc.deliveryToday += 1;
-      if (order.deliveryDate === tomorrowIso) acc.deliveryTomorrow += 1;
-      if (order.deliveryDate && order.deliveryDate < nowDate && isOpenOrder) acc.lateOpenOrders += 1;
+      const normalizedDeliveryDate = normalizeDateInput(order.deliveryDate ?? "");
+      if (normalizedDeliveryDate === nowDate) acc.deliveryToday += 1;
+      if (normalizedDeliveryDate === tomorrowIso) acc.deliveryTomorrow += 1;
+      if (normalizedDeliveryDate && normalizedDeliveryDate < nowDate && isOpenOrder) {
+        acc.lateOpenOrders += 1;
+      }
 
       return acc;
     },

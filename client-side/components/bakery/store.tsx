@@ -31,6 +31,7 @@ import {
   isWithinBusinessHours,
 } from "@/lib/bookings/operations";
 import { estimateOperationalWeightGram } from "@/lib/bookings/delivery-rules";
+import { normalizeDateInput } from "@/lib/helpers/date-normalization";
 
 export type OrderStatus =
   | "Inquiry"
@@ -237,21 +238,16 @@ function paymentStatusLabel(status: PaymentStatus): string {
 }
 
 function toBookingDatePart(deliveryDate: string): string {
-  const isoMatch = deliveryDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (isoMatch) {
-    const yearShort = isoMatch[1].slice(-2);
-    return `${isoMatch[3]}${isoMatch[2]}${yearShort}`;
-  }
-
-  const parsed = new Date(deliveryDate);
-  if (Number.isNaN(parsed.getTime())) {
+  const normalizedDate = normalizeDateInput(deliveryDate);
+  if (!normalizedDate) {
     return "000000";
   }
 
-  const dd = String(parsed.getDate()).padStart(2, "0");
-  const mm = String(parsed.getMonth() + 1).padStart(2, "0");
-  const yy = String(parsed.getFullYear()).slice(-2);
-  return `${dd}${mm}${yy}`;
+  const isoMatch = normalizedDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!isoMatch) return "000000";
+
+  const yearShort = isoMatch[1].slice(-2);
+  return `${isoMatch[3]}${isoMatch[2]}${yearShort}`;
 }
 
 function extractSequenceForDate(code: string, datePart: string): number {

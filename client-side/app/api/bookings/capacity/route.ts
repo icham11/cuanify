@@ -5,6 +5,7 @@ import {
   getCapacityForDateRange,
   checkTokenAvailability,
 } from "@/lib/bookings/token-capacity-service";
+import { normalizeDateInput } from "@/lib/helpers/date-normalization";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,14 +37,20 @@ export async function GET(request: NextRequest) {
 
     // ── Date range query ──
     if (startDate && endDate) {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+      const normalizedStartDate = normalizeDateInput(startDate);
+      const normalizedEndDate = normalizeDateInput(endDate);
+      if (!normalizedStartDate || !normalizedEndDate) {
         return NextResponse.json(
           { error: "Invalid date format. Use YYYY-MM-DD." },
           { status: 400 },
         );
       }
 
-      const capacities = await getCapacityForDateRange(businessId, startDate, endDate);
+      const capacities = await getCapacityForDateRange(
+        businessId,
+        normalizedStartDate,
+        normalizedEndDate,
+      );
 
       return NextResponse.json({
         success: true,
@@ -64,14 +71,15 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    const normalizedDate = normalizeDateInput(date);
+    if (!normalizedDate) {
       return NextResponse.json(
         { error: "Invalid date format. Use YYYY-MM-DD." },
         { status: 400 },
       );
     }
 
-    const capacity = await getCapacityForDate(businessId, date);
+    const capacity = await getCapacityForDate(businessId, normalizedDate);
     const availableToken = capacity.maxToken - capacity.usedToken;
 
     const responseData: Record<string, unknown> = {
@@ -89,7 +97,11 @@ export async function GET(request: NextRequest) {
         );
       }
 
-      const isAvailable = await checkTokenAvailability(businessId, date, tokenNeeded);
+      const isAvailable = await checkTokenAvailability(
+        businessId,
+        normalizedDate,
+        tokenNeeded,
+      );
       responseData.tokenNeeded = tokenNeeded;
       responseData.isAvailable = isAvailable;
     }

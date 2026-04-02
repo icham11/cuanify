@@ -19,6 +19,11 @@
  */
 
 import prisma from "@/lib/prisma";
+import { normalizeDateOrThrow } from "@/lib/helpers/date-normalization";
+import {
+  calculateOrderTokenFromItems,
+  type OrderItemForTokenCalc,
+} from "@/lib/bookings/order-token-calculator";
 
 interface SqlExecutor {
   $queryRaw<T = unknown>(
@@ -39,6 +44,8 @@ export const TOKEN_MAP: Record<Difficulty, number> = {
   medium: 2,
   difficult: 3,
 };
+
+export { calculateOrderTokenFromItems, type OrderItemForTokenCalc };
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -64,7 +71,7 @@ export interface ReleaseResult {
 // ─── Raw DB row type ─────────────────────────────────────────────────────────
 
 interface CapacityRow {
-  date: Date;
+  date: string;
   max_token: number;
   used_token: number;
 }
@@ -112,11 +119,8 @@ export function calculateOrderToken(difficulty: string): number {
   return TOKEN_MAP[key] ?? TOKEN_MAP.simple;
 }
 
-/**
- * Validates a date string is in YYYY-MM-DD format.
- */
-function isValidDateString(date: string): boolean {
-  return /^\d{4}-\d{2}-\d{2}$/.test(date);
+function normalizeCapacityDateOrThrow(date: string): string {
+  return normalizeDateOrThrow(date, "date");
 }
 
 // ─── Core Functions ──────────────────────────────────────────────────────────
@@ -130,25 +134,23 @@ export async function getCapacityForDate(
   date: string,
   dbClient?: SqlExecutor,
 ): Promise<CapacityRecord> {
-  if (!isValidDateString(date)) {
-    throw new Error(`Invalid date format: ${date}. Expected YYYY-MM-DD.`);
-  }
+  const normalizedDate = normalizeCapacityDateOrThrow(date);
 
   await ensureCapacityTable();
 
   const db = dbClient ?? prisma;
 
   const rows = await db.$queryRaw<CapacityRow[]>`
-    SELECT date, max_token, used_token
+    SELECT date::text AS date, max_token, used_token
     FROM production_capacity
     WHERE business_id = ${businessId}
-      AND date = ${date}::date
+      AND date = ${normalizedDate}::date
     LIMIT 1
   `;
 
   if (rows.length === 0) {
     return {
-      date,
+      date: normalizedDate,
       maxToken: DEFAULT_MAX_TOKEN,
       usedToken: 0,
     };
@@ -156,7 +158,7 @@ export async function getCapacityForDate(
 
   const row = rows[0];
   return {
-    date,
+    date: normalizedDate,
     maxToken: Number(row.max_token),
     usedToken: Number(row.used_token),
   };
@@ -175,7 +177,8 @@ export async function checkTokenAvailability(
 ): Promise<boolean> {
   if (tokenNeeded <= 0) return true;
 
-  const capacity = await getCapacityForDate(businessId, date, dbClient);
+  const normalizedDate = normalizeCapacityDateOrThrow(date);
+  const capacity = await getCapacityForDate(businessId, normalizedDate, dbClient);
   return capacity.usedToken + tokenNeeded <= capacity.maxToken;
 }
 
@@ -200,12 +203,10 @@ export async function consumeToken(
   tokenUsed: number,
   dbClient?: SqlExecutor,
 ): Promise<ConsumeResult> {
-  if (!isValidDateString(date)) {
-    throw new Error(`Invalid date format: ${date}. Expected YYYY-MM-DD.`);
-  }
+  const normalizedDate = normalizeCapacityDateOrThrow(date);
 
   if (tokenUsed <= 0) {
-    const capacity = await getCapacityForDate(businessId, date, dbClient);
+    const capacity = await getCapacityForDate(businessId, normalizedDate, dbClient);
     return {
       success: true,
       usedToken: capacity.usedToken,
@@ -223,9 +224,9 @@ export async function consumeToken(
       used_token = used_token + ${tokenUsed},
       updated_at = NOW()
     WHERE business_id = ${businessId}
-      AND date = ${date}::date
+      AND date = ${normalizedDate}::date
       AND used_token + ${tokenUsed} <= max_token
-    RETURNING date, max_token, used_token
+    RETURNING date::text AS date, max_token, used_token
   `;
 
   if (updated.length > 0) {
@@ -239,10 +240,10 @@ export async function consumeToken(
 
   // Step 2: Check if row exists but capacity is full, or row doesn't exist
   const existing = await db.$queryRaw<CapacityRow[]>`
-    SELECT date, max_token, used_token
+    SELECT date::text AS date, max_token, used_token
     FROM production_capacity
     WHERE business_id = ${businessId}
-      AND date = ${date}::date
+      AND date = ${normalizedDate}::date
     LIMIT 1
   `;
 
@@ -262,7 +263,7 @@ export async function consumeToken(
   try {
     await db.$executeRaw`
       INSERT INTO production_capacity (business_id, date, max_token, used_token, created_at, updated_at)
-      VALUES (${businessId}, ${date}::date, ${DEFAULT_MAX_TOKEN}, 0, NOW(), NOW())
+      VALUES (${businessId}, ${normalizedDate}::date, ${DEFAULT_MAX_TOKEN}, 0, NOW(), NOW())
       ON CONFLICT (business_id, date) DO NOTHING
     `;
   } catch {
@@ -276,9 +277,9 @@ export async function consumeToken(
       used_token = used_token + ${tokenUsed},
       updated_at = NOW()
     WHERE business_id = ${businessId}
-      AND date = ${date}::date
+      AND date = ${normalizedDate}::date
       AND used_token + ${tokenUsed} <= max_token
-    RETURNING date, max_token, used_token
+    RETURNING date::text AS date, max_token, used_token
   `;
 
   if (retryUpdated.length > 0) {
@@ -292,10 +293,10 @@ export async function consumeToken(
 
   // Capacity full even after insert (edge case: concurrent requests filled it)
   const finalState = await db.$queryRaw<CapacityRow[]>`
-    SELECT date, max_token, used_token
+    SELECT date::text AS date, max_token, used_token
     FROM production_capacity
     WHERE business_id = ${businessId}
-      AND date = ${date}::date
+      AND date = ${normalizedDate}::date
     LIMIT 1
   `;
 
@@ -321,12 +322,10 @@ export async function releaseToken(
   tokenToRelease: number,
   dbClient?: SqlExecutor,
 ): Promise<ReleaseResult> {
-  if (!isValidDateString(date)) {
-    throw new Error(`Invalid date format: ${date}. Expected YYYY-MM-DD.`);
-  }
+  const normalizedDate = normalizeCapacityDateOrThrow(date);
 
   if (tokenToRelease <= 0) {
-    const capacity = await getCapacityForDate(businessId, date, dbClient);
+    const capacity = await getCapacityForDate(businessId, normalizedDate, dbClient);
     return {
       success: true,
       usedToken: capacity.usedToken,
@@ -344,8 +343,8 @@ export async function releaseToken(
       used_token = GREATEST(0, used_token - ${tokenToRelease}),
       updated_at = NOW()
     WHERE business_id = ${businessId}
-      AND date = ${date}::date
-    RETURNING date, max_token, used_token
+      AND date = ${normalizedDate}::date
+    RETURNING date::text AS date, max_token, used_token
   `;
 
   if (updated.length > 0) {
@@ -375,33 +374,25 @@ export async function getCapacityForDateRange(
   endDate: string,
   dbClient?: SqlExecutor,
 ): Promise<CapacityRecord[]> {
-  if (!isValidDateString(startDate) || !isValidDateString(endDate)) {
-    throw new Error("Invalid date format. Expected YYYY-MM-DD.");
-  }
+  const normalizedStartDate = normalizeCapacityDateOrThrow(startDate);
+  const normalizedEndDate = normalizeCapacityDateOrThrow(endDate);
 
   await ensureCapacityTable();
 
   const db = dbClient ?? prisma;
 
   const rows = await db.$queryRaw<CapacityRow[]>`
-    SELECT date, max_token, used_token
+    SELECT date::text AS date, max_token, used_token
     FROM production_capacity
     WHERE business_id = ${businessId}
-      AND date >= ${startDate}::date
-      AND date <= ${endDate}::date
+      AND date >= ${normalizedStartDate}::date
+      AND date <= ${normalizedEndDate}::date
     ORDER BY date ASC
   `;
 
   return rows.map((row): CapacityRecord => {
-    let dateStr: string;
-    if (row.date instanceof Date) {
-      const iso = row.date.toISOString();
-      dateStr = iso.split("T")[0] ?? iso.slice(0, 10);
-    } else {
-      dateStr = String(row.date).slice(0, 10);
-    }
     return {
-      date: dateStr,
+      date: row.date,
       maxToken: Number(row.max_token),
       usedToken: Number(row.used_token),
     };

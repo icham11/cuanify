@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, AuthError } from "@/lib/auth/session";
 import { analyzeBusinessData } from "@/lib/groq";
+import { uploadToCloudinary } from "@/lib/whatsapp/uploadToCloudinary";
 import {
   buildBookingAutoFillFromParsed,
   buildWhatsAppTemplate,
@@ -12,10 +13,6 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-function toInlineDataUrl(buffer: Buffer, mimeType: string): string {
-  return `data:${mimeType || "image/jpeg"};base64,${buffer.toString("base64")}`;
-}
 
 function parseSourceType(value: string): WhatsAppSourceType {
   if (value === "image" || value === "manual" || value === "email") return value;
@@ -199,17 +196,21 @@ export async function POST(request: NextRequest) {
 
     let extractedText = textInput.trim();
     let visionRawOutput = "";
+    const uploadedImageUrls: string[] = [];
 
     if (sourceType === "image" && files.length > 0) {
       const extractionBlocks: string[] = [];
       for (const file of files) {
         const bytes = await file.arrayBuffer();
         const buffer = Buffer.from(bytes);
-        const imageDataUrl = toInlineDataUrl(buffer, file.type);
+        const imageUrl = await uploadToCloudinary(buffer, {
+          folder: "orders/source",
+        });
+        uploadedImageUrls.push(imageUrl);
 
         const extractedFromImage = await analyzeBusinessData({
           prompt: buildVisionPrompt(preferredOrderType),
-          imageUrl: imageDataUrl,
+          imageUrl,
           temperature: 0.1,
           maxTokens: 1600,
         });
@@ -241,17 +242,24 @@ export async function POST(request: NextRequest) {
       sourceType,
     });
 
-    const autoFill = buildBookingAutoFillFromParsed(parsed);
+    const parsedWithImage = {
+      ...parsed,
+      imageUrl: uploadedImageUrls[0],
+      uploadedImageUrls,
+    };
+
+    const autoFill = buildBookingAutoFillFromParsed(parsedWithImage);
 
     return NextResponse.json({
       success: true,
-      parsed,
+      parsed: parsedWithImage,
       autoFill,
+      uploadedImageUrls,
       visionRawOutput: sourceType === "image" || sourceType === "email" ? visionRawOutput : null,
       warnings:
-        parsed.missingFields.length > 0
+        parsedWithImage.missingFields.length > 0
           ? [
-              `Parser mendeteksi field yang belum lengkap: ${parsed.missingFields.join(", ")}`,
+              `Parser mendeteksi field yang belum lengkap: ${parsedWithImage.missingFields.join(", ")}`,
             ]
           : [],
     });
