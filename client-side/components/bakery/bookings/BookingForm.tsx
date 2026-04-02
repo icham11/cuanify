@@ -575,23 +575,17 @@ export default function BookingForm() {
     }
 
     if (deliveryMethod === "ASSISTED_GRAB") {
-      if (grabQuotes.length > 0) {
-        return grabQuotes;
-      }
-
-      // If Grab is unavailable, prefer GOJEK bike quotes before global fallback.
-      const gojekBikeQuotes = gojekQuotes.filter(isBikeService);
-      return gojekBikeQuotes.length > 0 ? gojekBikeQuotes : gojekQuotes;
+      return grabQuotes;
     }
 
     if (deliveryMethod === "ASSISTED_GOSEND") {
       const gojekBikeQuotes = gojekQuotes.filter(isBikeService);
-      return gojekBikeQuotes.length > 0 ? gojekBikeQuotes : gojekQuotes;
+      return gojekBikeQuotes;
     }
 
     if (deliveryMethod === "ASSISTED_GOCAR") {
       const gojekCarQuotes = gojekQuotes.filter(isCarService);
-      return gojekCarQuotes.length > 0 ? gojekCarQuotes : gojekQuotes;
+      return gojekCarQuotes;
     }
 
     if (deliveryMethod === "REGULAR_JNE_JNT") {
@@ -625,32 +619,27 @@ export default function BookingForm() {
     shippingQuotes.length > 0 &&
     methodSpecificShippingQuotes.length === 0;
 
-  const filteredShippingQuotes = useMemo(() => {
-    if (isShippingFallbackActive) {
-      return shippingQuotes;
-    }
-    return methodSpecificShippingQuotes;
-  }, [isShippingFallbackActive, shippingQuotes, methodSpecificShippingQuotes]);
+  const filteredShippingQuotes = methodSpecificShippingQuotes;
 
   const shippingFallbackMessage = useMemo(() => {
     if (!isShippingFallbackActive) return "";
 
     if (deliveryMethod === "ASSISTED_PAXEL") {
-      return "Layanan Paxel belum tersedia untuk alamat ini. Ditampilkan opsi kurir lain dari Biteship sebagai fallback.";
+      return "Layanan Paxel belum tersedia untuk alamat ini. Pilih metode lain atau ubah alamat penerima.";
     }
     if (deliveryMethod === "ASSISTED_GRAB") {
-      return "Layanan Grab belum tersedia untuk alamat ini. Ditampilkan opsi kurir lain dari Biteship sebagai fallback.";
+      return "Layanan Grab belum tersedia untuk alamat ini. Pilih metode lain atau ubah alamat penerima.";
     }
     if (deliveryMethod === "ASSISTED_GOSEND") {
-      return "Layanan GoSend belum tersedia untuk alamat ini. Ditampilkan opsi kurir lain dari Biteship sebagai fallback.";
+      return "Layanan GoSend belum tersedia untuk alamat ini. Pilih metode lain atau ubah alamat penerima.";
     }
     if (deliveryMethod === "ASSISTED_GOCAR") {
-      return "Layanan GoCar belum tersedia untuk alamat ini. Ditampilkan opsi kurir lain dari Biteship sebagai fallback.";
+      return "Layanan GoCar belum tersedia untuk alamat ini. Pilih metode lain atau ubah alamat penerima.";
     }
     if (deliveryMethod === "REGULAR_JNE_JNT") {
-      return "Layanan JNE/J&T belum tersedia untuk alamat ini. Ditampilkan opsi kurir lain dari Biteship sebagai fallback.";
+      return "Layanan JNE/J&T belum tersedia untuk alamat ini. Pilih metode lain atau ubah alamat penerima.";
     }
-    return "Layanan kurir pada metode terpilih belum tersedia. Ditampilkan opsi fallback dari Biteship.";
+    return "Layanan kurir pada metode terpilih belum tersedia. Pilih metode lain atau ubah alamat penerima.";
   }, [deliveryMethod, isShippingFallbackActive]);
 
   const selectedShippingQuote = useMemo(

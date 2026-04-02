@@ -75,6 +75,14 @@ interface DestinationResolution {
 }
 
 const BITESHIP_BASE_URL = "https://api.biteship.com/v1";
+const EXTERNAL_REQUEST_TIMEOUT_MS = parseNumber(
+  process.env.SHIPPING_EXTERNAL_TIMEOUT_MS,
+  10000,
+);
+const EXTERNAL_REQUEST_RETRY_COUNT = Math.max(
+  0,
+  Math.floor(parseNumber(process.env.SHIPPING_EXTERNAL_RETRY_COUNT, 1)),
+);
 const DEFAULT_ORIGIN: OriginConfig = {
   address: "Jakarta Selatan",
   postalCode: "12190",
@@ -111,6 +119,55 @@ function getOriginConfig(): OriginConfig {
     contactEmail:
       process.env.SHIPPING_ORIGIN_CONTACT_EMAIL || DEFAULT_ORIGIN.contactEmail,
   };
+}
+
+async function fetchWithTimeout(
+  input: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function fetchExternalWithRetry(
+  input: string,
+  init: RequestInit,
+  options?: {
+    retryCount?: number;
+    timeoutMs?: number;
+  },
+): Promise<Response> {
+  const retryCount = Math.max(
+    0,
+    options?.retryCount ?? EXTERNAL_REQUEST_RETRY_COUNT,
+  );
+  const timeoutMs = Math.max(
+    1000,
+    options?.timeoutMs ?? EXTERNAL_REQUEST_TIMEOUT_MS,
+  );
+
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= retryCount; attempt += 1) {
+    try {
+      return await fetchWithTimeout(input, init, timeoutMs);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("External request failed");
 }
 
 function toRadians(degrees: number): number {
@@ -323,7 +380,7 @@ async function resolveAreaHintsFromBiteship(
 
     let response: Response;
     try {
-      response = await fetch(
+      response = await fetchExternalWithRetry(
         `${BITESHIP_BASE_URL}/maps/areas?${query.toString()}`,
         {
           headers: {
@@ -382,7 +439,7 @@ async function geocodeAddress(
 
     let response: Response;
     try {
-      response = await fetch(
+      response = await fetchExternalWithRetry(
         `https://nominatim.openstreetmap.org/search?${query.toString()}`,
         {
           headers: {
@@ -445,7 +502,7 @@ async function geocodeByPostalCode(
 
     let response: Response;
     try {
-      response = await fetch(
+      response = await fetchExternalWithRetry(
         `https://nominatim.openstreetmap.org/search?${query.toString()}`,
         {
           headers: {
@@ -585,15 +642,18 @@ async function getBiteshipRates(args: {
     })),
   };
 
-  const response = await fetch(`${BITESHIP_BASE_URL}/rates/couriers`, {
-    method: "POST",
-    headers: {
-      Authorization: apiKey,
-      "Content-Type": "application/json",
+  const response = await fetchExternalWithRetry(
+    `${BITESHIP_BASE_URL}/rates/couriers`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: apiKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+      cache: "no-store",
     },
-    body: JSON.stringify(payload),
-    cache: "no-store",
-  });
+  );
 
   const data = (await response.json().catch(() => ({}))) as {
     pricing?: BiteshipRateLike[];
@@ -837,7 +897,7 @@ export async function createShippingResi(
     ? normalizeDeliveryTime(payload.deliveryTime)
     : undefined;
 
-  const response = await fetch(`${BITESHIP_BASE_URL}/orders`, {
+  const response = await fetchExternalWithRetry(`${BITESHIP_BASE_URL}/orders`, {
     method: "POST",
     headers: {
       Authorization: apiKey,

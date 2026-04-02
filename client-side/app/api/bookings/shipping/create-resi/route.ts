@@ -7,9 +7,17 @@ import type { ShippingResiRequest } from "@/lib/bookings/shipping-types";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const SHIPPING_PROVIDER_VALUES = [
+  "JNE",
+  "PAXEL",
+  "JNT",
+  "GOJEK",
+  "GRAB",
+] as const;
+
 const shippingQuoteSchema = z.object({
   id: z.string(),
-  provider: z.enum(["JNE", "PAXEL", "JNT"]),
+  provider: z.enum(SHIPPING_PROVIDER_VALUES),
   courierCode: z.string().min(1),
   courierServiceCode: z.string().min(1),
   courierServiceName: z.string().min(1),
@@ -39,7 +47,7 @@ const createResiSchema = z.object({
         quantity: z.number().min(1),
         weightGram: z.number().min(1),
         value: z.number().min(0),
-      })
+      }),
     )
     .min(1),
 });
@@ -68,7 +76,7 @@ export async function POST(request: NextRequest) {
           error: "Invalid create-resi payload.",
           details: parsed.error.issues,
         },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -77,7 +85,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(result, { status });
   } catch (error: unknown) {
     if (error instanceof AuthError) {
-      return NextResponse.json({ success: false, error: error.message }, { status: 401 });
+      return NextResponse.json(
+        { success: false, error: error.message },
+        { status: 401 },
+      );
     }
 
     return NextResponse.json(
@@ -85,7 +96,7 @@ export async function POST(request: NextRequest) {
         success: false,
         error: getErrorMessage(error),
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
