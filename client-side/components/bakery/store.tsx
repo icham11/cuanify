@@ -25,11 +25,7 @@ import {
   BAKERY_DOWN_PAYMENT_PERCENT,
   calculateDownPayment,
 } from "@/lib/bookings/config";
-import {
-  checkSlotAvailability,
-  inferOrderTypeFromItems,
-  isWithinBusinessHours,
-} from "@/lib/bookings/operations";
+import { isWithinBusinessHours } from "@/lib/bookings/operations";
 import { estimateOperationalWeightGram } from "@/lib/bookings/delivery-rules";
 import { normalizeDateInput } from "@/lib/helpers/date-normalization";
 
@@ -80,7 +76,14 @@ export interface OrderItem {
   productName: string;
   size: string;
   quantity: number;
-  tokenDifficulty?: "SIMPLE" | "MEDIUM" | "DIFFICULT";
+  tokenDifficulty?:
+    | "SIMPLE"
+    | "NORMAL"
+    | "HARD"
+    | "ADVANCED"
+    | "EXPERT"
+    | "MEDIUM"
+    | "DIFFICULT";
   customTokenPerUnit?: number;
   basePrice: number;
   productType?: "COOKIE" | "BOUQUET" | "CAKE" | "CUPCAKE" | "TOWER";
@@ -886,17 +889,6 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         );
       }
 
-      const orderType = inferOrderTypeFromItems(order.items);
-      const slotStatus = checkSlotAvailability(
-        order.deliveryDate,
-        order.deliverySlot,
-        orderType,
-        { orders },
-      );
-      if (slotStatus === "FULL") {
-        throw new Error("Selected time slot is full.");
-      }
-
       const nextId =
         orders.reduce((max, item) => {
           const parsed = Number(item.id);
@@ -1177,24 +1169,6 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         toast.error(
           "Selected slot is outside business hours (Mon-Sat 10:00-22:00, Sun 10:00-15:00).",
         );
-        return;
-      }
-
-      const targetOrder = orders.find((order) => order.id === id);
-      if (!targetOrder) return;
-
-      const targetType = inferOrderTypeFromItems(targetOrder.items || []);
-      const slotStatus = checkSlotAvailability(
-        deliveryDate,
-        deliverySlot,
-        targetType,
-        {
-          orders,
-          excludeOrderId: id,
-        },
-      );
-      if (slotStatus === "FULL") {
-        toast.error("Selected time slot is full.");
         return;
       }
 

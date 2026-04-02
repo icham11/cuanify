@@ -1,6 +1,9 @@
 export type DeliveryMethod =
   | "PICKUP"
   | "CUSTOMER_APP_COURIER"
+  | "ASSISTED_GRAB"
+  | "ASSISTED_GOCAR"
+  | "ASSISTED_PAXEL"
   | "ASSISTED_SAME_DAY"
   | "REGULAR_JNE_JNT";
 
@@ -43,13 +46,23 @@ export const DELIVERY_METHOD_OPTIONS: DeliveryMethodOption[] = [
   },
   {
     value: "CUSTOMER_APP_COURIER",
-    label: "GoSend/Grab (pesan customer)",
+    label: "Grab/GoCar (pesan customer)",
     description: "Customer pesan kurir sendiri via aplikasi.",
   },
   {
-    value: "ASSISTED_SAME_DAY",
-    label: "GoSend/Grab/Paxel (dibantu admin)",
-    description: "Admin bantu pemesanan kurir, termasuk ongkir + handling.",
+    value: "ASSISTED_GRAB",
+    label: "Grab (dibantu admin)",
+    description: "Admin bantu pemesanan Grab same-day.",
+  },
+  {
+    value: "ASSISTED_GOCAR",
+    label: "GoCar (dibantu admin)",
+    description: "Admin bantu pemesanan GoCar same-day.",
+  },
+  {
+    value: "ASSISTED_PAXEL",
+    label: "Paxel (dibantu admin)",
+    description: "Admin bantu pengiriman khusus Paxel.",
   },
   {
     value: "REGULAR_JNE_JNT",
@@ -132,5 +145,11 @@ export function getGrabCarOnlyReasons(items: DeliveryRuleItem[]): string[] {
 }
 
 export function usesShippingEngine(method: DeliveryMethod): boolean {
-  return method === "ASSISTED_SAME_DAY" || method === "REGULAR_JNE_JNT";
+  return (
+    method === "ASSISTED_SAME_DAY" ||
+    method === "ASSISTED_GRAB" ||
+    method === "ASSISTED_GOCAR" ||
+    method === "ASSISTED_PAXEL" ||
+    method === "REGULAR_JNE_JNT"
+  );
 }

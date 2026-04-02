@@ -1,5 +1,10 @@
-import { startOfDay } from "date-fns";
-import { parseSafeDate } from "@/lib/helpers/date-normalization";
+import {
+  BAKERY_BLOCKED_DATES,
+  BAKERY_DAILY_PRODUCTION_TOKEN_LIMIT,
+  BAKERY_H_MINUS_1_CUTOFF_HOUR,
+} from "@/lib/bookings/config";
+
+const BUSINESS_TIME_ZONE = "Asia/Jakarta";
 
 /**
  * Token-based Calendar Status Utility
@@ -10,9 +15,15 @@ import { parseSafeDate } from "@/lib/helpers/date-normalization";
  * Priority order: PAST → FULL → CUTOFF → WARNING → AVAILABLE
  */
 
-export type CalendarStatus = "PAST" | "AVAILABLE" | "WARNING" | "FULL" | "CUTOFF";
+export type CalendarStatus =
+  | "PAST"
+  | "BLOCKED"
+  | "AVAILABLE"
+  | "WARNING"
+  | "FULL"
+  | "CUTOFF";
 
-export const DEFAULT_MAX_TOKEN = 600;
+export const DEFAULT_MAX_TOKEN = BAKERY_DAILY_PRODUCTION_TOKEN_LIMIT;
 
 export interface CalendarDayInput {
   usedToken: number;
@@ -21,20 +32,64 @@ export interface CalendarDayInput {
   date: string;
 }
 
-function parseLocalDateOnly(dateStr: string): Date | null {
-  return parseSafeDate(dateStr);
+function isBlockedDate(dateStr: string): boolean {
+  return BAKERY_BLOCKED_DATES.includes(dateStr);
+}
+
+function getDatePartsInTimeZone(
+  date: Date,
+  timeZone: string,
+): { year: number; month: number; day: number; hour: number } {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hour12: false,
+  });
+
+  const parts = formatter.formatToParts(date);
+  const year = Number(parts.find((part) => part.type === "year")?.value || 0);
+  const month = Number(parts.find((part) => part.type === "month")?.value || 0);
+  const day = Number(parts.find((part) => part.type === "day")?.value || 0);
+  const hour = Number(parts.find((part) => part.type === "hour")?.value || 0);
+
+  return { year, month, day, hour };
+}
+
+function toDateKey(year: number, month: number, day: number): number {
+  return year * 10000 + month * 100 + day;
+}
+
+function parseDatePartsFromYmd(
+  dateStr: string,
+): { year: number; month: number; day: number } | null {
+  const match = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  return {
+    year: Number(match[1]),
+    month: Number(match[2]),
+    day: Number(match[3]),
+  };
 }
 
 /**
  * Returns true if dateStr is before today in local timezone.
  */
 export function isPastDate(dateStr: string, now: Date = new Date()): boolean {
-  const target = parseLocalDateOnly(dateStr);
-  if (!target) return false;
+  const targetParts = parseDatePartsFromYmd(dateStr);
+  if (!targetParts) return false;
 
-  const today = startOfDay(now);
+  const nowParts = getDatePartsInTimeZone(now, BUSINESS_TIME_ZONE);
+  const todayKey = toDateKey(nowParts.year, nowParts.month, nowParts.day);
+  const targetKey = toDateKey(
+    targetParts.year,
+    targetParts.month,
+    targetParts.day,
+  );
 
-  return target.getTime() < today.getTime();
+  return targetKey < todayKey;
 }
 
 /**
@@ -45,16 +100,23 @@ export function isPastDate(dateStr: string, now: Date = new Date()): boolean {
  * Uses local date comparison to avoid timezone shift issues.
  */
 function isCutoff(dateStr: string, now: Date = new Date()): boolean {
-  if (!dateStr) return false;
+  const targetParts = parseDatePartsFromYmd(dateStr);
+  if (!targetParts) return false;
 
-  const targetDate = parseLocalDateOnly(dateStr);
-  if (!targetDate) return false;
+  const nowParts = getDatePartsInTimeZone(now, BUSINESS_TIME_ZONE);
+  const todayUtc = new Date(
+    Date.UTC(nowParts.year, nowParts.month - 1, nowParts.day),
+  );
+  todayUtc.setUTCDate(todayUtc.getUTCDate() + 1);
 
-  const cutoffDate = new Date(targetDate);
-  cutoffDate.setDate(cutoffDate.getDate() - 1);
-  cutoffDate.setHours(10, 0, 0, 0);
+  const isTomorrow =
+    targetParts.year === todayUtc.getUTCFullYear() &&
+    targetParts.month === todayUtc.getUTCMonth() + 1 &&
+    targetParts.day === todayUtc.getUTCDate();
 
-  return now.getTime() > cutoffDate.getTime();
+  if (!isTomorrow) return false;
+
+  return nowParts.hour >= BAKERY_H_MINUS_1_CUTOFF_HOUR;
 }
 
 /**
@@ -62,10 +124,11 @@ function isCutoff(dateStr: string, now: Date = new Date()): boolean {
  *
  * Rules (in priority order):
  * 1. PAST:      date is before today (local timezone)
- * 2. FULL:      usedToken >= maxToken
- * 3. CUTOFF:    now > (deliveryDate - 1 day at 10:00)
- * 4. WARNING:   usedToken >= 0.8 * maxToken
- * 5. AVAILABLE: usedToken < 0.8 * maxToken
+ * 2. BLOCKED:   date is configured as admin holiday
+ * 3. FULL:      usedToken >= maxToken
+ * 4. CUTOFF:    now > (deliveryDate - 1 day at cutoff hour)
+ * 5. WARNING:   usedToken >= 0.8 * maxToken
+ * 6. AVAILABLE: usedToken < 0.8 * maxToken
  *
  * @param day - The capacity data for the day
  * @param now - Optional current date/time for testing (defaults to new Date())
@@ -82,22 +145,27 @@ export function getCalendarStatus(
     return "PAST";
   }
 
-  // Priority 2: FULL
+  // Priority 2: BLOCKED
+  if (isBlockedDate(date)) {
+    return "BLOCKED";
+  }
+
+  // Priority 3: FULL
   if (usedToken >= maxToken) {
     return "FULL";
   }
 
-  // Priority 3: CUTOFF — H-1 rule
+  // Priority 4: CUTOFF — H-1 rule
   if (isCutoff(date, now)) {
     return "CUTOFF";
   }
 
-  // Priority 4: WARNING — 80% threshold
+  // Priority 5: WARNING — 80% threshold
   if (usedToken >= 0.8 * maxToken) {
     return "WARNING";
   }
 
-  // Priority 5: AVAILABLE
+  // Priority 6: AVAILABLE
   return "AVAILABLE";
 }
 
@@ -116,6 +184,13 @@ export function getCalendarStatusUI(status: CalendarStatus): {
         label: "Passed",
         bgClass: "bg-gray-200",
         textClass: "text-gray-600",
+        disabled: true,
+      };
+    case "BLOCKED":
+      return {
+        label: "Libur",
+        bgClass: "bg-rose-200",
+        textClass: "text-rose-700",
         disabled: true,
       };
     case "FULL":

@@ -135,6 +135,15 @@ function parseProviderFromCourierCode(
   rawCode: string,
 ): ShippingProvider | null {
   const code = rawCode.toLowerCase();
+  if (
+    code.includes("gojek") ||
+    code.includes("gosend") ||
+    code.includes("gocar") ||
+    code.includes("go_car")
+  ) {
+    return "GOJEK";
+  }
+  if (code.includes("grab")) return "GRAB";
   if (code.includes("jne")) return "JNE";
   if (code.includes("jnt") || code.includes("j&t")) return "JNT";
   if (code.includes("paxel")) return "PAXEL";
@@ -502,24 +511,23 @@ async function resolveDestination(
   const postalCodeFromAreaLookup =
     postalCodeFromPayload || postalCodeFromAddress || areaHints.postalCode;
 
-  const point = await geocodeAddress(
+  const postalPoint = postalCodeFromAreaLookup
+    ? await geocodeByPostalCode(
+        postalCodeFromAreaLookup,
+        payload.destinationArea,
+      )
+    : null;
+  const directPoint = await geocodeAddress(
     payload.destinationAddress,
     payload.destinationArea,
   );
+  const areaPoint = await geocodeAddressWithArea(
+    payload.destinationAddress,
+    payload.destinationArea,
+  );
+
   const pointWithArea =
-    point ||
-    (await geocodeAddressWithArea(
-      payload.destinationAddress,
-      payload.destinationArea,
-    )) ||
-    (postalCodeFromAreaLookup
-      ? await geocodeByPostalCode(
-          postalCodeFromAreaLookup,
-          payload.destinationArea,
-        )
-      : null) ||
-    areaHints.point ||
-    null;
+    areaHints.point || postalPoint || directPoint || areaPoint || null;
 
   return {
     point: pointWithArea,
@@ -560,7 +568,7 @@ async function getBiteshipRates(args: {
             sanitizePostalCode(origin.postalCode) || undefined,
           destination_postal_code: args.destination.postalCode,
         }),
-    couriers: "jne,jnt,paxel",
+    couriers: "jne,jnt,paxel,gojek,grab",
     items: args.items.map((item) => ({
       name: item.name || "Order Item",
       description: "Bakery item",

@@ -11,7 +11,10 @@ import {
   DEFAULT_MAX_TOKEN,
   calculateOrderTokenFromItems,
 } from "@/lib/bookings/token-capacity-service";
-import { getCalendarStatus, isPastDate } from "@/lib/calendar/getCalendarStatus";
+import {
+  getCalendarStatus,
+  isPastDate,
+} from "@/lib/calendar/getCalendarStatus";
 import { normalizeDateInput } from "@/lib/helpers/date-normalization";
 import {
   sendOrderToWhatsApp,
@@ -48,6 +51,16 @@ class CapacityCutoffError extends Error {
   constructor(date: string) {
     super("Pemesanan H-1 sudah ditutup (setelah jam 10 pagi)");
     this.name = "CapacityCutoffError";
+    this.date = date;
+  }
+}
+
+class CapacityBlockedDateError extends Error {
+  public readonly date: string;
+
+  constructor(date: string) {
+    super("Tanggal libur admin, tidak menerima pesanan");
+    this.name = "CapacityBlockedDateError";
     this.date = date;
   }
 }
@@ -661,7 +674,8 @@ export async function GET() {
           customerAddress: row.customer_address ?? "",
           deliveryDate:
             normalizeDateInput(row.delivery_date ?? "") ??
-            (row.delivery_date ?? ""),
+            row.delivery_date ??
+            "",
           deliverySlot: row.delivery_slot ?? "",
           notes: row.notes ?? "",
           basePrice: asNumber(row.base_price),
@@ -856,7 +870,14 @@ export async function POST(request: NextRequest) {
           let insertedAddressCount = 0;
           const createdOrdersForWhatsApp: SendOrderToWhatsAppInput[] = [];
 
-          const existingRows = await tx.$queryRaw<{ external_id: string; delivery_date: string | null; token_used: number; order_status: string | null }[]>`
+          const existingRows = await tx.$queryRaw<
+            {
+              external_id: string;
+              delivery_date: string | null;
+              token_used: number;
+              order_status: string | null;
+            }[]
+          >`
           SELECT external_id, delivery_date, token_used, order_status
           FROM bakery_orders
           WHERE business_id = ${businessId}
@@ -903,17 +924,35 @@ export async function POST(request: NextRequest) {
             // ── Token capacity: calculate tokens for this order ──
             const orderItems = (order.items || []).map((item) => ({
               category: typeof item.category === "string" ? item.category : "",
-              subcategory: typeof item.subcategory === "string" ? item.subcategory : undefined,
-              productName: typeof item.productName === "string" ? item.productName : undefined,
+              subcategory:
+                typeof item.subcategory === "string"
+                  ? item.subcategory
+                  : undefined,
+              productName:
+                typeof item.productName === "string"
+                  ? item.productName
+                  : undefined,
               size: typeof item.size === "string" ? item.size : undefined,
-              quantity: typeof item.quantity === "number" ? item.quantity : undefined,
+              quantity:
+                typeof item.quantity === "number" ? item.quantity : undefined,
+              tokenDifficulty:
+                typeof item.tokenDifficulty === "string"
+                  ? item.tokenDifficulty
+                  : undefined,
+              customTokenPerUnit:
+                typeof item.customTokenPerUnit === "number"
+                  ? item.customTokenPerUnit
+                  : undefined,
             }));
             const tokenForOrder = calculateOrderTokenFromItems(orderItems);
 
             // Determine difficulty label based on token per item ratio
             let difficulty: string | null = null;
             if (tokenForOrder > 0) {
-              const avgToken = orderItems.length > 0 ? tokenForOrder / orderItems.length : tokenForOrder;
+              const avgToken =
+                orderItems.length > 0
+                  ? tokenForOrder / orderItems.length
+                  : tokenForOrder;
               if (avgToken >= 3) difficulty = "difficult";
               else if (avgToken >= 2) difficulty = "medium";
               else difficulty = "simple";
@@ -921,13 +960,21 @@ export async function POST(request: NextRequest) {
 
             // ── Handle token changes for existing orders ──
             const existingOrder = existingOrderMap.get(order.id);
-            const isActiveStatus = !INACTIVE_STATUSES.includes(order.orderStatus || "");
+            const isActiveStatus = !INACTIVE_STATUSES.includes(
+              order.orderStatus || "",
+            );
             const wasActive = existingOrder
               ? !INACTIVE_STATUSES.includes(existingOrder.order_status || "")
               : false;
 
+            const shouldValidateSchedule =
+              isActiveStatus &&
+              (!existingOrder ||
+                !wasActive ||
+                existingOrder.delivery_date !== (order.deliveryDate || null));
+
             // Enforce H-1 cutoff policy in backend as final authority.
-            if (isActiveStatus && order.deliveryDate) {
+            if (shouldValidateSchedule && order.deliveryDate) {
               if (isPastDate(order.deliveryDate)) {
                 throw new PastDateError(order.deliveryDate);
               }
@@ -943,14 +990,24 @@ export async function POST(request: NextRequest) {
                 date: order.deliveryDate,
               });
 
+              if (status === "BLOCKED") {
+                throw new CapacityBlockedDateError(order.deliveryDate);
+              }
+
               if (status === "CUTOFF") {
                 throw new CapacityCutoffError(order.deliveryDate);
               }
             }
 
-            if (existingOrder && existingOrder.delivery_date && existingOrder.token_used > 0 && wasActive) {
+            if (
+              existingOrder &&
+              existingOrder.delivery_date &&
+              existingOrder.token_used > 0 &&
+              wasActive
+            ) {
               // Release old tokens if date changed, status changed to inactive, or token amount changed
-              const dateChanged = existingOrder.delivery_date !== (order.deliveryDate || null);
+              const dateChanged =
+                existingOrder.delivery_date !== (order.deliveryDate || null);
               const becameInactive = !isActiveStatus;
               const tokenChanged = existingOrder.token_used !== tokenForOrder;
 
@@ -967,10 +1024,11 @@ export async function POST(request: NextRequest) {
             // Consume tokens for active orders with a delivery date
             let finalTokenUsed = 0;
             if (isActiveStatus && order.deliveryDate && tokenForOrder > 0) {
-              const shouldConsume = !existingOrder
-                || !wasActive
-                || existingOrder.delivery_date !== (order.deliveryDate || null)
-                || existingOrder.token_used !== tokenForOrder;
+              const shouldConsume =
+                !existingOrder ||
+                !wasActive ||
+                existingOrder.delivery_date !== (order.deliveryDate || null) ||
+                existingOrder.token_used !== tokenForOrder;
 
               if (shouldConsume) {
                 const consumeResult = await consumeToken(
@@ -983,8 +1041,8 @@ export async function POST(request: NextRequest) {
                   // Capacity full — reject this entire sync
                   throw new CapacityFullError(
                     `Production capacity full for ${order.deliveryDate}. ` +
-                    `Used: ${consumeResult.usedToken}/${consumeResult.maxToken}, ` +
-                    `Needed: ${tokenForOrder} for order ${order.id}.`,
+                      `Used: ${consumeResult.usedToken}/${consumeResult.maxToken}, ` +
+                      `Needed: ${tokenForOrder} for order ${order.id}.`,
                     order.deliveryDate,
                     consumeResult.usedToken,
                     consumeResult.maxToken,
@@ -1286,6 +1344,16 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      if (rowError instanceof CapacityBlockedDateError) {
+        return NextResponse.json(
+          {
+            error: rowError.message,
+            details: `Tanggal ${rowError.date} merupakan tanggal libur yang diblokir admin.`,
+          },
+          { status: 409 },
+        );
+      }
+
       if (rowError instanceof PastDateError) {
         return NextResponse.json(
           {
@@ -1349,6 +1417,16 @@ export async function POST(request: NextRequest) {
         {
           error: error.message,
           details: `Tanggal ${error.date} termasuk cutoff H-1 setelah jam 10 pagi.`,
+        },
+        { status: 409 },
+      );
+    }
+
+    if (error instanceof CapacityBlockedDateError) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          details: `Tanggal ${error.date} merupakan tanggal libur yang diblokir admin.`,
         },
         { status: 409 },
       );

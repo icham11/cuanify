@@ -448,6 +448,7 @@ export function summarizeProductionTokensByItems(
         subcategory: item.subcategory,
         productName: item.productName,
         tokenDifficulty: item.tokenDifficulty,
+        customTokenPerUnit: item.customTokenPerUnit,
         difficulty: difficultyFromPayload,
         quantity: item.quantity,
       };

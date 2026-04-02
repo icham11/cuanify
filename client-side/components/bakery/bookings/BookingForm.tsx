@@ -47,7 +47,6 @@ import {
   checkSlotAvailability,
   countConcurrentOrdersByTypeForSlot,
   getSlotLimitByOrderType,
-  getCapacityOverflows,
   getDeliverySlotsForDate,
   inferOrderTypeFromItems,
   isWithinBusinessHours,
@@ -79,7 +78,10 @@ import {
   usesShippingEngine,
 } from "@/lib/bookings/delivery-rules";
 import { useCalendarCapacity } from "@/hooks/useCalendarCapacity";
-import { getCalendarStatus, isPastDate } from "@/lib/calendar/getCalendarStatus";
+import {
+  getCalendarStatus,
+  isPastDate,
+} from "@/lib/calendar/getCalendarStatus";
 import type {
   ShippingQuote,
   ShippingQuoteItemInput,
@@ -101,6 +103,10 @@ const itemSchema = z.object({
   productName: z.string().min(1, "Product is required"),
   size: z.string().min(1, "Size is required"),
   quantity: z.number().int().min(1, "Minimum quantity is 1"),
+  tokenDifficulty: z
+    .enum(["SIMPLE", "NORMAL", "HARD", "ADVANCED", "EXPERT"])
+    .optional(),
+  customTokenPerUnit: z.number().int().min(1).max(999).optional(),
   cookiePrice: z.number().min(0).optional(),
   addOns: z.array(z.string()),
   notes: z.string().max(200).optional().or(z.literal("")),
@@ -121,6 +127,9 @@ const bookingSchema = z.object({
   deliveryMethod: z.enum([
     "PICKUP",
     "CUSTOMER_APP_COURIER",
+    "ASSISTED_GRAB",
+    "ASSISTED_GOCAR",
+    "ASSISTED_PAXEL",
     "ASSISTED_SAME_DAY",
     "REGULAR_JNE_JNT",
   ]),
@@ -411,6 +420,8 @@ export default function BookingForm() {
           productName: defaultItemSelection.productName,
           size: defaultItemSelection.size,
           quantity: 1,
+          tokenDifficulty: "SIMPLE",
+          customTokenPerUnit: undefined,
           cookiePrice: undefined,
           addOns: [],
           notes: "",
@@ -522,17 +533,76 @@ export default function BookingForm() {
     }, 0);
   }, [watchedItems, addOnCatalog]);
 
-  const selectedShippingQuote = useMemo(
-    () =>
-      shippingQuotes.find((quote) => quote.id === selectedShippingQuoteId) ??
-      null,
-    [shippingQuotes, selectedShippingQuoteId],
-  );
-
   const shouldUseShippingEngine = useMemo(
     () => usesShippingEngine(deliveryMethod as DeliveryMethod),
     [deliveryMethod],
   );
+
+  const filteredShippingQuotes = useMemo(() => {
+    if (!shouldUseShippingEngine) return [];
+
+    const isCarService = (quote: ShippingQuote) => {
+      const source =
+        `${quote.courierServiceCode} ${quote.courierServiceName}`.toLowerCase();
+      return source.includes("car") || source.includes("4w");
+    };
+
+    if (deliveryMethod === "ASSISTED_PAXEL") {
+      return shippingQuotes.filter((quote) => quote.provider === "PAXEL");
+    }
+
+    if (deliveryMethod === "ASSISTED_GRAB") {
+      return shippingQuotes.filter((quote) => quote.provider === "GRAB");
+    }
+
+    if (deliveryMethod === "ASSISTED_GOCAR") {
+      return shippingQuotes.filter(
+        (quote) => quote.provider === "GOJEK" && isCarService(quote),
+      );
+    }
+
+    if (deliveryMethod === "REGULAR_JNE_JNT") {
+      return shippingQuotes.filter(
+        (quote) => quote.provider === "JNE" || quote.provider === "JNT",
+      );
+    }
+
+    if (deliveryMethod === "ASSISTED_SAME_DAY") {
+      return shippingQuotes.filter(
+        (quote) =>
+          quote.provider === "GOJEK" ||
+          quote.provider === "GRAB" ||
+          quote.provider === "PAXEL",
+      );
+    }
+
+    return shippingQuotes;
+  }, [deliveryMethod, shippingQuotes, shouldUseShippingEngine]);
+
+  const selectedShippingQuote = useMemo(
+    () =>
+      filteredShippingQuotes.find(
+        (quote) => quote.id === selectedShippingQuoteId,
+      ) ?? null,
+    [filteredShippingQuotes, selectedShippingQuoteId],
+  );
+
+  useEffect(() => {
+    if (!filteredShippingQuotes.length) {
+      setSelectedShippingQuoteId("");
+      return;
+    }
+
+    setSelectedShippingQuoteId((current) => {
+      if (
+        current &&
+        filteredShippingQuotes.some((quote) => quote.id === current)
+      ) {
+        return current;
+      }
+      return filteredShippingQuotes[0]?.id || "";
+    });
+  }, [filteredShippingQuotes]);
 
   const grabCarOnlyReasons = useMemo(
     () => getGrabCarOnlyReasons(watchedItems),
@@ -595,49 +665,11 @@ export default function BookingForm() {
   useEffect(() => {
     if (!deliveryDate) return;
     const currentIsValid =
-      Boolean(deliverySlot) &&
-      deliverySlots.includes(deliverySlot) &&
-      checkSlotAvailability(deliveryDate, deliverySlot, draftOrderType, {
-        orders,
-      }) !== "FULL";
+      Boolean(deliverySlot) && deliverySlots.includes(deliverySlot);
     if (currentIsValid) return;
 
-    const firstAvailable = deliverySlots.find((slot) => {
-      return (
-        checkSlotAvailability(deliveryDate, slot, draftOrderType, {
-          orders,
-        }) !== "FULL"
-      );
-    });
-
-    setValue("deliverySlot", firstAvailable ?? "", { shouldValidate: true });
-  }, [
-    deliveryDate,
-    deliverySlot,
-    deliverySlots,
-    draftOrderType,
-    orders,
-    setValue,
-  ]);
-
-  const slotUsage = useMemo(() => {
-    if (!deliveryDate || !deliverySlot) return 0;
-    return countConcurrentOrdersByTypeForSlot({
-      orders,
-      deliveryDate,
-      deliverySlot,
-      orderType: draftOrderType,
-    });
-  }, [orders, deliveryDate, deliverySlot, draftOrderType]);
-
-  const selectedSlotStatus = useMemo<SlotAvailabilityStatus>(() => {
-    if (!deliveryDate || !deliverySlot) return "AVAILABLE";
-    return checkSlotAvailability(deliveryDate, deliverySlot, draftOrderType, {
-      orders,
-    });
-  }, [deliveryDate, deliverySlot, draftOrderType, orders]);
-
-  const isSlotFull = selectedSlotStatus === "FULL";
+    setValue("deliverySlot", deliverySlots[0] ?? "", { shouldValidate: true });
+  }, [deliveryDate, deliverySlot, deliverySlots, setValue]);
 
   const slotAvailability = useMemo(() => {
     if (!deliveryDate) return [];
@@ -940,9 +972,17 @@ export default function BookingForm() {
       return;
     }
 
-    if (isGrabCarOnlyOrder && deliveryMethod === "REGULAR_JNE_JNT") {
+    const grabCarCompatibleMethods: DeliveryMethod[] = [
+      "CUSTOMER_APP_COURIER",
+      "ASSISTED_GRAB",
+      "ASSISTED_GOCAR",
+    ];
+    if (
+      isGrabCarOnlyOrder &&
+      !grabCarCompatibleMethods.includes(deliveryMethod as DeliveryMethod)
+    ) {
       toast.error(
-        `Produk ${grabCarOnlyReasons.join(", ")} wajib GrabCar. Pilih metode GoSend/Grab customer atau dibantu admin.`,
+        `Produk ${grabCarOnlyReasons.join(", ")} wajib GrabCar/GoCar. Pilih metode customer app, Grab (dibantu admin), atau GoCar (dibantu admin).`,
       );
       return;
     }
@@ -980,37 +1020,6 @@ export default function BookingForm() {
     if (!isWithinBusinessHours(normalizedDeliveryDate, values.deliverySlot)) {
       toast.error(
         "Selected slot is outside business hours (Mon-Sat 10:00-22:00, Sun 10:00-15:00).",
-      );
-      return;
-    }
-
-    const submissionOrderType = inferOrderTypeFromItems(values.items);
-    const submissionSlotStatus = checkSlotAvailability(
-      normalizedDeliveryDate,
-      values.deliverySlot,
-      submissionOrderType,
-      { orders },
-    );
-    if (submissionSlotStatus === "FULL") {
-      toast.error("Delivery slot is full. Please choose another hour.");
-      return;
-    }
-
-    const existingCapacity = summarizeCapacityByOrdersForDate(
-      orders,
-      normalizedDeliveryDate,
-    );
-    const incomingCapacity = summarizeCapacityByItems(values.items);
-    const overflowBuckets = getCapacityOverflows(
-      existingCapacity,
-      incomingCapacity,
-    );
-    if (overflowBuckets.length > 0) {
-      const labels = overflowBuckets
-        .map((bucket) => CAPACITY_LABELS[bucket])
-        .join(", ");
-      toast.error(
-        `Kapasitas harian terlampaui: ${labels}. Pilih tanggal lain atau kurangi kuantitas.`,
       );
       return;
     }
@@ -1122,6 +1131,19 @@ export default function BookingForm() {
         productName: item.productName,
         size: item.size,
         quantity: item.quantity,
+        tokenDifficulty:
+          item.category === "Cookies"
+            ? (item.tokenDifficulty as
+                | "SIMPLE"
+                | "NORMAL"
+                | "HARD"
+                | "ADVANCED"
+                | "EXPERT"
+                | "MEDIUM"
+                | "DIFFICULT"
+                | undefined)
+            : undefined,
+        customTokenPerUnit: item.customTokenPerUnit,
         basePrice: itemBasePrice,
         productType:
           item.category === "Buket" ? ("BOUQUET" as const) : undefined,
@@ -1290,6 +1312,9 @@ export default function BookingForm() {
               quantity: Number.isFinite(item.quantity)
                 ? Math.max(1, Number(item.quantity))
                 : 1,
+              tokenDifficulty:
+                normalized.category === "Cookies" ? "SIMPLE" : undefined,
+              customTokenPerUnit: undefined,
               cookiePrice: undefined,
               addOns: Array.isArray(item.addOns) ? item.addOns : [],
               notes: item.notes ?? "",
@@ -1650,9 +1675,8 @@ export default function BookingForm() {
                   <option value="">Select hour</option>
                   {deliverySlots.map((slot) => {
                     const status = slotStatusByTime.get(slot) ?? "AVAILABLE";
-                    const disabled = status === "FULL";
                     return (
-                      <option key={slot} value={slot} disabled={disabled}>
+                      <option key={slot} value={slot}>
                         {slot} - {slotStatusLabel(status)}
                       </option>
                     );
@@ -1666,11 +1690,10 @@ export default function BookingForm() {
               </label>
             </div>
 
-            {(isBlockedDate || isSlotFull) && (
+            {isBlockedDate && (
               <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-                {isBlockedDate
-                  ? "Tanggal tidak tersedia (libur admin atau cutoff H-1 jam 10:00 sudah lewat)."
-                  : `Selected slot is full for ${slotProfileLabel} orders (${slotUsage}/${slotLimitPerHour}). Please choose another hour.`}
+                Tanggal tidak tersedia (libur admin atau cutoff H-1 jam 10:00
+                sudah lewat).
               </div>
             )}
 
@@ -1845,6 +1868,11 @@ export default function BookingForm() {
                       productName: nextDefault.productName,
                       size: nextDefault.size,
                       quantity: 1,
+                      tokenDifficulty:
+                        nextDefault.category === "Cookies"
+                          ? "SIMPLE"
+                          : undefined,
+                      customTokenPerUnit: undefined,
                       cookiePrice: undefined,
                       addOns: [],
                       notes: "",
@@ -1901,6 +1929,7 @@ export default function BookingForm() {
                   const bouquetType =
                     detectBouquetTypeFromItem(bouquetProbeItem);
                   const isBouquet = normalizedSelection.category === "Buket";
+                  const isCookies = normalizedSelection.category === "Cookies";
                   const bouquetQtyRange = bouquetType
                     ? getBouquetQtyRangeLabel(bouquetType)
                     : "";
@@ -1962,6 +1991,15 @@ export default function BookingForm() {
                               setValue(
                                 `items.${index}.cookiePrice`,
                                 undefined,
+                                {
+                                  shouldValidate: true,
+                                },
+                              );
+                              setValue(
+                                `items.${index}.tokenDifficulty`,
+                                nextSelection.category === "Cookies"
+                                  ? "SIMPLE"
+                                  : undefined,
                                 {
                                   shouldValidate: true,
                                 },
@@ -2104,6 +2142,40 @@ export default function BookingForm() {
                               bouquet qty wajib {bouquetQtyRange}.
                             </span>
                           )}
+                        </label>
+
+                        {isCookies && (
+                          <label className="grid gap-1.5 text-sm font-medium text-gray-700">
+                            Difficulty Token
+                            <Select
+                              {...register(`items.${index}.tokenDifficulty`)}
+                              defaultValue={item?.tokenDifficulty || "SIMPLE"}
+                            >
+                              <option value="SIMPLE">Simple (1)</option>
+                              <option value="NORMAL">Normal (2)</option>
+                              <option value="HARD">Hard (3)</option>
+                              <option value="ADVANCED">Advanced (4)</option>
+                              <option value="EXPERT">Expert (5)</option>
+                            </Select>
+                          </label>
+                        )}
+
+                        <label className="grid gap-1.5 text-sm font-medium text-gray-700">
+                          Custom Token / Unit
+                          <Input
+                            type="number"
+                            min={1}
+                            max={999}
+                            placeholder="Opsional"
+                            {...register(`items.${index}.customTokenPerUnit`, {
+                              setValueAs: (value) => {
+                                const parsed = Number(value);
+                                return Number.isFinite(parsed) && parsed > 0
+                                  ? Math.round(parsed)
+                                  : undefined;
+                              },
+                            })}
+                          />
                         </label>
 
                         {isBouquet && (
@@ -2328,7 +2400,7 @@ export default function BookingForm() {
 
               {!shouldUseShippingEngine && (
                 <p className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
-                  Metode ini tidak memakai kalkulasi ongkir live JNE/Paxel/J&T.
+                  Metode ini tidak memakai kalkulasi ongkir live.
                 </p>
               )}
 
@@ -2347,9 +2419,9 @@ export default function BookingForm() {
                 </p>
               )}
 
-              {shippingQuotes.length > 0 && (
+              {filteredShippingQuotes.length > 0 && (
                 <div className="space-y-2">
-                  {shippingQuotes.map((quote) => {
+                  {filteredShippingQuotes.map((quote) => {
                     const active = quote.id === selectedShippingQuoteId;
                     return (
                       <button
@@ -2380,7 +2452,7 @@ export default function BookingForm() {
                 </div>
               )}
 
-              {!shippingQuotes.length && !shippingPayload && (
+              {!filteredShippingQuotes.length && !shippingPayload && (
                 <p className="text-xs text-gray-500">
                   {shouldUseShippingEngine
                     ? "Lengkapi alamat penerima dan item order untuk kalkulasi ongkir otomatis."
@@ -2388,7 +2460,7 @@ export default function BookingForm() {
                 </p>
               )}
 
-              {!shippingQuotes.length &&
+              {!filteredShippingQuotes.length &&
                 shippingPayload &&
                 !isCheckingShipping && (
                   <p className="text-xs text-gray-500">
@@ -2455,7 +2527,6 @@ export default function BookingForm() {
                   isCapacityValidating ||
                   isCheckingShipping ||
                   isBlockedDate ||
-                  isSlotFull ||
                   isCalendarDateInvalid ||
                   dbWillExceed
                 }

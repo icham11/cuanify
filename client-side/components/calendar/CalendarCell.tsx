@@ -1,6 +1,9 @@
 "use client";
 
-import { type CalendarStatus, getCalendarStatusUI } from "@/lib/calendar/getCalendarStatus";
+import {
+  type CalendarStatus,
+  getCalendarStatusUI,
+} from "@/lib/calendar/getCalendarStatus";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -31,6 +34,7 @@ function getBarColor(ratio: number): string {
 
 function getTokenTextColor(status: CalendarStatus): string {
   if (status === "PAST") return "text-gray-400";
+  if (status === "BLOCKED") return "text-rose-500";
   if (status === "FULL") return "text-red-600";
   if (status === "WARNING") return "text-amber-700";
   if (status === "CUTOFF") return "text-rose-500";
@@ -99,13 +103,15 @@ export default function CalendarCell({
           className={`inline-block w-fit rounded-sm px-1 py-px text-[9px] font-bold leading-tight ${
             status === "PAST"
               ? "bg-gray-200 text-gray-600"
-              : status === "FULL"
-                ? "bg-red-500 text-white"
-                : status === "CUTOFF"
-                  ? "bg-rose-200 text-rose-700"
-                  : status === "WARNING"
-                    ? "bg-amber-200 text-amber-800"
-                    : ""
+              : status === "BLOCKED"
+                ? "bg-rose-200 text-rose-700"
+                : status === "FULL"
+                  ? "bg-red-500 text-white"
+                  : status === "CUTOFF"
+                    ? "bg-rose-200 text-rose-700"
+                    : status === "WARNING"
+                      ? "bg-amber-200 text-amber-800"
+                      : ""
           }`}
         >
           {ui.label}

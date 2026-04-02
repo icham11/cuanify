@@ -13,12 +13,15 @@ export interface OrderItemForTokenCalc {
   difficulty?: string;
   tokenDifficulty?: string;
   quantity?: number;
+  customTokenPerUnit?: number;
 }
 
 const COOKIE_DIFFICULTY_TOKEN_MAP: Record<string, number> = {
   simple: 1,
+  medium: 2,
   normal: 2,
   hard: 3,
+  difficult: 3,
   advanced: 4,
   expert: 5,
 };
@@ -31,6 +34,10 @@ const BOUQUET_TOKEN_MAP: Record<string, number> = {
 function calculateItemToken(item: OrderItemForTokenCalc): number {
   const category = (item.category || "").toLowerCase().trim();
   const qty = Math.min(1000, Math.max(1, Number(item.quantity) || 1));
+  const customToken = Number(item.customTokenPerUnit || 0);
+  if (Number.isFinite(customToken) && customToken > 0) {
+    return Math.round(customToken) * qty;
+  }
 
   if (category.includes("cookies tower") || category.includes("cookie tower")) {
     return 100;

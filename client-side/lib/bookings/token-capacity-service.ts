@@ -20,6 +20,7 @@
 
 import prisma from "@/lib/prisma";
 import { normalizeDateOrThrow } from "@/lib/helpers/date-normalization";
+import { BAKERY_DAILY_PRODUCTION_TOKEN_LIMIT } from "@/lib/bookings/config";
 import {
   calculateOrderTokenFromItems,
   type OrderItemForTokenCalc,
@@ -30,12 +31,15 @@ interface SqlExecutor {
     query: TemplateStringsArray,
     ...values: unknown[]
   ): Promise<T>;
-  $executeRaw(query: TemplateStringsArray, ...values: unknown[]): Promise<number>;
+  $executeRaw(
+    query: TemplateStringsArray,
+    ...values: unknown[]
+  ): Promise<number>;
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-export const DEFAULT_MAX_TOKEN = 600;
+export const DEFAULT_MAX_TOKEN = BAKERY_DAILY_PRODUCTION_TOKEN_LIMIT;
 
 export type Difficulty = "simple" | "medium" | "difficult";
 
@@ -178,7 +182,11 @@ export async function checkTokenAvailability(
   if (tokenNeeded <= 0) return true;
 
   const normalizedDate = normalizeCapacityDateOrThrow(date);
-  const capacity = await getCapacityForDate(businessId, normalizedDate, dbClient);
+  const capacity = await getCapacityForDate(
+    businessId,
+    normalizedDate,
+    dbClient,
+  );
   return capacity.usedToken + tokenNeeded <= capacity.maxToken;
 }
 
@@ -206,7 +214,11 @@ export async function consumeToken(
   const normalizedDate = normalizeCapacityDateOrThrow(date);
 
   if (tokenUsed <= 0) {
-    const capacity = await getCapacityForDate(businessId, normalizedDate, dbClient);
+    const capacity = await getCapacityForDate(
+      businessId,
+      normalizedDate,
+      dbClient,
+    );
     return {
       success: true,
       usedToken: capacity.usedToken,
@@ -325,7 +337,11 @@ export async function releaseToken(
   const normalizedDate = normalizeCapacityDateOrThrow(date);
 
   if (tokenToRelease <= 0) {
-    const capacity = await getCapacityForDate(businessId, normalizedDate, dbClient);
+    const capacity = await getCapacityForDate(
+      businessId,
+      normalizedDate,
+      dbClient,
+    );
     return {
       success: true,
       usedToken: capacity.usedToken,

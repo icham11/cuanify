@@ -21,17 +21,24 @@ type Highlight = {
   tone: "warning" | "danger" | "info";
 };
 
-type TokenDifficulty = "SIMPLE" | "MEDIUM" | "DIFFICULT";
+type TokenDifficulty =
+  | "SIMPLE"
+  | "NORMAL"
+  | "HARD"
+  | "ADVANCED"
+  | "EXPERT"
+  | "MEDIUM"
+  | "DIFFICULT";
 
 function resolveItemDifficulty(
   item: BakeryOrder["items"][number],
 ): TokenDifficulty {
   if (item.tokenDifficulty) return item.tokenDifficulty;
   if (item.category === "Cake" || item.category === "Cookies Tower") {
-    return "DIFFICULT";
+    return "HARD";
   }
   if (item.category === "Buket" || item.category === "Cupcakes") {
-    return "MEDIUM";
+    return "NORMAL";
   }
   return "SIMPLE";
 }
@@ -41,16 +48,30 @@ function getDifficultyMeta(value: TokenDifficulty): {
   token: number;
   className: string;
 } {
-  if (value === "DIFFICULT") {
+  if (value === "EXPERT") {
     return {
-      label: "Difficult",
+      label: "Expert",
+      token: 5,
+      className: "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700",
+    };
+  }
+  if (value === "ADVANCED") {
+    return {
+      label: "Advanced",
+      token: 4,
+      className: "border-purple-200 bg-purple-50 text-purple-700",
+    };
+  }
+  if (value === "HARD" || value === "DIFFICULT") {
+    return {
+      label: "Hard",
       token: 3,
       className: "border-rose-200 bg-rose-50 text-rose-700",
     };
   }
-  if (value === "MEDIUM") {
+  if (value === "NORMAL" || value === "MEDIUM") {
     return {
-      label: "Medium",
+      label: "Normal",
       token: 2,
       className: "border-amber-200 bg-amber-50 text-amber-700",
     };
