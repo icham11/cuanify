@@ -45,8 +45,8 @@ import {
 
 describe("Token Capacity Service — Unit Tests", () => {
   describe("Constants", () => {
-    it("DEFAULT_MAX_TOKEN should be 600", () => {
-      expect(DEFAULT_MAX_TOKEN).toBe(600);
+    it("DEFAULT_MAX_TOKEN should be 500", () => {
+      expect(DEFAULT_MAX_TOKEN).toBe(500);
     });
 
     it("TOKEN_MAP should map difficulties correctly", () => {

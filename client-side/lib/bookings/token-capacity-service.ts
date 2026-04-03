@@ -2,7 +2,7 @@
  * Token Capacity Service
  *
  * Database-backed production capacity system using tokens.
- * Each day has a maxToken (default 600). Each order consumes tokens
+ * Each day has a maxToken (default 500). Each order consumes tokens
  * based on difficulty: simple=1, medium=2, difficult=3.
  *
  * Uses atomic SQL operations to prevent race conditions / double booking.
@@ -11,7 +11,7 @@
  *   - id BIGSERIAL PRIMARY KEY
  *   - business_id INTEGER NOT NULL
  *   - date DATE NOT NULL
- *   - max_token INTEGER NOT NULL DEFAULT 600
+ *   - max_token INTEGER NOT NULL DEFAULT 500
  *   - used_token INTEGER NOT NULL DEFAULT 0
  *   - created_at TIMESTAMPTZ
  *   - updated_at TIMESTAMPTZ

@@ -51,9 +51,11 @@ function base64UrlEncode(value: Buffer | string): string {
 }
 
 function getDeliverySummary(order: BookingAutomationOrderPayload): string {
-  const address =
-    order.deliveryAddresses[0]?.addressLine || "Alamat belum diisi";
-  return `${order.deliveryDate} ${order.deliverySlot} | ${address}`;
+  return `${order.deliveryDate} ${order.deliverySlot}`;
+}
+
+function getPrimaryAddress(order: BookingAutomationOrderPayload): string {
+  return order.deliveryAddresses[0]?.addressLine || "Alamat belum diisi";
 }
 
 function getItemsSummary(order: BookingAutomationOrderPayload): string {
@@ -62,28 +64,64 @@ function getItemsSummary(order: BookingAutomationOrderPayload): string {
     .join(", ");
 }
 
+function sanitizeProductionNotes(notes?: string): string {
+  const text = (notes || "").trim();
+  if (!text) return "-";
+
+  const redundantPatterns = [
+    /delivery\s*method/i,
+    /metode\s*pengiriman/i,
+    /alamat/i,
+    /delivery\s*date/i,
+    /delivery\s*slot/i,
+    /jam\s*pengiriman/i,
+    /nama\s*penerima/i,
+    /recipient/i,
+    /no\.?\s*telp/i,
+    /phone/i,
+  ];
+
+  const uniqueLines = Array.from(
+    new Set(
+      text
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .filter(
+          (line) => !redundantPatterns.some((pattern) => pattern.test(line)),
+        ),
+    ),
+  );
+
+  if (!uniqueLines.length) return "-";
+  return uniqueLines.join(" | ").slice(0, 300);
+}
+
 function buildCustomerMessage(order: BookingAutomationOrderPayload): string {
   const code = order.resi || order.bookingCode || order.id;
   return [
-    `Halo ${order.customerName}, pesanan Anda sudah *Confirmed* ✅`,
+    `Halo ${order.customerName}, pesanan Anda sudah *Masuk Produksi* ✅`,
     `Kode Booking: *${code}*`,
     `Item: ${getItemsSummary(order)}`,
     `Total: ${formatCurrency(order.totalPrice)}`,
     `Pengiriman: ${getDeliverySummary(order)}`,
+    `Alamat: ${getPrimaryAddress(order)}`,
     "Terima kasih sudah order di Cuanify Bakery.",
   ].join("\n");
 }
 
 function buildProductionMessage(order: BookingAutomationOrderPayload): string {
   const code = order.resi || order.bookingCode || order.id;
+  const notesSummary = sanitizeProductionNotes(order.notes);
   return [
     "*ORDER BARU MASUK - PRODUKSI*",
     `Kode Booking: *${code}*`,
     `Customer: ${order.customerName}`,
     `Kontak: ${order.customerPhone || "-"}`,
     `Item: ${getItemsSummary(order)}`,
-    `Catatan: ${order.notes || "-"}`,
     `Jadwal Kirim: ${getDeliverySummary(order)}`,
+    `Alamat: ${getPrimaryAddress(order)}`,
+    `Catatan: ${notesSummary}`,
   ].join("\n");
 }
 

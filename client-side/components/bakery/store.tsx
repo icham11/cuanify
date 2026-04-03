@@ -240,6 +240,28 @@ function paymentStatusLabel(status: PaymentStatus): string {
   return "Belum Bayar";
 }
 
+function inferDeliveryMethodFromNotes(notes?: string): string | undefined {
+  const match = notes?.match(/delivery\s*method\s*:\s*([^\n]+)/i);
+  const raw = (match?.[1] || "").trim().toLowerCase();
+  if (!raw) return undefined;
+
+  if (raw.includes("pickup")) return "PICKUP";
+  if (raw.includes("customer")) return "CUSTOMER_APP_COURIER";
+  if (raw.includes("gosend") || raw.includes("go send")) {
+    return "ASSISTED_GOSEND";
+  }
+  if (raw.includes("gocar") || raw.includes("go car")) {
+    return "ASSISTED_GOCAR";
+  }
+  if (raw.includes("grab")) return "ASSISTED_GRAB";
+  if (raw.includes("paxel")) return "ASSISTED_PAXEL";
+  if (raw.includes("jne") || raw.includes("j&t") || raw.includes("jnt")) {
+    return "REGULAR_JNE_JNT";
+  }
+
+  return undefined;
+}
+
 function toBookingDatePart(deliveryDate: string): string {
   const normalizedDate = normalizeDateInput(deliveryDate);
   if (!normalizedDate) {
@@ -883,7 +905,18 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
 
   const addOrder = useCallback(
     async (order: NewOrderInput) => {
-      if (!isWithinBusinessHours(order.deliveryDate, order.deliverySlot)) {
+      const deliveryMethod = inferDeliveryMethodFromNotes(order.notes);
+      if (
+        !isWithinBusinessHours(
+          order.deliveryDate,
+          order.deliverySlot,
+          undefined,
+          {
+            deliveryMethod,
+            items: order.items,
+          },
+        )
+      ) {
         throw new Error(
           "Selected slot is outside business hours (Mon-Sat 10:00-22:00, Sun 10:00-15:00).",
         );
@@ -1174,7 +1207,14 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
 
   const updateOrderSchedule = useCallback(
     (id: string, deliveryDate: string, deliverySlot: string) => {
-      if (!isWithinBusinessHours(deliveryDate, deliverySlot)) {
+      const targetOrder = orders.find((order) => order.id === id);
+      const deliveryMethod = inferDeliveryMethodFromNotes(targetOrder?.notes);
+      if (
+        !isWithinBusinessHours(deliveryDate, deliverySlot, undefined, {
+          deliveryMethod,
+          items: targetOrder?.items ?? [],
+        })
+      ) {
         toast.error(
           "Selected slot is outside business hours (Mon-Sat 10:00-22:00, Sun 10:00-15:00).",
         );

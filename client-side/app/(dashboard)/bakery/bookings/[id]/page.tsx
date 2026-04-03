@@ -25,9 +25,9 @@ import {
   countConcurrentOrdersForSlot,
   getDeliverySlotsForDate,
   getSlotLimitByItems,
+  isDateBlockedForOrdering,
 } from "@/lib/bookings/operations";
 import {
-  BAKERY_BLOCKED_DATES,
   BAKERY_DOWN_PAYMENT_PERCENT,
   calculateDownPayment,
 } from "@/lib/bookings/config";
@@ -96,6 +96,28 @@ function getDifficultyMeta(value: TokenDifficulty): {
   };
 }
 
+function inferDeliveryMethodFromNotes(notes?: string): string | undefined {
+  const match = notes?.match(/delivery\s*method\s*:\s*([^\n]+)/i);
+  const raw = (match?.[1] || "").trim().toLowerCase();
+  if (!raw) return undefined;
+
+  if (raw.includes("pickup")) return "PICKUP";
+  if (raw.includes("customer")) return "CUSTOMER_APP_COURIER";
+  if (raw.includes("gosend") || raw.includes("go send")) {
+    return "ASSISTED_GOSEND";
+  }
+  if (raw.includes("gocar") || raw.includes("go car")) {
+    return "ASSISTED_GOCAR";
+  }
+  if (raw.includes("grab")) return "ASSISTED_GRAB";
+  if (raw.includes("paxel")) return "ASSISTED_PAXEL";
+  if (raw.includes("jne") || raw.includes("j&t") || raw.includes("jnt")) {
+    return "REGULAR_JNE_JNT";
+  }
+
+  return undefined;
+}
+
 export default function OrderDetailPage() {
   const {
     orders,
@@ -138,13 +160,21 @@ export default function OrderDetailPage() {
 
   const effectiveDate = rescheduleDate || order?.deliveryDate || "";
   const effectiveSlot = rescheduleSlot || order?.deliverySlot || "10:00";
+  const deliveryMethod = useMemo(
+    () => inferDeliveryMethodFromNotes(order?.notes),
+    [order?.notes],
+  );
   const slotLimitPerHour = useMemo(
     () => getSlotLimitByItems(order?.items ?? []),
     [order?.items],
   );
   const deliverySlots = useMemo(
-    () => getDeliverySlotsForDate(effectiveDate),
-    [effectiveDate],
+    () =>
+      getDeliverySlotsForDate(effectiveDate, undefined, {
+        deliveryMethod,
+        items: order?.items ?? [],
+      }),
+    [effectiveDate, deliveryMethod, order?.items],
   );
 
   useEffect(() => {
@@ -171,7 +201,11 @@ export default function OrderDetailPage() {
   }, [orders, order, orderId, effectiveDate, effectiveSlot]);
 
   const isBlockedDate = Boolean(
-    effectiveDate && BAKERY_BLOCKED_DATES.includes(effectiveDate),
+    effectiveDate &&
+    isDateBlockedForOrdering(effectiveDate, undefined, {
+      deliveryMethod,
+      items: order?.items ?? [],
+    }),
   );
   const isSlotFull = slotUsage >= slotLimitPerHour;
 

@@ -238,95 +238,6 @@ interface CapacitySingleDateResponse {
   };
 }
 
-function dedupeStrings(values: string[]): string[] {
-  return Array.from(new Set(values.filter((value) => value.trim().length > 0)));
-}
-
-function splitIntoChunks<T>(items: T[], chunkSize: number): T[][] {
-  if (!items.length) return [];
-  if (chunkSize <= 0) return [items];
-
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += chunkSize) {
-    chunks.push(items.slice(index, index + chunkSize));
-  }
-  return chunks;
-}
-
-function isPayloadTooLargeError(error: unknown): boolean {
-  if (error instanceof ParseWhatsAppApiError && error.status === 413) {
-    return true;
-  }
-
-  const message =
-    error instanceof Error
-      ? error.message
-      : typeof error === "string"
-        ? error
-        : "";
-  const normalized = message.toLowerCase();
-  return (
-    normalized.includes("413") ||
-    normalized.includes("payload") ||
-    normalized.includes("request entity too large") ||
-    normalized.includes("content too large")
-  );
-}
-
-function readImageElement(objectUrl: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error("Gagal membaca file gambar."));
-    image.src = objectUrl;
-  });
-}
-
-async function compressImageForParse(file: File): Promise<File> {
-  if (!file.type.startsWith("image/")) return file;
-  // Keep small files untouched to avoid unnecessary quality loss.
-  if (file.size <= 2_500_000) return file;
-
-  const objectUrl = URL.createObjectURL(file);
-  try {
-    const image = await readImageElement(objectUrl);
-    const naturalWidth = image.naturalWidth || image.width;
-    const naturalHeight = image.naturalHeight || image.height;
-    if (!naturalWidth || !naturalHeight) return file;
-
-    const maxEdge = 1600;
-    const scale = Math.min(1, maxEdge / Math.max(naturalWidth, naturalHeight));
-    const outputWidth = Math.max(1, Math.round(naturalWidth * scale));
-    const outputHeight = Math.max(1, Math.round(naturalHeight * scale));
-
-    const canvas = document.createElement("canvas");
-    canvas.width = outputWidth;
-    canvas.height = outputHeight;
-
-    const context = canvas.getContext("2d");
-    if (!context) return file;
-
-    context.drawImage(image, 0, 0, outputWidth, outputHeight);
-    const compressedBlob = await new Promise<Blob | null>((resolve) => {
-      canvas.toBlob(resolve, "image/jpeg", 0.82);
-    });
-
-    if (!compressedBlob || compressedBlob.size >= file.size) {
-      return file;
-    }
-
-    const baseName = file.name.replace(/\.[^.]+$/, "");
-    return new File([compressedBlob], `${baseName}.jpg`, {
-      type: "image/jpeg",
-      lastModified: file.lastModified,
-    });
-  } catch {
-    return file;
-  } finally {
-    URL.revokeObjectURL(objectUrl);
-  }
-}
-
 const whatsappOrderTypeOptions: Array<{
   value: ParserOrderType;
   label: string;
@@ -1087,8 +998,12 @@ export default function BookingForm() {
   const effectivePaymentStatus = remainingBalance <= 0 ? "Paid" : "DP Paid";
 
   const deliverySlots = useMemo(
-    () => getDeliverySlotsForDate(deliveryDate),
-    [deliveryDate],
+    () =>
+      getDeliverySlotsForDate(deliveryDate, undefined, {
+        deliveryMethod,
+        items: watchedItems,
+      }),
+    [deliveryDate, deliveryMethod, watchedItems],
   );
   const draftOrderType = useMemo<SlotOrderType>(
     () => inferOrderTypeFromItems(watchedItems),
@@ -1103,7 +1018,11 @@ export default function BookingForm() {
     [draftOrderType],
   );
   const isBlockedDate = Boolean(
-    deliveryDate && isDateBlockedForOrdering(deliveryDate),
+    deliveryDate &&
+    isDateBlockedForOrdering(deliveryDate, undefined, {
+      deliveryMethod,
+      items: watchedItems,
+    }),
   );
 
   useEffect(() => {
@@ -1126,6 +1045,10 @@ export default function BookingForm() {
       });
       const status = checkSlotAvailability(deliveryDate, slot, draftOrderType, {
         orders,
+        dateContext: {
+          deliveryMethod,
+          items: watchedItems,
+        },
       });
       return {
         slot,
@@ -1133,7 +1056,14 @@ export default function BookingForm() {
         status,
       };
     });
-  }, [orders, deliveryDate, deliverySlots, draftOrderType]);
+  }, [
+    orders,
+    deliveryDate,
+    deliverySlots,
+    draftOrderType,
+    deliveryMethod,
+    watchedItems,
+  ]);
 
   const slotStatusByTime = useMemo(() => {
     return new Map(slotAvailability.map((entry) => [entry.slot, entry.status]));
@@ -1149,7 +1079,7 @@ export default function BookingForm() {
   // ── DB-backed capacity for the selected delivery date ────────────────────────
   const dbCapacity = useMemo(() => {
     if (!normalizedDeliveryDate) {
-      return { usedToken: 0, maxToken: 600 };
+      return { usedToken: 0, maxToken: DAILY_PRODUCTION_TOKEN_LIMIT };
     }
     const entry = getCalendarCapacity(normalizedDeliveryDate);
     return {
@@ -1202,15 +1132,17 @@ export default function BookingForm() {
           continue;
         }
 
-        // Skip blocked dates
-        if (!BAKERY_BLOCKED_DATES.includes(dateKey)) {
-          // Skip past and cutoff
-          if (!isDateBlockedForOrdering(dateKey, now)) {
-            const cap = getRecommendationCapacity(dateKey);
-            const remaining = cap.maxToken - cap.usedToken;
-            if (remaining >= newTokenPreview) {
-              suggestions.push({ dateKey, remaining });
-            }
+        // Skip past, blocked dates, and cutoff
+        if (
+          !isDateBlockedForOrdering(dateKey, now, {
+            deliveryMethod,
+            items: watchedItems,
+          })
+        ) {
+          const cap = getRecommendationCapacity(dateKey);
+          const remaining = cap.maxToken - cap.usedToken;
+          if (remaining >= newTokenPreview) {
+            suggestions.push({ dateKey, remaining });
           }
         }
       }
@@ -1232,6 +1164,8 @@ export default function BookingForm() {
     recommendationWindowStart,
     recommendationWindowEnd,
     getRecommendationCapacity,
+    deliveryMethod,
+    watchedItems,
   ]);
 
   const handleSuggestionClick = (dateKey: string) => {
@@ -1422,7 +1356,17 @@ export default function BookingForm() {
       return;
     }
 
-    if (!isWithinBusinessHours(normalizedDeliveryDate, values.deliverySlot)) {
+    if (
+      !isWithinBusinessHours(
+        normalizedDeliveryDate,
+        values.deliverySlot,
+        undefined,
+        {
+          deliveryMethod: values.deliveryMethod,
+          items: values.items,
+        },
+      )
+    ) {
       toast.error(
         "Selected slot is outside business hours (Mon-Sat 10:00-22:00, Sun 10:00-15:00).",
       );
@@ -1455,7 +1399,7 @@ export default function BookingForm() {
 
       const status = getCalendarStatus({
         usedToken: Number(payload.data.usedToken) || 0,
-        maxToken: Number(payload.data.maxToken) || 600,
+        maxToken: Number(payload.data.maxToken) || DAILY_PRODUCTION_TOKEN_LIMIT,
         date: normalizedDeliveryDate,
       });
 
@@ -1705,127 +1649,6 @@ export default function BookingForm() {
     return payload as ParseWhatsAppApiResponse;
   };
 
-  const parseImageWithFallback = async (args: {
-    orderType: ParserOrderType;
-    files: File[];
-    extraText: string;
-  }): Promise<ParseWhatsAppApiResponse> => {
-    const sourceFiles = args.files;
-    const textInput = args.extraText.trim();
-
-    try {
-      return await callWhatsAppParser({
-        sourceType: "image",
-        orderType: args.orderType,
-        text: textInput,
-        files: sourceFiles,
-      });
-    } catch (error) {
-      if (!isPayloadTooLargeError(error) || sourceFiles.length === 0) {
-        throw error;
-      }
-    }
-
-    let chunkSize = Math.min(3, sourceFiles.length);
-    const visionBlocks: string[] = [];
-    const warnings: string[] = [];
-    const uploadedImageUrls: string[] = [];
-
-    while (true) {
-      try {
-        const chunkOutputs = await Promise.all(
-          splitIntoChunks(sourceFiles, chunkSize).map((chunkFiles) =>
-            callWhatsAppParser({
-              sourceType: "image",
-              orderType: args.orderType,
-              files: chunkFiles,
-            }),
-          ),
-        );
-
-        chunkOutputs.forEach((chunk) => {
-          if (chunk.visionRawOutput?.trim()) {
-            visionBlocks.push(chunk.visionRawOutput.trim());
-          }
-          if (chunk.warnings?.length) {
-            warnings.push(...chunk.warnings);
-          }
-          if (chunk.parsed.uploadedImageUrls?.length) {
-            uploadedImageUrls.push(...chunk.parsed.uploadedImageUrls);
-          }
-        });
-        break;
-      } catch (error) {
-        if (!isPayloadTooLargeError(error)) throw error;
-
-        if (chunkSize <= 1) {
-          const compressedFiles = await Promise.all(
-            sourceFiles.map((file) => compressImageForParse(file)),
-          );
-
-          const compressedResult = await Promise.all(
-            compressedFiles.map((file) =>
-              callWhatsAppParser({
-                sourceType: "image",
-                orderType: args.orderType,
-                files: [file],
-              }),
-            ),
-          );
-
-          compressedResult.forEach((chunk) => {
-            if (chunk.visionRawOutput?.trim()) {
-              visionBlocks.push(chunk.visionRawOutput.trim());
-            }
-            if (chunk.warnings?.length) {
-              warnings.push(...chunk.warnings);
-            }
-            if (chunk.parsed.uploadedImageUrls?.length) {
-              uploadedImageUrls.push(...chunk.parsed.uploadedImageUrls);
-            }
-          });
-          break;
-        }
-
-        chunkSize = Math.max(1, Math.floor(chunkSize / 2));
-      }
-    }
-
-    const mergedVisionRawOutput = [...visionBlocks, textInput]
-      .map((entry) => entry.trim())
-      .filter(Boolean)
-      .join("\n\n");
-
-    if (!mergedVisionRawOutput) {
-      throw new Error(
-        "Parser belum menghasilkan teks dari gambar. Coba pilih gambar yang lebih jelas.",
-      );
-    }
-
-    const finalPayload = await callWhatsAppParser({
-      sourceType: "text",
-      orderType: args.orderType,
-      text: mergedVisionRawOutput,
-    });
-
-    const mergedImageUrls = dedupeStrings([
-      ...(finalPayload.parsed.uploadedImageUrls ?? []),
-      ...uploadedImageUrls,
-    ]);
-
-    return {
-      ...finalPayload,
-      warnings: dedupeStrings([...(finalPayload.warnings ?? []), ...warnings]),
-      visionRawOutput: mergedVisionRawOutput,
-      parsed: {
-        ...finalPayload.parsed,
-        sourceType: "image",
-        imageUrl: finalPayload.parsed.imageUrl || mergedImageUrls[0],
-        uploadedImageUrls: mergedImageUrls,
-      },
-    };
-  };
-
   const importDraft = async (override?: {
     sourceType?: ParserSource;
     text?: string;
@@ -1840,9 +1663,7 @@ export default function BookingForm() {
     const inferredSourceType: ParserSource = override?.sourceType
       ? override.sourceType
       : selectedSourceMode === "auto"
-        ? sourceFiles.length > 0
-          ? "image"
-          : "text"
+        ? "text"
         : selectedSourceMode;
     const sourceType: ParserSource =
       inferredSourceType === "image" && sourceFiles.length === 0
@@ -1850,7 +1671,9 @@ export default function BookingForm() {
         : inferredSourceType;
 
     if (!textInput && sourceFiles.length === 0) {
-      toast.error("Paste chat WhatsApp atau upload gambar chat terlebih dulu.");
+      toast.error(
+        "Paste chat WhatsApp atau isi template manual terlebih dulu.",
+      );
       return;
     }
 
@@ -1861,28 +1684,21 @@ export default function BookingForm() {
       return;
     }
 
-    if (sourceType === "image" && sourceFiles.length === 0 && !textInput) {
+    if (sourceType === "image") {
       toast.error(
-        "Upload gambar chat WA atau isi teks tambahan terlebih dulu.",
+        "Parsing gambar AI dinonaktifkan. Gunakan copy-paste teks atau template manual.",
       );
       return;
     }
 
     setIsParsingWhatsApp(true);
     try {
-      const payload =
-        sourceType === "image" && sourceFiles.length > 0
-          ? await parseImageWithFallback({
-              orderType: selectedOrderType,
-              files: sourceFiles,
-              extraText: textInput,
-            })
-          : await callWhatsAppParser({
-              sourceType,
-              orderType: selectedOrderType,
-              text: textInput,
-              files: sourceFiles,
-            });
+      const payload = await callWhatsAppParser({
+        sourceType,
+        orderType: selectedOrderType,
+        text: textInput,
+        files: [],
+      });
 
       const draft = payload.autoFill;
       if (draft.customerName) setValue("customerName", draft.customerName);
@@ -2042,9 +1858,7 @@ export default function BookingForm() {
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
       <Card className="rounded-xl border-indigo-100 shadow-sm">
         <CardHeader className="p-6 pb-2">
-          <CardTitle>
-            WhatsApp & Email Parser (Image / Paste / Manual)
-          </CardTitle>
+          <CardTitle>WhatsApp & Email Parser (Paste / Manual)</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4 px-6 pb-6 pt-0">
           <div className="grid gap-3 sm:grid-cols-2">
@@ -2056,10 +1870,9 @@ export default function BookingForm() {
                   setParserSource(event.target.value as ParserSourceMode)
                 }
               >
-                <option value="auto">Auto Detect (Text / Image)</option>
+                <option value="auto">Auto Detect (Text)</option>
                 <option value="text">Copy Paste Chat WhatsApp</option>
                 <option value="manual">Manual Input (Template)</option>
-                <option value="image">Gambar Chat WhatsApp</option>
                 <option value="email">Paste Email E-commerce</option>
               </Select>
             </label>
@@ -2080,7 +1893,7 @@ export default function BookingForm() {
             </label>
           </div>
 
-          {(parserSource === "image" || parserSource === "auto") && (
+          {parserSource === "image" && (
             <label className="grid gap-2 text-sm font-medium text-gray-700">
               Upload Gambar Chat WA
               <input
@@ -2110,7 +1923,7 @@ export default function BookingForm() {
                 parserSource === "manual"
                   ? "Klik tombol 'Isi Template Manual' lalu lengkapi field-nya."
                   : parserSource === "auto"
-                    ? "Paste chat WA di sini atau upload gambar di atas. Sistem akan auto-detect source parser."
+                    ? "Paste chat WA di sini. Sistem akan auto-detect format teks parser."
                     : "Paste chat WA customer di sini untuk auto-parse."
               }
               className="min-h-28"

@@ -35,7 +35,7 @@ interface UseCalendarCapacityReturn {
   refetch: () => void;
   /**
    * Get capacity for a specific date.
-   * Returns default values (usedToken=0, maxToken=600) if no data exists.
+   * Returns default values (usedToken=0, maxToken=DEFAULT_MAX_TOKEN) if no data exists.
    */
   getCapacity: (dateKey: string) => CapacityEntry;
 }
@@ -99,7 +99,9 @@ export function useCalendarCapacity(
       );
 
       if (!response.ok) {
-        const payload = (await response.json().catch(() => ({}))) as CapacityApiResponse;
+        const payload = (await response
+          .json()
+          .catch(() => ({}))) as CapacityApiResponse;
         throw new Error(payload.error || `HTTP ${response.status}`);
       }
 
@@ -121,7 +123,8 @@ export function useCalendarCapacity(
 
       setCapacityMap(newMap);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to load capacity data";
+      const message =
+        err instanceof Error ? err.message : "Failed to load capacity data";
       setError(message);
       console.error("[useCalendarCapacity] Fetch error:", message);
     } finally {

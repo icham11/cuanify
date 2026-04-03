@@ -35,6 +35,11 @@ export interface BookingOrderForOperations {
   items: BookingItemForOperations[];
 }
 
+export interface DateBlockingContext {
+  deliveryMethod?: string;
+  items?: BookingItemForOperations[];
+}
+
 export type SlotOrderType = "CUSTOM" | "SEASONAL";
 export type SlotAvailabilityStatus = "AVAILABLE" | "ALMOST_FULL" | "FULL";
 
@@ -224,6 +229,20 @@ function parseLocalDateOnly(value: string): Date | null {
   return parseSafeDate(value);
 }
 
+function isCookiesPickupHolidayException(
+  context?: DateBlockingContext,
+): boolean {
+  if (!context) return false;
+
+  const deliveryMethod = (context.deliveryMethod || "").toUpperCase();
+  if (deliveryMethod !== "PICKUP") return false;
+
+  const items = context.items ?? [];
+  if (!items.length) return false;
+
+  return items.every((item) => item.category === "Cookies");
+}
+
 export function isNextDayCutoffBlocked(
   deliveryDate: string,
   now: Date = new Date(),
@@ -243,18 +262,23 @@ export function isNextDayCutoffBlocked(
 export function isDateBlockedForOrdering(
   deliveryDate: string,
   now: Date = new Date(),
+  context?: DateBlockingContext,
 ): boolean {
   const normalized = normalizeDateInput(deliveryDate);
   if (!normalized) return true;
-  if (BAKERY_BLOCKED_DATES.includes(normalized)) return true;
+  if (BAKERY_BLOCKED_DATES.includes(normalized)) {
+    if (isCookiesPickupHolidayException(context)) return false;
+    return true;
+  }
   return isNextDayCutoffBlocked(normalized, now);
 }
 
 export function getDeliverySlotsForDate(
   deliveryDate: string,
   now: Date = new Date(),
+  context?: DateBlockingContext,
 ): string[] {
-  if (isDateBlockedForOrdering(deliveryDate, now)) {
+  if (isDateBlockedForOrdering(deliveryDate, now, context)) {
     return [];
   }
 
@@ -274,11 +298,14 @@ export function isWithinBusinessHours(
   deliveryDate: string,
   deliverySlot: string,
   now: Date = new Date(),
+  context?: DateBlockingContext,
 ): boolean {
   if (!deliveryDate || !deliverySlot) return false;
-  if (isDateBlockedForOrdering(deliveryDate, now)) return false;
+  if (isDateBlockedForOrdering(deliveryDate, now, context)) return false;
   if (!/^\d{2}:\d{2}$/.test(deliverySlot)) return false;
-  return getDeliverySlotsForDate(deliveryDate, now).includes(deliverySlot);
+  return getDeliverySlotsForDate(deliveryDate, now, context).includes(
+    deliverySlot,
+  );
 }
 
 function isActiveOrder(orderStatus: string | undefined): boolean {
@@ -652,9 +679,12 @@ export function checkSlotAvailability(
   options?: {
     orders?: BookingOrderForOperations[];
     excludeOrderId?: string;
+    dateContext?: DateBlockingContext;
   },
 ): SlotAvailabilityStatus {
-  if (!isWithinBusinessHours(date, time)) return "FULL";
+  if (!isWithinBusinessHours(date, time, new Date(), options?.dateContext)) {
+    return "FULL";
+  }
 
   const orders = options?.orders ?? [];
   const currentCount = countConcurrentOrdersByTypeForSlot({

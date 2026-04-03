@@ -207,11 +207,25 @@ export async function POST(request: NextRequest) {
       textInput = getStringValue(body.text);
     }
 
-    if (sourceType === "image" && files.length === 0 && !textInput.trim()) {
-      return NextResponse.json(
-        { error: "Image mode requires at least an image file or text input." },
-        { status: 400 },
+    const parserWarnings: string[] = [];
+    const requestedSourceType = sourceType;
+
+    if (requestedSourceType === "image") {
+      if (!textInput.trim()) {
+        return NextResponse.json(
+          {
+            error:
+              "Parsing gambar AI dinonaktifkan sementara. Gunakan copy-paste teks chat atau template manual.",
+          },
+          { status: 400 },
+        );
+      }
+
+      parserWarnings.push(
+        "Parsing gambar AI dinonaktifkan sementara. Sistem memproses teks manual yang Anda kirim.",
       );
+      sourceType = "manual";
+      files = [];
     }
 
     if (
@@ -287,6 +301,13 @@ export async function POST(request: NextRequest) {
     };
 
     const autoFill = buildBookingAutoFillFromParsed(parsedWithImage);
+    const responseWarnings = [...parserWarnings];
+
+    if (parsedWithImage.missingFields.length > 0) {
+      responseWarnings.push(
+        `Parser mendeteksi field yang belum lengkap: ${parsedWithImage.missingFields.join(", ")}`,
+      );
+    }
 
     return NextResponse.json({
       success: true,
@@ -297,12 +318,7 @@ export async function POST(request: NextRequest) {
         sourceType === "image" || sourceType === "email"
           ? visionRawOutput
           : null,
-      warnings:
-        parsedWithImage.missingFields.length > 0
-          ? [
-              `Parser mendeteksi field yang belum lengkap: ${parsedWithImage.missingFields.join(", ")}`,
-            ]
-          : [],
+      warnings: responseWarnings,
     });
   } catch (error: unknown) {
     if (error instanceof AuthError) {
