@@ -344,7 +344,7 @@ function inferPaymentStatus(
   totalPrice: number,
   totalPaidAmount: number,
 ): PaymentStatus {
-  if (totalPaidAmount <= 0) return "Pending";
+  if (totalPaidAmount <= 0) return "DP Paid";
   if (totalPaidAmount >= Math.max(0, normalizeMoney(totalPrice))) return "Paid";
   return "DP Paid";
 }
@@ -825,7 +825,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
           },
           body: JSON.stringify({
             orderId: order.id,
-            bookingCode: order.resi || order.bookingCode || order.id,
+            bookingCode: order.bookingCode || order.id,
             customerName: order.customerName,
             customerPhone: order.customerPhone,
             destinationAddress: primaryAddress,
@@ -854,8 +854,8 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
           return {
             ...entry,
             resi:
-              entry.resi ||
               payload.shipment?.trackingNumber ||
+              entry.resi ||
               entry.bookingCode,
             shipment: payload.shipment,
           };
@@ -904,7 +904,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       );
       const newOrder: BakeryOrder = {
         id,
-        resi: bookingCode,
+        resi: "",
         bookingCode,
         customerName: order.customerName,
         customerPhone: order.customerPhone,
@@ -1002,6 +1002,8 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
 
   const updateOrderStatus = useCallback(
     async (id: string, status: OrderStatus) => {
+      const requestedStatus: OrderStatus =
+        status === "Confirmed" ? "In Production" : status;
       const targetOrder = orders.find((order) => order.id === id);
       const sequence = targetOrder
         ? getDailyBookingSequence(orders, targetOrder.deliveryDate)
@@ -1010,14 +1012,15 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       let triggeredEvent: BookingAutomationEvent | null = null;
 
       const nextOrders: BakeryOrder[] = orders.map((order) => {
-        if (order.id !== id || order.orderStatus === status) return order;
+        if (order.id !== id || order.orderStatus === requestedStatus)
+          return order;
         hasChanged = true;
 
         let bookingCode = order.bookingCode || "";
-        let resi = order.resi || "";
-        let note = `Status changed to ${status}`;
+        const resi = order.resi || "";
+        let note = `Status changed to ${requestedStatus}`;
 
-        if (status === "Confirmed") {
+        if (requestedStatus === "In Production") {
           bookingCode =
             bookingCode ||
             generateBookingCode(
@@ -1026,10 +1029,16 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
               order.deliveryDate,
               sequence,
             );
-          resi = resi || bookingCode;
-          note = "Order confirmed by admin";
-          triggeredEvent = "order_confirmed";
-        } else if (status === "Completed") {
+          note = "Order masuk produksi";
+
+          if (
+            ["Inquiry", "Quoted", "DP Paid", "Confirmed"].includes(
+              order.orderStatus,
+            )
+          ) {
+            triggeredEvent = "order_confirmed";
+          }
+        } else if (requestedStatus === "Completed") {
           triggeredEvent = "order_completed";
         }
 
@@ -1037,10 +1046,10 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
           ...order,
           bookingCode,
           resi,
-          orderStatus: status,
+          orderStatus: requestedStatus,
           statusHistory: appendStatusLog(
             order.statusHistory,
-            status,
+            requestedStatus,
             note,
             actorIdentity,
           ),
@@ -1049,8 +1058,8 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
 
       if (!hasChanged) return;
       persistOrders(nextOrders);
-      if (status === "Confirmed") {
-        toast.success("Order confirmed. Menjalankan automasi...");
+      if (requestedStatus === "In Production") {
+        toast.success("Order masuk produksi. Menjalankan automasi...");
       } else {
         toast.message("Order status updated");
       }
@@ -1195,7 +1204,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
 
   const approveOrder = useCallback(
     async (id: string) => {
-      await updateOrderStatus(id, "Confirmed");
+      await updateOrderStatus(id, "In Production");
     },
     [updateOrderStatus],
   );
@@ -1213,7 +1222,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         if (order.id !== id) return order;
         return {
           ...order,
-          resi: order.resi || shipment.trackingNumber || order.bookingCode,
+          resi: shipment.trackingNumber || order.resi || order.bookingCode,
           shipment,
         };
       });
@@ -1227,7 +1236,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
     (id: string) => {
       const order = orders.find((item) => item.id === id);
       if (!order) return "Order not found.";
-      const code = order.resi || order.bookingCode || "(pending code)";
+      const code = order.bookingCode || "(pending code)";
       const productList =
         order.items?.length > 0
           ? order.items

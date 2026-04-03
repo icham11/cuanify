@@ -15,7 +15,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 function parseSourceType(value: string): WhatsAppSourceType {
-  if (value === "image" || value === "manual" || value === "email") return value;
+  if (value === "image" || value === "manual" || value === "email")
+    return value;
   return "text";
 }
 
@@ -36,13 +37,25 @@ function parseOrderType(value: string): WhatsAppOrderTypeOrUnknown {
 
 function parseOrderTypeFromText(value: string): WhatsAppOrderTypeOrUnknown {
   const matched = value.match(
-    /jenis\s+pesanan\s*[:=-]\s*(cake|cookies|cupcakes|buket|cookies_tower|cookies tower)/i
+    /jenis\s+pesanan\s*[:=-]\s*(cake|cookies|cupcakes|buket|cookies_tower|cookies tower)/i,
   );
-  if (!matched?.[1]) return "unknown";
-  return parseOrderType(matched[1].toLowerCase());
+  if (matched?.[1]) {
+    return parseOrderType(matched[1].toLowerCase());
+  }
+
+  const heading = value.match(
+    /(?:^|\n)\s*(?:\[wa\s*parser\]\s*)?data\s+(cake|cookies|cupcakes|buket|cookies\s*tower)\b/i,
+  );
+  if (heading?.[1]) {
+    return parseOrderType(heading[1].toLowerCase());
+  }
+
+  return "unknown";
 }
 
-function buildVisionPrompt(preferredOrderType: WhatsAppOrderTypeOrUnknown): string {
+function buildVisionPrompt(
+  preferredOrderType: WhatsAppOrderTypeOrUnknown,
+): string {
   const selectedTypeInstruction =
     preferredOrderType === "unknown"
       ? `
@@ -91,7 +104,7 @@ ${template}`;
 
 function buildEmailPrompt(
   preferredOrderType: WhatsAppOrderTypeOrUnknown,
-  emailText: string
+  emailText: string,
 ): string {
   const selectedTypeInstruction =
     preferredOrderType === "unknown"
@@ -108,7 +121,17 @@ function buildEmailPrompt(
 
   const template =
     preferredOrderType === "unknown"
-      ? [buildWhatsAppTemplate("cake"), "", buildWhatsAppTemplate("cookies"), "", buildWhatsAppTemplate("cupcakes"), "", buildWhatsAppTemplate("buket"), "", buildWhatsAppTemplate("cookies_tower")].join("\n")
+      ? [
+          buildWhatsAppTemplate("cake"),
+          "",
+          buildWhatsAppTemplate("cookies"),
+          "",
+          buildWhatsAppTemplate("cupcakes"),
+          "",
+          buildWhatsAppTemplate("buket"),
+          "",
+          buildWhatsAppTemplate("cookies_tower"),
+        ].join("\n")
       : buildWhatsAppTemplate(preferredOrderType as WhatsAppOrderType);
 
   return `Kamu membaca notifikasi email pesanan e-commerce.
@@ -155,12 +178,16 @@ export async function POST(request: NextRequest) {
     if (contentType.includes("multipart/form-data")) {
       const formData = await request.formData();
       sourceType = parseSourceType(getStringValue(formData.get("sourceType")));
-      preferredOrderType = parseOrderType(getStringValue(formData.get("orderType")));
+      preferredOrderType = parseOrderType(
+        getStringValue(formData.get("orderType")),
+      );
       textInput = getStringValue(formData.get("text"));
 
       const uploadedFiles = formData
         .getAll("files")
-        .filter((entry): entry is File => entry instanceof File && entry.size > 0);
+        .filter(
+          (entry): entry is File => entry instanceof File && entry.size > 0,
+        );
       const maybeSingleFile = formData.get("file");
       const fallbackSingleFile =
         maybeSingleFile instanceof File && maybeSingleFile.size > 0
@@ -183,14 +210,19 @@ export async function POST(request: NextRequest) {
     if (sourceType === "image" && files.length === 0 && !textInput.trim()) {
       return NextResponse.json(
         { error: "Image mode requires at least an image file or text input." },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
-    if ((sourceType === "text" || sourceType === "manual" || sourceType === "email") && !textInput.trim()) {
+    if (
+      (sourceType === "text" ||
+        sourceType === "manual" ||
+        sourceType === "email") &&
+      !textInput.trim()
+    ) {
       return NextResponse.json(
         { error: "Text input is required for text/manual/email mode." },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -221,7 +253,9 @@ export async function POST(request: NextRequest) {
       }
 
       visionRawOutput = extractionBlocks.join("\n\n");
-      extractedText = [visionRawOutput, extractedText].filter(Boolean).join("\n");
+      extractedText = [visionRawOutput, extractedText]
+        .filter(Boolean)
+        .join("\n");
     }
 
     if (sourceType === "email") {
@@ -233,9 +267,13 @@ export async function POST(request: NextRequest) {
       extractedText = [visionRawOutput].filter(Boolean).join("\n");
     }
 
-    const orderTypeFromVision = parseOrderTypeFromText(visionRawOutput || extractedText);
+    const orderTypeFromVision = parseOrderTypeFromText(
+      visionRawOutput || extractedText,
+    );
     const effectiveOrderType =
-      preferredOrderType === "unknown" ? orderTypeFromVision : preferredOrderType;
+      preferredOrderType === "unknown"
+        ? orderTypeFromVision
+        : preferredOrderType;
 
     const parsed = parseWhatsAppOrderText(extractedText, {
       preferredOrderType: effectiveOrderType,
@@ -255,7 +293,10 @@ export async function POST(request: NextRequest) {
       parsed: parsedWithImage,
       autoFill,
       uploadedImageUrls,
-      visionRawOutput: sourceType === "image" || sourceType === "email" ? visionRawOutput : null,
+      visionRawOutput:
+        sourceType === "image" || sourceType === "email"
+          ? visionRawOutput
+          : null,
       warnings:
         parsedWithImage.missingFields.length > 0
           ? [
@@ -282,7 +323,7 @@ export async function POST(request: NextRequest) {
         error: message || "Failed to parse WhatsApp order",
         details: message,
       },
-      { status }
+      { status },
     );
   }
 }

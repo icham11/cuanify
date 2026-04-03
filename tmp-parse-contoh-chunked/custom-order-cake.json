@@ -1,0 +1,36 @@
+{
+  "folder": "Custom Order Cake",
+  "images": 22,
+  "chunks": 6,
+  "chunkReports": [
+    {
+      "chunk": 1,
+      "status": 413,
+      "success": false,
+      "files": [
+        "IMG_8835.PNG",
+        "IMG_8836.PNG",
+        "IMG_8837.PNG",
+        "IMG_8838.PNG"
+      ]
+    }
+  ],
+  "final": {
+    "success": false,
+    "error": "chunk_failed",
+    "chunkReports": [
+      {
+        "chunk": 1,
+        "status": 413,
+        "success": false,
+        "files": [
+          "IMG_8835.PNG",
+          "IMG_8836.PNG",
+          "IMG_8837.PNG",
+          "IMG_8838.PNG"
+        ]
+      }
+    ]
+  },
+  "mergedVision": ""
+}

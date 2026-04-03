@@ -41,8 +41,6 @@ import {
 } from "@/lib/bookings/pricelist";
 import { useCatalogAdminState } from "@/lib/bookings/catalog-admin";
 import {
-  CAPACITY_LABELS,
-  CAPACITY_LIMITS,
   DAILY_PRODUCTION_TOKEN_LIMIT,
   checkSlotAvailability,
   countConcurrentOrdersByTypeForSlot,
@@ -51,13 +49,9 @@ import {
   inferOrderTypeFromItems,
   isWithinBusinessHours,
   isDateBlockedForOrdering,
-  summarizeCapacityByItems,
-  summarizeCapacityByOrdersForDate,
   summarizeProductionTokensByItems,
-  summarizeProductionTokensByOrdersForDate,
   type SlotAvailabilityStatus,
   type SlotOrderType,
-  type CapacityBucket,
 } from "@/lib/bookings/operations";
 import {
   BAKERY_BLOCKED_DATES,
@@ -89,13 +83,6 @@ import type {
 } from "@/lib/bookings/shipping-types";
 
 const defaultItemSelection = getDefaultCatalogSelection();
-const CAPACITY_BUCKET_ORDER: CapacityBucket[] = [
-  "seasonal_cookies",
-  "custom_cookies",
-  "cake_tower",
-  "cupcakes",
-  "bouquet",
-];
 
 const itemSchema = z.object({
   category: z.string().min(1, "Category is required"),
@@ -135,7 +122,7 @@ const bookingSchema = z.object({
     "REGULAR_JNE_JNT",
   ]),
   customNotes: z.string().max(400).optional().or(z.literal("")),
-  paymentStatus: z.enum(["Pending", "DP Paid", "Paid"]),
+  paymentStatus: z.enum(["DP Paid", "Paid"]),
   dpPaidAmount: z.number().default(0),
   finalPaidAmount: z.number().default(0),
   manualAdjustment: z.number().default(0),
@@ -149,6 +136,7 @@ type BookingFormInput = z.input<typeof bookingSchema>;
 type BookingFormValues = z.output<typeof bookingSchema>;
 type BookingItemInput = BookingFormInput["items"][number];
 type ParserSource = WhatsAppSourceType;
+type ParserSourceMode = ParserSource | "auto";
 type ParserOrderType = WhatsAppOrderType | "unknown";
 const EMPTY_ITEMS: BookingFormInput["items"] = [];
 const EMPTY_ADDRESSES: BookingFormInput["deliveryAddresses"] = [];
@@ -161,6 +149,15 @@ const BOUQUET_HAND_MIN_QTY = 7;
 const BOUQUET_HAND_MAX_QTY = 10;
 const BOUQUET_STANDING_MIN_QTY = 12;
 const BOUQUET_STANDING_MAX_QTY = 20;
+const CUPCAKE_INDIVIDUAL_MIN_QTY = 10;
+const COOKIE_INDIVIDUAL_MIN_QTY = 20;
+
+interface ItemQuantityRule {
+  label: string;
+  min: number;
+  max?: number;
+  helperText?: string;
+}
 
 function orderTypeLabel(orderType: SlotOrderType): string {
   return orderType === "SEASONAL" ? "Seasonal/Bulk" : "Custom";
@@ -183,6 +180,26 @@ function formatIsoDateToIdLabel(value: string): string {
   });
 }
 
+function parseEtaToHours(etaText: string): number {
+  const normalized = (etaText || "").toLowerCase();
+  const numericMatches = Array.from(normalized.matchAll(/(\d+(?:[.,]\d+)?)/g));
+  if (!numericMatches.length) return Number.POSITIVE_INFINITY;
+
+  const numericValues = numericMatches
+    .map((match) => Number(String(match[1] || "").replace(",", ".")))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  if (!numericValues.length) return Number.POSITIVE_INFINITY;
+
+  const minValue = Math.min(...numericValues);
+  if (normalized.includes("menit") || normalized.includes("minute")) {
+    return minValue / 60;
+  }
+  if (normalized.includes("hari") || normalized.includes("day")) {
+    return minValue * 24;
+  }
+  return minValue;
+}
+
 interface ParseWhatsAppApiResponse {
   success: boolean;
   parsed: ParsedWhatsAppOrder;
@@ -190,6 +207,23 @@ interface ParseWhatsAppApiResponse {
   warnings?: string[];
   visionRawOutput?: string | null;
   error?: string;
+}
+
+interface ParseWhatsAppRequestArgs {
+  sourceType: ParserSource;
+  orderType: ParserOrderType;
+  text?: string;
+  files?: File[];
+}
+
+class ParseWhatsAppApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ParseWhatsAppApiError";
+    this.status = status;
+  }
 }
 
 interface CapacitySingleDateResponse {
@@ -202,6 +236,95 @@ interface CapacitySingleDateResponse {
     isAvailable?: boolean;
     tokenNeeded?: number;
   };
+}
+
+function dedupeStrings(values: string[]): string[] {
+  return Array.from(new Set(values.filter((value) => value.trim().length > 0)));
+}
+
+function splitIntoChunks<T>(items: T[], chunkSize: number): T[][] {
+  if (!items.length) return [];
+  if (chunkSize <= 0) return [items];
+
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += chunkSize) {
+    chunks.push(items.slice(index, index + chunkSize));
+  }
+  return chunks;
+}
+
+function isPayloadTooLargeError(error: unknown): boolean {
+  if (error instanceof ParseWhatsAppApiError && error.status === 413) {
+    return true;
+  }
+
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : "";
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("413") ||
+    normalized.includes("payload") ||
+    normalized.includes("request entity too large") ||
+    normalized.includes("content too large")
+  );
+}
+
+function readImageElement(objectUrl: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Gagal membaca file gambar."));
+    image.src = objectUrl;
+  });
+}
+
+async function compressImageForParse(file: File): Promise<File> {
+  if (!file.type.startsWith("image/")) return file;
+  // Keep small files untouched to avoid unnecessary quality loss.
+  if (file.size <= 2_500_000) return file;
+
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = await readImageElement(objectUrl);
+    const naturalWidth = image.naturalWidth || image.width;
+    const naturalHeight = image.naturalHeight || image.height;
+    if (!naturalWidth || !naturalHeight) return file;
+
+    const maxEdge = 1600;
+    const scale = Math.min(1, maxEdge / Math.max(naturalWidth, naturalHeight));
+    const outputWidth = Math.max(1, Math.round(naturalWidth * scale));
+    const outputHeight = Math.max(1, Math.round(naturalHeight * scale));
+
+    const canvas = document.createElement("canvas");
+    canvas.width = outputWidth;
+    canvas.height = outputHeight;
+
+    const context = canvas.getContext("2d");
+    if (!context) return file;
+
+    context.drawImage(image, 0, 0, outputWidth, outputHeight);
+    const compressedBlob = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob(resolve, "image/jpeg", 0.82);
+    });
+
+    if (!compressedBlob || compressedBlob.size >= file.size) {
+      return file;
+    }
+
+    const baseName = file.name.replace(/\.[^.]+$/, "");
+    return new File([compressedBlob], `${baseName}.jpg`, {
+      type: "image/jpeg",
+      lastModified: file.lastModified,
+    });
+  } catch {
+    return file;
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
 }
 
 const whatsappOrderTypeOptions: Array<{
@@ -337,6 +460,87 @@ function getBouquetQtyRangeLabel(type: BouquetFormType): string {
   return `${BOUQUET_STANDING_MIN_QTY}-${BOUQUET_STANDING_MAX_QTY}`;
 }
 
+function getQuantityRuleViolationMessage(rule: ItemQuantityRule): string {
+  if (typeof rule.max === "number") {
+    return `Qty wajib ${rule.min}-${rule.max}.`;
+  }
+  return `Minimal qty ${rule.min}.`;
+}
+
+function getItemQuantityRule(item: BookingItemInput): ItemQuantityRule {
+  const source =
+    `${item.subcategory || ""} ${item.productName || ""} ${item.size || ""}`.toLowerCase();
+
+  const bouquetType = detectBouquetTypeFromItem(item);
+  if (bouquetType === "HAND") {
+    return {
+      label: "Jumlah Cookies (isi bouquet)",
+      min: BOUQUET_HAND_MIN_QTY,
+      max: BOUQUET_HAND_MAX_QTY,
+      helperText: `Hand bouquet qty wajib ${getBouquetQtyRangeLabel("HAND")} cookies.`,
+    };
+  }
+  if (bouquetType === "STANDING") {
+    return {
+      label: "Jumlah Cookies (isi bouquet)",
+      min: BOUQUET_STANDING_MIN_QTY,
+      max: BOUQUET_STANDING_MAX_QTY,
+      helperText: `Standing bouquet qty wajib ${getBouquetQtyRangeLabel("STANDING")} cookies.`,
+    };
+  }
+
+  if (item.category === "Cupcakes") {
+    if (source.includes("individual")) {
+      return {
+        label: "Quantity (pcs)",
+        min: CUPCAKE_INDIVIDUAL_MIN_QTY,
+        helperText: `Individual cupcakes minimal ${CUPCAKE_INDIVIDUAL_MIN_QTY} pcs.`,
+      };
+    }
+    if (
+      source.includes("dozen") ||
+      source.includes("12 pcs") ||
+      source.includes("12pcs") ||
+      source.includes("lusin")
+    ) {
+      return {
+        label: "Quantity (dozen box)",
+        min: 1,
+        helperText: "1 qty = 1 lusin (12 pcs).",
+      };
+    }
+  }
+
+  if (item.category === "Cookies" && source.includes("individual cookie")) {
+    return {
+      label: "Quantity (pcs)",
+      min: COOKIE_INDIVIDUAL_MIN_QTY,
+      helperText: `Individual cookie minimal ${COOKIE_INDIVIDUAL_MIN_QTY} pcs.`,
+    };
+  }
+
+  if (item.category === "Cake") {
+    return {
+      label: "Quantity (cake)",
+      min: 1,
+      helperText: "1 qty = 1 cake.",
+    };
+  }
+
+  if (item.category === "Cookies Tower") {
+    return {
+      label: "Quantity (tower)",
+      min: 1,
+      helperText: "1 qty = 1 tower (40 cookies).",
+    };
+  }
+
+  return {
+    label: "Quantity",
+    min: 1,
+  };
+}
+
 function getBouquetLineTotal(item: BookingItemInput): number | null {
   const bouquetType = detectBouquetTypeFromItem(item);
   if (!bouquetType) return null;
@@ -347,6 +551,37 @@ function getBouquetLineTotal(item: BookingItemInput): number | null {
   if (!isValidBouquetQuantity(quantity, bouquetType)) return null;
 
   return Math.round(cookiePrice * quantity + getBouquetCostByType(bouquetType));
+}
+
+function normalizeVariantLabel(value: string): string {
+  return value.toLowerCase();
+}
+
+function isMediumVariantLabel(value: string): boolean {
+  const normalized = normalizeVariantLabel(value);
+  return normalized.includes("medium") || normalized.includes("mid");
+}
+
+function isLargeVariantLabel(value: string): boolean {
+  const normalized = normalizeVariantLabel(value);
+  return normalized.includes("large") || normalized.includes("xl");
+}
+
+function resolveBouquetVariantForPaxel(
+  variants: Array<{ label: string; price: number }>,
+): string | null {
+  if (!variants.length) return null;
+
+  const nonMediumVariants = variants.filter(
+    (variant) => !isMediumVariantLabel(variant.label),
+  );
+  const candidates =
+    nonMediumVariants.length > 0 ? nonMediumVariants : variants;
+  const largeVariant = candidates.find((variant) =>
+    isLargeVariantLabel(variant.label),
+  );
+
+  return largeVariant?.label ?? candidates[0]?.label ?? null;
 }
 
 function getItemBasePrice(
@@ -368,11 +603,24 @@ function getItemBasePrice(
   return unit * qty;
 }
 
+function getItemProductionToken(item: BookingItemInput): number {
+  return calculateOrderTokenFromItems([
+    {
+      category: item.category,
+      subcategory: item.subcategory,
+      productName: item.productName,
+      quantity: Number(item.quantity) || 0,
+      tokenDifficulty: item.tokenDifficulty,
+      customTokenPerUnit: item.customTokenPerUnit,
+    },
+  ]);
+}
+
 export default function BookingForm() {
   const { addOrder, orders } = useOrders();
   const { productCatalog, addOnCatalog } = useCatalogAdminState();
   const [quickPaste, setQuickPaste] = useState("");
-  const [parserSource, setParserSource] = useState<ParserSource>("text");
+  const [parserSource, setParserSource] = useState<ParserSourceMode>("auto");
   const [selectedOrderType, setSelectedOrderType] =
     useState<ParserOrderType>("unknown");
   const [uploadedChatImages, setUploadedChatImages] = useState<File[]>([]);
@@ -389,6 +637,7 @@ export default function BookingForm() {
     null,
   );
   const [shippingWarning, setShippingWarning] = useState("");
+  const [showAllShippingOptions, setShowAllShippingOptions] = useState(false);
   const [isCheckingShipping, setIsCheckingShipping] = useState(false);
   const [isCapacityValidating, setIsCapacityValidating] = useState(false);
   const [submitError, setSubmitError] = useState("");
@@ -410,7 +659,7 @@ export default function BookingForm() {
       deliverySlot: "",
       deliveryMethod: "REGULAR_JNE_JNT",
       customNotes: "",
-      paymentStatus: "Pending",
+      paymentStatus: "DP Paid",
       dpPaidAmount: 0,
       finalPaidAmount: 0,
       manualAdjustment: 0,
@@ -520,6 +769,34 @@ export default function BookingForm() {
     }, 0);
   }, [watchedItems, productCatalog]);
 
+  useEffect(() => {
+    if (deliveryMethod !== "ASSISTED_PAXEL") return;
+
+    watchedItems.forEach((item, index) => {
+      if ((item.category || "") !== "Buket") return;
+
+      const normalizedSelection = ensureSelectionFromCatalog(productCatalog, {
+        category: item.category,
+        subcategory: item.subcategory,
+        productName: item.productName,
+        size: item.size,
+      });
+      const variants = getVariantsFromCatalog(
+        productCatalog,
+        normalizedSelection,
+      );
+      if (!variants.length) return;
+
+      const preferredSize = resolveBouquetVariantForPaxel(variants);
+      if (!preferredSize) return;
+      if (preferredSize === normalizedSelection.size) return;
+
+      setValue(`items.${index}.size`, preferredSize, {
+        shouldValidate: true,
+      });
+    });
+  }, [deliveryMethod, watchedItems, productCatalog, setValue]);
+
   const addOnTotal = useMemo(() => {
     return watchedItems.reduce((sum, item) => {
       const categoryAddOns = getCategoryAddOnsFromCatalog(
@@ -539,13 +816,28 @@ export default function BookingForm() {
     [deliveryMethod],
   );
 
+  const hasBouquetItems = useMemo(
+    () =>
+      watchedItems.some((item) => {
+        return (item.category || "") === "Buket";
+      }),
+    [watchedItems],
+  );
+
   const methodSpecificShippingQuotes = useMemo(() => {
     if (!shouldUseShippingEngine) return [];
 
     const isCarService = (quote: ShippingQuote) => {
       const source =
         `${quote.courierServiceCode} ${quote.courierServiceName}`.toLowerCase();
-      return source.includes("car") || source.includes("4w");
+      return (
+        source.includes("gocar") ||
+        source.includes("go car") ||
+        source.includes("car") ||
+        source.includes("4w") ||
+        source.includes("suv") ||
+        source.includes("van")
+      );
     };
 
     const isBikeService = (quote: ShippingQuote) => {
@@ -563,6 +855,12 @@ export default function BookingForm() {
       );
     };
 
+    const isPaxelLargeService = (quote: ShippingQuote) => {
+      const source =
+        `${quote.courierServiceCode} ${quote.courierServiceName}`.toLowerCase();
+      return source.includes("large") || source.includes("xl");
+    };
+
     const gojekQuotes = shippingQuotes.filter(
       (quote) => quote.provider === "GOJEK",
     );
@@ -571,7 +869,15 @@ export default function BookingForm() {
     );
 
     if (deliveryMethod === "ASSISTED_PAXEL") {
-      return shippingQuotes.filter((quote) => quote.provider === "PAXEL");
+      const paxelQuotes = shippingQuotes.filter(
+        (quote) => quote.provider === "PAXEL",
+      );
+
+      if (!hasBouquetItems) {
+        return paxelQuotes;
+      }
+
+      return paxelQuotes.filter(isPaxelLargeService);
     }
 
     if (deliveryMethod === "ASSISTED_GRAB") {
@@ -585,7 +891,18 @@ export default function BookingForm() {
 
     if (deliveryMethod === "ASSISTED_GOCAR") {
       const gojekCarQuotes = gojekQuotes.filter(isCarService);
-      return gojekCarQuotes;
+      if (gojekCarQuotes.length > 0) {
+        return gojekCarQuotes;
+      }
+
+      const gojekNonBikeQuotes = gojekQuotes.filter(
+        (quote) => !isBikeService(quote),
+      );
+      if (gojekNonBikeQuotes.length > 0) {
+        return gojekNonBikeQuotes;
+      }
+
+      return gojekQuotes;
     }
 
     if (deliveryMethod === "REGULAR_JNE_JNT") {
@@ -604,7 +921,12 @@ export default function BookingForm() {
     }
 
     return shippingQuotes;
-  }, [deliveryMethod, shippingQuotes, shouldUseShippingEngine]);
+  }, [
+    deliveryMethod,
+    shippingQuotes,
+    shouldUseShippingEngine,
+    hasBouquetItems,
+  ]);
 
   const isStrictDeliveryMethod =
     deliveryMethod === "ASSISTED_PAXEL" ||
@@ -619,12 +941,55 @@ export default function BookingForm() {
     shippingQuotes.length > 0 &&
     methodSpecificShippingQuotes.length === 0;
 
-  const filteredShippingQuotes = methodSpecificShippingQuotes;
+  const filteredShippingQuotes = useMemo(() => {
+    const bestByService = new Map<string, ShippingQuote>();
+    for (const quote of methodSpecificShippingQuotes) {
+      const key = `${quote.provider}:${quote.courierCode}:${quote.courierServiceCode}`;
+      const existing = bestByService.get(key);
+      if (!existing || quote.price < existing.price) {
+        bestByService.set(key, quote);
+      }
+    }
+
+    return Array.from(bestByService.values()).sort((a, b) => a.price - b.price);
+  }, [methodSpecificShippingQuotes]);
+
+  const cheapestShippingQuote = filteredShippingQuotes[0] ?? null;
+
+  const fastestShippingQuote = useMemo(() => {
+    let bestQuote: ShippingQuote | null = null;
+    let bestEtaHours = Number.POSITIVE_INFINITY;
+
+    for (const quote of filteredShippingQuotes) {
+      const etaHours = parseEtaToHours(quote.eta);
+      if (!bestQuote || etaHours < bestEtaHours) {
+        bestQuote = quote;
+        bestEtaHours = etaHours;
+        continue;
+      }
+
+      if (etaHours === bestEtaHours && quote.price < bestQuote.price) {
+        bestQuote = quote;
+      }
+    }
+
+    return bestQuote;
+  }, [filteredShippingQuotes]);
+
+  const displayedShippingQuotes = useMemo(() => {
+    if (showAllShippingOptions || filteredShippingQuotes.length <= 3) {
+      return filteredShippingQuotes;
+    }
+    return filteredShippingQuotes.slice(0, 3);
+  }, [filteredShippingQuotes, showAllShippingOptions]);
 
   const shippingFallbackMessage = useMemo(() => {
     if (!isShippingFallbackActive) return "";
 
     if (deliveryMethod === "ASSISTED_PAXEL") {
+      if (hasBouquetItems) {
+        return "Layanan Paxel untuk bouquet wajib varian Large. Opsi Paxel Large belum tersedia untuk alamat ini.";
+      }
       return "Layanan Paxel belum tersedia untuk alamat ini. Pilih metode lain atau ubah alamat penerima.";
     }
     if (deliveryMethod === "ASSISTED_GRAB") {
@@ -640,7 +1005,7 @@ export default function BookingForm() {
       return "Layanan JNE/J&T belum tersedia untuk alamat ini. Pilih metode lain atau ubah alamat penerima.";
     }
     return "Layanan kurir pada metode terpilih belum tersedia. Pilih metode lain atau ubah alamat penerima.";
-  }, [deliveryMethod, isShippingFallbackActive]);
+  }, [deliveryMethod, isShippingFallbackActive, hasBouquetItems]);
 
   const selectedShippingQuote = useMemo(
     () =>
@@ -651,6 +1016,8 @@ export default function BookingForm() {
   );
 
   useEffect(() => {
+    setShowAllShippingOptions(false);
+
     if (!filteredShippingQuotes.length) {
       setSelectedShippingQuoteId("");
       return;
@@ -673,6 +1040,7 @@ export default function BookingForm() {
   );
   const isGrabCarOnlyOrder = grabCarOnlyReasons.length > 0;
   const grabCarCompatibleMethods: DeliveryMethod[] = [
+    "PICKUP",
     "CUSTOMER_APP_COURIER",
     "ASSISTED_GRAB",
     "ASSISTED_GOCAR",
@@ -716,8 +1084,7 @@ export default function BookingForm() {
   );
   const downPaymentAmount = normalizedDpPaid;
   const remainingBalance = Math.max(0, totalPrice - totalPaid);
-  const effectivePaymentStatus =
-    totalPaid <= 0 ? "Pending" : remainingBalance <= 0 ? "Paid" : "DP Paid";
+  const effectivePaymentStatus = remainingBalance <= 0 ? "Paid" : "DP Paid";
 
   const deliverySlots = useMemo(
     () => getDeliverySlotsForDate(deliveryDate),
@@ -772,35 +1139,12 @@ export default function BookingForm() {
     return new Map(slotAvailability.map((entry) => [entry.slot, entry.status]));
   }, [slotAvailability]);
 
-  const existingCapacityUsage = useMemo(() => {
-    if (!deliveryDate) return null;
-    return summarizeCapacityByOrdersForDate(orders, deliveryDate);
-  }, [orders, deliveryDate]);
-
-  const incomingCapacityUsage = useMemo(() => {
-    return summarizeCapacityByItems(watchedItems);
-  }, [watchedItems]);
-
-  const existingProductionTokens = useMemo(() => {
-    if (!deliveryDate) return 0;
-    return summarizeProductionTokensByOrdersForDate(orders, deliveryDate);
-  }, [orders, deliveryDate]);
-
   const incomingProductionTokens = useMemo(() => {
     return summarizeProductionTokensByItems(watchedItems);
   }, [watchedItems]);
 
-  const plannedProductionTokens =
-    existingProductionTokens + incomingProductionTokens;
-  const remainingProductionTokens =
-    DAILY_PRODUCTION_TOKEN_LIMIT - plannedProductionTokens;
-  const isTokenCapacityOverflow = remainingProductionTokens < 0;
-
-  // ── Real-time token preview (new business rules via calculateOrderTokenFromItems) ──
-  const newTokenPreview = useMemo(
-    () => calculateOrderTokenFromItems(watchedItems),
-    [watchedItems],
-  );
+  // Keep token preview and draft token on the same calculator path.
+  const newTokenPreview = incomingProductionTokens;
 
   // ── DB-backed capacity for the selected delivery date ────────────────────────
   const dbCapacity = useMemo(() => {
@@ -814,8 +1158,15 @@ export default function BookingForm() {
     };
   }, [normalizedDeliveryDate, getCalendarCapacity]);
 
-  const dbRemainingToken = dbCapacity.maxToken - dbCapacity.usedToken;
-  const dbWillExceed = newTokenPreview > dbRemainingToken;
+  const existingProductionTokens = dbCapacity.usedToken;
+  const plannedProductionTokens =
+    existingProductionTokens + incomingProductionTokens;
+  const remainingProductionTokens =
+    dbCapacity.maxToken - plannedProductionTokens;
+  const isTokenCapacityOverflow = remainingProductionTokens < 0;
+
+  const dbRemainingToken = remainingProductionTokens;
+  const dbWillExceed = isTokenCapacityOverflow;
   const dbIsWarning = !dbWillExceed && dbRemainingToken <= 50;
 
   // ── Smart Date Recommendation — 30-day window ────────────────────────────────
@@ -889,25 +1240,6 @@ export default function BookingForm() {
       refetchSelectedDateCapacity();
     }, 0);
   };
-
-  const capacityRows = useMemo(() => {
-    return CAPACITY_BUCKET_ORDER.map((bucket) => {
-      const existing = existingCapacityUsage?.[bucket] ?? 0;
-      const incoming = incomingCapacityUsage[bucket] ?? 0;
-      const planned = existing + incoming;
-      const limit = CAPACITY_LIMITS[bucket];
-
-      return {
-        bucket,
-        label: CAPACITY_LABELS[bucket],
-        existing,
-        incoming,
-        planned,
-        limit,
-        over: planned > limit,
-      };
-    });
-  }, [existingCapacityUsage, incomingCapacityUsage]);
 
   const primaryAddress = watchedAddresses[0];
 
@@ -1061,7 +1393,8 @@ export default function BookingForm() {
 
     if (shouldUseShippingEngine && !selectedShippingQuote) {
       toast.error(
-        "Ongkir live belum tersedia. Lengkapi alamat/item lalu pilih layanan kurir.",
+        shippingFallbackMessage ||
+          "Ongkir live belum tersedia. Lengkapi alamat/item lalu pilih layanan kurir.",
       );
       return;
     }
@@ -1096,11 +1429,9 @@ export default function BookingForm() {
       return;
     }
 
-    const existingTokens = summarizeProductionTokensByOrdersForDate(
-      orders,
-      normalizedDeliveryDate,
-    );
     const incomingTokens = calculateOrderTokenFromItems(values.items);
+    let validatedUsedTokens = 0;
+    let validatedMaxTokens = DAILY_PRODUCTION_TOKEN_LIMIT;
 
     setIsCapacityValidating(true);
     try {
@@ -1128,6 +1459,10 @@ export default function BookingForm() {
         date: normalizedDeliveryDate,
       });
 
+      validatedUsedTokens = Number(payload.data.usedToken) || 0;
+      validatedMaxTokens =
+        Number(payload.data.maxToken) || DAILY_PRODUCTION_TOKEN_LIMIT;
+
       if (status === "FULL") {
         throw new Error("Tanggal sudah penuh");
       }
@@ -1147,15 +1482,39 @@ export default function BookingForm() {
       setIsCapacityValidating(false);
     }
 
-    const plannedTokens = existingTokens + incomingTokens;
-    if (plannedTokens > DAILY_PRODUCTION_TOKEN_LIMIT) {
+    const plannedTokens = validatedUsedTokens + incomingTokens;
+    if (plannedTokens > validatedMaxTokens) {
       toast.error(
-        `Token produksi harian terlampaui (${plannedTokens}/${DAILY_PRODUCTION_TOKEN_LIMIT}). Pilih tanggal lain atau sederhanakan item difficulty tinggi.`,
+        `Token produksi harian terlampaui (${plannedTokens}/${validatedMaxTokens}). Pilih tanggal lain atau sederhanakan item difficulty tinggi.`,
       );
       return;
     }
 
     for (const item of values.items) {
+      const quantity = Number(item.quantity) || 0;
+      const quantityRule = getItemQuantityRule(item as BookingItemInput);
+      const isOutOfRange =
+        quantity < quantityRule.min ||
+        (typeof quantityRule.max === "number" && quantity > quantityRule.max);
+      if (isOutOfRange) {
+        const productLabel = item.productName || item.category || "Item";
+        toast.error(
+          `${productLabel}: ${getQuantityRuleViolationMessage(quantityRule)}`,
+        );
+        return;
+      }
+
+      if (
+        values.deliveryMethod === "ASSISTED_PAXEL" &&
+        item.category === "Buket" &&
+        isMediumVariantLabel(item.size || "")
+      ) {
+        toast.error(
+          "Untuk bouquet via Paxel, varian Medium tidak didukung. Pilih varian Large/XL.",
+        );
+        return;
+      }
+
       if (item.category !== "Buket") continue;
 
       const bouquetType = detectBouquetTypeFromItem(item);
@@ -1166,7 +1525,6 @@ export default function BookingForm() {
         return;
       }
 
-      const quantity = Number(item.quantity) || 0;
       if (!isValidBouquetQuantity(quantity, bouquetType)) {
         toast.error(
           `${bouquetType === "HAND" ? "Hand" : "Standing"} bouquet wajib qty ${getBouquetQtyRangeLabel(bouquetType)} cookies.`,
@@ -1204,7 +1562,7 @@ export default function BookingForm() {
         size: item.size,
         quantity: item.quantity,
         tokenDifficulty:
-          item.category === "Cookies"
+          item.category === "Cookies" || item.category === "Buket"
             ? (item.tokenDifficulty as
                 | "SIMPLE"
                 | "NORMAL"
@@ -1304,15 +1662,197 @@ export default function BookingForm() {
     setValue(`items.${itemIndex}.addOns`, next, { shouldValidate: true });
   };
 
+  const callWhatsAppParser = async (
+    args: ParseWhatsAppRequestArgs,
+  ): Promise<ParseWhatsAppApiResponse> => {
+    const formData = new FormData();
+    formData.append("sourceType", args.sourceType);
+    formData.append("orderType", args.orderType);
+
+    if (args.text?.trim()) {
+      formData.append("text", args.text.trim());
+    }
+
+    if (args.files?.length) {
+      args.files.forEach((file) => formData.append("files", file));
+    }
+
+    const response = await fetch("/api/bookings/parse-whatsapp", {
+      method: "POST",
+      body: formData,
+    });
+
+    const payload = (await response.json().catch(() => ({}))) as
+      | ParseWhatsAppApiResponse
+      | { error?: string };
+
+    const isSuccessPayload =
+      typeof payload === "object" &&
+      payload !== null &&
+      "success" in payload &&
+      (payload as ParseWhatsAppApiResponse).success;
+
+    if (!response.ok || !isSuccessPayload) {
+      const fallbackMessage =
+        response.status === 413
+          ? "Ukuran upload terlalu besar untuk diproses."
+          : "Gagal parse chat WhatsApp.";
+      const message =
+        (typeof payload === "object" && payload?.error) || fallbackMessage;
+      throw new ParseWhatsAppApiError(message, response.status);
+    }
+
+    return payload as ParseWhatsAppApiResponse;
+  };
+
+  const parseImageWithFallback = async (args: {
+    orderType: ParserOrderType;
+    files: File[];
+    extraText: string;
+  }): Promise<ParseWhatsAppApiResponse> => {
+    const sourceFiles = args.files;
+    const textInput = args.extraText.trim();
+
+    try {
+      return await callWhatsAppParser({
+        sourceType: "image",
+        orderType: args.orderType,
+        text: textInput,
+        files: sourceFiles,
+      });
+    } catch (error) {
+      if (!isPayloadTooLargeError(error) || sourceFiles.length === 0) {
+        throw error;
+      }
+    }
+
+    let chunkSize = Math.min(3, sourceFiles.length);
+    const visionBlocks: string[] = [];
+    const warnings: string[] = [];
+    const uploadedImageUrls: string[] = [];
+
+    while (true) {
+      try {
+        const chunkOutputs = await Promise.all(
+          splitIntoChunks(sourceFiles, chunkSize).map((chunkFiles) =>
+            callWhatsAppParser({
+              sourceType: "image",
+              orderType: args.orderType,
+              files: chunkFiles,
+            }),
+          ),
+        );
+
+        chunkOutputs.forEach((chunk) => {
+          if (chunk.visionRawOutput?.trim()) {
+            visionBlocks.push(chunk.visionRawOutput.trim());
+          }
+          if (chunk.warnings?.length) {
+            warnings.push(...chunk.warnings);
+          }
+          if (chunk.parsed.uploadedImageUrls?.length) {
+            uploadedImageUrls.push(...chunk.parsed.uploadedImageUrls);
+          }
+        });
+        break;
+      } catch (error) {
+        if (!isPayloadTooLargeError(error)) throw error;
+
+        if (chunkSize <= 1) {
+          const compressedFiles = await Promise.all(
+            sourceFiles.map((file) => compressImageForParse(file)),
+          );
+
+          const compressedResult = await Promise.all(
+            compressedFiles.map((file) =>
+              callWhatsAppParser({
+                sourceType: "image",
+                orderType: args.orderType,
+                files: [file],
+              }),
+            ),
+          );
+
+          compressedResult.forEach((chunk) => {
+            if (chunk.visionRawOutput?.trim()) {
+              visionBlocks.push(chunk.visionRawOutput.trim());
+            }
+            if (chunk.warnings?.length) {
+              warnings.push(...chunk.warnings);
+            }
+            if (chunk.parsed.uploadedImageUrls?.length) {
+              uploadedImageUrls.push(...chunk.parsed.uploadedImageUrls);
+            }
+          });
+          break;
+        }
+
+        chunkSize = Math.max(1, Math.floor(chunkSize / 2));
+      }
+    }
+
+    const mergedVisionRawOutput = [...visionBlocks, textInput]
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .join("\n\n");
+
+    if (!mergedVisionRawOutput) {
+      throw new Error(
+        "Parser belum menghasilkan teks dari gambar. Coba pilih gambar yang lebih jelas.",
+      );
+    }
+
+    const finalPayload = await callWhatsAppParser({
+      sourceType: "text",
+      orderType: args.orderType,
+      text: mergedVisionRawOutput,
+    });
+
+    const mergedImageUrls = dedupeStrings([
+      ...(finalPayload.parsed.uploadedImageUrls ?? []),
+      ...uploadedImageUrls,
+    ]);
+
+    return {
+      ...finalPayload,
+      warnings: dedupeStrings([...(finalPayload.warnings ?? []), ...warnings]),
+      visionRawOutput: mergedVisionRawOutput,
+      parsed: {
+        ...finalPayload.parsed,
+        sourceType: "image",
+        imageUrl: finalPayload.parsed.imageUrl || mergedImageUrls[0],
+        uploadedImageUrls: mergedImageUrls,
+      },
+    };
+  };
+
   const importDraft = async (override?: {
     sourceType?: ParserSource;
     text?: string;
     files?: File[];
     successMessage?: string;
   }) => {
-    const sourceType = override?.sourceType ?? parserSource;
     const textInput = (override?.text ?? quickPaste).trim();
     const sourceFiles = override?.files ?? uploadedChatImages;
+
+    const selectedSourceMode: ParserSourceMode =
+      override?.sourceType ?? parserSource;
+    const inferredSourceType: ParserSource = override?.sourceType
+      ? override.sourceType
+      : selectedSourceMode === "auto"
+        ? sourceFiles.length > 0
+          ? "image"
+          : "text"
+        : selectedSourceMode;
+    const sourceType: ParserSource =
+      inferredSourceType === "image" && sourceFiles.length === 0
+        ? "text"
+        : inferredSourceType;
+
+    if (!textInput && sourceFiles.length === 0) {
+      toast.error("Paste chat WhatsApp atau upload gambar chat terlebih dulu.");
+      return;
+    }
 
     if (sourceType !== "image" && !textInput) {
       toast.error(
@@ -1330,26 +1870,19 @@ export default function BookingForm() {
 
     setIsParsingWhatsApp(true);
     try {
-      const formData = new FormData();
-      formData.append("sourceType", sourceType);
-      formData.append("orderType", selectedOrderType);
-      if (textInput) {
-        formData.append("text", textInput);
-      }
-      if (sourceFiles.length > 0) {
-        sourceFiles.forEach((file) => formData.append("files", file));
-      }
-
-      const response = await fetch("/api/bookings/parse-whatsapp", {
-        method: "POST",
-        body: formData,
-      });
-
-      const payload = (await response.json()) as ParseWhatsAppApiResponse;
-
-      if (!response.ok || !payload.success) {
-        throw new Error(payload.error || "Gagal parse chat WhatsApp.");
-      }
+      const payload =
+        sourceType === "image" && sourceFiles.length > 0
+          ? await parseImageWithFallback({
+              orderType: selectedOrderType,
+              files: sourceFiles,
+              extraText: textInput,
+            })
+          : await callWhatsAppParser({
+              sourceType,
+              orderType: selectedOrderType,
+              text: textInput,
+              files: sourceFiles,
+            });
 
       const draft = payload.autoFill;
       if (draft.customerName) setValue("customerName", draft.customerName);
@@ -1387,9 +1920,20 @@ export default function BookingForm() {
                 ? Math.max(1, Number(item.quantity))
                 : 1,
               tokenDifficulty:
-                normalized.category === "Cookies" ? "SIMPLE" : undefined,
+                normalized.category === "Cookies" ||
+                normalized.category === "Buket"
+                  ? (item.tokenDifficulty ?? "SIMPLE")
+                  : undefined,
               customTokenPerUnit: undefined,
-              cookiePrice: undefined,
+              cookiePrice:
+                normalized.category === "Buket"
+                  ? (() => {
+                      const parsed = Number(item.cookiePrice);
+                      return Number.isFinite(parsed) && parsed > 0
+                        ? parsed
+                        : undefined;
+                    })()
+                  : undefined,
               addOns: Array.isArray(item.addOns) ? item.addOns : [],
               notes: item.notes ?? "",
             };
@@ -1509,9 +2053,10 @@ export default function BookingForm() {
               <Select
                 value={parserSource}
                 onChange={(event) =>
-                  setParserSource(event.target.value as ParserSource)
+                  setParserSource(event.target.value as ParserSourceMode)
                 }
               >
+                <option value="auto">Auto Detect (Text / Image)</option>
                 <option value="text">Copy Paste Chat WhatsApp</option>
                 <option value="manual">Manual Input (Template)</option>
                 <option value="image">Gambar Chat WhatsApp</option>
@@ -1535,7 +2080,7 @@ export default function BookingForm() {
             </label>
           </div>
 
-          {parserSource === "image" && (
+          {(parserSource === "image" || parserSource === "auto") && (
             <label className="grid gap-2 text-sm font-medium text-gray-700">
               Upload Gambar Chat WA
               <input
@@ -1555,14 +2100,18 @@ export default function BookingForm() {
             </label>
           )}
 
-          {(parserSource === "text" || parserSource === "manual") && (
+          {(parserSource === "text" ||
+            parserSource === "manual" ||
+            parserSource === "auto") && (
             <Textarea
               value={quickPaste}
               onChange={(event) => setQuickPaste(event.target.value)}
               placeholder={
                 parserSource === "manual"
                   ? "Klik tombol 'Isi Template Manual' lalu lengkapi field-nya."
-                  : "Paste chat WA customer di sini untuk auto-parse."
+                  : parserSource === "auto"
+                    ? "Paste chat WA di sini atau upload gambar di atas. Sistem akan auto-detect source parser."
+                    : "Paste chat WA customer di sini untuk auto-parse."
               }
               className="min-h-28"
             />
@@ -1647,7 +2196,8 @@ export default function BookingForm() {
                   {parsedPreview.missingFields.join(", ")}
                 </div>
               )}
-              {(parserSource === "image" || parserSource === "email") &&
+              {(parsedPreview.sourceType === "image" ||
+                parsedPreview.sourceType === "email") &&
                 visionRawOutput && (
                   <details className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-700">
                     <summary className="cursor-pointer font-semibold text-gray-600">
@@ -1804,26 +2354,8 @@ export default function BookingForm() {
             {deliveryDate && (
               <div className="space-y-2 rounded-xl border border-gray-200 bg-gray-50/60 p-4">
                 <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                  Daily Production Capacity ({deliveryDate})
+                  Daily Production Token Capacity ({deliveryDate})
                 </p>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {capacityRows.map((entry) => (
-                    <div
-                      key={entry.bucket}
-                      className={`rounded-lg border px-3 py-2 text-xs ${
-                        entry.over
-                          ? "border-rose-200 bg-rose-50 text-rose-700"
-                          : "border-emerald-200 bg-emerald-50 text-emerald-700"
-                      }`}
-                    >
-                      <p className="font-semibold">{entry.label}</p>
-                      <p className="mt-1 font-normal">
-                        Existing {entry.existing} + Draft {entry.incoming} ={" "}
-                        {entry.planned}/{entry.limit}
-                      </p>
-                    </div>
-                  ))}
-                </div>
                 <div
                   className={`rounded-lg border px-3 py-2 text-xs ${
                     isTokenCapacityOverflow
@@ -1860,9 +2392,13 @@ export default function BookingForm() {
                     <span className="font-semibold">{newTokenPreview}</span>
                   </p>
                   <p className="mt-0.5 font-normal">
-                    Kapasitas:{" "}
+                    Kapasitas saat ini:{" "}
                     <span className="font-semibold">
                       {dbCapacity.usedToken}/{dbCapacity.maxToken}
+                    </span>{" "}
+                    &mdash; Setelah draft:{" "}
+                    <span className="font-semibold">
+                      {plannedProductionTokens}/{dbCapacity.maxToken}
                     </span>{" "}
                     &mdash; Sisa:{" "}
                     <span className="font-semibold">{dbRemainingToken}</span>
@@ -1941,7 +2477,8 @@ export default function BookingForm() {
                       size: nextDefault.size,
                       quantity: 1,
                       tokenDifficulty:
-                        nextDefault.category === "Cookies"
+                        nextDefault.category === "Cookies" ||
+                        nextDefault.category === "Buket"
                           ? "SIMPLE"
                           : undefined,
                       customTokenPerUnit: undefined,
@@ -1991,6 +2528,11 @@ export default function BookingForm() {
                     productName: normalizedSelection.productName,
                     size: normalizedSelection.size,
                     quantity: Number(item?.quantity) || 0,
+                    tokenDifficulty: item?.tokenDifficulty,
+                    customTokenPerUnit:
+                      Number(item?.customTokenPerUnit) > 0
+                        ? Number(item?.customTokenPerUnit)
+                        : undefined,
                     cookiePrice:
                       Number(item?.cookiePrice) > 0
                         ? Number(item?.cookiePrice)
@@ -2002,18 +2544,25 @@ export default function BookingForm() {
                     detectBouquetTypeFromItem(bouquetProbeItem);
                   const isBouquet = normalizedSelection.category === "Buket";
                   const isCookies = normalizedSelection.category === "Cookies";
-                  const bouquetQtyRange = bouquetType
-                    ? getBouquetQtyRangeLabel(bouquetType)
-                    : "";
+                  const allowedVariants =
+                    deliveryMethod === "ASSISTED_PAXEL" && isBouquet
+                      ? variants.filter(
+                          (variant) => !isMediumVariantLabel(variant.label),
+                        )
+                      : variants;
+                  const displayVariants =
+                    allowedVariants.length > 0 ? allowedVariants : variants;
+                  const supportsDifficulty = isCookies || isBouquet;
                   const bouquetLineTotal =
                     getBouquetLineTotal(bouquetProbeItem);
                   const itemGrabCarOnly = isGrabCarOnlyItem(bouquetProbeItem);
-                  const quantityMin =
-                    bouquetType === "HAND"
-                      ? BOUQUET_HAND_MIN_QTY
-                      : bouquetType === "STANDING"
-                        ? BOUQUET_STANDING_MIN_QTY
-                        : 1;
+                  const quantityRule = getItemQuantityRule(bouquetProbeItem);
+                  const itemTokenPreview =
+                    getItemProductionToken(bouquetProbeItem);
+                  const hasCustomTokenOverride =
+                    Number(item?.customTokenPerUnit) > 0;
+                  const quantityError = errors.items?.[index]?.quantity
+                    ?.message as string | undefined;
 
                   return (
                     <div
@@ -2069,7 +2618,8 @@ export default function BookingForm() {
                               );
                               setValue(
                                 `items.${index}.tokenDifficulty`,
-                                nextSelection.category === "Cookies"
+                                nextSelection.category === "Cookies" ||
+                                  nextSelection.category === "Buket"
                                   ? "SIMPLE"
                                   : undefined,
                                 {
@@ -2187,7 +2737,7 @@ export default function BookingForm() {
                               );
                             }}
                           >
-                            {variants.map((sizeOption) => (
+                            {displayVariants.map((sizeOption) => (
                               <option
                                 key={sizeOption.label}
                                 value={sizeOption.label}
@@ -2197,26 +2747,55 @@ export default function BookingForm() {
                               </option>
                             ))}
                           </Select>
-                        </label>
-
-                        <label className="grid gap-1.5 text-sm font-medium text-gray-700">
-                          Quantity
-                          <Input
-                            type="number"
-                            min={quantityMin}
-                            {...register(`items.${index}.quantity`, {
-                              valueAsNumber: true,
-                            })}
-                          />
-                          {bouquetType && (
-                            <span className="min-h-4 text-[11px] font-normal leading-4 text-gray-500">
-                              {bouquetType === "HAND" ? "Hand" : "Standing"}{" "}
-                              bouquet qty wajib {bouquetQtyRange}.
+                          {deliveryMethod === "ASSISTED_PAXEL" && isBouquet && (
+                            <span className="text-[11px] font-normal leading-4 text-gray-500">
+                              Paxel untuk bouquet hanya mendukung varian
+                              Large/XL.
                             </span>
                           )}
                         </label>
 
-                        {isCookies && (
+                        <label className="grid gap-1.5 text-sm font-medium text-gray-700">
+                          {quantityRule.label}
+                          <Input
+                            type="number"
+                            min={quantityRule.min}
+                            max={quantityRule.max}
+                            step={1}
+                            {...register(`items.${index}.quantity`, {
+                              valueAsNumber: true,
+                              validate: (value) => {
+                                const quantity = Number(value) || 0;
+                                if (quantity < quantityRule.min) {
+                                  return getQuantityRuleViolationMessage(
+                                    quantityRule,
+                                  );
+                                }
+                                if (
+                                  typeof quantityRule.max === "number" &&
+                                  quantity > quantityRule.max
+                                ) {
+                                  return getQuantityRuleViolationMessage(
+                                    quantityRule,
+                                  );
+                                }
+                                return true;
+                              },
+                            })}
+                          />
+                          {quantityRule.helperText && (
+                            <span className="min-h-4 text-[11px] font-normal leading-4 text-gray-500">
+                              {quantityRule.helperText}
+                            </span>
+                          )}
+                          {quantityError && (
+                            <span className="min-h-4 text-[11px] font-normal leading-4 text-rose-600">
+                              {quantityError}
+                            </span>
+                          )}
+                        </label>
+
+                        {supportsDifficulty && (
                           <label className="grid gap-1.5 text-sm font-medium text-gray-700">
                             Difficulty Token
                             <Select
@@ -2229,6 +2808,12 @@ export default function BookingForm() {
                               <option value="ADVANCED">Advanced (4)</option>
                               <option value="EXPERT">Expert (5)</option>
                             </Select>
+                            {isBouquet && (
+                              <span className="min-h-4 text-[11px] font-normal leading-4 text-gray-500">
+                                Token bouquet: max(token dasar bouquet, qty
+                                cookies x difficulty).
+                              </span>
+                            )}
                           </label>
                         )}
 
@@ -2292,6 +2877,13 @@ export default function BookingForm() {
                             {...register(`items.${index}.notes`)}
                           />
                         </label>
+                      </div>
+
+                      <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-medium text-indigo-700">
+                        Estimasi token item ini: {itemTokenPreview}
+                        {hasCustomTokenOverride
+                          ? " (custom token override)"
+                          : ""}
                       </div>
 
                       <div className="grid gap-1.5 sm:grid-cols-3">
@@ -2506,8 +3098,35 @@ export default function BookingForm() {
 
               {filteredShippingQuotes.length > 0 && (
                 <div className="space-y-2">
-                  {filteredShippingQuotes.map((quote) => {
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                    <p>
+                      Rekomendasi termurah: {cheapestShippingQuote?.provider} -{" "}
+                      {cheapestShippingQuote?.courierServiceName} ({" "}
+                      {cheapestShippingQuote
+                        ? formatCurrency(cheapestShippingQuote.price)
+                        : "-"}
+                      )
+                    </p>
+                    {fastestShippingQuote &&
+                      fastestShippingQuote.id !== cheapestShippingQuote?.id && (
+                        <p>
+                          Rekomendasi tercepat: {fastestShippingQuote.provider}{" "}
+                          - {fastestShippingQuote.courierServiceName} (ETA{" "}
+                          {fastestShippingQuote.eta})
+                        </p>
+                      )}
+                    {filteredShippingQuotes.length > 3 && (
+                      <p className="mt-1 text-[11px] text-slate-600">
+                        Menampilkan {displayedShippingQuotes.length} dari{" "}
+                        {filteredShippingQuotes.length} layanan.
+                      </p>
+                    )}
+                  </div>
+
+                  {displayedShippingQuotes.map((quote) => {
                     const active = quote.id === selectedShippingQuoteId;
+                    const isCheapest = cheapestShippingQuote?.id === quote.id;
+                    const isFastest = fastestShippingQuote?.id === quote.id;
                     return (
                       <button
                         key={quote.id}
@@ -2520,8 +3139,20 @@ export default function BookingForm() {
                         }`}
                       >
                         <div className="flex items-center justify-between">
-                          <span className="font-semibold">
-                            {quote.provider} - {quote.courierServiceName}
+                          <span className="flex items-center gap-2 font-semibold">
+                            <span>
+                              {quote.provider} - {quote.courierServiceName}
+                            </span>
+                            {isCheapest && (
+                              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+                                Termurah
+                              </span>
+                            )}
+                            {isFastest && (
+                              <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-700">
+                                Tercepat
+                              </span>
+                            )}
                           </span>
                           <span className="font-semibold">
                             {formatCurrency(quote.price)}
@@ -2534,6 +3165,23 @@ export default function BookingForm() {
                       </button>
                     );
                   })}
+
+                  {filteredShippingQuotes.length > 3 && (
+                    <div className="flex justify-end">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-8 px-3 text-xs"
+                        onClick={() =>
+                          setShowAllShippingOptions((current) => !current)
+                        }
+                      >
+                        {showAllShippingOptions
+                          ? "Tampilkan ringkas"
+                          : `Lihat semua layanan (${filteredShippingQuotes.length})`}
+                      </Button>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -2560,7 +3208,6 @@ export default function BookingForm() {
               <label className="grid gap-2 text-sm font-medium text-gray-700">
                 Payment Status
                 <Select {...register("paymentStatus")}>
-                  <option value="Pending">Pending</option>
                   <option value="DP Paid">DP Paid</option>
                   <option value="Paid">Paid</option>
                 </Select>
@@ -2682,11 +3329,6 @@ export default function BookingForm() {
                   {formatCurrency(downPaymentAmount)}
                 </span>
               </p>
-              {effectivePaymentStatus === "Pending" && (
-                <p className="text-xs text-gray-500">
-                  DP belum diinput/dibayar (status masih Pending).
-                </p>
-              )}
               <p className="flex items-center justify-between">
                 <span>Total Paid (Actual)</span>
                 <span className="font-semibold text-gray-900">

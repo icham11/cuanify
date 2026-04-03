@@ -272,15 +272,14 @@ export default function OrderTable({ orders }: OrderTableProps) {
                         onChange={(event) =>
                           updatePaymentStatus(
                             order.id,
-                            event.target.value as
-                              | "Pending"
-                              | "DP Paid"
-                              | "Paid",
+                            event.target.value as "DP Paid" | "Paid",
                           )
                         }
                         className="h-8 text-xs"
                       >
-                        <option value="Pending">Pending</option>
+                        {order.paymentStatus === "Pending" && (
+                          <option value="Pending">Pending (Legacy)</option>
+                        )}
                         <option value="DP Paid">DP Paid</option>
                         <option value="Paid">Paid</option>
                       </Select>
@@ -298,7 +297,6 @@ export default function OrderTable({ orders }: OrderTableProps) {
                               | "Inquiry"
                               | "Quoted"
                               | "DP Paid"
-                              | "Confirmed"
                               | "In Production"
                               | "Ready"
                               | "Completed"
@@ -311,7 +309,9 @@ export default function OrderTable({ orders }: OrderTableProps) {
                         <option value="Inquiry">Inquiry</option>
                         <option value="Quoted">Quoted</option>
                         <option value="DP Paid">DP Paid</option>
-                        <option value="Confirmed">Confirmed</option>
+                        {order.orderStatus === "Confirmed" && (
+                          <option value="Confirmed">Confirmed (Legacy)</option>
+                        )}
                         <option value="In Production">In Production</option>
                         <option value="Ready">Ready</option>
                         <option value="Completed">Completed</option>

@@ -1,15 +1,17 @@
-const steps = ["Booking", "Confirmed", "In Production", "Ready", "Delivered"] as const;
+const steps = ["Booking", "In Production", "Ready", "Delivered"] as const;
 
 function resolveIndex(status: string) {
   switch (status) {
     case "Confirmed":
-      return 1;
     case "In Production":
-      return 2;
+      return 1;
     case "Ready":
-      return 3;
+      return 2;
     case "Delivered":
-      return 4;
+    case "Completed":
+      return 3;
+    case "Cancelled":
+      return 0;
     default:
       return 0;
   }
@@ -24,7 +26,9 @@ export default function OrderProgressBar({ status }: { status: string }) {
         {steps.map((step, index) => (
           <span
             key={step}
-            className={index <= currentIndex ? "text-indigo-600" : "text-gray-400"}
+            className={
+              index <= currentIndex ? "text-indigo-600" : "text-gray-400"
+            }
           >
             {step}
           </span>

@@ -7,7 +7,6 @@ interface StatusDropdownProps {
 }
 
 const defaultOptions = [
-  "Confirmed",
   "In Production",
   "Ready",
   "Delivered",

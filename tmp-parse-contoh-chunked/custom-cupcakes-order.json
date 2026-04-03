@@ -1,0 +1,36 @@
+{
+  "folder": "Custom Cupcakes Order",
+  "images": 15,
+  "chunks": 4,
+  "chunkReports": [
+    {
+      "chunk": 1,
+      "status": 413,
+      "success": false,
+      "files": [
+        "IMG_8857.PNG",
+        "IMG_8858.PNG",
+        "IMG_8859.PNG",
+        "IMG_8860.PNG"
+      ]
+    }
+  ],
+  "final": {
+    "success": false,
+    "error": "chunk_failed",
+    "chunkReports": [
+      {
+        "chunk": 1,
+        "status": 413,
+        "success": false,
+        "files": [
+          "IMG_8857.PNG",
+          "IMG_8858.PNG",
+          "IMG_8859.PNG",
+          "IMG_8860.PNG"
+        ]
+      }
+    ]
+  },
+  "mergedVision": ""
+}

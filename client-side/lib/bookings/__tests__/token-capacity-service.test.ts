@@ -97,36 +97,73 @@ describe("Token Capacity Service — Unit Tests", () => {
 
     // ── Cookies ──────────────────────────────────────────────────────────
     it("Cookies simple: 1 token × quantity", () => {
-      expect(calculateOrderTokenFromItems([{ category: "Cookies", difficulty: "simple", quantity: 3 }])).toBe(3);
+      expect(
+        calculateOrderTokenFromItems([
+          { category: "Cookies", difficulty: "simple", quantity: 3 },
+        ]),
+      ).toBe(3);
     });
 
     it("Cookies normal: 2 token × quantity", () => {
-      expect(calculateOrderTokenFromItems([{ category: "Cookies", difficulty: "normal", quantity: 5 }])).toBe(10);
+      expect(
+        calculateOrderTokenFromItems([
+          { category: "Cookies", difficulty: "normal", quantity: 5 },
+        ]),
+      ).toBe(10);
     });
 
     it("Cookies hard: 3 token × quantity", () => {
-      expect(calculateOrderTokenFromItems([{ category: "Cookies", difficulty: "hard", quantity: 4 }])).toBe(12);
+      expect(
+        calculateOrderTokenFromItems([
+          { category: "Cookies", difficulty: "hard", quantity: 4 },
+        ]),
+      ).toBe(12);
     });
 
     it("Cookies advanced: 4 token × quantity", () => {
-      expect(calculateOrderTokenFromItems([{ category: "Cookies", difficulty: "advanced", quantity: 2 }])).toBe(8);
+      expect(
+        calculateOrderTokenFromItems([
+          { category: "Cookies", difficulty: "advanced", quantity: 2 },
+        ]),
+      ).toBe(8);
     });
 
     it("Cookies expert: 5 token × quantity", () => {
-      expect(calculateOrderTokenFromItems([{ category: "Cookies", difficulty: "expert", quantity: 1 }])).toBe(5);
+      expect(
+        calculateOrderTokenFromItems([
+          { category: "Cookies", difficulty: "expert", quantity: 1 },
+        ]),
+      ).toBe(5);
     });
 
     it("Cookies tokenDifficulty overrides difficulty", () => {
-      expect(calculateOrderTokenFromItems([{ category: "Cookies", tokenDifficulty: "expert", difficulty: "simple", quantity: 2 }])).toBe(10);
+      expect(
+        calculateOrderTokenFromItems([
+          {
+            category: "Cookies",
+            tokenDifficulty: "expert",
+            difficulty: "simple",
+            quantity: 2,
+          },
+        ]),
+      ).toBe(10);
     });
 
     // ── Bouquet ──────────────────────────────────────────────────────────
     it("Bouquet hand_bouquet: 20 tokens flat", () => {
-      expect(calculateOrderTokenFromItems([{ category: "Buket", subcategory: "Hand Bouquet" }])).toBe(20);
+      expect(
+        calculateOrderTokenFromItems([
+          { category: "Buket", subcategory: "Hand Bouquet" },
+        ]),
+      ).toBe(20);
     });
 
     it("Bouquet standing_bouquet: 50 tokens flat", () => {
-      expect(calculateOrderTokenFromItems([{ category: "Buket", subcategory: "Standing Bouquet" }])).toBe(50);
+      expect(
+        calculateOrderTokenFromItems([
+          { category: "Buket", subcategory: "Standing Bouquet" },
+        ]),
+      ).toBe(50);
     });
 
     it("Bouquet standing from productName even with generic subcategory", () => {
@@ -146,43 +183,102 @@ describe("Token Capacity Service — Unit Tests", () => {
     });
 
     // ── Cake ─────────────────────────────────────────────────────────────
-    it("Cake: 100 tokens flat (all sizes)", () => {
-      expect(calculateOrderTokenFromItems([{ category: "Cake", quantity: 1 }])).toBe(100);
+    it("Cake: 100 tokens per quantity", () => {
+      expect(
+        calculateOrderTokenFromItems([{ category: "Cake", quantity: 1 }]),
+      ).toBe(100);
+    });
+
+    it("Cake quantity multiplies token", () => {
+      expect(
+        calculateOrderTokenFromItems([{ category: "Cake", quantity: 3 }]),
+      ).toBe(300);
     });
 
     // ── Cupcakes ─────────────────────────────────────────────────────────
-    it("Cupcakes dozen: 2 tokens", () => {
-      expect(calculateOrderTokenFromItems([{ category: "Cupcakes", productName: "Dozen Box" }])).toBe(2);
+    it("Cupcakes dozen: 2 tokens per quantity", () => {
+      expect(
+        calculateOrderTokenFromItems([
+          { category: "Cupcakes", productName: "Dozen Box", quantity: 1 },
+        ]),
+      ).toBe(2);
     });
 
-    it("Cupcakes individual: 5 tokens", () => {
-      expect(calculateOrderTokenFromItems([{ category: "Cupcakes", productName: "Single Cupcake" }])).toBe(5);
+    it("Cupcakes dozen quantity multiplies token", () => {
+      expect(
+        calculateOrderTokenFromItems([
+          { category: "Cupcakes", productName: "Dozen Box", quantity: 4 },
+        ]),
+      ).toBe(8);
+    });
+
+    it("Cupcakes individual: 5 tokens per quantity", () => {
+      expect(
+        calculateOrderTokenFromItems([
+          { category: "Cupcakes", productName: "Single Cupcake", quantity: 1 },
+        ]),
+      ).toBe(5);
+    });
+
+    it("Cupcakes individual quantity multiplies token", () => {
+      expect(
+        calculateOrderTokenFromItems([
+          { category: "Cupcakes", productName: "Single Cupcake", quantity: 10 },
+        ]),
+      ).toBe(50);
     });
 
     // ── Cookies Tower ────────────────────────────────────────────────────
-    it("Cookies Tower: 100 tokens flat", () => {
-      expect(calculateOrderTokenFromItems([{ category: "Cookies Tower" }])).toBe(100);
+    it("Cookies Tower: 100 tokens per quantity", () => {
+      expect(
+        calculateOrderTokenFromItems([{ category: "Cookies Tower" }]),
+      ).toBe(100);
+    });
+
+    it("Cookies Tower quantity multiplies token", () => {
+      expect(
+        calculateOrderTokenFromItems([
+          { category: "Cookies Tower", quantity: 2 },
+        ]),
+      ).toBe(200);
+    });
+
+    it("Bouquet qty in cookie range still counts as one bouquet", () => {
+      expect(
+        calculateOrderTokenFromItems([
+          { category: "Buket", subcategory: "Hand Bouquet", quantity: 8 },
+        ]),
+      ).toBe(20);
+      expect(
+        calculateOrderTokenFromItems([
+          { category: "Buket", subcategory: "Standing Bouquet", quantity: 15 },
+        ]),
+      ).toBe(50);
     });
 
     // ── Unknown type ─────────────────────────────────────────────────────
     it("Unknown category: 0 tokens (no crash)", () => {
-      expect(calculateOrderTokenFromItems([{ category: "Gift", quantity: 5 }])).toBe(0);
+      expect(
+        calculateOrderTokenFromItems([{ category: "Gift", quantity: 5 }]),
+      ).toBe(0);
       expect(calculateOrderTokenFromItems([{ category: "" }])).toBe(0);
     });
 
     // ── Mixed orders ─────────────────────────────────────────────────────
     it("Mixed order: sum of all item tokens", () => {
       const items = [
-        { category: "Cookies", difficulty: "hard", quantity: 2 },  // 3 × 2 = 6
-        { category: "Cake", quantity: 1 },                          // 100
-        { category: "Buket", subcategory: "Hand Bouquet" },         // 20
+        { category: "Cookies", difficulty: "hard", quantity: 2 }, // 3 × 2 = 6
+        { category: "Cake", quantity: 1 }, // 100
+        { category: "Buket", subcategory: "Hand Bouquet" }, // 20
       ];
       expect(calculateOrderTokenFromItems(items)).toBe(126);
     });
 
     // ── Non-negative guarantee ────────────────────────────────────────────
     it("should never return negative values", () => {
-      const result = calculateOrderTokenFromItems([{ category: "Cookies", difficulty: "simple", quantity: 0 }]);
+      const result = calculateOrderTokenFromItems([
+        { category: "Cookies", difficulty: "simple", quantity: 0 },
+      ]);
       expect(result).toBe(0);
     });
   });
@@ -293,26 +389,43 @@ describe.skip("Token Capacity Service — Integration Tests", () => {
       expect(successes.length).toBeLessThanOrEqual(1);
 
       // Verify final state doesn't exceed max
-      const finalCapacity = await getCapacityForDate(TEST_BUSINESS_ID, TEST_DATE);
-      expect(finalCapacity.usedToken).toBeLessThanOrEqual(finalCapacity.maxToken);
+      const finalCapacity = await getCapacityForDate(
+        TEST_BUSINESS_ID,
+        TEST_DATE,
+      );
+      expect(finalCapacity.usedToken).toBeLessThanOrEqual(
+        finalCapacity.maxToken,
+      );
     });
   });
 
   // ── Test: checkTokenAvailability ──
   describe("checkTokenAvailability", () => {
     it("should return true when capacity is available", async () => {
-      const available = await checkTokenAvailability(TEST_BUSINESS_ID, TEST_DATE, 100);
+      const available = await checkTokenAvailability(
+        TEST_BUSINESS_ID,
+        TEST_DATE,
+        100,
+      );
       expect(available).toBe(true);
     });
 
     it("should return false when capacity is full", async () => {
       await consumeToken(TEST_BUSINESS_ID, TEST_DATE, 599);
-      const available = await checkTokenAvailability(TEST_BUSINESS_ID, TEST_DATE, 2);
+      const available = await checkTokenAvailability(
+        TEST_BUSINESS_ID,
+        TEST_DATE,
+        2,
+      );
       expect(available).toBe(false);
     });
 
     it("should return true for zero tokens needed", async () => {
-      const available = await checkTokenAvailability(TEST_BUSINESS_ID, TEST_DATE, 0);
+      const available = await checkTokenAvailability(
+        TEST_BUSINESS_ID,
+        TEST_DATE,
+        0,
+      );
       expect(available).toBe(true);
     });
   });

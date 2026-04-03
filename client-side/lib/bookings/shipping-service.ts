@@ -83,6 +83,12 @@ const EXTERNAL_REQUEST_RETRY_COUNT = Math.max(
   0,
   Math.floor(parseNumber(process.env.SHIPPING_EXTERNAL_RETRY_COUNT, 1)),
 );
+const EXTERNAL_RETRY_BASE_DELAY_MS = Math.max(
+  100,
+  Math.floor(
+    parseNumber(process.env.SHIPPING_EXTERNAL_RETRY_BASE_DELAY_MS, 300),
+  ),
+);
 const DEFAULT_ORIGIN: OriginConfig = {
   address: "Jakarta Selatan",
   postalCode: "12190",
@@ -157,11 +163,36 @@ async function fetchExternalWithRetry(
   );
 
   let lastError: unknown;
+
+  const shouldRetryResponse = (status: number): boolean =>
+    status === 408 ||
+    status === 425 ||
+    status === 429 ||
+    status === 500 ||
+    status === 502 ||
+    status === 503 ||
+    status === 504;
+
+  const sleep = async (ms: number) =>
+    new Promise<void>((resolve) => {
+      setTimeout(resolve, ms);
+    });
+
   for (let attempt = 0; attempt <= retryCount; attempt += 1) {
     try {
-      return await fetchWithTimeout(input, init, timeoutMs);
+      const response = await fetchWithTimeout(input, init, timeoutMs);
+      if (!shouldRetryResponse(response.status) || attempt === retryCount) {
+        return response;
+      }
+
+      const delayMs = EXTERNAL_RETRY_BASE_DELAY_MS * Math.pow(2, attempt);
+      await sleep(delayMs);
     } catch (error) {
       lastError = error;
+      if (attempt < retryCount) {
+        const delayMs = EXTERNAL_RETRY_BASE_DELAY_MS * Math.pow(2, attempt);
+        await sleep(delayMs);
+      }
     }
   }
 
@@ -244,6 +275,29 @@ function cleanSpaces(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
 
+function normalizeAreaHint(value: string | undefined): string | undefined {
+  const normalized = cleanSpaces(value || "");
+  if (!normalized) return undefined;
+
+  const lowered = normalized.toLowerCase();
+  if (
+    lowered === "outside area" ||
+    lowered === "outside" ||
+    lowered === "luar area" ||
+    lowered === "other" ||
+    lowered === "others" ||
+    lowered === "optional" ||
+    lowered === "n/a" ||
+    lowered === "na" ||
+    lowered === "none" ||
+    lowered === "-"
+  ) {
+    return undefined;
+  }
+
+  return normalized;
+}
+
 function normalizeAddressForLookup(address: string): string {
   return cleanSpaces(
     address
@@ -262,9 +316,64 @@ function normalizeAddressForLookup(address: string): string {
   );
 }
 
+const LOCATION_TOKEN_STOP_WORDS = new Set([
+  "jalan",
+  "kecamatan",
+  "kelurahan",
+  "kabupaten",
+  "provinsi",
+  "nomor",
+  "komplek",
+  "kompleks",
+  "indonesia",
+  "outside",
+  "area",
+]);
+
+function buildLocationTokens(value: string): string[] {
+  const normalized = normalizeAddressForLookup(value).toLowerCase();
+  const tokens = normalized
+    .split(/[^a-z0-9]+/)
+    .map((token) => token.trim())
+    .filter(
+      (token) =>
+        token.length >= 4 &&
+        !/^\d+$/.test(token) &&
+        !LOCATION_TOKEN_STOP_WORDS.has(token),
+    );
+
+  return uniqueByKey(tokens, (token) => token);
+}
+
+function scoreAreaHintMatch(args: {
+  areaName: string;
+  addressTokens: string[];
+  expectedPostalCode?: string;
+}): number {
+  const normalizedName = normalizeAddressForLookup(args.areaName).toLowerCase();
+  if (!normalizedName) return 0;
+
+  let score = 0;
+  if (
+    args.expectedPostalCode &&
+    normalizedName.includes(args.expectedPostalCode)
+  ) {
+    score += 10;
+  }
+
+  for (const token of args.addressTokens) {
+    if (normalizedName.includes(token)) {
+      score += 2;
+    }
+  }
+
+  return score;
+}
+
 function simplifyAddressForGeocoding(address: string): string {
   return cleanSpaces(
     normalizeAddressForLookup(address)
+      .replace(/\b(kecamatan|kelurahan|kabupaten|provinsi|kota)\b/gi, " ")
       .replace(
         /\b(lantai|lt\.?|gedung|tower|blok|patokan|komplek|kompleks)\b.*$/gi,
         " ",
@@ -300,6 +409,7 @@ function buildGeocodeQueries(
   address: string,
   destinationArea?: string,
 ): string[] {
+  const normalizedAreaHint = normalizeAreaHint(destinationArea);
   const simplifiedAddress = simplifyAddressForGeocoding(address);
   const baseParts = simplifiedAddress
     .split(",")
@@ -314,8 +424,10 @@ function buildGeocodeQueries(
 
   const candidates = [
     simplifiedAddress,
-    `${simplifiedAddress} ${destinationArea || ""}`.trim(),
-    destinationArea || "",
+    normalizedAreaHint
+      ? `${simplifiedAddress} ${normalizedAreaHint}`.trim()
+      : "",
+    normalizedAreaHint || "",
     ...rollingQueries,
   ]
     .map((entry) => cleanSpaces(entry))
@@ -341,14 +453,15 @@ function buildAreaLookupQueries(
   destinationArea?: string,
   destinationPostalCode?: string,
 ): string[] {
+  const normalizedAreaHint = normalizeAreaHint(destinationArea);
   const normalizedAddress = normalizeAddressForLookup(address);
   const sanitizedPostalCode = sanitizePostalCode(destinationPostalCode);
   const queries = [
     sanitizedPostalCode || "",
     address,
     normalizedAddress,
-    destinationArea || "",
-    `${normalizedAddress} ${destinationArea || ""}`.trim(),
+    normalizedAreaHint || "",
+    `${normalizedAddress} ${normalizedAreaHint || ""}`.trim(),
   ].map(cleanSpaces);
 
   const uniqueQueries = uniqueByKey(queries.filter(Boolean), (entry) =>
@@ -370,7 +483,14 @@ async function resolveAreaHintsFromBiteship(
     destinationArea,
     destinationPostalCode,
   );
-  let fallbackPoint: GeoPoint | undefined;
+  const addressTokens = buildLocationTokens(
+    `${address}, ${normalizeAreaHint(destinationArea) || ""}`,
+  );
+  const expectedPostalCode = sanitizePostalCode(destinationPostalCode);
+  const confidenceThreshold = expectedPostalCode ? 4 : 2;
+  let bestScore = 0;
+  let bestPostalCode: string | undefined;
+  let bestPoint: GeoPoint | undefined;
 
   for (const queryText of queries) {
     const query = new URLSearchParams({
@@ -403,24 +523,38 @@ async function resolveAreaHintsFromBiteship(
 
     const areas = Array.isArray(data.areas) ? data.areas : [];
     for (const area of areas) {
-      if (!fallbackPoint) {
-        fallbackPoint = pointFromArea(area) || undefined;
-      }
+      const areaName = asString(area.name);
+      const code = extractPostalCode(areaName);
+      const point = pointFromArea(area) || undefined;
+      const score = scoreAreaHintMatch({
+        areaName,
+        addressTokens,
+        expectedPostalCode,
+      });
 
-      const code = extractPostalCode(asString(area.name));
-      const point = pointFromArea(area) || fallbackPoint;
-      if (code || point) {
-        return {
-          postalCode: code,
-          point,
-        };
+      if (score > bestScore) {
+        bestScore = score;
+        bestPostalCode = code;
+        bestPoint = point;
       }
+    }
+
+    if (bestScore >= confidenceThreshold) {
+      return {
+        postalCode: bestPostalCode,
+        point: bestPoint,
+      };
     }
   }
 
-  return {
-    point: fallbackPoint,
-  };
+  if (bestScore > 0) {
+    return {
+      postalCode: bestPostalCode,
+      point: bestPoint,
+    };
+  }
+
+  return {};
 }
 
 async function geocodeAddress(
@@ -475,63 +609,9 @@ async function geocodeAddressWithArea(
   address: string,
   destinationArea?: string,
 ): Promise<GeoPoint | null> {
-  const merged = cleanSpaces(`${address}, ${destinationArea || ""}`);
-  return geocodeAddress(merged || address, destinationArea);
-}
-
-async function geocodeByPostalCode(
-  postalCode: string,
-  destinationArea?: string,
-): Promise<GeoPoint | null> {
-  const sanitizedPostalCode = sanitizePostalCode(postalCode);
-  if (!sanitizedPostalCode) return null;
-
-  const queries = [
-    `${sanitizedPostalCode}, ${destinationArea || ""}, Indonesia`,
-    `${sanitizedPostalCode}, Indonesia`,
-  ]
-    .map((entry) => cleanSpaces(entry))
-    .filter(Boolean);
-
-  for (const queryText of queries) {
-    const query = new URLSearchParams({
-      format: "json",
-      limit: "1",
-      q: queryText,
-    });
-
-    let response: Response;
-    try {
-      response = await fetchExternalWithRetry(
-        `https://nominatim.openstreetmap.org/search?${query.toString()}`,
-        {
-          headers: {
-            "User-Agent": "cuanify-bakery-oms/1.0",
-          },
-          cache: "no-store",
-        },
-      );
-    } catch {
-      continue;
-    }
-
-    if (!response.ok) continue;
-
-    const payload = (await response.json().catch(() => [])) as Array<{
-      lat?: string;
-      lon?: string;
-    }>;
-    const first = payload[0];
-    if (!first?.lat || !first?.lon) continue;
-
-    const latitude = Number(first.lat);
-    const longitude = Number(first.lon);
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) continue;
-
-    return { latitude, longitude };
-  }
-
-  return null;
+  const normalizedAreaHint = normalizeAreaHint(destinationArea);
+  const merged = cleanSpaces(`${address}, ${normalizedAreaHint || ""}`);
+  return geocodeAddress(merged || address, normalizedAreaHint);
 }
 
 async function resolveDestination(
@@ -559,36 +639,31 @@ async function resolveDestination(
     };
   }
 
+  const normalizedAreaHint = normalizeAreaHint(payload.destinationArea);
+
   const postalCodeFromPayload = sanitizePostalCode(
     payload.destinationPostalCode,
   );
   const postalCodeFromAddress = extractPostalCode(payload.destinationAddress);
   const areaHints = await resolveAreaHintsFromBiteship(
     payload.destinationAddress,
-    payload.destinationArea,
+    normalizedAreaHint,
     payload.destinationPostalCode,
   );
 
   const postalCodeFromAreaLookup =
     postalCodeFromPayload || postalCodeFromAddress || areaHints.postalCode;
-
-  const postalPoint = postalCodeFromAreaLookup
-    ? await geocodeByPostalCode(
-        postalCodeFromAreaLookup,
-        payload.destinationArea,
-      )
-    : null;
   const directPoint = await geocodeAddress(
     payload.destinationAddress,
-    payload.destinationArea,
+    normalizedAreaHint,
   );
   const areaPoint = await geocodeAddressWithArea(
     payload.destinationAddress,
-    payload.destinationArea,
+    normalizedAreaHint,
   );
 
-  const pointWithArea =
-    areaHints.point || postalPoint || directPoint || areaPoint || null;
+  const pointWithArea: GeoPoint | null =
+    directPoint || areaPoint || areaHints.point || null;
 
   return {
     point: pointWithArea,

@@ -1,0 +1,36 @@
+{
+  "folder": "Custom Order Handbouquet",
+  "images": 26,
+  "chunks": 7,
+  "chunkReports": [
+    {
+      "chunk": 1,
+      "status": 413,
+      "success": false,
+      "files": [
+        "IMG_6990.PNG",
+        "IMG_6991.PNG",
+        "IMG_6992.PNG",
+        "IMG_6993.PNG"
+      ]
+    }
+  ],
+  "final": {
+    "success": false,
+    "error": "chunk_failed",
+    "chunkReports": [
+      {
+        "chunk": 1,
+        "status": 413,
+        "success": false,
+        "files": [
+          "IMG_6990.PNG",
+          "IMG_6991.PNG",
+          "IMG_6992.PNG",
+          "IMG_6993.PNG"
+        ]
+      }
+    ]
+  },
+  "mergedVision": ""
+}

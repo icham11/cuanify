@@ -63,7 +63,7 @@ export default function ProductionTable() {
       return ["In Production", "Ready", "Delivered"];
     if (status === "Ready") return ["Ready", "Delivered"];
     if (status === "Delivered") return ["Delivered", "Completed"];
-    return ["Confirmed", "In Production", "Ready", "Delivered", "Completed"];
+    return ["In Production", "Ready", "Delivered", "Completed"];
   };
 
   if (activeOrders.length === 0 && readyOrders.length === 0) {
