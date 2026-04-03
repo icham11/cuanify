@@ -733,14 +733,6 @@ export default function BookingForm() {
     [deliveryMethod],
   );
 
-  const hasBouquetItems = useMemo(
-    () =>
-      watchedItems.some((item) => {
-        return (item.category || "") === "Buket";
-      }),
-    [watchedItems],
-  );
-
   const methodSpecificShippingQuotes = useMemo(() => {
     if (!shouldUseShippingEngine) return [];
 
@@ -772,12 +764,6 @@ export default function BookingForm() {
       );
     };
 
-    const isPaxelLargeService = (quote: ShippingQuote) => {
-      const source =
-        `${quote.courierServiceCode} ${quote.courierServiceName}`.toLowerCase();
-      return source.includes("large") || source.includes("xl");
-    };
-
     const gojekQuotes = shippingQuotes.filter(
       (quote) => quote.provider === "GOJEK",
     );
@@ -789,12 +775,7 @@ export default function BookingForm() {
       const paxelQuotes = shippingQuotes.filter(
         (quote) => quote.provider === "PAXEL",
       );
-
-      if (!hasBouquetItems) {
-        return paxelQuotes;
-      }
-
-      return paxelQuotes.filter(isPaxelLargeService);
+      return paxelQuotes;
     }
 
     if (deliveryMethod === "ASSISTED_GRAB") {
@@ -838,12 +819,7 @@ export default function BookingForm() {
     }
 
     return shippingQuotes;
-  }, [
-    deliveryMethod,
-    shippingQuotes,
-    shouldUseShippingEngine,
-    hasBouquetItems,
-  ]);
+  }, [deliveryMethod, shippingQuotes, shouldUseShippingEngine]);
 
   const isStrictDeliveryMethod =
     deliveryMethod === "ASSISTED_PAXEL" ||
@@ -904,9 +880,6 @@ export default function BookingForm() {
     if (!isShippingFallbackActive) return "";
 
     if (deliveryMethod === "ASSISTED_PAXEL") {
-      if (hasBouquetItems) {
-        return "Layanan Paxel untuk bouquet wajib varian Large. Opsi Paxel Large belum tersedia untuk alamat ini.";
-      }
       return "Layanan Paxel belum tersedia untuk alamat ini. Pilih metode lain atau ubah alamat penerima.";
     }
     if (deliveryMethod === "ASSISTED_GRAB") {
@@ -922,7 +895,7 @@ export default function BookingForm() {
       return "Layanan JNE/J&T belum tersedia untuk alamat ini. Pilih metode lain atau ubah alamat penerima.";
     }
     return "Layanan kurir pada metode terpilih belum tersedia. Pilih metode lain atau ubah alamat penerima.";
-  }, [deliveryMethod, isShippingFallbackActive, hasBouquetItems]);
+  }, [deliveryMethod, isShippingFallbackActive]);
 
   const selectedShippingQuote = useMemo(
     () =>

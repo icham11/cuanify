@@ -36,8 +36,12 @@ const PRODUCT_WEIGHT_RULES: Array<{ probe: string; weightGram: number }> = [
   { probe: "lotus box", weightGram: 1000 },
   { probe: "sharing box", weightGram: 167 },
   { probe: "hand bouquet", weightGram: 3000 },
+  { probe: "standing bouquet", weightGram: 7000 },
   { probe: "diy pack", weightGram: 1000 },
 ];
+
+const BOUQUET_COOKIE_QTY_MIN = 7;
+const BOUQUET_COOKIE_QTY_MAX = 20;
 
 export const DELIVERY_METHOD_OPTIONS: DeliveryMethodOption[] = [
   {
@@ -97,6 +101,21 @@ function getQuantity(item: DeliveryRuleItem): number {
   return Math.max(1, Math.round(parsed));
 }
 
+function resolveOperationalUnits(item: DeliveryRuleItem): number {
+  const quantity = getQuantity(item);
+  if ((item.category || "") !== "Buket") return quantity;
+
+  // Bouquet qty in form often means cookie fill count (7-20), not number of bundles.
+  if (
+    quantity >= BOUQUET_COOKIE_QTY_MIN &&
+    quantity <= BOUQUET_COOKIE_QTY_MAX
+  ) {
+    return 1;
+  }
+
+  return quantity;
+}
+
 export function estimateOperationalWeightGram(item: DeliveryRuleItem): number {
   const source = getItemSource(item);
   const matchedRule = PRODUCT_WEIGHT_RULES.find((rule) =>
@@ -108,7 +127,7 @@ export function estimateOperationalWeightGram(item: DeliveryRuleItem): number {
     DEFAULT_WEIGHT_BY_CATEGORY[item.category || ""] ??
     500;
 
-  return Math.max(100, Math.round(unitWeight * getQuantity(item)));
+  return Math.max(100, Math.round(unitWeight * resolveOperationalUnits(item)));
 }
 
 export function isGrabCarOnlyItem(item: DeliveryRuleItem): boolean {
