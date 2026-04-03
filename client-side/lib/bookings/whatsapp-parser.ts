@@ -1219,7 +1219,33 @@ function buildMixedSupplementAutoFillItems(
   itemNotes: string,
 ): BookingAutoFillItem[] {
   const orderText = parsed.common.order || "";
-  if (!orderText.trim()) return [];
+  const rawText = parsed.rawText || "";
+
+  const hasTowerMarker =
+    /cookies?\s*tower|tower\s*cookies?/i.test(orderText) ||
+    /\btema\s*design\b|\btema\s*desain\b|\btema\s*warna\b|\bcookies\s*tower\b/i.test(
+      rawText,
+    );
+  const hasCakeMarker =
+    /\bcake\b/i.test(orderText) ||
+    /\bnama\s+di\s+cake\b|\bumur\s+di\s+cake\b|\bukuran\s+cake\b|\brasa\s+cake\b|\bdesign\s+cake\b|\bdesain\s+cake\b/i.test(
+      rawText,
+    );
+  const hasCupcakeMarker =
+    /\bcupcakes?\b/i.test(orderText) ||
+    /\bjumlah\s+cupcakes?\b|\brasa\s+cupcakes?\b|\bwarna\s+cupcakes?\b|\bjumlah\s+topper\s+cookies\b|\bdata\s+cupcakes\b/i.test(
+      rawText,
+    );
+  const hasBouquetMarker =
+    /(buket|bouquet)/i.test(orderText) ||
+    /\bwarna\s+kertas\s+bouquet\b|\bwarna\s+kertas\s+buket\b|\bisi\s+bouquet\b|\bisi\s+buket\b|\bwarna\s+bunga\b|\bkartu\s+ucapan\b|\bharga\s+cookie\b|\bharga\s+cookies\b|\bcookie\s+price\b|\bhand\s+bouquet\b|\bstanding\s+bouquet\b|\bdata\s+buket\b/i.test(
+      rawText,
+    );
+  const hasCookiesMarker = /\bto\s+from\s+notes\b|\bdata\s+cookies\b/i.test(
+    rawText,
+  );
+
+  if (!orderText.trim() && !rawText.trim()) return [];
 
   const primaryCategory = getCategoryByOrderType(parsed.orderType);
   const supplements: BookingAutoFillItem[] = [];
@@ -1241,8 +1267,7 @@ function buildMixedSupplementAutoFillItems(
     );
   };
 
-  const hasTower = /cookies?\s*tower|tower\s*cookies?/i.test(orderText);
-  if (primaryCategory !== "Cookies Tower" && hasTower) {
+  if (primaryCategory !== "Cookies Tower" && hasTowerMarker) {
     const quantity =
       extractQuantityForKeywords(orderText, [
         "cookies tower",
@@ -1252,12 +1277,12 @@ function buildMixedSupplementAutoFillItems(
     pushItem("Cookies Tower", quantity, orderText);
   }
 
-  if (primaryCategory !== "Cake" && /\bcake\b/i.test(orderText)) {
+  if (primaryCategory !== "Cake" && hasCakeMarker) {
     const quantity = extractQuantityForKeywords(orderText, ["cake"]) ?? 1;
-    pushItem("Cake", quantity, orderText);
+    pushItem("Cake", quantity, orderText || rawText);
   }
 
-  if (primaryCategory !== "Cupcakes" && /\bcupcakes?\b/i.test(orderText)) {
+  if (primaryCategory !== "Cupcakes" && hasCupcakeMarker) {
     const breakdown = parseCupcakeQuantityBreakdown([orderText]);
 
     if (breakdown.dozenCount > 0) {
@@ -1277,17 +1302,22 @@ function buildMixedSupplementAutoFillItems(
         extractQuantityForKeywords(orderText, ["cupcakes", "cupcake"]) ??
         breakdown.fallbackQuantity ??
         1;
-      pushItem("Cupcakes", quantity, orderText);
+      pushItem("Cupcakes", quantity, orderText || rawText);
     }
   }
 
   const bouquetCookiePrice = parseCurrencyAmount(
     parsed.details.cookiePrice ?? "",
   );
-  if (primaryCategory !== "Buket" && /(buket|bouquet)/i.test(orderText)) {
+  if (primaryCategory !== "Buket" && hasBouquetMarker) {
     const quantity =
       extractQuantityForKeywords(orderText, ["buket", "bouquet"]) ?? 1;
-    pushItem("Buket", quantity, orderText, bouquetCookiePrice ?? undefined);
+    pushItem(
+      "Buket",
+      quantity,
+      orderText || rawText,
+      bouquetCookiePrice ?? undefined,
+    );
   }
 
   const orderWithoutTower = orderText.replace(/cookies?\s*tower/gi, " ");
@@ -1296,13 +1326,13 @@ function buildMixedSupplementAutoFillItems(
     " ",
   );
   const hasCookiesOnly = /\bcookies?\b/i.test(orderWithoutTopper);
-  if (primaryCategory !== "Cookies" && hasCookiesOnly) {
+  if (primaryCategory !== "Cookies" && (hasCookiesOnly || hasCookiesMarker)) {
     const quantity =
       extractQuantityForKeywords(orderWithoutTopper, ["cookies", "cookie"]) ??
       extractOrderQuantity(orderWithoutTopper) ??
       extractPositiveInteger(orderWithoutTopper) ??
       1;
-    pushItem("Cookies", quantity, orderWithoutTopper);
+    pushItem("Cookies", quantity, orderWithoutTopper || rawText);
   }
 
   return mergeAutoFillItems(supplements);

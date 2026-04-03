@@ -90,4 +90,41 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
     expect(hasCookiesSupplement).toBe(false);
     expect(autoFill.items.map((item) => item.category)).toEqual(["Cake"]);
   });
+
+  it("detects cake supplement when primary parse is cupcakes", () => {
+    const text = [
+      "Data Cupcakes",
+      "Tanggal Pengiriman: 26 Maret 2026",
+      "KODE BOOKING: BK-456",
+      "Order: 1 dozen cupcakes + 1 cookies",
+      "Jumlah Cupcakes: 1 dozen",
+      "Rasa Cupcakes: Vanilla",
+      "Warna Cupcakes: Pink",
+      "Jumlah Topper Cookies: 0",
+      "Nama di Cake: Alya",
+      "Ukuran cake: 16 cm",
+      "Jam Pengiriman: 10:00",
+      "Metode Pengiriman: Gocar",
+      "Nama penerima: Test Mixed",
+      "No. telp penerima: 081234567891",
+      "Alamat lengkap: Central City",
+    ].join("\n");
+
+    const parsed = parseWhatsAppOrderText(text, {
+      preferredOrderType: "unknown",
+      sourceType: "manual",
+    });
+    const autoFill = buildBookingAutoFillFromParsed(parsed);
+
+    const categories = autoFill.items.map((item) => item.category).sort();
+    expect(categories).toEqual(["Cake", "Cookies", "Cupcakes"]);
+
+    const quantitiesByCategory = new Map(
+      autoFill.items.map((item) => [item.category, item.quantity]),
+    );
+
+    expect(quantitiesByCategory.get("Cupcakes")).toBe(1);
+    expect(quantitiesByCategory.get("Cookies")).toBe(1);
+    expect(quantitiesByCategory.get("Cake")).toBe(1);
+  });
 });
