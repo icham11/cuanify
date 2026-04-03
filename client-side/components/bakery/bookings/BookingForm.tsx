@@ -136,7 +136,6 @@ type BookingFormInput = z.input<typeof bookingSchema>;
 type BookingFormValues = z.output<typeof bookingSchema>;
 type BookingItemInput = BookingFormInput["items"][number];
 type ParserSource = WhatsAppSourceType;
-type ParserSourceMode = ParserSource | "auto";
 type ParserOrderType = WhatsAppOrderType | "unknown";
 const EMPTY_ITEMS: BookingFormInput["items"] = [];
 const EMPTY_ADDRESSES: BookingFormInput["deliveryAddresses"] = [];
@@ -151,6 +150,10 @@ const BOUQUET_STANDING_MIN_QTY = 12;
 const BOUQUET_STANDING_MAX_QTY = 20;
 const CUPCAKE_INDIVIDUAL_MIN_QTY = 10;
 const COOKIE_INDIVIDUAL_MIN_QTY = 20;
+const GRABCAR_REQUIRED_METHODS: DeliveryMethod[] = [
+  "ASSISTED_GRAB",
+  "ASSISTED_GOCAR",
+];
 
 interface ItemQuantityRule {
   label: string;
@@ -213,7 +216,6 @@ interface ParseWhatsAppRequestArgs {
   sourceType: ParserSource;
   orderType: ParserOrderType;
   text?: string;
-  files?: File[];
 }
 
 class ParseWhatsAppApiError extends Error {
@@ -249,6 +251,9 @@ const whatsappOrderTypeOptions: Array<{
   { value: "buket", label: WHATSAPP_ORDER_LABELS.buket },
   { value: "cookies_tower", label: WHATSAPP_ORDER_LABELS.cookies_tower },
 ];
+const specificWhatsappOrderTypeOptions = whatsappOrderTypeOptions.filter(
+  (option) => option.value !== "unknown",
+);
 
 function getDefaultSelectionFromCatalog(
   catalog: PricelistCategory[],
@@ -531,10 +536,9 @@ export default function BookingForm() {
   const { addOrder, orders } = useOrders();
   const { productCatalog, addOnCatalog } = useCatalogAdminState();
   const [quickPaste, setQuickPaste] = useState("");
-  const [parserSource, setParserSource] = useState<ParserSourceMode>("auto");
   const [selectedOrderType, setSelectedOrderType] =
     useState<ParserOrderType>("unknown");
-  const [uploadedChatImages, setUploadedChatImages] = useState<File[]>([]);
+  const [showOrderTypeSelector, setShowOrderTypeSelector] = useState(false);
   const [isParsingWhatsApp, setIsParsingWhatsApp] = useState(false);
   const [isFetchingMarketplaceEmail, setIsFetchingMarketplaceEmail] =
     useState(false);
@@ -547,6 +551,8 @@ export default function BookingForm() {
   const [shippingDistanceKm, setShippingDistanceKm] = useState<number | null>(
     null,
   );
+  const [shippingDistanceSource, setShippingDistanceSource] =
+    useState<ShippingQuoteResponse["distanceSource"]>(undefined);
   const [shippingWarning, setShippingWarning] = useState("");
   const [showAllShippingOptions, setShowAllShippingOptions] = useState(false);
   const [isCheckingShipping, setIsCheckingShipping] = useState(false);
@@ -950,15 +956,29 @@ export default function BookingForm() {
     [watchedItems],
   );
   const isGrabCarOnlyOrder = grabCarOnlyReasons.length > 0;
-  const grabCarCompatibleMethods: DeliveryMethod[] = [
-    "PICKUP",
-    "CUSTOMER_APP_COURIER",
-    "ASSISTED_GRAB",
-    "ASSISTED_GOCAR",
-  ];
-  const isGrabCarMethodSelected = grabCarCompatibleMethods.includes(
+  const isGrabCarMethodSelected = GRABCAR_REQUIRED_METHODS.includes(
     deliveryMethod as DeliveryMethod,
   );
+  const selectableDeliveryMethodOptions = useMemo(
+    () =>
+      isGrabCarOnlyOrder
+        ? DELIVERY_METHOD_OPTIONS.filter((option) =>
+            GRABCAR_REQUIRED_METHODS.includes(option.value as DeliveryMethod),
+          )
+        : DELIVERY_METHOD_OPTIONS,
+    [isGrabCarOnlyOrder],
+  );
+
+  useEffect(() => {
+    if (!isGrabCarOnlyOrder) return;
+    if (GRABCAR_REQUIRED_METHODS.includes(deliveryMethod as DeliveryMethod)) {
+      return;
+    }
+
+    setValue("deliveryMethod", "ASSISTED_GOCAR", {
+      shouldValidate: true,
+    });
+  }, [isGrabCarOnlyOrder, deliveryMethod, setValue]);
 
   const primaryAddressLine = watchedAddresses[0]?.addressLine?.trim() || "";
   const isAddressTooShortForShipping =
@@ -1246,6 +1266,7 @@ export default function BookingForm() {
       setShippingQuotes([]);
       setSelectedShippingQuoteId("");
       setShippingDistanceKm(null);
+      setShippingDistanceSource(undefined);
       setShippingWarning("");
       return;
     }
@@ -1282,6 +1303,7 @@ export default function BookingForm() {
           return sortedQuotes[0]?.id || "";
         });
         setShippingDistanceKm(payload.distanceKm ?? null);
+        setShippingDistanceSource(payload.distanceSource);
         setShippingWarning(payload.warning || "");
       } catch (error: unknown) {
         if (controller.signal.aborted) return;
@@ -1290,6 +1312,7 @@ export default function BookingForm() {
         setShippingQuotes([]);
         setSelectedShippingQuoteId("");
         setShippingDistanceKm(null);
+        setShippingDistanceSource(undefined);
         setShippingWarning(message);
       } finally {
         if (!controller.signal.aborted) {
@@ -1317,10 +1340,10 @@ export default function BookingForm() {
 
     if (
       isGrabCarOnlyOrder &&
-      !grabCarCompatibleMethods.includes(deliveryMethod as DeliveryMethod)
+      !GRABCAR_REQUIRED_METHODS.includes(deliveryMethod as DeliveryMethod)
     ) {
       toast.error(
-        `Produk ${grabCarOnlyReasons.join(", ")} wajib GrabCar/GoCar. Pilih metode customer app, Grab (dibantu admin), atau GoCar (dibantu admin).`,
+        `Produk ${grabCarOnlyReasons.join(", ")} wajib Grab/GoCar (dibantu admin).`,
       );
       return;
     }
@@ -1580,12 +1603,14 @@ export default function BookingForm() {
 
       setDraftImported(false);
       setQuickPaste("");
-      setUploadedChatImages([]);
+      setSelectedOrderType("unknown");
+      setShowOrderTypeSelector(false);
       setParsedPreview(null);
       setVisionRawOutput("");
       setShippingQuotes([]);
       setSelectedShippingQuoteId("");
       setShippingDistanceKm(null);
+      setShippingDistanceSource(undefined);
       setShippingWarning("");
       reset();
     } catch (error) {
@@ -1615,10 +1640,6 @@ export default function BookingForm() {
 
     if (args.text?.trim()) {
       formData.append("text", args.text.trim());
-    }
-
-    if (args.files?.length) {
-      args.files.forEach((file) => formData.append("files", file));
     }
 
     const response = await fetch("/api/bookings/parse-whatsapp", {
@@ -1651,38 +1672,20 @@ export default function BookingForm() {
 
   const importDraft = async (override?: {
     sourceType?: ParserSource;
+    orderType?: ParserOrderType;
     text?: string;
-    files?: File[];
     successMessage?: string;
   }) => {
     const textInput = (override?.text ?? quickPaste).trim();
-    const sourceFiles = override?.files ?? uploadedChatImages;
 
-    const selectedSourceMode: ParserSourceMode =
-      override?.sourceType ?? parserSource;
-    const inferredSourceType: ParserSource = override?.sourceType
-      ? override.sourceType
-      : selectedSourceMode === "auto"
-        ? "text"
-        : selectedSourceMode;
-    const sourceType: ParserSource =
-      inferredSourceType === "image" && sourceFiles.length === 0
-        ? "text"
-        : inferredSourceType;
-
-    if (!textInput && sourceFiles.length === 0) {
+    if (!textInput) {
       toast.error(
         "Paste chat WhatsApp atau isi template manual terlebih dulu.",
       );
       return;
     }
 
-    if (sourceType !== "image" && !textInput) {
-      toast.error(
-        "Paste text WhatsApp atau isi template manual terlebih dulu.",
-      );
-      return;
-    }
+    const sourceType: ParserSource = override?.sourceType ?? "text";
 
     if (sourceType === "image") {
       toast.error(
@@ -1695,9 +1698,8 @@ export default function BookingForm() {
     try {
       const payload = await callWhatsAppParser({
         sourceType,
-        orderType: selectedOrderType,
+        orderType: override?.orderType ?? selectedOrderType,
         text: textInput,
-        files: [],
       });
 
       const draft = payload.autoFill;
@@ -1770,6 +1772,7 @@ export default function BookingForm() {
       setParsedPreview(payload.parsed);
       setVisionRawOutput(payload.visionRawOutput ?? "");
       setDraftImported(true);
+      setShowOrderTypeSelector(false);
 
       if (payload.warnings?.length) {
         toast.warning(payload.warnings.join(" "));
@@ -1792,12 +1795,12 @@ export default function BookingForm() {
 
   const fillManualTemplate = () => {
     if (selectedOrderType === "unknown") {
+      setShowOrderTypeSelector(true);
       toast.error(
         "Untuk mode manual, pilih jenis order spesifik dulu (bukan Auto Detect).",
       );
       return;
     }
-    setParserSource("manual");
     setQuickPaste(buildWhatsAppTemplate(selectedOrderType));
     toast.message(
       "Template manual berhasil diisi. Lanjutkan isi lalu klik Parse WhatsApp.",
@@ -1833,12 +1836,10 @@ export default function BookingForm() {
         return;
       }
 
-      setParserSource("email");
       setQuickPaste(payload.message.text);
       await importDraft({
         sourceType: "email",
         text: payload.message.text,
-        files: [],
         successMessage: payload.message.subject
           ? `Email terbaru diparse: ${payload.message.subject}`
           : "Email marketplace terbaru berhasil diparse.",
@@ -1861,23 +1862,47 @@ export default function BookingForm() {
           <CardTitle>WhatsApp & Email Parser (Paste / Manual)</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4 px-6 pb-6 pt-0">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="grid gap-2 text-sm font-medium text-gray-700">
-              Sumber Input
-              <Select
-                value={parserSource}
-                onChange={(event) =>
-                  setParserSource(event.target.value as ParserSourceMode)
-                }
+          <div className="rounded-xl border border-indigo-100 bg-indigo-50/70 px-3 py-2 text-xs text-indigo-700">
+            <p>
+              Default parser: <span className="font-semibold">Auto Detect</span>
+              . Cukup paste chat lalu klik Parse WhatsApp.
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span className="rounded-md border border-indigo-200 bg-white px-2 py-1 font-semibold text-indigo-700">
+                Mode aktif:{" "}
+                {selectedOrderType === "unknown"
+                  ? "Auto Detect"
+                  : WHATSAPP_ORDER_LABELS[selectedOrderType]}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-7 border-indigo-200 px-2 text-[11px] text-indigo-700 hover:bg-indigo-100"
+                onClick={() => setShowOrderTypeSelector((current) => !current)}
               >
-                <option value="auto">Auto Detect (Text)</option>
-                <option value="text">Copy Paste Chat WhatsApp</option>
-                <option value="manual">Manual Input (Template)</option>
-                <option value="email">Paste Email E-commerce</option>
-              </Select>
-            </label>
+                {showOrderTypeSelector
+                  ? "Sembunyikan Jenis Order"
+                  : "Ubah Jenis Order"}
+              </Button>
+              {selectedOrderType !== "unknown" && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-7 border-gray-200 px-2 text-[11px] text-gray-700 hover:bg-gray-100"
+                  onClick={() => {
+                    setSelectedOrderType("unknown");
+                    setShowOrderTypeSelector(false);
+                  }}
+                >
+                  Kembali ke Auto Detect
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {showOrderTypeSelector && (
             <label className="grid gap-2 text-sm font-medium text-gray-700">
-              Jenis Order
+              Jenis Order (Override)
               <Select
                 value={selectedOrderType}
                 onChange={(event) =>
@@ -1891,44 +1916,14 @@ export default function BookingForm() {
                 ))}
               </Select>
             </label>
-          </div>
-
-          {parserSource === "image" && (
-            <label className="grid gap-2 text-sm font-medium text-gray-700">
-              Upload Gambar Chat WA
-              <input
-                type="file"
-                accept="image/*"
-                multiple
-                onChange={(event) =>
-                  setUploadedChatImages(Array.from(event.target.files ?? []))
-                }
-                className="block w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 shadow-sm"
-              />
-              {uploadedChatImages.length > 0 && (
-                <span className="text-xs text-gray-500">
-                  {uploadedChatImages.length} gambar dipilih.
-                </span>
-              )}
-            </label>
           )}
 
-          {(parserSource === "text" ||
-            parserSource === "manual" ||
-            parserSource === "auto") && (
-            <Textarea
-              value={quickPaste}
-              onChange={(event) => setQuickPaste(event.target.value)}
-              placeholder={
-                parserSource === "manual"
-                  ? "Klik tombol 'Isi Template Manual' lalu lengkapi field-nya."
-                  : parserSource === "auto"
-                    ? "Paste chat WA di sini. Sistem akan auto-detect format teks parser."
-                    : "Paste chat WA customer di sini untuk auto-parse."
-              }
-              className="min-h-28"
-            />
-          )}
+          <Textarea
+            value={quickPaste}
+            onChange={(event) => setQuickPaste(event.target.value)}
+            placeholder="Paste chat WA di sini. Sistem akan auto-detect format parser dari teks."
+            className="min-h-28"
+          />
 
           <div className="flex flex-wrap gap-3">
             <Button
@@ -1965,7 +1960,8 @@ export default function BookingForm() {
               className="border-gray-200 text-gray-700 hover:bg-gray-50"
               onClick={() => {
                 setQuickPaste("");
-                setUploadedChatImages([]);
+                setSelectedOrderType("unknown");
+                setShowOrderTypeSelector(false);
                 setParsedPreview(null);
                 setVisionRawOutput("");
                 setDraftImported(false);
@@ -1984,10 +1980,14 @@ export default function BookingForm() {
 
           {parsedPreview && (
             <div className="space-y-3 rounded-xl border border-gray-200 bg-gray-50/70 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                Preview Hasil Parser (
-                {WHATSAPP_ORDER_LABELS[parsedPreview.orderType]})
-              </p>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  Preview Hasil Parser
+                </p>
+                <span className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700">
+                  Terdeteksi: {WHATSAPP_ORDER_LABELS[parsedPreview.orderType]}
+                </span>
+              </div>
               <div className="grid gap-2 sm:grid-cols-2">
                 {getDisplayFields(parsedPreview).map((field, index) => (
                   <div
@@ -2009,6 +2009,36 @@ export default function BookingForm() {
                   {parsedPreview.missingFields.join(", ")}
                 </div>
               )}
+              {selectedOrderType === "unknown" &&
+                parsedPreview.missingFields.length > 0 && (
+                  <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
+                    <p className="font-semibold">
+                      Parser butuh konfirmasi jenis order. Pilih cepat lalu
+                      parse ulang:
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {specificWhatsappOrderTypeOptions.map((option) => (
+                        <Button
+                          key={`quick-order-type-${option.value}`}
+                          type="button"
+                          variant="outline"
+                          className="h-7 border-indigo-200 px-2 text-[11px] text-indigo-700 hover:bg-indigo-100"
+                          onClick={() => {
+                            setSelectedOrderType(
+                              option.value as ParserOrderType,
+                            );
+                            void importDraft({
+                              orderType: option.value as ParserOrderType,
+                              successMessage: `Parse ulang dengan jenis order ${option.label}.`,
+                            });
+                          }}
+                        >
+                          {option.label}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               {(parsedPreview.sourceType === "image" ||
                 parsedPreview.sourceType === "email") &&
                 visionRawOutput && (
@@ -2830,7 +2860,7 @@ export default function BookingForm() {
               <label className="grid gap-2 text-sm font-medium text-gray-700">
                 Metode Pengiriman
                 <Select {...register("deliveryMethod")}>
-                  {DELIVERY_METHOD_OPTIONS.map((option) => (
+                  {selectableDeliveryMethodOptions.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
                     </option>
@@ -2893,6 +2923,11 @@ export default function BookingForm() {
                   Estimasi jarak gudang ke alamat:{" "}
                   <span className="font-semibold">
                     {displayedShippingDistanceKm} km
+                    {shippingDistanceSource === "ai_fallback" && (
+                      <span className="ml-1 text-[10px] font-medium uppercase tracking-wide text-amber-600">
+                        (AI fallback)
+                      </span>
+                    )}
                   </span>
                 </p>
               )}
@@ -3092,13 +3127,15 @@ export default function BookingForm() {
                   setSubmitError("");
                   setSubmitSuccess("");
                   setQuickPaste("");
-                  setUploadedChatImages([]);
+                  setSelectedOrderType("unknown");
+                  setShowOrderTypeSelector(false);
                   setParsedPreview(null);
                   setVisionRawOutput("");
                   setDraftImported(false);
                   setShippingQuotes([]);
                   setSelectedShippingQuoteId("");
                   setShippingDistanceKm(null);
+                  setShippingDistanceSource(undefined);
                   setShippingWarning("");
                 }}
                 className="border-indigo-200 text-indigo-700 hover:bg-indigo-50"

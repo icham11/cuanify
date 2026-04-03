@@ -155,6 +155,7 @@ function calculateBouquetToken(
 function calculateItemToken(item: OrderItemForTokenCalc): number {
   const category = normalizeText(item.category || "");
   const searchSource = getSearchSource(item);
+  const isCakeItem = /\bcake\b/.test(category) || /\bcake\b/.test(searchSource);
   const qty = parseQuantity(item.quantity);
   const customToken = Number(item.customTokenPerUnit || 0);
   if (qty <= 0) return 0;
@@ -174,6 +175,11 @@ function calculateItemToken(item: OrderItemForTokenCalc): number {
     return calculateBouquetToken(item, searchSource, qty);
   }
 
+  // Evaluate cake before cupcake to avoid product-name collisions (e.g. Cake with "cupcake" note).
+  if (isCakeItem) {
+    return 100 * qty;
+  }
+
   if (searchSource.includes("cupcake")) {
     const isDozenCupcake =
       searchSource.includes("dozen") ||
@@ -184,10 +190,6 @@ function calculateItemToken(item: OrderItemForTokenCalc): number {
       return 2 * qty;
     }
     return 5 * qty;
-  }
-
-  if (category.includes("cake")) {
-    return 100 * qty;
   }
 
   if (searchSource.includes("cookies") || searchSource.includes("cookie")) {

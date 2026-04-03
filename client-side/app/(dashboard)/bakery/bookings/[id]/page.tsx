@@ -329,7 +329,6 @@ export default function OrderDetailPage() {
             </div>
 
             <div class="row"><span class="label">Kurir:</span> ${order.shipment.provider} - ${order.shipment.courierServiceName}</div>
-            <div class="row"><span class="label">Kode Booking:</span> ${order.resi || order.bookingCode || order.id}</div>
             <div class="row"><span class="label">Penerima:</span> ${order.customerName || "-"}</div>
             <div class="row"><span class="label">No. HP:</span> ${order.customerPhone || "-"}</div>
             <div class="row"><span class="label">Alamat:</span><br />${primaryAddress}</div>

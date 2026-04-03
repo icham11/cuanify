@@ -1,5 +1,11 @@
 export type ShippingProvider = "JNE" | "PAXEL" | "JNT" | "GOJEK" | "GRAB";
 export type ShippingDataSource = "biteship" | "fallback";
+export type ShippingDistanceSource =
+  | "input_coordinate"
+  | "nominatim"
+  | "nominatim_with_area"
+  | "biteship_area"
+  | "ai_fallback";
 
 export interface ShippingQuoteItemInput {
   name: string;
@@ -34,6 +40,7 @@ export interface ShippingQuoteResponse {
   success: boolean;
   quotes: ShippingQuote[];
   distanceKm: number;
+  distanceSource?: ShippingDistanceSource;
   destinationLatitude?: number;
   destinationLongitude?: number;
   warning?: string;

@@ -1,4 +1,5 @@
 import type {
+  ShippingDistanceSource,
   ShippingProvider,
   ShippingQuote,
   ShippingQuoteRequest,
@@ -72,6 +73,15 @@ type RateDestination =
 interface DestinationResolution {
   point: GeoPoint | null;
   postalCode?: string;
+  distanceSource?: ShippingDistanceSource;
+  warning?: string;
+}
+
+interface NormalizedAddressByAI {
+  normalizedAddress: string;
+  areaHint?: string;
+  postalCode?: string;
+  confidence: number;
 }
 
 const BITESHIP_BASE_URL = "https://api.biteship.com/v1";
@@ -98,6 +108,34 @@ const DEFAULT_ORIGIN: OriginConfig = {
   contactPhone: "628111111111",
   contactEmail: "admin@crumbella.local",
 };
+
+const AI_GEO_FALLBACK_ENABLED =
+  process.env.SHIPPING_AI_ADDRESS_FALLBACK !== "false";
+const JABODETABEK_BOUNDS = {
+  minLatitude: -6.95,
+  maxLatitude: -5.85,
+  minLongitude: 106.35,
+  maxLongitude: 107.35,
+};
+const JABODETABEK_KEYWORDS = [
+  "jakarta",
+  "jaksel",
+  "jakbar",
+  "jakut",
+  "jakpus",
+  "jaktim",
+  "bekasi",
+  "depok",
+  "bogor",
+  "tangerang",
+  "bsd",
+  "bintaro",
+  "ciputat",
+  "serpong",
+  "karawaci",
+  "cibubur",
+];
+const aiAddressFallbackCache = new Map<string, NormalizedAddressByAI | null>();
 
 function parseNumber(value: string | undefined, fallback: number): number {
   if (!value) return fallback;
@@ -314,6 +352,126 @@ function normalizeAddressForLookup(address: string): string {
       .replace(/\brt\s*\d+\b/gi, " ")
       .replace(/\brw\s*\d+\b/gi, " "),
   );
+}
+
+function isPointWithinJabodetabek(point: GeoPoint): boolean {
+  return (
+    point.latitude >= JABODETABEK_BOUNDS.minLatitude &&
+    point.latitude <= JABODETABEK_BOUNDS.maxLatitude &&
+    point.longitude >= JABODETABEK_BOUNDS.minLongitude &&
+    point.longitude <= JABODETABEK_BOUNDS.maxLongitude
+  );
+}
+
+function isLikelyJabodetabekAddress(value: string): boolean {
+  const normalized = normalizeAddressForLookup(value).toLowerCase();
+  if (!normalized) return false;
+  return JABODETABEK_KEYWORDS.some((keyword) => normalized.includes(keyword));
+}
+
+function buildAddressFallbackCacheKey(args: {
+  address: string;
+  destinationArea?: string;
+  destinationPostalCode?: string;
+}): string {
+  return normalizeAddressForLookup(
+    `${args.address} | ${args.destinationArea || ""} | ${args.destinationPostalCode || ""}`,
+  ).toLowerCase();
+}
+
+function sanitizeAIAddressResult(raw: unknown): NormalizedAddressByAI | null {
+  if (!raw || typeof raw !== "object") return null;
+
+  const payload = raw as {
+    normalizedAddress?: unknown;
+    areaHint?: unknown;
+    postalCode?: unknown;
+    confidence?: unknown;
+  };
+
+  const normalizedAddress = cleanSpaces(asString(payload.normalizedAddress));
+  if (normalizedAddress.length < 8) return null;
+
+  const confidence = Number(payload.confidence);
+  if (!Number.isFinite(confidence) || confidence < 0.4) return null;
+
+  const areaHint = normalizeAreaHint(asString(payload.areaHint));
+  const postalCode = sanitizePostalCode(asString(payload.postalCode));
+
+  return {
+    normalizedAddress,
+    areaHint,
+    postalCode,
+    confidence,
+  };
+}
+
+async function normalizeAddressWithAI(args: {
+  address: string;
+  destinationArea?: string;
+  destinationPostalCode?: string;
+}): Promise<NormalizedAddressByAI | null> {
+  if (!AI_GEO_FALLBACK_ENABLED) return null;
+  if (!process.env.GROQ_API_KEY) return null;
+
+  const cacheKey = buildAddressFallbackCacheKey(args);
+  if (aiAddressFallbackCache.has(cacheKey)) {
+    return aiAddressFallbackCache.get(cacheKey) ?? null;
+  }
+
+  const prompt = [
+    "Kamu membantu normalisasi alamat Indonesia untuk kebutuhan geocoding.",
+    "Tugas: rapikan alamat mentah agar lebih mudah dipetakan, tanpa menebak detail yang tidak ada.",
+    "Keluarkan JSON object valid dengan field:",
+    "- normalizedAddress: string (wajib, alamat rapih)",
+    "- areaHint: string | null (opsional, kecamatan/kota yang paling jelas)",
+    "- postalCode: string | null (5 digit jika ada)",
+    "- confidence: number 0..1",
+    "Jika data minim, isi sesuai yang diketahui dan confidence rendah.",
+    `Raw address: ${args.address}`,
+    `Area hint: ${args.destinationArea || ""}`,
+    `Postal code: ${args.destinationPostalCode || ""}`,
+  ].join("\n");
+
+  try {
+    const { createGroqCompletion, GROQ_MODELS } = await import("@/lib/groq");
+
+    const completion = await createGroqCompletion({
+      messages: [
+        {
+          role: "system",
+          content:
+            "Kamu adalah parser alamat Indonesia. Jawab ketat dalam JSON object saja.",
+        },
+        {
+          role: "user",
+          content: prompt,
+        },
+      ],
+      model: GROQ_MODELS.text.primary,
+      maxTokens: 220,
+      temperature: 0.1,
+      responseFormat: { type: "json_object" },
+    });
+
+    const content = asString(completion.choices?.[0]?.message?.content);
+    const parsed = content ? JSON.parse(content) : null;
+    const sanitized = sanitizeAIAddressResult(parsed);
+
+    aiAddressFallbackCache.set(cacheKey, sanitized);
+    return sanitized;
+  } catch (error: unknown) {
+    try {
+      const { logAI } = await import("@/lib/logger");
+      logAI.warn("AI address fallback failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } catch {
+      // Ignore logger failures in fallback flow.
+    }
+    aiAddressFallbackCache.set(cacheKey, null);
+    return null;
+  }
 }
 
 const LOCATION_TOKEN_STOP_WORDS = new Set([
@@ -567,7 +725,8 @@ async function geocodeAddress(
   for (const queryText of queries) {
     const query = new URLSearchParams({
       format: "json",
-      limit: "1",
+      limit: "5",
+      countrycodes: "id",
       q: `${queryText}, Indonesia`,
     });
 
@@ -592,14 +751,29 @@ async function geocodeAddress(
       lat?: string;
       lon?: string;
     }>;
-    const first = payload[0];
-    if (!first?.lat || !first?.lon) continue;
+    const candidates = payload
+      .map((entry) => {
+        const latitude = Number(entry.lat);
+        const longitude = Number(entry.lon);
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+          return null;
+        }
+        return { latitude, longitude };
+      })
+      .filter((entry): entry is GeoPoint => Boolean(entry));
 
-    const latitude = Number(first.lat);
-    const longitude = Number(first.lon);
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) continue;
+    if (!candidates.length) continue;
 
-    return { latitude, longitude };
+    if (isLikelyJabodetabekAddress(queryText)) {
+      const candidateInMetro = candidates.find((entry) =>
+        isPointWithinJabodetabek(entry),
+      );
+      if (candidateInMetro) {
+        return candidateInMetro;
+      }
+    }
+
+    return candidates[0];
   }
 
   return null;
@@ -636,6 +810,7 @@ async function resolveDestination(
       postalCode:
         sanitizePostalCode(payload.destinationPostalCode) ||
         extractPostalCode(payload.destinationAddress),
+      distanceSource: "input_coordinate",
     };
   }
 
@@ -653,6 +828,7 @@ async function resolveDestination(
 
   const postalCodeFromAreaLookup =
     postalCodeFromPayload || postalCodeFromAddress || areaHints.postalCode;
+  let resolvedPostalCode = postalCodeFromAreaLookup;
   const directPoint = await geocodeAddress(
     payload.destinationAddress,
     normalizedAreaHint,
@@ -662,12 +838,78 @@ async function resolveDestination(
     normalizedAreaHint,
   );
 
-  const pointWithArea: GeoPoint | null =
-    directPoint || areaPoint || areaHints.point || null;
+  let resolvedPoint: GeoPoint | null = null;
+  let distanceSource: ShippingDistanceSource | undefined;
+
+  if (directPoint) {
+    resolvedPoint = directPoint;
+    distanceSource = "nominatim";
+  } else if (areaPoint) {
+    resolvedPoint = areaPoint;
+    distanceSource = "nominatim_with_area";
+  } else if (areaHints.point) {
+    resolvedPoint = areaHints.point;
+    distanceSource = "biteship_area";
+  }
+
+  const fullAddressHint = `${payload.destinationAddress} ${normalizedAreaHint || ""}`;
+  const likelyJabodetabek = isLikelyJabodetabekAddress(fullAddressHint);
+  const hasSuspiciousPoint =
+    Boolean(resolvedPoint) &&
+    likelyJabodetabek &&
+    !isPointWithinJabodetabek(resolvedPoint as GeoPoint);
+
+  let warning: string | undefined;
+
+  if (hasSuspiciousPoint) {
+    resolvedPoint = null;
+    distanceSource = undefined;
+    warning =
+      "Koordinat awal terdeteksi di luar Jabodetabek. Sistem mencoba pemetaan ulang alamat agar jarak lebih akurat.";
+  }
+
+  if (!resolvedPoint || hasSuspiciousPoint) {
+    const aiAddress = await normalizeAddressWithAI({
+      address: payload.destinationAddress,
+      destinationArea: normalizedAreaHint,
+      destinationPostalCode: postalCodeFromAreaLookup,
+    });
+
+    if (aiAddress) {
+      const aiAreaHints = await resolveAreaHintsFromBiteship(
+        aiAddress.normalizedAddress,
+        aiAddress.areaHint,
+        aiAddress.postalCode || postalCodeFromAreaLookup,
+      );
+      resolvedPostalCode =
+        aiAddress.postalCode || aiAreaHints.postalCode || resolvedPostalCode;
+      const aiDirectPoint = await geocodeAddress(
+        aiAddress.normalizedAddress,
+        aiAddress.areaHint,
+      );
+      const aiAreaPoint = await geocodeAddressWithArea(
+        aiAddress.normalizedAddress,
+        aiAddress.areaHint,
+      );
+      const aiResolvedPoint: GeoPoint | null =
+        aiDirectPoint || aiAreaPoint || aiAreaHints.point || null;
+
+      if (aiResolvedPoint) {
+        if (!likelyJabodetabek || isPointWithinJabodetabek(aiResolvedPoint)) {
+          resolvedPoint = aiResolvedPoint;
+          distanceSource = "ai_fallback";
+          warning =
+            "Alamat dipetakan ulang dengan AI fallback untuk meningkatkan akurasi estimasi jarak.";
+        }
+      }
+    }
+  }
 
   return {
-    point: pointWithArea,
-    postalCode: postalCodeFromAreaLookup,
+    point: resolvedPoint,
+    postalCode: resolvedPostalCode,
+    distanceSource,
+    warning,
   };
 }
 
@@ -848,6 +1090,8 @@ export async function getShippingQuote(
       success: false,
       quotes: [],
       distanceKm: 0,
+      distanceSource: destination.distanceSource,
+      warning: destination.warning,
       error:
         "Alamat belum bisa dipetakan. Mohon lengkapi alamat atau tambahkan kode pos 5 digit.",
     };
@@ -910,6 +1154,8 @@ export async function getShippingQuote(
       success: false,
       quotes: [],
       distanceKm,
+      distanceSource: destination.distanceSource,
+      warning: destination.warning,
       destinationLatitude: destination.point?.latitude,
       destinationLongitude: destination.point?.longitude,
       error: message,
@@ -921,6 +1167,8 @@ export async function getShippingQuote(
       success: false,
       quotes: [],
       distanceKm,
+      distanceSource: destination.distanceSource,
+      warning: destination.warning,
       destinationLatitude: destination.point?.latitude,
       destinationLongitude: destination.point?.longitude,
       error: "Tidak ada layanan kurir yang tersedia untuk alamat ini saat ini.",
@@ -933,6 +1181,8 @@ export async function getShippingQuote(
     success: true,
     quotes,
     distanceKm,
+    distanceSource: destination.distanceSource,
+    warning: destination.warning,
     destinationLatitude: destination.point?.latitude,
     destinationLongitude: destination.point?.longitude,
   };
