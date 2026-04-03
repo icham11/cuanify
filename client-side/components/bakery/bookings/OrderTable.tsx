@@ -183,6 +183,14 @@ export default function OrderTable({ orders }: OrderTableProps) {
           ) : (
             orders.map((order, index) => {
               const messageLink = buildWhatsappLink(order);
+              const normalizedPaymentStatus =
+                order.paymentStatus === "Pending"
+                  ? "DP Paid"
+                  : order.paymentStatus;
+              const normalizedOrderStatus =
+                order.orderStatus === "Confirmed"
+                  ? "In Production"
+                  : order.orderStatus;
               const orderTokenTotal = summarizeProductionTokensByItems(
                 order.items ?? [],
               );
@@ -266,9 +274,9 @@ export default function OrderTable({ orders }: OrderTableProps) {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex flex-col gap-2">
-                      <PaymentBadge status={order.paymentStatus} />
+                      <PaymentBadge status={normalizedPaymentStatus} />
                       <Select
-                        value={order.paymentStatus}
+                        value={normalizedPaymentStatus}
                         onChange={(event) =>
                           updatePaymentStatus(
                             order.id,
@@ -277,9 +285,6 @@ export default function OrderTable({ orders }: OrderTableProps) {
                         }
                         className="h-8 text-xs"
                       >
-                        {order.paymentStatus === "Pending" && (
-                          <option value="Pending">Pending (Legacy)</option>
-                        )}
                         <option value="DP Paid">DP Paid</option>
                         <option value="Paid">Paid</option>
                       </Select>
@@ -287,9 +292,9 @@ export default function OrderTable({ orders }: OrderTableProps) {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex flex-col gap-2">
-                      <StatusBadge status={order.orderStatus} />
+                      <StatusBadge status={normalizedOrderStatus} />
                       <Select
-                        value={order.orderStatus}
+                        value={normalizedOrderStatus}
                         onChange={(event) =>
                           updateOrderStatus(
                             order.id,
@@ -309,9 +314,6 @@ export default function OrderTable({ orders }: OrderTableProps) {
                         <option value="Inquiry">Inquiry</option>
                         <option value="Quoted">Quoted</option>
                         <option value="DP Paid">DP Paid</option>
-                        {order.orderStatus === "Confirmed" && (
-                          <option value="Confirmed">Confirmed (Legacy)</option>
-                        )}
                         <option value="In Production">In Production</option>
                         <option value="Ready">Ready</option>
                         <option value="Completed">Completed</option>

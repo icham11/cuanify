@@ -3,7 +3,13 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatCurrency } from "@/components/orders/formatters";
 import { useOrders } from "@/components/bakery/store";
-import { BarChart3, CheckCircle2, Factory, PackageCheck, Wallet } from "lucide-react";
+import {
+  BarChart3,
+  CheckCircle2,
+  Factory,
+  PackageCheck,
+  Wallet,
+} from "lucide-react";
 
 const icons = [BarChart3, CheckCircle2, Factory, PackageCheck, Wallet];
 
@@ -13,20 +19,32 @@ export default function OrdersStats() {
   const summaryCards = [
     { title: "Total Orders", value: String(orders.length) },
     {
-      title: "Confirmed Orders",
-      value: String(orders.filter((order) => order.orderStatus === "Confirmed").length),
+      title: "Pending Approval",
+      value: String(
+        orders.filter((order) =>
+          ["Inquiry", "Quoted", "DP Paid"].includes(order.orderStatus),
+        ).length,
+      ),
     },
     {
       title: "In Production",
-      value: String(orders.filter((order) => order.orderStatus === "In Production").length),
+      value: String(
+        orders.filter((order) => order.orderStatus === "In Production").length,
+      ),
     },
     {
       title: "Completed",
-      value: String(orders.filter((order) => ["Completed", "Delivered"].includes(order.orderStatus)).length),
+      value: String(
+        orders.filter((order) =>
+          ["Completed", "Delivered"].includes(order.orderStatus),
+        ).length,
+      ),
     },
     {
       title: "Total Revenue",
-      value: formatCurrency(orders.reduce((sum, order) => sum + (order.totalPrice || 0), 0)),
+      value: formatCurrency(
+        orders.reduce((sum, order) => sum + (order.totalPrice || 0), 0),
+      ),
     },
   ];
 

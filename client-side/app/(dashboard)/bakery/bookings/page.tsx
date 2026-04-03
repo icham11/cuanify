@@ -28,12 +28,14 @@ export default function BookingListPage() {
 
   const filteredOrders = useMemo(() => {
     const filtered = orders.filter((order) => {
+      const normalizedOrderStatus =
+        order.orderStatus === "Confirmed" ? "In Production" : order.orderStatus;
       const matchesQuery =
         order.customerName.toLowerCase().includes(query.toLowerCase()) ||
         order.resi.toLowerCase().includes(query.toLowerCase()) ||
         order.bookingCode.toLowerCase().includes(query.toLowerCase());
       const matchesStatus = statusFilter
-        ? order.orderStatus === statusFilter
+        ? normalizedOrderStatus === statusFilter
         : true;
       const matchesDate = dateFilter ? order.deliveryDate === dateFilter : true;
       return matchesQuery && matchesStatus && matchesDate;
@@ -195,8 +197,8 @@ export default function BookingListPage() {
           <CardTitle>Workflow Tips</CardTitle>
         </CardHeader>
         <CardContent className="px-6 pb-6 pt-0 text-sm text-gray-600">
-          Use the status dropdowns to move orders from approval to production.
-          Orders that are confirmed will appear automatically in the Production
+          Use the status dropdowns to move orders from approval into production.
+          Orders in In Production status appear automatically in the Production
           queue.
         </CardContent>
       </Card>

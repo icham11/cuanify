@@ -121,6 +121,20 @@ export default function OrderDetailPage() {
     () => orders.find((item) => item.id === orderId),
     [orders, orderId],
   );
+  const normalizedOrderStatus =
+    order?.orderStatus === "Confirmed"
+      ? "In Production"
+      : (order?.orderStatus ?? "Inquiry");
+  const normalizedPaymentStatus =
+    order?.paymentStatus === "Pending"
+      ? "DP Paid"
+      : (order?.paymentStatus ?? "DP Paid");
+  const isOrderApproved = [
+    "In Production",
+    "Ready",
+    "Delivered",
+    "Completed",
+  ].includes(normalizedOrderStatus);
 
   const effectiveDate = rescheduleDate || order?.deliveryDate || "";
   const effectiveSlot = rescheduleSlot || order?.deliverySlot || "10:00";
@@ -443,13 +457,7 @@ export default function OrderDetailPage() {
         }
       />
 
-      {[
-        "Confirmed",
-        "In Production",
-        "Ready",
-        "Delivered",
-        "Completed",
-      ].includes(order.orderStatus) && (
+      {isOrderApproved && (
         <div className="space-y-2 rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm font-semibold text-indigo-700">
           <p>
             Order approved. Booking code generated:{" "}
@@ -476,7 +484,7 @@ export default function OrderDetailPage() {
         </div>
       )}
 
-      <OrderStepper status={order.orderStatus} />
+      <OrderStepper status={normalizedOrderStatus} />
 
       <div className="grid gap-6 lg:grid-cols-[2fr,1fr]">
         <div className="space-y-6">
@@ -821,15 +829,14 @@ export default function OrderDetailPage() {
                 <PaymentBadge status={order.paymentStatus} />
               </div>
               <Select
-                value={order.paymentStatus}
+                value={normalizedPaymentStatus}
                 onChange={(event) =>
                   updatePaymentStatus(
                     order.id,
-                    event.target.value as "Pending" | "DP Paid" | "Paid",
+                    event.target.value as "DP Paid" | "Paid",
                   )
                 }
               >
-                <option value="Pending">Pending</option>
                 <option value="DP Paid">DP Paid</option>
                 <option value="Paid">Paid</option>
               </Select>

@@ -109,8 +109,7 @@ function parseOrderDateTime(deliveryDate?: string, deliverySlot?: string) {
 }
 
 function statusColor(status: BakeryOrder["orderStatus"]) {
-  if (status === "Confirmed") return "#2563eb";
-  if (status === "In Production") return "#f97316";
+  if (status === "Confirmed" || status === "In Production") return "#f97316";
   if (status === "Ready") return "#7c3aed";
   if (status === "Delivered" || status === "Completed") return "#16a34a";
   return "#4f46e5";
@@ -889,13 +888,6 @@ export default function BakeryCalendarPage() {
           </div>
 
           <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-gray-500">
-            <span className="inline-flex items-center gap-1">
-              <span
-                className="h-2.5 w-2.5 rounded-full"
-                style={{ backgroundColor: "#2563eb" }}
-              />{" "}
-              Confirmed
-            </span>
             <span className="inline-flex items-center gap-1">
               <span
                 className="h-2.5 w-2.5 rounded-full"

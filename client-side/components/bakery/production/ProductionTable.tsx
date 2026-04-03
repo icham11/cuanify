@@ -47,18 +47,11 @@ export default function ProductionTable() {
   const updateStatus = (id: string, status: string) => {
     updateOrderStatus(
       id,
-      status as
-        | "Confirmed"
-        | "In Production"
-        | "Ready"
-        | "Delivered"
-        | "Completed",
+      status as "In Production" | "Ready" | "Delivered" | "Completed",
     );
   };
 
   const getStatusOptions = (status: string) => {
-    if (status === "Confirmed")
-      return ["Confirmed", "In Production", "Ready", "Delivered"];
     if (status === "In Production")
       return ["In Production", "Ready", "Delivered"];
     if (status === "Ready") return ["Ready", "Delivered"];
@@ -111,73 +104,81 @@ export default function ProductionTable() {
               No active production orders.
             </div>
           ) : (
-            activeOrders.map((order) => (
-              <div
-                key={order.id}
-                className="grid gap-4 rounded-xl border border-gray-100 bg-white px-4 py-4 shadow-sm sm:px-5 sm:py-5 lg:grid-cols-[1.2fr,1.2fr,1fr,1.6fr,1fr] lg:items-center"
-              >
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-                    Order ID
-                  </p>
-                  <p className="text-sm font-semibold text-gray-900">
-                    {order.resi || `ORD-${order.id}`}
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    {order.customerName || "Walk-in Customer"}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-                    Cake
-                  </p>
-                  <p className="text-sm text-gray-700">
-                    {order.product || "Custom Cake"}
-                  </p>
-                  <p className="mt-1 text-xs font-medium text-sky-700">
-                    Workload{" "}
-                    {summarizeProductionTokensByItems(order.items ?? [])} token
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-                    Delivery
-                  </p>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-sm text-gray-700">
-                      {order.deliveryDate || "-"}
+            activeOrders.map((order) => {
+              const normalizedOrderStatus =
+                order.orderStatus === "Confirmed"
+                  ? "In Production"
+                  : order.orderStatus;
+
+              return (
+                <div
+                  key={order.id}
+                  className="grid gap-4 rounded-xl border border-gray-100 bg-white px-4 py-4 shadow-sm sm:px-5 sm:py-5 lg:grid-cols-[1.2fr,1.2fr,1fr,1.6fr,1fr] lg:items-center"
+                >
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                      Order ID
                     </p>
-                    {(() => {
-                      const priority = withPriority(order);
-                      return (
-                        <PriorityBadge
-                          label={priority.label}
-                          tone={priority.tone}
-                        />
-                      );
-                    })()}
+                    <p className="text-sm font-semibold text-gray-900">
+                      {order.resi || `ORD-${order.id}`}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {order.customerName || "Walk-in Customer"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                      Cake
+                    </p>
+                    <p className="text-sm text-gray-700">
+                      {order.product || "Custom Cake"}
+                    </p>
+                    <p className="mt-1 text-xs font-medium text-sky-700">
+                      Workload{" "}
+                      {summarizeProductionTokensByItems(order.items ?? [])}{" "}
+                      token
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                      Delivery
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm text-gray-700">
+                        {order.deliveryDate || "-"}
+                      </p>
+                      {(() => {
+                        const priority = withPriority(order);
+                        return (
+                          <PriorityBadge
+                            label={priority.label}
+                            tone={priority.tone}
+                          />
+                        );
+                      })()}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                      Notes
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      {order.notes || "No notes"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                      Status
+                    </p>
+                    <StatusDropdown
+                      value={normalizedOrderStatus}
+                      onChange={(value) => updateStatus(order.id, value)}
+                      options={getStatusOptions(normalizedOrderStatus)}
+                    />
                   </div>
                 </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-                    Notes
-                  </p>
-                  <p className="text-sm text-gray-600">
-                    {order.notes || "No notes"}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-                    Status
-                  </p>
-                  <StatusDropdown
-                    value={order.orderStatus}
-                    onChange={(value) => updateStatus(order.id, value)}
-                    options={getStatusOptions(order.orderStatus)}
-                  />
-                </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       ) : (
@@ -190,73 +191,81 @@ export default function ProductionTable() {
               No ready or delivered orders yet.
             </div>
           ) : (
-            readyOrders.map((order) => (
-              <div
-                key={order.id}
-                className="grid gap-4 rounded-xl border border-gray-100 bg-white px-4 py-4 shadow-sm sm:px-5 sm:py-5 lg:grid-cols-[1.2fr,1.2fr,1fr,1.6fr,1fr] lg:items-center"
-              >
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-                    Order ID
-                  </p>
-                  <p className="text-sm font-semibold text-gray-900">
-                    {order.resi || `ORD-${order.id}`}
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    {order.customerName || "Walk-in Customer"}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-                    Cake
-                  </p>
-                  <p className="text-sm text-gray-700">
-                    {order.product || "Custom Cake"}
-                  </p>
-                  <p className="mt-1 text-xs font-medium text-sky-700">
-                    Workload{" "}
-                    {summarizeProductionTokensByItems(order.items ?? [])} token
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-                    Delivery
-                  </p>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-sm text-gray-700">
-                      {order.deliveryDate || "-"}
+            readyOrders.map((order) => {
+              const normalizedOrderStatus =
+                order.orderStatus === "Confirmed"
+                  ? "In Production"
+                  : order.orderStatus;
+
+              return (
+                <div
+                  key={order.id}
+                  className="grid gap-4 rounded-xl border border-gray-100 bg-white px-4 py-4 shadow-sm sm:px-5 sm:py-5 lg:grid-cols-[1.2fr,1.2fr,1fr,1.6fr,1fr] lg:items-center"
+                >
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                      Order ID
                     </p>
-                    {(() => {
-                      const priority = withPriority(order);
-                      return (
-                        <PriorityBadge
-                          label={priority.label}
-                          tone={priority.tone}
-                        />
-                      );
-                    })()}
+                    <p className="text-sm font-semibold text-gray-900">
+                      {order.resi || `ORD-${order.id}`}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {order.customerName || "Walk-in Customer"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                      Cake
+                    </p>
+                    <p className="text-sm text-gray-700">
+                      {order.product || "Custom Cake"}
+                    </p>
+                    <p className="mt-1 text-xs font-medium text-sky-700">
+                      Workload{" "}
+                      {summarizeProductionTokensByItems(order.items ?? [])}{" "}
+                      token
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                      Delivery
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm text-gray-700">
+                        {order.deliveryDate || "-"}
+                      </p>
+                      {(() => {
+                        const priority = withPriority(order);
+                        return (
+                          <PriorityBadge
+                            label={priority.label}
+                            tone={priority.tone}
+                          />
+                        );
+                      })()}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                      Notes
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      {order.notes || "No notes"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                      Status
+                    </p>
+                    <StatusDropdown
+                      value={normalizedOrderStatus}
+                      onChange={(value) => updateStatus(order.id, value)}
+                      options={getStatusOptions(normalizedOrderStatus)}
+                    />
                   </div>
                 </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-                    Notes
-                  </p>
-                  <p className="text-sm text-gray-600">
-                    {order.notes || "No notes"}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-                    Status
-                  </p>
-                  <StatusDropdown
-                    value={order.orderStatus}
-                    onChange={(value) => updateStatus(order.id, value)}
-                    options={getStatusOptions(order.orderStatus)}
-                  />
-                </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       )}

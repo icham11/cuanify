@@ -97,7 +97,6 @@ export default function OrderFilters({
             <option value="Inquiry">Inquiry</option>
             <option value="Quoted">Quoted</option>
             <option value="DP Paid">DP Paid</option>
-            <option value="Confirmed">Confirmed</option>
             <option value="In Production">In Production</option>
             <option value="Ready">Ready</option>
             <option value="Completed">Completed</option>

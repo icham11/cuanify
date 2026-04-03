@@ -37,9 +37,11 @@ export default function ReportsPage() {
 
   const filteredOrders = useMemo(() => {
     return orders.filter((order) => {
+      const normalizedOrderStatus =
+        order.orderStatus === "Confirmed" ? "In Production" : order.orderStatus;
       if (fromDate && order.deliveryDate < fromDate) return false;
       if (toDate && order.deliveryDate > toDate) return false;
-      if (statusFilter && order.orderStatus !== statusFilter) return false;
+      if (statusFilter && normalizedOrderStatus !== statusFilter) return false;
       return true;
     });
   }, [orders, fromDate, toDate, statusFilter]);
@@ -58,15 +60,17 @@ export default function ReportsPage() {
     "Inquiry",
     "Quoted",
     "DP Paid",
-    "Confirmed",
     "In Production",
     "Ready",
     "Completed",
     "Cancelled",
   ].map((status) => ({
     name: status,
-    value: filteredOrders.filter((order) => order.orderStatus === status)
-      .length,
+    value: filteredOrders.filter((order) => {
+      const normalizedOrderStatus =
+        order.orderStatus === "Confirmed" ? "In Production" : order.orderStatus;
+      return normalizedOrderStatus === status;
+    }).length,
   }));
 
   const bakeryStatusMix = statusCounts
@@ -152,16 +156,23 @@ export default function ReportsPage() {
       return text;
     };
 
-    const rows = filteredOrders.map((order) => [
-      order.bookingCode || order.resi || order.id,
-      order.customerName || "Walk-in Customer",
-      order.customerPhone || "",
-      order.deliveryDate || "",
-      order.deliverySlot || "",
-      order.orderStatus,
-      order.paymentStatus,
-      order.totalPrice || 0,
-    ]);
+    const rows = filteredOrders.map((order) => {
+      const normalizedOrderStatus =
+        order.orderStatus === "Confirmed" ? "In Production" : order.orderStatus;
+      const normalizedPaymentStatus =
+        order.paymentStatus === "Pending" ? "DP Paid" : order.paymentStatus;
+
+      return [
+        order.bookingCode || order.resi || order.id,
+        order.customerName || "Walk-in Customer",
+        order.customerPhone || "",
+        order.deliveryDate || "",
+        order.deliverySlot || "",
+        normalizedOrderStatus,
+        normalizedPaymentStatus,
+        order.totalPrice || 0,
+      ];
+    });
 
     const csv = [headers, ...rows]
       .map((row) => row.map((cell) => escapeCsv(cell)).join(","))
@@ -234,7 +245,6 @@ export default function ReportsPage() {
               <option value="Inquiry">Inquiry</option>
               <option value="Quoted">Quoted</option>
               <option value="DP Paid">DP Paid</option>
-              <option value="Confirmed">Confirmed</option>
               <option value="In Production">In Production</option>
               <option value="Ready">Ready</option>
               <option value="Completed">Completed</option>
