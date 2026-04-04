@@ -288,103 +288,194 @@ const IMAGE_COLLECTION_KEYS = [
   "attachments",
 ];
 
-const NESTED_IMAGE_VALUE_KEYS = [
-  ...PRIORITY_IMAGE_VALUE_KEYS,
-  ...IMAGE_VALUE_KEYS,
-  "url",
-  "src",
-  "thumbnailUrl",
+const IMAGE_LABEL_KEYS = [
+  "label",
+  "name",
+  "title",
+  "characterName",
+  "productName",
+  "alt",
+  "caption",
+  "text",
 ];
 
-function pushImageUrl(target: string[], value: unknown) {
-  const parsed = asString(value);
-  if (parsed) target.push(parsed);
+const IMAGE_ORDER_KEYS = ["orderIndex", "slotIndex", "position", "index"];
+
+const DESIGN_REQUEST_KEYS = [
+  "bouquetDesign",
+  "cakeDesign",
+  "designTheme",
+  "design",
+  "selectedDesign",
+];
+
+function parseImageOrderIndex(value: unknown): number | undefined {
+  const parsed =
+    typeof value === "number" ? value : Number.parseInt(asString(value), 10);
+  if (!Number.isFinite(parsed)) return undefined;
+  return parsed;
 }
 
-function collectImageUrlsFromValue(target: string[], value: unknown) {
+function pushReferenceImage(
+  target: Array<{ url: string; label?: string; orderIndex?: number }>,
+  url: unknown,
+  options?: {
+    label?: unknown;
+    orderIndex?: unknown;
+  },
+) {
+  const parsedUrl = asString(url);
+  if (!parsedUrl) return;
+
+  const label = asString(options?.label).trim() || undefined;
+  const orderIndex = parseImageOrderIndex(options?.orderIndex);
+  target.push({ url: parsedUrl, label, orderIndex });
+}
+
+function collectReferenceImagesFromValue(
+  target: Array<{ url: string; label?: string; orderIndex?: number }>,
+  value: unknown,
+  options?: {
+    label?: unknown;
+    orderIndex?: unknown;
+  },
+) {
   if (Array.isArray(value)) {
     for (const entry of value) {
-      collectImageUrlsFromValue(target, entry);
+      collectReferenceImagesFromValue(target, entry, options);
     }
     return;
   }
 
   const record = asRecord(value);
   if (!record) {
-    pushImageUrl(target, value);
+    pushReferenceImage(target, value, options);
     return;
   }
 
-  for (const key of NESTED_IMAGE_VALUE_KEYS) {
-    pushImageUrl(target, record[key]);
+  const resolvedLabel =
+    IMAGE_LABEL_KEYS.map((key) => record[key]).find((entry) => asString(entry)) ??
+    options?.label;
+  const resolvedOrderIndex =
+    IMAGE_ORDER_KEYS.map((key) => record[key]).find((entry) =>
+      Number.isFinite(parseImageOrderIndex(entry)),
+    ) ?? options?.orderIndex;
+
+  for (const key of [...PRIORITY_IMAGE_VALUE_KEYS, ...IMAGE_VALUE_KEYS, "url", "src"]) {
+    pushReferenceImage(target, record[key], {
+      label: resolvedLabel,
+      orderIndex: resolvedOrderIndex,
+    });
   }
 
-  for (const key of PRIORITY_IMAGE_LIST_KEYS) {
-    const entries = record[key];
-    if (Array.isArray(entries)) {
-      for (const entry of entries) {
-        collectImageUrlsFromValue(target, entry);
-      }
-    }
+  for (const key of [...PRIORITY_IMAGE_LIST_KEYS, ...IMAGE_LIST_KEYS]) {
+    collectReferenceImagesFromValue(target, record[key], {
+      label: resolvedLabel,
+      orderIndex: resolvedOrderIndex,
+    });
   }
 
-  for (const key of IMAGE_LIST_KEYS) {
-    const entries = record[key];
-    if (Array.isArray(entries)) {
-      for (const entry of entries) {
-        collectImageUrlsFromValue(target, entry);
-      }
-    }
+  for (const key of IMAGE_COLLECTION_KEYS) {
+    collectReferenceImagesFromValue(target, record[key], {
+      label: resolvedLabel,
+      orderIndex: resolvedOrderIndex,
+    });
   }
 }
 
-function extractNotificationImageUrls(order: NormalizedOrder): string[] {
-  const urls: string[] = [];
+function dedupeReferenceImages(
+  references: Array<{ url: string; label?: string; orderIndex?: number }>,
+) {
+  const byUrl = new Map<
+    string,
+    { url: string; label?: string; orderIndex?: number }
+  >();
+
+  for (const reference of references) {
+    const key = reference.url.trim();
+    if (!key) continue;
+
+    const existing = byUrl.get(key);
+    if (!existing) {
+      byUrl.set(key, {
+        url: key,
+        label: reference.label?.trim() || undefined,
+        orderIndex: reference.orderIndex,
+      });
+      continue;
+    }
+
+    if (!existing.label && reference.label?.trim()) {
+      existing.label = reference.label.trim();
+    }
+    if (
+      existing.orderIndex === undefined &&
+      reference.orderIndex !== undefined
+    ) {
+      existing.orderIndex = reference.orderIndex;
+    }
+  }
+
+  return Array.from(byUrl.values());
+}
+
+function extractNotificationReferenceImages(order: NormalizedOrder) {
+  const references: Array<{ url: string; label?: string; orderIndex?: number }> =
+    [];
   const parsedData = asRecord(order.whatsAppParsedData);
 
   for (const key of PRIORITY_IMAGE_VALUE_KEYS) {
-    pushImageUrl(urls, parsedData?.[key]);
+    pushReferenceImage(references, parsedData?.[key]);
   }
   for (const key of PRIORITY_IMAGE_LIST_KEYS) {
-    collectImageUrlsFromValue(urls, parsedData?.[key]);
+    collectReferenceImagesFromValue(references, parsedData?.[key]);
   }
   for (const key of IMAGE_COLLECTION_KEYS) {
-    collectImageUrlsFromValue(urls, parsedData?.[key]);
+    collectReferenceImagesFromValue(references, parsedData?.[key]);
   }
   for (const key of IMAGE_VALUE_KEYS) {
-    pushImageUrl(urls, parsedData?.[key]);
+    pushReferenceImage(references, parsedData?.[key]);
   }
   for (const key of IMAGE_LIST_KEYS) {
-    collectImageUrlsFromValue(urls, parsedData?.[key]);
+    collectReferenceImagesFromValue(references, parsedData?.[key]);
   }
 
   for (const item of order.items) {
     for (const key of PRIORITY_IMAGE_VALUE_KEYS) {
-      pushImageUrl(urls, item[key]);
+      pushReferenceImage(references, item[key], {
+        label: item.productName,
+      });
     }
     for (const key of PRIORITY_IMAGE_LIST_KEYS) {
-      collectImageUrlsFromValue(urls, item[key]);
+      collectReferenceImagesFromValue(references, item[key], {
+        label: item.productName,
+      });
     }
     for (const key of IMAGE_COLLECTION_KEYS) {
-      collectImageUrlsFromValue(urls, item[key]);
+      collectReferenceImagesFromValue(references, item[key], {
+        label: item.productName,
+      });
     }
     for (const key of IMAGE_VALUE_KEYS) {
-      pushImageUrl(urls, item[key]);
+      pushReferenceImage(references, item[key], {
+        label: item.productName,
+      });
     }
     for (const key of IMAGE_LIST_KEYS) {
-      collectImageUrlsFromValue(urls, item[key]);
+      collectReferenceImagesFromValue(references, item[key], {
+        label: item.productName,
+      });
     }
   }
 
   const shippingQuote = asRecord(order.shippingQuote);
-  pushImageUrl(urls, shippingQuote?.imageUrl);
+  pushReferenceImage(references, shippingQuote?.imageUrl);
 
   const shipment = asRecord(order.shipment);
-  pushImageUrl(urls, shipment?.imageUrl);
+  pushReferenceImage(references, shipment?.imageUrl);
 
-  return Array.from(new Set(urls));
+  return dedupeReferenceImages(references);
 }
-
 function collectProductTags(order: NormalizedOrder): string[] {
   const tags: string[] = [];
   const pushIfPresent = (value: unknown) => {
@@ -440,6 +531,21 @@ function inferTemplateKeyFromSignals(
   return "cake";
 }
 
+function extractRequestedImageLabels(order: NormalizedOrder): string[] {
+  const parsedData = asRecord(order.whatsAppParsedData);
+  const details = asRecord(parsedData?.details);
+  const candidates = [
+    ...DESIGN_REQUEST_KEYS.map((key) => asString(details?.[key])),
+    asString(order.notes),
+  ]
+    .filter(Boolean)
+    .flatMap((entry) => entry.split(/\n|•|,|;/g))
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+  return Array.from(new Set(candidates));
+}
+
 function toWhatsAppPayload(order: NormalizedOrder): SendOrderToWhatsAppInput {
   const parsedData = asRecord(order.whatsAppParsedData);
   const itemSummary = order.items
@@ -450,7 +556,8 @@ function toWhatsAppPayload(order: NormalizedOrder): SendOrderToWhatsAppInput {
   const firstAddress = asRecord(order.deliveryAddresses[0]);
   const address =
     asString(firstAddress?.addressLine) || asString(order.customerAddress);
-  const imageUrls = extractNotificationImageUrls(order);
+  const referenceImages = extractNotificationReferenceImages(order);
+  const imageUrls = referenceImages.map((reference) => reference.url);
   const productTags = collectProductTags(order);
   const orderType = asString(parsedData?.orderType);
   const templateKey = inferTemplateKeyFromSignals(orderType, [
@@ -473,6 +580,8 @@ function toWhatsAppPayload(order: NormalizedOrder): SendOrderToWhatsAppInput {
     productTags,
     imageUrl: imageUrls[0] || "",
     imageUrls,
+    referenceImages,
+    requestedImageLabels: extractRequestedImageLabels(order),
   };
 }
 

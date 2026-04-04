@@ -2,6 +2,12 @@ import fs from "node:fs";
 import path from "node:path";
 import puppeteer, { type Page } from "puppeteer";
 
+export interface WhatsAppReferenceImage {
+  url: string;
+  label?: string;
+  orderIndex?: number;
+}
+
 export interface WhatsAppOrderImagePayload {
   customerName: string;
   phone?: string;
@@ -16,6 +22,8 @@ export interface WhatsAppOrderImagePayload {
   productTags?: string[];
   imageUrl?: string;
   imageUrls?: string[];
+  referenceImages?: WhatsAppReferenceImage[];
+  requestedImageLabels?: string[];
 }
 
 interface TemplateSlot {
@@ -136,6 +144,40 @@ const TEMPLATE_LAYOUTS: Record<TemplateKey, TemplateLayout> = {
 
 let cachedTemplateDir: string | null | undefined;
 let cachedTemplateOverrideMap: Record<string, TemplateKey> | null | undefined;
+const MATCH_STOPWORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "angka",
+  "body",
+  "character",
+  "characters",
+  "cookie",
+  "cookies",
+  "dan",
+  "dengan",
+  "design",
+  "desain",
+  "di",
+  "digimon",
+  "for",
+  "full",
+  "gambar",
+  "isi",
+  "karakter",
+  "nama",
+  "no",
+  "of",
+  "pcs",
+  "pc",
+  "piece",
+  "pieces",
+  "slot",
+  "tema",
+  "the",
+  "untuk",
+  "with",
+]);
 
 function escapeHtml(value: string): string {
   return value
@@ -159,6 +201,10 @@ function isInlineImageDataUrl(value: string): boolean {
   return /^data:image\/[a-z0-9.+-]+;base64,/i.test(value.trim());
 }
 
+function normalizeLabel(value?: string): string {
+  return (value || "").trim().replace(/\s+/g, " ");
+}
+
 function normalizeReferenceImageUrl(imageUrl?: string): string | null {
   const candidate = (imageUrl || "").trim();
   if (!candidate) return null;
@@ -176,14 +222,196 @@ function normalizeReferenceImageUrl(imageUrl?: string): string | null {
   }
 }
 
-function collectReferenceImageUrls(order: WhatsAppOrderImagePayload): string[] {
-  const candidates = [order.imageUrl ?? "", ...(order.imageUrls ?? [])];
+function normalizeMatchText(value?: string): string {
+  return (value || "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[^\p{L}\p{N}\s]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
-  const normalized = candidates
+function tokenizeMatchText(value?: string): string[] {
+  return normalizeMatchText(value)
+    .split(" ")
+    .map((token) => token.trim())
+    .filter(
+      (token) =>
+        token.length > 1 &&
+        !MATCH_STOPWORDS.has(token) &&
+        !/^\d+$/.test(token),
+    );
+}
+
+function collectReferenceImages(
+  order: WhatsAppOrderImagePayload,
+): WhatsAppReferenceImage[] {
+  const normalizedReferences: WhatsAppReferenceImage[] = [];
+  const seen = new Set<string>();
+
+  const structuredReferences = Array.isArray(order.referenceImages)
+    ? order.referenceImages
+    : [];
+
+  for (const reference of structuredReferences) {
+    const normalizedUrl = normalizeReferenceImageUrl(reference?.url);
+    if (!normalizedUrl) continue;
+
+    const key = `${normalizedUrl}::${normalizeLabel(reference.label)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    normalizedReferences.push({
+      url: normalizedUrl,
+      label: normalizeLabel(reference.label) || undefined,
+      orderIndex:
+        Number.isFinite(reference.orderIndex) &&
+        typeof reference.orderIndex === "number"
+          ? reference.orderIndex
+          : undefined,
+    });
+  }
+
+  const fallbackCandidates = [order.imageUrl ?? "", ...(order.imageUrls ?? [])];
+
+  const fallbackReferences = fallbackCandidates
     .map((value) => normalizeReferenceImageUrl(value))
     .filter((value): value is string => Boolean(value));
 
-  return Array.from(new Set(normalized));
+  for (const url of fallbackReferences) {
+    const key = `${url}::`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    normalizedReferences.push({ url });
+  }
+
+  return normalizedReferences;
+}
+
+function extractRequestedImageLabels(
+  order: WhatsAppOrderImagePayload,
+): string[] {
+  const explicitLabels = Array.isArray(order.requestedImageLabels)
+    ? order.requestedImageLabels
+    : [];
+  const sourceText = [
+    ...explicitLabels,
+    order.notes || "",
+    order.item || "",
+    ...(order.productTags ?? []),
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const candidates = sourceText
+    .split(/\n|•|,|;/g)
+    .map((entry) => normalizeLabel(entry))
+    .filter(Boolean);
+
+  const labels: string[] = [];
+  const seen = new Set<string>();
+
+  for (const candidate of candidates) {
+    const matchKey = normalizeMatchText(candidate);
+    if (!matchKey) continue;
+    if (seen.has(matchKey)) continue;
+    seen.add(matchKey);
+    labels.push(candidate);
+  }
+
+  return labels;
+}
+
+function scoreReferenceMatch(
+  reference: WhatsAppReferenceImage,
+  requestedLabel: string,
+): number {
+  const referenceLabel = normalizeLabel(reference.label);
+  if (!referenceLabel) return -1;
+
+  const normalizedReference = normalizeMatchText(referenceLabel);
+  const normalizedRequested = normalizeMatchText(requestedLabel);
+  if (!normalizedReference || !normalizedRequested) return -1;
+  if (normalizedReference === normalizedRequested) return 10_000;
+  if (
+    normalizedReference.includes(normalizedRequested) ||
+    normalizedRequested.includes(normalizedReference)
+  ) {
+    return 5_000;
+  }
+
+  const referenceTokens = tokenizeMatchText(referenceLabel);
+  const requestedTokens = tokenizeMatchText(requestedLabel);
+  if (referenceTokens.length === 0 || requestedTokens.length === 0) return -1;
+
+  let score = 0;
+  const referenceSet = new Set(referenceTokens);
+  const requestedSet = new Set(requestedTokens);
+
+  for (const token of requestedSet) {
+    if (referenceSet.has(token)) {
+      score += 200;
+    } else {
+      for (const referenceToken of referenceSet) {
+        if (
+          referenceToken.includes(token) ||
+          token.includes(referenceToken)
+        ) {
+          score += 80;
+          break;
+        }
+      }
+    }
+  }
+
+  return score > 0 ? score : -1;
+}
+
+function orderReferenceImagesForTemplate(
+  referenceImages: WhatsAppReferenceImage[],
+  requestedLabels: string[],
+): WhatsAppReferenceImage[] {
+  if (referenceImages.length <= 1) {
+    return referenceImages;
+  }
+
+  const baseOrdered = [...referenceImages].sort((left, right) => {
+    const leftIndex =
+      typeof left.orderIndex === "number" ? left.orderIndex : Number.MAX_SAFE_INTEGER;
+    const rightIndex =
+      typeof right.orderIndex === "number"
+        ? right.orderIndex
+        : Number.MAX_SAFE_INTEGER;
+    if (leftIndex !== rightIndex) return leftIndex - rightIndex;
+    return normalizeLabel(left.label).localeCompare(normalizeLabel(right.label));
+  });
+
+  if (requestedLabels.length === 0) {
+    return baseOrdered;
+  }
+
+  const remaining = [...baseOrdered];
+  const matched: WhatsAppReferenceImage[] = [];
+
+  for (const requestedLabel of requestedLabels) {
+    let bestIndex = -1;
+    let bestScore = -1;
+
+    for (const [index, reference] of remaining.entries()) {
+      const score = scoreReferenceMatch(reference, requestedLabel);
+      if (score > bestScore) {
+        bestScore = score;
+        bestIndex = index;
+      }
+    }
+
+    if (bestIndex >= 0 && bestScore >= 0) {
+      const [selected] = remaining.splice(bestIndex, 1);
+      if (selected) matched.push(selected);
+    }
+  }
+
+  return [...matched, ...remaining];
 }
 
 function normalizeSignalKey(value?: string): string {
@@ -746,8 +974,9 @@ async function extractMarkedSelectionCrops(
 
 async function resolveRenderableReferenceImages(
   page: Page,
-  referenceImageUrls: string[],
+  referenceImages: WhatsAppReferenceImage[],
 ): Promise<string[]> {
+  const referenceImageUrls = referenceImages.map((reference) => reference.url);
   if (referenceImageUrls.length !== 1) {
     return referenceImageUrls;
   }
@@ -775,10 +1004,11 @@ function buildTemplateHtml(
 
   const slotMarkup = layout.slots
     .map((slot, index) => {
-      const source =
-        images[Math.min(index, images.length - 1)] || FALLBACK_IMAGE_URL;
+      const source = images[index];
+      if (!source) return "";
       return `<img class="slot-image" src="${escapeHtml(source)}" style="left:${slot.x}px;top:${slot.y}px;width:${slot.w}px;height:${slot.h}px;" />`;
     })
+    .filter(Boolean)
     .join("\n");
 
   return `
@@ -911,7 +1141,10 @@ function buildFallbackHtml(
 export async function generateOrderImage(
   order: WhatsAppOrderImagePayload,
 ): Promise<Buffer> {
-  const referenceImageUrls = collectReferenceImageUrls(order);
+  const referenceImages = orderReferenceImagesForTemplate(
+    collectReferenceImages(order),
+    extractRequestedImageLabels(order),
+  );
   const templateKey = inferTemplateKey(order);
   const layout = TEMPLATE_LAYOUTS[templateKey];
   const templateDataUrl = await readTemplateDataUrl(layout.fileName);
@@ -927,7 +1160,7 @@ export async function generateOrderImage(
     const page = await browser.newPage();
     const renderableReferenceImages = await resolveRenderableReferenceImages(
       page,
-      referenceImageUrls,
+      referenceImages,
     );
     const useTemplateLayout = Boolean(templateDataUrl);
 

@@ -1,5 +1,6 @@
 import {
   generateOrderImage,
+  type WhatsAppReferenceImage,
   type WhatsAppOrderImagePayload,
 } from "@/lib/whatsapp/generateOrderImage";
 import { uploadToCloudinary } from "@/lib/whatsapp/uploadToCloudinary";
@@ -45,12 +46,46 @@ function normalizeReferenceImageUrls(
   return Array.from(new Set(normalized));
 }
 
+function normalizeStructuredReferenceImages(
+  order: SendOrderToWhatsAppInput,
+): WhatsAppReferenceImage[] {
+  const references = Array.isArray(order.referenceImages)
+    ? order.referenceImages
+    : [];
+
+  const normalized: WhatsAppReferenceImage[] = [];
+  const seen = new Set<string>();
+
+  for (const reference of references) {
+    const normalizedUrl = normalizeReferenceImageUrl(reference?.url);
+    if (!normalizedUrl) continue;
+
+    const label = reference.label?.trim() || undefined;
+    const key = `${normalizedUrl}::${label || ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    normalized.push({
+      url: normalizedUrl,
+      label,
+      orderIndex:
+        typeof reference.orderIndex === "number" &&
+        Number.isFinite(reference.orderIndex)
+          ? reference.orderIndex
+          : undefined,
+    });
+  }
+
+  return normalized;
+}
+
 export async function sendOrderToWhatsApp(
   order: SendOrderToWhatsAppInput,
 ): Promise<void> {
   console.log("🚀 START WA FLOW");
 
   const selectedImageUrls = normalizeReferenceImageUrls(order);
+  const structuredReferenceImages = normalizeStructuredReferenceImages(order);
   const productImageUrl = selectedImageUrls[0] || FALLBACK_IMAGE_URL;
 
   console.log("🖼️ Product image used:", productImageUrl);
@@ -59,6 +94,7 @@ export async function sendOrderToWhatsApp(
     ...order,
     imageUrl: productImageUrl,
     imageUrls: selectedImageUrls,
+    referenceImages: structuredReferenceImages,
   };
 
   let generatedOrderImageUrl = "";
