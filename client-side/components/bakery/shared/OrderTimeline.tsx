@@ -1,32 +1,35 @@
-import { CheckCircle2, Clock, Factory, PackageCheck, Truck } from "lucide-react";
+import {
+  CheckCircle2,
+  Clock,
+  Factory,
+  PackageCheck,
+  Truck,
+  XCircle,
+} from "lucide-react";
 import { OrderStatusLog } from "@/components/bakery/store";
+import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 
 const timelineSteps = [
-  { label: "Inquiry Received", icon: Clock, offset: -5 },
-  { label: "Quote Shared", icon: CheckCircle2, offset: -4 },
-  { label: "DP Received", icon: CheckCircle2, offset: -3 },
-  { label: "Sent to Production", icon: Factory, offset: -2 },
-  { label: "Ready for Delivery", icon: PackageCheck, offset: -1 },
-  { label: "Completed", icon: Truck, offset: 0 },
+  { key: "Created", label: "Booking Created", icon: CheckCircle2, offset: -2 },
+  { key: "In Production", label: "In Production", icon: Factory, offset: -1 },
+  { key: "Ready", label: "Ready for Delivery", icon: PackageCheck, offset: 0 },
+  { key: "Completed", label: "Completed", icon: Truck, offset: 1 },
+  { key: "Cancelled", label: "Cancelled", icon: XCircle, offset: 0 },
 ];
 
 function resolveIndex(status: string) {
-  switch (status) {
-    case "Quoted":
-      return 1;
-    case "DP Paid":
-      return 2;
-    case "Confirmed":
-      return 3;
-    case "In Production":
-      return 3;
+  const normalizedStatus = normalizeOrderStatus(status);
+
+  switch (normalizedStatus) {
     case "Ready":
-      return 4;
+      return 2;
     case "Completed":
     case "Delivered":
-      return 5;
+      return 3;
+    case "Cancelled":
+      return 4;
     default:
-      return 0;
+      return 1;
   }
 }
 
@@ -56,6 +59,7 @@ export default function OrderTimeline({
 }) {
   const sortedHistory = (history ?? []).slice().sort((a, b) => a.timestamp.localeCompare(b.timestamp));
   const currentIndex = resolveIndex(status);
+  const normalizedStatus = normalizeOrderStatus(status);
 
   return (
     <div className="rounded-xl border border-gray-100 bg-white px-6 py-6 shadow-sm">
@@ -95,7 +99,10 @@ export default function OrderTimeline({
             })
           : timelineSteps.map((step, index) => {
               const Icon = step.icon;
-              const isDone = index <= currentIndex;
+              const isDone =
+                normalizedStatus === "Cancelled"
+                  ? step.key === "Created" || step.key === "Cancelled"
+                  : index <= currentIndex;
               return (
                 <div key={step.label} className="flex items-start gap-3">
                   <div

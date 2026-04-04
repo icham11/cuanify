@@ -10,6 +10,10 @@ import OrderHighlightBadge from "@/components/bakery/bookings/OrderHighlightBadg
 import SkeletonBlock from "@/components/bakery/shared/SkeletonBlock";
 import { BakeryOrder, useOrders } from "@/components/bakery/store";
 import { summarizeProductionTokensByItems } from "@/lib/bookings/operations";
+import {
+  BOOKING_STATUS_OPTIONS,
+  normalizeOrderStatus,
+} from "@/lib/bookings/order-status";
 import { MessageCircle, Pencil } from "lucide-react";
 
 interface OrderTableProps {
@@ -100,17 +104,15 @@ export default function OrderTable({ orders }: OrderTableProps) {
 
     return new Map<string, Highlight>(
       orders.map((order) => {
+        const normalizedStatus = normalizeOrderStatus(order.orderStatus);
         if (
           order.deliveryDate < today &&
-          !["Delivered", "Completed", "Cancelled"].includes(order.orderStatus)
+          !["Delivered", "Completed", "Cancelled"].includes(normalizedStatus)
         ) {
           return [order.id, { label: "Late Order", tone: "danger" }];
         }
         if (order.deliveryDate === tomorrow) {
           return [order.id, { label: "Delivery Tomorrow", tone: "warning" }];
-        }
-        if (order.orderStatus === "Inquiry") {
-          return [order.id, { label: "New Order", tone: "info" }];
         }
         return [order.id, { label: "", tone: "info" }];
       }),
@@ -187,10 +189,9 @@ export default function OrderTable({ orders }: OrderTableProps) {
                 order.paymentStatus === "Pending"
                   ? "DP Paid"
                   : order.paymentStatus;
-              const normalizedOrderStatus =
-                order.orderStatus === "Confirmed"
-                  ? "In Production"
-                  : order.orderStatus;
+              const normalizedOrderStatus = normalizeOrderStatus(
+                order.orderStatus,
+              );
               const orderTokenTotal = summarizeProductionTokensByItems(
                 order.items ?? [],
               );
@@ -299,9 +300,6 @@ export default function OrderTable({ orders }: OrderTableProps) {
                           updateOrderStatus(
                             order.id,
                             event.target.value as
-                              | "Inquiry"
-                              | "Quoted"
-                              | "DP Paid"
                               | "In Production"
                               | "Ready"
                               | "Completed"
@@ -311,14 +309,11 @@ export default function OrderTable({ orders }: OrderTableProps) {
                         }
                         className="h-8 text-xs"
                       >
-                        <option value="Inquiry">Inquiry</option>
-                        <option value="Quoted">Quoted</option>
-                        <option value="DP Paid">DP Paid</option>
-                        <option value="In Production">In Production</option>
-                        <option value="Ready">Ready</option>
-                        <option value="Completed">Completed</option>
-                        <option value="Delivered">Delivered</option>
-                        <option value="Cancelled">Cancelled</option>
+                        {BOOKING_STATUS_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
                       </Select>
                     </div>
                   </td>

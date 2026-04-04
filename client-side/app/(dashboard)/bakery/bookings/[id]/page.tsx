@@ -11,7 +11,7 @@ import OrderTimeline from "@/components/bakery/shared/OrderTimeline";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { CheckCircle2, FileText, Printer } from "lucide-react";
+import { FileText, Printer } from "lucide-react";
 import { useOrders } from "@/components/bakery/store";
 import { useParams } from "next/navigation";
 import { formatCurrency } from "@/components/orders/formatters";
@@ -32,6 +32,10 @@ import {
   calculateDownPayment,
 } from "@/lib/bookings/config";
 import { estimateOperationalWeightGram } from "@/lib/bookings/delivery-rules";
+import {
+  BOOKING_STATUS_OPTIONS,
+  normalizeOrderStatus,
+} from "@/lib/bookings/order-status";
 
 type TokenDifficulty =
   | "SIMPLE"
@@ -128,7 +132,7 @@ function inferDeliveryMethodFromNotes(notes?: string): string | undefined {
 export default function OrderDetailPage() {
   const {
     orders,
-    approveOrder,
+    updateOrderStatus,
     updateOrderSchedule,
     updatePaymentStatus,
     recordPayment,
@@ -140,7 +144,6 @@ export default function OrderDetailPage() {
   const orderId = typeof params?.id === "string" ? params.id : "";
   const [rescheduleDate, setRescheduleDate] = useState("");
   const [rescheduleSlot, setRescheduleSlot] = useState("");
-  const [isApproving, setIsApproving] = useState(false);
   const [isSyncingCalendar, setIsSyncingCalendar] = useState(false);
   const [isCreatingResi, setIsCreatingResi] = useState(false);
   const [dpPaidDraft, setDpPaidDraft] = useState(0);
@@ -150,15 +153,12 @@ export default function OrderDetailPage() {
     () => orders.find((item) => item.id === orderId),
     [orders, orderId],
   );
-  const normalizedOrderStatus =
-    order?.orderStatus === "Confirmed"
-      ? "In Production"
-      : (order?.orderStatus ?? "Inquiry");
+  const normalizedOrderStatus = normalizeOrderStatus(order?.orderStatus);
   const normalizedPaymentStatus =
     order?.paymentStatus === "Pending"
       ? "DP Paid"
       : (order?.paymentStatus ?? "DP Paid");
-  const isOrderApproved = [
+  const showAutomationSummary = [
     "In Production",
     "Ready",
     "Delivered",
@@ -237,16 +237,6 @@ export default function OrderDetailPage() {
     setDpPaidDraft(Number(order.dpPaidAmount ?? 0));
     setFinalPaidDraft(Number(order.finalPaidAmount ?? 0));
   }, [order]);
-
-  const handleApprove = async () => {
-    if (!order) return;
-    setIsApproving(true);
-    try {
-      await approveOrder(order.id);
-    } finally {
-      setIsApproving(false);
-    }
-  };
 
   const handleReschedule = () => {
     if (!order) return;
@@ -481,40 +471,14 @@ export default function OrderDetailPage() {
     <div className="space-y-6 pb-10">
       <GradientPageHeader
         title="Order Detail"
-        description="Review the booking, confirm details, and move the order forward."
+        description="Review the booking, update the status, and keep production on track."
         icon={FileText}
-        actions={
-          <Button
-            onClick={handleApprove}
-            disabled={
-              isApproving ||
-              !["Inquiry", "Quoted", "DP Paid"].includes(order.orderStatus)
-            }
-            className={
-              !["Inquiry", "Quoted", "DP Paid"].includes(order.orderStatus)
-                ? "gap-2"
-                : "gap-2 bg-indigo-600 text-white hover:bg-indigo-700 focus-visible:ring-indigo-500"
-            }
-            variant={
-              !["Inquiry", "Quoted", "DP Paid"].includes(order.orderStatus)
-                ? "secondary"
-                : "default"
-            }
-          >
-            <CheckCircle2 size={16} />
-            {isApproving
-              ? "Running Automations..."
-              : !["Inquiry", "Quoted", "DP Paid"].includes(order.orderStatus)
-                ? "Approved"
-                : "Approve Order"}
-          </Button>
-        }
       />
 
-      {isOrderApproved && (
+      {showAutomationSummary && (
         <div className="space-y-2 rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm font-semibold text-indigo-700">
           <p>
-            Order approved. Booking code generated:{" "}
+            Ringkasan order aktif. Booking code:{" "}
             {order.resi || order.bookingCode}
           </p>
           <p className="text-xs font-medium text-indigo-600">
@@ -896,8 +860,28 @@ export default function OrderDetailPage() {
               </Select>
               <div className="flex items-center justify-between text-sm text-gray-600">
                 <span>Order Status</span>
-                <StatusBadge status={order.orderStatus} />
+                <StatusBadge status={normalizedOrderStatus} />
               </div>
+              <Select
+                value={normalizedOrderStatus}
+                onChange={(event) =>
+                  updateOrderStatus(
+                    order.id,
+                    event.target.value as
+                      | "In Production"
+                      | "Ready"
+                      | "Completed"
+                      | "Delivered"
+                      | "Cancelled",
+                  )
+                }
+              >
+                {BOOKING_STATUS_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
               <div className="flex items-center justify-between text-sm text-gray-600">
                 <span>DP ({BAKERY_DOWN_PAYMENT_PERCENT}%)</span>
                 <span className="font-semibold text-gray-900">

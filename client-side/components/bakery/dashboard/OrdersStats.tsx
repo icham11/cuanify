@@ -4,6 +4,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatCurrency } from "@/components/orders/formatters";
 import { useOrders } from "@/components/bakery/store";
 import {
+  isOpenOrderStatus,
+  normalizeOrderStatus,
+} from "@/lib/bookings/order-status";
+import {
   BarChart3,
   CheckCircle2,
   Factory,
@@ -19,17 +23,17 @@ export default function OrdersStats() {
   const summaryCards = [
     { title: "Total Orders", value: String(orders.length) },
     {
-      title: "Pending Approval",
+      title: "Active Queue",
       value: String(
-        orders.filter((order) =>
-          ["Inquiry", "Quoted", "DP Paid"].includes(order.orderStatus),
-        ).length,
+        orders.filter((order) => isOpenOrderStatus(order.orderStatus)).length,
       ),
     },
     {
       title: "In Production",
       value: String(
-        orders.filter((order) => order.orderStatus === "In Production").length,
+        orders.filter(
+          (order) => normalizeOrderStatus(order.orderStatus) === "In Production",
+        ).length,
       ),
     },
     {

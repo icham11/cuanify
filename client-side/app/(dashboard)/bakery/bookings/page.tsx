@@ -8,6 +8,7 @@ import OrderFilters from "@/components/bakery/bookings/OrderFilters";
 import OrderTable from "@/components/bakery/bookings/OrderTable";
 import BookingStats from "@/components/bakery/bookings/BookingStats";
 import { useOrders } from "@/components/bakery/store";
+import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 import { BookOpen } from "lucide-react";
 
 export default function BookingListPage() {
@@ -28,8 +29,7 @@ export default function BookingListPage() {
 
   const filteredOrders = useMemo(() => {
     const filtered = orders.filter((order) => {
-      const normalizedOrderStatus =
-        order.orderStatus === "Confirmed" ? "In Production" : order.orderStatus;
+      const normalizedOrderStatus = normalizeOrderStatus(order.orderStatus);
       const matchesQuery =
         order.customerName.toLowerCase().includes(query.toLowerCase()) ||
         order.resi.toLowerCase().includes(query.toLowerCase()) ||
@@ -75,7 +75,7 @@ export default function BookingListPage() {
   };
 
   const applySavedView = (
-    view: "today" | "tomorrow" | "unpaid" | "new-inquiry" | "production",
+    view: "today" | "tomorrow" | "production" | "ready",
   ) => {
     setQuery("");
     setSortBy("delivery-asc");
@@ -93,20 +93,14 @@ export default function BookingListPage() {
       return;
     }
 
-    if (view === "unpaid") {
+    if (view === "production") {
       setDateFilter("");
-      setStatusFilter("DP Paid");
-      return;
-    }
-
-    if (view === "new-inquiry") {
-      setDateFilter("");
-      setStatusFilter("Inquiry");
+      setStatusFilter("In Production");
       return;
     }
 
     setDateFilter("");
-    setStatusFilter("In Production");
+    setStatusFilter("Ready");
   };
 
   const totalPages = Math.max(1, Math.ceil(filteredOrders.length / PAGE_SIZE));
@@ -194,12 +188,11 @@ export default function BookingListPage() {
 
       <Card className="rounded-xl shadow-sm">
         <CardHeader className="p-6 pb-2">
-          <CardTitle>Workflow Tips</CardTitle>
+        <CardTitle>Workflow Tips</CardTitle>
         </CardHeader>
         <CardContent className="px-6 pb-6 pt-0 text-sm text-gray-600">
-          Use the status dropdowns to move orders from approval into production.
-          Orders in In Production status appear automatically in the Production
-          queue.
+          Booking baru sekarang langsung masuk produksi. Gunakan dropdown status
+          untuk menggeser order dari In Production ke Ready lalu Completed.
         </CardContent>
       </Card>
     </div>

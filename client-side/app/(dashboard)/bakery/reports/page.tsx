@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import { formatCurrency } from "@/components/orders/formatters";
+import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 import { Download, PieChart as PieChartIcon } from "lucide-react";
 import { useOrders } from "@/components/bakery/store";
 
@@ -37,8 +38,7 @@ export default function ReportsPage() {
 
   const filteredOrders = useMemo(() => {
     return orders.filter((order) => {
-      const normalizedOrderStatus =
-        order.orderStatus === "Confirmed" ? "In Production" : order.orderStatus;
+      const normalizedOrderStatus = normalizeOrderStatus(order.orderStatus);
       if (fromDate && order.deliveryDate < fromDate) return false;
       if (toDate && order.deliveryDate > toDate) return false;
       if (statusFilter && normalizedOrderStatus !== statusFilter) return false;
@@ -53,22 +53,19 @@ export default function ReportsPage() {
   );
   const aov = totalOrders > 0 ? Math.round(totalRevenue / totalOrders) : 0;
   const completedCount = filteredOrders.filter((order) =>
-    ["Completed", "Delivered"].includes(order.orderStatus),
+    ["Completed", "Delivered"].includes(normalizeOrderStatus(order.orderStatus)),
   ).length;
 
   const statusCounts = [
-    "Inquiry",
-    "Quoted",
-    "DP Paid",
     "In Production",
     "Ready",
+    "Delivered",
     "Completed",
     "Cancelled",
   ].map((status) => ({
     name: status,
     value: filteredOrders.filter((order) => {
-      const normalizedOrderStatus =
-        order.orderStatus === "Confirmed" ? "In Production" : order.orderStatus;
+      const normalizedOrderStatus = normalizeOrderStatus(order.orderStatus);
       return normalizedOrderStatus === status;
     }).length,
   }));
@@ -157,8 +154,7 @@ export default function ReportsPage() {
     };
 
     const rows = filteredOrders.map((order) => {
-      const normalizedOrderStatus =
-        order.orderStatus === "Confirmed" ? "In Production" : order.orderStatus;
+      const normalizedOrderStatus = normalizeOrderStatus(order.orderStatus);
       const normalizedPaymentStatus =
         order.paymentStatus === "Pending" ? "DP Paid" : order.paymentStatus;
 
@@ -242,11 +238,9 @@ export default function ReportsPage() {
               onChange={(event) => setStatusFilter(event.target.value)}
             >
               <option value="">All status</option>
-              <option value="Inquiry">Inquiry</option>
-              <option value="Quoted">Quoted</option>
-              <option value="DP Paid">DP Paid</option>
               <option value="In Production">In Production</option>
               <option value="Ready">Ready</option>
+              <option value="Delivered">Delivered</option>
               <option value="Completed">Completed</option>
               <option value="Cancelled">Cancelled</option>
             </Select>

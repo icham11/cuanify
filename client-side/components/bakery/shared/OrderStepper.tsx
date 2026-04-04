@@ -1,52 +1,44 @@
 import {
-  CheckCircle2,
-  Circle,
-  Clock,
   Factory,
+  PackageCheck,
   Truck,
   XCircle,
 } from "lucide-react";
+import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 
 const steps = [
-  { key: "Inquiry", label: "Inquiry", icon: Circle },
-  { key: "Quoted", label: "Quoted", icon: Clock },
-  { key: "DP Paid", label: "DP Paid", icon: CheckCircle2 },
   { key: "In Production", label: "In Production", icon: Factory },
-  { key: "Ready", label: "Ready", icon: Clock },
+  { key: "Ready", label: "Ready", icon: PackageCheck },
   { key: "Completed", label: "Completed", icon: Truck },
   { key: "Cancelled", label: "Cancelled", icon: XCircle },
 ];
 
 function resolveStepIndex(status: string) {
-  switch (status) {
-    case "Quoted":
-      return 1;
-    case "DP Paid":
-      return 2;
-    case "Confirmed":
-    case "In Production":
-      return 3;
+  const normalizedStatus = normalizeOrderStatus(status);
+
+  switch (normalizedStatus) {
     case "Ready":
-      return 4;
+      return 1;
     case "Delivered":
     case "Completed":
-      return 5;
+      return 2;
     case "Cancelled":
-      return 6;
+      return 3;
     default:
       return 0;
   }
 }
 
 export default function OrderStepper({ status }: { status: string }) {
-  const currentIndex = resolveStepIndex(status);
+  const normalizedStatus = normalizeOrderStatus(status);
+  const currentIndex = resolveStepIndex(normalizedStatus);
 
   return (
     <div className="rounded-xl border border-gray-100 bg-white px-6 py-5 shadow-sm">
-      <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-8">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         {steps.map((step, index) => {
           const isActive =
-            status === "Cancelled"
+            normalizedStatus === "Cancelled"
               ? step.key === "Cancelled"
               : index <= currentIndex;
           const Icon = step.icon;

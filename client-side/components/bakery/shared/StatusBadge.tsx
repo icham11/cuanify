@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 
 const statusStyles: Record<string, string> = {
   Inquiry: "border-slate-200 bg-slate-100 text-slate-700",
@@ -12,7 +13,7 @@ const statusStyles: Record<string, string> = {
 };
 
 export default function StatusBadge({ status }: { status: string }) {
-  const normalizedStatus = status === "Confirmed" ? "In Production" : status;
+  const normalizedStatus = normalizeOrderStatus(status);
 
   return (
     <Badge

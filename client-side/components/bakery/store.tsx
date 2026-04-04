@@ -27,6 +27,7 @@ import {
 } from "@/lib/bookings/config";
 import { isWithinBusinessHours } from "@/lib/bookings/operations";
 import { estimateOperationalWeightGram } from "@/lib/bookings/delivery-rules";
+import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 import { normalizeDateInput } from "@/lib/helpers/date-normalization";
 
 export type OrderStatus =
@@ -200,7 +201,6 @@ interface OrdersContextValue {
     deliveryDate: string,
     deliverySlot: string,
   ) => void;
-  approveOrder: (id: string) => Promise<void>;
   syncOrderCalendar: (id: string) => Promise<void>;
   getCustomerMessagePreview: (id: string) => string;
   setOrderShipment: (id: string, shipment: ShippingShipment) => void;
@@ -1014,7 +1014,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         product: `${order.items.length} item(s)`,
         totalPrice: order.totalPrice,
         paymentStatus: order.paymentStatus,
-        orderStatus: "Inquiry",
+        orderStatus: "In Production",
         whatsAppParsedData: order.whatsAppParsedData,
         shippingQuote: order.shippingQuote ?? null,
         shipment: null,
@@ -1022,9 +1022,9 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         statusHistory: [
           {
             id: `log-${id}-created`,
-            status: "Inquiry",
+            status: "In Production",
             timestamp: new Date().toISOString(),
-            note: "Booking created",
+            note: "Booking dibuat dan langsung masuk produksi",
             userId: actorIdentity.userId,
             actorName: actorIdentity.name,
           },
@@ -1042,9 +1042,9 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       await syncOrdersToServer(nextOrders);
       writeOrdersSnapshot(nextOrders);
 
-      toast.success(`Draft booking created: ${bookingCode}`);
+      toast.success(`Booking masuk produksi: ${bookingCode}`);
       void createShipmentForOrder(id);
-      void runAutomationsForOrder("order_created", id);
+      void runAutomationsForOrder("order_confirmed", id);
     },
     [
       orders,
@@ -1057,8 +1057,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
 
   const updateOrderStatus = useCallback(
     async (id: string, status: OrderStatus) => {
-      const requestedStatus: OrderStatus =
-        status === "Confirmed" ? "In Production" : status;
+      const requestedStatus = normalizeOrderStatus(status) as OrderStatus;
       const targetOrder = orders.find((order) => order.id === id);
       const sequence = targetOrder
         ? getDailyBookingSequence(orders, targetOrder.deliveryDate)
@@ -1264,13 +1263,6 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
     [orders, persistOrders, runAutomationsForOrder, actorIdentity],
   );
 
-  const approveOrder = useCallback(
-    async (id: string) => {
-      await updateOrderStatus(id, "In Production");
-    },
-    [updateOrderStatus],
-  );
-
   const syncOrderCalendar = useCallback(
     async (id: string) => {
       await runAutomationsForOrder("order_calendar_sync", id);
@@ -1355,7 +1347,6 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       updatePaymentStatus,
       recordPayment,
       updateOrderSchedule,
-      approveOrder,
       syncOrderCalendar,
       getCustomerMessagePreview,
       setOrderShipment,
@@ -1367,7 +1358,6 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       updatePaymentStatus,
       recordPayment,
       updateOrderSchedule,
-      approveOrder,
       syncOrderCalendar,
       getCustomerMessagePreview,
       setOrderShipment,

@@ -5,6 +5,10 @@ import {
   DAILY_PRODUCTION_TOKEN_LIMIT,
   evaluateProductionTokenCapacity,
 } from "@/lib/bookings/operations";
+import {
+  isOpenOrderStatus,
+  normalizeOrderStatus,
+} from "@/lib/bookings/order-status";
 import { toIsoDateString } from "@/lib/helpers/date-normalization";
 
 function formatDate(value: Date) {
@@ -20,11 +24,11 @@ export default function BookingStats({ orders }: { orders: BakeryOrder[] }) {
   const todayOrders = orders.filter(
     (order) => order.deliveryDate === today,
   ).length;
-  const pendingApproval = orders.filter((order) =>
-    ["Inquiry", "Quoted", "DP Paid"].includes(order.orderStatus),
+  const activeQueue = orders.filter((order) =>
+    isOpenOrderStatus(order.orderStatus),
   ).length;
   const inProduction = orders.filter(
-    (order) => order.orderStatus === "In Production",
+    (order) => normalizeOrderStatus(order.orderStatus) === "In Production",
   ).length;
   const upcoming = orders.filter(
     (order) => order.deliveryDate >= today && order.deliveryDate <= tomorrow,
@@ -40,7 +44,7 @@ export default function BookingStats({ orders }: { orders: BakeryOrder[] }) {
 
   const stats = [
     { label: "Today Orders", value: todayOrders },
-    { label: "Pending Approval", value: pendingApproval },
+    { label: "Active Queue", value: activeQueue },
     { label: "In Production", value: inProduction },
     { label: "Upcoming Deliveries", value: upcoming },
     {

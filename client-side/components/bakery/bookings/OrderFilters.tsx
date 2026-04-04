@@ -2,6 +2,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { BOOKING_STATUS_OPTIONS } from "@/lib/bookings/order-status";
 
 interface OrderFiltersProps {
   query: string;
@@ -17,7 +18,7 @@ interface OrderFiltersProps {
   ) => void;
   onReset: () => void;
   onSavedViewSelect: (
-    view: "today" | "tomorrow" | "unpaid" | "new-inquiry" | "production",
+    view: "today" | "tomorrow" | "production" | "ready",
   ) => void;
 }
 
@@ -61,31 +62,23 @@ export default function OrderFilters({
             type="button"
             variant="outline"
             className="h-8 rounded-lg px-3 text-xs"
-            onClick={() => onSavedViewSelect("unpaid")}
-          >
-            Needs Follow-up
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            className="h-8 rounded-lg px-3 text-xs"
-            onClick={() => onSavedViewSelect("new-inquiry")}
-          >
-            New Inquiry
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            className="h-8 rounded-lg px-3 text-xs"
             onClick={() => onSavedViewSelect("production")}
           >
             In Production
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="h-8 rounded-lg px-3 text-xs"
+            onClick={() => onSavedViewSelect("ready")}
+          >
+            Ready
           </Button>
         </div>
 
         <div className="grid gap-4 lg:grid-cols-[2fr,1fr,1fr,1fr,auto]">
           <Input
-            placeholder="Search by resi or customer"
+            placeholder="Search booking code or customer"
             value={query}
             onChange={(event) => onQueryChange(event.target.value)}
           />
@@ -94,14 +87,11 @@ export default function OrderFilters({
             onChange={(event) => onStatusChange(event.target.value)}
           >
             <option value="">All status</option>
-            <option value="Inquiry">Inquiry</option>
-            <option value="Quoted">Quoted</option>
-            <option value="DP Paid">DP Paid</option>
-            <option value="In Production">In Production</option>
-            <option value="Ready">Ready</option>
-            <option value="Completed">Completed</option>
-            <option value="Delivered">Delivered</option>
-            <option value="Cancelled">Cancelled</option>
+            {BOOKING_STATUS_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
           </Select>
           <Input
             type="date"

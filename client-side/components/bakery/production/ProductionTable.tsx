@@ -6,6 +6,7 @@ import StatusDropdown from "@/components/bakery/production/StatusDropdown";
 import PriorityBadge from "@/components/bakery/production/PriorityBadge";
 import { useOrders } from "@/components/bakery/store";
 import { summarizeProductionTokensByItems } from "@/lib/bookings/operations";
+import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 import { toIsoDateString } from "@/lib/helpers/date-normalization";
 
 export default function ProductionTable() {
@@ -28,8 +29,8 @@ export default function ProductionTable() {
 
   const activeOrders = useMemo(() => {
     return orders
-      .filter((order) =>
-        ["Confirmed", "In Production"].includes(order.orderStatus),
+      .filter(
+        (order) => normalizeOrderStatus(order.orderStatus) === "In Production",
       )
       .slice()
       .sort((a, b) => a.deliveryDate.localeCompare(b.deliveryDate));
@@ -38,7 +39,9 @@ export default function ProductionTable() {
   const readyOrders = useMemo(() => {
     return orders
       .filter((order) =>
-        ["Ready", "Delivered", "Completed"].includes(order.orderStatus),
+        ["Ready", "Delivered", "Completed"].includes(
+          normalizeOrderStatus(order.orderStatus),
+        ),
       )
       .slice()
       .sort((a, b) => a.deliveryDate.localeCompare(b.deliveryDate));
@@ -105,10 +108,9 @@ export default function ProductionTable() {
             </div>
           ) : (
             activeOrders.map((order) => {
-              const normalizedOrderStatus =
-                order.orderStatus === "Confirmed"
-                  ? "In Production"
-                  : order.orderStatus;
+              const normalizedOrderStatus = normalizeOrderStatus(
+                order.orderStatus,
+              );
 
               return (
                 <div
@@ -192,10 +194,9 @@ export default function ProductionTable() {
             </div>
           ) : (
             readyOrders.map((order) => {
-              const normalizedOrderStatus =
-                order.orderStatus === "Confirmed"
-                  ? "In Production"
-                  : order.orderStatus;
+              const normalizedOrderStatus = normalizeOrderStatus(
+                order.orderStatus,
+              );
 
               return (
                 <div
