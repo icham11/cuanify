@@ -47,6 +47,12 @@ FONNTE_PRODUCTION_TARGET=
 FONNTE_SEND_PRODUCTION_ON_CREATE=true
 FONNTE_SEND_CUSTOMER_ON_CONFIRM=false
 FONNTE_NOTIFY_RESCHEDULE_PRODUCTION=true
+# Optional: path folder template order form (relative dari client-side atau absolute)
+PRODUCTION_TEMPLATE_DIR=../Template for Production Team
+# Optional: JSON mapping sinyal produk -> template key
+# Contoh: {"cookies_box":"box","standing_bouquet":"buket_standing"}
+# Template key valid: cake,cookies_tower,cupcakes,cookies,box,buket_hand,buket_standing
+PRODUCTION_TEMPLATE_KEY_OVERRIDES=
 
 # Google Service Account
 GOOGLE_SERVICE_ACCOUNT_EMAIL=

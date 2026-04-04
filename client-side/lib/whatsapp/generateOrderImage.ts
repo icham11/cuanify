@@ -1,4 +1,6 @@
-import puppeteer from "puppeteer";
+import fs from "node:fs";
+import path from "node:path";
+import puppeteer, { type Page } from "puppeteer";
 
 export interface WhatsAppOrderImagePayload {
   customerName: string;
@@ -8,31 +10,132 @@ export interface WhatsAppOrderImagePayload {
   item?: string;
   notes?: string;
   address?: string;
+  bookingCode?: string;
+  orderType?: string;
+  templateKey?: string;
+  productTags?: string[];
   imageUrl?: string;
+  imageUrls?: string[];
 }
 
-const FALLBACK_IMAGE_URL = "https://via.placeholder.com/300";
-
-function normalizeProductImageUrl(imageUrl?: string): string {
-  const candidate = (imageUrl || "").trim();
-  if (!candidate) return FALLBACK_IMAGE_URL;
-
-  try {
-    const parsed = new URL(candidate);
-    const isPublicCloudinary =
-      parsed.protocol === "https:" &&
-      parsed.hostname === "res.cloudinary.com";
-    const isGeneratedOrderImage = parsed.pathname.includes("/orders/generated/");
-
-    if (!isPublicCloudinary || isGeneratedOrderImage) {
-      return FALLBACK_IMAGE_URL;
-    }
-
-    return parsed.toString();
-  } catch {
-    return FALLBACK_IMAGE_URL;
-  }
+interface TemplateSlot {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
 }
+
+interface TemplateLayout {
+  fileName: string;
+  slots: TemplateSlot[];
+}
+
+type TemplateKey =
+  | "cake"
+  | "cookies_tower"
+  | "cupcakes"
+  | "cookies"
+  | "box"
+  | "buket_hand"
+  | "buket_standing";
+
+const FALLBACK_IMAGE_URL = "https://via.placeholder.com/1024";
+const TEMPLATE_WIDTH = 1414;
+const TEMPLATE_HEIGHT = 2000;
+const MARKED_SELECTION_MIN_PIXELS = 180;
+
+const TEMPLATE_LAYOUTS: Record<TemplateKey, TemplateLayout> = {
+  cake: {
+    fileName: "2.jpg",
+    slots: [
+      { x: 120, y: 530, w: 430, h: 430 },
+      { x: 860, y: 530, w: 430, h: 430 },
+      { x: 120, y: 1120, w: 350, h: 350 },
+      { x: 540, y: 1120, w: 350, h: 350 },
+      { x: 960, y: 1120, w: 350, h: 350 },
+      { x: 120, y: 1540, w: 350, h: 350 },
+      { x: 540, y: 1540, w: 350, h: 350 },
+      { x: 960, y: 1540, w: 350, h: 350 },
+    ],
+  },
+  cookies_tower: {
+    fileName: "3.jpg",
+    slots: [{ x: 220, y: 600, w: 980, h: 980 }],
+  },
+  cupcakes: {
+    fileName: "4.jpg",
+    slots: [
+      { x: 500, y: 530, w: 410, h: 430 },
+      { x: 120, y: 1120, w: 350, h: 350 },
+      { x: 540, y: 1120, w: 350, h: 350 },
+      { x: 960, y: 1120, w: 350, h: 350 },
+      { x: 120, y: 1540, w: 350, h: 350 },
+      { x: 540, y: 1540, w: 350, h: 350 },
+      { x: 960, y: 1540, w: 350, h: 350 },
+    ],
+  },
+  cookies: {
+    fileName: "5.jpg",
+    slots: [
+      { x: 120, y: 575, w: 350, h: 350 },
+      { x: 540, y: 575, w: 350, h: 350 },
+      { x: 960, y: 575, w: 350, h: 350 },
+      { x: 120, y: 1030, w: 350, h: 350 },
+      { x: 540, y: 1030, w: 350, h: 350 },
+      { x: 960, y: 1030, w: 350, h: 350 },
+      { x: 120, y: 1485, w: 350, h: 350 },
+      { x: 540, y: 1485, w: 350, h: 350 },
+      { x: 960, y: 1485, w: 350, h: 350 },
+    ],
+  },
+  box: {
+    fileName: "6.jpg",
+    slots: [
+      { x: 120, y: 575, w: 350, h: 350 },
+      { x: 540, y: 575, w: 350, h: 350 },
+      { x: 960, y: 575, w: 350, h: 350 },
+      { x: 120, y: 1030, w: 350, h: 350 },
+      { x: 540, y: 1030, w: 350, h: 350 },
+      { x: 960, y: 1030, w: 350, h: 350 },
+      { x: 120, y: 1485, w: 350, h: 350 },
+      { x: 540, y: 1485, w: 350, h: 350 },
+      { x: 960, y: 1485, w: 350, h: 350 },
+    ],
+  },
+  buket_hand: {
+    fileName: "7.jpg",
+    slots: [
+      { x: 70, y: 620, w: 300, h: 320 },
+      { x: 415, y: 620, w: 300, h: 320 },
+      { x: 760, y: 620, w: 300, h: 320 },
+      { x: 1105, y: 620, w: 250, h: 320 },
+      { x: 120, y: 1060, w: 350, h: 350 },
+      { x: 540, y: 1060, w: 350, h: 350 },
+      { x: 960, y: 1060, w: 350, h: 350 },
+      { x: 120, y: 1510, w: 350, h: 350 },
+      { x: 540, y: 1510, w: 350, h: 350 },
+      { x: 960, y: 1510, w: 350, h: 350 },
+    ],
+  },
+  buket_standing: {
+    fileName: "8.jpg",
+    slots: [
+      { x: 70, y: 620, w: 300, h: 320 },
+      { x: 415, y: 620, w: 300, h: 320 },
+      { x: 760, y: 620, w: 300, h: 320 },
+      { x: 1105, y: 620, w: 250, h: 320 },
+      { x: 120, y: 1060, w: 350, h: 350 },
+      { x: 540, y: 1060, w: 350, h: 350 },
+      { x: 960, y: 1060, w: 350, h: 350 },
+      { x: 120, y: 1510, w: 350, h: 350 },
+      { x: 540, y: 1510, w: 350, h: 350 },
+      { x: 960, y: 1510, w: 350, h: 350 },
+    ],
+  },
+};
+
+let cachedTemplateDir: string | null | undefined;
+let cachedTemplateOverrideMap: Record<string, TemplateKey> | null | undefined;
 
 function escapeHtml(value: string): string {
   return value
@@ -43,16 +146,775 @@ function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
+function isValidHttpUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "https:" || parsed.protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
+function isInlineImageDataUrl(value: string): boolean {
+  return /^data:image\/[a-z0-9.+-]+;base64,/i.test(value.trim());
+}
+
+function normalizeReferenceImageUrl(imageUrl?: string): string | null {
+  const candidate = (imageUrl || "").trim();
+  if (!candidate) return null;
+  if (isInlineImageDataUrl(candidate)) return candidate;
+  if (!isValidHttpUrl(candidate)) return null;
+
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.pathname.includes("/orders/generated/")) {
+      return null;
+    }
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+function collectReferenceImageUrls(order: WhatsAppOrderImagePayload): string[] {
+  const candidates = [order.imageUrl ?? "", ...(order.imageUrls ?? [])];
+
+  const normalized = candidates
+    .map((value) => normalizeReferenceImageUrl(value))
+    .filter((value): value is string => Boolean(value));
+
+  return Array.from(new Set(normalized));
+}
+
+function normalizeSignalKey(value?: string): string {
+  return (value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+}
+
+function normalizeTemplateKey(value?: string): TemplateKey | null {
+  const normalized = normalizeSignalKey(value);
+
+  if (!normalized) return null;
+
+  if (normalized === "cake") return "cake";
+  if (normalized === "cookies_tower" || normalized === "cookie_tower") {
+    return "cookies_tower";
+  }
+  if (normalized === "cupcakes" || normalized === "cupcake") {
+    return "cupcakes";
+  }
+  if (normalized === "cookies" || normalized === "cookie") {
+    return "cookies";
+  }
+  if (normalized === "box" || normalized === "cookies_box") {
+    return "box";
+  }
+  if (normalized === "buket_hand" || normalized === "hand_bouquet") {
+    return "buket_hand";
+  }
+  if (normalized === "buket_standing" || normalized === "standing_bouquet") {
+    return "buket_standing";
+  }
+
+  return null;
+}
+
+function normalizeOrderType(
+  orderType?: string,
+): "cake" | "cookies_tower" | "cupcakes" | "cookies" | "buket" | "" {
+  const normalized = normalizeSignalKey(orderType);
+
+  if (
+    normalized === "cake" ||
+    normalized === "cookies_tower" ||
+    normalized === "cupcakes" ||
+    normalized === "cookies" ||
+    normalized === "buket"
+  ) {
+    return normalized;
+  }
+
+  return "";
+}
+
+function resolveTemplateOverrideMap(): Record<string, TemplateKey> | null {
+  if (cachedTemplateOverrideMap !== undefined) return cachedTemplateOverrideMap;
+
+  const raw = (process.env.PRODUCTION_TEMPLATE_KEY_OVERRIDES || "").trim();
+  if (!raw) {
+    cachedTemplateOverrideMap = null;
+    return cachedTemplateOverrideMap;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      cachedTemplateOverrideMap = null;
+      return cachedTemplateOverrideMap;
+    }
+
+    const map: Record<string, TemplateKey> = {};
+    for (const [signal, candidate] of Object.entries(
+      parsed as Record<string, unknown>,
+    )) {
+      const normalizedSignal = normalizeSignalKey(signal);
+      const templateKey = normalizeTemplateKey(
+        typeof candidate === "string" ? candidate : "",
+      );
+
+      if (!normalizedSignal || !templateKey) continue;
+      map[normalizedSignal] = templateKey;
+    }
+
+    cachedTemplateOverrideMap = Object.keys(map).length > 0 ? map : null;
+  } catch {
+    cachedTemplateOverrideMap = null;
+  }
+
+  return cachedTemplateOverrideMap;
+}
+
+function resolveTemplateOverrideKey(
+  order: WhatsAppOrderImagePayload,
+): TemplateKey | null {
+  const overrides = resolveTemplateOverrideMap();
+  if (!overrides) return null;
+
+  const candidates = [
+    order.templateKey || "",
+    order.orderType || "",
+    ...(order.productTags ?? []),
+    order.item || "",
+    order.notes || "",
+  ]
+    .flatMap((value) => value.split(/[,;\n]/g))
+    .map((value) => normalizeSignalKey(value))
+    .filter(Boolean);
+
+  for (const candidate of candidates) {
+    const match = overrides[candidate];
+    if (match) return match;
+  }
+
+  return null;
+}
+
+function prettifyOrderType(orderType?: string): string {
+  const normalized = (orderType || "").trim().toLowerCase();
+  switch (normalized) {
+    case "cake":
+      return "Cake";
+    case "cupcakes":
+      return "Cupcake";
+    case "cookies":
+      return "Cookies";
+    case "cookies_tower":
+      return "Cookies Tower";
+    case "buket":
+      return "Bouquet";
+    default:
+      return "Custom";
+  }
+}
+
+function inferTemplateKey(order: WhatsAppOrderImagePayload): TemplateKey {
+  const overriddenTemplateKey = resolveTemplateOverrideKey(order);
+  if (overriddenTemplateKey) {
+    return overriddenTemplateKey;
+  }
+
+  const explicitTemplateKey = normalizeTemplateKey(order.templateKey);
+  if (explicitTemplateKey) {
+    return explicitTemplateKey;
+  }
+
+  const normalizedOrderType = normalizeOrderType(order.orderType);
+  const text =
+    `${(order.productTags ?? []).join(" ")} ${order.item || ""} ${order.notes || ""}`.toLowerCase();
+
+  if (normalizedOrderType === "cake") return "cake";
+  if (normalizedOrderType === "cupcakes") return "cupcakes";
+  if (normalizedOrderType === "cookies_tower") return "cookies_tower";
+
+  if (normalizedOrderType === "cookies") {
+    if (/\bbox\b/.test(text)) return "box";
+    return "cookies";
+  }
+
+  if (normalizedOrderType === "buket") {
+    if (/standing/.test(text)) return "buket_standing";
+    return "buket_hand";
+  }
+
+  if (/cookies?\s*tower|tower/.test(text)) return "cookies_tower";
+  if (/cupcakes?|cupcake/.test(text)) return "cupcakes";
+  if (/standing\s*bouquet|standing/.test(text)) return "buket_standing";
+  if (/buket|bouquet|hand\s*bouquet|flower/.test(text)) return "buket_hand";
+  if (/\bbox\b/.test(text)) return "box";
+  if (/cookies?|cookie/.test(text)) return "cookies";
+
+  return "cake";
+}
+
+function resolveTemplateDirectory(): string | null {
+  if (cachedTemplateDir !== undefined) return cachedTemplateDir;
+
+  const envPath = (process.env.PRODUCTION_TEMPLATE_DIR || "").trim();
+  const candidates = [
+    envPath ? path.resolve(process.cwd(), envPath) : "",
+    path.resolve(process.cwd(), "Template for Production Team"),
+    path.resolve(process.cwd(), "..", "Template for Production Team"),
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) {
+      cachedTemplateDir = candidate;
+      return cachedTemplateDir;
+    }
+  }
+
+  cachedTemplateDir = null;
+  return cachedTemplateDir;
+}
+
+async function readTemplateDataUrl(fileName: string): Promise<string | null> {
+  const templateDir = resolveTemplateDirectory();
+  if (!templateDir) return null;
+
+  const filePath = path.join(templateDir, fileName);
+  if (!fs.existsSync(filePath)) return null;
+
+  const extension = path.extname(filePath).toLowerCase();
+  const mimeType = extension === ".png" ? "image/png" : "image/jpeg";
+  const bytes = await fs.promises.readFile(filePath);
+  return `data:${mimeType};base64,${bytes.toString("base64")}`;
+}
+
+function inferRemoteMimeType(source: string): string {
+  try {
+    const parsed = new URL(source);
+    const extension = path.extname(parsed.pathname).toLowerCase();
+    if (extension === ".png") return "image/png";
+    if (extension === ".webp") return "image/webp";
+    if (extension === ".gif") return "image/gif";
+  } catch {
+    // Ignore and use the default below.
+  }
+
+  return "image/jpeg";
+}
+
+async function fetchImageAsDataUrl(source: string): Promise<string | null> {
+  if (!source) return null;
+  if (source.startsWith("data:")) return source;
+  if (!isValidHttpUrl(source)) return null;
+
+  try {
+    const response = await fetch(source, { cache: "no-store" });
+    if (!response.ok) return null;
+
+    const bytes = Buffer.from(await response.arrayBuffer());
+    const mimeType =
+      response.headers.get("content-type")?.split(";")[0]?.trim() ||
+      inferRemoteMimeType(source);
+
+    return `data:${mimeType};base64,${bytes.toString("base64")}`;
+  } catch {
+    return null;
+  }
+}
+
+async function extractMarkedSelectionCrops(
+  page: Page,
+  sourceDataUrl: string,
+): Promise<string[]> {
+  try {
+    return await page.evaluate(
+      async (imageSrc, minPixels) => {
+        const loadImage = (src: string) =>
+          new Promise<HTMLImageElement>((resolve, reject) => {
+            const img = new Image();
+            img.decoding = "sync";
+            img.onload = () => resolve(img);
+            img.onerror = () => reject(new Error("Failed to load image"));
+            img.src = src;
+          });
+
+        const clamp = (value: number, min: number, max: number) =>
+          Math.min(max, Math.max(min, value));
+
+        const toIndex = (x: number, y: number, width: number) => y * width + x;
+
+        const image = await loadImage(imageSrc);
+        const width = image.naturalWidth || image.width;
+        const height = image.naturalHeight || image.height;
+
+        if (!width || !height) return [];
+
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const context = canvas.getContext("2d");
+        if (!context) return [];
+
+        context.drawImage(image, 0, 0, width, height);
+        const pixels = context.getImageData(0, 0, width, height).data;
+        const visited = new Uint8Array(width * height);
+        const components: Array<{
+          minX: number;
+          minY: number;
+          maxX: number;
+          maxY: number;
+          pixelCount: number;
+        }> = [];
+
+        const isMarkedRed = (offset: number) => {
+          const r = pixels[offset];
+          const g = pixels[offset + 1];
+          const b = pixels[offset + 2];
+          const a = pixels[offset + 3];
+          return a > 0 && r >= 170 && g <= 120 && b <= 120 && r - g >= 55;
+        };
+
+        for (let y = 0; y < height; y += 1) {
+          for (let x = 0; x < width; x += 1) {
+            const startIndex = toIndex(x, y, width);
+            if (visited[startIndex]) continue;
+
+            const offset = startIndex * 4;
+            if (!isMarkedRed(offset)) {
+              visited[startIndex] = 1;
+              continue;
+            }
+
+            const queue = [startIndex];
+            visited[startIndex] = 1;
+
+            let pixelCount = 0;
+            let minX = x;
+            let minY = y;
+            let maxX = x;
+            let maxY = y;
+
+            while (queue.length > 0) {
+              const current = queue.pop();
+              if (current == null) continue;
+
+              const currentX = current % width;
+              const currentY = Math.floor(current / width);
+              pixelCount += 1;
+              minX = Math.min(minX, currentX);
+              minY = Math.min(minY, currentY);
+              maxX = Math.max(maxX, currentX);
+              maxY = Math.max(maxY, currentY);
+
+              const neighbors = [
+                [currentX - 1, currentY],
+                [currentX + 1, currentY],
+                [currentX, currentY - 1],
+                [currentX, currentY + 1],
+              ];
+
+              for (const [nextX, nextY] of neighbors) {
+                if (
+                  nextX < 0 ||
+                  nextY < 0 ||
+                  nextX >= width ||
+                  nextY >= height
+                ) {
+                  continue;
+                }
+
+                const nextIndex = toIndex(nextX, nextY, width);
+                if (visited[nextIndex]) continue;
+                visited[nextIndex] = 1;
+
+                if (isMarkedRed(nextIndex * 4)) {
+                  queue.push(nextIndex);
+                }
+              }
+            }
+
+            const boxWidth = maxX - minX + 1;
+            const boxHeight = maxY - minY + 1;
+            const maxAllowedWidth = width * 0.8;
+            const maxAllowedHeight = height * 0.8;
+
+            if (
+              pixelCount < minPixels ||
+              boxWidth < 40 ||
+              boxHeight < 40 ||
+              boxWidth > maxAllowedWidth ||
+              boxHeight > maxAllowedHeight
+            ) {
+              continue;
+            }
+
+            components.push({ minX, minY, maxX, maxY, pixelCount });
+          }
+        }
+
+        const sortedComponents = components.sort((left, right) => {
+          const rowDelta = left.minY - right.minY;
+          if (Math.abs(rowDelta) > 40) return rowDelta;
+          return left.minX - right.minX;
+        });
+
+        const crops: string[] = [];
+        const sampleColor = (x: number, y: number) => {
+          const boundedX = clamp(x, 0, width - 1);
+          const boundedY = clamp(y, 0, height - 1);
+          const offset = (boundedY * width + boundedX) * 4;
+          return {
+            r: pixels[offset],
+            g: pixels[offset + 1],
+            b: pixels[offset + 2],
+          };
+        };
+
+        for (const component of sortedComponents) {
+          const boxWidth = component.maxX - component.minX + 1;
+          const boxHeight = component.maxY - component.minY + 1;
+          const inset = Math.max(10, Math.round(Math.min(boxWidth, boxHeight) * 0.08));
+
+          const searchMinX = clamp(component.minX + inset, 0, width - 1);
+          const searchMinY = clamp(component.minY + inset, 0, height - 1);
+          const searchMaxX = clamp(component.maxX - inset, searchMinX, width - 1);
+          const searchMaxY = clamp(component.maxY - inset, searchMinY, height - 1);
+
+          const samples = [
+            sampleColor(searchMinX, searchMinY),
+            sampleColor(searchMaxX, searchMinY),
+            sampleColor(searchMinX, searchMaxY),
+            sampleColor(searchMaxX, searchMaxY),
+          ];
+
+          const background = samples.reduce(
+            (accumulator, sample) => ({
+              r: accumulator.r + sample.r / samples.length,
+              g: accumulator.g + sample.g / samples.length,
+              b: accumulator.b + sample.b / samples.length,
+            }),
+            { r: 0, g: 0, b: 0 },
+          );
+
+          let objectMinX = searchMaxX;
+          let objectMinY = searchMaxY;
+          let objectMaxX = searchMinX;
+          let objectMaxY = searchMinY;
+          let foregroundPixelCount = 0;
+
+          for (let y = searchMinY; y <= searchMaxY; y += 1) {
+            for (let x = searchMinX; x <= searchMaxX; x += 1) {
+              const offset = (y * width + x) * 4;
+              if (isMarkedRed(offset)) continue;
+
+              const r = pixels[offset];
+              const g = pixels[offset + 1];
+              const b = pixels[offset + 2];
+              const brightness = (r + g + b) / 3;
+              const maxChannel = Math.max(r, g, b);
+              const minChannel = Math.min(r, g, b);
+              const saturation =
+                maxChannel === 0 ? 0 : (maxChannel - minChannel) / maxChannel;
+              const distanceFromBackground = Math.sqrt(
+                (r - background.r) ** 2 +
+                  (g - background.g) ** 2 +
+                  (b - background.b) ** 2,
+              );
+              const isForeground =
+                distanceFromBackground >= 26 ||
+                saturation >= 0.12 ||
+                brightness <= 232;
+
+              if (!isForeground) continue;
+
+              foregroundPixelCount += 1;
+              objectMinX = Math.min(objectMinX, x);
+              objectMinY = Math.min(objectMinY, y);
+              objectMaxX = Math.max(objectMaxX, x);
+              objectMaxY = Math.max(objectMaxY, y);
+            }
+          }
+
+          let cropMinX = searchMinX;
+          let cropMinY = searchMinY;
+          let cropMaxX = searchMaxX;
+          let cropMaxY = searchMaxY;
+
+          if (foregroundPixelCount > 0) {
+            const objectWidth = objectMaxX - objectMinX + 1;
+            const objectHeight = objectMaxY - objectMinY + 1;
+            const objectArea = objectWidth * objectHeight;
+            const searchArea =
+              (searchMaxX - searchMinX + 1) * (searchMaxY - searchMinY + 1);
+
+            if (
+              objectWidth >= 24 &&
+              objectHeight >= 24 &&
+              objectArea >= searchArea * 0.08
+            ) {
+              const padding = Math.max(
+                8,
+                Math.round(Math.min(objectWidth, objectHeight) * 0.08),
+              );
+              cropMinX = clamp(objectMinX - padding, 0, width - 1);
+              cropMinY = clamp(objectMinY - padding, 0, height - 1);
+              cropMaxX = clamp(objectMaxX + padding, cropMinX, width - 1);
+              cropMaxY = clamp(objectMaxY + padding, cropMinY, height - 1);
+            }
+          }
+
+          const cropWidth = cropMaxX - cropMinX + 1;
+          const cropHeight = cropMaxY - cropMinY + 1;
+          if (cropWidth < 24 || cropHeight < 24) continue;
+
+          const outputCanvas = document.createElement("canvas");
+          outputCanvas.width = cropWidth;
+          outputCanvas.height = cropHeight;
+          const outputContext = outputCanvas.getContext("2d");
+          if (!outputContext) continue;
+
+          outputContext.drawImage(
+            canvas,
+            cropMinX,
+            cropMinY,
+            cropWidth,
+            cropHeight,
+            0,
+            0,
+            cropWidth,
+            cropHeight,
+          );
+
+          const outputImageData = outputContext.getImageData(
+            0,
+            0,
+            cropWidth,
+            cropHeight,
+          );
+          const outputPixels = outputImageData.data;
+          const isOutputMarkedRed = (outputOffset: number) => {
+            const r = outputPixels[outputOffset];
+            const g = outputPixels[outputOffset + 1];
+            const b = outputPixels[outputOffset + 2];
+            const a = outputPixels[outputOffset + 3];
+            return a > 0 && r >= 170 && g <= 120 && b <= 120 && r - g >= 55;
+          };
+
+          for (let offset = 0; offset < outputPixels.length; offset += 4) {
+            const r = outputPixels[offset];
+            const g = outputPixels[offset + 1];
+            const b = outputPixels[offset + 2];
+            const brightness = (r + g + b) / 3;
+            const maxChannel = Math.max(r, g, b);
+            const minChannel = Math.min(r, g, b);
+            const saturation =
+              maxChannel === 0 ? 0 : (maxChannel - minChannel) / maxChannel;
+            const distanceFromBackground = Math.sqrt(
+              (r - background.r) ** 2 +
+                (g - background.g) ** 2 +
+                (b - background.b) ** 2,
+            );
+
+            if (
+              isOutputMarkedRed(offset) ||
+              (distanceFromBackground <= 18 &&
+                brightness >= 225 &&
+                saturation <= 0.08)
+            ) {
+              outputPixels[offset + 3] = 0;
+            }
+          }
+
+          outputContext.putImageData(outputImageData, 0, 0);
+
+          crops.push(outputCanvas.toDataURL("image/png"));
+        }
+
+        return crops;
+      },
+      sourceDataUrl,
+      MARKED_SELECTION_MIN_PIXELS,
+    );
+  } catch {
+    return [];
+  }
+}
+
+async function resolveRenderableReferenceImages(
+  page: Page,
+  referenceImageUrls: string[],
+): Promise<string[]> {
+  if (referenceImageUrls.length !== 1) {
+    return referenceImageUrls;
+  }
+
+  const sourceDataUrl = await fetchImageAsDataUrl(referenceImageUrls[0]);
+  if (!sourceDataUrl) {
+    return referenceImageUrls;
+  }
+
+  const extractedCrops = await extractMarkedSelectionCrops(page, sourceDataUrl);
+  if (extractedCrops.length > 0) {
+    return extractedCrops;
+  }
+
+  return [sourceDataUrl];
+}
+
+function buildTemplateHtml(
+  layout: TemplateLayout,
+  templateDataUrl: string,
+  referenceImageUrls: string[],
+): string {
+  const images =
+    referenceImageUrls.length > 0 ? referenceImageUrls : [FALLBACK_IMAGE_URL];
+
+  const slotMarkup = layout.slots
+    .map((slot, index) => {
+      const source =
+        images[Math.min(index, images.length - 1)] || FALLBACK_IMAGE_URL;
+      return `<img class="slot-image" src="${escapeHtml(source)}" style="left:${slot.x}px;top:${slot.y}px;width:${slot.w}px;height:${slot.h}px;" />`;
+    })
+    .join("\n");
+
+  return `
+    <html>
+      <head>
+        <style>
+          * { box-sizing: border-box; font-family: Arial, sans-serif; }
+          body { margin: 0; padding: 0; background: #f3f4f6; }
+          .sheet {
+            position: relative;
+            width: ${TEMPLATE_WIDTH}px;
+            height: ${TEMPLATE_HEIGHT}px;
+            margin: 0;
+            background-image: url('${templateDataUrl}');
+            background-size: cover;
+            background-position: center;
+            overflow: hidden;
+          }
+          .slot-image {
+            position: absolute;
+            object-fit: cover;
+            border-radius: 6px;
+            border: 2px solid rgba(255, 255, 255, 0.72);
+          }
+        </style>
+      </head>
+      <body>
+        <div class="sheet">
+          ${slotMarkup}
+        </div>
+      </body>
+    </html>
+  `;
+}
+
 function field(label: string, value?: string): string {
   const safeValue = escapeHtml((value || "-").trim() || "-");
   return `<div class="row"><span class="label">${label}</span><span class="value">${safeValue}</span></div>`;
 }
 
+function buildFallbackHtml(
+  order: WhatsAppOrderImagePayload,
+  referenceImageUrls: string[],
+): string {
+  const heroImage = referenceImageUrls[0] || FALLBACK_IMAGE_URL;
+
+  return `
+    <html>
+      <head>
+        <style>
+          * { box-sizing: border-box; font-family: Arial, sans-serif; }
+          body { margin: 0; padding: 32px; background: #f4f4f5; }
+          .card {
+            width: 100%;
+            max-width: 760px;
+            margin: 0 auto;
+            border-radius: 16px;
+            background: #ffffff;
+            border: 1px solid #e4e4e7;
+            overflow: hidden;
+          }
+          .header {
+            padding: 20px 24px;
+            background: #111827;
+            color: #ffffff;
+          }
+          .title { margin: 0; font-size: 22px; font-weight: 700; }
+          .subtitle { margin: 6px 0 0; font-size: 13px; opacity: 0.85; }
+          .content { padding: 20px 24px; }
+          .hero {
+            margin-bottom: 16px;
+            border: 1px solid #e4e4e7;
+            border-radius: 12px;
+            padding: 8px;
+            background: #fafafa;
+          }
+          .hero img {
+            width: 100%;
+            max-height: 300px;
+            object-fit: contain;
+            border-radius: 8px;
+            display: block;
+            background: #ffffff;
+          }
+          .row {
+            display: grid;
+            grid-template-columns: 160px 1fr;
+            gap: 12px;
+            padding: 10px 0;
+            border-bottom: 1px dashed #d4d4d8;
+          }
+          .row:last-child { border-bottom: none; }
+          .label { color: #6b7280; font-size: 13px; font-weight: 600; }
+          .value { color: #111827; font-size: 14px; white-space: pre-wrap; }
+          .footer {
+            padding: 14px 24px;
+            background: #f9fafb;
+            color: #6b7280;
+            font-size: 12px;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="card">
+          <div class="header">
+            <h1 class="title">ORDER BARU MASUK - PRODUKSI</h1>
+            <p class="subtitle">Generated otomatis dari sistem booking</p>
+          </div>
+          <div class="content">
+            <div class="hero">
+              <img src="${escapeHtml(heroImage)}" alt="Order image" />
+            </div>
+            ${field("Customer", order.customerName)}
+            ${field("Phone", order.phone)}
+            ${field("Delivery Date", order.deliveryDate)}
+            ${field("Delivery Time", order.deliveryTime)}
+            ${field("Booking Code", order.bookingCode)}
+            ${field("Order Type", prettifyOrderType(order.orderType))}
+            ${field("Item", order.item)}
+            ${field("Address", order.address)}
+            ${field("Notes", order.notes)}
+          </div>
+          <div class="footer">Cuanify Bakery Notification</div>
+        </div>
+      </body>
+    </html>
+  `;
+}
+
 export async function generateOrderImage(
   order: WhatsAppOrderImagePayload,
 ): Promise<Buffer> {
-  const productImageUrl = normalizeProductImageUrl(order.imageUrl);
-  console.log("[generateOrderImage] Using image:", productImageUrl);
+  const referenceImageUrls = collectReferenceImageUrls(order);
+  const templateKey = inferTemplateKey(order);
+  const layout = TEMPLATE_LAYOUTS[templateKey];
+  const templateDataUrl = await readTemplateDataUrl(layout.fileName);
 
   let browser: Awaited<ReturnType<typeof puppeteer.launch>> | null = null;
 
@@ -63,94 +925,45 @@ export async function generateOrderImage(
     });
 
     const page = await browser.newPage();
-    await page.setViewport({ width: 900, height: 1200, deviceScaleFactor: 2 });
+    const renderableReferenceImages = await resolveRenderableReferenceImages(
+      page,
+      referenceImageUrls,
+    );
+    const useTemplateLayout = Boolean(templateDataUrl);
 
-    const html = `
-      <html>
-        <head>
-          <style>
-            * { box-sizing: border-box; font-family: Arial, sans-serif; }
-            body { margin: 0; padding: 32px; background: #f4f4f5; }
-            .card {
-              width: 100%;
-              max-width: 760px;
-              margin: 0 auto;
-              border-radius: 16px;
-              background: #ffffff;
-              border: 1px solid #e4e4e7;
-              overflow: hidden;
-            }
-            .header {
-              padding: 20px 24px;
-              background: #111827;
-              color: #ffffff;
-            }
-            .title { margin: 0; font-size: 22px; font-weight: 700; }
-            .subtitle { margin: 6px 0 0; font-size: 13px; opacity: 0.85; }
-            .content { padding: 20px 24px; }
-            .hero {
-              margin-bottom: 16px;
-              border: 1px solid #e4e4e7;
-              border-radius: 12px;
-              padding: 8px;
-              background: #fafafa;
-            }
-            .hero img {
-              width: 100%;
-              max-height: 300px;
-              object-fit: contain;
-              border-radius: 8px;
-              display: block;
-              background: #ffffff;
-            }
-            .row {
-              display: grid;
-              grid-template-columns: 160px 1fr;
-              gap: 12px;
-              padding: 10px 0;
-              border-bottom: 1px dashed #d4d4d8;
-            }
-            .row:last-child { border-bottom: none; }
-            .label { color: #6b7280; font-size: 13px; font-weight: 600; }
-            .value { color: #111827; font-size: 14px; white-space: pre-wrap; }
-            .footer {
-              padding: 14px 24px;
-              background: #f9fafb;
-              color: #6b7280;
-              font-size: 12px;
-            }
-          </style>
-        </head>
-        <body>
-          <div class="card">
-            <div class="header">
-              <h1 class="title">ORDER BARU MASUK - PRODUKSI</h1>
-              <p class="subtitle">Generated otomatis dari sistem booking</p>
-            </div>
-            <div class="content">
-              <div class="hero">
-                <img src="${escapeHtml(productImageUrl)}" alt="Product image" />
-              </div>
-              ${field("Customer", order.customerName)}
-              ${field("Phone", order.phone)}
-              ${field("Delivery Date", order.deliveryDate)}
-              ${field("Delivery Time", order.deliveryTime)}
-              ${field("Item", order.item)}
-              ${field("Address", order.address)}
-              ${field("Notes", order.notes)}
-            </div>
-            <div class="footer">Cuanify Bakery Notification</div>
-          </div>
-        </body>
-      </html>
-    `;
+    await page.setViewport({
+      width: useTemplateLayout ? TEMPLATE_WIDTH : 900,
+      height: useTemplateLayout ? TEMPLATE_HEIGHT : 1200,
+      deviceScaleFactor: 2,
+    });
 
-    await page.setContent(html, { waitUntil: "domcontentloaded" });
-    const imageBytes = await page.screenshot({ type: "png", fullPage: true });
+    const html =
+      useTemplateLayout && templateDataUrl
+        ? buildTemplateHtml(layout, templateDataUrl, renderableReferenceImages)
+        : buildFallbackHtml(order, renderableReferenceImages);
 
-    return Buffer.isBuffer(imageBytes)
-      ? imageBytes
-      : Buffer.from(imageBytes);
+    await page.setContent(html, { waitUntil: "networkidle0" });
+
+    await page.evaluate(async () => {
+      const images = Array.from(document.images);
+      await Promise.all(
+        images.map((img) => {
+          if (img.complete) {
+            return Promise.resolve();
+          }
+          return new Promise<void>((resolve) => {
+            img.onload = () => resolve();
+            img.onerror = () => resolve();
+          });
+        }),
+      );
+    });
+
+    const imageBytes = useTemplateLayout
+      ? await page.screenshot({ type: "png" })
+      : await page.screenshot({ type: "png", fullPage: true });
+
+    return Buffer.isBuffer(imageBytes) ? imageBytes : Buffer.from(imageBytes);
   } finally {
     if (browser) {
       await browser.close();

@@ -49,6 +49,7 @@ const requiredByTarget = {
     "CRON_SECRET",
     "MIDTRANS_IS_PRODUCTION",
     "NEXT_PUBLIC_MIDTRANS_IS_PRODUCTION",
+    "BITESHIP_API_KEY",
   ],
 };
 
@@ -78,6 +79,7 @@ const mtClient =
   getEnv("NEXT_PUBLIC_MIDTRANS_CLIENT_KEY") || getEnv("MIDTRANS_CLIENT_KEY");
 const mtIsProd = getEnv("MIDTRANS_IS_PRODUCTION");
 const mtPublicIsProd = getEnv("NEXT_PUBLIC_MIDTRANS_IS_PRODUCTION");
+const biteshipApiKey = getEnv("BITESHIP_API_KEY");
 
 if (target === "production") {
   if (!mtServer) errors.push("Missing required env: MIDTRANS_SERVER_KEY");
@@ -104,6 +106,50 @@ if (target === "production") {
     warnings.push(
       "Midtrans client key looks like sandbox key (SB-Mid-...) while target=production.",
     );
+  }
+
+  if (biteshipApiKey && biteshipApiKey.startsWith("biteship_test.")) {
+    warnings.push(
+      "BITESHIP_API_KEY looks like test key (biteship_test.*) while target=production.",
+    );
+  }
+
+  const shippingOriginKeys = [
+    "SHIPPING_ORIGIN_ADDRESS",
+    "SHIPPING_ORIGIN_POSTAL_CODE",
+    "SHIPPING_ORIGIN_CONTACT_NAME",
+    "SHIPPING_ORIGIN_CONTACT_PHONE",
+    "SHIPPING_ORIGIN_CONTACT_EMAIL",
+    "SHIPPING_ORIGIN_LATITUDE",
+    "SHIPPING_ORIGIN_LONGITUDE",
+  ];
+  const missingShippingOrigin = shippingOriginKeys.filter(
+    (key) => !getEnv(key),
+  );
+
+  if (missingShippingOrigin.length > 0) {
+    warnings.push(
+      `Shipping origin env incomplete: ${missingShippingOrigin.join(", ")}. Fallback default origin may cause incorrect quote/resi in production.`,
+    );
+  }
+
+  const originPostalCode = getEnv("SHIPPING_ORIGIN_POSTAL_CODE");
+  if (originPostalCode && !/^\d{5}$/.test(originPostalCode)) {
+    warnings.push(
+      "SHIPPING_ORIGIN_POSTAL_CODE should be a 5-digit code for accurate shipping mapping.",
+    );
+  }
+
+  const originLatitude = Number(getEnv("SHIPPING_ORIGIN_LATITUDE"));
+  const originLongitude = Number(getEnv("SHIPPING_ORIGIN_LONGITUDE"));
+  if (getEnv("SHIPPING_ORIGIN_LATITUDE") && !Number.isFinite(originLatitude)) {
+    warnings.push("SHIPPING_ORIGIN_LATITUDE is not a valid number.");
+  }
+  if (
+    getEnv("SHIPPING_ORIGIN_LONGITUDE") &&
+    !Number.isFinite(originLongitude)
+  ) {
+    warnings.push("SHIPPING_ORIGIN_LONGITUDE is not a valid number.");
   }
 }
 

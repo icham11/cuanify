@@ -11,19 +11,20 @@ export interface SendOrderToWhatsAppInput extends WhatsAppOrderImagePayload {
   imageUrl?: string;
 }
 
-function normalizeProductImageUrl(url?: string): string | null {
+function normalizeReferenceImageUrl(url?: string): string | null {
   if (!url) return null;
   const trimmed = url.trim();
   if (!trimmed) return null;
+  if (/^data:image\/[a-z0-9.+-]+;base64,/i.test(trimmed)) {
+    return trimmed;
+  }
 
   try {
     const parsed = new URL(trimmed);
-    const isHttpsCloudinary =
-      parsed.protocol === "https:" &&
-      parsed.hostname === "res.cloudinary.com";
-    const isGeneratedOrderImage = parsed.pathname.includes("/orders/generated/");
+    const isGeneratedOrderImage =
+      parsed.pathname.includes("/orders/generated/");
 
-    if (!isHttpsCloudinary || isGeneratedOrderImage) {
+    if (isGeneratedOrderImage) {
       return null;
     }
     return parsed.toString();
@@ -32,19 +33,32 @@ function normalizeProductImageUrl(url?: string): string | null {
   }
 }
 
+function normalizeReferenceImageUrls(
+  order: SendOrderToWhatsAppInput,
+): string[] {
+  const candidates = [order.imageUrl ?? "", ...(order.imageUrls ?? [])];
+
+  const normalized = candidates
+    .map((value) => normalizeReferenceImageUrl(value))
+    .filter((value): value is string => Boolean(value));
+
+  return Array.from(new Set(normalized));
+}
+
 export async function sendOrderToWhatsApp(
   order: SendOrderToWhatsAppInput,
 ): Promise<void> {
   console.log("🚀 START WA FLOW");
 
-  const productImageUrl =
-    normalizeProductImageUrl(order.imageUrl) || FALLBACK_IMAGE_URL;
+  const selectedImageUrls = normalizeReferenceImageUrls(order);
+  const productImageUrl = selectedImageUrls[0] || FALLBACK_IMAGE_URL;
 
   console.log("🖼️ Product image used:", productImageUrl);
 
   const payload: SendOrderToWhatsAppInput = {
     ...order,
     imageUrl: productImageUrl,
+    imageUrls: selectedImageUrls,
   };
 
   let generatedOrderImageUrl = "";

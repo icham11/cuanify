@@ -75,6 +75,11 @@ export const DELIVERY_METHOD_OPTIONS: DeliveryMethodOption[] = [
     description: "Admin bantu pengiriman khusus Paxel.",
   },
   {
+    value: "ASSISTED_SAME_DAY",
+    label: "Same Day (dibantu admin)",
+    description: "Admin bantu pilih layanan same-day terbaik (GoSend/Grab/Paxel).",
+  },
+  {
     value: "REGULAR_JNE_JNT",
     label: "JNE/J&T (pengiriman reguler)",
     description: "Dibantu admin dengan opsi reguler antarkota.",

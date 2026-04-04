@@ -255,38 +255,193 @@ function parseJsonField(value: unknown): unknown {
   }
 }
 
-function extractNotificationImageUrl(order: NormalizedOrder): string {
-  const parsedData = asRecord(order.whatsAppParsedData);
-  const parsedDataImage = asString(parsedData?.imageUrl);
-  if (parsedDataImage) return parsedDataImage;
+const PRIORITY_IMAGE_VALUE_KEYS = [
+  "croppedImageUrl",
+  "croppedUrl",
+  "selectedCroppedImageUrl",
+  "selectedImageUrl",
+];
 
-  const parsedDataUploaded = Array.isArray(parsedData?.uploadedImageUrls)
-    ? parsedData.uploadedImageUrls
-    : [];
-  for (const entry of parsedDataUploaded) {
-    const parsedEntry = asString(entry);
-    if (parsedEntry) return parsedEntry;
+const PRIORITY_IMAGE_LIST_KEYS = [
+  "croppedImageUrls",
+  "croppedUrls",
+  "selectedImageUrls",
+];
+
+const IMAGE_VALUE_KEYS = [
+  "imageUrl",
+  "productImageUrl",
+  "designImageUrl",
+  "thumbnailUrl",
+  "photoUrl",
+  "sourceImageUrl",
+];
+
+const IMAGE_LIST_KEYS = ["uploadedImageUrls", "imageUrls", "referenceImageUrls"];
+
+const IMAGE_COLLECTION_KEYS = [
+  "selectedImages",
+  "croppedImages",
+  "designSelections",
+  "designImages",
+  "referenceImages",
+  "attachments",
+];
+
+const NESTED_IMAGE_VALUE_KEYS = [
+  ...PRIORITY_IMAGE_VALUE_KEYS,
+  ...IMAGE_VALUE_KEYS,
+  "url",
+  "src",
+  "thumbnailUrl",
+];
+
+function pushImageUrl(target: string[], value: unknown) {
+  const parsed = asString(value);
+  if (parsed) target.push(parsed);
+}
+
+function collectImageUrlsFromValue(target: string[], value: unknown) {
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      collectImageUrlsFromValue(target, entry);
+    }
+    return;
+  }
+
+  const record = asRecord(value);
+  if (!record) {
+    pushImageUrl(target, value);
+    return;
+  }
+
+  for (const key of NESTED_IMAGE_VALUE_KEYS) {
+    pushImageUrl(target, record[key]);
+  }
+
+  for (const key of PRIORITY_IMAGE_LIST_KEYS) {
+    const entries = record[key];
+    if (Array.isArray(entries)) {
+      for (const entry of entries) {
+        collectImageUrlsFromValue(target, entry);
+      }
+    }
+  }
+
+  for (const key of IMAGE_LIST_KEYS) {
+    const entries = record[key];
+    if (Array.isArray(entries)) {
+      for (const entry of entries) {
+        collectImageUrlsFromValue(target, entry);
+      }
+    }
+  }
+}
+
+function extractNotificationImageUrls(order: NormalizedOrder): string[] {
+  const urls: string[] = [];
+  const parsedData = asRecord(order.whatsAppParsedData);
+
+  for (const key of PRIORITY_IMAGE_VALUE_KEYS) {
+    pushImageUrl(urls, parsedData?.[key]);
+  }
+  for (const key of PRIORITY_IMAGE_LIST_KEYS) {
+    collectImageUrlsFromValue(urls, parsedData?.[key]);
+  }
+  for (const key of IMAGE_COLLECTION_KEYS) {
+    collectImageUrlsFromValue(urls, parsedData?.[key]);
+  }
+  for (const key of IMAGE_VALUE_KEYS) {
+    pushImageUrl(urls, parsedData?.[key]);
+  }
+  for (const key of IMAGE_LIST_KEYS) {
+    collectImageUrlsFromValue(urls, parsedData?.[key]);
   }
 
   for (const item of order.items) {
-    const imageCandidate =
-      asString(item.imageUrl) ||
-      asString(item.productImageUrl) ||
-      asString(item.designImageUrl) ||
-      asString(item.thumbnailUrl) ||
-      asString(item.photoUrl);
-    if (imageCandidate) return imageCandidate;
+    for (const key of PRIORITY_IMAGE_VALUE_KEYS) {
+      pushImageUrl(urls, item[key]);
+    }
+    for (const key of PRIORITY_IMAGE_LIST_KEYS) {
+      collectImageUrlsFromValue(urls, item[key]);
+    }
+    for (const key of IMAGE_COLLECTION_KEYS) {
+      collectImageUrlsFromValue(urls, item[key]);
+    }
+    for (const key of IMAGE_VALUE_KEYS) {
+      pushImageUrl(urls, item[key]);
+    }
+    for (const key of IMAGE_LIST_KEYS) {
+      collectImageUrlsFromValue(urls, item[key]);
+    }
   }
 
   const shippingQuote = asRecord(order.shippingQuote);
-  const shippingQuoteImage = asString(shippingQuote?.imageUrl);
-  if (shippingQuoteImage) return shippingQuoteImage;
+  pushImageUrl(urls, shippingQuote?.imageUrl);
 
   const shipment = asRecord(order.shipment);
-  return asString(shipment?.imageUrl);
+  pushImageUrl(urls, shipment?.imageUrl);
+
+  return Array.from(new Set(urls));
+}
+
+function collectProductTags(order: NormalizedOrder): string[] {
+  const tags: string[] = [];
+  const pushIfPresent = (value: unknown) => {
+    const parsed = asString(value).trim();
+    if (parsed) tags.push(parsed);
+  };
+
+  const parsedData = asRecord(order.whatsAppParsedData);
+  pushIfPresent(parsedData?.orderType);
+  pushIfPresent(order.product);
+
+  for (const item of order.items) {
+    pushIfPresent(item.category);
+    pushIfPresent(item.subcategory);
+    pushIfPresent(item.productName);
+    pushIfPresent(item.size);
+  }
+
+  return Array.from(new Set(tags));
+}
+
+function inferTemplateKeyFromSignals(
+  orderType: string,
+  signals: string[],
+): string {
+  const normalizedOrderType = orderType
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  const text = signals.join(" ").toLowerCase();
+
+  if (normalizedOrderType === "cake") return "cake";
+  if (normalizedOrderType === "cupcakes") return "cupcakes";
+  if (normalizedOrderType === "cookies_tower") return "cookies_tower";
+
+  if (normalizedOrderType === "cookies") {
+    if (/\bbox\b/.test(text)) return "box";
+    return "cookies";
+  }
+
+  if (normalizedOrderType === "buket") {
+    if (/standing/.test(text)) return "buket_standing";
+    return "buket_hand";
+  }
+
+  if (/cookies?\s*tower|tower/.test(text)) return "cookies_tower";
+  if (/cupcakes?|cupcake/.test(text)) return "cupcakes";
+  if (/standing\s*bouquet|standing/.test(text)) return "buket_standing";
+  if (/buket|bouquet|hand\s*bouquet|flower/.test(text)) return "buket_hand";
+  if (/\bbox\b/.test(text)) return "box";
+  if (/cookies?|cookie/.test(text)) return "cookies";
+
+  return "cake";
 }
 
 function toWhatsAppPayload(order: NormalizedOrder): SendOrderToWhatsAppInput {
+  const parsedData = asRecord(order.whatsAppParsedData);
   const itemSummary = order.items
     .map((item) => asString(item.productName))
     .filter(Boolean)
@@ -295,6 +450,14 @@ function toWhatsAppPayload(order: NormalizedOrder): SendOrderToWhatsAppInput {
   const firstAddress = asRecord(order.deliveryAddresses[0]);
   const address =
     asString(firstAddress?.addressLine) || asString(order.customerAddress);
+  const imageUrls = extractNotificationImageUrls(order);
+  const productTags = collectProductTags(order);
+  const orderType = asString(parsedData?.orderType);
+  const templateKey = inferTemplateKeyFromSignals(orderType, [
+    ...productTags,
+    asString(order.notes),
+    itemSummary,
+  ]);
 
   return {
     customerName: asString(order.customerName) || "Customer",
@@ -304,7 +467,12 @@ function toWhatsAppPayload(order: NormalizedOrder): SendOrderToWhatsAppInput {
     item: itemSummary || asString(order.product),
     notes: asString(order.notes),
     address,
-    imageUrl: extractNotificationImageUrl(order),
+    bookingCode: asString(order.bookingCode),
+    orderType,
+    templateKey,
+    productTags,
+    imageUrl: imageUrls[0] || "",
+    imageUrls,
   };
 }
 
