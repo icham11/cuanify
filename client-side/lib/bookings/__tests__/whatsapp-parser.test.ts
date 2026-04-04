@@ -150,7 +150,9 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
       sourceType: "manual",
     });
     const autoFill = buildBookingAutoFillFromParsed(parsed);
-    const cupcakeItem = autoFill.items.find((item) => item.category === "Cupcakes");
+    const cupcakeItem = autoFill.items.find(
+      (item) => item.category === "Cupcakes",
+    );
 
     expect(Boolean(cupcakeItem)).toBe(true);
     if (!cupcakeItem) {
@@ -158,6 +160,7 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
     }
 
     expect(cupcakeItem.addOns.includes("dark-color-buttercream")).toBe(true);
+    expect(cupcakeItem.darkColorButtercreamColors).toEqual(["Black"]);
     expect(cupcakeItem.darkColorButtercreamColor).toBe("Black");
   });
 
@@ -185,13 +188,90 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
     });
     const autoFill = buildBookingAutoFillFromParsed(parsed);
 
-    const cupcakeItems = autoFill.items.filter((item) => item.category === "Cupcakes");
+    const cupcakeItems = autoFill.items.filter(
+      (item) => item.category === "Cupcakes",
+    );
     expect(cupcakeItems.length).toBe(1);
 
     const cupcakeItem = cupcakeItems[0];
     expect(cupcakeItem.productName).toBe("Individual Cupcakes");
     expect(cupcakeItem.quantity).toBe(2);
     expect(cupcakeItem.addOns.includes("dark-color-buttercream")).toBe(true);
+    expect(cupcakeItem.darkColorButtercreamColors).toEqual(["Red"]);
     expect(cupcakeItem.darkColorButtercreamColor).toBe("Red");
+  });
+
+  it("treats 12 pcs individual cupcakes as individual quantity, not dozen", () => {
+    const text = [
+      "Data Cupcakes",
+      "Tanggal Pengiriman: 6/4/26",
+      "KODE BOOKING: ST-29",
+      "Order:",
+      "12 pcs individual cupcakes dengan dark color buttercream warna navy",
+      "Jumlah Cupcakes: 1 dozen +",
+      "Rasa Cupcakes: Vanilla",
+      "Warna Cupcakes: navy",
+      "Jumlah Topper Cookies: -",
+      "Jam Pengiriman: 11:00",
+      "Metode Pengiriman: Gocar",
+      "Nama penerima: Test 12 Pcs Individual",
+      "No. telp penerima: 081234567894",
+      "Alamat lengkap: Central City",
+    ].join("\n");
+
+    const parsed = parseWhatsAppOrderText(text, {
+      preferredOrderType: "cupcakes",
+      sourceType: "manual",
+    });
+    const autoFill = buildBookingAutoFillFromParsed(parsed);
+
+    const cupcakeItems = autoFill.items.filter(
+      (item) => item.category === "Cupcakes",
+    );
+    expect(cupcakeItems.length).toBe(1);
+
+    const cupcakeItem = cupcakeItems[0];
+    expect(cupcakeItem.productName).toBe("Individual Cupcakes");
+    expect(cupcakeItem.quantity).toBe(12);
+    expect(cupcakeItem.darkColorButtercreamColors).toEqual(["Navy Blue"]);
+    expect(cupcakeItem.darkColorButtercreamColor).toBe("Navy Blue");
+  });
+
+  it("detects up to 3 dark buttercream colors from order text", () => {
+    const text = [
+      "Data Cupcakes",
+      "Tanggal Pengiriman: 7/4/26",
+      "KODE BOOKING: ST-30",
+      "Order:",
+      "1 dozen cupcakes dark color buttercream black red navy blue forest green",
+      "Jumlah Cupcakes: 1 dozen",
+      "Rasa Cupcakes: Vanilla",
+      "Warna Cupcakes: black red navy",
+      "Jumlah Topper Cookies: -",
+      "Jam Pengiriman: 11:00",
+      "Metode Pengiriman: Gocar",
+      "Nama penerima: Test Multi Color",
+      "No. telp penerima: 081234567895",
+      "Alamat lengkap: Central City",
+    ].join("\n");
+
+    const parsed = parseWhatsAppOrderText(text, {
+      preferredOrderType: "cupcakes",
+      sourceType: "manual",
+    });
+    const autoFill = buildBookingAutoFillFromParsed(parsed);
+
+    const cupcakeItems = autoFill.items.filter(
+      (item) => item.category === "Cupcakes",
+    );
+    expect(cupcakeItems.length).toBe(1);
+
+    const cupcakeItem = cupcakeItems[0];
+    expect(cupcakeItem.darkColorButtercreamColors).toEqual([
+      "Black",
+      "Red",
+      "Navy Blue",
+    ]);
+    expect(cupcakeItem.darkColorButtercreamColor).toBe("Black");
   });
 });

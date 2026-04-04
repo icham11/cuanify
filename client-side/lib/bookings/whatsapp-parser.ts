@@ -320,6 +320,7 @@ export interface BookingFormAutoFill {
     tokenDifficulty?: "SIMPLE" | "NORMAL" | "HARD" | "ADVANCED" | "EXPERT";
     cookiePrice?: number;
     addOns: string[];
+    darkColorButtercreamColors?: string[];
     darkColorButtercreamColor?: string;
     notes: string;
   }>;
@@ -861,22 +862,44 @@ const DARK_BUTTERCREAM_COLOR_CANDIDATES: Array<{
   },
 ];
 
-function resolveDarkButtercreamColor(value: string): string | undefined {
+function resolveDarkButtercreamColors(value: string): string[] {
   const normalized = normalizeLabel(value);
-  if (!normalized) return undefined;
+  if (!normalized) return [];
 
-  for (const candidate of DARK_BUTTERCREAM_COLOR_CANDIDATES) {
-    const matched = candidate.aliases.some((alias) =>
-      normalized.includes(normalizeLabel(alias)),
-    );
-    if (matched) return candidate.label;
-  }
+  const withPosition = DARK_BUTTERCREAM_COLOR_CANDIDATES.map((candidate) => {
+    let firstMatchPosition = Number.POSITIVE_INFINITY;
 
-  return undefined;
+    for (const alias of candidate.aliases) {
+      const position = normalized.indexOf(normalizeLabel(alias));
+      if (position >= 0 && position < firstMatchPosition) {
+        firstMatchPosition = position;
+      }
+    }
+
+    if (!Number.isFinite(firstMatchPosition)) {
+      return null;
+    }
+
+    return {
+      label: candidate.label,
+      position: firstMatchPosition,
+    };
+  })
+    .filter((entry): entry is { label: string; position: number } =>
+      Boolean(entry),
+    )
+    .sort((left, right) => left.position - right.position);
+
+  return withPosition.slice(0, 3).map((entry) => entry.label);
+}
+
+function resolveDarkButtercreamColor(value: string): string | undefined {
+  return resolveDarkButtercreamColors(value)[0];
 }
 
 function detectCupcakeDarkColorButtercream(value: string): {
   addOns: string[];
+  darkColorButtercreamColors?: string[];
   darkColorButtercreamColor?: string;
 } {
   const normalized = normalizeLabel(value);
@@ -899,9 +922,13 @@ function detectCupcakeDarkColorButtercream(value: string): {
     return { addOns: [] };
   }
 
+  const detectedColors = resolveDarkButtercreamColors(value);
+
   return {
     addOns: [DARK_COLOR_BUTTERCREAM_ADDON_ID],
-    darkColorButtercreamColor: resolveDarkButtercreamColor(value),
+    darkColorButtercreamColors: detectedColors,
+    darkColorButtercreamColor:
+      detectedColors[0] || resolveDarkButtercreamColor(value),
   };
 }
 
@@ -1013,7 +1040,7 @@ function hasCupcakeIndividualMarker(value: string): boolean {
 function hasCupcakeDozenMarker(value: string): boolean {
   const normalized = normalizeLabel(value);
   if (!normalized) return false;
-  return /\b(dozen|lusin|12\s*pcs?)\b/i.test(normalized);
+  return /\b(dozen|lusin)\b/i.test(normalized);
 }
 
 function resolveCupcakeQuantityBreakdown(parsed: ParsedWhatsAppOrder): {
@@ -1054,7 +1081,8 @@ function resolveCupcakeQuantityBreakdown(parsed: ParsedWhatsAppOrder): {
     return {
       dozenCount: fromOrder.dozenCount || fromDetail.dozenCount,
       individualCount: fromOrder.individualCount || fromDetail.individualCount,
-      fallbackQuantity: fromOrder.fallbackQuantity || fromDetail.fallbackQuantity,
+      fallbackQuantity:
+        fromOrder.fallbackQuantity || fromDetail.fallbackQuantity,
     };
   }
 
@@ -1298,7 +1326,11 @@ function createAutoFillItemFromCategory(args: {
       ? detectCupcakeDarkColorButtercream(
           `${args.searchSource || ""} ${args.notes || ""}`,
         )
-      : { addOns: [] as string[], darkColorButtercreamColor: undefined };
+      : {
+          addOns: [] as string[],
+          darkColorButtercreamColors: [] as string[],
+          darkColorButtercreamColor: undefined,
+        };
 
   return {
     category: catalog.category,
@@ -1309,6 +1341,7 @@ function createAutoFillItemFromCategory(args: {
     tokenDifficulty,
     cookiePrice,
     addOns: cupcakeDarkColor.addOns,
+    darkColorButtercreamColors: cupcakeDarkColor.darkColorButtercreamColors,
     darkColorButtercreamColor: cupcakeDarkColor.darkColorButtercreamColor,
     notes: args.notes,
   };
@@ -1338,8 +1371,24 @@ function mergeAutoFillItems(
       addOns: Array.from(
         new Set([...(existing.addOns ?? []), ...(item.addOns ?? [])]),
       ),
-      darkColorButtercreamColor:
-        existing.darkColorButtercreamColor || item.darkColorButtercreamColor,
+      darkColorButtercreamColors: Array.from(
+        new Set([
+          ...(existing.darkColorButtercreamColors ?? []),
+          ...(item.darkColorButtercreamColors ?? []),
+        ]),
+      ).slice(0, 3),
+      darkColorButtercreamColor: (Array.from(
+        new Set([
+          ...(existing.darkColorButtercreamColors ?? []),
+          ...(item.darkColorButtercreamColors ?? []),
+          ...(existing.darkColorButtercreamColor
+            ? [existing.darkColorButtercreamColor]
+            : []),
+          ...(item.darkColorButtercreamColor
+            ? [item.darkColorButtercreamColor]
+            : []),
+        ]),
+      )[0] || undefined) as string | undefined,
       tokenDifficulty: existing.tokenDifficulty || item.tokenDifficulty,
       cookiePrice: existing.cookiePrice ?? item.cookiePrice,
       notes: existing.notes || item.notes,
@@ -1506,7 +1555,11 @@ function buildDefaultAutoFillItems(
             .filter(Boolean)
             .join(" "),
         )
-      : { addOns: [] as string[], darkColorButtercreamColor: undefined };
+      : {
+          addOns: [] as string[],
+          darkColorButtercreamColors: [] as string[],
+          darkColorButtercreamColor: undefined,
+        };
 
   return [
     {
@@ -1518,6 +1571,7 @@ function buildDefaultAutoFillItems(
       tokenDifficulty,
       cookiePrice,
       addOns: cupcakeDarkColor.addOns,
+      darkColorButtercreamColors: cupcakeDarkColor.darkColorButtercreamColors,
       darkColorButtercreamColor: cupcakeDarkColor.darkColorButtercreamColor,
       notes: itemNotes,
     },
@@ -1554,6 +1608,7 @@ function buildCupcakeAutoFillItems(
       size: catalog.size,
       quantity: quantityInfo.dozenCount,
       addOns: cupcakeDarkColor.addOns,
+      darkColorButtercreamColors: cupcakeDarkColor.darkColorButtercreamColors,
       darkColorButtercreamColor: cupcakeDarkColor.darkColorButtercreamColor,
       notes: itemNotes,
     });
@@ -1571,6 +1626,7 @@ function buildCupcakeAutoFillItems(
       size: catalog.size,
       quantity: quantityInfo.individualCount,
       addOns: cupcakeDarkColor.addOns,
+      darkColorButtercreamColors: cupcakeDarkColor.darkColorButtercreamColors,
       darkColorButtercreamColor: cupcakeDarkColor.darkColorButtercreamColor,
       notes: itemNotes,
     });
