@@ -154,6 +154,16 @@ function getStringValue(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
+function deriveReferenceLabelFromFileName(fileName: string): string | undefined {
+  const normalized = fileName
+    .replace(/\.[^.]+$/, "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return normalized || undefined;
+}
+
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (typeof error === "string") return error;
@@ -222,10 +232,9 @@ export async function POST(request: NextRequest) {
       }
 
       parserWarnings.push(
-        "Parsing gambar AI dinonaktifkan sementara. Sistem memproses teks manual yang Anda kirim.",
+        "Parsing gambar AI dinonaktifkan sementara. Sistem memproses teks manual yang Anda kirim, tapi gambar referensi tetap disimpan untuk template produksi.",
       );
       sourceType = "manual";
-      files = [];
     }
 
     if (
@@ -243,17 +252,32 @@ export async function POST(request: NextRequest) {
     let extractedText = textInput.trim();
     let visionRawOutput = "";
     const uploadedImageUrls: string[] = [];
+    const uploadedReferenceImages: Array<{
+      url: string;
+      label?: string;
+      orderIndex?: number;
+    }> = [];
 
-    if (sourceType === "image" && files.length > 0) {
-      const extractionBlocks: string[] = [];
-      for (const file of files) {
+    if (files.length > 0) {
+      for (const [index, file] of files.entries()) {
         const bytes = await file.arrayBuffer();
         const buffer = Buffer.from(bytes);
         const imageUrl = await uploadToCloudinary(buffer, {
           folder: "orders/source",
         });
-        uploadedImageUrls.push(imageUrl);
 
+        uploadedImageUrls.push(imageUrl);
+        uploadedReferenceImages.push({
+          url: imageUrl,
+          label: deriveReferenceLabelFromFileName(file.name),
+          orderIndex: index,
+        });
+      }
+    }
+
+    if (sourceType === "image" && files.length > 0) {
+      const extractionBlocks: string[] = [];
+      for (const imageUrl of uploadedImageUrls) {
         const extractedFromImage = await analyzeBusinessData({
           prompt: buildVisionPrompt(preferredOrderType),
           imageUrl,
@@ -298,6 +322,7 @@ export async function POST(request: NextRequest) {
       ...parsed,
       imageUrl: uploadedImageUrls[0],
       uploadedImageUrls,
+      referenceImages: uploadedReferenceImages,
     };
 
     const autoFill = buildBookingAutoFillFromParsed(parsedWithImage);

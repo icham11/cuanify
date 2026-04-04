@@ -29,6 +29,7 @@ import {
   getDisplayFields,
   type BookingFormAutoFill,
   type ParsedWhatsAppOrder,
+  type ParsedWhatsAppReferenceImage,
   type WhatsAppOrderType,
   type WhatsAppSourceType,
   WHATSAPP_ORDER_LABELS,
@@ -251,6 +252,7 @@ interface ParseWhatsAppRequestArgs {
   sourceType: ParserSource;
   orderType: ParserOrderType;
   text?: string;
+  files?: File[];
 }
 
 class ParseWhatsAppApiError extends Error {
@@ -289,6 +291,67 @@ const whatsappOrderTypeOptions: Array<{
 const specificWhatsappOrderTypeOptions = whatsappOrderTypeOptions.filter(
   (option) => option.value !== "unknown",
 );
+
+function normalizeReferenceLabelInput(value: string): string[] {
+  const labels: string[] = [];
+  const seen = new Set<string>();
+
+  for (const rawEntry of value.split(/\n|,|;/g)) {
+    const normalized = rawEntry.trim().replace(/\s+/g, " ");
+    if (!normalized) continue;
+
+    const matchKey = normalized.toLowerCase();
+    if (seen.has(matchKey)) continue;
+    seen.add(matchKey);
+    labels.push(normalized);
+  }
+
+  return labels;
+}
+
+function buildParsedReferenceImages(args: {
+  parsed: ParsedWhatsAppOrder;
+  requestedLabels: string[];
+}): ParsedWhatsAppReferenceImage[] {
+  const uploadedImageUrls = Array.isArray(args.parsed.uploadedImageUrls)
+    ? args.parsed.uploadedImageUrls
+    : [];
+  const existingReferences = Array.isArray(args.parsed.referenceImages)
+    ? args.parsed.referenceImages
+    : [];
+  const byUrl = new Map<string, ParsedWhatsAppReferenceImage>();
+
+  for (const reference of existingReferences) {
+    const url = reference?.url?.trim();
+    if (!url) continue;
+    byUrl.set(url, {
+      url,
+      label: reference.label?.trim() || undefined,
+      orderIndex:
+        typeof reference.orderIndex === "number" &&
+        Number.isFinite(reference.orderIndex)
+          ? reference.orderIndex
+          : undefined,
+    });
+  }
+
+  uploadedImageUrls.forEach((url, index) => {
+    const trimmedUrl = url.trim();
+    if (!trimmedUrl) return;
+
+    const existing = byUrl.get(trimmedUrl);
+    const requestedLabel = args.requestedLabels[index];
+    byUrl.set(trimmedUrl, {
+      url: trimmedUrl,
+      label: requestedLabel || existing?.label,
+      orderIndex:
+        existing?.orderIndex ??
+        (requestedLabel || uploadedImageUrls.length > 1 ? index : undefined),
+    });
+  });
+
+  return Array.from(byUrl.values());
+}
 
 function getDefaultSelectionFromCatalog(
   catalog: PricelistCategory[],
@@ -613,6 +676,10 @@ export default function BookingForm() {
     useState<ParsedWhatsAppOrder | null>(null);
   const [visionRawOutput, setVisionRawOutput] = useState("");
   const [draftImported, setDraftImported] = useState(false);
+  const [referenceImageFiles, setReferenceImageFiles] = useState<File[]>([]);
+  const [referenceImageLabelsInput, setReferenceImageLabelsInput] =
+    useState("");
+  const [referenceFileInputKey, setReferenceFileInputKey] = useState(0);
   const [shippingQuotes, setShippingQuotes] = useState<ShippingQuote[]>([]);
   const [selectedShippingQuoteId, setSelectedShippingQuoteId] = useState("");
   const [shippingDistanceKm, setShippingDistanceKm] = useState<number | null>(
@@ -1758,6 +1825,32 @@ export default function BookingForm() {
       area: address.area,
       addressLine: address.addressLine,
     }));
+    const explicitRequestedImageLabels = normalizeReferenceLabelInput(
+      referenceImageLabelsInput,
+    );
+    const normalizedParsedPreview = parsedPreview
+      ? ({
+          ...parsedPreview,
+          referenceImages: buildParsedReferenceImages({
+            parsed: parsedPreview,
+            requestedLabels: explicitRequestedImageLabels,
+          }),
+          requestedImageLabels: [
+            ...(Array.isArray(parsedPreview.requestedImageLabels)
+              ? parsedPreview.requestedImageLabels
+              : []),
+            ...explicitRequestedImageLabels,
+          ].filter((value, index, array) => {
+            const normalized = value.trim().toLowerCase();
+            if (!normalized) return false;
+            return (
+              array.findIndex(
+                (entry) => entry.trim().toLowerCase() === normalized,
+              ) === index
+            );
+          }),
+        } satisfies ParsedWhatsAppOrder)
+      : undefined;
 
     const submissionPayload: NewOrderInput = {
       customerName: values.customerName,
@@ -1786,7 +1879,7 @@ export default function BookingForm() {
       paymentStatus: effectivePaymentStatus,
       dpPaidAmount: normalizedDpPaid,
       finalPaidAmount: normalizedFinalPaid,
-      whatsAppParsedData: parsedPreview ?? undefined,
+      whatsAppParsedData: normalizedParsedPreview,
       shippingQuote: selectedShippingQuote,
     };
 
@@ -1800,6 +1893,9 @@ export default function BookingForm() {
       setShowOrderTypeSelector(false);
       setParsedPreview(null);
       setVisionRawOutput("");
+      setReferenceImageFiles([]);
+      setReferenceImageLabelsInput("");
+      setReferenceFileInputKey((current) => current + 1);
       setShippingQuotes([]);
       setSelectedShippingQuoteId("");
       setShippingDistanceKm(null);
@@ -1865,6 +1961,10 @@ export default function BookingForm() {
       formData.append("text", args.text.trim());
     }
 
+    for (const file of args.files ?? []) {
+      formData.append("files", file);
+    }
+
     const response = await fetch("/api/bookings/parse-whatsapp", {
       method: "POST",
       body: formData,
@@ -1919,10 +2019,14 @@ export default function BookingForm() {
 
     setIsParsingWhatsApp(true);
     try {
+      const explicitRequestedImageLabels = normalizeReferenceLabelInput(
+        referenceImageLabelsInput,
+      );
       const payload = await callWhatsAppParser({
         sourceType,
         orderType: override?.orderType ?? selectedOrderType,
         text: textInput,
+        files: referenceImageFiles,
       });
 
       const draft = payload.autoFill;
@@ -2023,7 +2127,30 @@ export default function BookingForm() {
         );
       }
 
-      setParsedPreview(payload.parsed);
+      const mergedRequestedImageLabels = [
+        ...(Array.isArray(payload.parsed.requestedImageLabels)
+          ? payload.parsed.requestedImageLabels
+          : []),
+        ...explicitRequestedImageLabels,
+      ].filter((value, index, array) => {
+        const normalized = value.trim().toLowerCase();
+        if (!normalized) return false;
+        return (
+          array.findIndex(
+            (entry) => entry.trim().toLowerCase() === normalized,
+          ) === index
+        );
+      });
+      const enrichedParsedPreview: ParsedWhatsAppOrder = {
+        ...payload.parsed,
+        referenceImages: buildParsedReferenceImages({
+          parsed: payload.parsed,
+          requestedLabels: explicitRequestedImageLabels,
+        }),
+        requestedImageLabels: mergedRequestedImageLabels,
+      };
+
+      setParsedPreview(enrichedParsedPreview);
       setVisionRawOutput(payload.visionRawOutput ?? "");
       setDraftImported(true);
       setShowOrderTypeSelector(false);
@@ -2179,6 +2306,51 @@ export default function BookingForm() {
             className="min-h-28"
           />
 
+          <div className="grid gap-4 rounded-xl border border-dashed border-gray-200 bg-gray-50/60 p-4">
+            <label className="grid gap-2 text-sm font-medium text-gray-700">
+              Gambar Referensi Customer
+              <Input
+                key={referenceFileInputKey}
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={(event) =>
+                  setReferenceImageFiles(Array.from(event.target.files ?? []))
+                }
+              />
+              <span className="text-xs font-normal text-gray-500">
+                Upload gambar yang dipilih customer. Bisa satu gambar crop per
+                desain, atau satu sheet gambar bertanda merah. Jika file
+                diubah, klik Parse WhatsApp lagi supaya referensinya ter-upload.
+              </span>
+            </label>
+
+            <label className="grid gap-2 text-sm font-medium text-gray-700">
+              Label Desain per Gambar
+              <Textarea
+                value={referenceImageLabelsInput}
+                onChange={(event) =>
+                  setReferenceImageLabelsInput(event.target.value)
+                }
+                placeholder={
+                  "Opsional. Isi satu label per baris sesuai urutan upload.\nContoh:\nPikachu\nBulbasaur\nPiplup"
+                }
+                className="min-h-24"
+              />
+              <span className="text-xs font-normal text-gray-500">
+                Dipakai untuk mencocokkan gambar ke slot/template produk.
+              </span>
+            </label>
+
+            {referenceImageFiles.length > 0 && (
+              <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600">
+                {referenceImageFiles.length} gambar siap dipakai:
+                {" "}
+                {referenceImageFiles.map((file) => file.name).join(", ")}
+              </div>
+            )}
+          </div>
+
           <div className="flex flex-wrap gap-3">
             <Button
               type="button"
@@ -2219,6 +2391,9 @@ export default function BookingForm() {
                 setParsedPreview(null);
                 setVisionRawOutput("");
                 setDraftImported(false);
+                setReferenceImageFiles([]);
+                setReferenceImageLabelsInput("");
+                setReferenceFileInputKey((current) => current + 1);
               }}
             >
               Clear Parser
@@ -2304,6 +2479,17 @@ export default function BookingForm() {
                       {visionRawOutput}
                     </pre>
                   </details>
+                )}
+              {Array.isArray(parsedPreview.referenceImages) &&
+                parsedPreview.referenceImages.length > 0 && (
+                  <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-700">
+                    Template produksi akan memakai{" "}
+                    {parsedPreview.referenceImages.length} gambar referensi.
+                    {Array.isArray(parsedPreview.requestedImageLabels) &&
+                    parsedPreview.requestedImageLabels.length > 0
+                      ? ` Label aktif: ${parsedPreview.requestedImageLabels.join(", ")}`
+                      : ""}
+                  </div>
                 )}
             </div>
           )}

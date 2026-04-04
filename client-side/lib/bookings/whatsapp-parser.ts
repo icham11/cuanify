@@ -280,12 +280,20 @@ type CommonFieldKey = (typeof commonFieldDefinitions)[number]["key"];
 
 export type ParsedCommonFields = Record<CommonFieldKey, string>;
 
+export interface ParsedWhatsAppReferenceImage {
+  url: string;
+  label?: string;
+  orderIndex?: number;
+}
+
 export interface ParsedWhatsAppOrder {
   orderType: WhatsAppOrderType;
   sourceType: WhatsAppSourceType;
   rawText: string;
   imageUrl?: string;
   uploadedImageUrls?: string[];
+  referenceImages?: ParsedWhatsAppReferenceImage[];
+  requestedImageLabels?: string[];
   common: ParsedCommonFields;
   details: Record<string, string>;
   missingFields: string[];

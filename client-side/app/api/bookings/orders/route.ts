@@ -244,6 +244,13 @@ function asArrayOfRecords(value: unknown): JsonRecord[] {
     .filter((entry): entry is JsonRecord => Boolean(entry));
 }
 
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => asString(entry).trim())
+    .filter(Boolean);
+}
+
 function parseJsonField(value: unknown): unknown {
   if (value == null) return null;
   if (typeof value === "object") return value;
@@ -535,6 +542,14 @@ function extractRequestedImageLabels(order: NormalizedOrder): string[] {
   const parsedData = asRecord(order.whatsAppParsedData);
   const details = asRecord(parsedData?.details);
   const candidates = [
+    ...asStringArray(parsedData?.requestedImageLabels),
+    ...asArrayOfRecords(parsedData?.referenceImages).map((entry) =>
+      asString(
+        IMAGE_LABEL_KEYS.map((key) => entry[key]).find((value) =>
+          Boolean(asString(value)),
+        ),
+      ),
+    ),
     ...DESIGN_REQUEST_KEYS.map((key) => asString(details?.[key])),
     asString(order.notes),
   ]
