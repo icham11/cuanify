@@ -924,6 +924,10 @@ export default function BookingForm() {
     () => usesShippingEngine(deliveryMethod as DeliveryMethod),
     [deliveryMethod],
   );
+  const hasBouquetItems = useMemo(
+    () => watchedItems.some((item) => (item.category || "") === "Buket"),
+    [watchedItems],
+  );
 
   const methodSpecificShippingQuotes = useMemo(() => {
     if (!shouldUseShippingEngine) return [];
@@ -966,6 +970,17 @@ export default function BookingForm() {
 
       // If provider is GOJEK and no explicit car marker, treat it as bike by default.
       return quote.provider === "GOJEK" && !hasCarMarker;
+    };
+
+    const isUnsafeRegularServiceForBouquet = (quote: ShippingQuote) => {
+      const source =
+        `${quote.courierCode} ${quote.courierServiceCode} ${quote.courierServiceName}`.toLowerCase();
+
+      return (
+        source.includes("trucking") ||
+        source.includes("cargo") ||
+        source.includes("truck")
+      );
     };
 
     const gojekQuotes = shippingQuotes.filter(
@@ -1023,9 +1038,19 @@ export default function BookingForm() {
     }
 
     if (deliveryMethod === "REGULAR_JNE_JNT") {
-      return shippingQuotes.filter(
+      const regularQuotes = shippingQuotes.filter(
         (quote) => quote.provider === "JNE" || quote.provider === "JNT",
       );
+
+      if (!hasBouquetItems) {
+        return regularQuotes;
+      }
+
+      const bouquetSafeRegularQuotes = regularQuotes.filter(
+        (quote) => !isUnsafeRegularServiceForBouquet(quote),
+      );
+
+      return bouquetSafeRegularQuotes;
     }
 
     if (deliveryMethod === "ASSISTED_SAME_DAY") {
@@ -1038,7 +1063,7 @@ export default function BookingForm() {
     }
 
     return shippingQuotes;
-  }, [deliveryMethod, shippingQuotes, shouldUseShippingEngine]);
+  }, [deliveryMethod, hasBouquetItems, shippingQuotes, shouldUseShippingEngine]);
 
   const isStrictDeliveryMethod =
     deliveryMethod === "ASSISTED_PAXEL" ||
@@ -1111,10 +1136,13 @@ export default function BookingForm() {
       return "Layanan GoCar belum tersedia untuk alamat ini. Pilih metode lain atau ubah alamat penerima.";
     }
     if (deliveryMethod === "REGULAR_JNE_JNT") {
+      if (hasBouquetItems) {
+        return "Untuk bouquet, layanan reguler yang aman belum tersedia untuk alamat ini. Coba metode lain atau ubah alamat penerima.";
+      }
       return "Layanan JNE/J&T belum tersedia untuk alamat ini. Pilih metode lain atau ubah alamat penerima.";
     }
     return "Layanan kurir pada metode terpilih belum tersedia. Pilih metode lain atau ubah alamat penerima.";
-  }, [deliveryMethod, isShippingFallbackActive]);
+  }, [deliveryMethod, hasBouquetItems, isShippingFallbackActive]);
 
   const selectedShippingQuote = useMemo(
     () =>
