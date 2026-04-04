@@ -274,4 +274,38 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
     ]);
     expect(cupcakeItem.darkColorButtercreamColor).toBe("Black");
   });
+
+  it("captures multiline cupcake color and pickup wording from compact WhatsApp text", () => {
+    const text = [
+      "Tanggal Pengiriman: (4/5/26)",
+      "KODE BOOKING : ST-28",
+      "Order:",
+      "1 dozen",
+      "cupcakes",
+      "4pcs indv cupcakes",
+      "Jumlah Cupcakes : 1 dozen +",
+      "40pcs indv",
+      "20 cake",
+      "20 cookies",
+      "Rasa Cupcakes : dozen : dc, indv :",
+      "CV",
+      "Warna Cupcakes : ungu muda ,",
+      "biru, pink muda",
+      "Jumlah Topper Cookies : -",
+      "Jam Pengiriman : 10.00",
+      "Metode Pengiriman : ambil Nama penerima : stella delvia",
+      "No. telp penerima : 08119882528",
+      "Alamat lengkap : pik",
+    ].join("\n");
+
+    const parsed = parseWhatsAppOrderText(text, {
+      preferredOrderType: "cupcakes",
+      sourceType: "manual",
+    });
+
+    expect(parsed.details.cupcakeFlavor).toBe("dozen : dc, indv : CV");
+    expect(parsed.details.cupcakeColor).toBe("ungu muda, biru, pink muda");
+    expect(parsed.common.deliveryMethod).toBe("Pickup");
+    expect(parsed.common.recipientName).toBe("stella delvia");
+  });
 });

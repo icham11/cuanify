@@ -344,6 +344,35 @@ function cleanupValue(value: string): string {
   return cleaned;
 }
 
+function joinCollectedBlockParts(parts: string[]): string {
+  let combined = "";
+
+  for (const rawPart of parts) {
+    const part = cleanupValue(rawPart);
+    if (!part) continue;
+
+    if (!combined) {
+      combined = part;
+      continue;
+    }
+
+    if (/[,:+/-]\s*$/.test(combined) || /^[,;.)/+:-]/.test(part)) {
+      combined = `${combined} ${part}`;
+      continue;
+    }
+
+    combined = `${combined} | ${part}`;
+  }
+
+  return cleanupValue(
+    combined
+      .replace(/\s+,/g, ",")
+      .replace(/\s+;/g, ";")
+      .replace(/,\s*\|/g, ", ")
+      .replace(/:\s*\|/g, ": "),
+  );
+}
+
 function getInlineValueAfterLabel(line: string, alias: string): string {
   const withSeparator = line.match(/[:=-]\s*(.*)$/);
   if (withSeparator?.[1]) {
@@ -387,7 +416,7 @@ function collectBlockValue(
     parts.push(line);
   }
 
-  return cleanupValue(parts.join(" | "));
+  return joinCollectedBlockParts(parts);
 }
 
 function buildKeyValueLookup(lines: string[]): Map<string, string> {
@@ -597,7 +626,11 @@ function normalizeDeliveryMethod(value: string): string {
   const lowered = normalizeLabel(value);
   if (!lowered) return "";
 
-  if (lowered.includes("pickup") || lowered.includes("ambil sendiri"))
+  if (
+    lowered.includes("pickup") ||
+    lowered.includes("ambil sendiri") ||
+    lowered.startsWith("ambil")
+  )
     return "Pickup";
   if (lowered.includes("gosend")) return "GoSend";
   if (lowered.includes("gojek")) return "Gojek";
@@ -615,7 +648,11 @@ function mapDeliveryMethodToFormValue(
   const normalized = normalizeLabel(rawMethod);
   if (!normalized) return "REGULAR_JNE_JNT";
 
-  if (normalized.includes("pickup") || normalized.includes("ambil sendiri")) {
+  if (
+    normalized.includes("pickup") ||
+    normalized.includes("ambil sendiri") ||
+    normalized.startsWith("ambil")
+  ) {
     return "PICKUP";
   }
 
