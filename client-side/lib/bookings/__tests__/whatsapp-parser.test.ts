@@ -17,6 +17,7 @@ declare const expect: (value: unknown) => {
 };
 
 import {
+  buildParsedDetectedItems,
   buildBookingAutoFillFromParsed,
   parseWhatsAppOrderText,
 } from "../whatsapp-parser";
@@ -126,6 +127,92 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
     expect(quantitiesByCategory.get("Cupcakes")).toBe(1);
     expect(quantitiesByCategory.get("Cookies")).toBe(1);
     expect(quantitiesByCategory.get("Cake")).toBe(1);
+  });
+
+  it("captures secondary cake details from mixed cupcake order", () => {
+    const text = [
+      "Data Cupcakes",
+      "Tanggal Pengiriman: 26 Maret 2026",
+      "KODE BOOKING: BK-457",
+      "Order: 1 dozen cupcakes + 1 cake",
+      "Jumlah Cupcakes: 1 dozen",
+      "Rasa Cupcakes: Vanilla",
+      "Warna Cupcakes: Pink",
+      "Jumlah Topper Cookies: 0",
+      "Nama di Cake: Alya",
+      "Umur di cake: 7",
+      "Ukuran cake: 16 cm",
+      "Rasa cake: Coklat",
+      "Design cake: Floral",
+      "Jam Pengiriman: 10:00",
+      "Metode Pengiriman: Gocar",
+      "Nama penerima: Test Mixed Detail",
+      "No. telp penerima: 081234567896",
+      "Alamat lengkap: Central City",
+    ].join("\n");
+
+    const parsed = parseWhatsAppOrderText(text, {
+      preferredOrderType: "unknown",
+      sourceType: "manual",
+    });
+    const autoFill = buildBookingAutoFillFromParsed(parsed);
+    const cakeItem = autoFill.items.find((item) => item.category === "Cake");
+    const detectedItems = buildParsedDetectedItems(autoFill.items);
+
+    expect(parsed.detailsByOrderType?.cake?.cakeSize).toBe("16 cm");
+    expect(parsed.detailsByOrderType?.cupcakes?.cupcakeColor).toBe("Pink");
+    expect(detectedItems.map((item) => item.category).sort()).toEqual([
+      "Cake",
+      "Cupcakes",
+    ]);
+    expect(Boolean(cakeItem)).toBe(true);
+    if (!cakeItem) {
+      throw new Error("Cake item was not generated");
+    }
+    expect(cakeItem.notes.includes("Ukuran cake: 16 cm")).toBe(true);
+    expect(cakeItem.notes.includes("Design cake: Floral")).toBe(true);
+  });
+
+  it("captures secondary cupcake details from mixed cake order", () => {
+    const text = [
+      "Data Cake",
+      "Tanggal Pengiriman: 27 Maret 2026",
+      "KODE BOOKING: BK-458",
+      "Order: 1 cake + 1 dozen cupcakes",
+      "Nama di Cake: Nara",
+      "Umur di cake: 9",
+      "Ukuran cake: 18 cm",
+      "Rasa cake: Vanilla",
+      "Design cake: Butterflies",
+      "Jumlah Cupcakes: 1 dozen",
+      "Rasa Cupcakes: Strawberry",
+      "Warna Cupcakes: Lilac",
+      "Jumlah Topper Cookies: 2",
+      "Jam Pengiriman: 11:00",
+      "Metode Pengiriman: Gocar",
+      "Nama penerima: Test Mixed Cake",
+      "No. telp penerima: 081234567897",
+      "Alamat lengkap: Central City",
+    ].join("\n");
+
+    const parsed = parseWhatsAppOrderText(text, {
+      preferredOrderType: "unknown",
+      sourceType: "manual",
+    });
+    const autoFill = buildBookingAutoFillFromParsed(parsed);
+    const cupcakeItem = autoFill.items.find(
+      (item) => item.category === "Cupcakes",
+    );
+
+    expect(parsed.detailsByOrderType?.cupcakes?.cupcakeFlavor).toBe(
+      "Strawberry",
+    );
+    expect(Boolean(cupcakeItem)).toBe(true);
+    if (!cupcakeItem) {
+      throw new Error("Cupcakes item was not generated");
+    }
+    expect(cupcakeItem.notes.includes("Rasa Cupcakes: Strawberry")).toBe(true);
+    expect(cupcakeItem.notes.includes("Warna Cupcakes: Lilac")).toBe(true);
   });
 
   it("auto-checks dark color buttercream add-on with parsed color", () => {

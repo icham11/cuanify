@@ -697,7 +697,12 @@ export default function OrderDetailPage() {
               <CardHeader className="p-6 pb-2">
                 <CardTitle>
                   Parsed WhatsApp Data (
-                  {WHATSAPP_ORDER_LABELS[order.whatsAppParsedData.orderType]})
+                  {WHATSAPP_ORDER_LABELS[order.whatsAppParsedData.orderType]}
+                  {Array.isArray(order.whatsAppParsedData.detectedItems) &&
+                  order.whatsAppParsedData.detectedItems.length > 1
+                    ? ` • ${order.whatsAppParsedData.detectedItems.length} item`
+                    : ""}
+                  )
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3 px-6 pb-6 pt-0 text-sm text-gray-700">

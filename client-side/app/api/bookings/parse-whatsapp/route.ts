@@ -4,6 +4,7 @@ import { analyzeBusinessData } from "@/lib/groq";
 import { uploadToCloudinary } from "@/lib/whatsapp/uploadToCloudinary";
 import {
   buildBookingAutoFillFromParsed,
+  buildParsedDetectedItems,
   buildWhatsAppTemplate,
   parseWhatsAppOrderText,
   type WhatsAppOrderType,
@@ -318,14 +319,14 @@ export async function POST(request: NextRequest) {
       sourceType,
     });
 
+    const autoFill = buildBookingAutoFillFromParsed(parsed);
     const parsedWithImage = {
       ...parsed,
       imageUrl: uploadedImageUrls[0],
       uploadedImageUrls,
       referenceImages: uploadedReferenceImages,
+      detectedItems: buildParsedDetectedItems(autoFill.items),
     };
-
-    const autoFill = buildBookingAutoFillFromParsed(parsedWithImage);
     const responseWarnings = [...parserWarnings];
 
     if (parsedWithImage.missingFields.length > 0) {

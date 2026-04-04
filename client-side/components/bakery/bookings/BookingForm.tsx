@@ -28,6 +28,7 @@ import {
   buildWhatsAppTemplate,
   getDisplayFields,
   type BookingFormAutoFill,
+  type ParsedWhatsAppDetectedItem,
   type ParsedWhatsAppOrder,
   type ParsedWhatsAppReferenceImage,
   type WhatsAppOrderType,
@@ -351,6 +352,27 @@ function buildParsedReferenceImages(args: {
   });
 
   return Array.from(byUrl.values());
+}
+
+function summarizeDetectedItems(
+  items: BookingFormAutoFill["items"],
+): ParsedWhatsAppDetectedItem[] {
+  return items.map((item) => ({
+    orderType:
+      item.category === "Cupcakes"
+        ? "cupcakes"
+        : item.category === "Cookies"
+          ? "cookies"
+          : item.category === "Buket"
+            ? "buket"
+            : item.category === "Cookies Tower"
+              ? "cookies_tower"
+              : "cake",
+    category: item.category,
+    productName: item.productName,
+    size: item.size,
+    quantity: item.quantity,
+  }));
 }
 
 function getDefaultSelectionFromCatalog(
@@ -2175,6 +2197,11 @@ export default function BookingForm() {
           parsed: payload.parsed,
           requestedLabels: explicitRequestedImageLabels,
         }),
+        detectedItems:
+          Array.isArray(payload.parsed.detectedItems) &&
+          payload.parsed.detectedItems.length > 0
+            ? payload.parsed.detectedItems
+            : summarizeDetectedItems(payload.autoFill.items),
         requestedImageLabels: mergedRequestedImageLabels,
       };
 
@@ -2442,7 +2469,12 @@ export default function BookingForm() {
                   Preview Hasil Parser
                 </p>
                 <span className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700">
-                  Terdeteksi: {WHATSAPP_ORDER_LABELS[parsedPreview.orderType]}
+                  Terdeteksi utama:{" "}
+                  {WHATSAPP_ORDER_LABELS[parsedPreview.orderType]}
+                  {Array.isArray(parsedPreview.detectedItems) &&
+                  parsedPreview.detectedItems.length > 1
+                    ? ` • ${parsedPreview.detectedItems.length} item`
+                    : ""}
                 </span>
               </div>
               <div className="grid gap-2 sm:grid-cols-2">

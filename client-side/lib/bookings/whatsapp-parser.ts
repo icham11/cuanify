@@ -15,6 +15,14 @@ export type WhatsAppOrderTypeOrUnknown = WhatsAppOrderType | "unknown";
 
 export type WhatsAppSourceType = "text" | "manual" | "image" | "email";
 
+const ORDER_TYPE_SEQUENCE: WhatsAppOrderType[] = [
+  "cake",
+  "cookies",
+  "cupcakes",
+  "buket",
+  "cookies_tower",
+];
+
 interface FieldDefinition {
   key: string;
   label: string;
@@ -286,6 +294,18 @@ export interface ParsedWhatsAppReferenceImage {
   orderIndex?: number;
 }
 
+export type ParsedWhatsAppDetailsByOrderType = Partial<
+  Record<WhatsAppOrderType, Record<string, string>>
+>;
+
+export interface ParsedWhatsAppDetectedItem {
+  orderType: WhatsAppOrderType;
+  category: string;
+  productName: string;
+  size: string;
+  quantity: number;
+}
+
 export interface ParsedWhatsAppOrder {
   orderType: WhatsAppOrderType;
   sourceType: WhatsAppSourceType;
@@ -296,6 +316,8 @@ export interface ParsedWhatsAppOrder {
   requestedImageLabels?: string[];
   common: ParsedCommonFields;
   details: Record<string, string>;
+  detailsByOrderType?: ParsedWhatsAppDetailsByOrderType;
+  detectedItems?: ParsedWhatsAppDetectedItem[];
   missingFields: string[];
 }
 
@@ -447,6 +469,27 @@ function buildKeyValueLookup(lines: string[]): Map<string, string> {
   });
 
   return lookup;
+}
+
+function buildDetailsByOrderType(
+  rawText: string,
+  lines: string[],
+  lookup: Map<string, string>,
+): ParsedWhatsAppDetailsByOrderType {
+  const detailsByOrderType: ParsedWhatsAppDetailsByOrderType = {};
+
+  for (const orderType of ORDER_TYPE_SEQUENCE) {
+    const details: Record<string, string> = {};
+
+    for (const field of detailFieldDefinitions[orderType]) {
+      const value = readFieldValue(rawText, lines, lookup, field);
+      details[field.key] = normalizeByKey(field.key, value);
+    }
+
+    detailsByOrderType[orderType] = details;
+  }
+
+  return detailsByOrderType;
 }
 
 function readFieldValue(
@@ -917,6 +960,62 @@ function buildEmptyCommonFields(): ParsedCommonFields {
     recipientPhone: "",
     fullAddress: "",
   };
+}
+
+function getDetailsForOrderType(
+  parsed: ParsedWhatsAppOrder,
+  orderType: WhatsAppOrderType,
+): Record<string, string> {
+  if (parsed.orderType === orderType) {
+    return parsed.details;
+  }
+
+  return parsed.detailsByOrderType?.[orderType] ?? {};
+}
+
+function hasFilledDetailValues(details?: Record<string, string>): boolean {
+  return Object.values(details ?? {}).some((value) => cleanupValue(value));
+}
+
+function buildDetailNotesForOrderType(
+  parsed: ParsedWhatsAppOrder,
+  orderType: WhatsAppOrderType,
+): string {
+  const details = getDetailsForOrderType(parsed, orderType);
+
+  return detailFieldDefinitions[orderType]
+    .map((field) => {
+      const value = details[field.key];
+      if (!value) return "";
+      return `${field.label}: ${value}`;
+    })
+    .filter(Boolean)
+    .join(" | ");
+}
+
+function buildItemNotesForOrderType(
+  parsed: ParsedWhatsAppOrder,
+  orderType: WhatsAppOrderType,
+): string {
+  const orderLine = parsed.common.order ? `Order: ${parsed.common.order}` : "";
+  return [orderLine, buildDetailNotesForOrderType(parsed, orderType)]
+    .filter(Boolean)
+    .join(" | ")
+    .slice(0, 200);
+}
+
+function buildSearchSourceForOrderType(
+  parsed: ParsedWhatsAppOrder,
+  orderType: WhatsAppOrderType,
+  fallbackSearchSource: string,
+): string {
+  return [
+    fallbackSearchSource,
+    ...Object.values(getDetailsForOrderType(parsed, orderType)),
+  ]
+    .filter(Boolean)
+    .join(" | ")
+    .slice(0, 300);
 }
 
 type BookingAutoFillItem = BookingFormAutoFill["items"][number];
@@ -1503,6 +1602,7 @@ function buildMixedSupplementAutoFillItems(
     category: string,
     quantity: number,
     searchSource: string,
+    notes: string,
     cookiePrice?: number,
   ) => {
     supplements.push(
@@ -1510,11 +1610,21 @@ function buildMixedSupplementAutoFillItems(
         category,
         quantity,
         searchSource,
-        notes: itemNotes,
+        notes,
         cookiePrice,
       }),
     );
   };
+
+  const buildSupplementContext = (
+    orderType: WhatsAppOrderType,
+    fallbackSearchSource: string,
+  ) => ({
+    notes: buildItemNotesForOrderType(parsed, orderType) || itemNotes,
+    searchSource:
+      buildSearchSourceForOrderType(parsed, orderType, fallbackSearchSource) ||
+      fallbackSearchSource,
+  });
 
   if (primaryCategory !== "Cookies Tower" && hasTowerMarker) {
     const quantity =
@@ -1523,26 +1633,54 @@ function buildMixedSupplementAutoFillItems(
         "cookie tower",
         "tower cookies",
       ]) ?? 1;
-    pushItem("Cookies Tower", quantity, orderText);
+    const context = buildSupplementContext(
+      "cookies_tower",
+      orderText || rawText,
+    );
+    pushItem(
+      "Cookies Tower",
+      quantity,
+      context.searchSource,
+      context.notes,
+    );
   }
 
   if (primaryCategory !== "Cake" && hasCakeMarker) {
     const quantity = extractQuantityForKeywords(orderText, ["cake"]) ?? 1;
-    pushItem("Cake", quantity, orderText || rawText);
+    const context = buildSupplementContext("cake", orderText || rawText);
+    pushItem("Cake", quantity, context.searchSource, context.notes);
   }
 
   if (primaryCategory !== "Cupcakes" && hasCupcakeMarker) {
     const breakdown = parseCupcakeQuantityBreakdown([orderText]);
+    const dozenContext = buildSupplementContext(
+      "cupcakes",
+      "cupcakes dozen lusin 12 pcs",
+    );
+    const individualContext = buildSupplementContext(
+      "cupcakes",
+      "cupcakes individual indv pcs",
+    );
+    const fallbackContext = buildSupplementContext(
+      "cupcakes",
+      orderText || rawText,
+    );
 
     if (breakdown.dozenCount > 0) {
-      pushItem("Cupcakes", breakdown.dozenCount, "cupcakes dozen lusin 12 pcs");
+      pushItem(
+        "Cupcakes",
+        breakdown.dozenCount,
+        dozenContext.searchSource,
+        dozenContext.notes,
+      );
     }
 
     if (breakdown.individualCount > 0) {
       pushItem(
         "Cupcakes",
         breakdown.individualCount,
-        "cupcakes individual indv pcs",
+        individualContext.searchSource,
+        individualContext.notes,
       );
     }
 
@@ -1551,7 +1689,12 @@ function buildMixedSupplementAutoFillItems(
         extractQuantityForKeywords(orderText, ["cupcakes", "cupcake"]) ??
         breakdown.fallbackQuantity ??
         1;
-      pushItem("Cupcakes", quantity, orderText || rawText);
+      pushItem(
+        "Cupcakes",
+        quantity,
+        fallbackContext.searchSource,
+        fallbackContext.notes,
+      );
     }
   }
 
@@ -1561,10 +1704,12 @@ function buildMixedSupplementAutoFillItems(
   if (primaryCategory !== "Buket" && hasBouquetMarker) {
     const quantity =
       extractQuantityForKeywords(orderText, ["buket", "bouquet"]) ?? 1;
+    const context = buildSupplementContext("buket", orderText || rawText);
     pushItem(
       "Buket",
       quantity,
-      orderText || rawText,
+      context.searchSource,
+      context.notes,
       bouquetCookiePrice ?? undefined,
     );
   }
@@ -1581,7 +1726,16 @@ function buildMixedSupplementAutoFillItems(
       extractOrderQuantity(orderWithoutTopper) ??
       extractPositiveInteger(orderWithoutTopper) ??
       1;
-    pushItem("Cookies", quantity, orderWithoutTopper || rawText);
+    const context = buildSupplementContext(
+      "cookies",
+      orderWithoutTopper || rawText,
+    );
+    pushItem(
+      "Cookies",
+      quantity,
+      context.searchSource,
+      context.notes,
+    );
   }
 
   return mergeAutoFillItems(supplements);
@@ -1808,6 +1962,7 @@ export function parseWhatsAppOrderText(
 
   const lookup = buildKeyValueLookup(lines);
   const orderType = detectOrderType(text, lookup, preferredOrderType);
+  const detailsByOrderType = buildDetailsByOrderType(text, lines, lookup);
 
   const common = buildEmptyCommonFields();
   for (const field of commonFieldDefinitions) {
@@ -1815,12 +1970,8 @@ export function parseWhatsAppOrderText(
     common[field.key as CommonFieldKey] = normalizeByKey(field.key, value);
   }
 
-  const details: Record<string, string> = {};
   const detailDefinitions = detailFieldDefinitions[orderType];
-  for (const field of detailDefinitions) {
-    const value = readFieldValue(text, lines, lookup, field);
-    details[field.key] = normalizeByKey(field.key, value);
-  }
+  const details = detailsByOrderType[orderType] ?? {};
 
   const missingFields: string[] = [];
   for (const key of requiredCommonKeys) {
@@ -1843,6 +1994,7 @@ export function parseWhatsAppOrderText(
     rawText: text,
     common,
     details,
+    detailsByOrderType,
     missingFields,
   };
 }
@@ -1852,6 +2004,13 @@ export function formatParsedWhatsAppForNotes(
 ): string {
   const lines: string[] = [];
   lines.push(`[WA Parser] ${WHATSAPP_ORDER_LABELS[parsed.orderType]}`);
+  if ((parsed.detectedItems?.length ?? 0) > 1) {
+    lines.push(
+      `Item Terdeteksi: ${parsed.detectedItems
+        ?.map((item) => `${item.quantity}x ${item.productName}`)
+        .join(" | ")}`,
+    );
+  }
 
   for (const field of commonFieldDefinitions) {
     const value = parsed.common[field.key as CommonFieldKey];
@@ -1865,26 +2024,26 @@ export function formatParsedWhatsAppForNotes(
     lines.push(`${field.label}: ${value}`);
   }
 
+  for (const orderType of ORDER_TYPE_SEQUENCE) {
+    if (orderType === parsed.orderType) continue;
+    const details = getDetailsForOrderType(parsed, orderType);
+    if (!hasFilledDetailValues(details)) continue;
+
+    lines.push(`[Tambahan] ${WHATSAPP_ORDER_LABELS[orderType]}`);
+    for (const field of detailFieldDefinitions[orderType]) {
+      const value = details[field.key];
+      if (!value) continue;
+      lines.push(`${field.label}: ${value}`);
+    }
+  }
+
   return lines.join("\n");
 }
 
 export function buildBookingAutoFillFromParsed(
   parsed: ParsedWhatsAppOrder,
 ): BookingFormAutoFill {
-  const detailNotes = detailFieldDefinitions[parsed.orderType]
-    .map((field) => {
-      const value = parsed.details[field.key];
-      if (!value) return "";
-      return `${field.label}: ${value}`;
-    })
-    .filter(Boolean)
-    .join(" | ");
-
-  const orderLine = parsed.common.order ? `Order: ${parsed.common.order}` : "";
-  const itemNotes = [orderLine, detailNotes]
-    .filter(Boolean)
-    .join(" | ")
-    .slice(0, 200);
+  const itemNotes = buildItemNotesForOrderType(parsed, parsed.orderType);
 
   const primaryAutoFillItems =
     parsed.orderType === "cupcakes"
@@ -1924,7 +2083,7 @@ export function buildBookingAutoFillFromParsed(
   ]
     .filter(Boolean)
     .join("\n")
-    .slice(0, 400);
+    .slice(0, 800);
 
   return {
     customerName,
@@ -1944,10 +2103,41 @@ export function buildBookingAutoFillFromParsed(
   };
 }
 
+function mapCategoryToOrderType(category: string): WhatsAppOrderType {
+  const normalized = normalizeLabel(category);
+
+  if (normalized === "cupcakes") return "cupcakes";
+  if (normalized === "cookies tower") return "cookies_tower";
+  if (normalized === "cookies") return "cookies";
+  if (normalized === "buket") return "buket";
+  return "cake";
+}
+
+export function buildParsedDetectedItems(
+  items: BookingFormAutoFill["items"],
+): ParsedWhatsAppDetectedItem[] {
+  return items.map((item) => ({
+    orderType: mapCategoryToOrderType(item.category),
+    category: item.category,
+    productName: item.productName,
+    size: item.size,
+    quantity: item.quantity,
+  }));
+}
+
 export function getDisplayFields(
   parsed: ParsedWhatsAppOrder,
 ): Array<{ label: string; value: string }> {
   const rows: Array<{ label: string; value: string }> = [];
+
+  if ((parsed.detectedItems?.length ?? 0) > 0) {
+    rows.push({
+      label: "Item Terdeteksi",
+      value: parsed.detectedItems
+        ?.map((item) => `${item.quantity}x ${item.productName}`)
+        .join(" | ") || "-",
+    });
+  }
 
   for (const field of commonFieldDefinitions) {
     rows.push({
@@ -1961,6 +2151,20 @@ export function getDisplayFields(
       label: field.label,
       value: parsed.details[field.key] || "-",
     });
+  }
+
+  for (const orderType of ORDER_TYPE_SEQUENCE) {
+    if (orderType === parsed.orderType) continue;
+    const details = getDetailsForOrderType(parsed, orderType);
+    if (!hasFilledDetailValues(details)) continue;
+
+    for (const field of detailFieldDefinitions[orderType]) {
+      if (!details[field.key]) continue;
+      rows.push({
+        label: `${WHATSAPP_ORDER_LABELS[orderType]} - ${field.label}`,
+        value: details[field.key] || "-",
+      });
+    }
   }
 
   return rows;
