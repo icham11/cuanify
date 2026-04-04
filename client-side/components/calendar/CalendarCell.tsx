@@ -50,7 +50,7 @@ function getTokenTextColor(status: CalendarStatus): string {
  * - Date number
  * - Status badge (Passed / Full / Almost Full / Closed H-1)
  * - Token progress bar with color coding
- * - Token usage info (e.g., "580 / 600")
+ * - Token usage info (e.g., "480 / 500")
  * - Remaining token count
  * - Order count
  *
@@ -67,7 +67,7 @@ export default function CalendarCell({
 }: CalendarCellProps) {
   const ui = getCalendarStatusUI(status);
   const isDisabled = ui.disabled;
-  const safeMax = maxToken > 0 ? maxToken : 600;
+  const safeMax = maxToken > 0 ? maxToken : 500;
   const ratio = Math.min(1, usedToken / safeMax);
   const barColor = getBarColor(ratio);
   const remaining = safeMax - usedToken;

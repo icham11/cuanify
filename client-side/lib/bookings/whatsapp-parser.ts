@@ -320,6 +320,7 @@ export interface BookingFormAutoFill {
     tokenDifficulty?: "SIMPLE" | "NORMAL" | "HARD" | "ADVANCED" | "EXPERT";
     cookiePrice?: number;
     addOns: string[];
+    darkColorButtercreamColor?: string;
     notes: string;
   }>;
 }
@@ -838,6 +839,72 @@ function buildEmptyCommonFields(): ParsedCommonFields {
 
 type BookingAutoFillItem = BookingFormAutoFill["items"][number];
 
+const DARK_COLOR_BUTTERCREAM_ADDON_ID = "dark-color-buttercream";
+const DARK_BUTTERCREAM_COLOR_CANDIDATES: Array<{
+  label: string;
+  aliases: string[];
+}> = [
+  { label: "Black", aliases: ["black", "hitam"] },
+  { label: "Red", aliases: ["red", "merah"] },
+  { label: "Navy Blue", aliases: ["navy blue", "navy", "dongker"] },
+  {
+    label: "Forest Green",
+    aliases: ["forest green", "hijau botol", "hijau tua"],
+  },
+  {
+    label: "Electric Blue",
+    aliases: ["electric blue", "biru elektrik", "biru terang"],
+  },
+  {
+    label: "Fuschia Pink",
+    aliases: ["fuschia pink", "fuchsia pink", "fuschia", "fuchsia"],
+  },
+];
+
+function resolveDarkButtercreamColor(value: string): string | undefined {
+  const normalized = normalizeLabel(value);
+  if (!normalized) return undefined;
+
+  for (const candidate of DARK_BUTTERCREAM_COLOR_CANDIDATES) {
+    const matched = candidate.aliases.some((alias) =>
+      normalized.includes(normalizeLabel(alias)),
+    );
+    if (matched) return candidate.label;
+  }
+
+  return undefined;
+}
+
+function detectCupcakeDarkColorButtercream(value: string): {
+  addOns: string[];
+  darkColorButtercreamColor?: string;
+} {
+  const normalized = normalizeLabel(value);
+  if (!normalized) {
+    return { addOns: [] };
+  }
+
+  const hasDarkMarker =
+    normalized.includes("dark color") || normalized.includes("darkcolor");
+  const hasButtercreamMarker =
+    normalized.includes("butter cream") || normalized.includes("buttercream");
+  const hasDarkColorButtercream =
+    normalized.includes("dark color butter cream") ||
+    normalized.includes("dark color buttercream") ||
+    normalized.includes("dark butter cream") ||
+    normalized.includes("dark buttercream") ||
+    (hasDarkMarker && hasButtercreamMarker);
+
+  if (!hasDarkColorButtercream) {
+    return { addOns: [] };
+  }
+
+  return {
+    addOns: [DARK_COLOR_BUTTERCREAM_ADDON_ID],
+    darkColorButtercreamColor: resolveDarkButtercreamColor(value),
+  };
+}
+
 function extractPositiveInteger(value: string): number | null {
   const match = value.match(/\d+/);
   if (!match) return null;
@@ -907,11 +974,11 @@ function parseCupcakeQuantityBreakdown(
 
     const individualFromPrefix = sumRegexNumberMatches(
       text,
-      /(\d{1,4})\s*(?:p+\s*c+\s*s*|pcs?|pc|box)?\s*(?:indv|individu(?:al)?|individual)\b/gi,
+      /(\d{1,4})\s*(?:p+\s*c+\s*s*|pcs?|pc|box)?\s*(?:indv|individu(?:al)?|individual|indivial|indvidual|invidual)\b/gi,
     );
     const individualFromSuffix = sumRegexNumberMatches(
       text,
-      /(?:indv|individu(?:al)?|individual)\s*(?:cupcake[s]?|box|pcs?|pc)?\s*[:=+\-x]?\s*(\d{1,4})\b/gi,
+      /(?:indv|individu(?:al)?|individual|indivial|indvidual|invidual)\s*(?:cupcake[s]?|box|pcs?|pc)?\s*[:=+\-x]?\s*(\d{1,4})\b/gi,
     );
     const parsedIndividualCount = individualFromPrefix + individualFromSuffix;
 
@@ -933,6 +1000,65 @@ function parseCupcakeQuantityBreakdown(
     individualCount,
     fallbackQuantity,
   };
+}
+
+function hasCupcakeIndividualMarker(value: string): boolean {
+  const normalized = normalizeLabel(value);
+  if (!normalized) return false;
+  return /\b(indv|individu|individual|indivial|indvidual|invidual)\b/i.test(
+    normalized,
+  );
+}
+
+function hasCupcakeDozenMarker(value: string): boolean {
+  const normalized = normalizeLabel(value);
+  if (!normalized) return false;
+  return /\b(dozen|lusin|12\s*pcs?)\b/i.test(normalized);
+}
+
+function resolveCupcakeQuantityBreakdown(parsed: ParsedWhatsAppOrder): {
+  dozenCount: number;
+  individualCount: number;
+  fallbackQuantity: number | null;
+} {
+  const orderText = parsed.common.order ?? "";
+  const detailText = parsed.details.cupcakeCount ?? "";
+
+  const fromOrder = parseCupcakeQuantityBreakdown([orderText]);
+  const fromDetail = parseCupcakeQuantityBreakdown([detailText]);
+  const merged = parseCupcakeQuantityBreakdown([detailText, orderText]);
+
+  const orderHasIndividual = hasCupcakeIndividualMarker(orderText);
+  const orderHasDozen = hasCupcakeDozenMarker(orderText);
+
+  if (orderHasIndividual && !orderHasDozen) {
+    const quantity =
+      fromOrder.individualCount || fromOrder.fallbackQuantity || 0;
+    return {
+      dozenCount: 0,
+      individualCount: quantity || fromDetail.individualCount,
+      fallbackQuantity: quantity || fromDetail.fallbackQuantity,
+    };
+  }
+
+  if (orderHasDozen && !orderHasIndividual) {
+    const quantity = fromOrder.dozenCount || fromOrder.fallbackQuantity || 0;
+    return {
+      dozenCount: quantity || fromDetail.dozenCount,
+      individualCount: 0,
+      fallbackQuantity: quantity || fromDetail.fallbackQuantity,
+    };
+  }
+
+  if (orderHasIndividual && orderHasDozen) {
+    return {
+      dozenCount: fromOrder.dozenCount || fromDetail.dozenCount,
+      individualCount: fromOrder.individualCount || fromDetail.individualCount,
+      fallbackQuantity: fromOrder.fallbackQuantity || fromDetail.fallbackQuantity,
+    };
+  }
+
+  return merged;
 }
 
 function guessDeliveryArea(address: string): string {
@@ -1044,10 +1170,7 @@ function chooseQuantity(parsed: ParsedWhatsAppOrder): number {
   }
 
   if (parsed.orderType === "cupcakes") {
-    const quantityInfo = parseCupcakeQuantityBreakdown([
-      parsed.details.cupcakeCount ?? "",
-      parsed.common.order ?? "",
-    ]);
+    const quantityInfo = resolveCupcakeQuantityBreakdown(parsed);
 
     if (quantityInfo.individualCount > 0 && quantityInfo.dozenCount === 0) {
       return quantityInfo.individualCount;
@@ -1170,6 +1293,12 @@ function createAutoFillItemFromCategory(args: {
     catalog.category === "Buket" && Number(args.cookiePrice) > 0
       ? Math.round(Number(args.cookiePrice))
       : undefined;
+  const cupcakeDarkColor =
+    catalog.category === "Cupcakes"
+      ? detectCupcakeDarkColorButtercream(
+          `${args.searchSource || ""} ${args.notes || ""}`,
+        )
+      : { addOns: [] as string[], darkColorButtercreamColor: undefined };
 
   return {
     category: catalog.category,
@@ -1179,7 +1308,8 @@ function createAutoFillItemFromCategory(args: {
     quantity: toPositiveQuantity(args.quantity),
     tokenDifficulty,
     cookiePrice,
-    addOns: [],
+    addOns: cupcakeDarkColor.addOns,
+    darkColorButtercreamColor: cupcakeDarkColor.darkColorButtercreamColor,
     notes: args.notes,
   };
 }
@@ -1205,6 +1335,11 @@ function mergeAutoFillItems(
       quantity:
         toPositiveQuantity(existing.quantity) +
         toPositiveQuantity(item.quantity),
+      addOns: Array.from(
+        new Set([...(existing.addOns ?? []), ...(item.addOns ?? [])]),
+      ),
+      darkColorButtercreamColor:
+        existing.darkColorButtercreamColor || item.darkColorButtercreamColor,
       tokenDifficulty: existing.tokenDifficulty || item.tokenDifficulty,
       cookiePrice: existing.cookiePrice ?? item.cookiePrice,
       notes: existing.notes || item.notes,
@@ -1359,6 +1494,19 @@ function buildDefaultAutoFillItems(
     catalog.category === "Buket"
       ? (parseCurrencyAmount(parsed.details.cookiePrice ?? "") ?? undefined)
       : undefined;
+  const cupcakeDarkColor =
+    catalog.category === "Cupcakes"
+      ? detectCupcakeDarkColorButtercream(
+          [
+            parsed.common.order,
+            parsed.details.cupcakeColor,
+            parsed.details.cupcakeFlavor,
+            parsed.rawText,
+          ]
+            .filter(Boolean)
+            .join(" "),
+        )
+      : { addOns: [] as string[], darkColorButtercreamColor: undefined };
 
   return [
     {
@@ -1369,7 +1517,8 @@ function buildDefaultAutoFillItems(
       quantity,
       tokenDifficulty,
       cookiePrice,
-      addOns: [],
+      addOns: cupcakeDarkColor.addOns,
+      darkColorButtercreamColor: cupcakeDarkColor.darkColorButtercreamColor,
       notes: itemNotes,
     },
   ];
@@ -1379,12 +1528,19 @@ function buildCupcakeAutoFillItems(
   parsed: ParsedWhatsAppOrder,
   itemNotes: string,
 ): BookingFormAutoFill["items"] {
-  const quantityInfo = parseCupcakeQuantityBreakdown([
-    parsed.details.cupcakeCount ?? "",
-    parsed.common.order ?? "",
-  ]);
+  const quantityInfo = resolveCupcakeQuantityBreakdown(parsed);
 
   const items: BookingFormAutoFill["items"] = [];
+  const cupcakeDarkColor = detectCupcakeDarkColorButtercream(
+    [
+      parsed.common.order,
+      parsed.details.cupcakeColor,
+      parsed.details.cupcakeFlavor,
+      parsed.rawText,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
 
   if (quantityInfo.dozenCount > 0) {
     const catalog = chooseCatalogSelectionByText(
@@ -1397,7 +1553,8 @@ function buildCupcakeAutoFillItems(
       productName: catalog.productName,
       size: catalog.size,
       quantity: quantityInfo.dozenCount,
-      addOns: [],
+      addOns: cupcakeDarkColor.addOns,
+      darkColorButtercreamColor: cupcakeDarkColor.darkColorButtercreamColor,
       notes: itemNotes,
     });
   }
@@ -1413,7 +1570,8 @@ function buildCupcakeAutoFillItems(
       productName: catalog.productName,
       size: catalog.size,
       quantity: quantityInfo.individualCount,
-      addOns: [],
+      addOns: cupcakeDarkColor.addOns,
+      darkColorButtercreamColor: cupcakeDarkColor.darkColorButtercreamColor,
       notes: itemNotes,
     });
   }

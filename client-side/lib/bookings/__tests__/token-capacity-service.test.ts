@@ -312,38 +312,38 @@ describe.skip("Token Capacity Service — Integration Tests", () => {
   });
 
   // ── Test Case 1: Reject when capacity would be exceeded ──
-  describe("Case 1: usedToken=598, tokenNeeded=3 → REJECT", () => {
+  describe("Case 1: usedToken=498, tokenNeeded=3 → REJECT", () => {
     it("should reject when usedToken + tokenNeeded > maxToken", async () => {
-      // Setup: consume 598 tokens first
-      const setupResult = await consumeToken(TEST_BUSINESS_ID, TEST_DATE, 598);
+      // Setup: consume 498 tokens first
+      const setupResult = await consumeToken(TEST_BUSINESS_ID, TEST_DATE, 498);
       expect(setupResult.success).toBe(true);
-      expect(setupResult.usedToken).toBe(598);
+      expect(setupResult.usedToken).toBe(498);
 
-      // Act: try to consume 3 more (598 + 3 = 601 > 600)
+      // Act: try to consume 3 more (498 + 3 = 501 > 500)
       const result = await consumeToken(TEST_BUSINESS_ID, TEST_DATE, 3);
 
       // Assert: should be rejected
       expect(result.success).toBe(false);
       expect(result.message).toBe("Production capacity full");
-      expect(result.usedToken).toBe(598);
-      expect(result.maxToken).toBe(600);
+      expect(result.usedToken).toBe(498);
+      expect(result.maxToken).toBe(500);
     });
   });
 
   // ── Test Case 2: Accept when capacity is exactly met ──
-  describe("Case 2: usedToken=598, tokenNeeded=2 → SUCCESS", () => {
+  describe("Case 2: usedToken=498, tokenNeeded=2 → SUCCESS", () => {
     it("should succeed when usedToken + tokenNeeded <= maxToken", async () => {
-      // Setup: consume 598 tokens first
-      const setupResult = await consumeToken(TEST_BUSINESS_ID, TEST_DATE, 598);
+      // Setup: consume 498 tokens first
+      const setupResult = await consumeToken(TEST_BUSINESS_ID, TEST_DATE, 498);
       expect(setupResult.success).toBe(true);
 
-      // Act: try to consume 2 more (598 + 2 = 600 <= 600)
+      // Act: try to consume 2 more (498 + 2 = 500 <= 500)
       const result = await consumeToken(TEST_BUSINESS_ID, TEST_DATE, 2);
 
       // Assert: should succeed
       expect(result.success).toBe(true);
-      expect(result.usedToken).toBe(600);
-      expect(result.maxToken).toBe(600);
+      expect(result.usedToken).toBe(500);
+      expect(result.maxToken).toBe(500);
     });
   });
 
@@ -361,7 +361,7 @@ describe.skip("Token Capacity Service — Integration Tests", () => {
       // Assert
       expect(result.success).toBe(true);
       expect(result.usedToken).toBe(5);
-      expect(result.maxToken).toBe(600);
+      expect(result.maxToken).toBe(500);
 
       // Verify record was created
       const after = await getCapacityForDate(TEST_BUSINESS_ID, TEST_DATE);
@@ -372,12 +372,12 @@ describe.skip("Token Capacity Service — Integration Tests", () => {
   // ── Test Case 4: Concurrent requests (race condition) ──
   describe("Case 4: concurrent requests → no over-allocation", () => {
     it("should not allow over-allocation with concurrent requests", async () => {
-      // Setup: consume 595 tokens
-      await consumeToken(TEST_BUSINESS_ID, TEST_DATE, 595);
+      // Setup: consume 495 tokens
+      await consumeToken(TEST_BUSINESS_ID, TEST_DATE, 495);
 
       // Act: fire 3 concurrent requests each trying to consume 3 tokens
-      // Only 1 should succeed (595 + 3 = 598 <= 600)
-      // The other 2 should fail (598 + 3 = 601 > 600)
+      // Only 1 should succeed (495 + 3 = 498 <= 500)
+      // The other 2 should fail (498 + 3 = 501 > 500)
       const results = await Promise.all([
         consumeToken(TEST_BUSINESS_ID, TEST_DATE, 3),
         consumeToken(TEST_BUSINESS_ID, TEST_DATE, 3),
@@ -385,7 +385,7 @@ describe.skip("Token Capacity Service — Integration Tests", () => {
       ]);
 
       const successes = results.filter((r) => r.success);
-      // At most 1 should succeed (595 + 3 = 598, then 598 + 3 = 601 > 600)
+      // At most 1 should succeed (495 + 3 = 498, then 498 + 3 = 501 > 500)
       expect(successes.length).toBeLessThanOrEqual(1);
 
       // Verify final state doesn't exceed max
@@ -411,7 +411,7 @@ describe.skip("Token Capacity Service — Integration Tests", () => {
     });
 
     it("should return false when capacity is full", async () => {
-      await consumeToken(TEST_BUSINESS_ID, TEST_DATE, 599);
+      await consumeToken(TEST_BUSINESS_ID, TEST_DATE, 499);
       const available = await checkTokenAvailability(
         TEST_BUSINESS_ID,
         TEST_DATE,
@@ -484,9 +484,9 @@ describe.skip("Token Capacity Service — Integration Tests", () => {
     });
 
     it("should handle consuming exactly maxToken", async () => {
-      const result = await consumeToken(TEST_BUSINESS_ID, TEST_DATE, 600);
+      const result = await consumeToken(TEST_BUSINESS_ID, TEST_DATE, 500);
       expect(result.success).toBe(true);
-      expect(result.usedToken).toBe(600);
+      expect(result.usedToken).toBe(500);
 
       // Now try to consume 1 more
       const result2 = await consumeToken(TEST_BUSINESS_ID, TEST_DATE, 1);

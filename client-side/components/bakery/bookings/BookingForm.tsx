@@ -96,6 +96,7 @@ const itemSchema = z.object({
   customTokenPerUnit: z.number().int().min(1).max(999).optional(),
   cookiePrice: z.number().min(0).optional(),
   addOns: z.array(z.string()),
+  darkColorButtercreamColor: z.string().max(50).optional().or(z.literal("")),
   notes: z.string().max(200).optional().or(z.literal("")),
 });
 
@@ -150,6 +151,15 @@ const BOUQUET_STANDING_MIN_QTY = 12;
 const BOUQUET_STANDING_MAX_QTY = 20;
 const CUPCAKE_INDIVIDUAL_MIN_QTY = 10;
 const COOKIE_INDIVIDUAL_MIN_QTY = 20;
+const DARK_COLOR_BUTTERCREAM_ADDON_ID = "dark-color-buttercream";
+const DARK_BUTTERCREAM_COLOR_OPTIONS = [
+  "Black",
+  "Red",
+  "Navy Blue",
+  "Forest Green",
+  "Electric Blue",
+  "Fuschia Pink",
+] as const;
 const GRABCAR_REQUIRED_METHODS: DeliveryMethod[] = [
   "ASSISTED_GRAB",
   "ASSISTED_GOCAR",
@@ -357,6 +367,38 @@ function getBouquetCostByType(type: BouquetFormType): number {
   return type === "HAND" ? BOUQUET_HAND_COST : BOUQUET_STANDING_COST;
 }
 
+function getBouquetMinQuantity(type: BouquetFormType): number {
+  return type === "HAND" ? BOUQUET_HAND_MIN_QTY : BOUQUET_STANDING_MIN_QTY;
+}
+
+function resolveBouquetSelectionByType(
+  catalog: PricelistCategory[],
+  type: BouquetFormType,
+): CatalogSelection | null {
+  const bouquetCategory = catalog.find((entry) => entry.category === "Buket");
+  if (!bouquetCategory) return null;
+
+  const expectedKeyword = type === "HAND" ? "hand" : "standing";
+  const matchingSubcategory = bouquetCategory.subcategories.find((sub) =>
+    sub.products.some((product) =>
+      product.name.toLowerCase().includes(expectedKeyword),
+    ),
+  );
+  const fallbackSubcategory =
+    matchingSubcategory ?? bouquetCategory.subcategories[0];
+  const matchingProduct = fallbackSubcategory?.products.find((product) =>
+    product.name.toLowerCase().includes(expectedKeyword),
+  );
+
+  if (!fallbackSubcategory || !matchingProduct) return null;
+
+  return ensureSelectionFromCatalog(catalog, {
+    category: bouquetCategory.category,
+    subcategory: fallbackSubcategory.name,
+    productName: matchingProduct.name,
+  });
+}
+
 function isValidBouquetQuantity(
   quantity: number,
   type: BouquetFormType,
@@ -393,7 +435,7 @@ function getItemQuantityRule(item: BookingItemInput): ItemQuantityRule {
       label: "Jumlah Cookies (isi bouquet)",
       min: BOUQUET_HAND_MIN_QTY,
       max: BOUQUET_HAND_MAX_QTY,
-      helperText: `Hand bouquet qty wajib ${getBouquetQtyRangeLabel("HAND")} cookies.`,
+      helperText: `Hand bouquet minimal ${BOUQUET_HAND_MIN_QTY} cookies.`,
     };
   }
   if (bouquetType === "STANDING") {
@@ -591,6 +633,7 @@ export default function BookingForm() {
           customTokenPerUnit: undefined,
           cookiePrice: undefined,
           addOns: [],
+          darkColorButtercreamColor: "",
           notes: "",
         },
       ],
@@ -713,6 +756,63 @@ export default function BookingForm() {
       });
     });
   }, [deliveryMethod, watchedItems, productCatalog, setValue]);
+
+  useEffect(() => {
+    watchedItems.forEach((item, index) => {
+      if ((item?.category || "") !== "Buket") return;
+
+      const normalizedSelection = ensureSelectionFromCatalog(productCatalog, {
+        category: item?.category,
+        subcategory: item?.subcategory,
+        productName: item?.productName,
+        size: item?.size,
+      });
+
+      const bouquetType = detectBouquetTypeFromItem({
+        category: normalizedSelection.category,
+        subcategory: normalizedSelection.subcategory,
+        productName: normalizedSelection.productName,
+        size: normalizedSelection.size,
+        quantity: Number(item?.quantity) || 0,
+        tokenDifficulty: item?.tokenDifficulty,
+        customTokenPerUnit:
+          Number(item?.customTokenPerUnit) > 0
+            ? Number(item?.customTokenPerUnit)
+            : undefined,
+        cookiePrice:
+          Number(item?.cookiePrice) > 0 ? Number(item?.cookiePrice) : undefined,
+        addOns: item?.addOns ?? [],
+        notes: item?.notes ?? "",
+      });
+
+      if (bouquetType !== "HAND") return;
+
+      const quantity = Number(item?.quantity) || 0;
+      if (quantity < BOUQUET_STANDING_MIN_QTY) return;
+
+      const standingSelection = resolveBouquetSelectionByType(
+        productCatalog,
+        "STANDING",
+      );
+      if (!standingSelection) return;
+
+      if (normalizedSelection.subcategory !== standingSelection.subcategory) {
+        setValue(`items.${index}.subcategory`, standingSelection.subcategory, {
+          shouldValidate: true,
+        });
+      }
+      if (normalizedSelection.productName !== standingSelection.productName) {
+        setValue(`items.${index}.productName`, standingSelection.productName, {
+          shouldValidate: true,
+        });
+      }
+      if (normalizedSelection.size !== standingSelection.size) {
+        setValue(`items.${index}.size`, standingSelection.size, {
+          shouldValidate: true,
+        });
+      }
+    });
+  }, [watchedItems, productCatalog, setValue]);
 
   const addOnTotal = useMemo(() => {
     return watchedItems.reduce((sum, item) => {
@@ -1481,6 +1581,21 @@ export default function BookingForm() {
       }
     }
 
+    for (const item of values.items) {
+      const hasDarkColorButtercream =
+        item.category === "Cupcakes" &&
+        (item.addOns ?? []).includes(DARK_COLOR_BUTTERCREAM_ADDON_ID);
+      if (!hasDarkColorButtercream) continue;
+
+      if (!String(item.darkColorButtercreamColor || "").trim()) {
+        const productLabel = item.productName || item.category || "Item";
+        toast.error(
+          `${productLabel}: pilih warna untuk add-on Dark Color Buttercream.`,
+        );
+        return;
+      }
+    }
+
     const mappedItems: OrderItem[] = values.items.map((item, index) => {
       const bouquetType = detectBouquetTypeFromItem(item);
       const itemBasePrice = getItemBasePrice(productCatalog, item);
@@ -1493,6 +1608,19 @@ export default function BookingForm() {
           const addon = categoryAddOns.find((entry) => entry.id === addonId);
           return sum + (addon?.price ?? 0);
         }, 0) * item.quantity;
+      const darkButtercreamColor = String(
+        item.darkColorButtercreamColor || "",
+      ).trim();
+      const mergedItemNotes = [
+        item.notes ?? "",
+        item.category === "Cupcakes" &&
+        (item.addOns ?? []).includes(DARK_COLOR_BUTTERCREAM_ADDON_ID) &&
+        darkButtercreamColor.length > 0
+          ? `Dark Color Buttercream: ${darkButtercreamColor}`
+          : "",
+      ]
+        .filter((line) => line.trim().length > 0)
+        .join("\n");
 
       return {
         id: `item-${Date.now()}-${index}`,
@@ -1528,7 +1656,7 @@ export default function BookingForm() {
         lineTotal: itemBasePrice,
         addOns: item.addOns,
         addOnTotal: addOnTotalForItem,
-        notes: item.notes ?? "",
+        notes: mergedItemNotes,
       };
     });
 
@@ -1598,10 +1726,16 @@ export default function BookingForm() {
 
   const toggleItemAddOn = (itemIndex: number, addonId: string) => {
     const current = watchedItems[itemIndex]?.addOns ?? [];
+    const isRemoving = current.includes(addonId);
     const next = current.includes(addonId)
       ? current.filter((id) => id !== addonId)
       : [...current, addonId];
     setValue(`items.${itemIndex}.addOns`, next, { shouldValidate: true });
+    if (addonId === DARK_COLOR_BUTTERCREAM_ADDON_ID && isRemoving) {
+      setValue(`items.${itemIndex}.darkColorButtercreamColor`, "", {
+        shouldValidate: true,
+      });
+    }
   };
 
   const callWhatsAppParser = async (
@@ -1726,6 +1860,12 @@ export default function BookingForm() {
                     })()
                   : undefined,
               addOns: Array.isArray(item.addOns) ? item.addOns : [],
+              darkColorButtercreamColor:
+                normalized.category === "Cupcakes" &&
+                Array.isArray(item.addOns) &&
+                item.addOns.includes(DARK_COLOR_BUTTERCREAM_ADDON_ID)
+                  ? String(item.darkColorButtercreamColor || "").trim()
+                  : "",
               notes: item.notes ?? "",
             };
           },
@@ -2300,6 +2440,7 @@ export default function BookingForm() {
                       customTokenPerUnit: undefined,
                       cookiePrice: undefined,
                       addOns: [],
+                      darkColorButtercreamColor: "",
                       notes: "",
                     });
                   }}
@@ -2359,6 +2500,8 @@ export default function BookingForm() {
                   const bouquetType =
                     detectBouquetTypeFromItem(bouquetProbeItem);
                   const isBouquet = normalizedSelection.category === "Buket";
+                  const isCupcakes =
+                    normalizedSelection.category === "Cupcakes";
                   const isCookies = normalizedSelection.category === "Cookies";
                   const allowedVariants =
                     deliveryMethod === "ASSISTED_PAXEL" && isBouquet
@@ -2379,6 +2522,14 @@ export default function BookingForm() {
                     Number(item?.customTokenPerUnit) > 0;
                   const quantityError = errors.items?.[index]?.quantity
                     ?.message as string | undefined;
+                  const hasDarkColorButtercream =
+                    isCupcakes &&
+                    (item?.addOns?.includes(DARK_COLOR_BUTTERCREAM_ADDON_ID) ??
+                      false);
+                  const darkColorError = errors.items?.[index]
+                    ?.darkColorButtercreamColor?.message as
+                    | string
+                    | undefined;
 
                   return (
                     <div
@@ -2398,6 +2549,25 @@ export default function BookingForm() {
                                   productCatalog,
                                   nextCategory,
                                 );
+                              const nextBouquetType =
+                                detectBouquetTypeFromItem({
+                                  category: nextSelection.category,
+                                  subcategory: nextSelection.subcategory,
+                                  productName: nextSelection.productName,
+                                  size: nextSelection.size,
+                                  quantity: Number(item?.quantity) || 0,
+                                  tokenDifficulty: item?.tokenDifficulty,
+                                  customTokenPerUnit:
+                                    Number(item?.customTokenPerUnit) > 0
+                                      ? Number(item?.customTokenPerUnit)
+                                      : undefined,
+                                  cookiePrice:
+                                    Number(item?.cookiePrice) > 0
+                                      ? Number(item?.cookiePrice)
+                                      : undefined,
+                                  addOns: item?.addOns ?? [],
+                                  notes: item?.notes ?? "",
+                                });
                               setValue(
                                 `items.${index}.category`,
                                 nextSelection.category,
@@ -2426,6 +2596,13 @@ export default function BookingForm() {
                                 shouldValidate: true,
                               });
                               setValue(
+                                `items.${index}.darkColorButtercreamColor`,
+                                "",
+                                {
+                                  shouldValidate: true,
+                                },
+                              );
+                              setValue(
                                 `items.${index}.cookiePrice`,
                                 undefined,
                                 {
@@ -2442,6 +2619,18 @@ export default function BookingForm() {
                                   shouldValidate: true,
                                 },
                               );
+                              if (
+                                nextSelection.category === "Buket" &&
+                                nextBouquetType
+                              ) {
+                                setValue(
+                                  `items.${index}.quantity`,
+                                  getBouquetMinQuantity(nextBouquetType),
+                                  {
+                                    shouldValidate: true,
+                                  },
+                                );
+                              }
                             }}
                           >
                             {productCatalog.map((entry) => (
@@ -2469,6 +2658,25 @@ export default function BookingForm() {
                                   subcategory: nextSub,
                                 },
                               );
+                              const nextBouquetType =
+                                detectBouquetTypeFromItem({
+                                  category: nextSelection.category,
+                                  subcategory: nextSelection.subcategory,
+                                  productName: nextSelection.productName,
+                                  size: nextSelection.size,
+                                  quantity: Number(item?.quantity) || 0,
+                                  tokenDifficulty: item?.tokenDifficulty,
+                                  customTokenPerUnit:
+                                    Number(item?.customTokenPerUnit) > 0
+                                      ? Number(item?.customTokenPerUnit)
+                                      : undefined,
+                                  cookiePrice:
+                                    Number(item?.cookiePrice) > 0
+                                      ? Number(item?.cookiePrice)
+                                      : undefined,
+                                  addOns: item?.addOns ?? [],
+                                  notes: item?.notes ?? "",
+                                });
                               setValue(
                                 `items.${index}.subcategory`,
                                 nextSelection.subcategory,
@@ -2488,6 +2696,18 @@ export default function BookingForm() {
                                 nextSelection.size,
                                 { shouldValidate: true },
                               );
+                              if (
+                                nextSelection.category === "Buket" &&
+                                nextBouquetType
+                              ) {
+                                setValue(
+                                  `items.${index}.quantity`,
+                                  getBouquetMinQuantity(nextBouquetType),
+                                  {
+                                    shouldValidate: true,
+                                  },
+                                );
+                              }
                             }}
                           >
                             {subcategories.map((entry) => (
@@ -2513,6 +2733,25 @@ export default function BookingForm() {
                                   productName: nextProduct,
                                 },
                               );
+                              const nextBouquetType =
+                                detectBouquetTypeFromItem({
+                                  category: nextSelection.category,
+                                  subcategory: nextSelection.subcategory,
+                                  productName: nextSelection.productName,
+                                  size: nextSelection.size,
+                                  quantity: Number(item?.quantity) || 0,
+                                  tokenDifficulty: item?.tokenDifficulty,
+                                  customTokenPerUnit:
+                                    Number(item?.customTokenPerUnit) > 0
+                                      ? Number(item?.customTokenPerUnit)
+                                      : undefined,
+                                  cookiePrice:
+                                    Number(item?.cookiePrice) > 0
+                                      ? Number(item?.cookiePrice)
+                                      : undefined,
+                                  addOns: item?.addOns ?? [],
+                                  notes: item?.notes ?? "",
+                                });
                               setValue(
                                 `items.${index}.productName`,
                                 nextSelection.productName,
@@ -2525,6 +2764,18 @@ export default function BookingForm() {
                                 nextSelection.size,
                                 { shouldValidate: true },
                               );
+                              if (
+                                nextSelection.category === "Buket" &&
+                                nextBouquetType
+                              ) {
+                                setValue(
+                                  `items.${index}.quantity`,
+                                  getBouquetMinQuantity(nextBouquetType),
+                                  {
+                                    shouldValidate: true,
+                                  },
+                                );
+                              }
                             }}
                           >
                             {products.map((product) => (
@@ -2580,6 +2831,16 @@ export default function BookingForm() {
                             step={1}
                             {...register(`items.${index}.quantity`, {
                               valueAsNumber: true,
+                              onBlur: (event) => {
+                                if (!isBouquet || !bouquetType) return;
+                                const parsed = Number(event.target.value) || 0;
+                                const minQty = getBouquetMinQuantity(bouquetType);
+                                if (parsed > 0 && parsed < minQty) {
+                                  setValue(`items.${index}.quantity`, minQty, {
+                                    shouldValidate: true,
+                                  });
+                                }
+                              },
                               validate: (value) => {
                                 const quantity = Number(value) || 0;
                                 if (quantity < quantityRule.min) {
@@ -2725,6 +2986,49 @@ export default function BookingForm() {
                           </label>
                         ))}
                       </div>
+
+                      {hasDarkColorButtercream && (
+                        <label className="grid gap-1.5 text-sm font-medium text-gray-700 sm:max-w-sm">
+                          Warna Dark Color Buttercream
+                          <Select
+                            {...register(
+                              `items.${index}.darkColorButtercreamColor`,
+                              {
+                                validate: (value) => {
+                                  if (!hasDarkColorButtercream) return true;
+                                  return String(value || "").trim().length > 0
+                                    ? true
+                                    : "Pilih warna dark color buttercream.";
+                                },
+                              },
+                            )}
+                            value={item?.darkColorButtercreamColor ?? ""}
+                            onChange={(event) => {
+                              setValue(
+                                `items.${index}.darkColorButtercreamColor`,
+                                event.target.value,
+                                { shouldValidate: true },
+                              );
+                            }}
+                          >
+                            <option value="">Pilih warna</option>
+                            {DARK_BUTTERCREAM_COLOR_OPTIONS.map((color) => (
+                              <option key={color} value={color}>
+                                {color}
+                              </option>
+                            ))}
+                          </Select>
+                          <span className="min-h-4 text-[11px] font-normal leading-4 text-gray-500">
+                            Pilihan: {DARK_BUTTERCREAM_COLOR_OPTIONS.join(", ")}
+                            .
+                          </span>
+                          {darkColorError && (
+                            <span className="min-h-4 text-[11px] font-normal leading-4 text-rose-600">
+                              {darkColorError}
+                            </span>
+                          )}
+                        </label>
+                      )}
 
                       {itemFields.length > 1 && (
                         <Button

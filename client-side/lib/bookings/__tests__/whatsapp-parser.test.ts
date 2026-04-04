@@ -127,4 +127,71 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
     expect(quantitiesByCategory.get("Cookies")).toBe(1);
     expect(quantitiesByCategory.get("Cake")).toBe(1);
   });
+
+  it("auto-checks dark color buttercream add-on with parsed color", () => {
+    const text = [
+      "Data Cupcakes",
+      "Tanggal Pengiriman: 26 Maret 2026",
+      "KODE BOOKING: BK-999",
+      "Order: 1 individual cupcakes dengan dark color buttercream warna black",
+      "Jumlah Cupcakes: 1 indv",
+      "Rasa Cupcakes: Vanilla",
+      "Warna Cupcakes: black",
+      "Jumlah Topper Cookies: 0",
+      "Jam Pengiriman: 10:00",
+      "Metode Pengiriman: Gocar",
+      "Nama penerima: Test Cupcake",
+      "No. telp penerima: 081234567892",
+      "Alamat lengkap: Central City",
+    ].join("\n");
+
+    const parsed = parseWhatsAppOrderText(text, {
+      preferredOrderType: "cupcakes",
+      sourceType: "manual",
+    });
+    const autoFill = buildBookingAutoFillFromParsed(parsed);
+    const cupcakeItem = autoFill.items.find((item) => item.category === "Cupcakes");
+
+    expect(Boolean(cupcakeItem)).toBe(true);
+    if (!cupcakeItem) {
+      throw new Error("Cupcakes item was not generated");
+    }
+
+    expect(cupcakeItem.addOns.includes("dark-color-buttercream")).toBe(true);
+    expect(cupcakeItem.darkColorButtercreamColor).toBe("Black");
+  });
+
+  it("prioritizes order individual cupcakes and quantity even with detail default dozen", () => {
+    const text = [
+      "Data Cupcakes",
+      "Tanggal Pengiriman: 5/4/26",
+      "KODE BOOKING: ST-28",
+      "Order:",
+      "2 indivial cupcakes dengan dark color buttercream warna red",
+      "Jumlah Cupcakes: 1 dozen +",
+      "Rasa Cupcakes: -",
+      "Warna Cupcakes: red",
+      "Jumlah Topper Cookies: -",
+      "Jam Pengiriman: 10:00",
+      "Metode Pengiriman: Gocar",
+      "Nama penerima: Test Individual",
+      "No. telp penerima: 081234567893",
+      "Alamat lengkap: Central City",
+    ].join("\n");
+
+    const parsed = parseWhatsAppOrderText(text, {
+      preferredOrderType: "cupcakes",
+      sourceType: "manual",
+    });
+    const autoFill = buildBookingAutoFillFromParsed(parsed);
+
+    const cupcakeItems = autoFill.items.filter((item) => item.category === "Cupcakes");
+    expect(cupcakeItems.length).toBe(1);
+
+    const cupcakeItem = cupcakeItems[0];
+    expect(cupcakeItem.productName).toBe("Individual Cupcakes");
+    expect(cupcakeItem.quantity).toBe(2);
+    expect(cupcakeItem.addOns.includes("dark-color-buttercream")).toBe(true);
+    expect(cupcakeItem.darkColorButtercreamColor).toBe("Red");
+  });
 });
