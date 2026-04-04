@@ -627,19 +627,50 @@ function normalizeDeliveryMethod(value: string): string {
   if (!lowered) return "";
 
   if (
+    lowered.includes("same day") ||
+    lowered.includes("same-day") ||
+    lowered.includes("sameday")
+  ) {
+    return "Same Day";
+  }
+  if (
     lowered.includes("pickup") ||
     lowered.includes("ambil sendiri") ||
     lowered.startsWith("ambil")
   )
     return "Pickup";
+  if (isExplicitCustomerCourierMethod(lowered)) {
+    return cleanupValue(value) || "Grab/GoCar (pesan customer)";
+  }
+  if (lowered.includes("paxel")) return "Paxel";
+  if (lowered.includes("gocar") || lowered.includes("go car")) return "GoCar";
   if (lowered.includes("gosend")) return "GoSend";
   if (lowered.includes("gojek")) return "Gojek";
   if (lowered.includes("grab")) return "Grab";
+  if (
+    lowered.includes("jne") ||
+    lowered.includes("jnt") ||
+    lowered.includes("j&t") ||
+    lowered.includes("j t")
+  ) {
+    return "JNE/J&T";
+  }
   if (lowered.includes("kurir")) return "Kurir";
   if (lowered.includes("delivery") || lowered.includes("antar"))
     return "Delivery";
 
   return value;
+}
+
+function isExplicitCustomerCourierMethod(normalized: string): boolean {
+  return (
+    normalized.includes("pesan customer") ||
+    normalized.includes("customer pesan") ||
+    normalized.includes("pesan sendiri") ||
+    normalized.includes("order sendiri") ||
+    normalized.includes("book sendiri") ||
+    normalized.includes("customer app")
+  );
 }
 
 function mapDeliveryMethodToFormValue(
@@ -660,17 +691,22 @@ function mapDeliveryMethodToFormValue(
     return "ASSISTED_PAXEL";
   }
 
-  const isAdminAssisted =
-    normalized.includes("dibantu") ||
-    normalized.includes("admin") ||
-    normalized.includes("assisted");
+  if (
+    normalized.includes("same day") ||
+    normalized.includes("same-day") ||
+    normalized.includes("sameday")
+  ) {
+    return "ASSISTED_SAME_DAY";
+  }
+
+  const isCustomerArranged = isExplicitCustomerCourierMethod(normalized);
 
   if (normalized.includes("gocar") || normalized.includes("go car")) {
-    return isAdminAssisted ? "ASSISTED_GOCAR" : "CUSTOMER_APP_COURIER";
+    return isCustomerArranged ? "CUSTOMER_APP_COURIER" : "ASSISTED_GOCAR";
   }
 
   if (normalized.includes("grab")) {
-    return isAdminAssisted ? "ASSISTED_GRAB" : "CUSTOMER_APP_COURIER";
+    return isCustomerArranged ? "CUSTOMER_APP_COURIER" : "ASSISTED_GRAB";
   }
 
   if (normalized.includes("gosend") || normalized.includes("gojek")) {
@@ -1124,22 +1160,6 @@ function resolveCupcakeQuantityBreakdown(parsed: ParsedWhatsAppOrder): {
   }
 
   return merged;
-}
-
-function guessDeliveryArea(address: string): string {
-  const normalized = normalizeLabel(address);
-  if (!normalized) return "Outside Area";
-
-  if (normalized.includes("pusat") || normalized.includes("central"))
-    return "Central City";
-  if (normalized.includes("utara") || normalized.includes("north"))
-    return "North District";
-  if (normalized.includes("selatan") || normalized.includes("south"))
-    return "South District";
-  if (normalized.includes("barat") || normalized.includes("west"))
-    return "West District";
-
-  return "Outside Area";
 }
 
 function getCategoryByOrderType(orderType: WhatsAppOrderType): string {
@@ -1872,7 +1892,6 @@ export function buildBookingAutoFillFromParsed(
   ]);
 
   const address = parsed.common.fullAddress || "Alamat belum terisi";
-  const area = guessDeliveryArea(address);
 
   const customerName = parsed.common.recipientName || "Customer WA";
   const phoneNumber = parsed.common.recipientPhone || "";
@@ -1909,7 +1928,7 @@ export function buildBookingAutoFillFromParsed(
     deliveryAddresses: [
       {
         label: "Primary",
-        area,
+        area: "",
         addressLine: address,
       },
     ],

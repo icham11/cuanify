@@ -863,7 +863,7 @@ export default function BookingForm() {
 
     const isCarService = (quote: ShippingQuote) => {
       const source =
-        `${quote.courierServiceCode} ${quote.courierServiceName}`.toLowerCase();
+        `${quote.courierCode} ${quote.courierServiceCode} ${quote.courierServiceName}`.toLowerCase();
       return (
         source.includes("gocar") ||
         source.includes("go car") ||
@@ -876,8 +876,16 @@ export default function BookingForm() {
 
     const isBikeService = (quote: ShippingQuote) => {
       const source =
-        `${quote.courierServiceCode} ${quote.courierServiceName}`.toLowerCase();
-      return (
+        `${quote.courierCode} ${quote.courierServiceCode} ${quote.courierServiceName}`.toLowerCase();
+      const hasCarMarker =
+        source.includes("gocar") ||
+        source.includes("go car") ||
+        source.includes("car") ||
+        source.includes("4w") ||
+        source.includes("suv") ||
+        source.includes("van");
+
+      const hasBikeMarker =
         source.includes("gosend") ||
         source.includes("go send") ||
         source.includes("bike") ||
@@ -885,8 +893,12 @@ export default function BookingForm() {
         source.includes("instant") ||
         source.includes("same day") ||
         source.includes("sameday") ||
-        source.includes("2w")
-      );
+        source.includes("2w");
+
+      if (hasBikeMarker && !hasCarMarker) return true;
+
+      // If provider is GOJEK and no explicit car marker, treat it as bike by default.
+      return quote.provider === "GOJEK" && !hasCarMarker;
     };
 
     const gojekQuotes = shippingQuotes.filter(
@@ -894,6 +906,12 @@ export default function BookingForm() {
     );
     const grabQuotes = shippingQuotes.filter(
       (quote) => quote.provider === "GRAB",
+    );
+    const sameDayQuotes = shippingQuotes.filter(
+      (quote) =>
+        quote.provider === "GOJEK" ||
+        quote.provider === "GRAB" ||
+        quote.provider === "PAXEL",
     );
 
     if (deliveryMethod === "ASSISTED_PAXEL") {
@@ -909,7 +927,16 @@ export default function BookingForm() {
 
     if (deliveryMethod === "ASSISTED_GOSEND") {
       const gojekBikeQuotes = gojekQuotes.filter(isBikeService);
-      return gojekBikeQuotes;
+      if (gojekBikeQuotes.length > 0) {
+        return gojekBikeQuotes;
+      }
+
+      if (gojekQuotes.length > 0) {
+        return gojekQuotes;
+      }
+
+      // Operational fallback: keep same-day options visible when GoSend is unavailable.
+      return sameDayQuotes;
     }
 
     if (deliveryMethod === "ASSISTED_GOCAR") {
@@ -1030,6 +1057,11 @@ export default function BookingForm() {
     [filteredShippingQuotes, selectedShippingQuoteId],
   );
 
+  const shouldAutoSwitchGoSendToSameDay =
+    deliveryMethod === "ASSISTED_GOSEND" &&
+    filteredShippingQuotes.length > 0 &&
+    !filteredShippingQuotes.some((quote) => quote.provider === "GOJEK");
+
   useEffect(() => {
     setShowAllShippingOptions(false);
 
@@ -1048,6 +1080,17 @@ export default function BookingForm() {
       return filteredShippingQuotes[0]?.id || "";
     });
   }, [filteredShippingQuotes]);
+
+  useEffect(() => {
+    if (!shouldAutoSwitchGoSendToSameDay) return;
+
+    setValue("deliveryMethod", "ASSISTED_SAME_DAY", {
+      shouldValidate: true,
+    });
+    toast.message(
+      "GoSend belum tersedia untuk alamat ini. Metode dialihkan ke Same Day dengan kurir yang tersedia.",
+    );
+  }, [setValue, shouldAutoSwitchGoSendToSameDay]);
 
   const grabCarOnlyReasons = useMemo(
     () => getGrabCarOnlyReasons(watchedItems),

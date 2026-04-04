@@ -308,4 +308,78 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
     expect(parsed.common.deliveryMethod).toBe("Pickup");
     expect(parsed.common.recipientName).toBe("stella delvia");
   });
+
+  it("keeps parser area blank for GoSend input so shipping uses full address", () => {
+    const text = [
+      "Tanggal Pengiriman : (8/4/26)",
+      "KODE BOOKING : GA-56",
+      "Order:",
+      "20pcs indv cookies",
+      "Jam Pengiriman : 10.00 WIB",
+      "Metode Pengiriman : GoSend",
+      "Nama penerima : Gara BFM",
+      "No. telp penerima : 082381297556",
+      "Alamat lengkap : AGRO PLAZA - Jl. H. R. Rasuna Said X-2 No. 1 Kec. Setiabudi - Jakarta Selatan DKI Jakarta",
+    ].join("\n");
+
+    const parsed = parseWhatsAppOrderText(text, {
+      preferredOrderType: "cookies",
+      sourceType: "manual",
+    });
+    const autoFill = buildBookingAutoFillFromParsed(parsed);
+
+    const primaryAddress = autoFill.deliveryAddresses[0];
+    expect(autoFill.deliveryMethod).toBe("ASSISTED_GOSEND");
+    expect(primaryAddress?.area).toBe("");
+  });
+
+  it("defaults bare Gocar text to assisted GoCar so address can trigger live shipping", () => {
+    const autoFill = buildAutoFillFromOrderLine("1 cake");
+    expect(autoFill.deliveryMethod).toBe("ASSISTED_GOCAR");
+  });
+
+  it("keeps explicit customer-arranged courier as customer app courier", () => {
+    const text = [
+      "Tanggal Pengiriman : (9/4/26)",
+      "KODE BOOKING : GA-57",
+      "Order:",
+      "1 cake",
+      "Jam Pengiriman : 10.00",
+      "Metode Pengiriman : Grab/GoCar (pesan customer)",
+      "Nama penerima : Gara BFM",
+      "No. telp penerima : 082381297556",
+      "Alamat lengkap : PIK",
+    ].join("\n");
+
+    const parsed = parseWhatsAppOrderText(text, {
+      preferredOrderType: "cake",
+      sourceType: "manual",
+    });
+    const autoFill = buildBookingAutoFillFromParsed(parsed);
+
+    expect(autoFill.deliveryMethod).toBe("CUSTOMER_APP_COURIER");
+  });
+
+  it("maps same day wording to assisted same day", () => {
+    const text = [
+      "Tanggal Pengiriman : (10/4/26)",
+      "KODE BOOKING : GA-58",
+      "Order:",
+      "20pcs indv cookies",
+      "Jam Pengiriman : 10.00",
+      "Metode Pengiriman : Same Day",
+      "Nama penerima : Gara BFM",
+      "No. telp penerima : 082381297556",
+      "Alamat lengkap : PIK",
+    ].join("\n");
+
+    const parsed = parseWhatsAppOrderText(text, {
+      preferredOrderType: "cookies",
+      sourceType: "manual",
+    });
+    const autoFill = buildBookingAutoFillFromParsed(parsed);
+
+    expect(parsed.common.deliveryMethod).toBe("Same Day");
+    expect(autoFill.deliveryMethod).toBe("ASSISTED_SAME_DAY");
+  });
 });

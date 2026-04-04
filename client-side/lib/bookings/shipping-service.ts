@@ -313,23 +313,30 @@ function cleanSpaces(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
 
+const GENERIC_AREA_HINTS = new Set([
+  "outside area",
+  "outside",
+  "luar area",
+  "other",
+  "others",
+  "optional",
+  "n/a",
+  "na",
+  "none",
+  "-",
+  "central city",
+  "north district",
+  "south district",
+  "east district",
+  "west district",
+]);
+
 function normalizeAreaHint(value: string | undefined): string | undefined {
   const normalized = cleanSpaces(value || "");
   if (!normalized) return undefined;
 
   const lowered = normalized.toLowerCase();
-  if (
-    lowered === "outside area" ||
-    lowered === "outside" ||
-    lowered === "luar area" ||
-    lowered === "other" ||
-    lowered === "others" ||
-    lowered === "optional" ||
-    lowered === "n/a" ||
-    lowered === "na" ||
-    lowered === "none" ||
-    lowered === "-"
-  ) {
+  if (GENERIC_AREA_HINTS.has(lowered)) {
     return undefined;
   }
 

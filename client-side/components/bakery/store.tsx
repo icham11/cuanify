@@ -255,6 +255,13 @@ function inferDeliveryMethodFromNotes(notes?: string): string | undefined {
   }
   if (raw.includes("grab")) return "ASSISTED_GRAB";
   if (raw.includes("paxel")) return "ASSISTED_PAXEL";
+  if (
+    raw.includes("same day") ||
+    raw.includes("same-day") ||
+    raw.includes("sameday")
+  ) {
+    return "ASSISTED_SAME_DAY";
+  }
   if (raw.includes("jne") || raw.includes("j&t") || raw.includes("jnt")) {
     return "REGULAR_JNE_JNT";
   }
