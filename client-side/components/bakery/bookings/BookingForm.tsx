@@ -1434,7 +1434,20 @@ export default function BookingForm() {
           );
         }
 
-        const sortedQuotes = payload.quotes
+        const resolvedDestinationPostalCode =
+          payload.destinationPostalCode ||
+          shippingPayload.destinationPostalCode ||
+          undefined;
+        const enrichedQuotes = payload.quotes.map((quote) => ({
+          ...quote,
+          destinationPostalCode: resolvedDestinationPostalCode,
+          destinationLatitude: payload.destinationLatitude,
+          destinationLongitude: payload.destinationLongitude,
+          distanceSource: payload.distanceSource,
+          warning: payload.warning || undefined,
+        }));
+
+        const sortedQuotes = enrichedQuotes
           .slice()
           .sort((a, b) => a.price - b.price);
         setShippingQuotes(sortedQuotes);

@@ -34,6 +34,11 @@ export interface ShippingQuote {
   eta: string;
   distanceKm: number;
   source: ShippingDataSource;
+  destinationPostalCode?: string;
+  destinationLatitude?: number;
+  destinationLongitude?: number;
+  distanceSource?: ShippingDistanceSource;
+  warning?: string;
 }
 
 export interface ShippingQuoteResponse {
@@ -41,6 +46,7 @@ export interface ShippingQuoteResponse {
   quotes: ShippingQuote[];
   distanceKm: number;
   distanceSource?: ShippingDistanceSource;
+  destinationPostalCode?: string;
   destinationLatitude?: number;
   destinationLongitude?: number;
   warning?: string;

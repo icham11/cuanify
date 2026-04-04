@@ -388,6 +388,16 @@ export default function OrderDetailPage() {
           Math.round((item.basePrice || 0) + (item.addOnTotal || 0)),
         ),
       }));
+      const destinationLatitude = Number.isFinite(
+        order.shippingQuote?.destinationLatitude,
+      )
+        ? Number(order.shippingQuote?.destinationLatitude)
+        : undefined;
+      const destinationLongitude = Number.isFinite(
+        order.shippingQuote?.destinationLongitude,
+      )
+        ? Number(order.shippingQuote?.destinationLongitude)
+        : undefined;
 
       const response = await fetch("/api/bookings/shipping/create-resi", {
         method: "POST",
@@ -400,7 +410,11 @@ export default function OrderDetailPage() {
           customerName: order.customerName,
           customerPhone: order.customerPhone,
           destinationAddress: primaryAddress,
-          destinationPostalCode: primaryAddress.match(/\b\d{5}\b/)?.[0],
+          destinationPostalCode:
+            order.shippingQuote?.destinationPostalCode ||
+            primaryAddress.match(/\b\d{5}\b/)?.[0],
+          destinationLatitude,
+          destinationLongitude,
           deliveryDate: order.deliveryDate,
           deliveryTime: order.deliverySlot,
           selectedQuote: order.shippingQuote,

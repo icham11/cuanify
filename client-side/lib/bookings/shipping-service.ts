@@ -84,6 +84,11 @@ interface NormalizedAddressByAI {
   confidence: number;
 }
 
+interface TimedCacheEntry<T> {
+  expiresAt: number;
+  value: T;
+}
+
 const BITESHIP_BASE_URL = "https://api.biteship.com/v1";
 const EXTERNAL_REQUEST_TIMEOUT_MS = parseNumber(
   process.env.SHIPPING_EXTERNAL_TIMEOUT_MS,
@@ -136,11 +141,46 @@ const JABODETABEK_KEYWORDS = [
   "cibubur",
 ];
 const aiAddressFallbackCache = new Map<string, NormalizedAddressByAI | null>();
+const destinationResolutionCache = new Map<
+  string,
+  TimedCacheEntry<DestinationResolution>
+>();
+const DESTINATION_RESOLUTION_CACHE_TTL_MS = Math.max(
+  1000,
+  Math.floor(
+    parseNumber(process.env.SHIPPING_DESTINATION_CACHE_TTL_MS, 5 * 60 * 1000),
+  ),
+);
 
 function parseNumber(value: string | undefined, fallback: number): number {
   if (!value) return fallback;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function readTimedCache<T>(
+  cache: Map<string, TimedCacheEntry<T>>,
+  key: string,
+): T | null {
+  const entry = cache.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    cache.delete(key);
+    return null;
+  }
+  return entry.value;
+}
+
+function writeTimedCache<T>(
+  cache: Map<string, TimedCacheEntry<T>>,
+  key: string,
+  value: T,
+  ttlMs: number,
+) {
+  cache.set(key, {
+    value,
+    expiresAt: Date.now() + ttlMs,
+  });
 }
 
 function getOriginConfig(): OriginConfig {
@@ -384,6 +424,32 @@ function buildAddressFallbackCacheKey(args: {
   return normalizeAddressForLookup(
     `${args.address} | ${args.destinationArea || ""} | ${args.destinationPostalCode || ""}`,
   ).toLowerCase();
+}
+
+function buildDestinationResolutionCacheKey(
+  payload: Pick<
+    ShippingQuoteRequest,
+    | "destinationAddress"
+    | "destinationArea"
+    | "destinationPostalCode"
+    | "destinationLatitude"
+    | "destinationLongitude"
+  >,
+): string {
+  const latitude = Number.isFinite(payload.destinationLatitude)
+    ? Number(payload.destinationLatitude).toFixed(6)
+    : "";
+  const longitude = Number.isFinite(payload.destinationLongitude)
+    ? Number(payload.destinationLongitude).toFixed(6)
+    : "";
+
+  return [
+    normalizeAddressForLookup(payload.destinationAddress).toLowerCase(),
+    normalizeAreaHint(payload.destinationArea)?.toLowerCase() || "",
+    sanitizePostalCode(payload.destinationPostalCode) || "",
+    latitude,
+    longitude,
+  ].join("|");
 }
 
 function sanitizeAIAddressResult(raw: unknown): NormalizedAddressByAI | null {
@@ -821,29 +887,39 @@ async function resolveDestination(
     };
   }
 
+  const cacheKey = buildDestinationResolutionCacheKey(payload);
+  const cached = readTimedCache(destinationResolutionCache, cacheKey);
+  if (cached) {
+    return cached;
+  }
+
   const normalizedAreaHint = normalizeAreaHint(payload.destinationArea);
 
   const postalCodeFromPayload = sanitizePostalCode(
     payload.destinationPostalCode,
   );
   const postalCodeFromAddress = extractPostalCode(payload.destinationAddress);
-  const areaHints = await resolveAreaHintsFromBiteship(
+  const areaHintsPromise = resolveAreaHintsFromBiteship(
     payload.destinationAddress,
     normalizedAreaHint,
     payload.destinationPostalCode,
   );
+  const [directPoint, areaPoint] = await Promise.all([
+    geocodeAddress(payload.destinationAddress, normalizedAreaHint),
+    geocodeAddressWithArea(payload.destinationAddress, normalizedAreaHint),
+  ]);
 
-  const postalCodeFromAreaLookup =
-    postalCodeFromPayload || postalCodeFromAddress || areaHints.postalCode;
-  let resolvedPostalCode = postalCodeFromAreaLookup;
-  const directPoint = await geocodeAddress(
-    payload.destinationAddress,
-    normalizedAreaHint,
-  );
-  const areaPoint = await geocodeAddressWithArea(
-    payload.destinationAddress,
-    normalizedAreaHint,
-  );
+  let areaHints: AreaHints = {};
+  let areaHintsLoaded = false;
+  const loadAreaHints = async (): Promise<AreaHints> => {
+    if (!areaHintsLoaded) {
+      areaHints = await areaHintsPromise;
+      areaHintsLoaded = true;
+    }
+    return areaHints;
+  };
+
+  let resolvedPostalCode = postalCodeFromPayload || postalCodeFromAddress;
 
   let resolvedPoint: GeoPoint | null = null;
   let distanceSource: ShippingDistanceSource | undefined;
@@ -854,9 +930,16 @@ async function resolveDestination(
   } else if (areaPoint) {
     resolvedPoint = areaPoint;
     distanceSource = "nominatim_with_area";
-  } else if (areaHints.point) {
-    resolvedPoint = areaHints.point;
-    distanceSource = "biteship_area";
+  }
+
+  if (!resolvedPostalCode || !resolvedPoint) {
+    const hints = await loadAreaHints();
+    resolvedPostalCode = resolvedPostalCode || hints.postalCode;
+
+    if (!resolvedPoint && hints.point) {
+      resolvedPoint = hints.point;
+      distanceSource = "biteship_area";
+    }
   }
 
   const fullAddressHint = `${payload.destinationAddress} ${normalizedAreaHint || ""}`;
@@ -876,30 +959,51 @@ async function resolveDestination(
   }
 
   if (!resolvedPoint || hasSuspiciousPoint) {
+    const postalCodeForAi =
+      resolvedPostalCode ||
+      (await loadAreaHints()).postalCode ||
+      postalCodeFromPayload ||
+      postalCodeFromAddress;
     const aiAddress = await normalizeAddressWithAI({
       address: payload.destinationAddress,
       destinationArea: normalizedAreaHint,
-      destinationPostalCode: postalCodeFromAreaLookup,
+      destinationPostalCode: postalCodeForAi,
     });
 
     if (aiAddress) {
-      const aiAreaHints = await resolveAreaHintsFromBiteship(
+      const aiAreaHintsPromise = resolveAreaHintsFromBiteship(
         aiAddress.normalizedAddress,
         aiAddress.areaHint,
-        aiAddress.postalCode || postalCodeFromAreaLookup,
+        aiAddress.postalCode || postalCodeForAi,
       );
-      resolvedPostalCode =
-        aiAddress.postalCode || aiAreaHints.postalCode || resolvedPostalCode;
-      const aiDirectPoint = await geocodeAddress(
-        aiAddress.normalizedAddress,
-        aiAddress.areaHint,
-      );
-      const aiAreaPoint = await geocodeAddressWithArea(
-        aiAddress.normalizedAddress,
-        aiAddress.areaHint,
-      );
-      const aiResolvedPoint: GeoPoint | null =
-        aiDirectPoint || aiAreaPoint || aiAreaHints.point || null;
+      const [aiDirectPoint, aiAreaPoint] = await Promise.all([
+        geocodeAddress(aiAddress.normalizedAddress, aiAddress.areaHint),
+        geocodeAddressWithArea(
+          aiAddress.normalizedAddress,
+          aiAddress.areaHint,
+        ),
+      ]);
+
+      let aiAreaHints: AreaHints = {};
+      let aiAreaHintsLoaded = false;
+      const loadAiAreaHints = async (): Promise<AreaHints> => {
+        if (!aiAreaHintsLoaded) {
+          aiAreaHints = await aiAreaHintsPromise;
+          aiAreaHintsLoaded = true;
+        }
+        return aiAreaHints;
+      };
+
+      let aiResolvedPostalCode = aiAddress.postalCode || resolvedPostalCode;
+      let aiResolvedPoint: GeoPoint | null = aiDirectPoint || aiAreaPoint;
+
+      if (!aiResolvedPostalCode || !aiResolvedPoint) {
+        const hints = await loadAiAreaHints();
+        aiResolvedPostalCode = aiResolvedPostalCode || hints.postalCode;
+        aiResolvedPoint = aiResolvedPoint || hints.point || null;
+      }
+
+      resolvedPostalCode = aiResolvedPostalCode || resolvedPostalCode;
 
       if (aiResolvedPoint) {
         if (!likelyJabodetabek || isPointWithinJabodetabek(aiResolvedPoint)) {
@@ -912,12 +1016,21 @@ async function resolveDestination(
     }
   }
 
-  return {
+  const result = {
     point: resolvedPoint,
     postalCode: resolvedPostalCode,
     distanceSource,
     warning,
   };
+
+  writeTimedCache(
+    destinationResolutionCache,
+    cacheKey,
+    result,
+    DESTINATION_RESOLUTION_CACHE_TTL_MS,
+  );
+
+  return result;
 }
 
 function uniqueByKey<T>(items: T[], getKey: (item: T) => string): T[] {
@@ -1091,63 +1204,77 @@ export async function getShippingQuote(
 ): Promise<ShippingQuoteResponse> {
   const origin = getOriginConfig();
   const destination = await resolveDestination(payload);
+  const destinationPoint = destination.point;
+  const destinationPostalCode = destination.postalCode;
 
-  if (!destination.point && !destination.postalCode) {
+  if (!destinationPoint && !destinationPostalCode) {
     return {
       success: false,
       quotes: [],
       distanceKm: 0,
       distanceSource: destination.distanceSource,
+      destinationPostalCode,
+      destinationLatitude: undefined,
+      destinationLongitude: undefined,
       warning: destination.warning,
       error:
         "Alamat belum bisa dipetakan. Mohon lengkapi alamat atau tambahkan kode pos 5 digit.",
     };
   }
 
-  const distanceKm = destination.point
-    ? Number(haversineKm(origin, destination.point).toFixed(2))
+  const distanceKm = destinationPoint
+    ? Number(haversineKm(origin, destinationPoint).toFixed(2))
     : 0;
   const collectedQuotes: ShippingQuote[] = [];
   const quoteErrors: string[] = [];
+  const quoteTasks: Array<Promise<void>> = [];
 
-  if (destination.point) {
-    try {
-      const coordinateQuotes = await getBiteshipRates({
+  if (destinationPoint) {
+    quoteTasks.push(
+      getBiteshipRates({
         destination: {
           mode: "coordinate",
-          latitude: destination.point.latitude,
-          longitude: destination.point.longitude,
+          latitude: destinationPoint.latitude,
+          longitude: destinationPoint.longitude,
         },
         items: payload.items,
-      });
-      collectedQuotes.push(...coordinateQuotes);
-    } catch (error: unknown) {
-      quoteErrors.push(
-        error instanceof Error
-          ? error.message
-          : "Gagal mengambil ongkir mode koordinat.",
-      );
-    }
+      })
+        .then((quotes) => {
+          collectedQuotes.push(...quotes);
+        })
+        .catch((error: unknown) => {
+          quoteErrors.push(
+            error instanceof Error
+              ? error.message
+              : "Gagal mengambil ongkir mode koordinat.",
+          );
+        }),
+    );
   }
 
-  if (destination.postalCode) {
-    try {
-      const postalQuotes = await getBiteshipRates({
+  if (destinationPostalCode) {
+    quoteTasks.push(
+      getBiteshipRates({
         destination: {
           mode: "postal",
-          postalCode: destination.postalCode,
+          postalCode: destinationPostalCode,
         },
         items: payload.items,
-      });
-      collectedQuotes.push(...postalQuotes);
-    } catch (error: unknown) {
-      quoteErrors.push(
-        error instanceof Error
-          ? error.message
-          : "Gagal mengambil ongkir mode kode pos.",
-      );
-    }
+      })
+        .then((quotes) => {
+          collectedQuotes.push(...quotes);
+        })
+        .catch((error: unknown) => {
+          quoteErrors.push(
+            error instanceof Error
+              ? error.message
+              : "Gagal mengambil ongkir mode kode pos.",
+          );
+        }),
+    );
   }
+
+  await Promise.all(quoteTasks);
 
   const biteshipQuotes = uniqueByKey(
     collectedQuotes,
@@ -1162,9 +1289,10 @@ export async function getShippingQuote(
       quotes: [],
       distanceKm,
       distanceSource: destination.distanceSource,
+      destinationPostalCode,
       warning: destination.warning,
-      destinationLatitude: destination.point?.latitude,
-      destinationLongitude: destination.point?.longitude,
+      destinationLatitude: destinationPoint?.latitude,
+      destinationLongitude: destinationPoint?.longitude,
       error: message,
     };
   }
@@ -1175,9 +1303,10 @@ export async function getShippingQuote(
       quotes: [],
       distanceKm,
       distanceSource: destination.distanceSource,
+      destinationPostalCode,
       warning: destination.warning,
-      destinationLatitude: destination.point?.latitude,
-      destinationLongitude: destination.point?.longitude,
+      destinationLatitude: destinationPoint?.latitude,
+      destinationLongitude: destinationPoint?.longitude,
       error: "Tidak ada layanan kurir yang tersedia untuk alamat ini saat ini.",
     };
   }
@@ -1189,9 +1318,10 @@ export async function getShippingQuote(
     quotes,
     distanceKm,
     distanceSource: destination.distanceSource,
+    destinationPostalCode,
     warning: destination.warning,
-    destinationLatitude: destination.point?.latitude,
-    destinationLongitude: destination.point?.longitude,
+    destinationLatitude: destinationPoint?.latitude,
+    destinationLongitude: destinationPoint?.longitude,
   };
 }
 

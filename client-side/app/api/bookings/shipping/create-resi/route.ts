@@ -16,15 +16,15 @@ const SHIPPING_PROVIDER_VALUES = [
 ] as const;
 
 const shippingQuoteSchema = z.object({
-  id: z.string(),
+  id: z.string().default(""),
   provider: z.enum(SHIPPING_PROVIDER_VALUES),
   courierCode: z.string().min(1),
   courierServiceCode: z.string().min(1),
   courierServiceName: z.string().min(1),
   price: z.number().min(0),
-  eta: z.string(),
-  distanceKm: z.number().min(0),
-  source: z.enum(["biteship", "fallback"]),
+  eta: z.string().default("-"),
+  distanceKm: z.number().min(0).default(0),
+  source: z.enum(["biteship", "fallback"]).default("biteship"),
 });
 
 const createResiSchema = z.object({
