@@ -694,6 +694,70 @@ function getQuantityRuleViolationMessage(rule: ItemQuantityRule): string {
   return `Minimal qty ${rule.min}.`;
 }
 
+function getIndividualCupcakeQuantityRule(
+  item: BookingItemInput,
+): ItemQuantityRule | null {
+  if (item.category !== "Cupcakes") return null;
+
+  const source =
+    `${item.subcategory || ""} ${item.productName || ""} ${item.size || ""}`.toLowerCase();
+  if (!source.includes("individual")) return null;
+
+  if (source.includes(">=100")) {
+    return {
+      label: "Quantity (pcs)",
+      min: 100,
+      helperText: "Individual cupcakes minimal 100 pcs.",
+    };
+  }
+
+  if (source.includes(">=50")) {
+    return {
+      label: "Quantity (pcs)",
+      min: 50,
+      helperText: "Individual cupcakes minimal 50 pcs.",
+    };
+  }
+
+  if (source.includes("25-49")) {
+    return {
+      label: "Quantity (pcs)",
+      min: 25,
+      max: 49,
+      helperText: "Individual cupcakes qty wajib 25-49 pcs.",
+    };
+  }
+
+  if (source.includes("10-24")) {
+    return {
+      label: "Quantity (pcs)",
+      min: CUPCAKE_INDIVIDUAL_MIN_QTY,
+      max: 24,
+      helperText: "Individual cupcakes qty wajib 10-24 pcs.",
+    };
+  }
+
+  return {
+    label: "Quantity (pcs)",
+    min: CUPCAKE_INDIVIDUAL_MIN_QTY,
+    helperText: `Individual cupcakes minimal ${CUPCAKE_INDIVIDUAL_MIN_QTY} pcs.`,
+  };
+}
+
+function getAutoQuantityForItem(item: BookingItemInput): number | null {
+  const bouquetType = detectBouquetTypeFromItem(item);
+  if (bouquetType) {
+    return getBouquetMinQuantity(bouquetType);
+  }
+
+  const individualCupcakeRule = getIndividualCupcakeQuantityRule(item);
+  if (individualCupcakeRule) {
+    return individualCupcakeRule.min;
+  }
+
+  return null;
+}
+
 function getItemQuantityRule(item: BookingItemInput): ItemQuantityRule {
   const source =
     `${item.subcategory || ""} ${item.productName || ""} ${item.size || ""}`.toLowerCase();
@@ -717,12 +781,9 @@ function getItemQuantityRule(item: BookingItemInput): ItemQuantityRule {
   }
 
   if (item.category === "Cupcakes") {
-    if (source.includes("individual")) {
-      return {
-        label: "Quantity (pcs)",
-        min: CUPCAKE_INDIVIDUAL_MIN_QTY,
-        helperText: `Individual cupcakes minimal ${CUPCAKE_INDIVIDUAL_MIN_QTY} pcs.`,
-      };
+    const individualCupcakeRule = getIndividualCupcakeQuantityRule(item);
+    if (individualCupcakeRule) {
+      return individualCupcakeRule;
     }
     if (
       source.includes("dozen") ||
@@ -906,7 +967,19 @@ export default function BookingForm() {
           subcategory: defaultItemSelection.subcategory,
           productName: defaultItemSelection.productName,
           size: defaultItemSelection.size,
-          quantity: 1,
+          quantity:
+            getAutoQuantityForItem({
+              category: defaultItemSelection.category,
+              subcategory: defaultItemSelection.subcategory,
+              productName: defaultItemSelection.productName,
+              size: defaultItemSelection.size,
+              quantity: 1,
+              tokenDifficulty: "SIMPLE",
+              customTokenPerUnit: undefined,
+              cookiePrice: undefined,
+              addOns: [],
+              notes: "",
+            }) ?? 1,
           tokenDifficulty: "SIMPLE",
           customTokenPerUnit: undefined,
           cookiePrice: undefined,
@@ -3052,17 +3125,31 @@ export default function BookingForm() {
                   onClick={() => {
                     const nextDefault =
                       getDefaultSelectionFromCatalog(productCatalog);
+                    const nextTokenDifficulty =
+                      nextDefault.category === "Cookies" ||
+                      nextDefault.category === "Buket"
+                        ? "SIMPLE"
+                        : undefined;
+                    const autoQuantity =
+                      getAutoQuantityForItem({
+                        category: nextDefault.category,
+                        subcategory: nextDefault.subcategory,
+                        productName: nextDefault.productName,
+                        size: nextDefault.size,
+                        quantity: 1,
+                        tokenDifficulty: nextTokenDifficulty,
+                        customTokenPerUnit: undefined,
+                        cookiePrice: undefined,
+                        addOns: [],
+                        notes: "",
+                      }) ?? 1;
                     appendItem({
                       category: nextDefault.category,
                       subcategory: nextDefault.subcategory,
                       productName: nextDefault.productName,
                       size: nextDefault.size,
-                      quantity: 1,
-                      tokenDifficulty:
-                        nextDefault.category === "Cookies" ||
-                        nextDefault.category === "Buket"
-                          ? "SIMPLE"
-                          : undefined,
+                      quantity: autoQuantity,
+                      tokenDifficulty: nextTokenDifficulty,
                       customTokenPerUnit: undefined,
                       cookiePrice: undefined,
                       addOns: [],
@@ -3184,26 +3271,26 @@ export default function BookingForm() {
                                   productCatalog,
                                   nextCategory,
                                 );
-                              const nextBouquetType = detectBouquetTypeFromItem(
-                                {
-                                  category: nextSelection.category,
-                                  subcategory: nextSelection.subcategory,
-                                  productName: nextSelection.productName,
-                                  size: nextSelection.size,
-                                  quantity: Number(item?.quantity) || 0,
-                                  tokenDifficulty: item?.tokenDifficulty,
-                                  customTokenPerUnit:
-                                    Number(item?.customTokenPerUnit) > 0
-                                      ? Number(item?.customTokenPerUnit)
-                                      : undefined,
-                                  cookiePrice:
-                                    Number(item?.cookiePrice) > 0
-                                      ? Number(item?.cookiePrice)
-                                      : undefined,
-                                  addOns: item?.addOns ?? [],
-                                  notes: item?.notes ?? "",
-                                },
-                              );
+                              const nextProbeItem: BookingItemInput = {
+                                category: nextSelection.category,
+                                subcategory: nextSelection.subcategory,
+                                productName: nextSelection.productName,
+                                size: nextSelection.size,
+                                quantity: Number(item?.quantity) || 0,
+                                tokenDifficulty: item?.tokenDifficulty,
+                                customTokenPerUnit:
+                                  Number(item?.customTokenPerUnit) > 0
+                                    ? Number(item?.customTokenPerUnit)
+                                    : undefined,
+                                cookiePrice:
+                                  Number(item?.cookiePrice) > 0
+                                    ? Number(item?.cookiePrice)
+                                    : undefined,
+                                addOns: item?.addOns ?? [],
+                                notes: item?.notes ?? "",
+                              };
+                              const nextAutoQuantity =
+                                getAutoQuantityForItem(nextProbeItem);
                               clearParsedPricingOverride(index);
                               setValue(
                                 `items.${index}.category`,
@@ -3256,13 +3343,10 @@ export default function BookingForm() {
                                   shouldValidate: true,
                                 },
                               );
-                              if (
-                                nextSelection.category === "Buket" &&
-                                nextBouquetType
-                              ) {
+                              if (typeof nextAutoQuantity === "number") {
                                 setValue(
                                   `items.${index}.quantity`,
-                                  getBouquetMinQuantity(nextBouquetType),
+                                  nextAutoQuantity,
                                   {
                                     shouldValidate: true,
                                   },
@@ -3295,26 +3379,26 @@ export default function BookingForm() {
                                   subcategory: nextSub,
                                 },
                               );
-                              const nextBouquetType = detectBouquetTypeFromItem(
-                                {
-                                  category: nextSelection.category,
-                                  subcategory: nextSelection.subcategory,
-                                  productName: nextSelection.productName,
-                                  size: nextSelection.size,
-                                  quantity: Number(item?.quantity) || 0,
-                                  tokenDifficulty: item?.tokenDifficulty,
-                                  customTokenPerUnit:
-                                    Number(item?.customTokenPerUnit) > 0
-                                      ? Number(item?.customTokenPerUnit)
-                                      : undefined,
-                                  cookiePrice:
-                                    Number(item?.cookiePrice) > 0
-                                      ? Number(item?.cookiePrice)
-                                      : undefined,
-                                  addOns: item?.addOns ?? [],
-                                  notes: item?.notes ?? "",
-                                },
-                              );
+                              const nextProbeItem: BookingItemInput = {
+                                category: nextSelection.category,
+                                subcategory: nextSelection.subcategory,
+                                productName: nextSelection.productName,
+                                size: nextSelection.size,
+                                quantity: Number(item?.quantity) || 0,
+                                tokenDifficulty: item?.tokenDifficulty,
+                                customTokenPerUnit:
+                                  Number(item?.customTokenPerUnit) > 0
+                                    ? Number(item?.customTokenPerUnit)
+                                    : undefined,
+                                cookiePrice:
+                                  Number(item?.cookiePrice) > 0
+                                    ? Number(item?.cookiePrice)
+                                    : undefined,
+                                addOns: item?.addOns ?? [],
+                                notes: item?.notes ?? "",
+                              };
+                              const nextAutoQuantity =
+                                getAutoQuantityForItem(nextProbeItem);
                               clearParsedPricingOverride(index);
                               setValue(
                                 `items.${index}.subcategory`,
@@ -3335,13 +3419,10 @@ export default function BookingForm() {
                                 nextSelection.size,
                                 { shouldValidate: true },
                               );
-                              if (
-                                nextSelection.category === "Buket" &&
-                                nextBouquetType
-                              ) {
+                              if (typeof nextAutoQuantity === "number") {
                                 setValue(
                                   `items.${index}.quantity`,
-                                  getBouquetMinQuantity(nextBouquetType),
+                                  nextAutoQuantity,
                                   {
                                     shouldValidate: true,
                                   },
@@ -3372,26 +3453,26 @@ export default function BookingForm() {
                                   productName: nextProduct,
                                 },
                               );
-                              const nextBouquetType = detectBouquetTypeFromItem(
-                                {
-                                  category: nextSelection.category,
-                                  subcategory: nextSelection.subcategory,
-                                  productName: nextSelection.productName,
-                                  size: nextSelection.size,
-                                  quantity: Number(item?.quantity) || 0,
-                                  tokenDifficulty: item?.tokenDifficulty,
-                                  customTokenPerUnit:
-                                    Number(item?.customTokenPerUnit) > 0
-                                      ? Number(item?.customTokenPerUnit)
-                                      : undefined,
-                                  cookiePrice:
-                                    Number(item?.cookiePrice) > 0
-                                      ? Number(item?.cookiePrice)
-                                      : undefined,
-                                  addOns: item?.addOns ?? [],
-                                  notes: item?.notes ?? "",
-                                },
-                              );
+                              const nextProbeItem: BookingItemInput = {
+                                category: nextSelection.category,
+                                subcategory: nextSelection.subcategory,
+                                productName: nextSelection.productName,
+                                size: nextSelection.size,
+                                quantity: Number(item?.quantity) || 0,
+                                tokenDifficulty: item?.tokenDifficulty,
+                                customTokenPerUnit:
+                                  Number(item?.customTokenPerUnit) > 0
+                                    ? Number(item?.customTokenPerUnit)
+                                    : undefined,
+                                cookiePrice:
+                                  Number(item?.cookiePrice) > 0
+                                    ? Number(item?.cookiePrice)
+                                    : undefined,
+                                addOns: item?.addOns ?? [],
+                                notes: item?.notes ?? "",
+                              };
+                              const nextAutoQuantity =
+                                getAutoQuantityForItem(nextProbeItem);
                               clearParsedPricingOverride(index);
                               setValue(
                                 `items.${index}.productName`,
@@ -3405,13 +3486,10 @@ export default function BookingForm() {
                                 nextSelection.size,
                                 { shouldValidate: true },
                               );
-                              if (
-                                nextSelection.category === "Buket" &&
-                                nextBouquetType
-                              ) {
+                              if (typeof nextAutoQuantity === "number") {
                                 setValue(
                                   `items.${index}.quantity`,
-                                  getBouquetMinQuantity(nextBouquetType),
+                                  nextAutoQuantity,
                                   {
                                     shouldValidate: true,
                                   },
@@ -3438,12 +3516,42 @@ export default function BookingForm() {
                             {...register(`items.${index}.size`)}
                             value={normalizedSelection.size}
                             onChange={(event) => {
+                              const nextSize = event.target.value;
+                              const nextProbeItem: BookingItemInput = {
+                                category: normalizedSelection.category,
+                                subcategory: normalizedSelection.subcategory,
+                                productName: normalizedSelection.productName,
+                                size: nextSize,
+                                quantity: Number(item?.quantity) || 0,
+                                tokenDifficulty: item?.tokenDifficulty,
+                                customTokenPerUnit:
+                                  Number(item?.customTokenPerUnit) > 0
+                                    ? Number(item?.customTokenPerUnit)
+                                    : undefined,
+                                cookiePrice:
+                                  Number(item?.cookiePrice) > 0
+                                    ? Number(item?.cookiePrice)
+                                    : undefined,
+                                addOns: item?.addOns ?? [],
+                                notes: item?.notes ?? "",
+                              };
+                              const nextAutoQuantity =
+                                getAutoQuantityForItem(nextProbeItem);
                               clearParsedPricingOverride(index);
                               setValue(
                                 `items.${index}.size`,
-                                event.target.value,
+                                nextSize,
                                 { shouldValidate: true },
                               );
+                              if (typeof nextAutoQuantity === "number") {
+                                setValue(
+                                  `items.${index}.quantity`,
+                                  nextAutoQuantity,
+                                  {
+                                    shouldValidate: true,
+                                  },
+                                );
+                              }
                             }}
                           >
                             {displayVariants.map((sizeOption) => (
@@ -3477,10 +3585,8 @@ export default function BookingForm() {
                                 clearParsedPricingOverride(index);
                               },
                               onBlur: (event) => {
-                                if (!isBouquet || !bouquetType) return;
                                 const parsed = Number(event.target.value) || 0;
-                                const minQty =
-                                  getBouquetMinQuantity(bouquetType);
+                                const minQty = quantityRule.min;
                                 if (parsed > 0 && parsed < minQty) {
                                   setValue(`items.${index}.quantity`, minQty, {
                                     shouldValidate: true,
