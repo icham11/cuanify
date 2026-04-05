@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { startOfDay } from "date-fns";
 import {
   SubmitHandler,
@@ -1790,7 +1790,7 @@ export default function BookingForm() {
       destinationArea: primaryAddress.area || "",
       destinationPostalCode:
         sanitizePostalCodeInput(primaryAddress.postalCode || "") ||
-        primaryAddress.addressLine.match(/\b\d{5}\b/)?.[0],
+        extractPostalCodeFromAddress(primaryAddress.addressLine),
       items: shippingItems,
       totalValue: Math.max(1000, Math.round(basePrice + addOnTotal)),
     };
@@ -1804,8 +1804,31 @@ export default function BookingForm() {
     shippingItems,
   ]);
 
+  const shippingQuoteSignature = useMemo(() => {
+    if (!shippingPayload) return "";
+
+    return JSON.stringify({
+      destinationAddress: shippingPayload.destinationAddress.trim(),
+      destinationArea: shippingPayload.destinationArea.trim(),
+      destinationPostalCode: shippingPayload.destinationPostalCode || "",
+      items: shippingPayload.items.map((item) => ({
+        name: item.name,
+        quantity: item.quantity,
+        weightGram: item.weightGram,
+      })),
+    });
+  }, [shippingPayload]);
+
+  const shippingPayloadRef = useRef(shippingPayload);
+
   useEffect(() => {
-    if (!shippingPayload) {
+    shippingPayloadRef.current = shippingPayload;
+  }, [shippingPayload]);
+
+  useEffect(() => {
+    const currentShippingPayload = shippingPayloadRef.current;
+
+    if (!currentShippingPayload) {
       setIsCheckingShipping(false);
       setShippingQuotes([]);
       setSelectedShippingQuoteId("");
@@ -1825,7 +1848,7 @@ export default function BookingForm() {
             "Content-Type": "application/json",
           },
           signal: controller.signal,
-          body: JSON.stringify(shippingPayload),
+          body: JSON.stringify(currentShippingPayload),
         });
 
         const payload = (await response
@@ -1839,7 +1862,7 @@ export default function BookingForm() {
 
         const resolvedDestinationPostalCode =
           payload.destinationPostalCode ||
-          shippingPayload.destinationPostalCode ||
+          currentShippingPayload.destinationPostalCode ||
           undefined;
         const enrichedQuotes = payload.quotes.map((quote) => ({
           ...quote,
@@ -1882,7 +1905,7 @@ export default function BookingForm() {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [shippingPayload]);
+  }, [shippingQuoteSignature]);
 
   const onSubmit: SubmitHandler<BookingFormValues> = async (values) => {
     setSubmitError("");
