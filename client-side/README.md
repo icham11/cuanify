@@ -6,6 +6,10 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 Dokumentasi teknis dan operasional lengkap ada di `../SOP/Cuanify-Complete-Documentation.md`.
 
+## WhatsApp Parser Customer Templates
+
+Template form yang bisa dikirim ke customer untuk diisi lalu dipaste admin ke WA Parser, plus format `REKAP ORDER` admin untuk harga item, ada di `docs/customer-wa-parser-templates.md`.
+
 ## Getting Started
 
 First, run the development server:

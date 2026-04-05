@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { startOfDay } from "date-fns";
 import {
   SubmitHandler,
@@ -102,7 +102,10 @@ const itemSchema = z.object({
     .array(z.string())
     .max(3, "Maksimal 3 warna dark color buttercream.")
     .optional(),
-  notes: z.string().max(200).optional().or(z.literal("")),
+  parsedUnitPrice: z.number().min(0).optional(),
+  parsedSubtotal: z.number().min(0).optional(),
+  pricingSource: z.enum(["RECAP"]).optional(),
+  notes: z.string().max(400).optional().or(z.literal("")),
 });
 
 const addressSchema = z.object({
@@ -127,7 +130,7 @@ const bookingSchema = z.object({
     "ASSISTED_SAME_DAY",
     "REGULAR_JNE_JNT",
   ]),
-  customNotes: z.string().max(400).optional().or(z.literal("")),
+  customNotes: z.string().max(1200).optional().or(z.literal("")),
   paymentStatus: z.enum(["DP Paid", "Paid"]),
   dpPaidAmount: z.number().default(0),
   finalPaidAmount: z.number().default(0),
@@ -373,6 +376,56 @@ function summarizeDetectedItems(
     size: item.size,
     quantity: item.quantity,
   }));
+}
+
+function getParsedSubtotalOverride(
+  item:
+    | Pick<
+        BookingItemInput,
+        "parsedSubtotal" | "parsedUnitPrice" | "quantity" | "pricingSource"
+      >
+    | undefined
+    | null,
+): number | null {
+  if (!item || item.pricingSource !== "RECAP") return null;
+
+  const subtotal = Number(item.parsedSubtotal);
+  if (Number.isFinite(subtotal) && subtotal > 0) {
+    return Math.round(subtotal);
+  }
+
+  const unitPrice = Number(item.parsedUnitPrice);
+  const quantity = Number(item.quantity) || 0;
+  if (Number.isFinite(unitPrice) && unitPrice > 0 && quantity > 0) {
+    return Math.round(unitPrice * quantity);
+  }
+
+  return null;
+}
+
+function getParsedUnitPriceOverride(
+  item:
+    | Pick<BookingItemInput, "parsedUnitPrice" | "pricingSource">
+    | undefined
+    | null,
+): number | null {
+  if (!item || item.pricingSource !== "RECAP") return null;
+
+  const unitPrice = Number(item.parsedUnitPrice);
+  if (!Number.isFinite(unitPrice) || unitPrice <= 0) return null;
+  return Math.round(unitPrice);
+}
+
+function hasParsedPricingOverride(
+  item:
+    | Pick<
+        BookingItemInput,
+        "parsedSubtotal" | "parsedUnitPrice" | "quantity" | "pricingSource"
+      >
+    | undefined
+    | null,
+): boolean {
+  return getParsedSubtotalOverride(item) !== null;
 }
 
 function getDefaultSelectionFromCatalog(
@@ -656,6 +709,11 @@ function getItemBasePrice(
   catalog: PricelistCategory[],
   item: BookingItemInput,
 ): number {
+  const parsedSubtotal = getParsedSubtotalOverride(item);
+  if (parsedSubtotal !== null) {
+    return parsedSubtotal;
+  }
+
   const bouquetLineTotal = getBouquetLineTotal(item);
   if (item.category === "Buket" && bouquetLineTotal !== null) {
     return bouquetLineTotal;
@@ -748,6 +806,9 @@ export default function BookingForm() {
           cookiePrice: undefined,
           addOns: [],
           darkColorButtercreamColors: [],
+          parsedUnitPrice: undefined,
+          parsedSubtotal: undefined,
+          pricingSource: undefined,
           notes: "",
         },
       ],
@@ -790,6 +851,21 @@ export default function BookingForm() {
   const manualAdjustment = useWatch({ control, name: "manualAdjustment" }) ?? 0;
   const dpPaidInput = useWatch({ control, name: "dpPaidAmount" }) ?? 0;
   const finalPaidInput = useWatch({ control, name: "finalPaidAmount" }) ?? 0;
+
+  const clearParsedPricingOverride = useCallback(
+    (itemIndex: number) => {
+      setValue(`items.${itemIndex}.parsedUnitPrice`, undefined, {
+        shouldValidate: true,
+      });
+      setValue(`items.${itemIndex}.parsedSubtotal`, undefined, {
+        shouldValidate: true,
+      });
+      setValue(`items.${itemIndex}.pricingSource`, undefined, {
+        shouldValidate: true,
+      });
+    },
+    [setValue],
+  );
 
   const normalizedDeliveryDate = useMemo(
     () => normalizeDateInput(deliveryDate) ?? "",
@@ -865,11 +941,18 @@ export default function BookingForm() {
       if (!preferredSize) return;
       if (preferredSize === normalizedSelection.size) return;
 
+      clearParsedPricingOverride(index);
       setValue(`items.${index}.size`, preferredSize, {
         shouldValidate: true,
       });
     });
-  }, [deliveryMethod, watchedItems, productCatalog, setValue]);
+  }, [
+    clearParsedPricingOverride,
+    deliveryMethod,
+    watchedItems,
+    productCatalog,
+    setValue,
+  ]);
 
   useEffect(() => {
     watchedItems.forEach((item, index) => {
@@ -911,25 +994,32 @@ export default function BookingForm() {
       if (!standingSelection) return;
 
       if (normalizedSelection.subcategory !== standingSelection.subcategory) {
+        clearParsedPricingOverride(index);
         setValue(`items.${index}.subcategory`, standingSelection.subcategory, {
           shouldValidate: true,
         });
       }
       if (normalizedSelection.productName !== standingSelection.productName) {
+        clearParsedPricingOverride(index);
         setValue(`items.${index}.productName`, standingSelection.productName, {
           shouldValidate: true,
         });
       }
       if (normalizedSelection.size !== standingSelection.size) {
+        clearParsedPricingOverride(index);
         setValue(`items.${index}.size`, standingSelection.size, {
           shouldValidate: true,
         });
       }
     });
-  }, [watchedItems, productCatalog, setValue]);
+  }, [clearParsedPricingOverride, watchedItems, productCatalog, setValue]);
 
   const addOnTotal = useMemo(() => {
     return watchedItems.reduce((sum, item) => {
+      if (hasParsedPricingOverride(item)) {
+        return sum;
+      }
+
       const categoryAddOns = getCategoryAddOnsFromCatalog(
         addOnCatalog,
         item.category,
@@ -1731,6 +1821,7 @@ export default function BookingForm() {
     for (const item of values.items) {
       const quantity = Number(item.quantity) || 0;
       const quantityRule = getItemQuantityRule(item as BookingItemInput);
+      const hasParsedRecapPrice = hasParsedPricingOverride(item);
       const isOutOfRange =
         quantity < quantityRule.min ||
         (typeof quantityRule.max === "number" && quantity > quantityRule.max);
@@ -1771,7 +1862,7 @@ export default function BookingForm() {
       }
 
       const cookiePrice = Number(item.cookiePrice) || 0;
-      if (cookiePrice <= 0) {
+      if (cookiePrice <= 0 && !hasParsedRecapPrice) {
         toast.error(
           "Isi Harga Cookie / pcs untuk item bouquet supaya formula bisa dihitung.",
         );
@@ -1808,15 +1899,20 @@ export default function BookingForm() {
     const mappedItems: OrderItem[] = values.items.map((item, index) => {
       const bouquetType = detectBouquetTypeFromItem(item);
       const itemBasePrice = getItemBasePrice(productCatalog, item);
+      const hasParsedRecapPrice = hasParsedPricingOverride(item);
+      const parsedUnitPrice = getParsedUnitPriceOverride(item);
+      const parsedSubtotal = getParsedSubtotalOverride(item);
       const categoryAddOns = getCategoryAddOnsFromCatalog(
         addOnCatalog,
         item.category,
       );
       const addOnTotalForItem =
-        (item.addOns ?? []).reduce((sum, addonId) => {
-          const addon = categoryAddOns.find((entry) => entry.id === addonId);
-          return sum + (addon?.price ?? 0);
-        }, 0) * item.quantity;
+        hasParsedRecapPrice
+          ? 0
+          : (item.addOns ?? []).reduce((sum, addonId) => {
+              const addon = categoryAddOns.find((entry) => entry.id === addonId);
+              return sum + (addon?.price ?? 0);
+            }, 0) * item.quantity;
       const darkButtercreamColors = normalizeDarkButtercreamColors(
         item.darkColorButtercreamColors ?? [],
       );
@@ -1826,6 +1922,12 @@ export default function BookingForm() {
         (item.addOns ?? []).includes(DARK_COLOR_BUTTERCREAM_ADDON_ID) &&
         darkButtercreamColors.length > 0
           ? `Dark Color Buttercream: ${darkButtercreamColors.join(", ")}`
+          : "",
+        hasParsedRecapPrice && parsedUnitPrice
+          ? `Harga recap: ${formatCurrency(parsedUnitPrice)} / unit`
+          : "",
+        hasParsedRecapPrice && parsedSubtotal
+          ? `Subtotal recap: ${formatCurrency(parsedSubtotal)}`
           : "",
       ]
         .filter((line) => line.trim().length > 0)
@@ -1862,7 +1964,7 @@ export default function BookingForm() {
         bouquetCost: bouquetType
           ? getBouquetCostByType(bouquetType)
           : undefined,
-        lineTotal: itemBasePrice,
+        lineTotal: parsedSubtotal ?? itemBasePrice,
         addOns: item.addOns,
         addOnTotal: addOnTotalForItem,
         notes: mergedItemNotes,
@@ -2161,6 +2263,20 @@ export default function BookingForm() {
                       return [];
                     })()
                   : [],
+              parsedUnitPrice:
+                item.pricingSource === "RECAP" &&
+                Number.isFinite(Number(item.parsedUnitPrice)) &&
+                Number(item.parsedUnitPrice) > 0
+                  ? Math.round(Number(item.parsedUnitPrice))
+                  : undefined,
+              parsedSubtotal:
+                item.pricingSource === "RECAP" &&
+                Number.isFinite(Number(item.parsedSubtotal)) &&
+                Number(item.parsedSubtotal) > 0
+                  ? Math.round(Number(item.parsedSubtotal))
+                  : undefined,
+              pricingSource:
+                item.pricingSource === "RECAP" ? "RECAP" : undefined,
               notes: item.notes ?? "",
             };
           },
@@ -2828,6 +2944,9 @@ export default function BookingForm() {
                       cookiePrice: undefined,
                       addOns: [],
                       darkColorButtercreamColors: [],
+                      parsedUnitPrice: undefined,
+                      parsedSubtotal: undefined,
+                      pricingSource: undefined,
                       notes: "",
                     });
                   }}
@@ -2905,6 +3024,10 @@ export default function BookingForm() {
                   const quantityRule = getItemQuantityRule(bouquetProbeItem);
                   const itemTokenPreview =
                     getItemProductionToken(bouquetProbeItem);
+                  const hasParsedRecapPrice =
+                    hasParsedPricingOverride(item);
+                  const parsedUnitPrice = getParsedUnitPriceOverride(item);
+                  const parsedSubtotal = getParsedSubtotalOverride(item);
                   const hasCustomTokenOverride =
                     Number(item?.customTokenPerUnit) > 0;
                   const quantityError = errors.items?.[index]?.quantity
@@ -2958,6 +3081,7 @@ export default function BookingForm() {
                                   notes: item?.notes ?? "",
                                 },
                               );
+                              clearParsedPricingOverride(index);
                               setValue(
                                 `items.${index}.category`,
                                 nextSelection.category,
@@ -3068,6 +3192,7 @@ export default function BookingForm() {
                                   notes: item?.notes ?? "",
                                 },
                               );
+                              clearParsedPricingOverride(index);
                               setValue(
                                 `items.${index}.subcategory`,
                                 nextSelection.subcategory,
@@ -3144,6 +3269,7 @@ export default function BookingForm() {
                                   notes: item?.notes ?? "",
                                 },
                               );
+                              clearParsedPricingOverride(index);
                               setValue(
                                 `items.${index}.productName`,
                                 nextSelection.productName,
@@ -3189,6 +3315,7 @@ export default function BookingForm() {
                             {...register(`items.${index}.size`)}
                             value={normalizedSelection.size}
                             onChange={(event) => {
+                              clearParsedPricingOverride(index);
                               setValue(
                                 `items.${index}.size`,
                                 event.target.value,
@@ -3223,6 +3350,9 @@ export default function BookingForm() {
                             step={1}
                             {...register(`items.${index}.quantity`, {
                               valueAsNumber: true,
+                              onChange: () => {
+                                clearParsedPricingOverride(index);
+                              },
                               onBlur: (event) => {
                                 if (!isBouquet || !bouquetType) return;
                                 const parsed = Number(event.target.value) || 0;
@@ -3348,6 +3478,20 @@ export default function BookingForm() {
                           />
                         </label>
                       </div>
+
+                      {hasParsedRecapPrice && (
+                        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700">
+                          Harga dari recap aktif
+                          {parsedUnitPrice
+                            ? ` • Harga satuan ${formatCurrency(parsedUnitPrice)}`
+                            : ""}
+                          {parsedSubtotal
+                            ? ` • Subtotal ${formatCurrency(parsedSubtotal)}`
+                            : ""}
+                          . Jika produk, size, atau qty diubah, override ini
+                          akan otomatis direset.
+                        </div>
+                      )}
 
                       <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-medium text-indigo-700">
                         Estimasi token item ini: {itemTokenPreview}

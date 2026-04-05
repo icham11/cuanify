@@ -9,6 +9,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "docs:wa-parser-pdf": "node ./scripts/export-customer-wa-parser-templates-pdf.mjs",
     "check:ready:sandbox": "node ./scripts/check-prod-readiness.mjs --target=sandbox",
     "check:ready:prod": "node ./scripts/check-prod-readiness.mjs --target=production",
     "fix:schema": "node ./scripts/fix-schema.mjs",

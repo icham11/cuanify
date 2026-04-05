@@ -469,4 +469,124 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
     expect(parsed.common.deliveryMethod).toBe("Same Day");
     expect(autoFill.deliveryMethod).toBe("ASSISTED_SAME_DAY");
   });
+
+  it("reads structured recap order items and pricing overrides", () => {
+    const text = [
+      "REKAP ORDER",
+      "Customer: Elliora",
+      "Tanggal Pengiriman: 18/04/2026",
+      "Jam Pengiriman: 10:00",
+      "Metode Pengiriman: GoCar",
+      "",
+      "ITEM 1",
+      "Kategori: Cake",
+      "Nama Produk: Custom Cake",
+      "Qty: 1",
+      "Size/Varian: 16 cm",
+      "Design/Notes: Pokeball, nama Elliora, angka 14",
+      "Add On: -",
+      "Harga Satuan: 450000",
+      "Subtotal: 450000",
+      "",
+      "ITEM 2",
+      "Kategori: Cupcakes",
+      "Nama Produk: 1 Dozen Cupcakes",
+      "Qty: 1",
+      "Size/Varian: Dozen",
+      "Design/Notes: pink muda, biru muda",
+      "Add On: -",
+      "Harga Satuan: 240000",
+      "Subtotal: 240000",
+      "",
+      "Subtotal Produk: 690000",
+      "Ongkir: 0",
+      "Total: 690000",
+      "DP: 345000",
+      "Sisa: 345000",
+      "",
+      "Nama di Cake: Elliora",
+      "Umur di cake: 14",
+      "Ukuran cake: 16 cm",
+      "Rasa cake: Vanilla",
+      "Design cake: Pokeball",
+      "Jumlah Cupcakes: 1 dozen",
+      "Rasa Cupcakes: Vanilla",
+      "Warna Cupcakes: Pink muda, biru muda",
+      "Jumlah Topper Cookies: 0",
+      "Nama penerima: Sansan",
+      "No. telp penerima: 08174922926",
+      "Alamat lengkap: Tangerang",
+    ].join("\n");
+
+    const parsed = parseWhatsAppOrderText(text, {
+      preferredOrderType: "unknown",
+      sourceType: "manual",
+    });
+    const autoFill = buildBookingAutoFillFromParsed(parsed);
+
+    expect(parsed.orderRecap?.items).toHaveLength(2);
+    expect(parsed.orderRecap?.totals.total).toBe(690000);
+    expect(autoFill.items).toHaveLength(2);
+    expect(autoFill.items.map((item) => item.category)).toEqual([
+      "Cake",
+      "Cupcakes",
+    ]);
+    expect(autoFill.items.map((item) => item.pricingSource)).toEqual([
+      "RECAP",
+      "RECAP",
+    ]);
+    expect(autoFill.items.map((item) => item.parsedSubtotal)).toEqual([
+      450000,
+      240000,
+    ]);
+  });
+
+  it("keeps separate recap items even when category is the same", () => {
+    const text = [
+      "REKAP ORDER",
+      "Tanggal Pengiriman: 19/04/2026",
+      "Jam Pengiriman: 11:00",
+      "Metode Pengiriman: Pickup",
+      "",
+      "ITEM 1",
+      "Kategori: Cake",
+      "Nama Produk: Custom Cake",
+      "Qty: 1",
+      "Size/Varian: 16 cm",
+      "Design/Notes: Tema Spiderman",
+      "Harga Satuan: 450000",
+      "Subtotal: 450000",
+      "",
+      "ITEM 2",
+      "Kategori: Cake",
+      "Nama Produk: Custom Cake",
+      "Qty: 1",
+      "Size/Varian: 16 cm",
+      "Design/Notes: Tema Princess",
+      "Harga Satuan: 450000",
+      "Subtotal: 450000",
+      "",
+      "Nama di Cake: Naya",
+      "Umur di cake: 7",
+      "Ukuran cake: 16 cm",
+      "Rasa cake: Vanilla",
+      "Design cake: Spiderman + Princess",
+      "Nama penerima: Naya",
+      "No. telp penerima: 081234567890",
+      "Alamat lengkap: Jakarta",
+    ].join("\n");
+
+    const parsed = parseWhatsAppOrderText(text, {
+      preferredOrderType: "unknown",
+      sourceType: "manual",
+    });
+    const autoFill = buildBookingAutoFillFromParsed(parsed);
+
+    expect(parsed.orderRecap?.items).toHaveLength(2);
+    expect(autoFill.items).toHaveLength(2);
+    expect(autoFill.items.map((item) => item.parsedSubtotal)).toEqual([
+      450000,
+      450000,
+    ]);
+  });
 });

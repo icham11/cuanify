@@ -98,7 +98,13 @@ const commonFieldDefinitions: FieldDefinition[] = [
   {
     key: "recipientName",
     label: "Nama penerima",
-    aliases: ["nama penerima", "nama penerima", "nama customer", "penerima"],
+    aliases: [
+      "nama penerima",
+      "nama penerima",
+      "nama customer",
+      "penerima",
+      "customer",
+    ],
   },
   {
     key: "recipientPhone",
@@ -294,6 +300,32 @@ export interface ParsedWhatsAppReferenceImage {
   orderIndex?: number;
 }
 
+export interface ParsedWhatsAppOrderRecapItem {
+  itemNumber?: number;
+  category: string;
+  productName: string;
+  quantity: number;
+  size: string;
+  designNotes: string;
+  addOn: string;
+  unitPrice?: number;
+  subtotal?: number;
+}
+
+export interface ParsedWhatsAppOrderRecapTotals {
+  subtotalProducts?: number;
+  shippingFee?: number;
+  adjustment?: number;
+  total?: number;
+  downPayment?: number;
+  remainingBalance?: number;
+}
+
+export interface ParsedWhatsAppOrderRecap {
+  items: ParsedWhatsAppOrderRecapItem[];
+  totals: ParsedWhatsAppOrderRecapTotals;
+}
+
 export type ParsedWhatsAppDetailsByOrderType = Partial<
   Record<WhatsAppOrderType, Record<string, string>>
 >;
@@ -318,6 +350,7 @@ export interface ParsedWhatsAppOrder {
   details: Record<string, string>;
   detailsByOrderType?: ParsedWhatsAppDetailsByOrderType;
   detectedItems?: ParsedWhatsAppDetectedItem[];
+  orderRecap?: ParsedWhatsAppOrderRecap;
   missingFields: string[];
 }
 
@@ -352,6 +385,9 @@ export interface BookingFormAutoFill {
     addOns: string[];
     darkColorButtercreamColors?: string[];
     darkColorButtercreamColor?: string;
+    parsedUnitPrice?: number;
+    parsedSubtotal?: number;
+    pricingSource?: "RECAP";
     notes: string;
   }>;
 }
@@ -469,6 +505,293 @@ function buildKeyValueLookup(lines: string[]): Map<string, string> {
   });
 
   return lookup;
+}
+
+const recapItemFieldDefinitions: FieldDefinition[] = [
+  {
+    key: "category",
+    label: "Kategori",
+    aliases: ["kategori", "category"],
+  },
+  {
+    key: "productName",
+    label: "Nama Produk",
+    aliases: ["nama produk", "produk", "product", "nama item"],
+  },
+  {
+    key: "quantity",
+    label: "Qty",
+    aliases: ["qty", "quantity", "jumlah"],
+  },
+  {
+    key: "size",
+    label: "Size/Varian",
+    aliases: ["size/varian", "size varian", "size", "varian", "ukuran"],
+  },
+  {
+    key: "designNotes",
+    label: "Design/Notes",
+    aliases: ["design/notes", "design notes", "design", "notes"],
+  },
+  {
+    key: "addOn",
+    label: "Add On",
+    aliases: ["add on", "add-on", "addon"],
+  },
+  {
+    key: "unitPrice",
+    label: "Harga Satuan",
+    aliases: ["harga satuan", "harga", "price"],
+  },
+  {
+    key: "subtotal",
+    label: "Subtotal",
+    aliases: ["subtotal"],
+  },
+];
+
+const recapTotalFieldDefinitions: Array<
+  FieldDefinition & { key: keyof ParsedWhatsAppOrderRecapTotals }
+> = [
+  {
+    key: "subtotalProducts",
+    label: "Subtotal Produk",
+    aliases: ["subtotal produk", "subtotal item", "subtotal items"],
+  },
+  {
+    key: "shippingFee",
+    label: "Ongkir",
+    aliases: ["ongkir", "delivery fee", "shipping fee"],
+  },
+  {
+    key: "adjustment",
+    label: "Adjustment",
+    aliases: ["adjustment", "penyesuaian", "adjust"],
+  },
+  {
+    key: "total",
+    label: "Total",
+    aliases: ["total", "grand total"],
+  },
+  {
+    key: "downPayment",
+    label: "DP",
+    aliases: ["dp", "down payment", "uang muka"],
+  },
+  {
+    key: "remainingBalance",
+    label: "Sisa",
+    aliases: ["sisa", "remaining", "remaining balance", "pelunasan"],
+  },
+];
+
+function parseRecapItemHeader(line: string): {
+  itemNumber?: number;
+  title?: string;
+} | null {
+  const match = line.match(
+    /^(?:item\s*(\d+)|(\d+)[.)])(?:\s*(?:[:-]\s*|\s+)(.+))?$/i,
+  );
+  if (!match) return null;
+
+  const itemNumber = Number(match[1] || match[2] || 0);
+  return {
+    itemNumber: Number.isInteger(itemNumber) && itemNumber > 0 ? itemNumber : undefined,
+    title: cleanupValue(match[3] || ""),
+  };
+}
+
+function isRecapTotalsLine(line: string): boolean {
+  const normalized = normalizeLabel(line);
+  if (!normalized) return false;
+
+  return recapTotalFieldDefinitions.some((field) =>
+    field.aliases.some((alias) => normalized.startsWith(normalizeLabel(alias))),
+  );
+}
+
+function normalizeRecapCategory(value: string): string {
+  const normalized = normalizeLabel(value);
+  if (!normalized) return "";
+
+  if (normalized.includes("cookies tower") || normalized.includes("tower")) {
+    return "Cookies Tower";
+  }
+  if (normalized.includes("cupcake")) return "Cupcakes";
+  if (
+    normalized.includes("buket") ||
+    normalized.includes("bouquet") ||
+    normalized.includes("hand bouquet") ||
+    normalized.includes("standing bouquet")
+  ) {
+    return "Buket";
+  }
+  if (normalized.includes("cookie")) return "Cookies";
+  if (normalized.includes("cake")) return "Cake";
+
+  return "";
+}
+
+function parseOrderRecap(
+  rawText: string,
+  lines: string[],
+): ParsedWhatsAppOrderRecap | undefined {
+  const itemBlocks: Array<{
+    itemNumber?: number;
+    title?: string;
+    lines: string[];
+  }> = [];
+  let currentBlock: {
+    itemNumber?: number;
+    title?: string;
+    lines: string[];
+  } | null = null;
+
+  for (const line of lines) {
+    const header = parseRecapItemHeader(line);
+    if (header) {
+      if (currentBlock?.lines.length) {
+        itemBlocks.push(currentBlock);
+      }
+      currentBlock = {
+        itemNumber: header.itemNumber,
+        title: header.title,
+        lines: [line],
+      };
+      continue;
+    }
+
+    if (!currentBlock) continue;
+    if (isRecapTotalsLine(line)) {
+      if (currentBlock.lines.length) {
+        itemBlocks.push(currentBlock);
+      }
+      currentBlock = null;
+      continue;
+    }
+
+    currentBlock.lines.push(line);
+  }
+
+  if (currentBlock?.lines.length) {
+    itemBlocks.push(currentBlock);
+  }
+
+  const recapItems: ParsedWhatsAppOrderRecapItem[] = itemBlocks.flatMap(
+    (block) => {
+      const lookup = buildKeyValueLookup(block.lines);
+      const categoryValue = readFieldValue(
+        block.lines.join("\n"),
+        block.lines,
+        lookup,
+        recapItemFieldDefinitions[0],
+      );
+      const productNameValue = readFieldValue(
+        block.lines.join("\n"),
+        block.lines,
+        lookup,
+        recapItemFieldDefinitions[1],
+      );
+      const quantityValue = readFieldValue(
+        block.lines.join("\n"),
+        block.lines,
+        lookup,
+        recapItemFieldDefinitions[2],
+      );
+      const sizeValue = readFieldValue(
+        block.lines.join("\n"),
+        block.lines,
+        lookup,
+        recapItemFieldDefinitions[3],
+      );
+      const designNotesValue = readFieldValue(
+        block.lines.join("\n"),
+        block.lines,
+        lookup,
+        recapItemFieldDefinitions[4],
+      );
+      const addOnValue = readFieldValue(
+        block.lines.join("\n"),
+        block.lines,
+        lookup,
+        recapItemFieldDefinitions[5],
+      );
+      const unitPriceValue = readFieldValue(
+        block.lines.join("\n"),
+        block.lines,
+        lookup,
+        recapItemFieldDefinitions[6],
+      );
+      const subtotalValue = readFieldValue(
+        block.lines.join("\n"),
+        block.lines,
+        lookup,
+        recapItemFieldDefinitions[7],
+      );
+
+      const category =
+        normalizeRecapCategory(categoryValue) ||
+        normalizeRecapCategory(productNameValue) ||
+        normalizeRecapCategory(block.title || "");
+      const productName =
+        cleanupValue(productNameValue) ||
+        cleanupValue(block.title || "") ||
+        category;
+      const quantity = extractPositiveInteger(quantityValue) ?? 1;
+      const size = cleanupValue(sizeValue);
+      const designNotes = cleanupValue(designNotesValue);
+      const addOn = cleanupValue(addOnValue);
+      const unitPrice = parseCurrencyAmount(unitPriceValue) ?? undefined;
+      const subtotal =
+        parseCurrencyAmount(subtotalValue) ??
+        (unitPrice && quantity > 0 ? unitPrice * quantity : undefined);
+
+      if (!category && !productName) return [];
+
+      return [
+        {
+          itemNumber: block.itemNumber,
+          category,
+          productName,
+          quantity,
+          size,
+          designNotes,
+          addOn,
+          unitPrice,
+          subtotal,
+        } satisfies ParsedWhatsAppOrderRecapItem,
+      ];
+    },
+  );
+
+  const lookup = buildKeyValueLookup(lines);
+  const totals = recapTotalFieldDefinitions.reduce<ParsedWhatsAppOrderRecapTotals>(
+    (accumulator, field) => {
+      const value = readFieldValue(rawText, lines, lookup, field);
+      const amount =
+        field.key === "adjustment"
+          ? parseSignedCurrencyAmount(value)
+          : parseCurrencyAmount(value);
+      if (amount !== null) {
+        accumulator[field.key] = amount;
+      }
+      return accumulator;
+    },
+    {},
+  );
+
+  const hasRecapMarker = lines.some(
+    (line) => normalizeLabel(line) === normalizeLabel("REKAP ORDER"),
+  );
+  const hasTotals = Object.keys(totals).length > 0;
+  if (!hasRecapMarker && recapItems.length === 0 && !hasTotals) {
+    return undefined;
+  }
+
+  return {
+    items: recapItems,
+    totals,
+  };
 }
 
 function buildDetailsByOrderType(
@@ -1004,6 +1327,13 @@ function buildItemNotesForOrderType(
     .slice(0, 200);
 }
 
+function formatCurrencyNote(value?: number): string {
+  if (!Number.isFinite(Number(value)) || Number(value) === 0) return "";
+  const rounded = Math.round(Number(value));
+  const absolute = Math.abs(rounded).toLocaleString("id-ID");
+  return rounded < 0 ? `-Rp ${absolute}` : `Rp ${absolute}`;
+}
+
 function buildSearchSourceForOrderType(
   parsed: ParsedWhatsAppOrder,
   orderType: WhatsAppOrderType,
@@ -1139,6 +1469,17 @@ function parseCurrencyAmount(value: string): number | null {
   const parsed = Number(digitsOnly);
   if (!Number.isFinite(parsed) || parsed <= 0) return null;
   return Math.round(parsed);
+}
+
+function parseSignedCurrencyAmount(value: string): number | null {
+  const text = value.trim();
+  if (!text) return null;
+
+  const amount = parseCurrencyAmount(text);
+  if (amount === null) return null;
+
+  const isNegative = /^\s*-\s*/.test(text) || /\(\s*-\s*/.test(text);
+  return isNegative ? -amount : amount;
 }
 
 interface CupcakeQuantityBreakdown {
@@ -1562,6 +1903,63 @@ function mergeAutoFillItems(
   return Array.from(byKey.values());
 }
 
+function buildRecapAutoFillItems(
+  parsed: ParsedWhatsAppOrder,
+): BookingAutoFillItem[] {
+  const recapItems = parsed.orderRecap?.items ?? [];
+
+  return recapItems.flatMap((item) => {
+      const resolvedCategory =
+        normalizeRecapCategory(item.category) ||
+        normalizeRecapCategory(item.productName) ||
+        getCategoryByOrderType(parsed.orderType);
+      if (!resolvedCategory) return [];
+
+      const orderType = mapCategoryToOrderType(resolvedCategory);
+      const searchSource = [
+        resolvedCategory,
+        item.productName,
+        item.size,
+        item.designNotes,
+        item.addOn,
+        buildSearchSourceForOrderType(parsed, orderType, ""),
+      ]
+        .filter(Boolean)
+        .join(" | ");
+      const noteParts = [
+        item.designNotes ? `Design/Notes: ${item.designNotes}` : "",
+        item.addOn ? `Add On: ${item.addOn}` : "",
+        buildItemNotesForOrderType(parsed, orderType),
+        item.unitPrice ? `Harga Satuan: ${formatCurrencyNote(item.unitPrice)}` : "",
+        item.subtotal ? `Subtotal: ${formatCurrencyNote(item.subtotal)}` : "",
+      ]
+        .filter(Boolean)
+        .filter(
+          (value, index, array) =>
+            array.findIndex(
+              (entry) => normalizeLabel(entry) === normalizeLabel(value),
+            ) === index,
+        )
+        .join(" | ")
+        .slice(0, 400);
+      const autoFillItem = createAutoFillItemFromCategory({
+        category: resolvedCategory,
+        searchSource,
+        quantity: item.quantity,
+        notes: noteParts,
+      });
+
+      return [
+        {
+          ...autoFillItem,
+          parsedUnitPrice: item.unitPrice,
+          parsedSubtotal: item.subtotal,
+          pricingSource: item.subtotal ? "RECAP" : undefined,
+        } satisfies BookingAutoFillItem,
+      ];
+    });
+}
+
 function buildMixedSupplementAutoFillItems(
   parsed: ParsedWhatsAppOrder,
   itemNotes: string,
@@ -1963,6 +2361,7 @@ export function parseWhatsAppOrderText(
   const lookup = buildKeyValueLookup(lines);
   const orderType = detectOrderType(text, lookup, preferredOrderType);
   const detailsByOrderType = buildDetailsByOrderType(text, lines, lookup);
+  const orderRecap = parseOrderRecap(text, lines);
 
   const common = buildEmptyCommonFields();
   for (const field of commonFieldDefinitions) {
@@ -1995,6 +2394,7 @@ export function parseWhatsAppOrderText(
     common,
     details,
     detailsByOrderType,
+    orderRecap,
     missingFields,
   };
 }
@@ -2024,6 +2424,58 @@ export function formatParsedWhatsAppForNotes(
     lines.push(`${field.label}: ${value}`);
   }
 
+  if ((parsed.orderRecap?.items.length ?? 0) > 0) {
+    lines.push("[Rekap Order]");
+    parsed.orderRecap?.items.forEach((item, index) => {
+      const summary = [
+        item.category || "",
+        item.productName || "",
+        item.quantity ? `Qty ${item.quantity}` : "",
+        item.size ? `Size ${item.size}` : "",
+        item.unitPrice ? `Harga ${formatCurrencyNote(item.unitPrice)}` : "",
+        item.subtotal ? `Subtotal ${formatCurrencyNote(item.subtotal)}` : "",
+      ]
+        .filter(Boolean)
+        .join(" | ");
+      lines.push(`Item ${item.itemNumber || index + 1}: ${summary}`);
+      if (item.designNotes) {
+        lines.push(`Design/Notes: ${item.designNotes}`);
+      }
+      if (item.addOn) {
+        lines.push(`Add On: ${item.addOn}`);
+      }
+    });
+  }
+
+  if (parsed.orderRecap?.totals) {
+    if (parsed.orderRecap.totals.subtotalProducts) {
+      lines.push(
+        `Subtotal Produk: ${formatCurrencyNote(parsed.orderRecap.totals.subtotalProducts)}`,
+      );
+    }
+    if (parsed.orderRecap.totals.shippingFee) {
+      lines.push(
+        `Ongkir: ${formatCurrencyNote(parsed.orderRecap.totals.shippingFee)}`,
+      );
+    }
+    if (parsed.orderRecap.totals.adjustment) {
+      lines.push(
+        `Adjustment: ${formatCurrencyNote(parsed.orderRecap.totals.adjustment)}`,
+      );
+    }
+    if (parsed.orderRecap.totals.total) {
+      lines.push(`Total: ${formatCurrencyNote(parsed.orderRecap.totals.total)}`);
+    }
+    if (parsed.orderRecap.totals.downPayment) {
+      lines.push(`DP: ${formatCurrencyNote(parsed.orderRecap.totals.downPayment)}`);
+    }
+    if (parsed.orderRecap.totals.remainingBalance) {
+      lines.push(
+        `Sisa: ${formatCurrencyNote(parsed.orderRecap.totals.remainingBalance)}`,
+      );
+    }
+  }
+
   for (const orderType of ORDER_TYPE_SEQUENCE) {
     if (orderType === parsed.orderType) continue;
     const details = getDetailsForOrderType(parsed, orderType);
@@ -2044,19 +2496,25 @@ export function buildBookingAutoFillFromParsed(
   parsed: ParsedWhatsAppOrder,
 ): BookingFormAutoFill {
   const itemNotes = buildItemNotesForOrderType(parsed, parsed.orderType);
+  const recapAutoFillItems = buildRecapAutoFillItems(parsed);
 
-  const primaryAutoFillItems =
-    parsed.orderType === "cupcakes"
-      ? buildCupcakeAutoFillItems(parsed, itemNotes)
-      : buildDefaultAutoFillItems(parsed, itemNotes);
-  const mixedSupplementItems = buildMixedSupplementAutoFillItems(
-    parsed,
-    itemNotes,
-  );
-  const autoFillItems = mergeAutoFillItems([
-    ...primaryAutoFillItems,
-    ...mixedSupplementItems,
-  ]);
+  const autoFillItems =
+    recapAutoFillItems.length > 0
+      ? recapAutoFillItems
+      : (() => {
+          const primaryAutoFillItems =
+            parsed.orderType === "cupcakes"
+              ? buildCupcakeAutoFillItems(parsed, itemNotes)
+              : buildDefaultAutoFillItems(parsed, itemNotes);
+          const mixedSupplementItems = buildMixedSupplementAutoFillItems(
+            parsed,
+            itemNotes,
+          );
+          return mergeAutoFillItems([
+            ...primaryAutoFillItems,
+            ...mixedSupplementItems,
+          ]);
+        })();
 
   const address = parsed.common.fullAddress || "Alamat belum terisi";
 
@@ -2150,6 +2608,75 @@ export function getDisplayFields(
     rows.push({
       label: field.label,
       value: parsed.details[field.key] || "-",
+    });
+  }
+
+  if ((parsed.orderRecap?.items.length ?? 0) > 0) {
+    parsed.orderRecap?.items.forEach((item, index) => {
+      rows.push({
+        label: `Rekap Item ${item.itemNumber || index + 1}`,
+        value: [
+          item.category || "",
+          item.productName || "",
+          item.quantity ? `Qty ${item.quantity}` : "",
+          item.size ? `Size ${item.size}` : "",
+          item.unitPrice ? `Harga ${formatCurrencyNote(item.unitPrice)}` : "",
+          item.subtotal ? `Subtotal ${formatCurrencyNote(item.subtotal)}` : "",
+        ]
+          .filter(Boolean)
+          .join(" | "),
+      });
+
+      if (item.designNotes) {
+        rows.push({
+          label: `Rekap Item ${item.itemNumber || index + 1} - Design/Notes`,
+          value: item.designNotes,
+        });
+      }
+
+      if (item.addOn) {
+        rows.push({
+          label: `Rekap Item ${item.itemNumber || index + 1} - Add On`,
+          value: item.addOn,
+        });
+      }
+    });
+  }
+
+  if (parsed.orderRecap?.totals.subtotalProducts) {
+    rows.push({
+      label: "Subtotal Produk",
+      value: formatCurrencyNote(parsed.orderRecap.totals.subtotalProducts),
+    });
+  }
+  if (parsed.orderRecap?.totals.shippingFee) {
+    rows.push({
+      label: "Ongkir",
+      value: formatCurrencyNote(parsed.orderRecap.totals.shippingFee),
+    });
+  }
+  if (parsed.orderRecap?.totals.adjustment) {
+    rows.push({
+      label: "Adjustment",
+      value: formatCurrencyNote(parsed.orderRecap.totals.adjustment),
+    });
+  }
+  if (parsed.orderRecap?.totals.total) {
+    rows.push({
+      label: "Total",
+      value: formatCurrencyNote(parsed.orderRecap.totals.total),
+    });
+  }
+  if (parsed.orderRecap?.totals.downPayment) {
+    rows.push({
+      label: "DP",
+      value: formatCurrencyNote(parsed.orderRecap.totals.downPayment),
+    });
+  }
+  if (parsed.orderRecap?.totals.remainingBalance) {
+    rows.push({
+      label: "Sisa",
+      value: formatCurrencyNote(parsed.orderRecap.totals.remainingBalance),
     });
   }
 
