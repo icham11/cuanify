@@ -84,6 +84,43 @@ import type {
   ShippingQuoteResponse,
 } from "@/lib/bookings/shipping-types";
 
+const ADDRESS_LOCATION_KEYWORD_PATTERN =
+  /\b(jl|jalan|gg|gang|blok|block|no|nomor|rt|rw|perum|perumahan|komplek|kompleks|cluster|apartemen|apartment|tower|unit|ruko|rumah|gedung|kav|kavling|kel|kelurahan|kec|kecamatan|kota|kab|kabupaten)\b/i;
+const ADDRESS_NUMBER_PATTERN = /\b\d+[a-zA-Z]?\b/;
+const ADDRESS_CONTACT_LABEL_PATTERN =
+  /\b(nama\s+penerima|nama\s+customer|penerima|no\.?\s*(telp|hp)|nomor\s*(telp|hp)|telepon|phone|whatsapp|wa)\b/i;
+const ADDRESS_PHONE_PATTERN = /(?:^|\D)(?:\+?62|0)\d{7,13}(?:\D|$)/;
+
+function normalizeAddressText(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function sanitizePostalCodeInput(value: string): string {
+  return value.replace(/\D/g, "").slice(0, 5);
+}
+
+function extractPostalCodeFromAddress(value: string): string {
+  return value.match(/\b\d{5}\b/)?.[0] ?? "";
+}
+
+function areaLooksValid(value: string): boolean {
+  const trimmed = value.trim();
+  return trimmed.length >= 3 && /[a-z]/i.test(trimmed);
+}
+
+function addressLooksStructured(value: string): boolean {
+  const normalized = normalizeAddressText(value);
+  if (!normalized) return false;
+
+  const hasLocationKeyword = ADDRESS_LOCATION_KEYWORD_PATTERN.test(normalized);
+  const hasNumber = ADDRESS_NUMBER_PATTERN.test(value);
+  return hasLocationKeyword && hasNumber;
+}
+
 const defaultItemSelection = getDefaultCatalogSelection();
 
 const itemSchema = z.object({
@@ -111,7 +148,13 @@ const itemSchema = z.object({
 const addressSchema = z.object({
   label: z.string().min(1, "Address label is required"),
   area: z.string().default(""),
-  postalCode: z.string().default(""),
+  postalCode: z
+    .string()
+    .default("")
+    .refine(
+      (value) => value.trim().length === 0 || sanitizePostalCodeInput(value).length === 5,
+      "Kode pos harus 5 digit.",
+    ),
   addressLine: z.string().min(5, "Address is too short"),
 });
 
@@ -139,6 +182,69 @@ const bookingSchema = z.object({
   deliveryAddresses: z
     .array(addressSchema)
     .min(1, "At least one address is required"),
+}).superRefine((values, ctx) => {
+  values.deliveryAddresses.forEach((address, index) => {
+    const postalCode = sanitizePostalCodeInput(address.postalCode || "");
+    const embeddedPostalCode = extractPostalCodeFromAddress(
+      address.addressLine || "",
+    );
+
+    if (address.postalCode.trim().length > 0 && postalCode.length !== 5) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["deliveryAddresses", index, "postalCode"],
+        message: "Kode pos harus 5 digit.",
+      });
+    }
+
+    if (
+      ADDRESS_CONTACT_LABEL_PATTERN.test(address.addressLine || "") ||
+      ADDRESS_PHONE_PATTERN.test(address.addressLine || "")
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["deliveryAddresses", index, "addressLine"],
+        message:
+          "Alamat jangan dicampur dengan nama penerima atau nomor telepon.",
+      });
+    }
+
+    if (usesShippingEngine(values.deliveryMethod) && index === 0) {
+      if (!areaLooksValid(address.area || "")) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["deliveryAddresses", index, "area"],
+          message:
+            "Area wajib diisi minimal Kecamatan / Kota untuk metode shipping otomatis.",
+        });
+      }
+
+      if (!postalCode && !embeddedPostalCode) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["deliveryAddresses", index, "postalCode"],
+          message:
+            "Isi kode pos 5 digit agar ongkir dan pembuatan resi lebih akurat.",
+        });
+      }
+
+      if ((address.addressLine || "").trim().length < 15) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["deliveryAddresses", index, "addressLine"],
+          message:
+            "Alamat utama terlalu singkat untuk shipping. Isi alamat lengkap.",
+        });
+      } else if (!addressLooksStructured(address.addressLine || "")) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["deliveryAddresses", index, "addressLine"],
+          message:
+            "Alamat utama perlu memuat jalan/perumahan/apartemen dan nomor/unit.",
+        });
+      }
+    }
+  });
 });
 
 type BookingFormInput = z.input<typeof bookingSchema>;
@@ -867,6 +973,23 @@ export default function BookingForm() {
     [setValue],
   );
 
+  const autofillPostalCodeFromAddress = useCallback(
+    (addressIndex: number, addressLine: string) => {
+      const extractedPostalCode = extractPostalCodeFromAddress(addressLine);
+      if (!extractedPostalCode) return;
+
+      const currentPostalCode = sanitizePostalCodeInput(
+        watchedAddresses[addressIndex]?.postalCode ?? "",
+      );
+      if (currentPostalCode) return;
+
+      setValue(`deliveryAddresses.${addressIndex}.postalCode`, extractedPostalCode, {
+        shouldValidate: true,
+      });
+    },
+    [setValue, watchedAddresses],
+  );
+
   const normalizedDeliveryDate = useMemo(
     () => normalizeDateInput(deliveryDate) ?? "",
     [deliveryDate],
@@ -1593,7 +1716,7 @@ export default function BookingForm() {
       destinationAddress: primaryAddress.addressLine,
       destinationArea: primaryAddress.area || "",
       destinationPostalCode:
-        primaryAddress.postalCode?.trim() ||
+        sanitizePostalCodeInput(primaryAddress.postalCode || "") ||
         primaryAddress.addressLine.match(/\b\d{5}\b/)?.[0],
       items: shippingItems,
       totalValue: Math.max(1000, Math.round(basePrice + addOnTotal)),
@@ -3620,54 +3743,104 @@ export default function BookingForm() {
               </div>
 
               <div className="space-y-3">
-                {addressFields.map((field, index) => (
-                  <div
-                    key={field.id}
-                    className="grid gap-3 rounded-xl border border-gray-200 p-4 sm:grid-cols-2"
-                  >
-                    <label className="grid gap-2 text-sm font-medium text-gray-700">
-                      Label
-                      <Input
-                        placeholder="Primary / Gift address"
-                        {...register(`deliveryAddresses.${index}.label`)}
-                      />
-                    </label>
-                    <label className="grid gap-2 text-sm font-medium text-gray-700">
-                      Area (Opsional)
-                      <Input
-                        placeholder="Kecamatan / Kota"
-                        {...register(`deliveryAddresses.${index}.area`)}
-                      />
-                    </label>
-                    <label className="grid gap-2 text-sm font-medium text-gray-700">
-                      Kode Pos (Opsional)
-                      <Input
-                        inputMode="numeric"
-                        placeholder="Contoh: 11470"
-                        {...register(`deliveryAddresses.${index}.postalCode`)}
-                      />
-                    </label>
-                    <label className="grid gap-2 text-sm font-medium text-gray-700 sm:col-span-2">
-                      Full Address
-                      <Textarea
-                        className="min-h-20"
-                        placeholder="Street, block, note for courier"
-                        {...register(`deliveryAddresses.${index}.addressLine`)}
-                      />
-                    </label>
-                    {addressFields.length > 1 && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="h-8 w-fit gap-1 border-rose-200 text-rose-600 hover:bg-rose-50"
-                        onClick={() => removeAddress(index)}
-                      >
-                        <Trash2 size={14} />
-                        Remove Address
-                      </Button>
-                    )}
-                  </div>
-                ))}
+                {addressFields.map((field, index) => {
+                  const addressError = errors.deliveryAddresses?.[index];
+                  const isPrimaryShippingAddress =
+                    shouldUseShippingEngine && index === 0;
+
+                  return (
+                    <div
+                      key={field.id}
+                      className="grid gap-3 rounded-xl border border-gray-200 p-4 sm:grid-cols-2"
+                    >
+                      <label className="grid gap-2 text-sm font-medium text-gray-700">
+                        Label
+                        <Input
+                          placeholder="Primary / Gift address"
+                          {...register(`deliveryAddresses.${index}.label`)}
+                        />
+                        {addressError?.label?.message && (
+                          <span className="text-[11px] font-normal text-rose-600">
+                            {String(addressError.label.message)}
+                          </span>
+                        )}
+                      </label>
+                      <label className="grid gap-2 text-sm font-medium text-gray-700">
+                        Area {isPrimaryShippingAddress ? "(Wajib untuk Shipping)" : "(Opsional)"}
+                        <Input
+                          placeholder="Kecamatan / Kota"
+                          {...register(`deliveryAddresses.${index}.area`)}
+                        />
+                        {isPrimaryShippingAddress && !addressError?.area?.message && (
+                          <span className="text-[11px] font-normal leading-4 text-gray-500">
+                            Isi minimal kecamatan dan kota, mis. `Cipondoh / Tangerang`.
+                          </span>
+                        )}
+                        {addressError?.area?.message && (
+                          <span className="text-[11px] font-normal text-rose-600">
+                            {String(addressError.area.message)}
+                          </span>
+                        )}
+                      </label>
+                      <label className="grid gap-2 text-sm font-medium text-gray-700">
+                        Kode Pos {isPrimaryShippingAddress ? "(Wajib / dari alamat)" : "(Opsional)"}
+                        <Input
+                          inputMode="numeric"
+                          placeholder="Contoh: 11470"
+                          {...register(`deliveryAddresses.${index}.postalCode`, {
+                            setValueAs: (value) =>
+                              typeof value === "string"
+                                ? sanitizePostalCodeInput(value)
+                                : "",
+                          })}
+                        />
+                        {isPrimaryShippingAddress && !addressError?.postalCode?.message && (
+                          <span className="text-[11px] font-normal leading-4 text-gray-500">
+                            Isi 5 digit. Kalau ada di alamat, sistem akan coba ambil otomatis.
+                          </span>
+                        )}
+                        {addressError?.postalCode?.message && (
+                          <span className="text-[11px] font-normal text-rose-600">
+                            {String(addressError.postalCode.message)}
+                          </span>
+                        )}
+                      </label>
+                      <label className="grid gap-2 text-sm font-medium text-gray-700 sm:col-span-2">
+                        Full Address
+                        <Textarea
+                          className="min-h-20"
+                          placeholder="Jalan, nomor, blok, RT/RW, kelurahan, kecamatan, kota"
+                          {...register(`deliveryAddresses.${index}.addressLine`, {
+                            onBlur: (event) => {
+                              autofillPostalCodeFromAddress(index, event.target.value);
+                            },
+                          })}
+                        />
+                        {!addressError?.addressLine?.message && (
+                          <span className="text-[11px] font-normal leading-4 text-gray-500">
+                            Jangan campur nama penerima atau no. telepon di field ini. Fokus ke satu alamat final.
+                          </span>
+                        )}
+                        {addressError?.addressLine?.message && (
+                          <span className="text-[11px] font-normal text-rose-600">
+                            {String(addressError.addressLine.message)}
+                          </span>
+                        )}
+                      </label>
+                      {addressFields.length > 1 && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-8 w-fit gap-1 border-rose-200 text-rose-600 hover:bg-rose-50"
+                          onClick={() => removeAddress(index)}
+                        >
+                          <Trash2 size={14} />
+                          Remove Address
+                        </Button>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
@@ -3863,8 +4036,8 @@ export default function BookingForm() {
                 <p className="text-xs text-gray-500">
                   {shouldUseShippingEngine
                     ? isAddressTooShortForShipping
-                      ? "Alamat terlalu pendek untuk kalkulasi ongkir. Lengkapi alamat minimal 8 karakter."
-                      : "Lengkapi alamat penerima dan item order untuk kalkulasi ongkir otomatis."
+                      ? "Alamat terlalu pendek untuk kalkulasi ongkir. Lengkapi alamat utama minimal 8 karakter."
+                      : "Lengkapi alamat utama, area (Kecamatan/Kota), kode pos, dan item order untuk kalkulasi ongkir otomatis."
                     : "Pilih metode berbasis kurir reguler/admin jika ingin kalkulasi ongkir otomatis."}
                 </p>
               )}

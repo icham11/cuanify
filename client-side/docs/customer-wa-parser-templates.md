@@ -19,6 +19,29 @@ Tujuan template ini:
 7. Untuk multi-order dengan kategori sama tapi detail berbeda, lebih aman kirim 2 template terpisah
    Contoh: `1 cake tema A + 1 cake tema B`
 
+## Format Alamat untuk Shipping
+
+Supaya ongkir otomatis dan pembuatan resi lebih akurat, gunakan format alamat seperti ini:
+
+```text
+Area: Kecamatan / Kota
+Kode Pos: 5 digit
+Alamat lengkap: Jalan, nomor, blok/unit, RT/RW, kelurahan, kecamatan, kota
+```
+
+Contoh:
+
+```text
+Area: Cipondoh / Tangerang
+Kode Pos: 15147
+Alamat lengkap: Perumahan Riviera at Puri, Riviera East 10 Blok F2 No 16, RT 009/RW 008, Kel. Gondrong, Kec. Cipondoh, Kota Tangerang, Banten 15147
+```
+
+Catatan:
+- jangan campur `nama penerima` atau `no. telp penerima` di field alamat
+- gunakan satu alamat final saja
+- note akses seperti `masuk lewat gerbang besar` boleh ditaruh di notes admin, bukan dicampur ke alamat utama kalau bisa
+
 ## Template Cake
 
 ```text
