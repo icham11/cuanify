@@ -56,6 +56,7 @@ export interface ShippingQuoteResponse {
 export interface ShippingResiRequest {
   orderId: string;
   bookingCode: string;
+  referenceId?: string;
   customerName: string;
   customerPhone: string;
   destinationAddress: string;
@@ -74,6 +75,7 @@ export interface ShippingShipment {
   courierCode: string;
   courierServiceCode: string;
   courierServiceName: string;
+  referenceId?: string;
   trackingNumber: string;
   status: "created" | "pending_waybill";
   source: ShippingDataSource;

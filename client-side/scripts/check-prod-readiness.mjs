@@ -60,6 +60,24 @@ function getEnv(name) {
 const errors = [];
 const warnings = [];
 
+function hasProductionTemplateDirectory() {
+  const envTemplateDir = getEnv("PRODUCTION_TEMPLATE_DIR");
+  const candidates = [
+    envTemplateDir ? path.resolve(cwd, envTemplateDir) : "",
+    path.resolve(cwd, "public", "production-templates"),
+    path.resolve(cwd, "Template for Production Team"),
+    path.resolve(cwd, "..", "Template for Production Team"),
+  ].filter(Boolean);
+
+  return candidates.some((candidate) => {
+    try {
+      return fs.existsSync(candidate) && fs.statSync(candidate).isDirectory();
+    } catch {
+      return false;
+    }
+  });
+}
+
 for (const key of requiredByTarget[target]) {
   if (!getEnv(key)) {
     errors.push(`Missing required env: ${key}`);
@@ -130,6 +148,12 @@ if (target === "production") {
   if (missingShippingOrigin.length > 0) {
     warnings.push(
       `Shipping origin env incomplete: ${missingShippingOrigin.join(", ")}. Fallback default origin may cause incorrect quote/resi in production.`,
+    );
+  }
+
+  if (!hasProductionTemplateDirectory()) {
+    warnings.push(
+      "Production template directory not found. WhatsApp production image may fall back to the long text-layout image instead of the intended template.",
     );
   }
 

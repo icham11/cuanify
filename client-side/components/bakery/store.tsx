@@ -146,6 +146,7 @@ export interface BakeryOrder {
   automationLogs?: OrderAutomationLog[];
   whatsAppParsedData?: ParsedWhatsAppOrder;
   shippingQuote?: ShippingQuote | null;
+  shippingReferenceId?: string;
   shipment?: ShippingShipment | null;
   simulations?: {
     whatsappSent: boolean;
@@ -324,6 +325,21 @@ function generateBookingCode(
   const datePart = toBookingDatePart(deliveryDate);
   const sequencePart = String(sequence).padStart(3, "0");
   return `${initials}${lastThree}-${datePart}-${sequencePart}`;
+}
+
+function generateShippingReferenceId(
+  bookingCode: string,
+  orderId: string,
+): string {
+  const normalizedBookingCode = bookingCode
+    .trim()
+    .replace(/[^A-Z0-9-]/gi, "")
+    .toUpperCase();
+  const normalizedOrderId = orderId.trim().replace(/[^A-Z0-9-]/gi, "");
+  const uniquePart = Date.now().toString(36).toUpperCase();
+  return [normalizedBookingCode || "BOOKING", normalizedOrderId || "ORDER", uniquePart]
+    .filter(Boolean)
+    .join("-");
 }
 
 function appendStatusLog(
@@ -848,6 +864,22 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       if (!items.length) return;
 
       try {
+        const shippingReferenceId =
+          order.shippingReferenceId ||
+          generateShippingReferenceId(order.bookingCode || order.id, order.id);
+
+        if (!order.shippingReferenceId) {
+          const updatedOrders = currentOrders.map((entry) =>
+            entry.id === orderId
+              ? {
+                  ...entry,
+                  shippingReferenceId,
+                }
+              : entry,
+          );
+          persistOrders(updatedOrders);
+        }
+
         const destinationLatitude = Number.isFinite(
           order.shippingQuote?.destinationLatitude,
         )
@@ -867,6 +899,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
           body: JSON.stringify({
             orderId: order.id,
             bookingCode: order.bookingCode || order.id,
+            referenceId: shippingReferenceId,
             customerName: order.customerName,
             customerPhone: order.customerPhone,
             destinationAddress: primaryAddress,
@@ -962,6 +995,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         id,
         resi: "",
         bookingCode,
+        shippingReferenceId: generateShippingReferenceId(bookingCode, id),
         customerName: order.customerName,
         customerPhone: order.customerPhone,
         customerAddress: order.deliveryAddresses[0]?.addressLine ?? "",

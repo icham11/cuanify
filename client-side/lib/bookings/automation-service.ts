@@ -615,6 +615,9 @@ export async function runBookingAutomations(
   const shouldSyncSheetsOnProgressEvents =
     String(process.env.GOOGLE_SHEETS_SYNC_ON_PROGRESS_EVENTS || "false") ===
     "true";
+  const shouldSendProductionTextOnConfirm =
+    String(process.env.FONNTE_SEND_PRODUCTION_TEXT_ON_CONFIRM || "false") ===
+    "true";
 
   let fonnteCustomer: AutomationActionResult = {
     ok: false,
@@ -655,16 +658,25 @@ export async function runBookingAutomations(
   }
 
   if (eventType === "order_confirmed") {
-    fonnteProduction = await sendFonnteMessage(
-      productionTarget,
-      buildProductionMessage(order),
-    ).catch((error: unknown) => ({
-      ok: false,
-      message:
-        error instanceof Error
-          ? error.message
-          : "Failed to send WhatsApp produksi.",
-    }));
+    if (shouldSendProductionTextOnConfirm) {
+      fonnteProduction = await sendFonnteMessage(
+        productionTarget,
+        buildProductionMessage(order),
+      ).catch((error: unknown) => ({
+        ok: false,
+        message:
+          error instanceof Error
+            ? error.message
+            : "Failed to send WhatsApp produksi.",
+      }));
+    } else {
+      fonnteProduction = {
+        ok: false,
+        skipped: true,
+        message:
+          "Skipped: text WA produksi on order_confirmed disabled; image notification handled by sendOrderToWhatsApp.",
+      };
+    }
   } else if (eventType === "order_created") {
     fonnteProduction = {
       ok: false,

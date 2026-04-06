@@ -592,6 +592,7 @@ function resolveTemplateDirectory(): string | null {
   const envPath = (process.env.PRODUCTION_TEMPLATE_DIR || "").trim();
   const candidates = [
     envPath ? path.resolve(process.cwd(), envPath) : "",
+    path.resolve(process.cwd(), "public", "production-templates"),
     path.resolve(process.cwd(), "Template for Production Team"),
     path.resolve(process.cwd(), "..", "Template for Production Team"),
   ].filter(Boolean);

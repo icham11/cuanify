@@ -49,10 +49,13 @@ FONNTE_TOKEN=
 # Bisa nomor (62812xxxx) atau group id (...@g.us)
 FONNTE_PRODUCTION_TARGET=
 FONNTE_SEND_PRODUCTION_ON_CREATE=true
+# Default false: notifikasi produksi pakai gambar template otomatis, bukan text panjang.
+FONNTE_SEND_PRODUCTION_TEXT_ON_CONFIRM=false
 FONNTE_SEND_CUSTOMER_ON_CONFIRM=false
 FONNTE_NOTIFY_RESCHEDULE_PRODUCTION=true
 # Optional: path folder template order form (relative dari client-side atau absolute)
-PRODUCTION_TEMPLATE_DIR=../Template for Production Team
+# Default lookup: public/production-templates, Template for Production Team, ../Template for Production Team
+PRODUCTION_TEMPLATE_DIR=public/production-templates
 # Optional: JSON mapping sinyal produk -> template key
 # Contoh: {"cookies_box":"box","standing_bouquet":"buket_standing"}
 # Template key valid: cake,cookies_tower,cupcakes,cookies,box,buket_hand,buket_standing

@@ -30,6 +30,7 @@ const shippingQuoteSchema = z.object({
 const createResiSchema = z.object({
   orderId: z.string().min(1),
   bookingCode: z.string().min(1),
+  referenceId: z.string().min(1).optional(),
   customerName: z.string().min(1),
   customerPhone: z.string().min(6),
   destinationAddress: z.string().min(5),

@@ -1359,6 +1359,9 @@ export async function createShippingResi(
     ? normalizeDeliveryTime(payload.deliveryTime)
     : undefined;
 
+  const referenceId =
+    payload.referenceId || payload.bookingCode || payload.orderId;
+
   const response = await fetchExternalWithRetry(`${BITESHIP_BASE_URL}/orders`, {
     method: "POST",
     headers: {
@@ -1366,7 +1369,7 @@ export async function createShippingResi(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      reference_id: payload.bookingCode || payload.orderId,
+      reference_id: referenceId,
       shipper_contact_name: origin.contactName,
       shipper_contact_phone: normalizePhone(origin.contactPhone),
       shipper_contact_email: origin.contactEmail,
@@ -1398,12 +1401,12 @@ export async function createShippingResi(
       delivery_type: deliveryType,
       delivery_date: deliveryDate,
       delivery_time: deliveryTime,
-      order_note: `Booking ${payload.bookingCode || payload.orderId}`,
+      order_note: `Booking ${referenceId}`,
       courier_company: payload.selectedQuote.courierCode,
       courier_type: payload.selectedQuote.courierServiceCode,
       items: payload.items.map((item) => ({
         name: item.name || "Order Item",
-        description: `Booking ${payload.bookingCode || payload.orderId}`,
+        description: `Booking ${referenceId}`,
         category: "food_and_drink",
         value: Math.max(1000, Number(item.value) || 1000),
         quantity: Math.max(1, Number(item.quantity) || 1),
@@ -1425,9 +1428,12 @@ export async function createShippingResi(
       asString(data.error) ||
       asString(data.message) ||
       `Biteship create order error ${response.status}`;
+    const normalizedMessage = message.toLowerCase();
     return {
       success: false,
-      error: message,
+      error: normalizedMessage.includes("reference id has already been used before")
+        ? `Reference ID resi bentrok. Kemungkinan booking ini sudah pernah dipakai untuk membuat order kurir sebelumnya.`
+        : message,
     };
   }
 
@@ -1454,6 +1460,7 @@ export async function createShippingResi(
     courierCode: payload.selectedQuote.courierCode,
     courierServiceCode: payload.selectedQuote.courierServiceCode,
     courierServiceName: payload.selectedQuote.courierServiceName,
+    referenceId: referenceId || undefined,
     trackingNumber: waybill || externalOrderId || "PENDING",
     status: waybill ? "created" : "pending_waybill",
     source: "biteship",
