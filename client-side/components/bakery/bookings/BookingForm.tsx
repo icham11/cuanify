@@ -2534,6 +2534,22 @@ export default function BookingForm() {
       if (draft.deliveryMethod)
         setValue("deliveryMethod", draft.deliveryMethod);
       if (draft.customNotes) setValue("customNotes", draft.customNotes);
+      setValue("paymentStatus", draft.paymentStatus, {
+        shouldValidate: true,
+      });
+      setValue("manualAdjustment", Number(draft.manualAdjustment || 0), {
+        shouldValidate: true,
+      });
+      setValue("dpPaidAmount", Math.max(0, Number(draft.dpPaidAmount || 0)), {
+        shouldValidate: true,
+      });
+      setValue(
+        "finalPaidAmount",
+        Math.max(0, Number(draft.finalPaidAmount || 0)),
+        {
+          shouldValidate: true,
+        },
+      );
       if (draft.items?.length) {
         const normalizedItems: BookingFormInput["items"] = draft.items.map(
           (item) => {

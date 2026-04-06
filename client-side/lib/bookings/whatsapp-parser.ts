@@ -373,6 +373,10 @@ export interface BookingFormAutoFill {
     | "ASSISTED_SAME_DAY"
     | "REGULAR_JNE_JNT";
   customNotes: string;
+  paymentStatus: "DP Paid" | "Paid";
+  dpPaidAmount: number;
+  finalPaidAmount: number;
+  manualAdjustment: number;
   deliveryAddresses: Array<{
     label: string;
     area: string;
@@ -2715,6 +2719,7 @@ export function buildBookingAutoFillFromParsed(
 ): BookingFormAutoFill {
   const itemNotes = buildItemNotesForOrderType(parsed, parsed.orderType);
   const recapAutoFillItems = buildRecapAutoFillItems(parsed);
+  const recapTotals = parsed.orderRecap?.totals;
 
   const autoFillItems =
     recapAutoFillItems.length > 0
@@ -2747,6 +2752,30 @@ export function buildBookingAutoFillFromParsed(
   const deliveryMethod = mapDeliveryMethodToFormValue(
     parsed.common.deliveryMethod,
   );
+  const manualAdjustment = Number(recapTotals?.adjustment || 0);
+  const dpPaidAmount = Math.max(0, Number(recapTotals?.downPayment || 0));
+  const remainingBalance =
+    recapTotals?.remainingBalance !== undefined
+      ? Math.max(0, Number(recapTotals.remainingBalance || 0))
+      : undefined;
+  const totalFromRecap =
+    recapTotals?.total !== undefined
+      ? Math.max(0, Number(recapTotals.total || 0))
+      : undefined;
+  const totalPaidFromRecap =
+    totalFromRecap !== undefined && remainingBalance !== undefined
+      ? Math.max(0, totalFromRecap - remainingBalance)
+      : undefined;
+  const finalPaidAmount =
+    totalPaidFromRecap !== undefined
+      ? Math.max(0, totalPaidFromRecap - dpPaidAmount)
+      : 0;
+  const paymentStatus =
+    totalFromRecap !== undefined &&
+    totalPaidFromRecap !== undefined &&
+    totalPaidFromRecap >= totalFromRecap
+      ? "Paid"
+      : "DP Paid";
 
   const notesSections = [
     formatParsedWhatsAppForNotes(parsed),
@@ -2768,6 +2797,10 @@ export function buildBookingAutoFillFromParsed(
     deliverySlot,
     deliveryMethod,
     customNotes: notesSections,
+    paymentStatus,
+    dpPaidAmount,
+    finalPaidAmount,
+    manualAdjustment,
     deliveryAddresses: [
       {
         label: "Primary",

@@ -721,6 +721,10 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
       450000,
       240000,
     ]);
+    expect(autoFill.paymentStatus).toBe("DP Paid");
+    expect(autoFill.dpPaidAmount).toBe(345000);
+    expect(autoFill.finalPaidAmount).toBe(345000);
+    expect(autoFill.manualAdjustment).toBe(0);
   });
 
   it("keeps separate recap items even when category is the same", () => {
@@ -840,5 +844,7 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
       450000,
       240000,
     ]);
+    expect(autoFill.dpPaidAmount).toBe(345000);
+    expect(autoFill.finalPaidAmount).toBe(345000);
   });
 });
