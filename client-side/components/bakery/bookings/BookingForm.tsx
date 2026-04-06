@@ -305,7 +305,8 @@ const DARK_BUTTERCREAM_COLOR_OPTIONS = [
   "Fuschia Pink",
 ] as const;
 const MAX_DARK_BUTTERCREAM_COLORS = 3;
-const GRABCAR_REQUIRED_METHODS: DeliveryMethod[] = [
+const FRAGILE_ORDER_ALLOWED_METHODS: DeliveryMethod[] = [
+  "PICKUP",
   "ASSISTED_GRAB",
   "ASSISTED_GOCAR",
 ];
@@ -1588,34 +1589,38 @@ export default function BookingForm() {
     );
   }, [setValue, shouldAutoSwitchGoSendToSameDay]);
 
-  const grabCarOnlyReasons = useMemo(
+  const fragileOrderReasons = useMemo(
     () => getGrabCarOnlyReasons(watchedItems),
     [watchedItems],
   );
-  const isGrabCarOnlyOrder = grabCarOnlyReasons.length > 0;
-  const isGrabCarMethodSelected = GRABCAR_REQUIRED_METHODS.includes(
+  const isFragileOrder = fragileOrderReasons.length > 0;
+  const isAllowedFragileOrderMethod = FRAGILE_ORDER_ALLOWED_METHODS.includes(
     deliveryMethod as DeliveryMethod,
   );
   const selectableDeliveryMethodOptions = useMemo(
     () =>
-      isGrabCarOnlyOrder
+      isFragileOrder
         ? DELIVERY_METHOD_OPTIONS.filter((option) =>
-            GRABCAR_REQUIRED_METHODS.includes(option.value as DeliveryMethod),
+            FRAGILE_ORDER_ALLOWED_METHODS.includes(
+              option.value as DeliveryMethod,
+            ),
           )
         : DELIVERY_METHOD_OPTIONS,
-    [isGrabCarOnlyOrder],
+    [isFragileOrder],
   );
 
   useEffect(() => {
-    if (!isGrabCarOnlyOrder) return;
-    if (GRABCAR_REQUIRED_METHODS.includes(deliveryMethod as DeliveryMethod)) {
+    if (!isFragileOrder) return;
+    if (
+      FRAGILE_ORDER_ALLOWED_METHODS.includes(deliveryMethod as DeliveryMethod)
+    ) {
       return;
     }
 
-    setValue("deliveryMethod", "ASSISTED_GOCAR", {
+    setValue("deliveryMethod", "PICKUP", {
       shouldValidate: true,
     });
-  }, [isGrabCarOnlyOrder, deliveryMethod, setValue]);
+  }, [isFragileOrder, deliveryMethod, setValue]);
 
   const primaryAddressLine = watchedAddresses[0]?.addressLine?.trim() || "";
   const isAddressTooShortForShipping =
@@ -2011,12 +2016,9 @@ export default function BookingForm() {
       return;
     }
 
-    if (
-      isGrabCarOnlyOrder &&
-      !GRABCAR_REQUIRED_METHODS.includes(deliveryMethod as DeliveryMethod)
-    ) {
+    if (isFragileOrder && !isAllowedFragileOrderMethod) {
       toast.error(
-        `Produk ${grabCarOnlyReasons.join(", ")} wajib Grab/GoCar (dibantu admin).`,
+        `Produk ${fragileOrderReasons.join(", ")} hanya bisa Pickup, Grab, atau GoCar.`,
       );
       return;
     }
@@ -4348,17 +4350,17 @@ export default function BookingForm() {
                 )}
               </div>
 
-              {isGrabCarOnlyOrder && (
+              {isFragileOrder && (
                 <p
                   className={`rounded-lg px-3 py-2 text-xs ${
-                    isGrabCarMethodSelected
+                    isAllowedFragileOrderMethod
                       ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
                       : "border border-amber-200 bg-amber-50 text-amber-700"
                   }`}
                 >
-                  {isGrabCarMethodSelected
-                    ? `Produk ${grabCarOnlyReasons.join(", ")} sudah menggunakan metode yang sesuai SOP (Grab/GoCar).`
-                    : `Produk ${grabCarOnlyReasons.join(", ")} wajib GrabCar/GoCar sesuai SOP.`}
+                  {isAllowedFragileOrderMethod
+                    ? `Produk ${fragileOrderReasons.join(", ")} sudah memakai metode yang diizinkan (Pickup / Grab / GoCar).`
+                    : `Produk ${fragileOrderReasons.join(", ")} hanya bisa Pickup, Grab, atau GoCar.`}
                 </p>
               )}
 
