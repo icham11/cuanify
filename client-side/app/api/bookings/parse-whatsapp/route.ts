@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, AuthError } from "@/lib/auth/session";
 import { analyzeBusinessData } from "@/lib/groq";
+import {
+  generateOrderImage,
+  type WhatsAppOrderImagePayload,
+} from "@/lib/whatsapp/generateOrderImage";
 import { uploadToCloudinary } from "@/lib/whatsapp/uploadToCloudinary";
 import {
   buildBookingAutoFillFromParsed,
   buildParsedDetectedItems,
   buildWhatsAppTemplate,
+  type BookingFormAutoFill,
+  type ParsedWhatsAppOrder,
   parseWhatsAppOrderText,
   type WhatsAppOrderType,
   type WhatsAppOrderTypeOrUnknown,
@@ -165,6 +171,153 @@ function deriveReferenceLabelFromFileName(fileName: string): string | undefined 
   return normalized || undefined;
 }
 
+function normalizeReferenceLabelsInput(value: string): string[] {
+  const labels: string[] = [];
+  const seen = new Set<string>();
+
+  for (const rawEntry of value.split(/\n|,|;/g)) {
+    const normalized = rawEntry.trim().replace(/\s+/g, " ");
+    if (!normalized) continue;
+
+    const matchKey = normalized.toLowerCase();
+    if (seen.has(matchKey)) continue;
+    seen.add(matchKey);
+    labels.push(normalized);
+  }
+
+  return labels;
+}
+
+function inferPreviewTemplateKey(parsed: ParsedWhatsAppOrder): string {
+  const orderText = [parsed.common.order, parsed.rawText].join(" ").toLowerCase();
+
+  if (parsed.orderType === "cake") return "cake";
+  if (parsed.orderType === "cupcakes") return "cupcakes";
+  if (parsed.orderType === "cookies_tower") return "cookies_tower";
+  if (parsed.orderType === "cookies") {
+    if (/\bbox\b/.test(orderText)) return "box";
+    return "cookies";
+  }
+  if (parsed.orderType === "buket") {
+    if (/standing/.test(orderText)) return "buket_standing";
+    return "buket_hand";
+  }
+  return "cake";
+}
+
+function formatTemplateDate(value: string): string {
+  const trimmed = value.trim();
+  const match = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return trimmed;
+  const [, year, month, day] = match;
+  return `${day}/${month}/${year}`;
+}
+
+function formatTemplateTime(value: string): string {
+  return value.trim().replace(/\s*wib$/i, "");
+}
+
+function buildPreviewTemplateFields(
+  parsed: ParsedWhatsAppOrder,
+  templateKey: string,
+  itemSummary: string,
+): WhatsAppOrderImagePayload["templateFields"] {
+  const details = parsed.details ?? {};
+
+  const templateFields: NonNullable<WhatsAppOrderImagePayload["templateFields"]> = {
+    dateTime: [
+      formatTemplateDate(parsed.common.deliveryDate || ""),
+      formatTemplateTime(parsed.common.deliveryTime || ""),
+    ]
+      .filter(Boolean)
+      .join(" | "),
+    recipientName: parsed.common.recipientName || "Customer",
+    recipientPhone: parsed.common.recipientPhone || "",
+  };
+
+  if (templateKey === "cake") {
+    templateFields.rightTop = details.cakeFlavor;
+    templateFields.rightMiddle = details.cakeName;
+    templateFields.rightBottom = details.cakeAge;
+  } else if (templateKey === "cookies_tower") {
+    templateFields.rightTop = details.designTheme || details.colorTheme;
+    templateFields.rightMiddle = details.towerName;
+    templateFields.rightBottom = details.towerAge;
+  } else if (templateKey === "cupcakes") {
+    templateFields.rightTop = details.cupcakeFlavor;
+    templateFields.rightMiddle = details.greetingCard || details.toFromNotes;
+  } else if (templateKey === "cookies") {
+    templateFields.rightMiddle = details.toFromNotes || details.greetingCard;
+  } else if (templateKey === "box") {
+    templateFields.rightTop = itemSummary;
+  } else if (
+    templateKey === "buket_hand" ||
+    templateKey === "buket_standing"
+  ) {
+    templateFields.rightTop = details.bouquetPaperColor;
+    templateFields.rightMiddle = details.flowerCount;
+    templateFields.rightBottom = details.flowerColor;
+  }
+
+  return templateFields;
+}
+
+function buildProductionPreviewPayload(args: {
+  parsed: ParsedWhatsAppOrder;
+  autoFill: BookingFormAutoFill;
+  explicitRequestedLabels: string[];
+}): WhatsAppOrderImagePayload {
+  const itemSummary = args.autoFill.items
+    .map((item) => item.productName)
+    .filter(Boolean)
+    .join(", ");
+  const templateKey = inferPreviewTemplateKey(args.parsed);
+  const referenceImages = Array.isArray(args.parsed.referenceImages)
+    ? args.parsed.referenceImages
+    : [];
+  const mergedRequestedImageLabels = [
+    ...(Array.isArray(args.parsed.requestedImageLabels)
+      ? args.parsed.requestedImageLabels
+      : []),
+    ...args.explicitRequestedLabels,
+  ].filter((value, index, array) => {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return false;
+    return (
+      array.findIndex((entry) => entry.trim().toLowerCase() === normalized) ===
+      index
+    );
+  });
+
+  return {
+    customerName: args.autoFill.customerName || args.parsed.common.recipientName || "Customer",
+    recipientName: args.parsed.common.recipientName || args.autoFill.customerName || "Customer",
+    phone: args.autoFill.phoneNumber || args.parsed.common.recipientPhone || "",
+    recipientPhone:
+      args.parsed.common.recipientPhone || args.autoFill.phoneNumber || "",
+    deliveryDate: args.autoFill.deliveryDate || args.parsed.common.deliveryDate || "",
+    deliveryTime: args.autoFill.deliverySlot || args.parsed.common.deliveryTime || "",
+    shippingMethod: args.parsed.common.deliveryMethod || "",
+    item: itemSummary || args.parsed.common.order || "",
+    notes: args.autoFill.customNotes || "",
+    address: args.autoFill.deliveryAddresses[0]?.addressLine || args.parsed.common.fullAddress || "",
+    bookingCode: args.parsed.common.bookingCode || "",
+    orderType: args.parsed.orderType,
+    templateKey,
+    productTags: args.autoFill.items.flatMap((item) => [
+      item.category,
+      item.productName,
+      item.size,
+    ]),
+    imageUrl: referenceImages[0]?.url || "",
+    imageUrls: referenceImages.map((reference) => reference.url),
+    referenceImages,
+    requestedImageLabels: mergedRequestedImageLabels,
+    templateFields: buildPreviewTemplateFields(args.parsed, templateKey, itemSummary),
+    slotNotes: mergedRequestedImageLabels,
+  };
+}
+
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (typeof error === "string") return error;
@@ -184,6 +337,7 @@ export async function POST(request: NextRequest) {
     let sourceType: WhatsAppSourceType = "text";
     let preferredOrderType: WhatsAppOrderTypeOrUnknown = "unknown";
     let textInput = "";
+    let referenceLabelsInput = "";
     let files: File[] = [];
 
     if (contentType.includes("multipart/form-data")) {
@@ -193,6 +347,7 @@ export async function POST(request: NextRequest) {
         getStringValue(formData.get("orderType")),
       );
       textInput = getStringValue(formData.get("text"));
+      referenceLabelsInput = getStringValue(formData.get("referenceLabels"));
 
       const uploadedFiles = formData
         .getAll("files")
@@ -216,6 +371,9 @@ export async function POST(request: NextRequest) {
       sourceType = parseSourceType(getStringValue(body.sourceType));
       preferredOrderType = parseOrderType(getStringValue(body.orderType));
       textInput = getStringValue(body.text);
+      referenceLabelsInput = getStringValue(
+        (body as { referenceLabels?: string }).referenceLabels,
+      );
     }
 
     const parserWarnings: string[] = [];
@@ -252,6 +410,9 @@ export async function POST(request: NextRequest) {
 
     let extractedText = textInput.trim();
     let visionRawOutput = "";
+    const explicitRequestedLabels = normalizeReferenceLabelsInput(
+      referenceLabelsInput,
+    );
     const uploadedImageUrls: string[] = [];
     const uploadedReferenceImages: Array<{
       url: string;
@@ -270,7 +431,8 @@ export async function POST(request: NextRequest) {
         uploadedImageUrls.push(imageUrl);
         uploadedReferenceImages.push({
           url: imageUrl,
-          label: deriveReferenceLabelFromFileName(file.name),
+          label:
+            explicitRequestedLabels[index] || deriveReferenceLabelFromFileName(file.name),
           orderIndex: index,
         });
       }
@@ -325,9 +487,42 @@ export async function POST(request: NextRequest) {
       imageUrl: uploadedImageUrls[0],
       uploadedImageUrls,
       referenceImages: uploadedReferenceImages,
+      requestedImageLabels: [
+        ...(Array.isArray(parsed.requestedImageLabels)
+          ? parsed.requestedImageLabels
+          : []),
+        ...explicitRequestedLabels,
+      ].filter((value, index, array) => {
+        const normalized = value.trim().toLowerCase();
+        if (!normalized) return false;
+        return (
+          array.findIndex(
+            (entry) => entry.trim().toLowerCase() === normalized,
+          ) === index
+        );
+      }),
       detectedItems: buildParsedDetectedItems(autoFill.items),
     };
     const responseWarnings = [...parserWarnings];
+    let productionPreviewImageUrl: string | null = null;
+
+    if (uploadedReferenceImages.length > 0) {
+      try {
+        const previewPayload = buildProductionPreviewPayload({
+          parsed: parsedWithImage,
+          autoFill,
+          explicitRequestedLabels,
+        });
+        const previewBuffer = await generateOrderImage(previewPayload);
+        productionPreviewImageUrl = await uploadToCloudinary(previewBuffer, {
+          folder: "orders/generated/preview",
+        });
+      } catch (previewError) {
+        responseWarnings.push(
+          `Preview template produksi belum berhasil dibuat: ${getErrorMessage(previewError)}`,
+        );
+      }
+    }
 
     if (parsedWithImage.missingFields.length > 0) {
       responseWarnings.push(
@@ -340,6 +535,7 @@ export async function POST(request: NextRequest) {
       parsed: parsedWithImage,
       autoFill,
       uploadedImageUrls,
+      productionPreviewImageUrl,
       visionRawOutput:
         sourceType === "image" || sourceType === "email"
           ? visionRawOutput

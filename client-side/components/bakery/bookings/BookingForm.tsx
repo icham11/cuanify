@@ -409,6 +409,7 @@ interface ParseWhatsAppApiResponse {
   parsed: ParsedWhatsAppOrder;
   autoFill: BookingFormAutoFill;
   warnings?: string[];
+  productionPreviewImageUrl?: string | null;
   visionRawOutput?: string | null;
   error?: string;
 }
@@ -418,6 +419,7 @@ interface ParseWhatsAppRequestArgs {
   orderType: ParserOrderType;
   text?: string;
   files?: File[];
+  referenceLabels?: string;
 }
 
 class ParseWhatsAppApiError extends Error {
@@ -1008,6 +1010,8 @@ export default function BookingForm() {
     useState(false);
   const [parsedPreview, setParsedPreview] =
     useState<ParsedWhatsAppOrder | null>(null);
+  const [productionPreviewImageUrl, setProductionPreviewImageUrl] =
+    useState("");
   const [visionRawOutput, setVisionRawOutput] = useState("");
   const [draftImported, setDraftImported] = useState(false);
   const [referenceImageFiles, setReferenceImageFiles] = useState<File[]>([]);
@@ -2217,7 +2221,7 @@ export default function BookingForm() {
 
     if (referenceFilesChangedSinceParse) {
       toast.error(
-        "Gambar referensi customer baru saja diubah. Klik Parse WhatsApp lagi supaya file terbaru ikut tersimpan ke booking dan template produksi.",
+        "Referensi gambar atau label desain baru saja diubah. Klik Parse WhatsApp lagi supaya versi terbaru ikut tersimpan ke booking dan template produksi.",
       );
       return;
     }
@@ -2373,8 +2377,10 @@ export default function BookingForm() {
       setSelectedOrderType("unknown");
       setShowOrderTypeSelector(false);
       setParsedPreview(null);
+      setProductionPreviewImageUrl("");
       setVisionRawOutput("");
       setReferenceImageFiles([]);
+      setReferenceFilesChangedSinceParse(false);
       setReferenceImageLabelsInput("");
       setReferenceFileInputKey((current) => current + 1);
       setShippingQuotes([]);
@@ -2458,6 +2464,10 @@ export default function BookingForm() {
       formData.append("text", args.text.trim());
     }
 
+    if (args.referenceLabels?.trim()) {
+      formData.append("referenceLabels", args.referenceLabels.trim());
+    }
+
     for (const file of args.files ?? []) {
       formData.append("files", file);
     }
@@ -2524,6 +2534,7 @@ export default function BookingForm() {
         orderType: override?.orderType ?? selectedOrderType,
         text: textInput,
         files: referenceImageFiles,
+        referenceLabels: referenceImageLabelsInput,
       });
 
       const draft = payload.autoFill;
@@ -2676,6 +2687,7 @@ export default function BookingForm() {
       };
 
       setParsedPreview(enrichedParsedPreview);
+      setProductionPreviewImageUrl(payload.productionPreviewImageUrl ?? "");
       setVisionRawOutput(payload.visionRawOutput ?? "");
       setDraftImported(true);
       setReferenceFilesChangedSinceParse(false);
@@ -2690,6 +2702,7 @@ export default function BookingForm() {
         );
       }
     } catch (error) {
+      setProductionPreviewImageUrl("");
       const message =
         error instanceof Error
           ? error.message
@@ -2856,9 +2869,12 @@ export default function BookingForm() {
               Label Desain per Gambar
               <Textarea
                 value={referenceImageLabelsInput}
-                onChange={(event) =>
-                  setReferenceImageLabelsInput(event.target.value)
-                }
+                onChange={(event) => {
+                  setReferenceImageLabelsInput(event.target.value);
+                  if (draftImported) {
+                    setReferenceFilesChangedSinceParse(true);
+                  }
+                }}
                 placeholder={
                   "Opsional. Isi satu label per baris sesuai urutan upload.\nContoh:\nPikachu\nBulbasaur\nPiplup"
                 }
@@ -2879,9 +2895,10 @@ export default function BookingForm() {
 
             {referenceFilesChangedSinceParse && referenceImageFiles.length > 0 && (
               <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                File gambar berubah. Klik <span className="font-semibold">Parse WhatsApp</span>{" "}
-                lagi supaya referensi terbaru ikut tersimpan ke booking dan
-                dipakai template produksi.
+                Referensi gambar atau label desain berubah. Klik{" "}
+                <span className="font-semibold">Parse WhatsApp</span> lagi
+                supaya versi terbaru ikut tersimpan ke booking dan dipakai
+                template produksi.
               </div>
             )}
           </div>
@@ -2894,7 +2911,11 @@ export default function BookingForm() {
               disabled={isParsingWhatsApp}
             >
               <Upload size={16} />
-              {isParsingWhatsApp ? "Parsing WhatsApp..." : "Parse WhatsApp"}
+              {isParsingWhatsApp
+                ? "Parsing & Preview..."
+                : referenceFilesChangedSinceParse || draftImported
+                  ? "Parse Ulang WhatsApp"
+                  : "Parse WhatsApp"}
             </Button>
             <Button
               type="button"
@@ -2924,6 +2945,7 @@ export default function BookingForm() {
                 setSelectedOrderType("unknown");
                 setShowOrderTypeSelector(false);
                 setParsedPreview(null);
+                setProductionPreviewImageUrl("");
                 setVisionRawOutput("");
                 setDraftImported(false);
                 setReferenceImageFiles([]);
@@ -3032,6 +3054,30 @@ export default function BookingForm() {
                       : ""}
                   </div>
                 )}
+              {productionPreviewImageUrl && (
+                <div className="rounded-lg border border-emerald-200 bg-white p-3">
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+                      Preview Template Produksi
+                    </p>
+                    <a
+                      href={productionPreviewImageUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs font-medium text-emerald-700 underline underline-offset-2"
+                    >
+                      Buka file Cloudinary
+                    </a>
+                  </div>
+                  {/* Using a plain img keeps arbitrary Cloudinary preview URLs simple in the admin form. */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={productionPreviewImageUrl}
+                    alt="Preview template produksi"
+                    className="w-full rounded-lg border border-gray-200 bg-gray-50 object-contain"
+                  />
+                </div>
+              )}
             </div>
           )}
         </CardContent>
@@ -4534,6 +4580,7 @@ export default function BookingForm() {
                   setSelectedOrderType("unknown");
                   setShowOrderTypeSelector(false);
                   setParsedPreview(null);
+                  setProductionPreviewImageUrl("");
                   setVisionRawOutput("");
                   setDraftImported(false);
                   setShippingQuotes([]);
