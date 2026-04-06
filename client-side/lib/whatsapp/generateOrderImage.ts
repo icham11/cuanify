@@ -8,6 +8,15 @@ export interface WhatsAppReferenceImage {
   orderIndex?: number;
 }
 
+export interface WhatsAppOrderTemplateFields {
+  dateTime?: string;
+  recipientName?: string;
+  recipientPhone?: string;
+  rightTop?: string;
+  rightMiddle?: string;
+  rightBottom?: string;
+}
+
 export interface WhatsAppOrderImagePayload {
   customerName: string;
   phone?: string;
@@ -20,10 +29,15 @@ export interface WhatsAppOrderImagePayload {
   orderType?: string;
   templateKey?: string;
   productTags?: string[];
+  recipientName?: string;
+  recipientPhone?: string;
+  shippingMethod?: string;
   imageUrl?: string;
   imageUrls?: string[];
   referenceImages?: WhatsAppReferenceImage[];
   requestedImageLabels?: string[];
+  templateFields?: WhatsAppOrderTemplateFields;
+  slotNotes?: string[];
 }
 
 interface TemplateSlot {
@@ -33,9 +47,27 @@ interface TemplateSlot {
   h: number;
 }
 
+interface TemplateTextField {
+  key: keyof WhatsAppOrderTemplateFields;
+  x: number;
+  y: number;
+  w: number;
+  h?: number;
+  fontSize?: number;
+  fontWeight?: number;
+  lineHeight?: number;
+}
+
 interface TemplateLayout {
   fileName: string;
   slots: TemplateSlot[];
+  textFields?: TemplateTextField[];
+  repeatSlotImages?: boolean;
+}
+
+interface RenderableReferenceImage {
+  url: string;
+  label?: string;
 }
 
 type TemplateKey =
@@ -51,6 +83,14 @@ const FALLBACK_IMAGE_URL = "https://via.placeholder.com/1024";
 const TEMPLATE_WIDTH = 1414;
 const TEMPLATE_HEIGHT = 2000;
 const MARKED_SELECTION_MIN_PIXELS = 180;
+const COMMON_LEFT_TEXT_FIELDS: TemplateTextField[] = [
+  { key: "dateTime", x: 315, y: 296, w: 340, h: 90, fontSize: 30, lineHeight: 1.25 },
+  { key: "recipientName", x: 315, y: 394, w: 340, fontSize: 32 },
+  { key: "recipientPhone", x: 315, y: 476, w: 340, fontSize: 32 },
+];
+const COMMON_RIGHT_COLUMN_X = 1015;
+const NOTE_TEXT_X_OFFSET = 86;
+const NOTE_TEXT_Y_OFFSET = 34;
 
 const TEMPLATE_LAYOUTS: Record<TemplateKey, TemplateLayout> = {
   cake: {
@@ -65,10 +105,22 @@ const TEMPLATE_LAYOUTS: Record<TemplateKey, TemplateLayout> = {
       { x: 540, y: 1540, w: 350, h: 350 },
       { x: 960, y: 1540, w: 350, h: 350 },
     ],
+    textFields: [
+      ...COMMON_LEFT_TEXT_FIELDS,
+      { key: "rightTop", x: COMMON_RIGHT_COLUMN_X, y: 296, w: 280, fontSize: 30 },
+      { key: "rightMiddle", x: COMMON_RIGHT_COLUMN_X, y: 394, w: 280, fontSize: 30 },
+      { key: "rightBottom", x: COMMON_RIGHT_COLUMN_X, y: 476, w: 280, fontSize: 30 },
+    ],
   },
   cookies_tower: {
     fileName: "3.jpg",
     slots: [{ x: 220, y: 600, w: 980, h: 980 }],
+    textFields: [
+      ...COMMON_LEFT_TEXT_FIELDS,
+      { key: "rightTop", x: COMMON_RIGHT_COLUMN_X, y: 296, w: 280, fontSize: 30 },
+      { key: "rightMiddle", x: COMMON_RIGHT_COLUMN_X, y: 394, w: 280, fontSize: 30 },
+      { key: "rightBottom", x: COMMON_RIGHT_COLUMN_X, y: 476, w: 280, fontSize: 30 },
+    ],
   },
   cupcakes: {
     fileName: "4.jpg",
@@ -80,6 +132,19 @@ const TEMPLATE_LAYOUTS: Record<TemplateKey, TemplateLayout> = {
       { x: 120, y: 1540, w: 350, h: 350 },
       { x: 540, y: 1540, w: 350, h: 350 },
       { x: 960, y: 1540, w: 350, h: 350 },
+    ],
+    textFields: [
+      ...COMMON_LEFT_TEXT_FIELDS,
+      { key: "rightTop", x: COMMON_RIGHT_COLUMN_X, y: 296, w: 280, fontSize: 30 },
+      {
+        key: "rightMiddle",
+        x: COMMON_RIGHT_COLUMN_X,
+        y: 394,
+        w: 280,
+        h: 120,
+        fontSize: 28,
+        lineHeight: 1.25,
+      },
     ],
   },
   cookies: {
@@ -95,6 +160,19 @@ const TEMPLATE_LAYOUTS: Record<TemplateKey, TemplateLayout> = {
       { x: 540, y: 1485, w: 350, h: 350 },
       { x: 960, y: 1485, w: 350, h: 350 },
     ],
+    textFields: [
+      ...COMMON_LEFT_TEXT_FIELDS,
+      {
+        key: "rightMiddle",
+        x: COMMON_RIGHT_COLUMN_X,
+        y: 394,
+        w: 280,
+        h: 120,
+        fontSize: 28,
+        lineHeight: 1.25,
+      },
+    ],
+    repeatSlotImages: true,
   },
   box: {
     fileName: "6.jpg",
@@ -109,6 +187,19 @@ const TEMPLATE_LAYOUTS: Record<TemplateKey, TemplateLayout> = {
       { x: 540, y: 1485, w: 350, h: 350 },
       { x: 960, y: 1485, w: 350, h: 350 },
     ],
+    textFields: [
+      ...COMMON_LEFT_TEXT_FIELDS,
+      {
+        key: "rightTop",
+        x: COMMON_RIGHT_COLUMN_X,
+        y: 296,
+        w: 280,
+        h: 80,
+        fontSize: 28,
+        lineHeight: 1.25,
+      },
+    ],
+    repeatSlotImages: true,
   },
   buket_hand: {
     fileName: "7.jpg",
@@ -124,6 +215,12 @@ const TEMPLATE_LAYOUTS: Record<TemplateKey, TemplateLayout> = {
       { x: 540, y: 1510, w: 350, h: 350 },
       { x: 960, y: 1510, w: 350, h: 350 },
     ],
+    textFields: [
+      ...COMMON_LEFT_TEXT_FIELDS,
+      { key: "rightTop", x: COMMON_RIGHT_COLUMN_X, y: 296, w: 280, fontSize: 30 },
+      { key: "rightMiddle", x: COMMON_RIGHT_COLUMN_X, y: 394, w: 280, fontSize: 30 },
+      { key: "rightBottom", x: COMMON_RIGHT_COLUMN_X, y: 476, w: 280, fontSize: 30 },
+    ],
   },
   buket_standing: {
     fileName: "8.jpg",
@@ -138,6 +235,12 @@ const TEMPLATE_LAYOUTS: Record<TemplateKey, TemplateLayout> = {
       { x: 120, y: 1510, w: 350, h: 350 },
       { x: 540, y: 1510, w: 350, h: 350 },
       { x: 960, y: 1510, w: 350, h: 350 },
+    ],
+    textFields: [
+      ...COMMON_LEFT_TEXT_FIELDS,
+      { key: "rightTop", x: COMMON_RIGHT_COLUMN_X, y: 296, w: 280, fontSize: 30 },
+      { key: "rightMiddle", x: COMMON_RIGHT_COLUMN_X, y: 394, w: 280, fontSize: 30 },
+      { key: "rightBottom", x: COMMON_RIGHT_COLUMN_X, y: 476, w: 280, fontSize: 30 },
     ],
   },
 };
@@ -976,38 +1079,139 @@ async function extractMarkedSelectionCrops(
 async function resolveRenderableReferenceImages(
   page: Page,
   referenceImages: WhatsAppReferenceImage[],
-): Promise<string[]> {
-  const referenceImageUrls = referenceImages.map((reference) => reference.url);
-  if (referenceImageUrls.length !== 1) {
-    return referenceImageUrls;
+): Promise<RenderableReferenceImage[]> {
+  if (referenceImages.length !== 1) {
+    return referenceImages.map((reference) => ({
+      url: reference.url,
+      label: reference.label,
+    }));
   }
 
-  const sourceDataUrl = await fetchImageAsDataUrl(referenceImageUrls[0]);
+  const [singleReference] = referenceImages;
+  if (!singleReference) return [];
+
+  const sourceDataUrl = await fetchImageAsDataUrl(singleReference.url);
   if (!sourceDataUrl) {
-    return referenceImageUrls;
+    return [{ url: singleReference.url, label: singleReference.label }];
   }
 
   const extractedCrops = await extractMarkedSelectionCrops(page, sourceDataUrl);
   if (extractedCrops.length > 0) {
-    return extractedCrops;
+    return extractedCrops.map((cropUrl) => ({ url: cropUrl }));
   }
 
-  return [sourceDataUrl];
+  return [{ url: sourceDataUrl, label: singleReference.label }];
+}
+
+function formatTemplateDate(value?: string): string {
+  const trimmed = (value || "").trim();
+  if (!trimmed) return "";
+  const yyyyMmDdMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (yyyyMmDdMatch) {
+    const [, year, month, day] = yyyyMmDdMatch;
+    return `${day}/${month}/${year}`;
+  }
+  return trimmed;
+}
+
+function formatTemplateTime(value?: string): string {
+  return (value || "").trim().replace(/\s*wib$/i, "");
+}
+
+function buildDefaultTemplateFields(
+  order: WhatsAppOrderImagePayload,
+): WhatsAppOrderTemplateFields {
+  const dateLine = [formatTemplateDate(order.deliveryDate), formatTemplateTime(order.deliveryTime)]
+    .filter(Boolean)
+    .join(" | ");
+
+  return {
+    dateTime: dateLine,
+    recipientName: (order.recipientName || order.customerName || "").trim(),
+    recipientPhone: (order.recipientPhone || order.phone || "").trim(),
+  };
+}
+
+function withRepeatedReferences(
+  references: RenderableReferenceImage[],
+  targetLength: number,
+): RenderableReferenceImage[] {
+  if (references.length === 0 || references.length >= targetLength) {
+    return references;
+  }
+
+  return Array.from({ length: targetLength }, (_, index) => {
+    const source = references[index % references.length];
+    return source ?? references[0];
+  }).filter((reference): reference is RenderableReferenceImage => Boolean(reference));
+}
+
+function resolveSlotNotes(
+  order: WhatsAppOrderImagePayload,
+  renderableReferenceImages: RenderableReferenceImage[],
+  slotCount: number,
+): string[] {
+  const explicitNotes = Array.isArray(order.slotNotes)
+    ? order.slotNotes.map((note) => normalizeLabel(note)).filter(Boolean)
+    : [];
+
+  const referenceLabels = renderableReferenceImages
+    .map((reference) => normalizeLabel(reference.label))
+    .filter(Boolean);
+
+  const sourceNotes = explicitNotes.length > 0 ? explicitNotes : referenceLabels;
+  if (sourceNotes.length === 0) return [];
+
+  return Array.from({ length: slotCount }, (_, index) => sourceNotes[index % sourceNotes.length]);
 }
 
 function buildTemplateHtml(
+  order: WhatsAppOrderImagePayload,
   layout: TemplateLayout,
   templateDataUrl: string,
-  referenceImageUrls: string[],
+  renderableReferenceImages: RenderableReferenceImage[],
 ): string {
-  const images =
-    referenceImageUrls.length > 0 ? referenceImageUrls : [FALLBACK_IMAGE_URL];
+  const effectiveTemplateFields = {
+    ...buildDefaultTemplateFields(order),
+    ...(order.templateFields ?? {}),
+  };
+  const imageSources =
+    renderableReferenceImages.length > 0
+      ? layout.repeatSlotImages
+        ? withRepeatedReferences(renderableReferenceImages, layout.slots.length)
+        : renderableReferenceImages
+      : [{ url: FALLBACK_IMAGE_URL }];
+  const slotNotes = resolveSlotNotes(order, imageSources, layout.slots.length);
 
   const slotMarkup = layout.slots
     .map((slot, index) => {
-      const source = images[index];
-      if (!source) return "";
-      return `<img class="slot-image" src="${escapeHtml(source)}" style="left:${slot.x}px;top:${slot.y}px;width:${slot.w}px;height:${slot.h}px;" />`;
+      const source = imageSources[index];
+      if (!source?.url) return "";
+      return `<img class="slot-image" src="${escapeHtml(source.url)}" style="left:${slot.x}px;top:${slot.y}px;width:${slot.w}px;height:${slot.h}px;" />`;
+    })
+    .filter(Boolean)
+    .join("\n");
+
+  const textMarkup = (layout.textFields ?? [])
+    .map((fieldConfig) => {
+      const value = effectiveTemplateFields[fieldConfig.key]?.trim();
+      if (!value) return "";
+
+      const heightStyle = fieldConfig.h ? `height:${fieldConfig.h}px;` : "";
+      const fontSize = fieldConfig.fontSize ?? 32;
+      const fontWeight = fieldConfig.fontWeight ?? 600;
+      const lineHeight = fieldConfig.lineHeight ?? 1.2;
+
+      return `<div class="template-text" style="left:${fieldConfig.x}px;top:${fieldConfig.y}px;width:${fieldConfig.w}px;${heightStyle}font-size:${fontSize}px;font-weight:${fontWeight};line-height:${lineHeight};">${escapeHtml(value)}</div>`;
+    })
+    .filter(Boolean)
+    .join("\n");
+
+  const notesMarkup = layout.slots
+    .map((slot, index) => {
+      const note = slotNotes[index];
+      if (!note) return "";
+      return `<div class="slot-note" style="left:${slot.x + NOTE_TEXT_X_OFFSET}px;top:${slot.y + slot.h + NOTE_TEXT_Y_OFFSET}px;width:${Math.max(slot.w - NOTE_TEXT_X_OFFSET, 120)}px;">${escapeHtml(note)}</div>`;
     })
     .filter(Boolean)
     .join("\n");
@@ -1034,11 +1238,30 @@ function buildTemplateHtml(
             border-radius: 6px;
             border: 2px solid rgba(255, 255, 255, 0.72);
           }
+          .template-text {
+            position: absolute;
+            color: #111827;
+            white-space: pre-wrap;
+            overflow: hidden;
+            text-shadow: 0 1px 1px rgba(255, 255, 255, 0.45);
+          }
+          .slot-note {
+            position: absolute;
+            color: #111827;
+            font-size: 24px;
+            font-weight: 500;
+            line-height: 1.2;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+          }
         </style>
       </head>
       <body>
         <div class="sheet">
           ${slotMarkup}
+          ${textMarkup}
+          ${notesMarkup}
         </div>
       </body>
     </html>
@@ -1173,8 +1396,16 @@ export async function generateOrderImage(
 
     const html =
       useTemplateLayout && templateDataUrl
-        ? buildTemplateHtml(layout, templateDataUrl, renderableReferenceImages)
-        : buildFallbackHtml(order, renderableReferenceImages);
+        ? buildTemplateHtml(
+            order,
+            layout,
+            templateDataUrl,
+            renderableReferenceImages,
+          )
+        : buildFallbackHtml(
+            order,
+            renderableReferenceImages.map((reference) => reference.url),
+          );
 
     await page.setContent(html, { waitUntil: "networkidle0" });
 

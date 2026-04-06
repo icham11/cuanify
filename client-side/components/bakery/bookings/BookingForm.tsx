@@ -1011,6 +1011,8 @@ export default function BookingForm() {
   const [visionRawOutput, setVisionRawOutput] = useState("");
   const [draftImported, setDraftImported] = useState(false);
   const [referenceImageFiles, setReferenceImageFiles] = useState<File[]>([]);
+  const [referenceFilesChangedSinceParse, setReferenceFilesChangedSinceParse] =
+    useState(false);
   const [referenceImageLabelsInput, setReferenceImageLabelsInput] =
     useState("");
   const [referenceFileInputKey, setReferenceFileInputKey] = useState(0);
@@ -2213,6 +2215,13 @@ export default function BookingForm() {
       }
     }
 
+    if (referenceFilesChangedSinceParse) {
+      toast.error(
+        "Gambar referensi customer baru saja diubah. Klik Parse WhatsApp lagi supaya file terbaru ikut tersimpan ke booking dan template produksi.",
+      );
+      return;
+    }
+
     const mappedItems: OrderItem[] = values.items.map((item, index) => {
       const bouquetType = detectBouquetTypeFromItem(item);
       const itemBasePrice = getItemBasePrice(productCatalog, item);
@@ -2669,6 +2678,7 @@ export default function BookingForm() {
       setParsedPreview(enrichedParsedPreview);
       setVisionRawOutput(payload.visionRawOutput ?? "");
       setDraftImported(true);
+      setReferenceFilesChangedSinceParse(false);
       setShowOrderTypeSelector(false);
 
       if (payload.warnings?.length) {
@@ -2830,9 +2840,10 @@ export default function BookingForm() {
                 type="file"
                 accept="image/*"
                 multiple
-                onChange={(event) =>
-                  setReferenceImageFiles(Array.from(event.target.files ?? []))
-                }
+                onChange={(event) => {
+                  setReferenceImageFiles(Array.from(event.target.files ?? []));
+                  setReferenceFilesChangedSinceParse(true);
+                }}
               />
               <span className="text-xs font-normal text-gray-500">
                 Upload gambar yang dipilih customer. Bisa satu gambar crop per
@@ -2863,6 +2874,14 @@ export default function BookingForm() {
                 {referenceImageFiles.length} gambar siap dipakai:
                 {" "}
                 {referenceImageFiles.map((file) => file.name).join(", ")}
+              </div>
+            )}
+
+            {referenceFilesChangedSinceParse && referenceImageFiles.length > 0 && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                File gambar berubah. Klik <span className="font-semibold">Parse WhatsApp</span>{" "}
+                lagi supaya referensi terbaru ikut tersimpan ke booking dan
+                dipakai template produksi.
               </div>
             )}
           </div>
@@ -2908,6 +2927,7 @@ export default function BookingForm() {
                 setVisionRawOutput("");
                 setDraftImported(false);
                 setReferenceImageFiles([]);
+                setReferenceFilesChangedSinceParse(false);
                 setReferenceImageLabelsInput("");
                 setReferenceFileInputKey((current) => current + 1);
               }}

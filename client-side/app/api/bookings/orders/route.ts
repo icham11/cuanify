@@ -561,6 +561,123 @@ function extractRequestedImageLabels(order: NormalizedOrder): string[] {
   return Array.from(new Set(candidates));
 }
 
+function normalizeParsedOrderTypeKey(value: unknown): string {
+  const normalized = asString(value)
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+
+  if (normalized === "buket_hand" || normalized === "buket_standing") {
+    return "buket";
+  }
+
+  return normalized;
+}
+
+function formatTemplateDate(value: unknown): string {
+  const trimmed = asString(value).trim();
+  const match = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return trimmed;
+  const [, year, month, day] = match;
+  return `${day}/${month}/${year}`;
+}
+
+function formatTemplateTime(value: unknown): string {
+  return asString(value).trim().replace(/\s*wib$/i, "");
+}
+
+function getParsedCommonFields(order: NormalizedOrder): JsonRecord | null {
+  const parsedData = asRecord(order.whatsAppParsedData);
+  return asRecord(parsedData?.common);
+}
+
+function getParsedDetailsForTemplate(order: NormalizedOrder): JsonRecord | null {
+  const parsedData = asRecord(order.whatsAppParsedData);
+  const normalizedOrderType = normalizeParsedOrderTypeKey(parsedData?.orderType);
+  const detailsByOrderType = asRecord(parsedData?.detailsByOrderType);
+
+  if (normalizedOrderType) {
+    const typedDetails = asRecord(detailsByOrderType?.[normalizedOrderType]);
+    if (typedDetails) return typedDetails;
+  }
+
+  return asRecord(parsedData?.details);
+}
+
+function buildTemplateFields(
+  order: NormalizedOrder,
+  templateKey: string,
+  itemSummary: string,
+): SendOrderToWhatsAppInput["templateFields"] {
+  const common = getParsedCommonFields(order);
+  const details = getParsedDetailsForTemplate(order);
+  const dateTime = [
+    formatTemplateDate(order.deliveryDate || common?.deliveryDate),
+    formatTemplateTime(order.deliverySlot || common?.deliveryTime),
+  ]
+    .filter(Boolean)
+    .join(" | ");
+
+  const templateFields: NonNullable<SendOrderToWhatsAppInput["templateFields"]> = {
+    dateTime,
+    recipientName:
+      asString(common?.recipientName) || asString(order.customerName) || "Customer",
+    recipientPhone:
+      asString(common?.recipientPhone) || asString(order.customerPhone),
+  };
+
+  if (templateKey === "cake") {
+    templateFields.rightTop = asString(details?.cakeFlavor);
+    templateFields.rightMiddle = asString(details?.cakeName);
+    templateFields.rightBottom = asString(details?.cakeAge);
+  } else if (templateKey === "cookies_tower") {
+    templateFields.rightTop =
+      asString(details?.designTheme) || asString(details?.colorTheme);
+    templateFields.rightMiddle = asString(details?.towerName);
+    templateFields.rightBottom = asString(details?.towerAge);
+  } else if (templateKey === "cupcakes") {
+    templateFields.rightTop = asString(details?.cupcakeFlavor);
+    templateFields.rightMiddle =
+      asString(details?.greetingCard) || asString(details?.toFromNotes);
+  } else if (templateKey === "cookies") {
+    templateFields.rightMiddle =
+      asString(details?.toFromNotes) || asString(details?.greetingCard);
+  } else if (templateKey === "box") {
+    templateFields.rightTop = itemSummary || asString(order.product);
+  } else if (
+    templateKey === "buket_hand" ||
+    templateKey === "buket_standing"
+  ) {
+    templateFields.rightTop = asString(details?.bouquetPaperColor);
+    templateFields.rightMiddle = asString(details?.flowerCount);
+    templateFields.rightBottom = asString(details?.flowerColor);
+  }
+
+  return templateFields;
+}
+
+function buildTemplateSlotNotes(order: NormalizedOrder): string[] {
+  const parsedData = asRecord(order.whatsAppParsedData);
+  const explicitLabels = asArrayOfRecords(parsedData?.referenceImages)
+    .map((entry) =>
+      asString(
+        IMAGE_LABEL_KEYS.map((key) => entry[key]).find((value) =>
+          Boolean(asString(value)),
+        ),
+      ),
+    )
+    .map((label) => label.trim())
+    .filter(Boolean);
+
+  if (explicitLabels.length > 0) {
+    return Array.from(new Set(explicitLabels));
+  }
+
+  return extractRequestedImageLabels(order)
+    .map((label) => label.trim())
+    .filter(Boolean);
+}
+
 function toWhatsAppPayload(order: NormalizedOrder): SendOrderToWhatsAppInput {
   const parsedData = asRecord(order.whatsAppParsedData);
   const itemSummary = order.items
@@ -580,6 +697,7 @@ function toWhatsAppPayload(order: NormalizedOrder): SendOrderToWhatsAppInput {
     asString(order.notes),
     itemSummary,
   ]);
+  const common = getParsedCommonFields(order);
 
   return {
     customerName: asString(order.customerName) || "Customer",
@@ -593,10 +711,16 @@ function toWhatsAppPayload(order: NormalizedOrder): SendOrderToWhatsAppInput {
     orderType,
     templateKey,
     productTags,
+    recipientName:
+      asString(common?.recipientName) || asString(order.customerName) || "Customer",
+    recipientPhone: asString(common?.recipientPhone) || asString(order.customerPhone),
+    shippingMethod: asString(common?.deliveryMethod),
     imageUrl: imageUrls[0] || "",
     imageUrls,
     referenceImages,
     requestedImageLabels: extractRequestedImageLabels(order),
+    templateFields: buildTemplateFields(order, templateKey, itemSummary),
+    slotNotes: buildTemplateSlotNotes(order),
   };
 }
 
