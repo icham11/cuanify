@@ -640,6 +640,75 @@ function normalizeRecapCategory(value: string): string {
   return "";
 }
 
+interface ParsedRecapBreakdownEntry {
+  quantity: number;
+  size: string;
+  unitPrice?: number;
+  subtotal?: number;
+}
+
+function parseRecapBreakdownEntries(
+  lines: string[],
+): ParsedRecapBreakdownEntry[] {
+  const entries: ParsedRecapBreakdownEntry[] = [];
+  let currentEntry: ParsedRecapBreakdownEntry | null = null;
+
+  const pushCurrentEntry = () => {
+    if (!currentEntry) return;
+    if (currentEntry.quantity > 0 && cleanupValue(currentEntry.size)) {
+      entries.push({
+        quantity: currentEntry.quantity,
+        size: cleanupValue(currentEntry.size),
+        unitPrice: currentEntry.unitPrice,
+        subtotal: currentEntry.subtotal,
+      });
+    }
+    currentEntry = null;
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    const normalized = normalizeLabel(line);
+    if (!normalized) continue;
+
+    const breakdownMatch = line.match(
+      /^(?:[-*•]\s*)?(\d{1,4})\s*(?:pcs?|pc)?\s*(simple|normal|hard|advanced|expert)\b/i,
+    );
+
+    if (breakdownMatch) {
+      pushCurrentEntry();
+      currentEntry = {
+        quantity: Number(breakdownMatch[1] || 0),
+        size: String(breakdownMatch[2] || "").toUpperCase(),
+      };
+      continue;
+    }
+
+    if (!currentEntry) continue;
+
+    if (normalized.startsWith(normalizeLabel("Harga Satuan"))) {
+      const amount = parseCurrencyAmount(line);
+      if (amount !== null) {
+        currentEntry.unitPrice = amount;
+      }
+      continue;
+    }
+
+    if (normalized.startsWith(normalizeLabel("Subtotal"))) {
+      const amount = parseCurrencyAmount(line);
+      if (amount !== null) {
+        currentEntry.subtotal = amount;
+      }
+      pushCurrentEntry();
+    }
+  }
+
+  pushCurrentEntry();
+  return entries;
+}
+
 function parseOrderRecap(
   rawText: string,
   lines: string[],
@@ -758,8 +827,23 @@ function parseOrderRecap(
       const subtotal =
         parseCurrencyAmount(subtotalValue) ??
         (unitPrice && quantity > 0 ? unitPrice * quantity : undefined);
+      const breakdownEntries =
+        category === "Cookies" ? parseRecapBreakdownEntries(block.lines) : [];
 
       if (!category && !productName) return [];
+      if (breakdownEntries.length > 0) {
+        return breakdownEntries.map((entry) => ({
+          itemNumber: block.itemNumber,
+          category,
+          productName,
+          quantity: entry.quantity,
+          size: entry.size,
+          designNotes,
+          addOn,
+          unitPrice: entry.unitPrice,
+          subtotal: entry.subtotal,
+        })) satisfies ParsedWhatsAppOrderRecapItem[];
+      }
 
       return [
         {
@@ -1021,6 +1105,7 @@ function normalizeDeliveryMethod(value: string): string {
   }
   if (
     lowered.includes("pickup") ||
+    lowered.includes("pick up") ||
     lowered.includes("ambil sendiri") ||
     lowered.startsWith("ambil")
   )
@@ -1067,6 +1152,7 @@ function mapDeliveryMethodToFormValue(
 
   if (
     normalized.includes("pickup") ||
+    normalized.includes("pick up") ||
     normalized.includes("ambil sendiri") ||
     normalized.startsWith("ambil")
   ) {
@@ -1123,6 +1209,15 @@ function normalizeByKey(key: string, value: string): string {
       return parsePhone(cleaned) || cleaned;
     case "deliveryMethod":
       return normalizeDeliveryMethod(cleaned);
+    case "cakeSize": {
+      const shorthandMatch = cleaned.match(
+        /\bd\s*(\d{1,2})\s*t\s*(\d{1,2})\b/i,
+      );
+      if (shorthandMatch?.[1] && shorthandMatch?.[2]) {
+        return `D${shorthandMatch[1]}T${shorthandMatch[2]}`;
+      }
+      return cleaned;
+    }
     default:
       return cleaned;
   }
@@ -1332,11 +1427,7 @@ function buildItemNotesForOrderType(
   parsed: ParsedWhatsAppOrder,
   orderType: WhatsAppOrderType,
 ): string {
-  const orderLine = parsed.common.order ? `Order: ${parsed.common.order}` : "";
-  return [orderLine, buildDetailNotesForOrderType(parsed, orderType)]
-    .filter(Boolean)
-    .join(" | ")
-    .slice(0, 200);
+  return buildDetailNotesForOrderType(parsed, orderType).slice(0, 300);
 }
 
 function formatCurrencyNote(value?: number): string {
@@ -1766,8 +1857,10 @@ function chooseCatalogSelection(parsed: ParsedWhatsAppOrder): {
   const searchSource = [parsed.common.order, ...Object.values(parsed.details)]
     .filter(Boolean)
     .join(" ");
-
-  const suggested = suggestCatalogSelection(category, searchSource);
+  const suggested = suggestCatalogSelection(
+    category,
+    expandCatalogSearchSource(category, searchSource),
+  );
   return ensureCatalogSelection({
     category: suggested.category || fallback.category,
     subcategory: suggested.subcategory || fallback.subcategory,
@@ -1786,7 +1879,10 @@ function chooseCatalogSelectionByText(
   size: string;
 } {
   const fallback = getDefaultCatalogSelectionForCategory(category);
-  const suggested = suggestCatalogSelection(category, searchSource);
+  const suggested = suggestCatalogSelection(
+    category,
+    expandCatalogSearchSource(category, searchSource),
+  );
 
   return ensureCatalogSelection({
     category: suggested.category || fallback.category,
@@ -1922,6 +2018,59 @@ function inferTokenDifficultyFromText(
   }
 
   return undefined;
+}
+
+function expandCatalogSearchSource(category: string, rawValue: string): string {
+  const source = cleanupValue(rawValue);
+  if (!source) return "";
+
+  if (category !== "Cake") {
+    return source;
+  }
+
+  const sizeMatch = source.match(/\bd\s*(\d{1,2})\s*t\s*(\d{1,2})\b/i);
+  if (!sizeMatch?.[1] || !sizeMatch?.[2]) {
+    return source;
+  }
+
+  const diameter = Number(sizeMatch[1]);
+  const height = Number(sizeMatch[2]);
+  if (
+    !Number.isInteger(diameter) ||
+    diameter <= 0 ||
+    !Number.isInteger(height) ||
+    height <= 0
+  ) {
+    return source;
+  }
+
+  const sizeHints = [
+    `diameter ${diameter}`,
+    `tinggi ${height} cm`,
+    height >= 15 ? "tall cake" : "cake tinggi 10 cm",
+  ];
+
+  return [source, ...sizeHints].join(" | ");
+}
+
+function buildSpecialNotesFromParsed(parsed: ParsedWhatsAppOrder): string {
+  const notes: string[] = [];
+
+  const cookiesNotes = cleanupValue(
+    getDetailsForOrderType(parsed, "cookies").toFromNotes ?? "",
+  );
+  if (cookiesNotes) {
+    notes.push(`To From Notes: ${cookiesNotes}`);
+  }
+
+  const bouquetGreetingCard = cleanupValue(
+    getDetailsForOrderType(parsed, "buket").greetingCard ?? "",
+  );
+  if (bouquetGreetingCard) {
+    notes.push(`Kartu ucapan: ${bouquetGreetingCard}`);
+  }
+
+  return notes.join("\n").slice(0, 800);
 }
 
 function toPositiveQuantity(value: number | null | undefined): number {
@@ -2777,26 +2926,13 @@ export function buildBookingAutoFillFromParsed(
       ? "Paid"
       : "DP Paid";
 
-  const notesSections = [
-    formatParsedWhatsAppForNotes(parsed),
-    parsed.common.deliveryMethod
-      ? `Metode Pengiriman: ${parsed.common.deliveryMethod}`
-      : "",
-    parsed.common.bookingCode
-      ? `KODE BOOKING: ${parsed.common.bookingCode}`
-      : "",
-  ]
-    .filter(Boolean)
-    .join("\n")
-    .slice(0, 800);
-
   return {
     customerName,
     phoneNumber,
     deliveryDate,
     deliverySlot,
     deliveryMethod,
-    customNotes: notesSections,
+    customNotes: buildSpecialNotesFromParsed(parsed),
     paymentStatus,
     dpPaidAmount,
     finalPaidAmount,

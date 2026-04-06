@@ -847,4 +847,125 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
     expect(autoFill.dpPaidAmount).toBe(345000);
     expect(autoFill.finalPaidAmount).toBe(345000);
   });
+
+  it("parses ci feli mixed cake and cookies recap sample with pickup and mixed token cookies", () => {
+    const text = [
+      "Tanggal Pengiriman: 8 April 2026",
+      "KODE BOOKING: AD-06",
+      "Order: 1 cake , 20 cookies",
+      "",
+      "Nama di Cake : Atlas (large cookies)",
+      "Umur di cake : 6",
+      "Ukuran cake : d16t15",
+      "Rasa cake : DC",
+      "Design cake :",
+      "• 3 large cookies (2 mario half body topi merah , full body topi hijau , nama Atlas)",
+      "• 5 medium cookies (dinosaurus full body ,2 pot bunga, bunga belakang mario)",
+      "• 4 small cookies ( 3 jamur ,angka 8)",
+      "• fondant decoration ( awan, bintang sampai belakang)",
+      "",
+      "Cookies :",
+      "• 20pcs individual cookies",
+      "Design Cookies : muka mario topi merah , tanda tanya kuning kotak , muka mario topi hijau , bunga lingkaran merah , bunga kuncup polkadot , jamur coklat , jamur merah , jamur hijau , bintang kuning , telur putih polkadot hijau",
+      "",
+      "Jam Pengiriman: jam 10 pagi",
+      "Metode Pengiriman : pickup",
+      "Nama penerima : adina",
+      "No. telp penerima : 08118402606",
+      "Alamat lengkap : jl buncit persada no.B2 jaksel 12740",
+      "",
+      "REKAP ORDER",
+      "ITEM 1",
+      "Kategori: Cake",
+      "Nama Produk: Custom Cake",
+      "Qty: 1",
+      "Size/Varian: D16T15",
+      "Design/Notes: Mario",
+      "Add On:",
+      "• 3 large cookies (2 mario , nama) @70k = 210",
+      "• 5 medium cookies (dinosaurus ,2 pot bunga, bunga belakang mario)@40k = 200k",
+      "• 4 small cookies ( 3 jamur ,angka 8) @20k = 80k",
+      "• fondant decoration 100k ( awan, bintang)",
+      "Harga Satuan: 1140000",
+      "Subtotal: 1140000",
+      "",
+      "ITEM 2",
+      "Kategori: Cookies",
+      "Nama Produk: Cookies",
+      "Qty: 20",
+      "Size/Varian:",
+      "• 18 pcs Hard",
+      "Harga Satuan: 17000",
+      "Subtotal: 450000",
+      "• 2 pcs Expert",
+      "Harga Satuan: 35000",
+      "Subtotal: 70000",
+      "",
+      "Subtotal Produk: 1660000",
+      "Ongkir: 0",
+      "Adjustment: 0",
+      "Total: 1660000",
+      "DP: 0",
+      "Sisa: 1660000",
+    ].join("\n");
+
+    const parsed = parseWhatsAppOrderText(text, {
+      preferredOrderType: "unknown",
+      sourceType: "manual",
+    });
+    const autoFill = buildBookingAutoFillFromParsed(parsed);
+
+    expect(parsed.common.deliveryMethod).toBe("Pickup");
+    expect(parsed.orderRecap?.items).toHaveLength(3);
+    expect(autoFill.deliveryMethod).toBe("PICKUP");
+    expect(autoFill.customNotes).toBe("");
+    expect(autoFill.manualAdjustment).toBe(0);
+
+    const cakeItem = autoFill.items.find((item) => item.category === "Cake");
+    const hardCookieItem = autoFill.items.find(
+      (item) => item.category === "Cookies" && item.tokenDifficulty === "HARD",
+    );
+    const expertCookieItem = autoFill.items.find(
+      (item) => item.category === "Cookies" && item.tokenDifficulty === "EXPERT",
+    );
+
+    expect(Boolean(cakeItem)).toBe(true);
+    expect(Boolean(hardCookieItem)).toBe(true);
+    expect(Boolean(expertCookieItem)).toBe(true);
+
+    if (!cakeItem || !hardCookieItem || !expertCookieItem) {
+      throw new Error("Expected recap items were not generated");
+    }
+
+    expect(cakeItem.size.includes("Tinggi 15 cm")).toBe(true);
+    expect(cakeItem.parsedSubtotal).toBe(1140000);
+    expect(hardCookieItem.quantity).toBe(18);
+    expect(hardCookieItem.parsedSubtotal).toBe(450000);
+    expect(expertCookieItem.quantity).toBe(2);
+    expect(expertCookieItem.parsedSubtotal).toBe(70000);
+  });
+
+  it("only fills custom notes from special note fields instead of full parsed order", () => {
+    const text = [
+      "Tanggal Pengiriman: 18/04/2026",
+      "KODE BOOKING: CK-01",
+      "Order: 20pcs indv cookies",
+      "To From Notes: Happy Birthday Elliora | From kuku & kim2",
+      "Jam Pengiriman: 10:00",
+      "Metode Pengiriman: Pickup",
+      "Nama penerima: Sansan",
+      "No. telp penerima: 08174922926",
+      "Alamat lengkap: Tangerang",
+    ].join("\n");
+
+    const parsed = parseWhatsAppOrderText(text, {
+      preferredOrderType: "cookies",
+      sourceType: "manual",
+    });
+    const autoFill = buildBookingAutoFillFromParsed(parsed);
+
+    expect(autoFill.customNotes).toBe(
+      "To From Notes: Happy Birthday Elliora | From kuku & kim2",
+    );
+  });
 });
