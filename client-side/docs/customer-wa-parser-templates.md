@@ -254,15 +254,24 @@ Format yang disarankan:
 
 ## Template Rekap Order Admin
 
-Kalau admin mau harga item ikut kebaca lebih akurat, tambahkan blok `REKAP ORDER` dengan format terstruktur seperti ini.
+Kalau admin mau harga item ikut kebaca lebih akurat, tambahkan blok `REKAP ORDER` di message yang sama, tepat di bawah data order utama.
+
+Catatan:
+- data umum seperti `Tanggal Pengiriman`, `Jam Pengiriman`, `Metode Pengiriman`, `Nama penerima`, dan `Alamat lengkap` cukup ditulis sekali di bagian atas
+- di blok `REKAP ORDER` tidak perlu mengulang data umum lagi
+- yang penting tetap ada header `REKAP ORDER`, lalu `ITEM 1`, `ITEM 2`, dan seterusnya
 
 ```text
-REKAP ORDER
-
-Customer:
 Tanggal Pengiriman:
+KODE BOOKING:
+Order:
 Jam Pengiriman:
 Metode Pengiriman:
+Nama penerima:
+No. telp penerima:
+Alamat lengkap:
+
+REKAP ORDER
 
 ITEM 1
 Kategori:
@@ -295,12 +304,16 @@ SISA:
 Contoh:
 
 ```text
-REKAP ORDER
-
-Customer: Elliora
 Tanggal Pengiriman: 18/04/2026
+KODE BOOKING: SA-26
+Order: 1 cake + 1 dozen cupcakes
 Jam Pengiriman: 10:00
 Metode Pengiriman: GoCar
+Nama penerima: Sansan
+No. telp penerima: 08174922926
+Alamat lengkap: Perumahan Riviera at Puri, Riviera East 10, blok F2 no 16, Cipondoh, Tangerang
+
+REKAP ORDER
 
 ITEM 1
 Kategori: Cake
@@ -331,6 +344,7 @@ Sisa: 345000
 ```
 
 Catatan:
+- parser akan ambil data umum dari bagian atas message, lalu baca item dan harga dari blok recap
 - parser sekarang akan baca `ITEM 1`, `ITEM 2`, dan seterusnya sebagai item terpisah
 - `Subtotal` item akan dipakai sebagai override harga item di form booking
 - kalau admin mengubah produk, varian, atau qty setelah parse, override harga recap akan otomatis direset supaya tidak salah

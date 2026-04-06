@@ -771,4 +771,74 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
       450000,
     ]);
   });
+
+  it("reads one combined message with recap block without repeating common fields", () => {
+    const text = [
+      "Tanggal Pengiriman: 18/04/2026",
+      "KODE BOOKING: SA-26",
+      "Order: 1 cake + 1 dozen cupcakes",
+      "Nama di Cake: Elliora",
+      "Umur di cake: 14",
+      "Ukuran cake: 16 cm",
+      "Rasa cake: Vanilla",
+      "Design cake:",
+      "1. Pokeball",
+      "2. Karakter digimon",
+      "Jumlah Cupcakes: 1 dozen",
+      "Rasa Cupcakes: Vanilla",
+      "Warna Cupcakes: Pink muda, biru muda",
+      "Jumlah Topper Cookies: 0",
+      "Jam Pengiriman: 10:00",
+      "Metode Pengiriman: GoCar",
+      "Nama penerima: Sansan",
+      "No. telp penerima: 08174922926",
+      "Alamat lengkap: Tangerang",
+      "",
+      "REKAP ORDER",
+      "",
+      "ITEM 1",
+      "Kategori: Cake",
+      "Nama Produk: Custom Cake",
+      "Qty: 1",
+      "Size/Varian: 16 cm",
+      "Design/Notes: Pokeball, nama Elliora, angka 14",
+      "Add On: -",
+      "Harga Satuan: 450000",
+      "Subtotal: 450000",
+      "",
+      "ITEM 2",
+      "Kategori: Cupcakes",
+      "Nama Produk: 1 Dozen Cupcakes",
+      "Qty: 1",
+      "Size/Varian: Dozen",
+      "Design/Notes: pink muda, biru muda",
+      "Add On: -",
+      "Harga Satuan: 240000",
+      "Subtotal: 240000",
+      "",
+      "Subtotal Produk: 690000",
+      "Ongkir: 0",
+      "Total: 690000",
+      "DP: 345000",
+      "Sisa: 345000",
+    ].join("\n");
+
+    const parsed = parseWhatsAppOrderText(text, {
+      preferredOrderType: "unknown",
+      sourceType: "manual",
+    });
+    const autoFill = buildBookingAutoFillFromParsed(parsed);
+
+    expect(parsed.common.recipientName).toBe("Sansan");
+    expect(parsed.orderRecap?.items).toHaveLength(2);
+    expect(parsed.orderRecap?.items.map((item) => item.category)).toEqual([
+      "Cake",
+      "Cupcakes",
+    ]);
+    expect(autoFill.items).toHaveLength(2);
+    expect(autoFill.items.map((item) => item.parsedSubtotal)).toEqual([
+      450000,
+      240000,
+    ]);
+  });
 });

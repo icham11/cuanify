@@ -640,6 +640,11 @@ function parseOrderRecap(
   rawText: string,
   lines: string[],
 ): ParsedWhatsAppOrderRecap | undefined {
+  const recapMarkerIndex = lines.findIndex(
+    (line) => normalizeLabel(line) === normalizeLabel("REKAP ORDER"),
+  );
+  const recapLines =
+    recapMarkerIndex >= 0 ? lines.slice(recapMarkerIndex + 1) : lines;
   const itemBlocks: Array<{
     itemNumber?: number;
     title?: string;
@@ -651,7 +656,7 @@ function parseOrderRecap(
     lines: string[];
   } | null = null;
 
-  for (const line of lines) {
+  for (const line of recapLines) {
     const header = parseRecapItemHeader(line);
     if (header) {
       if (currentBlock?.lines.length) {
@@ -768,10 +773,11 @@ function parseOrderRecap(
     },
   );
 
-  const lookup = buildKeyValueLookup(lines);
+  const recapRawText = recapLines.join("\n");
+  const lookup = buildKeyValueLookup(recapLines);
   const totals = recapTotalFieldDefinitions.reduce<ParsedWhatsAppOrderRecapTotals>(
     (accumulator, field) => {
-      const value = readFieldValue(rawText, lines, lookup, field);
+      const value = readFieldValue(recapRawText, recapLines, lookup, field);
       const amount =
         field.key === "adjustment"
           ? parseSignedCurrencyAmount(value)
@@ -784,9 +790,7 @@ function parseOrderRecap(
     {},
   );
 
-  const hasRecapMarker = lines.some(
-    (line) => normalizeLabel(line) === normalizeLabel("REKAP ORDER"),
-  );
+  const hasRecapMarker = recapMarkerIndex >= 0;
   const hasTotals = Object.keys(totals).length > 0;
   if (!hasRecapMarker && recapItems.length === 0 && !hasTotals) {
     return undefined;
