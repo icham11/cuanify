@@ -1,3 +1,8 @@
+import {
+  CAKE_FLAVOR_OPTIONS,
+  CUPCAKE_FLAVOR_OPTIONS,
+} from "@/lib/bookings/flavor-options";
+
 export interface PricelistVariant {
   label: string;
   price: number;
@@ -844,6 +849,11 @@ export const BOOKING_PRODUCT_CATALOG: PricelistCategory[] = [
 
 export const BOOKING_ADD_ON_CATALOG: Record<string, CatalogAddOn[]> = {
   Cake: [
+    ...CAKE_FLAVOR_OPTIONS.map((option) => ({
+      id: option.id,
+      label: option.label,
+      price: option.price,
+    })),
     { id: "dark-color", label: "Dark Color Cake", price: 50000 },
     { id: "fondant-name", label: "Fondant Name", price: 20000 },
     { id: "mini-details", label: "Mini Details", price: 10000 },
@@ -872,6 +882,11 @@ export const BOOKING_ADD_ON_CATALOG: Record<string, CatalogAddOn[]> = {
     { id: "bubblewrap", label: "Extra Bubblewrap", price: 1000 },
   ],
   Cupcakes: [
+    ...CUPCAKE_FLAVOR_OPTIONS.map((option) => ({
+      id: option.id,
+      label: option.label,
+      price: option.price,
+    })),
     {
       id: "dark-color-buttercream",
       label: "Dark Color Buttercream",

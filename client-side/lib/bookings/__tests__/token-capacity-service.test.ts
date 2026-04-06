@@ -256,6 +256,29 @@ describe("Token Capacity Service — Unit Tests", () => {
       ).toBe(50);
     });
 
+    it("Bouquet token stays fixed even with expert difficulty", () => {
+      expect(
+        calculateOrderTokenFromItems([
+          {
+            category: "Buket",
+            subcategory: "Hand Bouquet",
+            quantity: 10,
+            tokenDifficulty: "EXPERT",
+          },
+        ]),
+      ).toBe(20);
+      expect(
+        calculateOrderTokenFromItems([
+          {
+            category: "Buket",
+            subcategory: "Standing Bouquet",
+            quantity: 15,
+            tokenDifficulty: "EXPERT",
+          },
+        ]),
+      ).toBe(50);
+    });
+
     // ── Unknown type ─────────────────────────────────────────────────────
     it("Unknown category: 0 tokens (no crash)", () => {
       expect(

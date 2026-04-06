@@ -19,6 +19,17 @@ const orderItemSchema = z.object({
   productName: z.string(),
   size: z.string(),
   quantity: z.number(),
+  tokenDifficulty: z
+    .enum([
+      "SIMPLE",
+      "NORMAL",
+      "HARD",
+      "ADVANCED",
+      "EXPERT",
+      "MEDIUM",
+      "DIFFICULT",
+    ])
+    .optional(),
   notes: z.string().optional(),
   productType: z
     .enum(["COOKIE", "BOUQUET", "CAKE", "CUPCAKE", "TOWER"])
@@ -114,6 +125,7 @@ export async function POST(request: NextRequest) {
         Boolean(item.productType) ||
         item.selectedPrice !== undefined ||
         item.basePrice !== undefined ||
+        item.tokenDifficulty !== undefined ||
         item.cookiePrice !== undefined ||
         item.designCount !== undefined ||
         item.additionalDesignCount !== undefined ||

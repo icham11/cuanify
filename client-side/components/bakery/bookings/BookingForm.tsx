@@ -41,6 +41,10 @@ import {
   type CatalogSelection,
   type PricelistCategory,
 } from "@/lib/bookings/pricelist";
+import {
+  getFlavorAddOnIdsByCategory,
+  getFlavorOptionsByCategory,
+} from "@/lib/bookings/flavor-options";
 import { useCatalogAdminState } from "@/lib/bookings/catalog-admin";
 import {
   DAILY_PRODUCTION_TOKEN_LIMIT,
@@ -256,6 +260,12 @@ const EMPTY_ITEMS: BookingFormInput["items"] = [];
 const EMPTY_ADDRESSES: BookingFormInput["deliveryAddresses"] = [];
 
 type BouquetFormType = "HAND" | "STANDING";
+type TokenDifficultyValue =
+  | "SIMPLE"
+  | "NORMAL"
+  | "HARD"
+  | "ADVANCED"
+  | "EXPERT";
 
 const BOUQUET_HAND_COST = 100000;
 const BOUQUET_STANDING_COST = 250000;
@@ -263,6 +273,26 @@ const BOUQUET_HAND_MIN_QTY = 7;
 const BOUQUET_HAND_MAX_QTY = 10;
 const BOUQUET_STANDING_MIN_QTY = 12;
 const BOUQUET_STANDING_MAX_QTY = 20;
+const TOKEN_DIFFICULTY_OPTIONS: Array<{
+  value: TokenDifficultyValue;
+  label: string;
+  token: number;
+  cookiePrice: number;
+}> = [
+  { value: "SIMPLE", label: "Simple", token: 1, cookiePrice: 17000 },
+  { value: "NORMAL", label: "Normal", token: 2, cookiePrice: 20000 },
+  { value: "HARD", label: "Hard", token: 3, cookiePrice: 25000 },
+  { value: "ADVANCED", label: "Advanced", token: 4, cookiePrice: 30000 },
+  { value: "EXPERT", label: "Expert", token: 5, cookiePrice: 35000 },
+];
+const BOUQUET_COOKIE_PRICE_BY_DIFFICULTY: Record<TokenDifficultyValue, number> =
+  {
+    SIMPLE: 17000,
+    NORMAL: 20000,
+    HARD: 25000,
+    ADVANCED: 30000,
+    EXPERT: 35000,
+  };
 const CUPCAKE_INDIVIDUAL_MIN_QTY = 10;
 const COOKIE_INDIVIDUAL_MIN_QTY = 20;
 const DARK_COLOR_BUTTERCREAM_ADDON_ID = "dark-color-buttercream";
@@ -299,6 +329,31 @@ function normalizeDarkButtercreamColors(value: unknown): string[] {
   }
 
   return normalized;
+}
+
+function normalizeTokenDifficultyValue(value: unknown): TokenDifficultyValue {
+  const normalized =
+    typeof value === "string" ? value.trim().toUpperCase() : "";
+
+  if (normalized === "NORMAL" || normalized === "MEDIUM") return "NORMAL";
+  if (normalized === "HARD" || normalized === "DIFFICULT") return "HARD";
+  if (normalized === "ADVANCED") return "ADVANCED";
+  if (normalized === "EXPERT") return "EXPERT";
+  return "SIMPLE";
+}
+
+function getBouquetCookiePriceFromDifficulty(value: unknown): number {
+  return BOUQUET_COOKIE_PRICE_BY_DIFFICULTY[
+    normalizeTokenDifficultyValue(value)
+  ];
+}
+
+function getTokenDifficultyOption(value: unknown) {
+  const normalized = normalizeTokenDifficultyValue(value);
+  return (
+    TOKEN_DIFFICULTY_OPTIONS.find((option) => option.value === normalized) ??
+    TOKEN_DIFFICULTY_OPTIONS[0]
+  );
 }
 
 interface ItemQuantityRule {
@@ -621,6 +676,29 @@ function getCategoryAddOnsFromCatalog(
   return addOnCatalog[category] ?? [];
 }
 
+function getFlavorOptionsForCategory(category: string) {
+  return getFlavorOptionsByCategory(category);
+}
+
+function getNonFlavorAddOnsForCategory(args: {
+  addOns: CatalogAddOn[];
+  category: string;
+}): CatalogAddOn[] {
+  const flavorIds = new Set(getFlavorAddOnIdsByCategory(args.category));
+  if (flavorIds.size === 0) return args.addOns;
+  return args.addOns.filter((addon) => !flavorIds.has(addon.id));
+}
+
+function getSelectedFlavorIdFromItem(item: BookingItemInput): string | null {
+  const flavorOptions = getFlavorOptionsForCategory(item.category);
+  if (flavorOptions.length === 0) return null;
+
+  const selected = flavorOptions.find((option) =>
+    (item.addOns ?? []).includes(option.id),
+  );
+  return selected?.id ?? null;
+}
+
 function detectBouquetTypeFromItem(
   item: BookingItemInput,
 ): BouquetFormType | null {
@@ -692,6 +770,15 @@ function getQuantityRuleViolationMessage(rule: ItemQuantityRule): string {
     return `Qty wajib ${rule.min}-${rule.max}.`;
   }
   return `Minimal qty ${rule.min}.`;
+}
+
+function formatCompactSurcharge(value: number): string {
+  const rounded = Math.round(Number(value) || 0);
+  if (rounded <= 0) return "0";
+  if (rounded % 1000 === 0) {
+    return `${Math.round(rounded / 1000)}k`;
+  }
+  return formatCurrency(rounded);
 }
 
 function getIndividualCupcakeQuantityRule(
@@ -834,8 +921,8 @@ function getBouquetLineTotal(item: BookingItemInput): number | null {
   if (!bouquetType) return null;
 
   const quantity = Number(item.quantity) || 0;
-  const cookiePrice = Number(item.cookiePrice) || 0;
-  if (quantity <= 0 || cookiePrice <= 0) return null;
+  const cookiePrice = getBouquetCookiePriceFromDifficulty(item.tokenDifficulty);
+  if (quantity <= 0) return null;
   if (!isValidBouquetQuantity(quantity, bouquetType)) return null;
 
   return Math.round(cookiePrice * quantity + getBouquetCostByType(bouquetType));
@@ -2080,16 +2167,27 @@ export default function BookingForm() {
         return;
       }
 
-      const cookiePrice = Number(item.cookiePrice) || 0;
-      if (cookiePrice <= 0 && !hasParsedRecapPrice) {
+      if (!item.tokenDifficulty && !hasParsedRecapPrice) {
         toast.error(
-          "Isi Harga Cookie / pcs untuk item bouquet supaya formula bisa dihitung.",
+          "Pilih Difficulty Token untuk item bouquet supaya formula harga otomatis dihitung.",
         );
         return;
       }
     }
 
     for (const item of values.items) {
+      const flavorOptions = getFlavorOptionsForCategory(item.category);
+      if (flavorOptions.length > 0) {
+        const selectedFlavorCount = flavorOptions.filter((option) =>
+          (item.addOns ?? []).includes(option.id),
+        ).length;
+        if (selectedFlavorCount > 1) {
+          const productLabel = item.productName || item.category || "Item";
+          toast.error(`${productLabel}: pilih maksimal 1 rasa.`);
+          return;
+        }
+      }
+
       const hasDarkColorButtercream =
         item.category === "Cupcakes" &&
         (item.addOns ?? []).includes(DARK_COLOR_BUTTERCREAM_ADDON_ID);
@@ -2135,8 +2233,14 @@ export default function BookingForm() {
       const darkButtercreamColors = normalizeDarkButtercreamColors(
         item.darkColorButtercreamColors ?? [],
       );
+      const selectedFlavorOption = getFlavorOptionsForCategory(item.category).find(
+        (option) => (item.addOns ?? []).includes(option.id),
+      );
       const mergedItemNotes = [
         item.notes ?? "",
+        selectedFlavorOption
+          ? `Rasa: ${selectedFlavorOption.label}${selectedFlavorOption.premium && selectedFlavorOption.price > 0 ? ` (Premium ${formatCurrency(selectedFlavorOption.price)})` : ""}`
+          : "",
         item.category === "Cupcakes" &&
         (item.addOns ?? []).includes(DARK_COLOR_BUTTERCREAM_ADDON_ID) &&
         darkButtercreamColors.length > 0
@@ -2175,10 +2279,7 @@ export default function BookingForm() {
         basePrice: itemBasePrice,
         productType:
           item.category === "Buket" ? ("BOUQUET" as const) : undefined,
-        cookiePrice:
-          item.category === "Buket"
-            ? Math.max(0, Number(item.cookiePrice) || 0) || undefined
-            : undefined,
+        cookiePrice: undefined,
         bouquetType: bouquetType ?? undefined,
         bouquetCost: bouquetType
           ? getBouquetCostByType(bouquetType)
@@ -2297,6 +2398,22 @@ export default function BookingForm() {
         shouldValidate: true,
       });
     }
+  };
+
+  const toggleItemFlavor = (
+    itemIndex: number,
+    category: string,
+    flavorAddOnId: string,
+  ) => {
+    const current = watchedItems[itemIndex]?.addOns ?? [];
+    const flavorIds = getFlavorAddOnIdsByCategory(category);
+    if (flavorIds.length === 0) return;
+
+    const withoutFlavor = current.filter((id) => !flavorIds.includes(id));
+    const isSelected = current.includes(flavorAddOnId);
+    const next = isSelected ? withoutFlavor : [...withoutFlavor, flavorAddOnId];
+
+    setValue(`items.${itemIndex}.addOns`, next, { shouldValidate: true });
   };
 
   const toggleDarkButtercreamColor = (itemIndex: number, color: string) => {
@@ -2426,14 +2543,15 @@ export default function BookingForm() {
               productName: item.productName,
               size: item.size,
             });
+            const parsedQuantity = Number(item.quantity);
 
             return {
               category: normalized.category,
               subcategory: normalized.subcategory,
               productName: normalized.productName,
               size: normalized.size,
-              quantity: Number.isFinite(item.quantity)
-                ? Math.max(1, Number(item.quantity))
+              quantity: Number.isFinite(parsedQuantity)
+                ? Math.max(1, Math.round(parsedQuantity))
                 : 1,
               tokenDifficulty:
                 normalized.category === "Cookies" ||
@@ -2441,15 +2559,7 @@ export default function BookingForm() {
                   ? (item.tokenDifficulty ?? "SIMPLE")
                   : undefined,
               customTokenPerUnit: undefined,
-              cookiePrice:
-                normalized.category === "Buket"
-                  ? (() => {
-                      const parsed = Number(item.cookiePrice);
-                      return Number.isFinite(parsed) && parsed > 0
-                        ? parsed
-                        : undefined;
-                    })()
-                  : undefined,
+              cookiePrice: undefined,
               addOns: Array.isArray(item.addOns) ? item.addOns : [],
               darkColorButtercreamColors:
                 normalized.category === "Cupcakes" &&
@@ -3218,6 +3328,37 @@ export default function BookingForm() {
                     addOnCatalog,
                     normalizedSelection.category,
                   );
+                  const flavorOptions = getFlavorOptionsForCategory(
+                    normalizedSelection.category,
+                  );
+                  const selectedFlavorId = getSelectedFlavorIdFromItem({
+                    category: normalizedSelection.category,
+                    subcategory: normalizedSelection.subcategory,
+                    productName: normalizedSelection.productName,
+                    size: normalizedSelection.size,
+                    quantity: Number(item?.quantity) || 0,
+                    tokenDifficulty: item?.tokenDifficulty,
+                    customTokenPerUnit:
+                      Number(item?.customTokenPerUnit) > 0
+                        ? Number(item?.customTokenPerUnit)
+                        : undefined,
+                    cookiePrice:
+                      Number(item?.cookiePrice) > 0
+                        ? Number(item?.cookiePrice)
+                        : undefined,
+                    addOns: item?.addOns ?? [],
+                    notes: item?.notes ?? "",
+                  });
+                  const nonFlavorAddOns = getNonFlavorAddOnsForCategory({
+                    addOns,
+                    category: normalizedSelection.category,
+                  });
+                  const regularFlavorOptions = flavorOptions.filter(
+                    (option) => !option.premium,
+                  );
+                  const premiumFlavorOptions = flavorOptions.filter(
+                    (option) => option.premium,
+                  );
                   const bouquetProbeItem: BookingItemInput = {
                     category: normalizedSelection.category,
                     subcategory: normalizedSelection.subcategory,
@@ -3257,6 +3398,9 @@ export default function BookingForm() {
                   const quantityRule = getItemQuantityRule(bouquetProbeItem);
                   const itemTokenPreview =
                     getItemProductionToken(bouquetProbeItem);
+                  const selectedDifficultyOption = getTokenDifficultyOption(
+                    item?.tokenDifficulty,
+                  );
                   const hasParsedRecapPrice =
                     hasParsedPricingOverride(item);
                   const parsedUnitPrice = getParsedUnitPriceOverride(item);
@@ -3654,16 +3798,16 @@ export default function BookingForm() {
                               {...register(`items.${index}.tokenDifficulty`)}
                               defaultValue={item?.tokenDifficulty || "SIMPLE"}
                             >
-                              <option value="SIMPLE">Simple (1)</option>
-                              <option value="NORMAL">Normal (2)</option>
-                              <option value="HARD">Hard (3)</option>
-                              <option value="ADVANCED">Advanced (4)</option>
-                              <option value="EXPERT">Expert (5)</option>
+                              {TOKEN_DIFFICULTY_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label} ({option.token})
+                                </option>
+                              ))}
                             </Select>
                             {isBouquet && (
                               <span className="min-h-4 text-[11px] font-normal leading-4 text-gray-500">
-                                Token bouquet: max(token dasar bouquet, qty
-                                cookies x difficulty).
+                                Token bouquet fixed: Hand = 20, Standing = 50
+                                per bouquet.
                               </span>
                             )}
                           </label>
@@ -3689,23 +3833,12 @@ export default function BookingForm() {
 
                         {isBouquet && (
                           <label className="grid gap-1.5 text-sm font-medium text-gray-700">
-                            Harga Cookie / pcs
-                            <Input
-                              type="number"
-                              min={0}
-                              step={500}
-                              placeholder="Contoh: 20000"
-                              {...register(`items.${index}.cookiePrice`, {
-                                setValueAs: (value) => {
-                                  const parsed = Number(value);
-                                  return Number.isFinite(parsed) && parsed > 0
-                                    ? parsed
-                                    : undefined;
-                                },
-                              })}
-                            />
+                            Harga Cookie / pcs (otomatis)
                             <span className="min-h-4 text-[11px] font-normal leading-4 text-gray-500">
-                              Formula: (harga cookie x qty) +{" "}
+                              Difficulty aktif: {selectedDifficultyOption.label} ({selectedDifficultyOption.token}) = {formatCurrency(selectedDifficultyOption.cookiePrice)} / pcs.
+                            </span>
+                            <span className="min-h-4 text-[11px] font-normal leading-4 text-gray-500">
+                              Formula: (harga dari difficulty x qty) +{" "}
                               {formatCurrency(
                                 bouquetType
                                   ? getBouquetCostByType(bouquetType)
@@ -3752,8 +3885,115 @@ export default function BookingForm() {
                           : ""}
                       </div>
 
+                      {flavorOptions.length > 0 && (
+                        <label className="grid gap-1.5 text-sm font-medium text-gray-700 sm:max-w-2xl">
+                          <span className="flex items-center justify-between">
+                            <span>Choose Flavor</span>
+                            <span className="text-[11px] font-normal text-gray-500">
+                              1 flavor per item
+                            </span>
+                          </span>
+
+                          <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
+                            {regularFlavorOptions.map((option) => {
+                              const checked = selectedFlavorId === option.id;
+                              const shortCode = option.shortCodes?.[0] || "";
+
+                              return (
+                                <label
+                                  key={option.id}
+                                  className={`flex items-center justify-between rounded-xl border px-3 py-1.5 text-sm transition ${
+                                    checked
+                                      ? "border-indigo-300 bg-indigo-50 text-indigo-800"
+                                      : "border-gray-200 bg-gray-50 text-gray-700"
+                                  }`}
+                                >
+                                  <span className="flex items-center gap-2">
+                                    <span>{option.label}</span>
+                                    {shortCode && (
+                                      <span className="rounded-md border border-gray-300 bg-white px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-600">
+                                        {shortCode}
+                                      </span>
+                                    )}
+                                  </span>
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() =>
+                                      toggleItemFlavor(
+                                        index,
+                                        normalizedSelection.category,
+                                        option.id,
+                                      )
+                                    }
+                                    className="h-4 w-4 accent-indigo-600"
+                                  />
+                                </label>
+                              );
+                            })}
+                          </div>
+
+                          {premiumFlavorOptions.length > 0 && (
+                            <>
+                              <span className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">
+                                Premium Flavors
+                              </span>
+                              <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
+                                {premiumFlavorOptions.map((option) => {
+                                  const checked = selectedFlavorId === option.id;
+                                  const shortCode = option.shortCodes?.[0] || "";
+
+                                  return (
+                                    <label
+                                      key={option.id}
+                                      className={`flex items-center justify-between rounded-xl border px-3 py-1.5 text-sm transition ${
+                                        checked
+                                          ? "border-amber-300 bg-amber-50 text-amber-900"
+                                          : "border-amber-200 bg-amber-50/60 text-gray-700"
+                                      }`}
+                                    >
+                                      <span className="flex items-center gap-2">
+                                        <span>{option.label}</span>
+                                        {shortCode && (
+                                          <span className="rounded-md border border-amber-300 bg-white px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+                                            {shortCode}
+                                          </span>
+                                        )}
+                                        {option.price > 0 && (
+                                          <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+                                            +{formatCompactSurcharge(option.price)}
+                                          </span>
+                                        )}
+                                      </span>
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        onChange={() =>
+                                          toggleItemFlavor(
+                                            index,
+                                            normalizedSelection.category,
+                                            option.id,
+                                          )
+                                        }
+                                        className="h-4 w-4 accent-amber-600"
+                                      />
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            </>
+                          )}
+
+                          <span className="min-h-4 text-[11px] font-normal leading-4 text-gray-500">
+                            {normalizedSelection.category === "Cake"
+                              ? "Cake flavor: 4 regular + 3 premium. Pilih 1 rasa per item cake."
+                              : "Cupcake flavor: pilih 1 rasa untuk item cupcakes ini."}
+                          </span>
+                        </label>
+                      )}
+
                       <div className="grid gap-1.5 sm:grid-cols-3">
-                        {addOns.map((addon) => {
+                        {nonFlavorAddOns.map((addon) => {
                           const addOnLabel =
                             addon.id === DARK_COLOR_BUTTERCREAM_ADDON_ID
                               ? "Choose Color"

@@ -12,6 +12,14 @@ export interface BookingAutomationItem {
   productName: string;
   size: string;
   quantity: number;
+  tokenDifficulty?:
+    | "SIMPLE"
+    | "NORMAL"
+    | "HARD"
+    | "ADVANCED"
+    | "EXPERT"
+    | "MEDIUM"
+    | "DIFFICULT";
   notes?: string;
   productType?: "COOKIE" | "BOUQUET" | "CAKE" | "CUPCAKE" | "TOWER";
   selectedPrice?: number;

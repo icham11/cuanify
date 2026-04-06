@@ -29,6 +29,7 @@ export interface PricingOrderItemInput {
   size?: string;
   quantity?: number;
   notes?: string;
+  tokenDifficulty?: string;
   productType?: string;
   selectedPrice?: number;
   basePrice?: number;
@@ -90,6 +91,13 @@ const CUPCAKE_INDIVIDUAL_MIN_PRICE = 30_000;
 
 const TOWER_COOKIE_QTY = 40;
 const TOWER_PACKAGING_COST = 250_000;
+const BOUQUET_DIFFICULTY_COOKIE_PRICE_MAP = {
+  SIMPLE: 17_000,
+  NORMAL: 20_000,
+  HARD: 25_000,
+  ADVANCED: 30_000,
+  EXPERT: 35_000,
+} as const;
 
 const CAKE_PRICE_MATRIX: Record<string, number> = {
   "14|10|DUMMY": 250_000,
@@ -136,6 +144,33 @@ function asPositiveInt(value: unknown): number {
 
 function firstPositive(...values: number[]): number {
   return values.find((value) => value > 0) ?? 0;
+}
+
+function normalizeDifficultyTokenForPrice(
+  value: unknown,
+): keyof typeof BOUQUET_DIFFICULTY_COOKIE_PRICE_MAP | null {
+  if (typeof value !== "string") return null;
+
+  const normalized = value.trim().toUpperCase();
+  if (!normalized) return null;
+
+  if (normalized === "MEDIUM") return "NORMAL";
+  if (normalized === "DIFFICULT") return "HARD";
+
+  if (normalized in BOUQUET_DIFFICULTY_COOKIE_PRICE_MAP) {
+    return normalized as keyof typeof BOUQUET_DIFFICULTY_COOKIE_PRICE_MAP;
+  }
+
+  return null;
+}
+
+function resolveBouquetCookiePriceFromDifficulty(
+  item: PricingOrderItemInput,
+): number {
+  const difficulty = normalizeDifficultyTokenForPrice(item.tokenDifficulty);
+  if (!difficulty) return 0;
+
+  return BOUQUET_DIFFICULTY_COOKIE_PRICE_MAP[difficulty];
 }
 
 function getFallbackItemTotal(item: PricingOrderItemInput): number {
@@ -519,6 +554,9 @@ function resolveBouquetCookiePrice(
   quantity: number,
   bouquetType: BouquetType,
 ): number {
+  const fromDifficulty = resolveBouquetCookiePriceFromDifficulty(item);
+  if (fromDifficulty > 0) return fromDifficulty;
+
   const bouquetCost =
     bouquetType === "HAND" ? BOUQUET_HAND_COST : BOUQUET_STANDING_COST;
 

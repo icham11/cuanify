@@ -251,6 +251,147 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
     expect(cupcakeItem.darkColorButtercreamColor).toBe("Black");
   });
 
+  it("auto-checks choose color from cupcake color field even without explicit dark buttercream phrase", () => {
+    const text = [
+      "Tanggal Pengiriman: (4/5/26)",
+      "KODE BOOKING : ST-28",
+      "Order:",
+      "1 dozen",
+      "cupcakes",
+      "4ppcs indv cupcakes",
+      "Jumlah Cupcakes : 1 dozen +",
+      "40pcs indv",
+      "Rasa Cupcakes : dozen : dc, indv :",
+      "CV",
+      "Warna Cupcakes : Black, Navy Blue, Fuschia Pink",
+      "Jumlah Topper Cookies : -",
+      "Jam Pengiriman : 10.00",
+      "Metode Pengiriman : ambil Nama penerima : stella delvia",
+      "No. telp penerima : 08119882528",
+      "Alamat lengkap : pik",
+    ].join("\n");
+
+    const parsed = parseWhatsAppOrderText(text, {
+      preferredOrderType: "cupcakes",
+      sourceType: "manual",
+    });
+    const autoFill = buildBookingAutoFillFromParsed(parsed);
+
+    const cupcakeItems = autoFill.items.filter(
+      (item) => item.category === "Cupcakes",
+    );
+    expect(cupcakeItems.length).toBe(2);
+
+    for (const cupcakeItem of cupcakeItems) {
+      expect(cupcakeItem.addOns.includes("dark-color-buttercream")).toBe(true);
+      expect(cupcakeItem.darkColorButtercreamColors).toEqual([
+        "Black",
+        "Navy Blue",
+        "Fuschia Pink",
+      ]);
+    }
+
+    const dozenItem = cupcakeItems.find((item) =>
+      item.productName.toLowerCase().includes("dozen"),
+    );
+    const individualItem = cupcakeItems.find((item) =>
+      item.productName.toLowerCase().includes("individual"),
+    );
+
+    expect(Boolean(dozenItem)).toBe(true);
+    expect(Boolean(individualItem)).toBe(true);
+    if (!dozenItem || !individualItem) {
+      throw new Error("Cupcake split items were not generated");
+    }
+
+    expect(dozenItem.addOns.includes("flavor-cupcake-double-choco")).toBe(
+      true,
+    );
+    expect(
+      individualItem.addOns.includes("flavor-cupcake-classic-vanilla"),
+    ).toBe(true);
+  });
+
+  it("maps flavor shorthand separately for cake and cupcakes in mixed order", () => {
+    const text = [
+      "Data Cake",
+      "Tanggal Pengiriman: 9/5/26",
+      "KODE BOOKING: MX-77",
+      "Order: 1 cake + 1 dozen cupcakes",
+      "Nama di Cake: Mila",
+      "Umur di cake: 8",
+      "Ukuran cake: 16 cm",
+      "Rasa cake: CB",
+      "Design cake: simple",
+      "Jumlah Cupcakes: 1 dozen",
+      "Rasa Cupcakes: DC",
+      "Warna Cupcakes: -",
+      "Jumlah Topper Cookies: -",
+      "Jam Pengiriman: 10:00",
+      "Metode Pengiriman: Gocar",
+      "Nama penerima: Test Mixed Flavor",
+      "No. telp penerima: 081234567898",
+      "Alamat lengkap: Central City",
+    ].join("\n");
+
+    const parsed = parseWhatsAppOrderText(text, {
+      preferredOrderType: "unknown",
+      sourceType: "manual",
+    });
+    const autoFill = buildBookingAutoFillFromParsed(parsed);
+
+    const cakeItem = autoFill.items.find((item) => item.category === "Cake");
+    const cupcakeItem = autoFill.items.find(
+      (item) => item.category === "Cupcakes",
+    );
+
+    expect(Boolean(cakeItem)).toBe(true);
+    expect(Boolean(cupcakeItem)).toBe(true);
+    if (!cakeItem || !cupcakeItem) {
+      throw new Error("Mixed flavor items were not generated");
+    }
+
+    expect(cakeItem.addOns.includes("flavor-cake-choco-banana")).toBe(true);
+    expect(cupcakeItem.addOns.includes("flavor-cupcake-double-choco")).toBe(
+      true,
+    );
+  });
+
+  it("maps premium cake flavor to premium flavor add-on", () => {
+    const text = [
+      "Data Cake",
+      "Tanggal Pengiriman: 10/5/26",
+      "KODE BOOKING: CK-88",
+      "Order: 1 cake",
+      "Nama di Cake: Naya",
+      "Umur di cake: 7",
+      "Ukuran cake: 16 cm",
+      "Rasa cake: Red Velvet",
+      "Design cake: simple",
+      "Jam Pengiriman: 10:00",
+      "Metode Pengiriman: Gocar",
+      "Nama penerima: Test Premium Flavor",
+      "No. telp penerima: 081234567899",
+      "Alamat lengkap: Central City",
+    ].join("\n");
+
+    const parsed = parseWhatsAppOrderText(text, {
+      preferredOrderType: "cake",
+      sourceType: "manual",
+    });
+    const autoFill = buildBookingAutoFillFromParsed(parsed);
+    const cakeItem = autoFill.items.find((item) => item.category === "Cake");
+
+    expect(Boolean(cakeItem)).toBe(true);
+    if (!cakeItem) {
+      throw new Error("Cake item was not generated");
+    }
+
+    expect(cakeItem.addOns.includes("flavor-cake-red-velvet-premium")).toBe(
+      true,
+    );
+  });
+
   it("prioritizes order individual cupcakes and quantity even with detail default dozen", () => {
     const text = [
       "Data Cupcakes",
@@ -468,6 +609,47 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
 
     expect(parsed.common.deliveryMethod).toBe("Same Day");
     expect(autoFill.deliveryMethod).toBe("ASSISTED_SAME_DAY");
+  });
+
+  it("uses bouquet quantity from order marker when flower count field is empty", () => {
+    const text = [
+      "Data Buket",
+      "Tanggal Pengiriman: 18/04/2026",
+      "KODE BOOKING: SA-26",
+      "Order: Hbq isi 10",
+      "Design: 9pcs karakter digimon (full body)",
+      "Warna kertas bouquet: no 13",
+      "Jumlah Cookies: -",
+      "Harga Cookie / pcs: -",
+      "Warna Bunga: -",
+      "Kartu ucapan: Happy Birthday Elliora",
+      "Jam Pengiriman: 10:00",
+      "Metode Pengiriman: GoCar",
+      "Nama penerima: Sansan",
+      "No. telp penerima: 08174922926",
+      "Alamat lengkap: Tangerang",
+    ].join("\n");
+
+    const parsed = parseWhatsAppOrderText(text, {
+      preferredOrderType: "buket",
+      sourceType: "manual",
+    });
+    const autoFill = buildBookingAutoFillFromParsed(parsed);
+
+    expect(parsed.details.flowerCount).toBe("");
+    expect(autoFill.items[0]?.category).toBe("Buket");
+    expect(autoFill.items[0]?.quantity).toBe(10);
+  });
+
+  it("extracts mixed-order bouquet quantity from hbq marker", () => {
+    const autoFill = buildAutoFillFromOrderLine("1 cake + hbq isi 10");
+    const bouquetItem = autoFill.items.find((item) => item.category === "Buket");
+
+    expect(Boolean(bouquetItem)).toBe(true);
+    if (!bouquetItem) {
+      throw new Error("Bouquet item was not generated");
+    }
+    expect(bouquetItem.quantity).toBe(10);
   });
 
   it("reads structured recap order items and pricing overrides", () => {

@@ -134,22 +134,8 @@ function resolveBouquetUnits(quantity: number): number {
   return quantity;
 }
 
-function calculateBouquetToken(
-  item: OrderItemForTokenCalc,
-  searchSource: string,
-  qty: number,
-): number {
-  const baseToken =
-    resolveBouquetToken(searchSource) * resolveBouquetUnits(qty);
-
-  // For bouquet qty entered as cookie fill count (7-20), difficulty should impact token.
-  if (!isBouquetCookieFillQuantity(qty)) {
-    return baseToken;
-  }
-
-  const difficultyToken = resolveCookieDifficultyToken(item);
-  const cookieWorkloadToken = difficultyToken * qty;
-  return Math.max(baseToken, cookieWorkloadToken);
+function calculateBouquetToken(searchSource: string, qty: number): number {
+  return resolveBouquetToken(searchSource) * resolveBouquetUnits(qty);
 }
 
 function calculateItemToken(item: OrderItemForTokenCalc): number {
@@ -172,7 +158,7 @@ function calculateItemToken(item: OrderItemForTokenCalc): number {
   }
 
   if (searchSource.includes("buket") || searchSource.includes("bouquet")) {
-    return calculateBouquetToken(item, searchSource, qty);
+    return calculateBouquetToken(searchSource, qty);
   }
 
   // Evaluate cake before cupcake to avoid product-name collisions (e.g. Cake with "cupcake" note).

@@ -401,6 +401,7 @@ function buildAutomationPayload(
       productName: item.productName,
       size: item.size,
       quantity: Number(item.quantity || 0),
+      tokenDifficulty: item.tokenDifficulty,
       productType: item.productType,
       selectedPrice: item.selectedPrice,
       basePrice: Number(item.basePrice || 0),

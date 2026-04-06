@@ -3,6 +3,10 @@ import {
   getDefaultCatalogSelectionForCategory,
   suggestCatalogSelection,
 } from "@/lib/bookings/pricelist";
+import {
+  getFlavorOptionsByCategory,
+  type FlavorOption,
+} from "@/lib/bookings/flavor-options";
 
 export type WhatsAppOrderType =
   | "cake"
@@ -1349,6 +1353,7 @@ function buildSearchSourceForOrderType(
 }
 
 type BookingAutoFillItem = BookingFormAutoFill["items"][number];
+type CupcakeFlavorSegment = "DOZEN" | "INDIVIDUAL";
 
 const DARK_COLOR_BUTTERCREAM_ADDON_ID = "dark-color-buttercream";
 const DARK_BUTTERCREAM_COLOR_CANDIDATES: Array<{
@@ -1368,9 +1373,121 @@ const DARK_BUTTERCREAM_COLOR_CANDIDATES: Array<{
   },
   {
     label: "Fuschia Pink",
-    aliases: ["fuschia pink", "fuchsia pink", "fuschia", "fuchsia"],
+    aliases: [
+      "fuschia pink",
+      "fuchsia pink",
+      "fuschia pin",
+      "fuchsia pin",
+      "fuschia",
+      "fuchsia",
+    ],
   },
 ];
+
+function mergeUniqueAddOnIds(...sources: string[][]): string[] {
+  return Array.from(
+    new Set(
+      sources
+        .flat()
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0),
+    ),
+  );
+}
+
+function findFlavorTokenPosition(normalizedText: string, token: string): number {
+  const normalizedToken = normalizeLabel(token);
+  if (!normalizedToken) return Number.POSITIVE_INFINITY;
+
+  const pattern = new RegExp(
+    `(?:^|\\s)${escapeRegExp(normalizedToken)}(?:\\s|$)`,
+    "i",
+  );
+  const matched = pattern.exec(normalizedText);
+  if (!matched) return Number.POSITIVE_INFINITY;
+  return matched.index;
+}
+
+function detectFlavorOptionByText(
+  options: FlavorOption[],
+  value: string,
+): FlavorOption | undefined {
+  const normalized = normalizeLabel(value);
+  if (!normalized) return undefined;
+
+  const ranked = options
+    .map((option) => {
+      const probes = [option.label, ...(option.aliases ?? []), ...(option.shortCodes ?? [])];
+      let minPosition = Number.POSITIVE_INFINITY;
+
+      for (const probe of probes) {
+        const position = findFlavorTokenPosition(normalized, probe);
+        if (position < minPosition) {
+          minPosition = position;
+        }
+      }
+
+      if (!Number.isFinite(minPosition)) {
+        return null;
+      }
+
+      return {
+        option,
+        position: minPosition,
+      };
+    })
+    .filter((entry): entry is { option: FlavorOption; position: number } =>
+      Boolean(entry),
+    )
+    .sort((left, right) => left.position - right.position);
+
+  return ranked[0]?.option;
+}
+
+function extractCupcakeFlavorSegmentText(
+  value: string,
+  segment: CupcakeFlavorSegment,
+): string {
+  const text = value.trim();
+  if (!text) return "";
+
+  if (segment === "DOZEN") {
+    const matched = text.match(/(?:dozen|lusin)\s*[:=\-]?\s*([^\n|;]+)/i);
+    if (!matched?.[1]) return "";
+    return matched[1]
+      .split(/(?:,|\b(?:indv|individual|individu(?:al)?)\b)/i)[0]
+      .trim();
+  }
+
+  const matched = text.match(
+    /(?:indv|individual|individu(?:al)?)\s*[:=\-]?\s*([^\n|;]+)/i,
+  );
+  if (!matched?.[1]) return "";
+
+  return matched[1].split(/(?:,|\b(?:dozen|lusin)\b)/i)[0].trim();
+}
+
+function detectFlavorAddOnIdsForCategory(args: {
+  category: string;
+  value: string;
+  cupcakeSegment?: CupcakeFlavorSegment;
+}): string[] {
+  const options = getFlavorOptionsByCategory(args.category);
+  if (options.length === 0) return [];
+
+  if (args.category === "Cupcakes" && args.cupcakeSegment) {
+    const segmentValue = extractCupcakeFlavorSegmentText(
+      args.value,
+      args.cupcakeSegment,
+    );
+    const segmentMatch = detectFlavorOptionByText(options, segmentValue);
+    if (segmentMatch) return [segmentMatch.id];
+  }
+
+  const fallbackMatch = detectFlavorOptionByText(options, args.value);
+  if (!fallbackMatch) return [];
+  return [fallbackMatch.id];
+}
 
 function resolveDarkButtercreamColors(value: string): string[] {
   const normalized = normalizeLabel(value);
@@ -1417,6 +1534,8 @@ function detectCupcakeDarkColorButtercream(value: string): {
     return { addOns: [] };
   }
 
+  const detectedColors = resolveDarkButtercreamColors(value);
+
   const hasDarkMarker =
     normalized.includes("dark color") || normalized.includes("darkcolor");
   const hasButtercreamMarker =
@@ -1428,11 +1547,12 @@ function detectCupcakeDarkColorButtercream(value: string): {
     normalized.includes("dark buttercream") ||
     (hasDarkMarker && hasButtercreamMarker);
 
-  if (!hasDarkColorButtercream) {
+  // Some customer templates list explicit cupcake colors without writing
+  // "dark color buttercream". If dark palette colors are recognized,
+  // auto-enable the add-on so the parsed checkbox state is correct.
+  if (!hasDarkColorButtercream && detectedColors.length === 0) {
     return { addOns: [] };
   }
-
-  const detectedColors = resolveDarkButtercreamColors(value);
 
   return {
     addOns: [DARK_COLOR_BUTTERCREAM_ADDON_ID],
@@ -1672,19 +1792,41 @@ function extractOrderQuantity(value: string): number | null {
   const text = value.trim();
   if (!text) return null;
 
+  const parseMatchedQuantity = (matched: RegExpMatchArray | null) => {
+    const rawQuantity = matched?.[1];
+    if (!rawQuantity) return null;
+
+    const quantity = Number(rawQuantity);
+    if (Number.isInteger(quantity) && quantity > 0) {
+      return quantity;
+    }
+
+    return null;
+  };
+
+  const bouquetContextual = parseMatchedQuantity(
+    text.match(
+      /(?:hbq|sbq|hand\s*bouquet|standing\s*bouquet|bouquet|buket)\b(?:\s+(?:isi|isian|isinya|qty|jumlah|x))?\s*[:=\-]?\s*(\d{1,4})\b/i,
+    ),
+  );
+  if (bouquetContextual) return bouquetContextual;
+
+  const explicitContextual = parseMatchedQuantity(
+    text.match(
+      /(?:qty|quantity|jumlah|order|pesan|x|isi|isian|isinya)\s*(?:cookies?|cookie|bunga|bouquet|buket|hbq|sbq|pcs?|pc|box|pack|dozen|lusin)?\s*[:=\-]?\s*(\d{1,4})\b/i,
+    ),
+  );
+  if (explicitContextual) return explicitContextual;
+
   const explicit = text.match(
     /(?:qty|jumlah|order|pesan|x)\s*[:=\-]?\s*(\d{1,4})\b/i,
   );
-  if (explicit?.[1]) {
-    const quantity = Number(explicit[1]);
-    if (Number.isInteger(quantity) && quantity > 0) return quantity;
-  }
+  const explicitQuantity = parseMatchedQuantity(explicit);
+  if (explicitQuantity) return explicitQuantity;
 
   const withUnit = text.match(/\b(\d{1,4})\s*(box|pack|pcs|pc|dozen|lusin)\b/i);
-  if (withUnit?.[1]) {
-    const quantity = Number(withUnit[1]);
-    if (Number.isInteger(quantity) && quantity > 0) return quantity;
-  }
+  const unitQuantity = parseMatchedQuantity(withUnit);
+  if (unitQuantity) return unitQuantity;
 
   return null;
 }
@@ -1699,7 +1841,20 @@ function chooseQuantity(parsed: ParsedWhatsAppOrder): number {
       parsed.details.flowerCount ?? "",
     );
     if (bouquetCount) return bouquetCount;
-    return extractOrderQuantity(parsed.common.order ?? "") ?? 1;
+
+    const orderText = parsed.common.order ?? "";
+    const bouquetOrderCount =
+      extractQuantityForKeywords(orderText, [
+        "isi",
+        "hbq",
+        "sbq",
+        "hand bouquet",
+        "standing bouquet",
+        "bouquet",
+        "buket",
+      ]) ?? extractOrderQuantity(orderText);
+
+    return bouquetOrderCount ?? 1;
   }
 
   if (parsed.orderType === "cupcakes") {
@@ -1826,6 +1981,10 @@ function createAutoFillItemFromCategory(args: {
     catalog.category === "Buket" && Number(args.cookiePrice) > 0
       ? Math.round(Number(args.cookiePrice))
       : undefined;
+  const flavorAddOns = detectFlavorAddOnIdsForCategory({
+    category: catalog.category,
+    value: `${args.searchSource || ""} ${args.notes || ""}`,
+  });
   const cupcakeDarkColor =
     catalog.category === "Cupcakes"
       ? detectCupcakeDarkColorButtercream(
@@ -1845,7 +2004,7 @@ function createAutoFillItemFromCategory(args: {
     quantity: toPositiveQuantity(args.quantity),
     tokenDifficulty,
     cookiePrice,
-    addOns: cupcakeDarkColor.addOns,
+    addOns: mergeUniqueAddOnIds(flavorAddOns, cupcakeDarkColor.addOns),
     darkColorButtercreamColors: cupcakeDarkColor.darkColorButtercreamColors,
     darkColorButtercreamColor: cupcakeDarkColor.darkColorButtercreamColor,
     notes: args.notes,
@@ -1983,8 +2142,8 @@ function buildMixedSupplementAutoFillItems(
       rawText,
     );
   const hasBouquetMarker =
-    /(buket|bouquet)/i.test(orderText) ||
-    /\bwarna\s+kertas\s+bouquet\b|\bwarna\s+kertas\s+buket\b|\bisi\s+bouquet\b|\bisi\s+buket\b|\bwarna\s+bunga\b|\bkartu\s+ucapan\b|\bharga\s+cookie\b|\bharga\s+cookies\b|\bcookie\s+price\b|\bhand\s+bouquet\b|\bstanding\s+bouquet\b|\bdata\s+buket\b/i.test(
+    /(buket|bouquet|hbq|sbq)/i.test(orderText) ||
+    /\bwarna\s+kertas\s+bouquet\b|\bwarna\s+kertas\s+buket\b|\bisi\s+bouquet\b|\bisi\s+buket\b|\bwarna\s+bunga\b|\bkartu\s+ucapan\b|\bharga\s+cookie\b|\bharga\s+cookies\b|\bcookie\s+price\b|\bhand\s+bouquet\b|\bstanding\s+bouquet\b|\bhbq\b|\bsbq\b|\bdata\s+buket\b/i.test(
       rawText,
     );
   const hasCookiesMarker = /\bto\s+from\s+notes\b|\bdata\s+cookies\b/i.test(
@@ -2101,7 +2260,17 @@ function buildMixedSupplementAutoFillItems(
   );
   if (primaryCategory !== "Buket" && hasBouquetMarker) {
     const quantity =
-      extractQuantityForKeywords(orderText, ["buket", "bouquet"]) ?? 1;
+      extractQuantityForKeywords(orderText, [
+        "isi",
+        "hbq",
+        "sbq",
+        "hand bouquet",
+        "standing bouquet",
+        "buket",
+        "bouquet",
+      ]) ??
+      extractOrderQuantity(orderText) ??
+      1;
     const context = buildSupplementContext("buket", orderText || rawText);
     pushItem(
       "Buket",
@@ -2160,6 +2329,18 @@ function buildDefaultAutoFillItems(
     catalog.category === "Buket"
       ? (parseCurrencyAmount(parsed.details.cookiePrice ?? "") ?? undefined)
       : undefined;
+  const flavorSource = [
+    parsed.common.order,
+    parsed.details.cakeFlavor,
+    parsed.details.cupcakeFlavor,
+    parsed.rawText,
+  ]
+    .filter(Boolean)
+    .join(" | ");
+  const flavorAddOns = detectFlavorAddOnIdsForCategory({
+    category: catalog.category,
+    value: flavorSource,
+  });
   const cupcakeDarkColor =
     catalog.category === "Cupcakes"
       ? detectCupcakeDarkColorButtercream(
@@ -2187,7 +2368,7 @@ function buildDefaultAutoFillItems(
       quantity,
       tokenDifficulty,
       cookiePrice,
-      addOns: cupcakeDarkColor.addOns,
+      addOns: mergeUniqueAddOnIds(flavorAddOns, cupcakeDarkColor.addOns),
       darkColorButtercreamColors: cupcakeDarkColor.darkColorButtercreamColors,
       darkColorButtercreamColor: cupcakeDarkColor.darkColorButtercreamColor,
       notes: itemNotes,
@@ -2200,6 +2381,29 @@ function buildCupcakeAutoFillItems(
   itemNotes: string,
 ): BookingFormAutoFill["items"] {
   const quantityInfo = resolveCupcakeQuantityBreakdown(parsed);
+  const flavorSource = [
+    parsed.details.cupcakeFlavor,
+    parsed.common.order,
+    parsed.rawText,
+  ]
+    .filter(Boolean)
+    .join(" | ");
+  const fallbackCupcakeFlavorAddOns = detectFlavorAddOnIdsForCategory({
+    category: "Cupcakes",
+    value: flavorSource,
+  });
+  const dozenFlavorAddOns =
+    detectFlavorAddOnIdsForCategory({
+      category: "Cupcakes",
+      value: flavorSource,
+      cupcakeSegment: "DOZEN",
+    }) || [];
+  const individualFlavorAddOns =
+    detectFlavorAddOnIdsForCategory({
+      category: "Cupcakes",
+      value: flavorSource,
+      cupcakeSegment: "INDIVIDUAL",
+    }) || [];
 
   const items: BookingFormAutoFill["items"] = [];
   const cupcakeDarkColor = detectCupcakeDarkColorButtercream(
@@ -2224,7 +2428,12 @@ function buildCupcakeAutoFillItems(
       productName: catalog.productName,
       size: catalog.size,
       quantity: quantityInfo.dozenCount,
-      addOns: cupcakeDarkColor.addOns,
+      addOns: mergeUniqueAddOnIds(
+        dozenFlavorAddOns.length > 0
+          ? dozenFlavorAddOns
+          : fallbackCupcakeFlavorAddOns,
+        cupcakeDarkColor.addOns,
+      ),
       darkColorButtercreamColors: cupcakeDarkColor.darkColorButtercreamColors,
       darkColorButtercreamColor: cupcakeDarkColor.darkColorButtercreamColor,
       notes: itemNotes,
@@ -2242,7 +2451,12 @@ function buildCupcakeAutoFillItems(
       productName: catalog.productName,
       size: catalog.size,
       quantity: quantityInfo.individualCount,
-      addOns: cupcakeDarkColor.addOns,
+      addOns: mergeUniqueAddOnIds(
+        individualFlavorAddOns.length > 0
+          ? individualFlavorAddOns
+          : fallbackCupcakeFlavorAddOns,
+        cupcakeDarkColor.addOns,
+      ),
       darkColorButtercreamColors: cupcakeDarkColor.darkColorButtercreamColors,
       darkColorButtercreamColor: cupcakeDarkColor.darkColorButtercreamColor,
       notes: itemNotes,
