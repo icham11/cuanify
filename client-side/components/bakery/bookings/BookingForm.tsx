@@ -364,16 +364,6 @@ const BOUQUET_COOKIE_PRICE_BY_DIFFICULTY: Record<TokenDifficultyValue, number> =
     ADVANCED: 30000,
     EXPERT: 35000,
   };
-const TOKEN_DIFFICULTY_BY_COOKIE_PRICE: Array<{
-  price: number;
-  difficulty: TokenDifficultyValue;
-}> = [
-  { price: 17000, difficulty: "SIMPLE" },
-  { price: 20000, difficulty: "NORMAL" },
-  { price: 25000, difficulty: "HARD" },
-  { price: 30000, difficulty: "ADVANCED" },
-  { price: 35000, difficulty: "EXPERT" },
-];
 const CUPCAKE_INDIVIDUAL_MIN_QTY = 10;
 const COOKIE_CUSTOM_TOTAL_MIN_QTY = 20;
 const COOKIE_INCLUDED_DESIGN_LIMIT = 5;
@@ -395,6 +385,8 @@ const CUPCAKE_COOKIE_ADDON_IDS = [
   "cookie-advanced",
   "cookie-expert",
 ] as const;
+const BOUQUET_EXTRA_3_FLOWER_ADDON_ID = "bouquet-extra-3-flower";
+const BOUQUET_EXTRA_6_FLOWER_ADDON_ID = "bouquet-extra-6-flower";
 const FRAGILE_ORDER_ALLOWED_METHODS: DeliveryMethod[] = [
   "PICKUP",
   "CUSTOMER_APP_COURIER",
@@ -467,17 +459,6 @@ function normalizeCookieDesignCount(value: unknown): number | undefined {
 function getAdditionalCookieDesignCount(value: unknown): number {
   const designCount = normalizeCookieDesignCount(value) ?? 0;
   return Math.max(0, designCount - COOKIE_INCLUDED_DESIGN_LIMIT);
-}
-
-function inferTokenDifficultyFromCookiePrice(
-  value: unknown,
-): TokenDifficultyValue | undefined {
-  const normalized = normalizeBouquetCookiePriceValue(value);
-  if (!normalized) return undefined;
-
-  return TOKEN_DIFFICULTY_BY_COOKIE_PRICE.find(
-    (entry) => entry.price === normalized,
-  )?.difficulty;
 }
 
 function getBouquetCookiePrice(
@@ -956,6 +937,7 @@ function getCustomAddOnTotal(
 
 function supportsAddOnQuantity(category: string, addonId: string): boolean {
   if (addonId === DARK_COLOR_BUTTERCREAM_ADDON_ID) return false;
+  if (isBouquetFlowerAddOnId(addonId)) return false;
   if (!category) return false;
   const flavorIds = new Set(getFlavorAddOnIdsByCategory(category));
   return !flavorIds.has(addonId);
@@ -1039,8 +1021,33 @@ function getAddOnUnitMultiplier(args: {
   return Math.max(1, args.addOnQuantities[args.addonId] ?? 1);
 }
 
+function isBouquetFlowerAddOnId(addonId: string): boolean {
+  return (
+    addonId === BOUQUET_EXTRA_3_FLOWER_ADDON_ID ||
+    addonId === BOUQUET_EXTRA_6_FLOWER_ADDON_ID
+  );
+}
+
+function getBouquetFlowerAddOnUnitPrice(args: {
+  addonId: string;
+  bouquetType: BouquetFormType | null;
+}): number | null {
+  if (!isBouquetFlowerAddOnId(args.addonId)) return null;
+
+  if (args.addonId === BOUQUET_EXTRA_3_FLOWER_ADDON_ID) {
+    return args.bouquetType === "STANDING" ? 25000 : 20000;
+  }
+
+  if (args.addonId === BOUQUET_EXTRA_6_FLOWER_ADDON_ID) {
+    return args.bouquetType === "STANDING" ? 40000 : 35000;
+  }
+
+  return null;
+}
+
 function calculatePerUnitAddOnPrice(args: {
   category: string;
+  bouquetType?: BouquetFormType | null;
   selectedAddOnIds: string[];
   addOnQuantities: Record<string, number>;
   addOnPriceOverrides?: Record<string, number>;
@@ -1061,7 +1068,12 @@ function calculatePerUnitAddOnPrice(args: {
     const unitPrice =
       Number.isFinite(Number(overriddenPrice)) && Number(overriddenPrice) >= 0
         ? Number(overriddenPrice)
-        : addon.price;
+        : args.category === "Buket"
+          ? (getBouquetFlowerAddOnUnitPrice({
+              addonId,
+              bouquetType: args.bouquetType ?? null,
+            }) ?? addon.price)
+          : addon.price;
     return sum + unitPrice * multiplier;
   }, 0);
 }
@@ -1303,7 +1315,7 @@ function getItemQuantityRule(item: BookingItemInput): ItemQuantityRule {
   const bouquetType = detectBouquetTypeFromItem(item);
   if (bouquetType === "HAND") {
     return {
-      label: "Quantity (unit bouquet / isi cookies)",
+      label: "Quantity (isi cookies)",
       min: 1,
       helperText: `Hand bouquet: isi cookies ${BOUQUET_HAND_MIN_QTY}-${BOUQUET_HAND_MAX_QTY}. Qty 1-${BOUQUET_HAND_MIN_QTY - 1} dibaca sebagai jumlah unit bouquet (harga start from).`,
     };
@@ -2720,7 +2732,6 @@ export default function BookingForm() {
     for (const item of values.items) {
       const quantity = Number(item.quantity) || 0;
       const quantityRule = getItemQuantityRule(item as BookingItemInput);
-      const hasParsedRecapPrice = hasParsedPricingOverride(item);
       const isOutOfRange =
         quantity < quantityRule.min ||
         (typeof quantityRule.max === "number" && quantity > quantityRule.max);
@@ -2756,13 +2767,6 @@ export default function BookingForm() {
       if (!isValidBouquetQuantity(quantity, bouquetType)) {
         toast.error(
           `${bouquetType === "HAND" ? "Hand" : "Standing"} bouquet wajib qty ${getBouquetQtyRangeLabel(bouquetType)} cookies.`,
-        );
-        return;
-      }
-
-      if (!item.tokenDifficulty && !hasParsedRecapPrice) {
-        toast.error(
-          "Pilih Difficulty Token untuk item bouquet supaya formula harga otomatis dihitung.",
         );
         return;
       }
@@ -2850,6 +2854,7 @@ export default function BookingForm() {
         ? 0
         : calculatePerUnitAddOnPrice({
             category: item.category,
+            bouquetType,
             selectedAddOnIds: item.addOns ?? [],
             addOnQuantities: normalizedAddOnQuantities,
             addOnPriceOverrides: normalizedAddOnPriceOverrides,
@@ -2958,7 +2963,7 @@ export default function BookingForm() {
         size: item.size,
         quantity: item.quantity,
         tokenDifficulty:
-          item.category === "Cookies" || item.category === "Buket"
+          item.category === "Cookies"
             ? (item.tokenDifficulty as
                 | "SIMPLE"
                 | "NORMAL"
@@ -3196,6 +3201,7 @@ export default function BookingForm() {
     rawValue: string,
   ) => {
     if (addonId === DARK_COLOR_BUTTERCREAM_ADDON_ID) return;
+    if (isBouquetFlowerAddOnId(addonId)) return;
     if (isCupcakeCookieAddOnId(addonId)) return;
 
     const current = normalizeAddOnPriceOverrides(
@@ -3452,14 +3458,9 @@ export default function BookingForm() {
                 ? normalizeBouquetCookiePriceValue(item.cookiePrice)
                 : undefined;
             const parsedTokenDifficulty =
-              normalized.category === "Cookies" ||
-              normalized.category === "Buket"
+              normalized.category === "Cookies"
                 ? normalizeTokenDifficultyValue(
-                    item.tokenDifficulty ??
-                      (normalized.category === "Buket"
-                        ? inferTokenDifficultyFromCookiePrice(parsedCookiePrice)
-                        : undefined) ??
-                      "SIMPLE",
+                    item.tokenDifficulty ?? "SIMPLE",
                   )
                 : undefined;
             const rawItemNotes = String(item.notes ?? "");
@@ -4283,8 +4284,7 @@ export default function BookingForm() {
                       const nextDefault =
                         getDefaultSelectionFromCatalog(productCatalog);
                       const nextTokenDifficulty =
-                        nextDefault.category === "Cookies" ||
-                        nextDefault.category === "Buket"
+                        nextDefault.category === "Cookies"
                           ? "SIMPLE"
                           : undefined;
                       const autoQuantity =
@@ -4442,16 +4442,13 @@ export default function BookingForm() {
                         : variants;
                     const displayVariants =
                       allowedVariants.length > 0 ? allowedVariants : variants;
-                    const supportsDifficulty = isCookies || isBouquet;
+                    const supportsDifficulty = isCookies;
                     const bouquetLineTotal =
                       getBouquetLineTotal(bouquetProbeItem);
                     const itemGrabCarOnly = isGrabCarOnlyItem(bouquetProbeItem);
                     const quantityRule = getItemQuantityRule(bouquetProbeItem);
                     const itemTokenPreview =
                       getItemProductionToken(bouquetProbeItem);
-                    const selectedDifficultyOption = getTokenDifficultyOption(
-                      item?.tokenDifficulty,
-                    );
                     const bouquetCookiePrice =
                       getBouquetCookiePrice(bouquetProbeItem);
                     const hasParsedBouquetCookiePrice =
@@ -4509,8 +4506,32 @@ export default function BookingForm() {
                     const selectedNonFlavorAddOns = nonFlavorAddOns.filter(
                       (addon) => item?.addOns?.includes(addon.id) ?? false,
                     );
-                    const selectedNonFlavorAddOnTotal =
-                      selectedNonFlavorAddOns.reduce((sum, addon) => {
+                    // Separate flowers from other add-ons for proper pricing calculation
+                    const selectedFlowerAddOns = selectedNonFlavorAddOns.filter(
+                      (addon) => isBouquetFlowerAddOnId(addon.id),
+                    );
+                    const selectedOtherAddOns = selectedNonFlavorAddOns.filter(
+                      (addon) => !isBouquetFlowerAddOnId(addon.id),
+                    );
+
+                    // Calculate flower add-ons (fixed, no quantity multiplier)
+                    const selectedFlowerAddOnTotal =
+                      selectedFlowerAddOns.reduce((sum, addon) => {
+                        const overriddenPrice =
+                          normalizedAddOnPriceOverrides[addon.id];
+                        const unitPrice =
+                          overriddenPrice !== undefined
+                            ? overriddenPrice
+                            : (getBouquetFlowerAddOnUnitPrice({
+                                addonId: addon.id,
+                                bouquetType,
+                              }) ?? addon.price);
+                        return sum + unitPrice;
+                      }, 0);
+
+                    // Calculate other add-ons (scaled by quantity)
+                    const selectedOtherAddOnTotal =
+                      selectedOtherAddOns.reduce((sum, addon) => {
                         const multiplier = getAddOnUnitMultiplier({
                           category: normalizedSelection.category,
                           addonId: addon.id,
@@ -4524,14 +4545,42 @@ export default function BookingForm() {
                             : addon.price;
                         return sum + unitPrice * multiplier;
                       }, 0) * Math.max(1, quantityValue);
-                    const selectedAllAddOnTotal =
+
+                    const selectedNonFlavorAddOnTotal =
+                      selectedFlowerAddOnTotal + selectedOtherAddOnTotal;
+
+                    // Calculate total add-ons properly handling flowers
+                    const flowerAddOnsPrice = (item?.addOns ?? [])
+                      .filter((id) => isBouquetFlowerAddOnId(id))
+                      .reduce((sum, addonId) => {
+                        const addon = addOns.find((a) => a.id === addonId);
+                        if (!addon) return sum;
+                        const overriddenPrice =
+                          normalizedAddOnPriceOverrides[addonId];
+                        const unitPrice =
+                          overriddenPrice !== undefined
+                            ? overriddenPrice
+                            : (getBouquetFlowerAddOnUnitPrice({
+                                addonId,
+                                bouquetType,
+                              }) ?? addon.price);
+                        return sum + unitPrice;
+                      }, 0);
+
+                    const nonFlowerAddOnsPrice =
                       calculatePerUnitAddOnPrice({
                         category: normalizedSelection.category,
-                        selectedAddOnIds: item?.addOns ?? [],
+                        bouquetType,
+                        selectedAddOnIds: (item?.addOns ?? []).filter(
+                          (id) => !isBouquetFlowerAddOnId(id),
+                        ),
                         addOnQuantities: normalizedAddOnQuantities,
                         addOnPriceOverrides: normalizedAddOnPriceOverrides,
                         addOnCatalogEntries: addOns,
                       }) * Math.max(1, quantityValue);
+
+                    const selectedAllAddOnTotal =
+                      flowerAddOnsPrice + nonFlowerAddOnsPrice;
                     const customAddOnTotal = getCustomAddOnTotal(
                       customAddOns,
                       quantityValue,
@@ -4714,8 +4763,7 @@ export default function BookingForm() {
                                 );
                                 setValue(
                                   `items.${index}.tokenDifficulty`,
-                                  nextSelection.category === "Cookies" ||
-                                    nextSelection.category === "Buket"
+                                  nextSelection.category === "Cookies"
                                     ? "SIMPLE"
                                     : undefined,
                                   {
@@ -5304,12 +5352,6 @@ export default function BookingForm() {
                                   </option>
                                 ))}
                               </Select>
-                              {isBouquet && (
-                                <span className="min-h-4 text-[11px] font-normal leading-4 text-gray-500">
-                                  Token bouquet fixed: Hand = 20, Standing = 50
-                                  per bouquet.
-                                </span>
-                              )}
                             </label>
                           )}
 
@@ -5319,7 +5361,11 @@ export default function BookingForm() {
                               <span className="min-h-4 text-[11px] font-normal leading-4 text-gray-500">
                                 {hasParsedBouquetCookiePrice
                                   ? `Harga cookie dari parser: ${formatCurrency(bouquetCookiePrice)} / pcs.`
-                                  : `Difficulty aktif: ${selectedDifficultyOption.label} (${selectedDifficultyOption.token}) = ${formatCurrency(selectedDifficultyOption.cookiePrice)} / pcs.`}
+                                  : `Harga cookie default: ${formatCurrency(bouquetCookiePrice)} / pcs.`}
+                              </span>
+                              <span className="min-h-4 text-[11px] font-normal leading-4 text-gray-500">
+                                Token bouquet fixed: Hand = 20, Standing = 50
+                                per bouquet.
                               </span>
                               <span className="min-h-4 text-[11px] font-normal leading-4 text-gray-500">
                                 Formula: (harga cookie x qty) +{" "}
@@ -5524,7 +5570,12 @@ export default function BookingForm() {
                                 addOnQuantities: normalizedAddOnQuantities,
                               });
                               const effectiveUnitPrice =
-                                baseUnitPrice * perCakeUnits;
+                                (normalizedSelection.category === "Buket"
+                                  ? (getBouquetFlowerAddOnUnitPrice({
+                                      addonId: addon.id,
+                                      bouquetType,
+                                    }) ?? baseUnitPrice)
+                                  : baseUnitPrice) * perCakeUnits;
 
                               return (
                                 <div
@@ -5541,7 +5592,8 @@ export default function BookingForm() {
                                       {overriddenPrice !== undefined
                                         ? " (adjusted)"
                                         : ""}
-                                      {quantityValue > 0
+                                      {!isBouquetFlowerAddOnId(addon.id) &&
+                                      quantityValue > 0
                                         ? ` (x${quantityValue} = ${formatCurrency(effectiveUnitPrice * quantityValue)})`
                                         : ""}
                                     </span>
@@ -5566,6 +5618,7 @@ export default function BookingForm() {
                                     {checked &&
                                       addon.id !==
                                         DARK_COLOR_BUTTERCREAM_ADDON_ID &&
+                                      !isBouquetFlowerAddOnId(addon.id) &&
                                       !isCupcakeCookieAddOnId(addon.id) && (
                                         <Input
                                           type="number"
@@ -5704,7 +5757,10 @@ export default function BookingForm() {
                           customAddOns.length > 0) && (
                           <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
                             {[
-                              ...selectedNonFlavorAddOns.map((addon) => {
+                              ...selectedFlowerAddOns.map(
+                                (addon) => addon.label,
+                              ),
+                              ...selectedOtherAddOns.map((addon) => {
                                 const units = getAddOnUnitMultiplier({
                                   category: normalizedSelection.category,
                                   addonId: addon.id,

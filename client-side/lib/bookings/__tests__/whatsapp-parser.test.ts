@@ -721,7 +721,43 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
     expect(bouquetItem.quantity).toBe(10);
   });
 
-  it("infers bouquet token difficulty from Harga Cookie / pcs", () => {
+  it("maps hbq and sbq aliases to the correct bouquet products", () => {
+    const hbqAutoFill = buildAutoFillFromOrderLine("1 cake + hbq isi 10");
+    const sbqAutoFill = buildAutoFillFromOrderLine("1 cake + sbq isi 12");
+
+    const hbqItem = hbqAutoFill.items.find((item) => item.category === "Buket");
+    const sbqItem = sbqAutoFill.items.find((item) => item.category === "Buket");
+
+    expect(Boolean(hbqItem)).toBe(true);
+    expect(Boolean(sbqItem)).toBe(true);
+
+    if (!hbqItem || !sbqItem) {
+      throw new Error("Bouquet item was not generated");
+    }
+
+    expect(hbqItem.productName).toBe("Hand Bouquet (7-10 pcs)");
+    expect(sbqItem.productName).toBe("Standing Bouquet (12-20 pcs)");
+  });
+
+  it("maps bouquet flower increments as bouquet add-ons", () => {
+    const autoFill = buildAutoFillFromOrderLine(
+      "1 cake + sbq isi 12 + 3 bunga",
+    );
+    const bouquetItem = autoFill.items.find(
+      (item) => item.category === "Buket",
+    );
+
+    expect(Boolean(bouquetItem)).toBe(true);
+    if (!bouquetItem) {
+      throw new Error("Bouquet item was not generated");
+    }
+
+    expect((bouquetItem.addOns ?? []).includes("bouquet-extra-3-flower")).toBe(
+      true,
+    );
+  });
+
+  it("infers bouquet cookie price from Harga Cookie / pcs", () => {
     const text = [
       "Data Buket",
       "Tanggal Pengiriman: 20/04/2026",
@@ -755,7 +791,6 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
     }
 
     expect(bouquetItem.quantity).toBe(10);
-    expect(bouquetItem.tokenDifficulty).toBe("HARD");
     expect(bouquetItem.cookiePrice).toBe(25000);
   });
 

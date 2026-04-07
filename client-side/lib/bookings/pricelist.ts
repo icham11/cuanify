@@ -537,21 +537,13 @@ export const BOOKING_PRODUCT_CATALOG: PricelistCategory[] = [
             name: "Hand Bouquet (7-10 pcs)",
             keywords: ["hand bouquet", "hbq", "handbq"],
             defaultVariant: "Start From",
-            variants: [
-              variant("Start From", 200000, ["start", "standard"]),
-              variant("+ 3 Bunga", 220000, ["3 bunga"]),
-              variant("+ 6 Bunga", 235000, ["6 bunga"]),
-            ],
+            variants: [variant("Start From", 200000, ["start", "standard"])],
           },
           {
             name: "Standing Bouquet (12-20 pcs)",
             keywords: ["standing bouquet", "sbq", "standingbq"],
             defaultVariant: "Start From",
-            variants: [
-              variant("Start From", 370000, ["start", "standard"]),
-              variant("+ 3 Bunga", 395000, ["3 bunga"]),
-              variant("+ 6 Bunga", 410000, ["6 bunga"]),
-            ],
+            variants: [variant("Start From", 370000, ["start", "standard"])],
           },
         ],
       },
@@ -638,7 +630,10 @@ export const BOOKING_ADD_ON_CATALOG: Record<string, CatalogAddOn[]> = {
       price: 50000,
     },
   ],
-  Buket: [],
+  Buket: [
+    { id: "bouquet-extra-3-flower", label: "Additional 3 Bunga", price: 20000 },
+    { id: "bouquet-extra-6-flower", label: "Additional 6 Bunga", price: 35000 },
+  ],
   "Cookies Tower": [],
 };
 

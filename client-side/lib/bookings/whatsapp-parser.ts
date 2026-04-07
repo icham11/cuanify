@@ -653,6 +653,8 @@ function normalizeRecapCategory(value: string): string {
   if (
     normalized.includes("buket") ||
     normalized.includes("bouquet") ||
+    normalized.includes("hbq") ||
+    normalized.includes("sbq") ||
     normalized.includes("hand bouquet") ||
     normalized.includes("standing bouquet")
   ) {
@@ -1308,6 +1310,15 @@ function parseOrderTypeToken(value: string): WhatsAppOrderTypeOrUnknown {
     return normalized as WhatsAppOrderType;
   }
 
+  if (
+    normalized === "hbq" ||
+    normalized === "sbq" ||
+    normalized === "hand bouquet" ||
+    normalized === "standing bouquet"
+  ) {
+    return "buket";
+  }
+
   if (normalized === "cookies tower" || normalized === "cookies_tower") {
     return "cookies_tower";
   }
@@ -1317,14 +1328,14 @@ function parseOrderTypeToken(value: string): WhatsAppOrderTypeOrUnknown {
 
 function parseOrderTypeFromText(rawText: string): WhatsAppOrderTypeOrUnknown {
   const explicit = rawText.match(
-    /jenis\s+pesanan\s*[:=-]\s*(cake|cookies|cupcakes|buket|cookies_tower|cookies tower)/i,
+    /jenis\s+pesanan\s*[:=-]\s*(cake|cookies|cupcakes|buket|hbq|sbq|hand bouquet|standing bouquet|cookies_tower|cookies tower)/i,
   );
   if (explicit?.[1]) {
     return parseOrderTypeToken(explicit[1]);
   }
 
   const heading = rawText.match(
-    /(?:^|\n)\s*(?:\[wa\s*parser\]\s*)?data\s+(cake|cookies|cupcakes|buket|cookies\s*tower)\b/i,
+    /(?:^|\n)\s*(?:\[wa\s*parser\]\s*)?data\s+(cake|cookies|cupcakes|buket|hbq|sbq|hand bouquet|standing bouquet|cookies\s*tower)\b/i,
   );
   if (heading?.[1]) {
     return parseOrderTypeToken(heading[1]);
@@ -1399,9 +1410,13 @@ function detectOrderType(
       "harga cookie",
       "harga cookies",
       "cookie price",
+      "hbq",
+      "sbq",
       "hand bouquet",
       "standing bouquet",
     ]) ||
+    normalizedText.includes("hbq") ||
+    normalizedText.includes("sbq") ||
     normalizedText.includes("buket") ||
     normalizedText.includes("bouquet");
   const isCookiesMarker = hasAnyMarker([
@@ -1427,6 +1442,8 @@ function detectOrderType(
   } else if (normalizedText.includes("cupcake")) {
     detectedFromMarkers = "cupcakes";
   } else if (
+    normalizedText.includes("hbq") ||
+    normalizedText.includes("sbq") ||
     normalizedText.includes("buket") ||
     normalizedText.includes("bouquet")
   ) {
@@ -1718,6 +1735,16 @@ const ADD_ON_ALIASES_BY_CATEGORY: Record<string, Record<string, string>> = {
   Cupcakes: {
     "dark color butter cream": "dark-color-buttercream",
     "dark buttercream": "dark-color-buttercream",
+  },
+  Buket: {
+    "3 bunga": "bouquet-extra-3-flower",
+    "+ 3 bunga": "bouquet-extra-3-flower",
+    "add 3 bunga": "bouquet-extra-3-flower",
+    "additional 3 bunga": "bouquet-extra-3-flower",
+    "6 bunga": "bouquet-extra-6-flower",
+    "+ 6 bunga": "bouquet-extra-6-flower",
+    "add 6 bunga": "bouquet-extra-6-flower",
+    "additional 6 bunga": "bouquet-extra-6-flower",
   },
 };
 
@@ -2624,6 +2651,33 @@ function expandCatalogSearchSource(category: string, rawValue: string): string {
   const source = cleanupValue(rawValue);
   if (!source) return "";
 
+  if (category === "Buket") {
+    const normalized = normalizeLabel(source);
+    const hints: string[] = [];
+
+    if (
+      normalized.includes("hbq") ||
+      normalized.includes("hand bouquet") ||
+      normalized.includes("handbq")
+    ) {
+      hints.push("hand bouquet");
+    }
+
+    if (
+      normalized.includes("sbq") ||
+      normalized.includes("standing bouquet") ||
+      normalized.includes("standingbq")
+    ) {
+      hints.push("standing bouquet");
+    }
+
+    if (hints.length > 0) {
+      return [source, ...hints].join(" | ");
+    }
+
+    return source;
+  }
+
   if (category !== "Cake") {
     return source;
   }
@@ -2778,12 +2832,8 @@ function createAutoFillItemFromCategory(args: {
       : undefined;
   const inferredDifficulty = inferTokenDifficultyFromText(args.searchSource);
   const tokenDifficulty =
-    catalog.category === "Cookies" || catalog.category === "Buket"
-      ? (inferredDifficulty ??
-        (catalog.category === "Buket"
-          ? inferTokenDifficultyFromCookiePrice(cookiePrice)
-          : undefined) ??
-        "SIMPLE")
+    catalog.category === "Cookies"
+      ? (inferredDifficulty ?? "SIMPLE")
       : undefined;
   const designCount =
     catalog.category === "Cookies" && Number(args.cookieDesignCount) > 0
@@ -3252,12 +3302,8 @@ function buildDefaultAutoFillItems(
     parseCurrencyAmount(parsed.details.cookiePrice ?? "") ?? undefined;
   const inferredDifficulty = inferTokenDifficultyFromText(difficultySource);
   const tokenDifficulty =
-    catalog.category === "Cookies" || catalog.category === "Buket"
-      ? (inferredDifficulty ??
-        (catalog.category === "Buket"
-          ? inferTokenDifficultyFromCookiePrice(parsedBouquetCookiePrice)
-          : undefined) ??
-        "SIMPLE")
+    catalog.category === "Cookies"
+      ? (inferredDifficulty ?? "SIMPLE")
       : undefined;
   const cookieDesignCount =
     catalog.category === "Cookies"
