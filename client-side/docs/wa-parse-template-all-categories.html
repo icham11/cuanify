@@ -1,0 +1,172 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html>
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+  <meta http-equiv="Content-Style-Type" content="text/css">
+  <title></title>
+  <meta name="Generator" content="Cocoa HTML Writer">
+  <meta name="CocoaVersion" content="2685.5">
+  <style type="text/css">
+    p.p1 {margin: 0.0px 0.0px 0.0px 0.0px; font: 12.0px 'Helvetica Light'}
+    p.p2 {margin: 0.0px 0.0px 0.0px 0.0px; font: 12.0px 'Helvetica Light'; min-height: 14.0px}
+  </style>
+</head>
+<body>
+<p class="p1"># Template WA Parse - Semua Kategori</p>
+<p class="p2"><br></p>
+<p class="p1">Dokumen ini dipakai untuk copy-paste format order WhatsApp agar parser membaca data dengan stabil.</p>
+<p class="p2"><br></p>
+<p class="p1">## Aturan Umum</p>
+<p class="p2"><br></p>
+<p class="p1">- Gunakan label persis seperti template.</p>
+<p class="p1">- Untuk field kosong, isi dengan `-` (jangan hapus label).</p>
+<p class="p1">- Untuk order Buket, gunakan pola `Hbq isi X` atau `Sbq isi X`.</p>
+<p class="p1">- Gunakan format tanggal `DD/MM/YY` atau `DD/MM/YYYY`.</p>
+<p class="p1">- Gunakan satu blok `Item` per produk.</p>
+<p class="p2"><br></p>
+<p class="p1">---</p>
+<p class="p2"><br></p>
+<p class="p1">## Header Order</p>
+<p class="p2"><br></p>
+<p class="p1">```</p>
+<p class="p1">Tanggal Pengiriman: DD/MM/YY</p>
+<p class="p1">KODE BOOKING: XXX-00</p>
+<p class="p1">```</p>
+<p class="p2"><br></p>
+<p class="p1">---</p>
+<p class="p2"><br></p>
+<p class="p1">## Template Item - Cake</p>
+<p class="p2"><br></p>
+<p class="p1">```</p>
+<p class="p1">Item 1</p>
+<p class="p1">Order: 1 cake</p>
+<p class="p2"><br></p>
+<p class="p1">Nama di Cake: ...</p>
+<p class="p1">Umur di cake: ...</p>
+<p class="p1">Ukuran cake: ...</p>
+<p class="p1">Rasa cake: ...</p>
+<p class="p1">Design cake: ...</p>
+<p class="p1">```</p>
+<p class="p2"><br></p>
+<p class="p1">---</p>
+<p class="p2"><br></p>
+<p class="p1">## Template Item - Cookies</p>
+<p class="p2"><br></p>
+<p class="p1">```</p>
+<p class="p1">Item 2</p>
+<p class="p1">Order: 20 pcs cookies</p>
+<p class="p2"><br></p>
+<p class="p1">Design Cookies: ...</p>
+<p class="p1">To From Notes: ...</p>
+<p class="p1">```</p>
+<p class="p2"><br></p>
+<p class="p1">Contoh breakdown design cookies (opsional):</p>
+<p class="p2"><br></p>
+<p class="p1">```</p>
+<p class="p1">Breakdown: 10 pcs SIMPLE, 10 pcs HARD</p>
+<p class="p1">```</p>
+<p class="p2"><br></p>
+<p class="p1">---</p>
+<p class="p2"><br></p>
+<p class="p1">## Template Item - Cupcakes</p>
+<p class="p2"><br></p>
+<p class="p1">```</p>
+<p class="p1">Item 3</p>
+<p class="p1">Order: 1 dozen cupcakes</p>
+<p class="p2"><br></p>
+<p class="p1">Jumlah Cupcakes: 1 dozen</p>
+<p class="p1">Rasa Cupcakes: ...</p>
+<p class="p1">Warna Cupcakes: ...</p>
+<p class="p1">Jumlah Topper Cookies: ...</p>
+<p class="p1">```</p>
+<p class="p2"><br></p>
+<p class="p1">Untuk individual cupcakes:</p>
+<p class="p2"><br></p>
+<p class="p1">```</p>
+<p class="p1">Order: 10 individual cupcakes</p>
+<p class="p1">Jumlah Cupcakes: 10 indv</p>
+<p class="p1">```</p>
+<p class="p2"><br></p>
+<p class="p1">---</p>
+<p class="p2"><br></p>
+<p class="p1">## Template Item - Buket</p>
+<p class="p2"><br></p>
+<p class="p1">```</p>
+<p class="p1">Item 4</p>
+<p class="p1">Order: Hbq isi 10</p>
+<p class="p1">Design: ...</p>
+<p class="p2"><br></p>
+<p class="p1">Warna kertas bouquet: ...</p>
+<p class="p1">Ribbon: ...</p>
+<p class="p1">Jumlah Bunga: ...</p>
+<p class="p1">Warna Bunga: ...</p>
+<p class="p1">Warna Pita: ...</p>
+<p class="p1">Kartu ucapan: ...</p>
+<p class="p1">```</p>
+<p class="p2"><br></p>
+<p class="p1">Catatan:</p>
+<p class="p2"><br></p>
+<p class="p1">- `Hbq` = Hand Bouquet (7-10)</p>
+<p class="p1">- `Sbq` = Standing Bouquet (12-20)</p>
+<p class="p1">- Harga Buket menggunakan formula: `(harga cookie x qty) + base bouquet`.</p>
+<p class="p1">- Harga cookie bisa custom, default 17.000.</p>
+<p class="p2"><br></p>
+<p class="p1">---</p>
+<p class="p2"><br></p>
+<p class="p1">## Template Item - Cookies Tower</p>
+<p class="p2"><br></p>
+<p class="p1">```</p>
+<p class="p1">Item 5</p>
+<p class="p1">Order: 1 cookies tower</p>
+<p class="p2"><br></p>
+<p class="p1">Tema Design: ...</p>
+<p class="p1">Tema Warna: ...</p>
+<p class="p1">Nama: ...</p>
+<p class="p1">Umur: ...</p>
+<p class="p1">```</p>
+<p class="p2"><br></p>
+<p class="p1">---</p>
+<p class="p2"><br></p>
+<p class="p1">## Footer Pengiriman</p>
+<p class="p2"><br></p>
+<p class="p1">```</p>
+<p class="p1">From: ...</p>
+<p class="p1">Jam Pengiriman: 10:00</p>
+<p class="p1">Metode Pengiriman: gocar</p>
+<p class="p1">Nama Penerima: ...</p>
+<p class="p1">No telp Penerima: 08xxxxxxxxxx</p>
+<p class="p1">Alamat Lengkap: ...</p>
+<p class="p1">Note: ...</p>
+<p class="p1">```</p>
+<p class="p2"><br></p>
+<p class="p1">---</p>
+<p class="p2"><br></p>
+<p class="p1">## Contoh Full Format Siap Parse</p>
+<p class="p2"><br></p>
+<p class="p1">```</p>
+<p class="p1">Tanggal Pengiriman: 18/04/26</p>
+<p class="p1">KODE BOOKING: SA-26</p>
+<p class="p2"><br></p>
+<p class="p1">Item 1</p>
+<p class="p1">Order: Hbq isi 10</p>
+<p class="p1">Design:</p>
+<p class="p1">- 9pcs karakter digimon (full body)</p>
+<p class="p1">- 1 pokeball dengan nama ELLIORA dan angka 14</p>
+<p class="p2"><br></p>
+<p class="p1">Warna kertas bouquet: No 13</p>
+<p class="p1">Ribbon: Satin</p>
+<p class="p1">Jumlah Bunga: -</p>
+<p class="p1">Warna Bunga: -</p>
+<p class="p1">Warna Pita: Blue pastel</p>
+<p class="p1">Kartu ucapan: Happy Birthday Elliora!</p>
+<p class="p2"><br></p>
+<p class="p1">From: kuku &amp; kim2</p>
+<p class="p1">Jam Pengiriman: 10:00</p>
+<p class="p1">Metode Pengiriman: gocar</p>
+<p class="p1">Nama Penerima: Sansan</p>
+<p class="p1">No telp Penerima: 08174922926</p>
+<p class="p1">Alamat Lengkap: Perumahan Riviera at Puri, Riviera East 10, blok F2 no 16, Tangerang</p>
+<p class="p1">Note: Masuk lewat gerbang besar</p>
+<p class="p1">```</p>
+</body>
+</html>
