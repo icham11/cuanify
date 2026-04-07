@@ -213,6 +213,12 @@ const itemSchema = z.object({
   parsedSubtotal: z.number().min(0).optional(),
   pricingSource: z.enum(["RECAP"]).optional(),
   cookieDifficultyBreakdown: z.string().max(400).optional().or(z.literal("")),
+  greetingCard: z.string().max(400).optional().or(z.literal("")),
+  bouquetPaperColor: z.string().max(200).optional().or(z.literal("")),
+  ribbon: z.string().max(200).optional().or(z.literal("")),
+  flowerCount: z.string().max(200).optional().or(z.literal("")),
+  flowerColor: z.string().max(200).optional().or(z.literal("")),
+  ribbonColor: z.string().max(200).optional().or(z.literal("")),
   notes: z.string().max(400).optional().or(z.literal("")),
 });
 
@@ -340,6 +346,7 @@ type TokenDifficultyValue =
 
 const BOUQUET_HAND_COST = 100000;
 const BOUQUET_STANDING_COST = 250000;
+const BOUQUET_DEFAULT_COOKIE_PRICE = 17000;
 const BOUQUET_HAND_MIN_QTY = 7;
 const BOUQUET_HAND_MAX_QTY = 10;
 const BOUQUET_STANDING_MIN_QTY = 12;
@@ -356,14 +363,6 @@ const TOKEN_DIFFICULTY_OPTIONS: Array<{
   { value: "ADVANCED", label: "Advanced", token: 4, cookiePrice: 30000 },
   { value: "EXPERT", label: "Expert", token: 5, cookiePrice: 35000 },
 ];
-const BOUQUET_COOKIE_PRICE_BY_DIFFICULTY: Record<TokenDifficultyValue, number> =
-  {
-    SIMPLE: 17000,
-    NORMAL: 20000,
-    HARD: 25000,
-    ADVANCED: 30000,
-    EXPERT: 35000,
-  };
 const CUPCAKE_INDIVIDUAL_MIN_QTY = 10;
 const COOKIE_CUSTOM_TOTAL_MIN_QTY = 20;
 const COOKIE_INCLUDED_DESIGN_LIMIT = 5;
@@ -434,12 +433,6 @@ function normalizeTokenDifficultyValue(value: unknown): TokenDifficultyValue {
   return "SIMPLE";
 }
 
-function getBouquetCookiePriceFromDifficulty(value: unknown): number {
-  return BOUQUET_COOKIE_PRICE_BY_DIFFICULTY[
-    normalizeTokenDifficultyValue(value)
-  ];
-}
-
 function normalizeBouquetCookiePriceValue(value: unknown): number | undefined {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
@@ -462,11 +455,12 @@ function getAdditionalCookieDesignCount(value: unknown): number {
 }
 
 function getBouquetCookiePrice(
-  item: Pick<BookingItemInput, "cookiePrice" | "tokenDifficulty">,
+  item: Pick<BookingItemInput, "cookiePrice">,
 ): number {
-  const explicit = normalizeBouquetCookiePriceValue(item.cookiePrice);
-  if (explicit) return explicit;
-  return getBouquetCookiePriceFromDifficulty(item.tokenDifficulty);
+  return (
+    normalizeBouquetCookiePriceValue(item.cookiePrice) ??
+    BOUQUET_DEFAULT_COOKIE_PRICE
+  );
 }
 
 function getTokenDifficultyOption(value: unknown) {
@@ -773,6 +767,67 @@ function removeCookieBreakdownFromNotes(notes: string): string {
     .map((segment) => segment.trim())
     .filter((segment) => segment.length > 0)
     .filter((segment) => !/^breakdown\s*:/i.test(segment))
+    .join(" | ")
+    .slice(0, 400);
+}
+
+function extractBouquetGreetingCardFromNotes(notes: string): string {
+  const source = String(notes || "");
+  const matched = source.match(
+    /(?:^|\||\n)\s*kartu\s*ucapan\s*:\s*([^|\n]+)/i,
+  );
+  return (matched?.[1] || "").trim().slice(0, 400);
+}
+
+function extractBouquetPaperColorFromNotes(notes: string): string {
+  const source = String(notes || "");
+  const matched = source.match(
+    /(?:^|\||\n)\s*warna\s*kertas\s*bouquet\s*:\s*([^|\n]+)/i,
+  );
+  return (matched?.[1] || "").trim().slice(0, 200);
+}
+
+function extractBouquetRibbonFromNotes(notes: string): string {
+  const source = String(notes || "");
+  const matched = source.match(/(?:^|\||\n)\s*ribbon\s*:\s*([^|\n]+)/i);
+  return (matched?.[1] || "").trim().slice(0, 200);
+}
+
+function extractBouquetFlowerCountFromNotes(notes: string): string {
+  const source = String(notes || "");
+  const matched = source.match(
+    /(?:^|\||\n)\s*jumlah\s*bunga\s*:\s*([^|\n]+)/i,
+  );
+  return (matched?.[1] || "").trim().slice(0, 200);
+}
+
+function extractBouquetFlowerColorFromNotes(notes: string): string {
+  const source = String(notes || "");
+  const matched = source.match(
+    /(?:^|\||\n)\s*warna\s*bunga\s*:\s*([^|\n]+)/i,
+  );
+  return (matched?.[1] || "").trim().slice(0, 200);
+}
+
+function extractBouquetRibbonColorFromNotes(notes: string): string {
+  const source = String(notes || "");
+  const matched = source.match(
+    /(?:^|\||\n)\s*warna\s*pita\s*:\s*([^|\n]+)/i,
+  );
+  return (matched?.[1] || "").trim().slice(0, 200);
+}
+
+function removeBouquetStructuredFieldsFromNotes(notes: string): string {
+  return String(notes || "")
+    .split(/\n|\|/)
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0)
+    .filter((segment) => !/^kartu\s*ucapan\s*:/i.test(segment))
+    .filter((segment) => !/^warna\s*kertas\s*bouquet\s*:/i.test(segment))
+    .filter((segment) => !/^ribbon\s*:/i.test(segment))
+    .filter((segment) => !/^jumlah\s*bunga\s*:/i.test(segment))
+    .filter((segment) => !/^warna\s*bunga\s*:/i.test(segment))
+    .filter((segment) => !/^warna\s*pita\s*:/i.test(segment))
     .join(" | ")
     .slice(0, 400);
 }
@@ -1322,7 +1377,7 @@ function getItemQuantityRule(item: BookingItemInput): ItemQuantityRule {
   }
   if (bouquetType === "STANDING") {
     return {
-      label: "Quantity (unit bouquet / isi cookies)",
+      label: "Quantity (isi cookies)",
       min: 1,
       helperText: `Standing bouquet: isi cookies ${getBouquetQtyRangeLabel("STANDING")}. Qty 1-${BOUQUET_STANDING_MIN_QTY - 1} dibaca sebagai jumlah unit bouquet (harga start from).`,
     };
@@ -1386,16 +1441,34 @@ function getItemQuantityRule(item: BookingItemInput): ItemQuantityRule {
   };
 }
 
-function getBouquetLineTotal(item: BookingItemInput): number | null {
+function getBouquetLineTotal(
+  catalog: PricelistCategory[],
+  item: BookingItemInput,
+): number | null {
   const bouquetType = detectBouquetTypeFromItem(item);
   if (!bouquetType) return null;
 
   const quantity = Number(item.quantity) || 0;
+  const startFromPrice = getUnitPriceFromCatalog(catalog, {
+    category: item.category,
+    subcategory: item.subcategory,
+    productName: item.productName,
+    size: item.size,
+  });
   const cookiePrice = getBouquetCookiePrice(item);
-  if (quantity <= 0) return null;
-  if (!isValidBouquetQuantity(quantity, bouquetType)) return null;
 
-  return Math.round(cookiePrice * quantity + getBouquetCostByType(bouquetType));
+  if (quantity <= 0) return null;
+  if (startFromPrice <= 0) return null;
+
+  // Qty in bouquet range means cookie-fill count for one bouquet unit.
+  if (isValidBouquetQuantity(quantity, bouquetType)) {
+    return Math.round(
+      cookiePrice * quantity + getBouquetCostByType(bouquetType),
+    );
+  }
+
+  // Outside cookie-fill range, qty is treated as bouquet unit count.
+  return Math.round(startFromPrice * quantity);
 }
 
 function normalizeVariantLabel(value: string): string {
@@ -1446,7 +1519,7 @@ function getItemBasePrice(
     return parsedSubtotal;
   }
 
-  const bouquetLineTotal = getBouquetLineTotal(item);
+  const bouquetLineTotal = getBouquetLineTotal(catalog, item);
   if (item.category === "Buket" && bouquetLineTotal !== null) {
     return bouquetLineTotal;
   }
@@ -1552,6 +1625,12 @@ export default function BookingForm() {
               addOnQuantities: {},
               addOnPriceOverrides: {},
               customAddOns: [],
+              greetingCard: "",
+              bouquetPaperColor: "",
+              ribbon: "",
+              flowerCount: "",
+              flowerColor: "",
+              ribbonColor: "",
               notes: "",
             }) ?? 1,
           tokenDifficulty: "SIMPLE",
@@ -1565,6 +1644,12 @@ export default function BookingForm() {
           parsedUnitPrice: undefined,
           parsedSubtotal: undefined,
           pricingSource: undefined,
+          greetingCard: "",
+          bouquetPaperColor: "",
+          ribbon: "",
+          flowerCount: "",
+          flowerColor: "",
+          ribbonColor: "",
           notes: "",
         },
       ],
@@ -2879,7 +2964,27 @@ export default function BookingForm() {
           ? parsedSubtotal + cookieAdditionalDesignCharge
           : parsedSubtotal;
       const mergedItemNotes = [
-        item.notes ?? "",
+        item.category === "Buket"
+          ? removeBouquetStructuredFieldsFromNotes(item.notes ?? "")
+          : (item.notes ?? ""),
+        item.category === "Buket" && (item.bouquetPaperColor ?? "").trim().length > 0
+          ? `Warna kertas bouquet: ${(item.bouquetPaperColor ?? "").trim()}`
+          : "",
+        item.category === "Buket" && (item.ribbon ?? "").trim().length > 0
+          ? `Ribbon: ${(item.ribbon ?? "").trim()}`
+          : "",
+        item.category === "Buket" && (item.flowerCount ?? "").trim().length > 0
+          ? `Jumlah Bunga: ${(item.flowerCount ?? "").trim()}`
+          : "",
+        item.category === "Buket" && (item.flowerColor ?? "").trim().length > 0
+          ? `Warna Bunga: ${(item.flowerColor ?? "").trim()}`
+          : "",
+        item.category === "Buket" && (item.ribbonColor ?? "").trim().length > 0
+          ? `Warna Pita: ${(item.ribbonColor ?? "").trim()}`
+          : "",
+        item.category === "Buket" && (item.greetingCard ?? "").trim().length > 0
+          ? `Kartu ucapan: ${(item.greetingCard ?? "").trim()}`
+          : "",
         isTwoTierCakeItem(item) ? getTwoTierSummaryLabel(item) : "",
         (item.addOns ?? []).length > 0
           ? `Add-ons: ${(item.addOns ?? [])
@@ -3474,6 +3579,102 @@ export default function BookingForm() {
                     ).cookieDifficultyBreakdown ?? "",
                   ).trim()
                 : "";
+            const explicitBouquetGreetingCard =
+              normalized.category === "Buket"
+                ? String(
+                    (
+                      item as {
+                        greetingCard?: unknown;
+                      }
+                    ).greetingCard ?? "",
+                  )
+                    .trim()
+                    .slice(0, 400)
+                : "";
+            const parsedBouquetGreetingCard =
+              normalized.category === "Buket"
+                ? extractBouquetGreetingCardFromNotes(rawItemNotes)
+                : "";
+            const explicitBouquetPaperColor =
+              normalized.category === "Buket"
+                ? String(
+                    (
+                      item as {
+                        bouquetPaperColor?: unknown;
+                      }
+                    ).bouquetPaperColor ?? "",
+                  )
+                    .trim()
+                    .slice(0, 200)
+                : "";
+            const explicitBouquetRibbon =
+              normalized.category === "Buket"
+                ? String(
+                    (
+                      item as {
+                        ribbon?: unknown;
+                      }
+                    ).ribbon ?? "",
+                  )
+                    .trim()
+                    .slice(0, 200)
+                : "";
+            const explicitBouquetFlowerCount =
+              normalized.category === "Buket"
+                ? String(
+                    (
+                      item as {
+                        flowerCount?: unknown;
+                      }
+                    ).flowerCount ?? "",
+                  )
+                    .trim()
+                    .slice(0, 200)
+                : "";
+            const explicitBouquetFlowerColor =
+              normalized.category === "Buket"
+                ? String(
+                    (
+                      item as {
+                        flowerColor?: unknown;
+                      }
+                    ).flowerColor ?? "",
+                  )
+                    .trim()
+                    .slice(0, 200)
+                : "";
+            const explicitBouquetRibbonColor =
+              normalized.category === "Buket"
+                ? String(
+                    (
+                      item as {
+                        ribbonColor?: unknown;
+                      }
+                    ).ribbonColor ?? "",
+                  )
+                    .trim()
+                    .slice(0, 200)
+                : "";
+            const parsedBouquetPaperColor =
+              normalized.category === "Buket"
+                ? extractBouquetPaperColorFromNotes(rawItemNotes)
+                : "";
+            const parsedBouquetRibbon =
+              normalized.category === "Buket"
+                ? extractBouquetRibbonFromNotes(rawItemNotes)
+                : "";
+            const parsedBouquetFlowerCount =
+              normalized.category === "Buket"
+                ? extractBouquetFlowerCountFromNotes(rawItemNotes)
+                : "";
+            const parsedBouquetFlowerColor =
+              normalized.category === "Buket"
+                ? extractBouquetFlowerColorFromNotes(rawItemNotes)
+                : "";
+            const parsedBouquetRibbonColor =
+              normalized.category === "Buket"
+                ? extractBouquetRibbonColorFromNotes(rawItemNotes)
+                : "";
             const parsedCookieBreakdownRows =
               normalized.category === "Cookies"
                 ? parseCookieDifficultyRows(
@@ -3487,6 +3688,8 @@ export default function BookingForm() {
             const cleanedItemNotes =
               normalized.category === "Cookies"
                 ? removeCookieBreakdownFromNotes(rawItemNotes)
+                : normalized.category === "Buket"
+                  ? removeBouquetStructuredFieldsFromNotes(rawItemNotes)
                 : rawItemNotes;
             const normalizedQuantity = Number.isFinite(parsedQuantity)
               ? Math.max(1, Math.round(parsedQuantity))
@@ -3569,6 +3772,17 @@ export default function BookingForm() {
               pricingSource:
                 item.pricingSource === "RECAP" ? "RECAP" : undefined,
               cookieDifficultyBreakdown: parsedCookieBreakdown || undefined,
+              greetingCard:
+                explicitBouquetGreetingCard || parsedBouquetGreetingCard || "",
+              bouquetPaperColor:
+                explicitBouquetPaperColor || parsedBouquetPaperColor || "",
+              ribbon: explicitBouquetRibbon || parsedBouquetRibbon || "",
+              flowerCount:
+                explicitBouquetFlowerCount || parsedBouquetFlowerCount || "",
+              flowerColor:
+                explicitBouquetFlowerColor || parsedBouquetFlowerColor || "",
+              ribbonColor:
+                explicitBouquetRibbonColor || parsedBouquetRibbonColor || "",
               notes: cleanedItemNotes,
             };
           },
@@ -4301,6 +4515,12 @@ export default function BookingForm() {
                           addOnQuantities: {},
                           addOnPriceOverrides: {},
                           customAddOns: [],
+                          greetingCard: "",
+                          bouquetPaperColor: "",
+                          ribbon: "",
+                          flowerCount: "",
+                          flowerColor: "",
+                          ribbonColor: "",
                           notes: "",
                         }) ?? 1;
                       appendItem({
@@ -4311,7 +4531,10 @@ export default function BookingForm() {
                         quantity: autoQuantity,
                         tokenDifficulty: nextTokenDifficulty,
                         customTokenPerUnit: undefined,
-                        cookiePrice: undefined,
+                        cookiePrice:
+                          nextDefault.category === "Buket"
+                            ? BOUQUET_DEFAULT_COOKIE_PRICE
+                            : undefined,
                         addOns: [],
                         addOnQuantities: {},
                         addOnPriceOverrides: {},
@@ -4320,6 +4543,12 @@ export default function BookingForm() {
                         parsedUnitPrice: undefined,
                         parsedSubtotal: undefined,
                         pricingSource: undefined,
+                        greetingCard: "",
+                        bouquetPaperColor: "",
+                        ribbon: "",
+                        flowerCount: "",
+                        flowerColor: "",
+                        ribbonColor: "",
                         notes: "",
                       });
                     }}
@@ -4443,15 +4672,17 @@ export default function BookingForm() {
                     const displayVariants =
                       allowedVariants.length > 0 ? allowedVariants : variants;
                     const supportsDifficulty = isCookies;
-                    const bouquetLineTotal =
-                      getBouquetLineTotal(bouquetProbeItem);
+                    const bouquetLineTotal = getBouquetLineTotal(
+                      productCatalog,
+                      bouquetProbeItem,
+                    );
                     const itemGrabCarOnly = isGrabCarOnlyItem(bouquetProbeItem);
                     const quantityRule = getItemQuantityRule(bouquetProbeItem);
                     const itemTokenPreview =
                       getItemProductionToken(bouquetProbeItem);
                     const bouquetCookiePrice =
                       getBouquetCookiePrice(bouquetProbeItem);
-                    const hasParsedBouquetCookiePrice =
+                    const hasCustomBouquetCookiePrice =
                       normalizeBouquetCookiePriceValue(item?.cookiePrice) !==
                       undefined;
                     const hasParsedRecapPrice = hasParsedPricingOverride(item);
@@ -4749,7 +4980,63 @@ export default function BookingForm() {
                                 );
                                 setValue(
                                   `items.${index}.cookiePrice`,
-                                  undefined,
+                                  nextSelection.category === "Buket"
+                                    ? BOUQUET_DEFAULT_COOKIE_PRICE
+                                    : undefined,
+                                  {
+                                    shouldValidate: true,
+                                  },
+                                );
+                                setValue(
+                                  `items.${index}.greetingCard`,
+                                  nextSelection.category === "Buket"
+                                    ? String(item?.greetingCard || "")
+                                    : "",
+                                  {
+                                    shouldValidate: true,
+                                  },
+                                );
+                                setValue(
+                                  `items.${index}.bouquetPaperColor`,
+                                  nextSelection.category === "Buket"
+                                    ? String(item?.bouquetPaperColor || "")
+                                    : "",
+                                  {
+                                    shouldValidate: true,
+                                  },
+                                );
+                                setValue(
+                                  `items.${index}.ribbon`,
+                                  nextSelection.category === "Buket"
+                                    ? String(item?.ribbon || "")
+                                    : "",
+                                  {
+                                    shouldValidate: true,
+                                  },
+                                );
+                                setValue(
+                                  `items.${index}.flowerCount`,
+                                  nextSelection.category === "Buket"
+                                    ? String(item?.flowerCount || "")
+                                    : "",
+                                  {
+                                    shouldValidate: true,
+                                  },
+                                );
+                                setValue(
+                                  `items.${index}.flowerColor`,
+                                  nextSelection.category === "Buket"
+                                    ? String(item?.flowerColor || "")
+                                    : "",
+                                  {
+                                    shouldValidate: true,
+                                  },
+                                );
+                                setValue(
+                                  `items.${index}.ribbonColor`,
+                                  nextSelection.category === "Buket"
+                                    ? String(item?.ribbonColor || "")
+                                    : "",
                                   {
                                     shouldValidate: true,
                                   },
@@ -5357,11 +5644,21 @@ export default function BookingForm() {
 
                           {isBouquet && (
                             <label className="grid gap-1.5 text-sm font-medium text-gray-700">
-                              Harga Cookie / pcs (otomatis)
+                              Harga Cookie / pcs
+                              <Input
+                                type="number"
+                                min={0}
+                                step={1000}
+                                placeholder={String(BOUQUET_DEFAULT_COOKIE_PRICE)}
+                                {...register(`items.${index}.cookiePrice`, {
+                                  setValueAs: (value) =>
+                                    normalizeBouquetCookiePriceValue(value),
+                                })}
+                              />
                               <span className="min-h-4 text-[11px] font-normal leading-4 text-gray-500">
-                                {hasParsedBouquetCookiePrice
-                                  ? `Harga cookie dari parser: ${formatCurrency(bouquetCookiePrice)} / pcs.`
-                                  : `Harga cookie default: ${formatCurrency(bouquetCookiePrice)} / pcs.`}
+                                {hasCustomBouquetCookiePrice
+                                  ? `Custom harga cookie aktif: ${formatCurrency(bouquetCookiePrice)} / pcs.`
+                                  : `Default harga cookie: ${formatCurrency(BOUQUET_DEFAULT_COOKIE_PRICE)} / pcs.`}
                               </span>
                               <span className="min-h-4 text-[11px] font-normal leading-4 text-gray-500">
                                 Token bouquet fixed: Hand = 20, Standing = 50
@@ -5385,6 +5682,17 @@ export default function BookingForm() {
                             </label>
                           )}
 
+                          {isBouquet && (
+                            <label className="grid gap-1.5 text-sm font-medium text-gray-700 sm:col-span-2 lg:col-span-4">
+                              Kartu Ucapan
+                              <Textarea
+                                className="min-h-20"
+                                placeholder="Contoh: Happy Birthday Elliora!"
+                                {...register(`items.${index}.greetingCard`)}
+                              />
+                            </label>
+                          )}
+
                           <label className="grid gap-1.5 text-sm font-medium text-gray-700 sm:col-span-2 lg:col-span-4">
                             Customer Notes
                             <Input
@@ -5392,6 +5700,48 @@ export default function BookingForm() {
                               {...register(`items.${index}.notes`)}
                             />
                           </label>
+
+                          {isBouquet && (
+                            <div className="grid gap-2 sm:col-span-2 lg:col-span-4 sm:grid-cols-2">
+                              <label className="grid gap-1.5 text-sm font-medium text-gray-700">
+                                Warna kertas bouquet
+                                <Input
+                                  placeholder="Contoh: No 13"
+                                  {...register(
+                                    `items.${index}.bouquetPaperColor`,
+                                  )}
+                                />
+                              </label>
+                              <label className="grid gap-1.5 text-sm font-medium text-gray-700">
+                                Ribbon
+                                <Input
+                                  placeholder="Contoh: Satin"
+                                  {...register(`items.${index}.ribbon`)}
+                                />
+                              </label>
+                              <label className="grid gap-1.5 text-sm font-medium text-gray-700">
+                                Jumlah Bunga
+                                <Input
+                                  placeholder="Contoh: - / 3 bunga"
+                                  {...register(`items.${index}.flowerCount`)}
+                                />
+                              </label>
+                              <label className="grid gap-1.5 text-sm font-medium text-gray-700">
+                                Warna Bunga
+                                <Input
+                                  placeholder="Contoh: Putih"
+                                  {...register(`items.${index}.flowerColor`)}
+                                />
+                              </label>
+                              <label className="grid gap-1.5 text-sm font-medium text-gray-700 sm:col-span-2">
+                                Warna Pita
+                                <Input
+                                  placeholder="Contoh: Blue pastel"
+                                  {...register(`items.${index}.ribbonColor`)}
+                                />
+                              </label>
+                            </div>
+                          )}
                         </div>
 
                         {hasParsedRecapPrice && (

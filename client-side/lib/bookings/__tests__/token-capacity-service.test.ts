@@ -212,12 +212,12 @@ describe("Token Capacity Service — Unit Tests", () => {
       ).toBe(96);
     });
 
-    it("Cupcakes individual: per cupcake piece token", () => {
+    it("Cupcakes individual: 5 tokens per cupcake piece", () => {
       expect(
         calculateOrderTokenFromItems([
           { category: "Cupcakes", productName: "Single Cupcake", quantity: 1 },
         ]),
-      ).toBe(2);
+      ).toBe(5);
     });
 
     it("Cupcakes individual quantity multiplies per cupcake piece token", () => {
@@ -225,7 +225,7 @@ describe("Token Capacity Service — Unit Tests", () => {
         calculateOrderTokenFromItems([
           { category: "Cupcakes", productName: "Single Cupcake", quantity: 10 },
         ]),
-      ).toBe(20);
+      ).toBe(50);
     });
 
     it("Cupcakes cookie add-on adds token per cupcake piece", () => {
@@ -238,7 +238,7 @@ describe("Token Capacity Service — Unit Tests", () => {
             addOns: ["cookie-simple"],
           },
         ]),
-      ).toBe(30);
+      ).toBe(60);
     });
 
     // ── Cookies Tower ────────────────────────────────────────────────────

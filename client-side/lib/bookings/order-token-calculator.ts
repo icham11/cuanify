@@ -50,7 +50,8 @@ const CUPCAKE_COOKIE_ADDON_TOKEN_MAP: Record<string, number> = {
   "cookie-expert": COOKIE_DIFFICULTY_TOKEN_MAP.expert,
 };
 
-const CUPCAKE_PIECE_TOKEN = 2;
+const CUPCAKE_DOZEN_PIECE_TOKEN = 2;
+const CUPCAKE_INDIVIDUAL_PIECE_TOKEN = 5;
 
 const BOUQUET_COOKIE_QTY_MIN = 7;
 const BOUQUET_COOKIE_QTY_MAX = 20;
@@ -146,23 +147,33 @@ function resolveBouquetToken(searchSource: string): number {
   return BOUQUET_TOKEN_MAP.hand_bouquet;
 }
 
+function isDozenCupcake(searchSource: string): boolean {
+  return (
+    searchSource.includes("dozen") ||
+    searchSource.includes("12 pcs") ||
+    searchSource.includes("12pcs") ||
+    searchSource.includes("lusin")
+  );
+}
+
 function resolveCupcakePieceQuantity(
   searchSource: string,
   qty: number,
 ): number {
   if (qty <= 0) return 0;
 
-  const isDozenCupcake =
-    searchSource.includes("dozen") ||
-    searchSource.includes("12 pcs") ||
-    searchSource.includes("12pcs") ||
-    searchSource.includes("lusin");
-
-  if (isDozenCupcake) {
+  if (isDozenCupcake(searchSource)) {
     return qty * 12;
   }
 
   return qty;
+}
+
+function resolveCupcakeBaseTokenPerPiece(searchSource: string): number {
+  if (isDozenCupcake(searchSource)) {
+    return CUPCAKE_DOZEN_PIECE_TOKEN;
+  }
+  return CUPCAKE_INDIVIDUAL_PIECE_TOKEN;
 }
 
 function resolveCupcakeAddOnToken(item: OrderItemForTokenCalc): number {
@@ -243,7 +254,10 @@ function calculateItemToken(item: OrderItemForTokenCalc): number {
 
   if (searchSource.includes("cupcake")) {
     const pieceCount = resolveCupcakePieceQuantity(searchSource, qty);
-    const pieceToken = Math.max(1, Math.round(CUPCAKE_PIECE_TOKEN));
+    const pieceToken = Math.max(
+      1,
+      Math.round(resolveCupcakeBaseTokenPerPiece(searchSource)),
+    );
     return pieceCount * pieceToken + resolveCupcakeAddOnToken(item);
   }
 

@@ -704,6 +704,8 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
     const autoFill = buildBookingAutoFillFromParsed(parsed);
 
     expect(parsed.details.flowerCount).toBe("");
+    expect(parsed.missingFields.includes("Jumlah Cookies")).toBe(false);
+    expect(parsed.missingFields.includes("Warna Bunga")).toBe(false);
     expect(autoFill.items[0]?.category).toBe("Buket");
     expect(autoFill.items[0]?.quantity).toBe(10);
   });

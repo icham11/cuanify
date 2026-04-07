@@ -288,7 +288,7 @@ const optionalDetailFieldKeys: Record<WhatsAppOrderType, string[]> = {
   cake: [],
   cookies: ["toFromNotes"],
   cupcakes: [],
-  buket: ["cookiePrice"],
+  buket: ["cookiePrice", "flowerCount", "flowerColor"],
   cookies_tower: [],
 };
 
