@@ -118,7 +118,6 @@ const bulkCookieHints = [
   "pack",
   "set ",
   "3 in 1",
-  "4 in 1",
   "mini bites",
   "diy",
   "bauble",
@@ -138,7 +137,6 @@ const bulkCookieHints = [
 const cookieUnitMap: Array<{ probe: string; units: number }> = [
   { probe: "bauble", units: 5 },
   { probe: "3 in 1", units: 3 },
-  { probe: "4 in 1", units: 4 },
   { probe: "mini bites", units: 3 },
   { probe: "diy gingerbread", units: 10 },
   { probe: "diy", units: 6 },

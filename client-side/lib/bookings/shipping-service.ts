@@ -151,6 +151,10 @@ const DESTINATION_RESOLUTION_CACHE_TTL_MS = Math.max(
     parseNumber(process.env.SHIPPING_DESTINATION_CACHE_TTL_MS, 5 * 60 * 1000),
   ),
 );
+const FALLBACK_CAR_BASE_FEE = 18000;
+const FALLBACK_CAR_PER_KM_FEE = 3500;
+const FALLBACK_CAR_MIN_FEE = 25000;
+const FALLBACK_CAR_MAX_FEE = 95000;
 
 function parseNumber(value: string | undefined, fallback: number): number {
   if (!value) return fallback;
@@ -978,10 +982,7 @@ async function resolveDestination(
       );
       const [aiDirectPoint, aiAreaPoint] = await Promise.all([
         geocodeAddress(aiAddress.normalizedAddress, aiAddress.areaHint),
-        geocodeAddressWithArea(
-          aiAddress.normalizedAddress,
-          aiAddress.areaHint,
-        ),
+        geocodeAddressWithArea(aiAddress.normalizedAddress, aiAddress.areaHint),
       ]);
 
       let aiAreaHints: AreaHints = {};
@@ -1053,7 +1054,7 @@ async function getBiteshipRates(args: {
   if (!apiKey) return [];
 
   const origin = getOriginConfig();
-  const payload = {
+  const basePayload = {
     ...(args.destination.mode === "coordinate"
       ? {
           origin_latitude: origin.latitude,
@@ -1066,7 +1067,6 @@ async function getBiteshipRates(args: {
             sanitizePostalCode(origin.postalCode) || undefined,
           destination_postal_code: args.destination.postalCode,
         }),
-    couriers: "jne,jnt,paxel,gojek,grab",
     items: args.items.map((item) => ({
       name: item.name || "Order Item",
       description: "Bakery item",
@@ -1079,99 +1079,127 @@ async function getBiteshipRates(args: {
     })),
   };
 
-  const response = await fetchExternalWithRetry(
-    `${BITESHIP_BASE_URL}/rates/couriers`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: apiKey,
-        "Content-Type": "application/json",
+  const courierAttempts = [
+    "jne,jnt,paxel,gojek,grab",
+    "jne,jnt,paxel,gosend,grab",
+    "jne,jnt,paxel",
+    "",
+  ];
+
+  const attemptErrors: string[] = [];
+
+  for (const couriers of courierAttempts) {
+    const payload = couriers
+      ? { ...basePayload, couriers }
+      : { ...basePayload };
+
+    const response = await fetchExternalWithRetry(
+      `${BITESHIP_BASE_URL}/rates/couriers`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: apiKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+        cache: "no-store",
       },
-      body: JSON.stringify(payload),
-      cache: "no-store",
-    },
-  );
+    );
 
-  const data = (await response.json().catch(() => ({}))) as {
-    pricing?: BiteshipRateLike[];
-    rates?: BiteshipRateLike[];
-    couriers?: BiteshipRateLike[];
-    error?: string;
-    message?: string;
-  };
+    const data = (await response.json().catch(() => ({}))) as {
+      pricing?: BiteshipRateLike[];
+      rates?: BiteshipRateLike[];
+      couriers?: BiteshipRateLike[];
+      error?: string;
+      message?: string;
+    };
 
-  if (!response.ok) {
+    if (!response.ok) {
+      attemptErrors.push(
+        `${couriers || "all"}: ${data.error || data.message || `status ${response.status}`}`,
+      );
+      continue;
+    }
+
+    const rawRates = [
+      ...(Array.isArray(data.pricing) ? data.pricing : []),
+      ...(Array.isArray(data.rates) ? data.rates : []),
+      ...(Array.isArray(data.couriers) ? data.couriers : []),
+    ];
+
+    const mapped = rawRates
+      .map((entry) => {
+        const courierCode = asString(
+          entry.courier_code || entry.company,
+        ).toLowerCase();
+        const provider = parseProviderFromRate(entry);
+        if (!provider) return null;
+
+        const serviceCode =
+          asString(entry.courier_service_code || entry.type).toLowerCase() ||
+          "regular";
+        const serviceName =
+          asString(entry.courier_service_name) ||
+          asString(entry.description) ||
+          asString(entry.type) ||
+          "Regular";
+        const price = Math.round(
+          asNumber(entry.price) ||
+            asNumber(entry.final_price) ||
+            asNumber(entry.amount),
+        );
+        if (price <= 0) return null;
+
+        const eta =
+          asString(entry.estimation) ||
+          asString(entry.duration) ||
+          [
+            asString(entry.shipment_duration_range),
+            asString(entry.shipment_duration_unit),
+          ]
+            .join(" ")
+            .trim() ||
+          "-";
+
+        return {
+          provider,
+          courierCode,
+          courierServiceCode: serviceCode,
+          courierServiceName: serviceName,
+          price,
+          eta,
+        };
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+
+    const uniqueMapped = uniqueByKey(
+      mapped,
+      (entry) =>
+        `${entry.provider}:${entry.courierCode}:${entry.courierServiceCode}:${entry.price}`,
+    );
+
+    if (uniqueMapped.length > 0) {
+      return uniqueMapped.map((entry) => ({
+        id: `biteship-${entry.courierCode}-${entry.courierServiceCode}-${entry.price}`,
+        provider: entry.provider,
+        courierCode: entry.courierCode,
+        courierServiceCode: entry.courierServiceCode,
+        courierServiceName: entry.courierServiceName,
+        price: entry.price,
+        eta: entry.eta,
+        distanceKm: 0,
+        source: "biteship" as const,
+      }));
+    }
+  }
+
+  if (attemptErrors.length > 0) {
     throw new Error(
-      data.error || data.message || `Biteship rates error ${response.status}`,
+      `Biteship rates unavailable (${attemptErrors.slice(0, 2).join(" | ")})`,
     );
   }
 
-  const rawRates = [
-    ...(Array.isArray(data.pricing) ? data.pricing : []),
-    ...(Array.isArray(data.rates) ? data.rates : []),
-    ...(Array.isArray(data.couriers) ? data.couriers : []),
-  ];
-
-  const mapped = rawRates
-    .map((entry) => {
-      const courierCode = asString(
-        entry.courier_code || entry.company,
-      ).toLowerCase();
-      const provider = parseProviderFromRate(entry);
-      if (!provider) return null;
-
-      const serviceCode =
-        asString(entry.courier_service_code || entry.type).toLowerCase() ||
-        "regular";
-      const serviceName =
-        asString(entry.courier_service_name) ||
-        asString(entry.description) ||
-        asString(entry.type) ||
-        "Regular";
-      const price = Math.round(
-        asNumber(entry.price) ||
-          asNumber(entry.final_price) ||
-          asNumber(entry.amount),
-      );
-      if (price <= 0) return null;
-
-      const eta =
-        asString(entry.estimation) ||
-        asString(entry.duration) ||
-        [
-          asString(entry.shipment_duration_range),
-          asString(entry.shipment_duration_unit),
-        ]
-          .join(" ")
-          .trim() ||
-        "-";
-
-      return {
-        provider,
-        courierCode,
-        courierServiceCode: serviceCode,
-        courierServiceName: serviceName,
-        price,
-        eta,
-      };
-    })
-    .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
-
-  return uniqueByKey(
-    mapped,
-    (entry) =>
-      `${entry.provider}:${entry.courierCode}:${entry.courierServiceCode}:${entry.price}`,
-  ).map((entry) => ({
-    id: `biteship-${entry.courierCode}-${entry.courierServiceCode}-${entry.price}`,
-    provider: entry.provider,
-    courierCode: entry.courierCode,
-    courierServiceCode: entry.courierServiceCode,
-    courierServiceName: entry.courierServiceName,
-    price: entry.price,
-    eta: entry.eta,
-    distanceKm: 0,
-    source: "biteship" as const,
-  }));
+  return [];
 }
 
 function normalizePhone(phone: string): string {
@@ -1197,6 +1225,57 @@ function normalizeDeliveryTime(value: string | undefined): string {
   const matched = value.match(/^(\d{2}):(\d{2})$/);
   if (!matched) return "09:00";
   return `${matched[1]}:${matched[2]}`;
+}
+
+function estimateFallbackCarPrice(args: {
+  distanceKm: number;
+  items: ShippingQuoteRequest["items"];
+}): number {
+  const estimated =
+    FALLBACK_CAR_BASE_FEE + args.distanceKm * FALLBACK_CAR_PER_KM_FEE;
+
+  return Math.max(
+    FALLBACK_CAR_MIN_FEE,
+    Math.min(FALLBACK_CAR_MAX_FEE, Math.round(estimated)),
+  );
+}
+
+function buildFallbackCarQuotes(args: {
+  distanceKm: number;
+  items: ShippingQuoteRequest["items"];
+}): ShippingQuote[] {
+  const price = estimateFallbackCarPrice(args);
+  const baseQuote = {
+    distanceKm: args.distanceKm,
+    source: "fallback" as const,
+    eta:
+      args.distanceKm <= 8
+        ? "30-45 min"
+        : args.distanceKm <= 15
+          ? "45-60 min"
+          : "60-90 min",
+  };
+
+  return [
+    {
+      id: "fallback-gocar",
+      provider: "GOJEK" as const,
+      courierCode: "gocar",
+      courierServiceCode: "car",
+      courierServiceName: "GoCar (fallback)",
+      price,
+      ...baseQuote,
+    },
+    {
+      id: "fallback-grab",
+      provider: "GRAB" as const,
+      courierCode: "grabcar",
+      courierServiceCode: "car",
+      courierServiceName: "GrabCar (fallback)",
+      price: Math.round(price * 1.03),
+      ...baseQuote,
+    },
+  ];
 }
 
 export async function getShippingQuote(
@@ -1282,36 +1361,46 @@ export async function getShippingQuote(
       `${entry.provider}:${entry.courierCode}:${entry.courierServiceCode}:${entry.price}`,
   );
 
+  const fallbackQuotes =
+    biteshipQuotes.length === 0
+      ? buildFallbackCarQuotes({
+          distanceKm,
+          items: payload.items,
+        })
+      : [];
+  const combinedQuotes = [...biteshipQuotes, ...fallbackQuotes];
+
   if (biteshipQuotes.length === 0 && quoteErrors.length > 0) {
-    const message = `Gagal mengambil ongkir live dari Biteship: ${quoteErrors[0]}`;
     return {
-      success: false,
-      quotes: [],
+      success: true,
+      quotes: combinedQuotes,
       distanceKm,
       distanceSource: destination.distanceSource,
       destinationPostalCode,
-      warning: destination.warning,
+      warning:
+        destination.warning ||
+        `Biteship tidak mengembalikan quote live (${quoteErrors[0]}). Menggunakan estimasi fallback GoCar/GrabCar.`,
       destinationLatitude: destinationPoint?.latitude,
       destinationLongitude: destinationPoint?.longitude,
-      error: message,
     };
   }
 
   if (biteshipQuotes.length === 0) {
     return {
-      success: false,
-      quotes: [],
+      success: true,
+      quotes: combinedQuotes,
       distanceKm,
       distanceSource: destination.distanceSource,
       destinationPostalCode,
-      warning: destination.warning,
+      warning:
+        destination.warning ||
+        "Tidak ada quote live dari Biteship. Menggunakan estimasi fallback GoCar/GrabCar.",
       destinationLatitude: destinationPoint?.latitude,
       destinationLongitude: destinationPoint?.longitude,
-      error: "Tidak ada layanan kurir yang tersedia untuk alamat ini saat ini.",
     };
   }
 
-  const quotes = biteshipQuotes.map((quote) => ({ ...quote, distanceKm }));
+  const quotes = combinedQuotes.map((quote) => ({ ...quote, distanceKm }));
 
   return {
     success: true,
@@ -1431,7 +1520,9 @@ export async function createShippingResi(
     const normalizedMessage = message.toLowerCase();
     return {
       success: false,
-      error: normalizedMessage.includes("reference id has already been used before")
+      error: normalizedMessage.includes(
+        "reference id has already been used before",
+      )
         ? `Reference ID resi bentrok. Kemungkinan booking ini sudah pernah dipakai untuk membuat order kurir sebelumnya.`
         : message,
     };

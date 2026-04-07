@@ -338,133 +338,24 @@ export const BOOKING_PRODUCT_CATALOG: PricelistCategory[] = [
     keywords: ["cookies", "cookie"],
     subcategories: [
       {
-        name: "Core Cookies (Mama's Kitchen)",
-        keywords: ["core", "regular", "mama's kitchen"],
+        name: "Custom Cookies",
+        keywords: ["custom", "regular", "individual", "core"],
         products: [
           {
-            name: "Individual Cookie",
-            keywords: ["individual", "single cookie"],
-            defaultVariant: "Simple Character (15K / pcs)",
+            name: "Custom Cookies",
+            keywords: ["individual", "single cookie", "custom cookie"],
+            defaultVariant: "Simple",
             variants: [
-              variant("Simple Character (15K / pcs)", 15000, [
-                "simple character",
-                "start from 15k",
-                "15k",
-              ]),
-              variant("Custom Text / Shape Simple (17K / pcs)", 17000, [
-                "text",
-                "simple",
-                "17k",
-                "tulisan",
-              ]),
-              variant("Medium Custom Shape (20K / pcs)", 20000, [
-                "medium",
-                "shape",
-                "20k",
-                "custom shape",
-              ]),
-              variant("Cartoon Face (17K / pcs)", 17000, [
-                "cartoon face",
-                "17k",
-                "face only",
-              ]),
-              variant("Cartoon Face (20K / pcs)", 20000, [
-                "cartoon face",
-                "20k",
-              ]),
-              variant("Cartoon Half Body (20K / pcs)", 20000, [
-                "cartoon half",
-                "half body",
-                "20k",
-              ]),
-              variant("Cartoon Half Body (25K / pcs)", 25000, [
-                "cartoon half",
-                "half body",
-                "25k",
-              ]),
-              variant("Cartoon Full Body (30K / pcs)", 30000, [
-                "cartoon full",
-                "full body",
-                "30k",
-              ]),
-              variant("Chibi Face (20K / pcs)", 20000, ["chibi face", "20k"]),
-              variant("Chibi Face (25K / pcs)", 25000, ["chibi face", "25k"]),
-              variant("Chibi Half Body (25K / pcs)", 25000, [
-                "chibi half",
-                "25k",
-              ]),
-              variant("Chibi Half Body (30K / pcs)", 30000, [
-                "chibi half",
-                "30k",
-              ]),
-              variant("Chibi Full Body (30K / pcs)", 30000, [
-                "chibi full",
-                "30k",
-              ]),
-              variant("Chibi Full Body (35K / pcs)", 35000, [
-                "chibi full",
-                "35k",
-              ]),
-              variant("Chibi Full Body + Accessories (35K / pcs)", 35000, [
-                "chibi accessories",
-                "35k",
-              ]),
-              variant("Chibi Full Body + Accessories (40K / pcs)", 40000, [
-                "chibi full",
-                "accessories",
-                "40k",
-              ]),
-              variant("Anime/Caricature Face (25K / pcs)", 25000, [
-                "anime",
-                "caricature face",
-                "25k",
-              ]),
-              variant("Anime/Caricature Face (30K / pcs)", 30000, [
-                "anime",
-                "caricature face",
-                "30k",
-              ]),
-              variant("Anime/Caricature Half Body (30K / pcs)", 30000, [
-                "anime half",
-                "caricature half",
-                "30k",
-              ]),
-              variant("Anime/Caricature Half Body (35K / pcs)", 35000, [
-                "anime half",
-                "caricature half",
-                "35k",
-              ]),
-              variant("Anime/Caricature Full Body (35K / pcs)", 35000, [
-                "anime full",
-                "caricature full",
-                "35k",
-              ]),
-              variant("Anime/Caricature Full Body (40K / pcs)", 40000, [
-                "anime full",
-                "caricature full",
-                "40k",
-              ]),
-              variant("Edible Print Square/Circle (20K / pcs)", 20000, [
-                "edible print",
-                "square",
-                "circle",
-                "20k",
-              ]),
-              variant("Edible Print Custom Shape (25K / pcs)", 25000, [
-                "edible print",
-                "custom shape",
-                "25k",
-              ]),
-              variant("Edible Print Custom Shape (30K / pcs)", 30000, [
-                "edible print",
-                "custom shape",
-                "30k",
-              ]),
+              variant("Simple", 17000, ["simple", "token 1", "17k"]),
+              variant("Normal", 20000, ["normal", "medium", "token 2", "20k"]),
+              variant("Hard", 25000, ["hard", "difficult", "token 3", "25k"]),
+              variant("Advanced", 30000, ["advanced", "token 4", "30k"]),
+              variant("Expert", 35000, ["expert", "token 5", "35k"]),
             ],
           },
-          fixedProduct("4 in 1 Mini Cookies", 35000, {
-            keywords: ["4 in 1", "4in1", "mini"],
-            variantLabel: "Per Pack (isi 4)",
+          fixedProduct("3 in 1 Mini Cookies", 30000, {
+            keywords: ["3 in 1", "3in1", "mini"],
+            variantLabel: "Per Pack (isi 3)",
           }),
           fixedProduct("Sharing Box (isi 2)", 45000, {
             keywords: ["sharing box", "box isi 2", "isi 2"],
@@ -485,23 +376,68 @@ export const BOOKING_PRODUCT_CATALOG: PricelistCategory[] = [
         ],
       },
       {
-        name: "Halloween 2025",
-        keywords: ["halloween"],
+        name: "Event Cookies",
+        keywords: [
+          "event",
+          "seasonal",
+          "halloween",
+          "christmas",
+          "xmas",
+          "cny",
+          "imlek",
+          "eid",
+          "ramadan",
+          "lebaran",
+        ],
         products: [
-          fixedProduct("Set A", 15000, {
-            keywords: ["set a"],
+          fixedProduct("Eid Set A", 15000, {
+            keywords: [
+              "eid set a",
+              "ramadan set a",
+              "lebaran set a",
+              "set a eid",
+            ],
             variantLabel: "Per pcs",
           }),
-          fixedProduct("Set B", 17000, {
-            keywords: ["set b"],
+          fixedProduct("Eid Set B", 17000, {
+            keywords: [
+              "eid set b",
+              "ramadan set b",
+              "lebaran set b",
+              "set b eid",
+            ],
             variantLabel: "Per pcs",
           }),
-          fixedProduct("Set C", 17000, {
-            keywords: ["set c"],
+          fixedProduct("Event Set A", 15000, {
+            keywords: [
+              "set a",
+              "event set a",
+              "eid set a",
+              "ramadan set a",
+              "lebaran set a",
+            ],
             variantLabel: "Per pcs",
           }),
-          fixedProduct("Mini Bites", 30000, {
-            keywords: ["mini bites"],
+          fixedProduct("Event Set B", 17000, {
+            keywords: [
+              "set b",
+              "event set b",
+              "eid set b",
+              "ramadan set b",
+              "lebaran set b",
+            ],
+            variantLabel: "Per pcs",
+          }),
+          fixedProduct("3 in 1 Mini Cookies", 30000, {
+            keywords: [
+              "3 in 1",
+              "3in1",
+              "mini bites",
+              "mini",
+              "eid 3 in 1",
+              "ramadan 3 in 1",
+              "lebaran 3 in 1",
+            ],
             variantLabel: "Per pack (isi 3)",
           }),
           fixedProduct("Sharing Box (isi 2)", 45000, {
@@ -512,175 +448,13 @@ export const BOOKING_PRODUCT_CATALOG: PricelistCategory[] = [
             keywords: ["sharing box", "box isi 3", "isi 3"],
             variantLabel: "Box isi 3",
           }),
-          fixedProduct("DIY Set", 120000, {
-            keywords: ["diy"],
-            variantLabel: "Per pack",
+          fixedProduct("Sharing Box (isi 4)", 75000, {
+            keywords: ["sharing box", "box isi 4", "isi 4"],
+            variantLabel: "Box isi 4",
           }),
-        ],
-      },
-      {
-        name: "Christmas 2025",
-        keywords: ["christmas", "xmas", "natal"],
-        products: [
-          fixedProduct("Bauble", 60000, {
-            keywords: ["bauble"],
-            variantLabel: "Per pack (isi 5)",
-          }),
-          fixedProduct("Set A", 15000, {
-            keywords: ["set a"],
-            variantLabel: "Per pcs",
-          }),
-          fixedProduct("Mickey", 12000, {
-            keywords: ["mickey"],
-            variantLabel: "Per pcs",
-          }),
-          fixedProduct("Set B", 17000, {
-            keywords: ["set b"],
-            variantLabel: "Per pcs",
-          }),
-          fixedProduct("Set C", 17000, {
-            keywords: ["set c"],
-            variantLabel: "Per pcs",
-          }),
-          fixedProduct("Tree", 17000, {
-            keywords: ["tree"],
-            variantLabel: "Per pcs",
-          }),
-          fixedProduct("3 in 1", 30000, {
-            keywords: ["3 in 1", "3in1"],
-            variantLabel: "Per pack",
-          }),
-          fixedProduct("DIY Classic", 110000, {
-            keywords: ["diy classic"],
-            variantLabel: "Per pcs",
-          }),
-          fixedProduct("DIY Gingerbread House", 130000, {
-            keywords: ["gingerbread", "diy gingerbread"],
-            variantLabel: "Per pcs",
-          }),
-          fixedProduct("Sharing Box (isi 2)", 45000, {
-            keywords: ["sharing box", "box isi 2", "isi 2"],
-            variantLabel: "Box isi 2",
-          }),
-          fixedProduct("Sharing Box (isi 3)", 60000, {
-            keywords: ["sharing box", "box isi 3", "isi 3"],
-            variantLabel: "Box isi 3",
-          }),
-          fixedProduct("Noel Box", 90000, {
-            keywords: ["noel"],
-            variantLabel: "Per box",
-          }),
-          fixedProduct("Character Box", 160000, {
-            keywords: ["character box"],
-            variantLabel: "Per box",
-          }),
-          fixedProduct("Bites Nastar", 200000, {
-            keywords: ["bites nastar", "nastar"],
-            variantLabel: "Per box",
-          }),
-          fixedProduct("Joyful Box", 100000, {
-            keywords: ["joyful"],
-            variantLabel: "Per box",
-          }),
-          fixedProduct("Jingle Box", 200000, {
-            keywords: ["jingle"],
-            variantLabel: "Per box",
-          }),
-        ],
-      },
-      {
-        name: "CNY 2026",
-        keywords: ["cny", "imlek", "chinese new year"],
-        products: [
-          fixedProduct("Set A", 17000, {
-            keywords: ["set a"],
-            variantLabel: "Per pcs",
-          }),
-          fixedProduct("Set B", 17000, {
-            keywords: ["set b"],
-            variantLabel: "Per pcs",
-          }),
-          fixedProduct("3 in 1", 30000, {
-            keywords: ["3 in 1", "3in1"],
-            variantLabel: "Per pack",
-          }),
-          fixedProduct("DIY Classic", 110000, {
-            keywords: ["diy classic"],
-            variantLabel: "Per pcs",
-          }),
-          fixedProduct("Sharing Box (isi 2)", 45000, {
-            keywords: ["sharing box", "box isi 2", "isi 2"],
-            variantLabel: "Box isi 2",
-          }),
-          fixedProduct("Sharing Box (isi 3)", 60000, {
-            keywords: ["sharing box", "box isi 3", "isi 3"],
-            variantLabel: "Box isi 3",
-          }),
-          fixedProduct("Lunar Box", 90000, {
-            keywords: ["lunar"],
-            variantLabel: "Per box",
-          }),
-          fixedProduct("Character Box", 160000, {
-            keywords: ["character box"],
-            variantLabel: "Per box",
-          }),
-          fixedProduct("Bites Nastar", 200000, {
-            keywords: ["bites nastar", "nastar"],
-            variantLabel: "Per box",
-          }),
-          fixedProduct("Wishful Box", 110000, {
-            keywords: ["wishful"],
-            variantLabel: "Per box",
-          }),
-          fixedProduct("Dimsum Box", 220000, {
-            keywords: ["dimsum"],
-            variantLabel: "Per box",
-          }),
-        ],
-      },
-      {
-        name: "EID 2026",
-        keywords: ["eid", "ramadan", "lebaran"],
-        products: [
-          fixedProduct("Set A", 17000, {
-            keywords: ["set a"],
-            variantLabel: "Per pcs",
-          }),
-          fixedProduct("Set B", 17000, {
-            keywords: ["set b"],
-            variantLabel: "Per pcs",
-          }),
-          fixedProduct("DIY Classic", 110000, {
-            keywords: ["diy classic"],
-            variantLabel: "Per pcs",
-          }),
-          fixedProduct("Sharing Box (isi 2)", 45000, {
-            keywords: ["sharing box", "box isi 2", "isi 2"],
-            variantLabel: "Box isi 2",
-          }),
-          fixedProduct("Sharing Box (isi 3)", 60000, {
-            keywords: ["sharing box", "box isi 3", "isi 3"],
-            variantLabel: "Box isi 3",
-          }),
-          fixedProduct("Character Box", 160000, {
-            keywords: ["character box"],
-            variantLabel: "Per box",
-          }),
-          fixedProduct("Bites Nastar", 200000, {
-            keywords: ["bites nastar", "nastar"],
-            variantLabel: "Per box",
-          }),
-          fixedProduct("Wishful Box", 110000, {
-            keywords: ["wishful"],
-            variantLabel: "Per box",
-          }),
-          fixedProduct("Dimsum Box", 250000, {
-            keywords: ["dimsum"],
-            variantLabel: "Per box",
-          }),
-          fixedProduct("Lotus Box", 175000, {
-            keywords: ["lotus"],
-            variantLabel: "Per box",
+          fixedProduct("Sharing Box (isi 9)", 160000, {
+            keywords: ["sharing box", "box isi 9", "isi 9", "character box"],
+            variantLabel: "Box isi 9",
           }),
         ],
       },

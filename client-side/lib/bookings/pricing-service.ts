@@ -208,7 +208,9 @@ function isWithinRange(price: number, min: number, max: number): boolean {
   return price >= min && price <= max;
 }
 
-function detectProductType(item: PricingOrderItemInput): PricingProductType | null {
+function detectProductType(
+  item: PricingOrderItemInput,
+): PricingProductType | null {
   const explicit = normalizeText(item.productType).toUpperCase();
   if (
     explicit === "COOKIE" ||
@@ -267,7 +269,9 @@ function detectCakeType(item: PricingOrderItemInput): CakeType | null {
   return null;
 }
 
-function detectCupcakePackType(item: PricingOrderItemInput): CupcakePackType | null {
+function detectCupcakePackType(
+  item: PricingOrderItemInput,
+): CupcakePackType | null {
   const explicit = normalizeText(item.cupcakePackType).toUpperCase();
   if (explicit === "DOZEN" || explicit === "INDIVIDUAL") {
     return explicit;
@@ -317,12 +321,7 @@ function detectCookieRule(item: PricingOrderItemInput): CookieRule | null {
     "aksesoris",
     "aksesori",
   ]);
-  const isFaceOnly = hasAny(source, [
-    "face only",
-    "face",
-    "head only",
-    "head",
-  ]);
+  const isFaceOnly = hasAny(source, ["face only", "face", "head only", "head"]);
 
   if (isCartoon) {
     if (isFullBody) {
@@ -413,9 +412,7 @@ function detectCookieRule(item: PricingOrderItemInput): CookieRule | null {
     }
   }
 
-  if (
-    hasAny(source, ["tulisan saja", "tulisan", "text only", "custom text"])
-  ) {
+  if (hasAny(source, ["tulisan saja", "tulisan", "text only", "custom text"])) {
     return {
       code: "COOKIE_CUSTOM_TEXT_ONLY",
       label: "COOKIE custom text only",
@@ -424,14 +421,7 @@ function detectCookieRule(item: PricingOrderItemInput): CookieRule | null {
     };
   }
 
-  if (
-    hasAny(source, [
-      "simple shape",
-      "heart",
-      "flower",
-      "shape simple",
-    ])
-  ) {
+  if (hasAny(source, ["simple shape", "heart", "flower", "shape simple"])) {
     return {
       code: "COOKIE_SIMPLE_SHAPE",
       label: "COOKIE simple shape",
@@ -441,7 +431,12 @@ function detectCookieRule(item: PricingOrderItemInput): CookieRule | null {
   }
 
   if (
-    hasAny(source, ["medium", "medium difficulty", "baby clothes", "custom shape"])
+    hasAny(source, [
+      "medium",
+      "medium difficulty",
+      "baby clothes",
+      "custom shape",
+    ])
   ) {
     return {
       code: "COOKIE_MEDIUM_DIFFICULTY",
@@ -454,7 +449,10 @@ function detectCookieRule(item: PricingOrderItemInput): CookieRule | null {
   return null;
 }
 
-function validateCookieSelectedPrice(selectedPrice: number, rule: CookieRule): void {
+function validateCookieSelectedPrice(
+  selectedPrice: number,
+  rule: CookieRule,
+): void {
   if (!isWithinRange(selectedPrice, rule.min, rule.max)) {
     throw new PricingValidationError(
       `${rule.label} selectedPrice must be within Rp ${rule.min.toLocaleString("id-ID")} - Rp ${rule.max.toLocaleString("id-ID")}, received Rp ${selectedPrice.toLocaleString("id-ID")}.`,
@@ -515,7 +513,10 @@ function getCookieExplicitUnitPriceCandidates(
   return [selectedPrice, cookiePrice, baseAsUnit, lineAsUnit];
 }
 
-function resolveCookieUnitPrice(item: PricingOrderItemInput, quantity: number): number {
+function resolveCookieUnitPrice(
+  item: PricingOrderItemInput,
+  quantity: number,
+): number {
   const rule = detectCookieRule(item);
   const selectedPrice = asMoney(item.selectedPrice);
 
@@ -538,7 +539,8 @@ function resolveCookieUnitPrice(item: PricingOrderItemInput, quantity: number): 
   }
 
   const inRangeCandidate = candidates.find(
-    (candidate) => candidate > 0 && isWithinRange(candidate, rule.min, rule.max),
+    (candidate) =>
+      candidate > 0 && isWithinRange(candidate, rule.min, rule.max),
   );
 
   if (inRangeCandidate) return inRangeCandidate;
@@ -547,6 +549,54 @@ function resolveCookieUnitPrice(item: PricingOrderItemInput, quantity: number): 
   }
 
   return 0;
+}
+
+function isCustomCookieItem(item: PricingOrderItemInput): boolean {
+  if (detectProductType(item) !== "COOKIE") return false;
+  const source = getItemSource(item);
+  if (
+    source.includes(" custom cookies ") ||
+    source.includes(" individual cookie ")
+  ) {
+    return true;
+  }
+  if (source.includes(" cookies ")) {
+    if (
+      source.includes(" simple") ||
+      source.includes(" normal") ||
+      source.includes(" hard") ||
+      source.includes(" advanced") ||
+      source.includes(" expert")
+    ) {
+      return true;
+    }
+    if (source.endsWith(" cookies")) return true;
+  }
+  return (
+    source.includes("custom cookies") || source.includes("individual cookie")
+  );
+}
+
+function getCustomCookieQuantity(item: PricingOrderItemInput): number {
+  if (!isCustomCookieItem(item)) return 0;
+  return asPositiveInt(item.quantity);
+}
+
+function validateCustomCookieMinimumOrder(
+  items: PricingOrderItemInput[],
+): void {
+  const customCookieTotalQty = (items ?? []).reduce(
+    (sum, item) => sum + getCustomCookieQuantity(item),
+    0,
+  );
+  if (customCookieTotalQty <= 0) return;
+
+  if (customCookieTotalQty < COOKIE_MIN_ORDER) {
+    throw new PricingValidationError(
+      `COOKIE minimum total order is ${COOKIE_MIN_ORDER} pcs, received ${customCookieTotalQty} pcs.`,
+      "COOKIE_MINIMUM_ORDER",
+    );
+  }
 }
 
 function resolveBouquetCookiePrice(
@@ -586,7 +636,8 @@ function parseCakeDimensionCandidates(item: PricingOrderItemInput): {
   const explicitDiameter = asPositiveInt(item.cakeDiameterCm);
   const explicitHeight = asPositiveInt(item.cakeHeightCm);
 
-  const source = `${item.subcategory ?? ""} ${item.productName ?? ""} ${item.size ?? ""}`.toLowerCase();
+  const source =
+    `${item.subcategory ?? ""} ${item.productName ?? ""} ${item.size ?? ""}`.toLowerCase();
   const normalized = source.replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ");
 
   const diameterMatch = normalized.match(/\b(14|15|16|18|20)\b/);
@@ -622,7 +673,10 @@ function resolveCakeMatrixPrice(item: PricingOrderItemInput): number {
   return asMoney(CAKE_PRICE_MATRIX[key] ?? 0);
 }
 
-function validateBouquetQuantity(quantity: number, bouquetType: BouquetType): void {
+function validateBouquetQuantity(
+  quantity: number,
+  bouquetType: BouquetType,
+): void {
   if (bouquetType === "HAND") {
     if (quantity < BOUQUET_HAND_MIN_QTY || quantity > BOUQUET_HAND_MAX_QTY) {
       throw new PricingValidationError(
@@ -673,11 +727,9 @@ function resolveCupcakeBasePrice(
   if (packType === "INDIVIDUAL" && basePrice > 0) {
     const unitPrice = asMoney(basePrice / quantity);
     const shouldStrictlyValidate =
-      item.selectedPrice !== undefined || normalizeText(item.cupcakePackType) !== "";
-    if (
-      shouldStrictlyValidate &&
-      unitPrice < CUPCAKE_INDIVIDUAL_MIN_PRICE
-    ) {
+      item.selectedPrice !== undefined ||
+      normalizeText(item.cupcakePackType) !== "";
+    if (shouldStrictlyValidate && unitPrice < CUPCAKE_INDIVIDUAL_MIN_PRICE) {
       throw new PricingValidationError(
         `CUPCAKE individual price starts from Rp ${CUPCAKE_INDIVIDUAL_MIN_PRICE.toLocaleString("id-ID")} per pcs, received Rp ${unitPrice.toLocaleString("id-ID")} per pcs.`,
         "CUPCAKE_INDIVIDUAL_PRICE_TOO_LOW",
@@ -715,12 +767,6 @@ function resolveTowerCookiePrice(item: PricingOrderItemInput): number {
 
 export function calculateCookie(item: PricingOrderItemInput): number {
   const quantity = asPositiveInt(item.quantity);
-  if (quantity < COOKIE_MIN_ORDER) {
-    throw new PricingValidationError(
-      `COOKIE minimum order is ${COOKIE_MIN_ORDER} pcs, received ${quantity} pcs.`,
-      "COOKIE_MINIMUM_ORDER",
-    );
-  }
 
   const unitPrice = resolveCookieUnitPrice(item, quantity);
   if (unitPrice <= 0) return getFallbackItemTotal(item);
@@ -860,7 +906,10 @@ export function calculateItemPriceSafe(
 }
 
 export function calculateOrderPrice(items: PricingOrderItemInput[]): number {
-  return asMoney(items.reduce((sum, item) => sum + calculateItemPrice(item), 0));
+  validateCustomCookieMinimumOrder(items);
+  return asMoney(
+    items.reduce((sum, item) => sum + calculateItemPrice(item), 0),
+  );
 }
 
 export function calculateOrderPriceSafe(input: {
@@ -869,7 +918,24 @@ export function calculateOrderPriceSafe(input: {
   deliveryFee?: number;
   manualAdjustment?: number;
 }): OrderPricingSafeResult {
-  const itemResults = (input.items ?? []).map((item) => calculateItemPriceSafe(item));
+  try {
+    validateCustomCookieMinimumOrder(input.items ?? []);
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error ? error.message : "Unknown pricing error.";
+    return {
+      total: asMoney(input.fallbackTotal),
+      itemsTotal: 0,
+      fallbackUsed: true,
+      usedOrderFallback: true,
+      warnings: [message],
+      itemResults: [],
+    };
+  }
+
+  const itemResults = (input.items ?? []).map((item) =>
+    calculateItemPriceSafe(item),
+  );
   const warnings = itemResults.flatMap((result) => result.warnings);
 
   const itemsTotal = asMoney(
