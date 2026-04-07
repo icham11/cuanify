@@ -2628,6 +2628,7 @@ export default function BookingForm() {
     const next = current.includes(addonId)
       ? current.filter((id) => id !== addonId)
       : [...current, addonId];
+    clearParsedPricingOverride(itemIndex);
     setValue(`items.${itemIndex}.addOns`, next, { shouldValidate: true });
 
     if (
@@ -2668,6 +2669,7 @@ export default function BookingForm() {
     const current = normalizeAddOnQuantities(
       watchedItems[itemIndex]?.addOnQuantities,
     );
+    clearParsedPricingOverride(itemIndex);
 
     setValue(
       `items.${itemIndex}.addOnQuantities`,
@@ -2692,6 +2694,7 @@ export default function BookingForm() {
     const isSelected = current.includes(flavorAddOnId);
     const next = isSelected ? withoutFlavor : [...withoutFlavor, flavorAddOnId];
 
+    clearParsedPricingOverride(itemIndex);
     setValue(`items.${itemIndex}.addOns`, next, { shouldValidate: true });
   };
 
@@ -3721,6 +3724,21 @@ export default function BookingForm() {
                   const premiumFlavorOptions = flavorOptions.filter(
                     (option) => option.premium,
                   );
+                  const premiumFlavorSurcharges = premiumFlavorOptions
+                    .map((option) => option.price)
+                    .filter((price) => price > 0);
+                  const premiumFlavorMinSurcharge =
+                    premiumFlavorSurcharges.length > 0
+                      ? Math.min(...premiumFlavorSurcharges)
+                      : 0;
+                  const premiumFlavorMaxSurcharge =
+                    premiumFlavorSurcharges.length > 0
+                      ? Math.max(...premiumFlavorSurcharges)
+                      : 0;
+                  const flavorGuideText =
+                    normalizedSelection.category === "Cake"
+                      ? `Cake flavor: ${regularFlavorOptions.length} regular + ${premiumFlavorOptions.length} premium. Pilih 1 rasa per item cake.${premiumFlavorMaxSurcharge > 0 ? ` Premium surcharge ${premiumFlavorMinSurcharge === premiumFlavorMaxSurcharge ? formatCurrency(premiumFlavorMaxSurcharge) : `${formatCurrency(premiumFlavorMinSurcharge)} - ${formatCurrency(premiumFlavorMaxSurcharge)}`} / cake.` : ""}`
+                      : "Cupcake flavor: pilih 1 rasa untuk item cupcakes ini.";
                   const bouquetProbeItem: BookingItemInput = {
                     category: normalizedSelection.category,
                     subcategory: normalizedSelection.subcategory,
@@ -4393,7 +4411,7 @@ export default function BookingForm() {
                           {premiumFlavorOptions.length > 0 && (
                             <>
                               <span className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">
-                                Premium Flavors
+                                Premium Flavors (Surcharge)
                               </span>
                               <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
                                 {premiumFlavorOptions.map((option) => {
@@ -4424,6 +4442,7 @@ export default function BookingForm() {
                                             {formatCompactSurcharge(
                                               option.price,
                                             )}
+                                            /cake
                                           </span>
                                         )}
                                       </span>
@@ -4447,9 +4466,7 @@ export default function BookingForm() {
                           )}
 
                           <span className="min-h-4 text-[11px] font-normal leading-4 text-gray-500">
-                            {normalizedSelection.category === "Cake"
-                              ? "Cake flavor: 4 regular + 3 premium. Pilih 1 rasa per item cake."
-                              : "Cupcake flavor: pilih 1 rasa untuk item cupcakes ini."}
+                            {flavorGuideText}
                           </span>
                         </label>
                       )}
