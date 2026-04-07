@@ -862,10 +862,20 @@ function normalize(value: string): string {
     .trim();
 }
 
+function compact(value: string): string {
+  return normalize(value).replace(/\s+/g, "");
+}
+
 function includesKeyword(normalizedText: string, keyword: string): boolean {
   const probe = normalize(keyword);
   if (!probe) return false;
-  return normalizedText.includes(probe);
+
+  if (normalizedText.includes(probe)) return true;
+
+  const compactText = compact(normalizedText);
+  const compactProbe = compact(probe);
+  if (!compactText || !compactProbe) return false;
+  return compactText.includes(compactProbe);
 }
 
 function getCategory(category: string): PricelistCategory | undefined {
@@ -937,13 +947,20 @@ function findVariantBySelection(
 
   const normalizedSize = normalize(size);
   if (!normalizedSize) return undefined;
+  const compactSize = compact(normalizedSize);
 
   return variants.find((entry) => {
     const normalizedLabel = normalize(entry.label);
+    const compactLabel = compact(normalizedLabel);
     if (
       normalizedLabel === normalizedSize ||
       normalizedLabel.includes(normalizedSize) ||
-      normalizedSize.includes(normalizedLabel)
+      normalizedSize.includes(normalizedLabel) ||
+      (compactLabel &&
+        compactSize &&
+        (compactLabel === compactSize ||
+          compactLabel.includes(compactSize) ||
+          compactSize.includes(compactLabel)))
     ) {
       return true;
     }
@@ -952,6 +969,20 @@ function findVariantBySelection(
       includesKeyword(normalizedSize, keyword),
     );
   });
+}
+
+function scoreVariantMatch(
+  normalizedText: string,
+  variant: PricelistVariant,
+): number {
+  let score = 0;
+
+  if (includesKeyword(normalizedText, variant.label)) {
+    score += 8;
+  }
+
+  score += scoreKeywordList(normalizedText, variant.keywords, 5);
+  return score;
 }
 
 function getDefaultVariantLabel(product: PricelistProduct): string {
@@ -1077,11 +1108,15 @@ export function suggestCatalogSelection(
       scoreKeywordList(normalizedText, subcategory.keywords, 4);
 
     subcategory.products.forEach((product) => {
+      const variantScore = product.variants.reduce((highest, variant) => {
+        return Math.max(highest, scoreVariantMatch(normalizedText, variant));
+      }, 0);
+
       const productScore =
         scoreKeywordList(normalizedText, [product.name], 4) +
         scoreKeywordList(normalizedText, product.keywords, 8);
 
-      const totalScore = subcategoryScore + productScore;
+      const totalScore = subcategoryScore + productScore + variantScore;
 
       if (!best || totalScore > best.score) {
         best = {

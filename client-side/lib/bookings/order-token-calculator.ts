@@ -163,6 +163,13 @@ function calculateItemToken(item: OrderItemForTokenCalc): number {
 
   // Evaluate cake before cupcake to avoid product-name collisions (e.g. Cake with "cupcake" note).
   if (isCakeItem) {
+    if (
+      searchSource.includes("two tier") ||
+      searchSource.includes("two tiered")
+    ) {
+      // Operational rule: one two-tier set is treated as two cakes.
+      return 200 * qty;
+    }
     return 100 * qty;
   }
 

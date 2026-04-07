@@ -313,11 +313,6 @@ const TOKEN_DIFFICULTY_BY_COOKIE_PRICE: Array<{
 const CUPCAKE_INDIVIDUAL_MIN_QTY = 10;
 const COOKIE_INDIVIDUAL_MIN_QTY = 20;
 const DARK_COLOR_BUTTERCREAM_ADDON_ID = "dark-color-buttercream";
-const CAKE_QUANTITY_ADDON_IDS = [
-  "small-cookies",
-  "medium-cookies",
-  "large-cookies",
-] as const;
 const DARK_BUTTERCREAM_COLOR_OPTIONS = [
   "Black",
   "Red",
@@ -760,12 +755,78 @@ function normalizeAddOnQuantities(value: unknown): Record<string, number> {
 }
 
 function supportsAddOnQuantity(category: string, addonId: string): boolean {
-  return (
-    category === "Cake" &&
-    CAKE_QUANTITY_ADDON_IDS.includes(
-      addonId as (typeof CAKE_QUANTITY_ADDON_IDS)[number],
-    )
-  );
+  if (category !== "Cake") return false;
+  const flavorIds = new Set(getFlavorAddOnIdsByCategory(category));
+  return !flavorIds.has(addonId);
+}
+
+function isTwoTierCakeItem(item: BookingItemInput): boolean {
+  if (item.category !== "Cake") return false;
+  const source =
+    `${item.subcategory || ""} ${item.productName || ""}`.toLowerCase();
+  return source.includes("two tier") || source.includes("two-tier");
+}
+
+function formatOneTierCakeVariantLabel(sizeLabel: string): string {
+  const match = sizeLabel.match(/^D\s*(\d+)\s*[-x/]\s*T\s*(\d+)$/i);
+  if (!match) return sizeLabel;
+
+  const diameter = match[1];
+  const height = match[2];
+  return `Diameter ${diameter} cm x Tinggi ${height} cm`;
+}
+
+function formatTwoTierCakeVariantLabel(sizeLabel: string): string {
+  const parts = sizeLabel
+    .split("+")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+
+  if (parts.length < 2) return sizeLabel;
+
+  const toReadable = (segment: string, fallbackPrefix: string): string => {
+    const match = segment.match(
+      /(Top|Bottom)?\s*D\s*(\d+)\s*[-x/]\s*T\s*(\d+)/i,
+    );
+    if (!match) return segment;
+
+    const prefix = match[1] ? match[1] : fallbackPrefix;
+    const diameter = match[2];
+    const height = match[3];
+    return `${prefix}: ${diameter}x${height} cm`;
+  };
+
+  return `${toReadable(parts[0], "Top")} | ${toReadable(parts[1], "Bottom")}`;
+}
+
+function getReadableVariantLabel(item: BookingItemInput): string {
+  const raw = String(item.size || "").trim();
+  if (!raw) return "-";
+
+  if (isTwoTierCakeItem(item)) {
+    return formatTwoTierCakeVariantLabel(raw);
+  }
+
+  if (item.category === "Cake") {
+    return formatOneTierCakeVariantLabel(raw);
+  }
+
+  return raw;
+}
+
+function getTwoTierSummaryLabel(item: BookingItemInput): string {
+  if (!isTwoTierCakeItem(item)) return "";
+
+  const pieces = String(item.size || "")
+    .split("+")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+  if (pieces.length < 2) {
+    return "Two Tiered Cake: 1 set = Top + Bottom tier, tetap 1 item di order.";
+  }
+
+  const readable = formatTwoTierCakeVariantLabel(String(item.size || ""));
+  return `Two Tiered Cake: ${readable}, tetap 1 item di order.`;
 }
 
 function getAddOnUnitMultiplier(args: {
@@ -1002,6 +1063,15 @@ function getItemQuantityRule(item: BookingItemInput): ItemQuantityRule {
   }
 
   if (item.category === "Cake") {
+    if (isTwoTierCakeItem(item)) {
+      return {
+        label: "Quantity (set two-tier)",
+        min: 1,
+        helperText:
+          "1 qty = 1 set two-tier (Top + Bottom, setara 2 cake) tapi tetap 1 item order.",
+      };
+    }
+
     return {
       label: "Quantity (cake)",
       min: 1,
@@ -2377,6 +2447,7 @@ export default function BookingForm() {
       ).find((option) => (item.addOns ?? []).includes(option.id));
       const mergedItemNotes = [
         item.notes ?? "",
+        isTwoTierCakeItem(item) ? getTwoTierSummaryLabel(item) : "",
         (item.addOns ?? []).length > 0
           ? `Add-ons: ${(item.addOns ?? [])
               .map((addonId) => {
@@ -2801,7 +2872,9 @@ export default function BookingForm() {
               customTokenPerUnit: undefined,
               cookiePrice: parsedCookiePrice,
               addOns: Array.isArray(item.addOns) ? item.addOns : [],
-              addOnQuantities: normalizeAddOnQuantities(item.addOnQuantities),
+              addOnQuantities: normalizeAddOnQuantities(
+                (item as { addOnQuantities?: unknown }).addOnQuantities,
+              ),
               darkColorButtercreamColors:
                 normalized.category === "Cupcakes" &&
                 Array.isArray(item.addOns) &&
@@ -3672,6 +3745,7 @@ export default function BookingForm() {
                   const isCupcakes =
                     normalizedSelection.category === "Cupcakes";
                   const isCookies = normalizedSelection.category === "Cookies";
+                  const isTwoTierCake = isTwoTierCakeItem(bouquetProbeItem);
                   const allowedVariants =
                     deliveryMethod === "ASSISTED_PAXEL" && isBouquet
                       ? variants.filter(
@@ -3731,6 +3805,13 @@ export default function BookingForm() {
                       });
                       return sum + addon.price * multiplier;
                     }, 0) * Math.max(1, quantityValue);
+                  const selectedAllAddOnTotal =
+                    calculatePerUnitAddOnPrice({
+                      category: normalizedSelection.category,
+                      selectedAddOnIds: item?.addOns ?? [],
+                      addOnQuantities: normalizedAddOnQuantities,
+                      addOnCatalogEntries: addOns,
+                    }) * Math.max(1, quantityValue);
                   const displayUnitPrice =
                     hasParsedRecapPrice && parsedUnitPrice
                       ? parsedUnitPrice
@@ -3744,6 +3825,10 @@ export default function BookingForm() {
                     hasParsedRecapPrice && parsedSubtotal
                       ? parsedSubtotal
                       : getItemBasePrice(productCatalog, bouquetProbeItem);
+                  const itemTotalCostDisplay =
+                    hasParsedRecapPrice && parsedSubtotal
+                      ? parsedSubtotal
+                      : displayLinePrice + selectedAllAddOnTotal;
 
                   return (
                     <div
@@ -3755,6 +3840,11 @@ export default function BookingForm() {
                           Item {index + 1}
                         </p>
                         <div className="flex items-center gap-2 text-[11px] font-medium text-slate-600">
+                          {isTwoTierCake && (
+                            <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-indigo-700">
+                              Two Tiered Cake
+                            </span>
+                          )}
                           <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5">
                             Unit {formatCurrency(displayUnitPrice)}
                           </span>
@@ -4080,14 +4170,17 @@ export default function BookingForm() {
                                   key={sizeOption.label}
                                   value={sizeOption.label}
                                 >
-                                  {sizeOption.label} (
-                                  {formatCurrency(sizeOption.price)})
+                                  {getReadableVariantLabel({
+                                    ...bouquetProbeItem,
+                                    size: sizeOption.label,
+                                  })}{" "}
+                                  ({formatCurrency(sizeOption.price)})
                                 </option>
                               ))}
                             </Select>
                           ) : (
                             <div className="flex h-10 items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700">
-                              {normalizedSelection.size || "-"}
+                              {getReadableVariantLabel(bouquetProbeItem)}
                             </div>
                           )}
                           {deliveryMethod === "ASSISTED_PAXEL" && isBouquet && (
@@ -4217,7 +4310,7 @@ export default function BookingForm() {
                         )}
 
                         <label className="grid gap-1.5 text-sm font-medium text-gray-700 sm:col-span-2 lg:col-span-4">
-                          Item Notes
+                          Customer Notes
                           <Input
                             placeholder="Decoration instructions"
                             {...register(`items.${index}.notes`)}
@@ -4243,6 +4336,9 @@ export default function BookingForm() {
                         Estimasi token item ini: {itemTokenPreview}
                         {hasCustomTokenOverride
                           ? " (custom token override)"
+                          : ""}
+                        {isTwoTierCake && !hasCustomTokenOverride
+                          ? " • Two-tier dihitung sebagai 2 cake (100 + 100 token) tapi tetap 1 item."
                           : ""}
                       </div>
 
@@ -4436,6 +4532,31 @@ export default function BookingForm() {
                               </label>
                             );
                           })}
+                        </div>
+                        <div className="sticky bottom-2 z-10 rounded-xl border border-emerald-200 bg-linear-to-r from-emerald-50 via-white to-emerald-50 px-3 py-2.5 shadow-sm backdrop-blur-sm">
+                          <div className="flex flex-wrap items-center justify-between gap-1.5">
+                            <span className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
+                              Total Biaya Item
+                            </span>
+                            <span className="text-sm font-bold text-emerald-800 sm:text-base">
+                              {formatCurrency(itemTotalCostDisplay)}
+                            </span>
+                          </div>
+                          <div className="mt-1 grid gap-1 text-[11px] text-slate-600 sm:grid-cols-2">
+                            <span>
+                              Subtotal produk:{" "}
+                              {formatCurrency(displayLinePrice)}
+                            </span>
+                            <span>
+                              Total add-ons:{" "}
+                              {formatCurrency(selectedAllAddOnTotal)}
+                            </span>
+                          </div>
+                          <p className="mt-1 text-[11px] font-medium text-slate-500">
+                            {hasParsedRecapPrice && parsedSubtotal
+                              ? "Sumber angka: recap parser (override aktif)."
+                              : "Sumber angka: subtotal produk + semua add-ons terpilih."}
+                          </p>
                         </div>
                       </div>
 

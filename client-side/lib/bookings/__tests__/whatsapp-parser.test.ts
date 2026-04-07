@@ -390,6 +390,39 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
     );
   });
 
+  it("maps compact cake size code like d16t15 to the correct tall variant", () => {
+    const text = [
+      "Data Cake",
+      "Tanggal Pengiriman: 11/5/26",
+      "KODE BOOKING: CK-89",
+      "Order: 1 cake",
+      "Nama di Cake: Atlas",
+      "Umur di cake: 6",
+      "Ukuran cake: d16t15",
+      "Rasa cake: DC",
+      "Design cake: mario",
+      "Jam Pengiriman: 10:00",
+      "Metode Pengiriman: Pickup",
+      "Nama penerima: Atlas",
+      "No. telp penerima: 081234567800",
+      "Alamat lengkap: Jakarta",
+    ].join("\n");
+
+    const parsed = parseWhatsAppOrderText(text, {
+      preferredOrderType: "cake",
+      sourceType: "manual",
+    });
+    const autoFill = buildBookingAutoFillFromParsed(parsed);
+    const cakeItem = autoFill.items.find((item) => item.category === "Cake");
+
+    expect(Boolean(cakeItem)).toBe(true);
+    if (!cakeItem) {
+      throw new Error("Cake item was not generated");
+    }
+
+    expect(cakeItem.size).toBe("D16-T15");
+  });
+
   it("prioritizes order individual cupcakes and quantity even with detail default dozen", () => {
     const text = [
       "Data Cupcakes",
@@ -1005,10 +1038,68 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
 
     expect(cakeItem.size.includes("Tinggi 15 cm")).toBe(true);
     expect(cakeItem.parsedSubtotal).toBe(1140000);
+    expect(cakeItem.notes.includes("Total Biaya Item")).toBe(false);
+    expect(cakeItem.notes.includes("3 large cookies")).toBe(true);
+    expect(cakeItem.addOns.includes("large-cookies")).toBe(true);
+    expect(cakeItem.addOns.includes("medium-cookies")).toBe(true);
+    expect(cakeItem.addOns.includes("small-cookies")).toBe(true);
+    expect(cakeItem.addOns.includes("fondant-decor")).toBe(true);
+    expect(cakeItem.addOnQuantities?.["large-cookies"]).toBe(3);
+    expect(cakeItem.addOnQuantities?.["medium-cookies"]).toBe(5);
+    expect(cakeItem.addOnQuantities?.["small-cookies"]).toBe(4);
     expect(hardCookieItem.quantity).toBe(18);
     expect(hardCookieItem.parsedSubtotal).toBe(450000);
     expect(expertCookieItem.quantity).toBe(2);
     expect(expertCookieItem.parsedSubtotal).toBe(70000);
+  });
+
+  it("maps AD-06 cake size d18t10 consistently from both details and recap", () => {
+    const text = [
+      "Tanggal Pengiriman: 8 April 2026",
+      "KODE BOOKING: AD-06",
+      "Order: 1 cake , 20 cookies",
+      "",
+      "Nama di Cake : Atlas (large cookies)",
+      "Umur di cake : 6",
+      "Ukuran cake : d18t10",
+      "Rasa cake : DC",
+      "Design cake :",
+      "• 3 large cookies",
+      "• 5 medium cookies",
+      "• 4 small cookies",
+      "• fondant decoration",
+      "",
+      "Jam Pengiriman: jam 10 pagi",
+      "Metode Pengiriman : pickup",
+      "Nama penerima : adina",
+      "No. telp penerima : 08118402606",
+      "Alamat lengkap : jl buncit persada no.B2 jaksel 12740",
+      "",
+      "REKAP ORDER",
+      "ITEM 1",
+      "Kategori: Cake",
+      "Nama Produk: Custom Cake",
+      "Qty: 1",
+      "Size/Varian: D18T10",
+      "Design/Notes: Mario",
+      "Add On: -",
+      "Harga Satuan: 1140000",
+      "Subtotal: 1140000",
+    ].join("\n");
+
+    const parsed = parseWhatsAppOrderText(text, {
+      preferredOrderType: "unknown",
+      sourceType: "manual",
+    });
+    const autoFill = buildBookingAutoFillFromParsed(parsed);
+    const cakeItem = autoFill.items.find((item) => item.category === "Cake");
+
+    expect(Boolean(cakeItem)).toBe(true);
+    if (!cakeItem) {
+      throw new Error("Cake item was not generated");
+    }
+
+    expect(cakeItem.size).toBe("D18-T10");
   });
 
   it("only fills custom notes from special note fields instead of full parsed order", () => {

@@ -391,6 +391,7 @@ export interface BookingFormAutoFill {
     tokenDifficulty?: "SIMPLE" | "NORMAL" | "HARD" | "ADVANCED" | "EXPERT";
     cookiePrice?: number;
     addOns: string[];
+    addOnQuantities?: Record<string, number>;
     darkColorButtercreamColors?: string[];
     darkColorButtercreamColor?: string;
     parsedUnitPrice?: number;
@@ -550,6 +551,11 @@ const recapItemFieldDefinitions: FieldDefinition[] = [
     key: "unitPrice",
     label: "Harga Satuan",
     aliases: ["harga satuan", "harga", "price"],
+  },
+  {
+    key: "totalItemCost",
+    label: "Total Biaya Item",
+    aliases: ["total biaya item", "total item", "item total"],
   },
   {
     key: "subtotal",
@@ -809,6 +815,12 @@ function parseOrderRecap(
         block.lines.join("\n"),
         block.lines,
         lookup,
+        recapItemFieldDefinitions[8],
+      );
+      const totalItemCostValue = readFieldValue(
+        block.lines.join("\n"),
+        block.lines,
+        lookup,
         recapItemFieldDefinitions[7],
       );
 
@@ -825,8 +837,11 @@ function parseOrderRecap(
       const designNotes = cleanupValue(designNotesValue);
       const addOn = cleanupValue(addOnValue);
       const unitPrice = parseCurrencyAmount(unitPriceValue) ?? undefined;
+      const totalItemCost =
+        parseCurrencyAmount(totalItemCostValue) ?? undefined;
       const subtotal =
         parseCurrencyAmount(subtotalValue) ??
+        totalItemCost ??
         (unitPrice && quantity > 0 ? unitPrice * quantity : undefined);
       const breakdownEntries =
         category === "Cookies" ? parseRecapBreakdownEntries(block.lines) : [];
@@ -1703,6 +1718,71 @@ function detectCupcakeDarkColorButtercream(value: string): {
   };
 }
 
+function detectCakeAddOnsFromText(value: string): {
+  addOns: string[];
+  addOnQuantities?: Record<string, number>;
+} {
+  const normalized = normalizeLabel(value);
+  if (!normalized) return { addOns: [] };
+
+  const addOns = new Set<string>();
+  const addOnQuantities: Record<string, number> = {};
+
+  const tryAssignCookieAddOn = (args: {
+    addOnId: string;
+    keywords: string[];
+  }) => {
+    const quantity = extractQuantityForKeywords(value, args.keywords);
+    const hasKeyword = args.keywords.some((keyword) =>
+      normalized.includes(normalizeLabel(keyword)),
+    );
+
+    if (!hasKeyword && !quantity) return;
+    addOns.add(args.addOnId);
+    if (quantity && quantity > 0) {
+      addOnQuantities[args.addOnId] = quantity;
+    }
+  };
+
+  tryAssignCookieAddOn({
+    addOnId: "large-cookies",
+    keywords: ["large cookies", "large cookie", "cookies large"],
+  });
+  tryAssignCookieAddOn({
+    addOnId: "medium-cookies",
+    keywords: ["medium cookies", "medium cookie", "cookies medium"],
+  });
+  tryAssignCookieAddOn({
+    addOnId: "small-cookies",
+    keywords: ["small cookies", "small cookie", "cookies small"],
+  });
+
+  if (
+    normalized.includes("fondant decor") ||
+    normalized.includes("fondant decoration") ||
+    normalized.includes("dekor fondant")
+  ) {
+    addOns.add("fondant-decor");
+  }
+
+  if (
+    normalized.includes("fondant name") ||
+    normalized.includes("nama fondant")
+  ) {
+    addOns.add("fondant-name");
+  }
+
+  if (normalized.includes("dark color")) {
+    addOns.add("dark-color");
+  }
+
+  return {
+    addOns: Array.from(addOns),
+    addOnQuantities:
+      Object.keys(addOnQuantities).length > 0 ? addOnQuantities : undefined,
+  };
+}
+
 function extractPositiveInteger(value: string): number | null {
   const match = value.match(/\d+/);
   if (!match) return null;
@@ -2196,6 +2276,31 @@ function extractQuantityForKeywords(
   return null;
 }
 
+function extractSingleCakeSizeCode(value: string): string | undefined {
+  const text = value.trim();
+  if (!text) return undefined;
+
+  const hasTwoTierMarker =
+    /\b(top|bottom)\b/i.test(text) ||
+    /\+/.test(text) ||
+    /\btwo\s*tier\b/i.test(text);
+  if (hasTwoTierMarker) return undefined;
+
+  const matches = Array.from(
+    text.matchAll(/\bd\s*(\d{1,2})\s*[-x\/]?\s*t\s*(\d{1,2})\b/gi),
+  );
+  if (!matches.length) return undefined;
+
+  const first = matches[0];
+  const diameter = Number(first?.[1]);
+  const height = Number(first?.[2]);
+  if (!Number.isInteger(diameter) || !Number.isInteger(height)) {
+    return undefined;
+  }
+
+  return `D${diameter}-T${height}`;
+}
+
 function createAutoFillItemFromCategory(args: {
   category: string;
   searchSource: string;
@@ -2203,10 +2308,26 @@ function createAutoFillItemFromCategory(args: {
   notes: string;
   cookiePrice?: number;
 }): BookingAutoFillItem {
-  const catalog = chooseCatalogSelectionByText(
-    args.category,
-    args.searchSource,
-  );
+  let catalog = chooseCatalogSelectionByText(args.category, args.searchSource);
+
+  if (catalog.category === "Cake") {
+    const forcedSize = extractSingleCakeSizeCode(
+      `${args.searchSource || ""} ${args.notes || ""}`,
+    );
+    if (forcedSize) {
+      const source = normalizeLabel(
+        `${args.searchSource || ""} ${args.notes || ""}`,
+      );
+      const isDummy = source.includes("dummy");
+      catalog = ensureCatalogSelection({
+        category: "Cake",
+        subcategory: "One Tier Cake",
+        productName: isDummy ? "Dummy Cake" : "Real Cake",
+        size: forcedSize,
+      });
+    }
+  }
+
   const cookiePrice =
     catalog.category === "Buket" && Number(args.cookiePrice) > 0
       ? normalizeCookiePriceAmount(Number(args.cookiePrice))
@@ -2234,6 +2355,12 @@ function createAutoFillItemFromCategory(args: {
           darkColorButtercreamColors: [] as string[],
           darkColorButtercreamColor: undefined,
         };
+  const cakeAddOns =
+    catalog.category === "Cake"
+      ? detectCakeAddOnsFromText(
+          `${args.searchSource || ""} ${args.notes || ""}`,
+        )
+      : { addOns: [] as string[], addOnQuantities: undefined };
 
   return {
     category: catalog.category,
@@ -2243,7 +2370,12 @@ function createAutoFillItemFromCategory(args: {
     quantity: toPositiveQuantity(args.quantity),
     tokenDifficulty,
     cookiePrice,
-    addOns: mergeUniqueAddOnIds(flavorAddOns, cupcakeDarkColor.addOns),
+    addOns: mergeUniqueAddOnIds(
+      flavorAddOns,
+      cupcakeDarkColor.addOns,
+      cakeAddOns.addOns,
+    ),
+    addOnQuantities: cakeAddOns.addOnQuantities,
     darkColorButtercreamColors: cupcakeDarkColor.darkColorButtercreamColors,
     darkColorButtercreamColor: cupcakeDarkColor.darkColorButtercreamColor,
     notes: args.notes,
@@ -2294,6 +2426,16 @@ function mergeAutoFillItems(
       )[0] || undefined) as string | undefined,
       tokenDifficulty: existing.tokenDifficulty || item.tokenDifficulty,
       cookiePrice: existing.cookiePrice ?? item.cookiePrice,
+      addOnQuantities: (() => {
+        const merged: Record<string, number> = {
+          ...(existing.addOnQuantities ?? {}),
+        };
+        Object.entries(item.addOnQuantities ?? {}).forEach(([id, qty]) => {
+          const parsedQty = Math.max(1, Math.round(Number(qty) || 1));
+          merged[id] = Math.max(merged[id] ?? 0, parsedQty);
+        });
+        return Object.keys(merged).length > 0 ? merged : undefined;
+      })(),
       notes: existing.notes || item.notes,
     });
   }
@@ -2324,15 +2466,15 @@ function buildRecapAutoFillItems(
     ]
       .filter(Boolean)
       .join(" | ");
-    const noteParts = [
-      item.designNotes ? `Design/Notes: ${item.designNotes}` : "",
-      item.addOn ? `Add On: ${item.addOn}` : "",
-      buildItemNotesForOrderType(parsed, orderType),
-      item.unitPrice
-        ? `Harga Satuan: ${formatCurrencyNote(item.unitPrice)}`
-        : "",
-      item.subtotal ? `Subtotal: ${formatCurrencyNote(item.subtotal)}` : "",
-    ]
+    const orderTypeDetails = getDetailsForOrderType(parsed, orderType);
+    const noteParts =
+      orderType === "cake"
+        ? [cleanupValue(orderTypeDetails.cakeDesign || ""), item.designNotes]
+        : [
+            item.designNotes ? `Design/Notes: ${item.designNotes}` : "",
+            buildItemNotesForOrderType(parsed, orderType),
+          ];
+    const notes = noteParts
       .filter(Boolean)
       .filter(
         (value, index, array) =>
@@ -2346,7 +2488,7 @@ function buildRecapAutoFillItems(
       category: resolvedCategory,
       searchSource,
       quantity: item.quantity,
-      notes: noteParts,
+      notes,
     });
 
     return [
@@ -2893,6 +3035,9 @@ export function formatParsedWhatsAppForNotes(
       if (item.addOn) {
         lines.push(`Add On: ${item.addOn}`);
       }
+      if (item.subtotal) {
+        lines.push(`Total Biaya Item: ${formatCurrencyNote(item.subtotal)}`);
+      }
     });
   }
 
@@ -3108,6 +3253,13 @@ export function getDisplayFields(
         rows.push({
           label: `Rekap Item ${item.itemNumber || index + 1} - Add On`,
           value: item.addOn,
+        });
+      }
+
+      if (item.subtotal) {
+        rows.push({
+          label: `Rekap Item ${item.itemNumber || index + 1} - Total Biaya Item`,
+          value: formatCurrencyNote(item.subtotal),
         });
       }
     });
