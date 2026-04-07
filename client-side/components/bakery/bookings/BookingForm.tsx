@@ -139,6 +139,9 @@ const itemSchema = z.object({
   customTokenPerUnit: z.number().int().min(1).max(999).optional(),
   cookiePrice: z.number().min(0).optional(),
   addOns: z.array(z.string()),
+  addOnQuantities: z
+    .record(z.string(), z.number().int().min(1).max(999))
+    .optional(),
   darkColorButtercreamColors: z
     .array(z.string())
     .max(3, "Maksimal 3 warna dark color buttercream.")
@@ -156,100 +159,104 @@ const addressSchema = z.object({
     .string()
     .default("")
     .refine(
-      (value) => value.trim().length === 0 || sanitizePostalCodeInput(value).length === 5,
+      (value) =>
+        value.trim().length === 0 ||
+        sanitizePostalCodeInput(value).length === 5,
       "Kode pos harus 5 digit.",
     ),
   addressLine: z.string().min(5, "Address is too short"),
 });
 
-const bookingSchema = z.object({
-  customerName: z.string().min(2, "Customer name is required"),
-  phoneNumber: z.string().min(8, "Phone number is required"),
-  deliveryDate: z.string().min(1, "Delivery date is required"),
-  deliverySlot: z.string().min(1, "Delivery slot is required"),
-  deliveryMethod: z.enum([
-    "PICKUP",
-    "CUSTOMER_APP_COURIER",
-    "ASSISTED_GOSEND",
-    "ASSISTED_GRAB",
-    "ASSISTED_GOCAR",
-    "ASSISTED_PAXEL",
-    "ASSISTED_SAME_DAY",
-    "REGULAR_JNE_JNT",
-  ]),
-  customNotes: z.string().max(1200).optional().or(z.literal("")),
-  paymentStatus: z.enum(["DP Paid", "Paid"]),
-  dpPaidAmount: z.number().default(0),
-  finalPaidAmount: z.number().default(0),
-  manualAdjustment: z.number().default(0),
-  items: z.array(itemSchema).min(1, "At least one item is required"),
-  deliveryAddresses: z
-    .array(addressSchema)
-    .min(1, "At least one address is required"),
-}).superRefine((values, ctx) => {
-  values.deliveryAddresses.forEach((address, index) => {
-    const postalCode = sanitizePostalCodeInput(address.postalCode || "");
-    const embeddedPostalCode = extractPostalCodeFromAddress(
-      address.addressLine || "",
-    );
+const bookingSchema = z
+  .object({
+    customerName: z.string().min(2, "Customer name is required"),
+    phoneNumber: z.string().min(8, "Phone number is required"),
+    deliveryDate: z.string().min(1, "Delivery date is required"),
+    deliverySlot: z.string().min(1, "Delivery slot is required"),
+    deliveryMethod: z.enum([
+      "PICKUP",
+      "CUSTOMER_APP_COURIER",
+      "ASSISTED_GOSEND",
+      "ASSISTED_GRAB",
+      "ASSISTED_GOCAR",
+      "ASSISTED_PAXEL",
+      "ASSISTED_SAME_DAY",
+      "REGULAR_JNE_JNT",
+    ]),
+    customNotes: z.string().max(1200).optional().or(z.literal("")),
+    paymentStatus: z.enum(["DP Paid", "Paid"]),
+    dpPaidAmount: z.number().default(0),
+    finalPaidAmount: z.number().default(0),
+    manualAdjustment: z.number().default(0),
+    items: z.array(itemSchema).min(1, "At least one item is required"),
+    deliveryAddresses: z
+      .array(addressSchema)
+      .min(1, "At least one address is required"),
+  })
+  .superRefine((values, ctx) => {
+    values.deliveryAddresses.forEach((address, index) => {
+      const postalCode = sanitizePostalCodeInput(address.postalCode || "");
+      const embeddedPostalCode = extractPostalCodeFromAddress(
+        address.addressLine || "",
+      );
 
-    if (address.postalCode.trim().length > 0 && postalCode.length !== 5) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["deliveryAddresses", index, "postalCode"],
-        message: "Kode pos harus 5 digit.",
-      });
-    }
-
-    if (
-      ADDRESS_CONTACT_LABEL_PATTERN.test(address.addressLine || "") ||
-      ADDRESS_PHONE_PATTERN.test(address.addressLine || "")
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["deliveryAddresses", index, "addressLine"],
-        message:
-          "Alamat jangan dicampur dengan nama penerima atau nomor telepon.",
-      });
-    }
-
-    if (usesShippingEngine(values.deliveryMethod) && index === 0) {
-      if (!areaLooksValid(address.area || "")) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["deliveryAddresses", index, "area"],
-          message:
-            "Area wajib diisi minimal Kecamatan / Kota untuk metode shipping otomatis.",
-        });
-      }
-
-      if (!postalCode && !embeddedPostalCode) {
+      if (address.postalCode.trim().length > 0 && postalCode.length !== 5) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["deliveryAddresses", index, "postalCode"],
-          message:
-            "Isi kode pos 5 digit agar ongkir dan pembuatan resi lebih akurat.",
+          message: "Kode pos harus 5 digit.",
         });
       }
 
-      if ((address.addressLine || "").trim().length < 15) {
+      if (
+        ADDRESS_CONTACT_LABEL_PATTERN.test(address.addressLine || "") ||
+        ADDRESS_PHONE_PATTERN.test(address.addressLine || "")
+      ) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["deliveryAddresses", index, "addressLine"],
           message:
-            "Alamat utama terlalu singkat untuk shipping. Isi alamat lengkap.",
-        });
-      } else if (!addressLooksStructured(address.addressLine || "")) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["deliveryAddresses", index, "addressLine"],
-          message:
-            "Alamat utama perlu memuat jalan/perumahan/apartemen dan nomor/unit.",
+            "Alamat jangan dicampur dengan nama penerima atau nomor telepon.",
         });
       }
-    }
+
+      if (usesShippingEngine(values.deliveryMethod) && index === 0) {
+        if (!areaLooksValid(address.area || "")) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["deliveryAddresses", index, "area"],
+            message:
+              "Area wajib diisi minimal Kecamatan / Kota untuk metode shipping otomatis.",
+          });
+        }
+
+        if (!postalCode && !embeddedPostalCode) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["deliveryAddresses", index, "postalCode"],
+            message:
+              "Isi kode pos 5 digit agar ongkir dan pembuatan resi lebih akurat.",
+          });
+        }
+
+        if ((address.addressLine || "").trim().length < 15) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["deliveryAddresses", index, "addressLine"],
+            message:
+              "Alamat utama terlalu singkat untuk shipping. Isi alamat lengkap.",
+          });
+        } else if (!addressLooksStructured(address.addressLine || "")) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["deliveryAddresses", index, "addressLine"],
+            message:
+              "Alamat utama perlu memuat jalan/perumahan/apartemen dan nomor/unit.",
+          });
+        }
+      }
+    });
   });
-});
 
 type BookingFormInput = z.input<typeof bookingSchema>;
 type BookingFormValues = z.output<typeof bookingSchema>;
@@ -293,9 +300,24 @@ const BOUQUET_COOKIE_PRICE_BY_DIFFICULTY: Record<TokenDifficultyValue, number> =
     ADVANCED: 30000,
     EXPERT: 35000,
   };
+const TOKEN_DIFFICULTY_BY_COOKIE_PRICE: Array<{
+  price: number;
+  difficulty: TokenDifficultyValue;
+}> = [
+  { price: 17000, difficulty: "SIMPLE" },
+  { price: 20000, difficulty: "NORMAL" },
+  { price: 25000, difficulty: "HARD" },
+  { price: 30000, difficulty: "ADVANCED" },
+  { price: 35000, difficulty: "EXPERT" },
+];
 const CUPCAKE_INDIVIDUAL_MIN_QTY = 10;
 const COOKIE_INDIVIDUAL_MIN_QTY = 20;
 const DARK_COLOR_BUTTERCREAM_ADDON_ID = "dark-color-buttercream";
+const CAKE_QUANTITY_ADDON_IDS = [
+  "small-cookies",
+  "medium-cookies",
+  "large-cookies",
+] as const;
 const DARK_BUTTERCREAM_COLOR_OPTIONS = [
   "Black",
   "Red",
@@ -307,9 +329,12 @@ const DARK_BUTTERCREAM_COLOR_OPTIONS = [
 const MAX_DARK_BUTTERCREAM_COLORS = 3;
 const FRAGILE_ORDER_ALLOWED_METHODS: DeliveryMethod[] = [
   "PICKUP",
+  "CUSTOMER_APP_COURIER",
   "ASSISTED_GRAB",
   "ASSISTED_GOCAR",
 ];
+const FRAGILE_ORDER_ALLOWED_METHODS_TEXT =
+  "Pickup, Grab/GoCar (pesan customer), Grab admin, atau GoCar admin.";
 
 function normalizeDarkButtercreamColors(value: unknown): string[] {
   const rawValues = Array.isArray(value) ? value : [value];
@@ -347,6 +372,35 @@ function getBouquetCookiePriceFromDifficulty(value: unknown): number {
   return BOUQUET_COOKIE_PRICE_BY_DIFFICULTY[
     normalizeTokenDifficultyValue(value)
   ];
+}
+
+function normalizeBouquetCookiePriceValue(value: unknown): number | undefined {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
+
+  const rounded = Math.round(parsed);
+  // Common shorthand from parsed text: 17 means 17k.
+  if (rounded < 1000) return rounded * 1000;
+  return rounded;
+}
+
+function inferTokenDifficultyFromCookiePrice(
+  value: unknown,
+): TokenDifficultyValue | undefined {
+  const normalized = normalizeBouquetCookiePriceValue(value);
+  if (!normalized) return undefined;
+
+  return TOKEN_DIFFICULTY_BY_COOKIE_PRICE.find(
+    (entry) => entry.price === normalized,
+  )?.difficulty;
+}
+
+function getBouquetCookiePrice(
+  item: Pick<BookingItemInput, "cookiePrice" | "tokenDifficulty">,
+): number {
+  const explicit = normalizeBouquetCookiePriceValue(item.cookiePrice);
+  if (explicit) return explicit;
+  return getBouquetCookiePriceFromDifficulty(item.tokenDifficulty);
 }
 
 function getTokenDifficultyOption(value: unknown) {
@@ -692,6 +746,58 @@ function getNonFlavorAddOnsForCategory(args: {
   return args.addOns.filter((addon) => !flavorIds.has(addon.id));
 }
 
+function normalizeAddOnQuantities(value: unknown): Record<string, number> {
+  if (!value || typeof value !== "object") return {};
+
+  const next: Record<string, number> = {};
+  for (const [key, raw] of Object.entries(value)) {
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed) || parsed <= 0) continue;
+    next[key] = Math.max(1, Math.round(parsed));
+  }
+
+  return next;
+}
+
+function supportsAddOnQuantity(category: string, addonId: string): boolean {
+  return (
+    category === "Cake" &&
+    CAKE_QUANTITY_ADDON_IDS.includes(
+      addonId as (typeof CAKE_QUANTITY_ADDON_IDS)[number],
+    )
+  );
+}
+
+function getAddOnUnitMultiplier(args: {
+  category: string;
+  addonId: string;
+  addOnQuantities: Record<string, number>;
+}): number {
+  if (!supportsAddOnQuantity(args.category, args.addonId)) return 1;
+  return Math.max(1, args.addOnQuantities[args.addonId] ?? 1);
+}
+
+function calculatePerUnitAddOnPrice(args: {
+  category: string;
+  selectedAddOnIds: string[];
+  addOnQuantities: Record<string, number>;
+  addOnCatalogEntries: CatalogAddOn[];
+}): number {
+  return args.selectedAddOnIds.reduce((sum, addonId) => {
+    const addon = args.addOnCatalogEntries.find(
+      (entry) => entry.id === addonId,
+    );
+    if (!addon) return sum;
+
+    const multiplier = getAddOnUnitMultiplier({
+      category: args.category,
+      addonId,
+      addOnQuantities: args.addOnQuantities,
+    });
+    return sum + addon.price * multiplier;
+  }, 0);
+}
+
 function getSelectedFlavorIdFromItem(item: BookingItemInput): string | null {
   const flavorOptions = getFlavorOptionsForCategory(item.category);
   if (flavorOptions.length === 0) return null;
@@ -855,18 +961,16 @@ function getItemQuantityRule(item: BookingItemInput): ItemQuantityRule {
   const bouquetType = detectBouquetTypeFromItem(item);
   if (bouquetType === "HAND") {
     return {
-      label: "Jumlah Cookies (isi bouquet)",
-      min: BOUQUET_HAND_MIN_QTY,
-      max: BOUQUET_HAND_MAX_QTY,
-      helperText: `Hand bouquet minimal ${BOUQUET_HAND_MIN_QTY} cookies.`,
+      label: "Quantity (unit bouquet / isi cookies)",
+      min: 1,
+      helperText: `Hand bouquet: isi cookies ${BOUQUET_HAND_MIN_QTY}-${BOUQUET_HAND_MAX_QTY}. Qty 1-${BOUQUET_HAND_MIN_QTY - 1} dibaca sebagai jumlah unit bouquet (harga start from).`,
     };
   }
   if (bouquetType === "STANDING") {
     return {
-      label: "Jumlah Cookies (isi bouquet)",
-      min: BOUQUET_STANDING_MIN_QTY,
-      max: BOUQUET_STANDING_MAX_QTY,
-      helperText: `Standing bouquet qty wajib ${getBouquetQtyRangeLabel("STANDING")} cookies.`,
+      label: "Quantity (unit bouquet / isi cookies)",
+      min: 1,
+      helperText: `Standing bouquet: isi cookies ${getBouquetQtyRangeLabel("STANDING")}. Qty 1-${BOUQUET_STANDING_MIN_QTY - 1} dibaca sebagai jumlah unit bouquet (harga start from).`,
     };
   }
 
@@ -924,7 +1028,7 @@ function getBouquetLineTotal(item: BookingItemInput): number | null {
   if (!bouquetType) return null;
 
   const quantity = Number(item.quantity) || 0;
-  const cookiePrice = getBouquetCookiePriceFromDifficulty(item.tokenDifficulty);
+  const cookiePrice = getBouquetCookiePrice(item);
   if (quantity <= 0) return null;
   if (!isValidBouquetQuantity(quantity, bouquetType)) return null;
 
@@ -1072,12 +1176,14 @@ export default function BookingForm() {
               customTokenPerUnit: undefined,
               cookiePrice: undefined,
               addOns: [],
+              addOnQuantities: {},
               notes: "",
             }) ?? 1,
           tokenDifficulty: "SIMPLE",
           customTokenPerUnit: undefined,
           cookiePrice: undefined,
           addOns: [],
+          addOnQuantities: {},
           darkColorButtercreamColors: [],
           parsedUnitPrice: undefined,
           parsedSubtotal: undefined,
@@ -1150,9 +1256,13 @@ export default function BookingForm() {
       );
       if (currentPostalCode) return;
 
-      setValue(`deliveryAddresses.${addressIndex}.postalCode`, extractedPostalCode, {
-        shouldValidate: true,
-      });
+      setValue(
+        `deliveryAddresses.${addressIndex}.postalCode`,
+        extractedPostalCode,
+        {
+          shouldValidate: true,
+        },
+      );
     },
     [setValue, watchedAddresses],
   );
@@ -1314,10 +1424,15 @@ export default function BookingForm() {
         addOnCatalog,
         item.category,
       );
-      const perItemAddOn = (item.addOns ?? []).reduce((addonSum, addonId) => {
-        const found = categoryAddOns.find((entry) => entry.id === addonId);
-        return addonSum + (found?.price ?? 0);
-      }, 0);
+      const normalizedAddOnQuantities = normalizeAddOnQuantities(
+        item.addOnQuantities,
+      );
+      const perItemAddOn = calculatePerUnitAddOnPrice({
+        category: item.category,
+        selectedAddOnIds: item.addOns ?? [],
+        addOnQuantities: normalizedAddOnQuantities,
+        addOnCatalogEntries: categoryAddOns,
+      });
       return sum + perItemAddOn * (Number(item.quantity) || 0);
     }, 0);
   }, [watchedItems, addOnCatalog]);
@@ -1465,7 +1580,12 @@ export default function BookingForm() {
     }
 
     return shippingQuotes;
-  }, [deliveryMethod, hasBouquetItems, shippingQuotes, shouldUseShippingEngine]);
+  }, [
+    deliveryMethod,
+    hasBouquetItems,
+    shippingQuotes,
+    shouldUseShippingEngine,
+  ]);
 
   const isStrictDeliveryMethod =
     deliveryMethod === "ASSISTED_PAXEL" ||
@@ -2018,7 +2138,7 @@ export default function BookingForm() {
 
     if (isFragileOrder && !isAllowedFragileOrderMethod) {
       toast.error(
-        `Produk ${fragileOrderReasons.join(", ")} hanya bisa Pickup, Grab, atau GoCar.`,
+        `Produk ${fragileOrderReasons.join(", ")} hanya bisa ${FRAGILE_ORDER_ALLOWED_METHODS_TEXT}`,
       );
       return;
     }
@@ -2238,21 +2358,44 @@ export default function BookingForm() {
         addOnCatalog,
         item.category,
       );
-      const addOnTotalForItem =
-        hasParsedRecapPrice
-          ? 0
-          : (item.addOns ?? []).reduce((sum, addonId) => {
-              const addon = categoryAddOns.find((entry) => entry.id === addonId);
-              return sum + (addon?.price ?? 0);
-            }, 0) * item.quantity;
+      const normalizedAddOnQuantities = normalizeAddOnQuantities(
+        item.addOnQuantities,
+      );
+      const addOnTotalForItem = hasParsedRecapPrice
+        ? 0
+        : calculatePerUnitAddOnPrice({
+            category: item.category,
+            selectedAddOnIds: item.addOns ?? [],
+            addOnQuantities: normalizedAddOnQuantities,
+            addOnCatalogEntries: categoryAddOns,
+          }) * item.quantity;
       const darkButtercreamColors = normalizeDarkButtercreamColors(
         item.darkColorButtercreamColors ?? [],
       );
-      const selectedFlavorOption = getFlavorOptionsForCategory(item.category).find(
-        (option) => (item.addOns ?? []).includes(option.id),
-      );
+      const selectedFlavorOption = getFlavorOptionsForCategory(
+        item.category,
+      ).find((option) => (item.addOns ?? []).includes(option.id));
       const mergedItemNotes = [
         item.notes ?? "",
+        (item.addOns ?? []).length > 0
+          ? `Add-ons: ${(item.addOns ?? [])
+              .map((addonId) => {
+                const addon = categoryAddOns.find(
+                  (entry) => entry.id === addonId,
+                );
+                if (!addon) return "";
+                const multiplier = getAddOnUnitMultiplier({
+                  category: item.category,
+                  addonId,
+                  addOnQuantities: normalizedAddOnQuantities,
+                });
+                return multiplier > 1
+                  ? `${addon.label} x${multiplier}`
+                  : addon.label;
+              })
+              .filter((line) => line.length > 0)
+              .join(", ")}`
+          : "",
         selectedFlavorOption
           ? `Rasa: ${selectedFlavorOption.label}${selectedFlavorOption.premium && selectedFlavorOption.price > 0 ? ` (Premium ${formatCurrency(selectedFlavorOption.price)})` : ""}`
           : "",
@@ -2294,13 +2437,17 @@ export default function BookingForm() {
         basePrice: itemBasePrice,
         productType:
           item.category === "Buket" ? ("BOUQUET" as const) : undefined,
-        cookiePrice: undefined,
+        cookiePrice:
+          item.category === "Buket"
+            ? normalizeBouquetCookiePriceValue(item.cookiePrice)
+            : undefined,
         bouquetType: bouquetType ?? undefined,
         bouquetCost: bouquetType
           ? getBouquetCostByType(bouquetType)
           : undefined,
         lineTotal: parsedSubtotal ?? itemBasePrice,
         addOns: item.addOns,
+        addOnQuantities: normalizedAddOnQuantities,
         addOnTotal: addOnTotalForItem,
         notes: mergedItemNotes,
       };
@@ -2403,11 +2550,30 @@ export default function BookingForm() {
 
   const toggleItemAddOn = (itemIndex: number, addonId: string) => {
     const current = watchedItems[itemIndex]?.addOns ?? [];
+    const currentQuantities = normalizeAddOnQuantities(
+      watchedItems[itemIndex]?.addOnQuantities,
+    );
     const isRemoving = current.includes(addonId);
     const next = current.includes(addonId)
       ? current.filter((id) => id !== addonId)
       : [...current, addonId];
     setValue(`items.${itemIndex}.addOns`, next, { shouldValidate: true });
+
+    if (
+      supportsAddOnQuantity(watchedItems[itemIndex]?.category || "", addonId)
+    ) {
+      const nextQuantities = { ...currentQuantities };
+      if (isRemoving) {
+        delete nextQuantities[addonId];
+      } else if (!nextQuantities[addonId]) {
+        nextQuantities[addonId] = 1;
+      }
+
+      setValue(`items.${itemIndex}.addOnQuantities`, nextQuantities, {
+        shouldValidate: true,
+      });
+    }
+
     if (addonId !== DARK_COLOR_BUTTERCREAM_ADDON_ID) return;
 
     if (isRemoving) {
@@ -2415,6 +2581,31 @@ export default function BookingForm() {
         shouldValidate: true,
       });
     }
+  };
+
+  const setItemAddOnQuantity = (
+    itemIndex: number,
+    addonId: string,
+    rawValue: number,
+  ) => {
+    const category = watchedItems[itemIndex]?.category || "";
+    if (!supportsAddOnQuantity(category, addonId)) return;
+
+    const nextValue = Number.isFinite(rawValue)
+      ? Math.max(1, Math.round(rawValue))
+      : 1;
+    const current = normalizeAddOnQuantities(
+      watchedItems[itemIndex]?.addOnQuantities,
+    );
+
+    setValue(
+      `items.${itemIndex}.addOnQuantities`,
+      {
+        ...current,
+        [addonId]: nextValue,
+      },
+      { shouldValidate: true },
+    );
   };
 
   const toggleItemFlavor = (
@@ -2582,6 +2773,21 @@ export default function BookingForm() {
               size: item.size,
             });
             const parsedQuantity = Number(item.quantity);
+            const parsedCookiePrice =
+              normalized.category === "Buket"
+                ? normalizeBouquetCookiePriceValue(item.cookiePrice)
+                : undefined;
+            const parsedTokenDifficulty =
+              normalized.category === "Cookies" ||
+              normalized.category === "Buket"
+                ? normalizeTokenDifficultyValue(
+                    item.tokenDifficulty ??
+                      (normalized.category === "Buket"
+                        ? inferTokenDifficultyFromCookiePrice(parsedCookiePrice)
+                        : undefined) ??
+                      "SIMPLE",
+                  )
+                : undefined;
 
             return {
               category: normalized.category,
@@ -2591,14 +2797,11 @@ export default function BookingForm() {
               quantity: Number.isFinite(parsedQuantity)
                 ? Math.max(1, Math.round(parsedQuantity))
                 : 1,
-              tokenDifficulty:
-                normalized.category === "Cookies" ||
-                normalized.category === "Buket"
-                  ? (item.tokenDifficulty ?? "SIMPLE")
-                  : undefined,
+              tokenDifficulty: parsedTokenDifficulty,
               customTokenPerUnit: undefined,
-              cookiePrice: undefined,
+              cookiePrice: parsedCookiePrice,
               addOns: Array.isArray(item.addOns) ? item.addOns : [],
+              addOnQuantities: normalizeAddOnQuantities(item.addOnQuantities),
               darkColorButtercreamColors:
                 normalized.category === "Cupcakes" &&
                 Array.isArray(item.addOns) &&
@@ -2862,8 +3065,8 @@ export default function BookingForm() {
               />
               <span className="text-xs font-normal text-gray-500">
                 Upload gambar yang dipilih customer. Bisa satu gambar crop per
-                desain, atau satu sheet gambar bertanda merah. Jika file
-                diubah, klik Parse WhatsApp lagi supaya referensinya ter-upload.
+                desain, atau satu sheet gambar bertanda merah. Jika file diubah,
+                klik Parse WhatsApp lagi supaya referensinya ter-upload.
               </span>
             </label>
 
@@ -2889,20 +3092,20 @@ export default function BookingForm() {
 
             {referenceImageFiles.length > 0 && (
               <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600">
-                {referenceImageFiles.length} gambar siap dipakai:
-                {" "}
+                {referenceImageFiles.length} gambar siap dipakai:{" "}
                 {referenceImageFiles.map((file) => file.name).join(", ")}
               </div>
             )}
 
-            {referenceFilesChangedSinceParse && referenceImageFiles.length > 0 && (
-              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                Referensi gambar atau label desain berubah. Klik{" "}
-                <span className="font-semibold">Parse WhatsApp</span> lagi
-                supaya versi terbaru ikut tersimpan ke booking dan dipakai
-                template produksi.
-              </div>
-            )}
+            {referenceFilesChangedSinceParse &&
+              referenceImageFiles.length > 0 && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                  Referensi gambar atau label desain berubah. Klik{" "}
+                  <span className="font-semibold">Parse WhatsApp</span> lagi
+                  supaya versi terbaru ikut tersimpan ke booking dan dipakai
+                  template produksi.
+                </div>
+              )}
           </div>
 
           <div className="flex flex-wrap gap-3">
@@ -3358,6 +3561,7 @@ export default function BookingForm() {
                         customTokenPerUnit: undefined,
                         cookiePrice: undefined,
                         addOns: [],
+                        addOnQuantities: {},
                         notes: "",
                       }) ?? 1;
                     appendItem({
@@ -3370,6 +3574,7 @@ export default function BookingForm() {
                       customTokenPerUnit: undefined,
                       cookiePrice: undefined,
                       addOns: [],
+                      addOnQuantities: {},
                       darkColorButtercreamColors: [],
                       parsedUnitPrice: undefined,
                       parsedSubtotal: undefined,
@@ -3485,8 +3690,12 @@ export default function BookingForm() {
                   const selectedDifficultyOption = getTokenDifficultyOption(
                     item?.tokenDifficulty,
                   );
-                  const hasParsedRecapPrice =
-                    hasParsedPricingOverride(item);
+                  const bouquetCookiePrice =
+                    getBouquetCookiePrice(bouquetProbeItem);
+                  const hasParsedBouquetCookiePrice =
+                    normalizeBouquetCookiePriceValue(item?.cookiePrice) !==
+                    undefined;
+                  const hasParsedRecapPrice = hasParsedPricingOverride(item);
                   const parsedUnitPrice = getParsedUnitPriceOverride(item);
                   const parsedSubtotal = getParsedSubtotalOverride(item);
                   const hasCustomTokenOverride =
@@ -3503,12 +3712,58 @@ export default function BookingForm() {
                     );
                   const darkColorError = errors.items?.[index]
                     ?.darkColorButtercreamColors?.message as string | undefined;
+                  const hasMultipleSubcategories = subcategories.length > 1;
+                  const hasMultipleProducts = products.length > 1;
+                  const hasMultipleVariants = displayVariants.length > 1;
+                  const quantityValue = Number(item?.quantity) || 0;
+                  const normalizedAddOnQuantities = normalizeAddOnQuantities(
+                    item?.addOnQuantities,
+                  );
+                  const selectedNonFlavorAddOns = nonFlavorAddOns.filter(
+                    (addon) => item?.addOns?.includes(addon.id) ?? false,
+                  );
+                  const selectedNonFlavorAddOnTotal =
+                    selectedNonFlavorAddOns.reduce((sum, addon) => {
+                      const multiplier = getAddOnUnitMultiplier({
+                        category: normalizedSelection.category,
+                        addonId: addon.id,
+                        addOnQuantities: normalizedAddOnQuantities,
+                      });
+                      return sum + addon.price * multiplier;
+                    }, 0) * Math.max(1, quantityValue);
+                  const displayUnitPrice =
+                    hasParsedRecapPrice && parsedUnitPrice
+                      ? parsedUnitPrice
+                      : getUnitPriceFromCatalog(productCatalog, {
+                          category: normalizedSelection.category,
+                          subcategory: normalizedSelection.subcategory,
+                          productName: normalizedSelection.productName,
+                          size: normalizedSelection.size,
+                        });
+                  const displayLinePrice =
+                    hasParsedRecapPrice && parsedSubtotal
+                      ? parsedSubtotal
+                      : getItemBasePrice(productCatalog, bouquetProbeItem);
 
                   return (
                     <div
                       key={field.id}
-                      className="space-y-2 rounded-xl border border-gray-200 p-3"
+                      className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
                     >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Item {index + 1}
+                        </p>
+                        <div className="flex items-center gap-2 text-[11px] font-medium text-slate-600">
+                          <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5">
+                            Unit {formatCurrency(displayUnitPrice)}
+                          </span>
+                          <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5">
+                            Subtotal {formatCurrency(displayLinePrice)}
+                          </span>
+                        </div>
+                      </div>
+
                       <div className="grid gap-x-3 gap-y-2 sm:grid-cols-2 lg:grid-cols-4">
                         <label className="grid gap-2 text-sm font-medium text-gray-700">
                           Category
@@ -3571,6 +3826,13 @@ export default function BookingForm() {
                                 shouldValidate: true,
                               });
                               setValue(
+                                `items.${index}.addOnQuantities`,
+                                {},
+                                {
+                                  shouldValidate: true,
+                                },
+                              );
+                              setValue(
                                 `items.${index}.darkColorButtercreamColors`,
                                 [],
                                 {
@@ -3618,142 +3880,151 @@ export default function BookingForm() {
 
                         <label className="grid gap-2 text-sm font-medium text-gray-700">
                           Subcategory
-                          <Select
-                            {...register(`items.${index}.subcategory`)}
-                            value={normalizedSelection.subcategory}
-                            onChange={(event) => {
-                              const nextSub = event.target.value;
-                              const nextSelection = ensureSelectionFromCatalog(
-                                productCatalog,
-                                {
-                                  category: normalizedSelection.category,
-                                  subcategory: nextSub,
-                                },
-                              );
-                              const nextProbeItem: BookingItemInput = {
-                                category: nextSelection.category,
-                                subcategory: nextSelection.subcategory,
-                                productName: nextSelection.productName,
-                                size: nextSelection.size,
-                                quantity: Number(item?.quantity) || 0,
-                                tokenDifficulty: item?.tokenDifficulty,
-                                customTokenPerUnit:
-                                  Number(item?.customTokenPerUnit) > 0
-                                    ? Number(item?.customTokenPerUnit)
-                                    : undefined,
-                                cookiePrice:
-                                  Number(item?.cookiePrice) > 0
-                                    ? Number(item?.cookiePrice)
-                                    : undefined,
-                                addOns: item?.addOns ?? [],
-                                notes: item?.notes ?? "",
-                              };
-                              const nextAutoQuantity =
-                                getAutoQuantityForItem(nextProbeItem);
-                              clearParsedPricingOverride(index);
-                              setValue(
-                                `items.${index}.subcategory`,
-                                nextSelection.subcategory,
-                                {
-                                  shouldValidate: true,
-                                },
-                              );
-                              setValue(
-                                `items.${index}.productName`,
-                                nextSelection.productName,
-                                {
-                                  shouldValidate: true,
-                                },
-                              );
-                              setValue(
-                                `items.${index}.size`,
-                                nextSelection.size,
-                                { shouldValidate: true },
-                              );
-                              if (typeof nextAutoQuantity === "number") {
+                          {hasMultipleSubcategories ? (
+                            <Select
+                              {...register(`items.${index}.subcategory`)}
+                              value={normalizedSelection.subcategory}
+                              onChange={(event) => {
+                                const nextSub = event.target.value;
+                                const nextSelection =
+                                  ensureSelectionFromCatalog(productCatalog, {
+                                    category: normalizedSelection.category,
+                                    subcategory: nextSub,
+                                  });
+                                const nextProbeItem: BookingItemInput = {
+                                  category: nextSelection.category,
+                                  subcategory: nextSelection.subcategory,
+                                  productName: nextSelection.productName,
+                                  size: nextSelection.size,
+                                  quantity: Number(item?.quantity) || 0,
+                                  tokenDifficulty: item?.tokenDifficulty,
+                                  customTokenPerUnit:
+                                    Number(item?.customTokenPerUnit) > 0
+                                      ? Number(item?.customTokenPerUnit)
+                                      : undefined,
+                                  cookiePrice:
+                                    Number(item?.cookiePrice) > 0
+                                      ? Number(item?.cookiePrice)
+                                      : undefined,
+                                  addOns: item?.addOns ?? [],
+                                  notes: item?.notes ?? "",
+                                };
+                                const nextAutoQuantity =
+                                  getAutoQuantityForItem(nextProbeItem);
+                                clearParsedPricingOverride(index);
                                 setValue(
-                                  `items.${index}.quantity`,
-                                  nextAutoQuantity,
+                                  `items.${index}.subcategory`,
+                                  nextSelection.subcategory,
                                   {
                                     shouldValidate: true,
                                   },
                                 );
-                              }
-                            }}
-                          >
-                            {subcategories.map((entry) => (
-                              <option key={entry.name} value={entry.name}>
-                                {entry.name}
-                              </option>
-                            ))}
-                          </Select>
+                                setValue(
+                                  `items.${index}.productName`,
+                                  nextSelection.productName,
+                                  {
+                                    shouldValidate: true,
+                                  },
+                                );
+                                setValue(
+                                  `items.${index}.size`,
+                                  nextSelection.size,
+                                  { shouldValidate: true },
+                                );
+                                if (typeof nextAutoQuantity === "number") {
+                                  setValue(
+                                    `items.${index}.quantity`,
+                                    nextAutoQuantity,
+                                    {
+                                      shouldValidate: true,
+                                    },
+                                  );
+                                }
+                              }}
+                            >
+                              {subcategories.map((entry) => (
+                                <option key={entry.name} value={entry.name}>
+                                  {entry.name}
+                                </option>
+                              ))}
+                            </Select>
+                          ) : (
+                            <div className="flex h-10 items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700">
+                              {normalizedSelection.subcategory || "-"}
+                            </div>
+                          )}
                         </label>
 
                         <label className="grid gap-2 text-sm font-medium text-gray-700">
                           Product
-                          <Select
-                            {...register(`items.${index}.productName`)}
-                            value={normalizedSelection.productName}
-                            onChange={(event) => {
-                              const nextProduct = event.target.value;
-                              const nextSelection = ensureSelectionFromCatalog(
-                                productCatalog,
-                                {
-                                  category: normalizedSelection.category,
-                                  subcategory: normalizedSelection.subcategory,
-                                  productName: nextProduct,
-                                },
-                              );
-                              const nextProbeItem: BookingItemInput = {
-                                category: nextSelection.category,
-                                subcategory: nextSelection.subcategory,
-                                productName: nextSelection.productName,
-                                size: nextSelection.size,
-                                quantity: Number(item?.quantity) || 0,
-                                tokenDifficulty: item?.tokenDifficulty,
-                                customTokenPerUnit:
-                                  Number(item?.customTokenPerUnit) > 0
-                                    ? Number(item?.customTokenPerUnit)
-                                    : undefined,
-                                cookiePrice:
-                                  Number(item?.cookiePrice) > 0
-                                    ? Number(item?.cookiePrice)
-                                    : undefined,
-                                addOns: item?.addOns ?? [],
-                                notes: item?.notes ?? "",
-                              };
-                              const nextAutoQuantity =
-                                getAutoQuantityForItem(nextProbeItem);
-                              clearParsedPricingOverride(index);
-                              setValue(
-                                `items.${index}.productName`,
-                                nextSelection.productName,
-                                {
-                                  shouldValidate: true,
-                                },
-                              );
-                              setValue(
-                                `items.${index}.size`,
-                                nextSelection.size,
-                                { shouldValidate: true },
-                              );
-                              if (typeof nextAutoQuantity === "number") {
+                          {hasMultipleProducts ? (
+                            <Select
+                              {...register(`items.${index}.productName`)}
+                              value={normalizedSelection.productName}
+                              onChange={(event) => {
+                                const nextProduct = event.target.value;
+                                const nextSelection =
+                                  ensureSelectionFromCatalog(productCatalog, {
+                                    category: normalizedSelection.category,
+                                    subcategory:
+                                      normalizedSelection.subcategory,
+                                    productName: nextProduct,
+                                  });
+                                const nextProbeItem: BookingItemInput = {
+                                  category: nextSelection.category,
+                                  subcategory: nextSelection.subcategory,
+                                  productName: nextSelection.productName,
+                                  size: nextSelection.size,
+                                  quantity: Number(item?.quantity) || 0,
+                                  tokenDifficulty: item?.tokenDifficulty,
+                                  customTokenPerUnit:
+                                    Number(item?.customTokenPerUnit) > 0
+                                      ? Number(item?.customTokenPerUnit)
+                                      : undefined,
+                                  cookiePrice:
+                                    Number(item?.cookiePrice) > 0
+                                      ? Number(item?.cookiePrice)
+                                      : undefined,
+                                  addOns: item?.addOns ?? [],
+                                  notes: item?.notes ?? "",
+                                };
+                                const nextAutoQuantity =
+                                  getAutoQuantityForItem(nextProbeItem);
+                                clearParsedPricingOverride(index);
                                 setValue(
-                                  `items.${index}.quantity`,
-                                  nextAutoQuantity,
+                                  `items.${index}.productName`,
+                                  nextSelection.productName,
                                   {
                                     shouldValidate: true,
                                   },
                                 );
-                              }
-                            }}
-                          >
-                            {products.map((product) => (
-                              <option key={product.name} value={product.name}>
-                                {product.name}
-                              </option>
-                            ))}
-                          </Select>
+                                setValue(
+                                  `items.${index}.size`,
+                                  nextSelection.size,
+                                  { shouldValidate: true },
+                                );
+                                if (typeof nextAutoQuantity === "number") {
+                                  setValue(
+                                    `items.${index}.quantity`,
+                                    nextAutoQuantity,
+                                    {
+                                      shouldValidate: true,
+                                    },
+                                  );
+                                }
+                              }}
+                            >
+                              {products.map((product) => (
+                                <option key={product.name} value={product.name}>
+                                  {product.name}
+                                </option>
+                              ))}
+                            </Select>
+                          ) : (
+                            <div className="flex h-10 items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700">
+                              {normalizedSelection.productName || "-"}
+                            </div>
+                          )}
                           {itemGrabCarOnly && (
                             <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-700">
                               GrabCar only
@@ -3763,58 +4034,62 @@ export default function BookingForm() {
 
                         <label className="grid gap-2 text-sm font-medium text-gray-700">
                           Varian / Size
-                          <Select
-                            {...register(`items.${index}.size`)}
-                            value={normalizedSelection.size}
-                            onChange={(event) => {
-                              const nextSize = event.target.value;
-                              const nextProbeItem: BookingItemInput = {
-                                category: normalizedSelection.category,
-                                subcategory: normalizedSelection.subcategory,
-                                productName: normalizedSelection.productName,
-                                size: nextSize,
-                                quantity: Number(item?.quantity) || 0,
-                                tokenDifficulty: item?.tokenDifficulty,
-                                customTokenPerUnit:
-                                  Number(item?.customTokenPerUnit) > 0
-                                    ? Number(item?.customTokenPerUnit)
-                                    : undefined,
-                                cookiePrice:
-                                  Number(item?.cookiePrice) > 0
-                                    ? Number(item?.cookiePrice)
-                                    : undefined,
-                                addOns: item?.addOns ?? [],
-                                notes: item?.notes ?? "",
-                              };
-                              const nextAutoQuantity =
-                                getAutoQuantityForItem(nextProbeItem);
-                              clearParsedPricingOverride(index);
-                              setValue(
-                                `items.${index}.size`,
-                                nextSize,
-                                { shouldValidate: true },
-                              );
-                              if (typeof nextAutoQuantity === "number") {
-                                setValue(
-                                  `items.${index}.quantity`,
-                                  nextAutoQuantity,
-                                  {
-                                    shouldValidate: true,
-                                  },
-                                );
-                              }
-                            }}
-                          >
-                            {displayVariants.map((sizeOption) => (
-                              <option
-                                key={sizeOption.label}
-                                value={sizeOption.label}
-                              >
-                                {sizeOption.label} (
-                                {formatCurrency(sizeOption.price)})
-                              </option>
-                            ))}
-                          </Select>
+                          {hasMultipleVariants ? (
+                            <Select
+                              {...register(`items.${index}.size`)}
+                              value={normalizedSelection.size}
+                              onChange={(event) => {
+                                const nextSize = event.target.value;
+                                const nextProbeItem: BookingItemInput = {
+                                  category: normalizedSelection.category,
+                                  subcategory: normalizedSelection.subcategory,
+                                  productName: normalizedSelection.productName,
+                                  size: nextSize,
+                                  quantity: Number(item?.quantity) || 0,
+                                  tokenDifficulty: item?.tokenDifficulty,
+                                  customTokenPerUnit:
+                                    Number(item?.customTokenPerUnit) > 0
+                                      ? Number(item?.customTokenPerUnit)
+                                      : undefined,
+                                  cookiePrice:
+                                    Number(item?.cookiePrice) > 0
+                                      ? Number(item?.cookiePrice)
+                                      : undefined,
+                                  addOns: item?.addOns ?? [],
+                                  notes: item?.notes ?? "",
+                                };
+                                const nextAutoQuantity =
+                                  getAutoQuantityForItem(nextProbeItem);
+                                clearParsedPricingOverride(index);
+                                setValue(`items.${index}.size`, nextSize, {
+                                  shouldValidate: true,
+                                });
+                                if (typeof nextAutoQuantity === "number") {
+                                  setValue(
+                                    `items.${index}.quantity`,
+                                    nextAutoQuantity,
+                                    {
+                                      shouldValidate: true,
+                                    },
+                                  );
+                                }
+                              }}
+                            >
+                              {displayVariants.map((sizeOption) => (
+                                <option
+                                  key={sizeOption.label}
+                                  value={sizeOption.label}
+                                >
+                                  {sizeOption.label} (
+                                  {formatCurrency(sizeOption.price)})
+                                </option>
+                              ))}
+                            </Select>
+                          ) : (
+                            <div className="flex h-10 items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700">
+                              {normalizedSelection.size || "-"}
+                            </div>
+                          )}
                           {deliveryMethod === "ASSISTED_PAXEL" && isBouquet && (
                             <span className="text-[11px] font-normal leading-4 text-gray-500">
                               Paxel untuk bouquet hanya mendukung varian
@@ -3919,10 +4194,12 @@ export default function BookingForm() {
                           <label className="grid gap-1.5 text-sm font-medium text-gray-700">
                             Harga Cookie / pcs (otomatis)
                             <span className="min-h-4 text-[11px] font-normal leading-4 text-gray-500">
-                              Difficulty aktif: {selectedDifficultyOption.label} ({selectedDifficultyOption.token}) = {formatCurrency(selectedDifficultyOption.cookiePrice)} / pcs.
+                              {hasParsedBouquetCookiePrice
+                                ? `Harga cookie dari parser: ${formatCurrency(bouquetCookiePrice)} / pcs.`
+                                : `Difficulty aktif: ${selectedDifficultyOption.label} (${selectedDifficultyOption.token}) = ${formatCurrency(selectedDifficultyOption.cookiePrice)} / pcs.`}
                             </span>
                             <span className="min-h-4 text-[11px] font-normal leading-4 text-gray-500">
-                              Formula: (harga dari difficulty x qty) +{" "}
+                              Formula: (harga cookie x qty) +{" "}
                               {formatCurrency(
                                 bouquetType
                                   ? getBouquetCostByType(bouquetType)
@@ -4024,8 +4301,10 @@ export default function BookingForm() {
                               </span>
                               <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
                                 {premiumFlavorOptions.map((option) => {
-                                  const checked = selectedFlavorId === option.id;
-                                  const shortCode = option.shortCodes?.[0] || "";
+                                  const checked =
+                                    selectedFlavorId === option.id;
+                                  const shortCode =
+                                    option.shortCodes?.[0] || "";
 
                                   return (
                                     <label
@@ -4045,7 +4324,10 @@ export default function BookingForm() {
                                         )}
                                         {option.price > 0 && (
                                           <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
-                                            +{formatCompactSurcharge(option.price)}
+                                            +
+                                            {formatCompactSurcharge(
+                                              option.price,
+                                            )}
                                           </span>
                                         )}
                                       </span>
@@ -4076,38 +4358,103 @@ export default function BookingForm() {
                         </label>
                       )}
 
-                      <div className="grid gap-1.5 sm:grid-cols-3">
-                        {nonFlavorAddOns.map((addon) => {
-                          const addOnLabel =
-                            addon.id === DARK_COLOR_BUTTERCREAM_ADDON_ID
-                              ? "Choose Color"
-                              : addon.label;
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Add-ons
+                          </span>
+                          <span className="text-[11px] font-medium text-slate-500">
+                            {selectedNonFlavorAddOns.length} dipilih
+                            {selectedNonFlavorAddOns.length > 0
+                              ? ` • ${formatCurrency(selectedNonFlavorAddOnTotal)}`
+                              : ""}
+                          </span>
+                        </div>
+                        <div className="grid gap-1.5 sm:grid-cols-3">
+                          {nonFlavorAddOns.map((addon) => {
+                            const addOnLabel =
+                              addon.id === DARK_COLOR_BUTTERCREAM_ADDON_ID
+                                ? "Choose Color"
+                                : addon.label;
+                            const checked =
+                              item?.addOns?.includes(addon.id) ?? false;
+                            const supportsQuantity = supportsAddOnQuantity(
+                              normalizedSelection.category,
+                              addon.id,
+                            );
+                            const perCakeUnits = getAddOnUnitMultiplier({
+                              category: normalizedSelection.category,
+                              addonId: addon.id,
+                              addOnQuantities: normalizedAddOnQuantities,
+                            });
+                            const effectiveUnitPrice =
+                              addon.price * perCakeUnits;
 
-                          return (
-                            <label
-                              key={addon.id}
-                              className="flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm text-gray-700"
-                            >
-                              <span>
-                                {addOnLabel}{" "}
-                                <span className="text-xs text-gray-400">
-                                  {formatCurrency(addon.price)}
+                            return (
+                              <label
+                                key={addon.id}
+                                className="flex items-center justify-between gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm text-gray-700"
+                              >
+                                <span className="min-w-0">
+                                  {addOnLabel}{" "}
+                                  <span className="text-xs text-gray-400">
+                                    {formatCurrency(effectiveUnitPrice)}
+                                    {supportsQuantity
+                                      ? ` / cake (${perCakeUnits}x)`
+                                      : ""}
+                                    {quantityValue > 0
+                                      ? ` (x${quantityValue} = ${formatCurrency(effectiveUnitPrice * quantityValue)})`
+                                      : ""}
+                                  </span>
                                 </span>
-                              </span>
-                              <input
-                                type="checkbox"
-                                checked={
-                                  item?.addOns?.includes(addon.id) ?? false
-                                }
-                                onChange={() =>
-                                  toggleItemAddOn(index, addon.id)
-                                }
-                                className="h-4 w-4 accent-indigo-600"
-                              />
-                            </label>
-                          );
-                        })}
+                                <span className="flex items-center gap-2">
+                                  {supportsQuantity && checked && (
+                                    <Input
+                                      type="number"
+                                      min={1}
+                                      step={1}
+                                      value={perCakeUnits}
+                                      onChange={(event) =>
+                                        setItemAddOnQuantity(
+                                          index,
+                                          addon.id,
+                                          Number(event.target.value),
+                                        )
+                                      }
+                                      className="h-8 w-16"
+                                    />
+                                  )}
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() =>
+                                      toggleItemAddOn(index, addon.id)
+                                    }
+                                    className="h-4 w-4 accent-indigo-600"
+                                  />
+                                </span>
+                              </label>
+                            );
+                          })}
+                        </div>
                       </div>
+
+                      {selectedNonFlavorAddOns.length > 0 && (
+                        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                          {selectedNonFlavorAddOns
+                            .map((addon) => {
+                              const units = getAddOnUnitMultiplier({
+                                category: normalizedSelection.category,
+                                addonId: addon.id,
+                                addOnQuantities: normalizedAddOnQuantities,
+                              });
+                              return units > 1
+                                ? `${addon.label} x${units}`
+                                : addon.label;
+                            })
+                            .join(", ")}
+                        </div>
+                      )}
 
                       {hasDarkColorButtercream && (
                         <label className="grid gap-1.5 text-sm font-medium text-gray-700 sm:max-w-sm">
@@ -4219,16 +4566,21 @@ export default function BookingForm() {
                         )}
                       </label>
                       <label className="grid gap-2 text-sm font-medium text-gray-700">
-                        Area {isPrimaryShippingAddress ? "(Wajib untuk Shipping)" : "(Opsional)"}
+                        Area{" "}
+                        {isPrimaryShippingAddress
+                          ? "(Wajib untuk Shipping)"
+                          : "(Opsional)"}
                         <Input
                           placeholder="Kecamatan / Kota"
                           {...register(`deliveryAddresses.${index}.area`)}
                         />
-                        {isPrimaryShippingAddress && !addressError?.area?.message && (
-                          <span className="text-[11px] font-normal leading-4 text-gray-500">
-                            Isi minimal kecamatan dan kota, mis. `Cipondoh / Tangerang`.
-                          </span>
-                        )}
+                        {isPrimaryShippingAddress &&
+                          !addressError?.area?.message && (
+                            <span className="text-[11px] font-normal leading-4 text-gray-500">
+                              Isi minimal kecamatan dan kota, mis. `Cipondoh /
+                              Tangerang`.
+                            </span>
+                          )}
                         {addressError?.area?.message && (
                           <span className="text-[11px] font-normal text-rose-600">
                             {String(addressError.area.message)}
@@ -4236,22 +4588,30 @@ export default function BookingForm() {
                         )}
                       </label>
                       <label className="grid gap-2 text-sm font-medium text-gray-700">
-                        Kode Pos {isPrimaryShippingAddress ? "(Wajib / dari alamat)" : "(Opsional)"}
+                        Kode Pos{" "}
+                        {isPrimaryShippingAddress
+                          ? "(Wajib / dari alamat)"
+                          : "(Opsional)"}
                         <Input
                           inputMode="numeric"
                           placeholder="Contoh: 11470"
-                          {...register(`deliveryAddresses.${index}.postalCode`, {
-                            setValueAs: (value) =>
-                              typeof value === "string"
-                                ? sanitizePostalCodeInput(value)
-                                : "",
-                          })}
+                          {...register(
+                            `deliveryAddresses.${index}.postalCode`,
+                            {
+                              setValueAs: (value) =>
+                                typeof value === "string"
+                                  ? sanitizePostalCodeInput(value)
+                                  : "",
+                            },
+                          )}
                         />
-                        {isPrimaryShippingAddress && !addressError?.postalCode?.message && (
-                          <span className="text-[11px] font-normal leading-4 text-gray-500">
-                            Isi 5 digit. Kalau ada di alamat, sistem akan coba ambil otomatis.
-                          </span>
-                        )}
+                        {isPrimaryShippingAddress &&
+                          !addressError?.postalCode?.message && (
+                            <span className="text-[11px] font-normal leading-4 text-gray-500">
+                              Isi 5 digit. Kalau ada di alamat, sistem akan coba
+                              ambil otomatis.
+                            </span>
+                          )}
                         {addressError?.postalCode?.message && (
                           <span className="text-[11px] font-normal text-rose-600">
                             {String(addressError.postalCode.message)}
@@ -4263,15 +4623,22 @@ export default function BookingForm() {
                         <Textarea
                           className="min-h-20"
                           placeholder="Jalan, nomor, blok, RT/RW, kelurahan, kecamatan, kota"
-                          {...register(`deliveryAddresses.${index}.addressLine`, {
-                            onBlur: (event) => {
-                              autofillPostalCodeFromAddress(index, event.target.value);
+                          {...register(
+                            `deliveryAddresses.${index}.addressLine`,
+                            {
+                              onBlur: (event) => {
+                                autofillPostalCodeFromAddress(
+                                  index,
+                                  event.target.value,
+                                );
+                              },
                             },
-                          })}
+                          )}
                         />
                         {!addressError?.addressLine?.message && (
                           <span className="text-[11px] font-normal leading-4 text-gray-500">
-                            Jangan campur nama penerima atau no. telepon di field ini. Fokus ke satu alamat final.
+                            Jangan campur nama penerima atau no. telepon di
+                            field ini. Fokus ke satu alamat final.
                           </span>
                         )}
                         {addressError?.addressLine?.message && (
@@ -4359,8 +4726,8 @@ export default function BookingForm() {
                   }`}
                 >
                   {isAllowedFragileOrderMethod
-                    ? `Produk ${fragileOrderReasons.join(", ")} sudah memakai metode yang diizinkan (Pickup / Grab / GoCar).`
-                    : `Produk ${fragileOrderReasons.join(", ")} hanya bisa Pickup, Grab, atau GoCar.`}
+                    ? `Produk ${fragileOrderReasons.join(", ")} sudah memakai metode yang diizinkan (${FRAGILE_ORDER_ALLOWED_METHODS_TEXT}).`
+                    : `Produk ${fragileOrderReasons.join(", ")} hanya bisa ${FRAGILE_ORDER_ALLOWED_METHODS_TEXT}`}
                 </p>
               )}
 

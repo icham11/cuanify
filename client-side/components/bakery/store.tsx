@@ -102,6 +102,7 @@ export interface OrderItem {
   hasCookieTopper?: boolean;
   lineTotal?: number;
   addOns: string[];
+  addOnQuantities?: Record<string, number>;
   addOnTotal: number;
   notes?: string;
 }
@@ -337,7 +338,11 @@ function generateShippingReferenceId(
     .toUpperCase();
   const normalizedOrderId = orderId.trim().replace(/[^A-Z0-9-]/gi, "");
   const uniquePart = Date.now().toString(36).toUpperCase();
-  return [normalizedBookingCode || "BOOKING", normalizedOrderId || "ORDER", uniquePart]
+  return [
+    normalizedBookingCode || "BOOKING",
+    normalizedOrderId || "ORDER",
+    uniquePart,
+  ]
     .filter(Boolean)
     .join("-");
 }

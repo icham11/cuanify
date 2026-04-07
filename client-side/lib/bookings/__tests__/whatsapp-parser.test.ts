@@ -304,9 +304,7 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
       throw new Error("Cupcake split items were not generated");
     }
 
-    expect(dozenItem.addOns.includes("flavor-cupcake-double-choco")).toBe(
-      true,
-    );
+    expect(dozenItem.addOns.includes("flavor-cupcake-double-choco")).toBe(true);
     expect(
       individualItem.addOns.includes("flavor-cupcake-classic-vanilla"),
     ).toBe(true);
@@ -643,13 +641,83 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
 
   it("extracts mixed-order bouquet quantity from hbq marker", () => {
     const autoFill = buildAutoFillFromOrderLine("1 cake + hbq isi 10");
-    const bouquetItem = autoFill.items.find((item) => item.category === "Buket");
+    const bouquetItem = autoFill.items.find(
+      (item) => item.category === "Buket",
+    );
 
     expect(Boolean(bouquetItem)).toBe(true);
     if (!bouquetItem) {
       throw new Error("Bouquet item was not generated");
     }
     expect(bouquetItem.quantity).toBe(10);
+  });
+
+  it("infers bouquet token difficulty from Harga Cookie / pcs", () => {
+    const text = [
+      "Data Buket",
+      "Tanggal Pengiriman: 20/04/2026",
+      "KODE BOOKING: BK-590",
+      "Order: hand bouquet isi 10",
+      "Design: karakter pokemon",
+      "Warna kertas bouquet: peach",
+      "Jumlah Cookies: 10",
+      "Harga Cookie / pcs: 25k",
+      "Warna Bunga: putih",
+      "Kartu ucapan: Happy Birthday",
+      "Jam Pengiriman: 11:00",
+      "Metode Pengiriman: GoCar",
+      "Nama penerima: Naya",
+      "No. telp penerima: 081234567890",
+      "Alamat lengkap: Jakarta",
+    ].join("\n");
+
+    const parsed = parseWhatsAppOrderText(text, {
+      preferredOrderType: "buket",
+      sourceType: "manual",
+    });
+    const autoFill = buildBookingAutoFillFromParsed(parsed);
+    const bouquetItem = autoFill.items.find(
+      (item) => item.category === "Buket",
+    );
+
+    expect(Boolean(bouquetItem)).toBe(true);
+    if (!bouquetItem) {
+      throw new Error("Bouquet item was not generated");
+    }
+
+    expect(bouquetItem.quantity).toBe(10);
+    expect(bouquetItem.tokenDifficulty).toBe("HARD");
+    expect(bouquetItem.cookiePrice).toBe(25000);
+  });
+
+  it("does not treat low Jumlah Bunga as cookie quantity", () => {
+    const text = [
+      "Data Buket",
+      "Tanggal Pengiriman: 21/04/2026",
+      "KODE BOOKING: BK-591",
+      "Order: Hbq isi 9",
+      "Design: simple",
+      "Warna kertas bouquet: ivory",
+      "Jumlah Bunga: 3",
+      "Harga Cookie / pcs: 20k",
+      "Warna Bunga: pink",
+      "Kartu ucapan: Happy Birthday",
+      "Jam Pengiriman: 10:00",
+      "Metode Pengiriman: GoCar",
+      "Nama penerima: Ara",
+      "No. telp penerima: 081234567891",
+      "Alamat lengkap: Tangerang",
+    ].join("\n");
+
+    const parsed = parseWhatsAppOrderText(text, {
+      preferredOrderType: "buket",
+      sourceType: "manual",
+    });
+    const autoFill = buildBookingAutoFillFromParsed(parsed);
+
+    expect(parsed.details.flowerCount).toBe("3");
+    expect(autoFill.items[0]?.category).toBe("Buket");
+    expect(autoFill.items[0]?.quantity).toBe(9);
   });
 
   it("reads structured recap order items and pricing overrides", () => {
@@ -718,8 +786,7 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
       "RECAP",
     ]);
     expect(autoFill.items.map((item) => item.parsedSubtotal)).toEqual([
-      450000,
-      240000,
+      450000, 240000,
     ]);
     expect(autoFill.paymentStatus).toBe("DP Paid");
     expect(autoFill.dpPaidAmount).toBe(345000);
@@ -771,8 +838,7 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
     expect(parsed.orderRecap?.items).toHaveLength(2);
     expect(autoFill.items).toHaveLength(2);
     expect(autoFill.items.map((item) => item.parsedSubtotal)).toEqual([
-      450000,
-      450000,
+      450000, 450000,
     ]);
   });
 
@@ -841,8 +907,7 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
     ]);
     expect(autoFill.items).toHaveLength(2);
     expect(autoFill.items.map((item) => item.parsedSubtotal)).toEqual([
-      450000,
-      240000,
+      450000, 240000,
     ]);
     expect(autoFill.dpPaidAmount).toBe(345000);
     expect(autoFill.finalPaidAmount).toBe(345000);
@@ -926,7 +991,8 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
       (item) => item.category === "Cookies" && item.tokenDifficulty === "HARD",
     );
     const expertCookieItem = autoFill.items.find(
-      (item) => item.category === "Cookies" && item.tokenDifficulty === "EXPERT",
+      (item) =>
+        item.category === "Cookies" && item.tokenDifficulty === "EXPERT",
     );
 
     expect(Boolean(cakeItem)).toBe(true);

@@ -604,7 +604,8 @@ function parseRecapItemHeader(line: string): {
 
   const itemNumber = Number(match[1] || match[2] || 0);
   return {
-    itemNumber: Number.isInteger(itemNumber) && itemNumber > 0 ? itemNumber : undefined,
+    itemNumber:
+      Number.isInteger(itemNumber) && itemNumber > 0 ? itemNumber : undefined,
     title: cleanupValue(match[3] || ""),
   };
 }
@@ -863,20 +864,21 @@ function parseOrderRecap(
 
   const recapRawText = recapLines.join("\n");
   const lookup = buildKeyValueLookup(recapLines);
-  const totals = recapTotalFieldDefinitions.reduce<ParsedWhatsAppOrderRecapTotals>(
-    (accumulator, field) => {
-      const value = readFieldValue(recapRawText, recapLines, lookup, field);
-      const amount =
-        field.key === "adjustment"
-          ? parseSignedCurrencyAmount(value)
-          : parseCurrencyAmount(value);
-      if (amount !== null) {
-        accumulator[field.key] = amount;
-      }
-      return accumulator;
-    },
-    {},
-  );
+  const totals =
+    recapTotalFieldDefinitions.reduce<ParsedWhatsAppOrderRecapTotals>(
+      (accumulator, field) => {
+        const value = readFieldValue(recapRawText, recapLines, lookup, field);
+        const amount =
+          field.key === "adjustment"
+            ? parseSignedCurrencyAmount(value)
+            : parseCurrencyAmount(value);
+        if (amount !== null) {
+          accumulator[field.key] = amount;
+        }
+        return accumulator;
+      },
+      {},
+    );
 
   const hasRecapMarker = recapMarkerIndex >= 0;
   const hasTotals = Object.keys(totals).length > 0;
@@ -1454,6 +1456,39 @@ function buildSearchSourceForOrderType(
 type BookingAutoFillItem = BookingFormAutoFill["items"][number];
 type CupcakeFlavorSegment = "DOZEN" | "INDIVIDUAL";
 
+const BOUQUET_COOKIE_QTY_MIN = 7;
+const BOUQUET_COOKIE_QTY_MAX = 20;
+const COOKIE_PRICE_TO_TOKEN_DIFFICULTY: Array<{
+  price: number;
+  difficulty: NonNullable<BookingAutoFillItem["tokenDifficulty"]>;
+}> = [
+  { price: 17000, difficulty: "SIMPLE" },
+  { price: 20000, difficulty: "NORMAL" },
+  { price: 25000, difficulty: "HARD" },
+  { price: 30000, difficulty: "ADVANCED" },
+  { price: 35000, difficulty: "EXPERT" },
+];
+
+function normalizeCookiePriceAmount(value: number): number {
+  const rounded = Math.round(Number(value));
+  if (!Number.isFinite(rounded) || rounded <= 0) return 0;
+  // Common shorthand in chats: 17 means 17k.
+  if (rounded < 1000) return rounded * 1000;
+  return rounded;
+}
+
+function inferTokenDifficultyFromCookiePrice(
+  value: number | null | undefined,
+): BookingAutoFillItem["tokenDifficulty"] | undefined {
+  const normalizedPrice = normalizeCookiePriceAmount(Number(value || 0));
+  if (normalizedPrice <= 0) return undefined;
+
+  const matched = COOKIE_PRICE_TO_TOKEN_DIFFICULTY.find(
+    (entry) => entry.price === normalizedPrice,
+  );
+  return matched?.difficulty;
+}
+
 const DARK_COLOR_BUTTERCREAM_ADDON_ID = "dark-color-buttercream";
 const DARK_BUTTERCREAM_COLOR_CANDIDATES: Array<{
   label: string;
@@ -1494,7 +1529,10 @@ function mergeUniqueAddOnIds(...sources: string[][]): string[] {
   );
 }
 
-function findFlavorTokenPosition(normalizedText: string, token: string): number {
+function findFlavorTokenPosition(
+  normalizedText: string,
+  token: string,
+): number {
   const normalizedToken = normalizeLabel(token);
   if (!normalizedToken) return Number.POSITIVE_INFINITY;
 
@@ -1516,7 +1554,11 @@ function detectFlavorOptionByText(
 
   const ranked = options
     .map((option) => {
-      const probes = [option.label, ...(option.aliases ?? []), ...(option.shortCodes ?? [])];
+      const probes = [
+        option.label,
+        ...(option.aliases ?? []),
+        ...(option.shortCodes ?? []),
+      ];
       let minPosition = Number.POSITIVE_INFINITY;
 
       for (const probe of probes) {
@@ -1688,6 +1730,29 @@ function parseCurrencyAmount(value: string): number | null {
   const parsed = Number(digitsOnly);
   if (!Number.isFinite(parsed) || parsed <= 0) return null;
   return Math.round(parsed);
+}
+
+function extractBouquetCookiePriceHint(value: string): number | null {
+  const text = value.trim();
+  if (!text) return null;
+
+  const normalized = normalizeLabel(text);
+  if (!normalized) return null;
+
+  const hasCookiePriceKeyword =
+    normalized.includes("harga cookie") || normalized.includes("cookie price");
+  if (hasCookiePriceKeyword) {
+    const matched = text.match(
+      /(?:harga\s*cookies?|cookie\s*price)(?:\s*\/\s*(?:pcs?|pc|piece))?\s*[:=-]?\s*([^\n|;]+)/i,
+    );
+    if (matched?.[1]) {
+      return parseCurrencyAmount(matched[1]);
+    }
+  }
+
+  const hasCurrencyMarker = /\brp\b|\bk\b/i.test(text);
+  if (!hasCurrencyMarker) return null;
+  return parseCurrencyAmount(text);
 }
 
 function parseSignedCurrencyAmount(value: string): number | null {
@@ -1944,7 +2009,13 @@ function chooseQuantity(parsed: ParsedWhatsAppOrder): number {
     const bouquetCount = extractPositiveInteger(
       parsed.details.flowerCount ?? "",
     );
-    if (bouquetCount) return bouquetCount;
+    if (
+      bouquetCount &&
+      bouquetCount >= BOUQUET_COOKIE_QTY_MIN &&
+      bouquetCount <= BOUQUET_COOKIE_QTY_MAX
+    ) {
+      return bouquetCount;
+    }
 
     const orderText = parsed.common.order ?? "";
     const bouquetOrderCount =
@@ -2015,6 +2086,13 @@ function inferTokenDifficultyFromText(
     normalized.includes("gampang")
   ) {
     return "SIMPLE";
+  }
+
+  const cookiePriceHint = extractBouquetCookiePriceHint(value);
+  const inferredFromPrice =
+    inferTokenDifficultyFromCookiePrice(cookiePriceHint);
+  if (inferredFromPrice) {
+    return inferredFromPrice;
   }
 
   return undefined;
@@ -2129,14 +2207,18 @@ function createAutoFillItemFromCategory(args: {
     args.category,
     args.searchSource,
   );
+  const cookiePrice =
+    catalog.category === "Buket" && Number(args.cookiePrice) > 0
+      ? normalizeCookiePriceAmount(Number(args.cookiePrice))
+      : undefined;
   const inferredDifficulty = inferTokenDifficultyFromText(args.searchSource);
   const tokenDifficulty =
     catalog.category === "Cookies" || catalog.category === "Buket"
-      ? (inferredDifficulty ?? "SIMPLE")
-      : undefined;
-  const cookiePrice =
-    catalog.category === "Buket" && Number(args.cookiePrice) > 0
-      ? Math.round(Number(args.cookiePrice))
+      ? (inferredDifficulty ??
+        (catalog.category === "Buket"
+          ? inferTokenDifficultyFromCookiePrice(cookiePrice)
+          : undefined) ??
+        "SIMPLE")
       : undefined;
   const flavorAddOns = detectFlavorAddOnIdsForCategory({
     category: catalog.category,
@@ -2225,55 +2307,57 @@ function buildRecapAutoFillItems(
   const recapItems = parsed.orderRecap?.items ?? [];
 
   return recapItems.flatMap((item) => {
-      const resolvedCategory =
-        normalizeRecapCategory(item.category) ||
-        normalizeRecapCategory(item.productName) ||
-        getCategoryByOrderType(parsed.orderType);
-      if (!resolvedCategory) return [];
+    const resolvedCategory =
+      normalizeRecapCategory(item.category) ||
+      normalizeRecapCategory(item.productName) ||
+      getCategoryByOrderType(parsed.orderType);
+    if (!resolvedCategory) return [];
 
-      const orderType = mapCategoryToOrderType(resolvedCategory);
-      const searchSource = [
-        resolvedCategory,
-        item.productName,
-        item.size,
-        item.designNotes,
-        item.addOn,
-        buildSearchSourceForOrderType(parsed, orderType, ""),
-      ]
-        .filter(Boolean)
-        .join(" | ");
-      const noteParts = [
-        item.designNotes ? `Design/Notes: ${item.designNotes}` : "",
-        item.addOn ? `Add On: ${item.addOn}` : "",
-        buildItemNotesForOrderType(parsed, orderType),
-        item.unitPrice ? `Harga Satuan: ${formatCurrencyNote(item.unitPrice)}` : "",
-        item.subtotal ? `Subtotal: ${formatCurrencyNote(item.subtotal)}` : "",
-      ]
-        .filter(Boolean)
-        .filter(
-          (value, index, array) =>
-            array.findIndex(
-              (entry) => normalizeLabel(entry) === normalizeLabel(value),
-            ) === index,
-        )
-        .join(" | ")
-        .slice(0, 400);
-      const autoFillItem = createAutoFillItemFromCategory({
-        category: resolvedCategory,
-        searchSource,
-        quantity: item.quantity,
-        notes: noteParts,
-      });
-
-      return [
-        {
-          ...autoFillItem,
-          parsedUnitPrice: item.unitPrice,
-          parsedSubtotal: item.subtotal,
-          pricingSource: item.subtotal ? "RECAP" : undefined,
-        } satisfies BookingAutoFillItem,
-      ];
+    const orderType = mapCategoryToOrderType(resolvedCategory);
+    const searchSource = [
+      resolvedCategory,
+      item.productName,
+      item.size,
+      item.designNotes,
+      item.addOn,
+      buildSearchSourceForOrderType(parsed, orderType, ""),
+    ]
+      .filter(Boolean)
+      .join(" | ");
+    const noteParts = [
+      item.designNotes ? `Design/Notes: ${item.designNotes}` : "",
+      item.addOn ? `Add On: ${item.addOn}` : "",
+      buildItemNotesForOrderType(parsed, orderType),
+      item.unitPrice
+        ? `Harga Satuan: ${formatCurrencyNote(item.unitPrice)}`
+        : "",
+      item.subtotal ? `Subtotal: ${formatCurrencyNote(item.subtotal)}` : "",
+    ]
+      .filter(Boolean)
+      .filter(
+        (value, index, array) =>
+          array.findIndex(
+            (entry) => normalizeLabel(entry) === normalizeLabel(value),
+          ) === index,
+      )
+      .join(" | ")
+      .slice(0, 400);
+    const autoFillItem = createAutoFillItemFromCategory({
+      category: resolvedCategory,
+      searchSource,
+      quantity: item.quantity,
+      notes: noteParts,
     });
+
+    return [
+      {
+        ...autoFillItem,
+        parsedUnitPrice: item.unitPrice,
+        parsedSubtotal: item.subtotal,
+        pricingSource: item.subtotal ? "RECAP" : undefined,
+      } satisfies BookingAutoFillItem,
+    ];
+  });
 }
 
 function buildMixedSupplementAutoFillItems(
@@ -2351,12 +2435,7 @@ function buildMixedSupplementAutoFillItems(
       "cookies_tower",
       orderText || rawText,
     );
-    pushItem(
-      "Cookies Tower",
-      quantity,
-      context.searchSource,
-      context.notes,
-    );
+    pushItem("Cookies Tower", quantity, context.searchSource, context.notes);
   }
 
   if (primaryCategory !== "Cake" && hasCakeMarker) {
@@ -2454,12 +2533,7 @@ function buildMixedSupplementAutoFillItems(
       "cookies",
       orderWithoutTopper || rawText,
     );
-    pushItem(
-      "Cookies",
-      quantity,
-      context.searchSource,
-      context.notes,
-    );
+    pushItem("Cookies", quantity, context.searchSource, context.notes);
   }
 
   return mergeAutoFillItems(supplements);
@@ -2477,15 +2551,19 @@ function buildDefaultAutoFillItems(
   ]
     .filter(Boolean)
     .join(" ");
+  const parsedBouquetCookiePrice =
+    parseCurrencyAmount(parsed.details.cookiePrice ?? "") ?? undefined;
   const inferredDifficulty = inferTokenDifficultyFromText(difficultySource);
   const tokenDifficulty =
     catalog.category === "Cookies" || catalog.category === "Buket"
-      ? (inferredDifficulty ?? "SIMPLE")
+      ? (inferredDifficulty ??
+        (catalog.category === "Buket"
+          ? inferTokenDifficultyFromCookiePrice(parsedBouquetCookiePrice)
+          : undefined) ??
+        "SIMPLE")
       : undefined;
   const cookiePrice =
-    catalog.category === "Buket"
-      ? (parseCurrencyAmount(parsed.details.cookiePrice ?? "") ?? undefined)
-      : undefined;
+    catalog.category === "Buket" ? parsedBouquetCookiePrice : undefined;
   const flavorSource = [
     parsed.common.order,
     parsed.details.cakeFlavor,
@@ -2835,10 +2913,14 @@ export function formatParsedWhatsAppForNotes(
       );
     }
     if (parsed.orderRecap.totals.total) {
-      lines.push(`Total: ${formatCurrencyNote(parsed.orderRecap.totals.total)}`);
+      lines.push(
+        `Total: ${formatCurrencyNote(parsed.orderRecap.totals.total)}`,
+      );
     }
     if (parsed.orderRecap.totals.downPayment) {
-      lines.push(`DP: ${formatCurrencyNote(parsed.orderRecap.totals.downPayment)}`);
+      lines.push(
+        `DP: ${formatCurrencyNote(parsed.orderRecap.totals.downPayment)}`,
+      );
     }
     if (parsed.orderRecap.totals.remainingBalance) {
       lines.push(
@@ -2978,9 +3060,10 @@ export function getDisplayFields(
   if ((parsed.detectedItems?.length ?? 0) > 0) {
     rows.push({
       label: "Item Terdeteksi",
-      value: parsed.detectedItems
-        ?.map((item) => `${item.quantity}x ${item.productName}`)
-        .join(" | ") || "-",
+      value:
+        parsed.detectedItems
+          ?.map((item) => `${item.quantity}x ${item.productName}`)
+          .join(" | ") || "-",
     });
   }
 

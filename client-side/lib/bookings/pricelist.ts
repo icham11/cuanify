@@ -76,218 +76,157 @@ function fixedProduct(
   };
 }
 
+const ONE_TIER_DIAMETERS = [14, 16, 18, 20] as const;
+const ONE_TIER_HEIGHTS = [10, 15] as const;
+const TWO_TIER_TOP_DIAMETERS = [14, 16] as const;
+const TWO_TIER_BOTTOM_DIAMETERS = [18, 20] as const;
+const TWO_TIER_STACKING_COST = 75000;
+
+type CakeBodyType = "REAL" | "DUMMY";
+
+const ONE_TIER_PRICE_TABLE: Record<
+  CakeBodyType,
+  Record<number, Record<number, number>>
+> = {
+  REAL: {
+    14: { 10: 400000, 15: 500000 },
+    16: { 10: 450000, 15: 550000 },
+    18: { 10: 550000, 15: 650000 },
+    20: { 10: 650000, 15: 750000 },
+  },
+  DUMMY: {
+    14: { 10: 250000, 15: 300000 },
+    16: { 10: 275000, 15: 325000 },
+    18: { 10: 300000, 15: 350000 },
+    20: { 10: 350000, 15: 400000 },
+  },
+};
+
+function getOneTierPrice(
+  type: CakeBodyType,
+  diameter: number,
+  height: number,
+): number {
+  return ONE_TIER_PRICE_TABLE[type][diameter]?.[height] ?? 0;
+}
+
+function buildOneTierCakeVariants(type: CakeBodyType): PricelistVariant[] {
+  return ONE_TIER_DIAMETERS.flatMap((diameter) =>
+    ONE_TIER_HEIGHTS.map((height) =>
+      variant(
+        `D${diameter}-T${height}`,
+        getOneTierPrice(type, diameter, height),
+        [
+          `d${diameter}`,
+          `t${height}`,
+          `diameter ${diameter}`,
+          `tinggi ${height}`,
+          `${diameter}cm`,
+          `${height}cm`,
+          `diameter ${diameter} cm tinggi ${height} cm`,
+        ],
+      ),
+    ),
+  );
+}
+
+function roundPriceToFiveThousand(value: number): number {
+  return Math.round(value / 5000) * 5000;
+}
+
+function buildTwoTierVariants(
+  topType: CakeBodyType,
+  bottomType: CakeBodyType,
+): PricelistVariant[] {
+  const variants: PricelistVariant[] = [];
+
+  for (const topDiameter of TWO_TIER_TOP_DIAMETERS) {
+    for (const bottomDiameter of TWO_TIER_BOTTOM_DIAMETERS) {
+      if (topDiameter >= bottomDiameter) continue;
+
+      for (const topHeight of ONE_TIER_HEIGHTS) {
+        for (const bottomHeight of ONE_TIER_HEIGHTS) {
+          const topPrice = getOneTierPrice(topType, topDiameter, topHeight);
+          const bottomPrice = getOneTierPrice(
+            bottomType,
+            bottomDiameter,
+            bottomHeight,
+          );
+          const totalPrice = roundPriceToFiveThousand(
+            topPrice + bottomPrice + TWO_TIER_STACKING_COST,
+          );
+
+          variants.push(
+            variant(
+              `Top D${topDiameter}-T${topHeight} + Bottom D${bottomDiameter}-T${bottomHeight}`,
+              totalPrice,
+              [
+                `top d${topDiameter} t${topHeight}`,
+                `bottom d${bottomDiameter} t${bottomHeight}`,
+                `two tier ${topDiameter} ${bottomDiameter}`,
+                `${topType.toLowerCase()} top`,
+                `${bottomType.toLowerCase()} bottom`,
+              ],
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  return variants;
+}
+
 export const BOOKING_PRODUCT_CATALOG: PricelistCategory[] = [
   {
     category: "Cake",
     keywords: ["cake", "kue"],
     subcategories: [
       {
-        name: "Cake Tinggi 10 cm",
-        keywords: [
-          "cake 10 cm",
-          "regular",
-          "reg",
-          "tinggi 10 cm",
-          "height 10 cm",
-          "real cake",
-          "dummy cake",
-        ],
+        name: "One Tier Cake",
+        keywords: ["one tier", "single tier", "real cake", "dummy cake"],
         products: [
           {
-            name: "Real Cake (10 cm)",
-            keywords: ["regular", "real", "10 cm", "real cake"],
-            defaultVariant: "Real Diameter 16 cm (Tinggi 10 cm)",
-            variants: [
-              variant("Real Diameter 14 cm (Tinggi 10 cm)", 400000, [
-                "14",
-                "14cm",
-                "size 14",
-                "real 14",
-                "real 14 cm",
-                "diameter 14",
-              ]),
-              variant("Real Diameter 16 cm (Tinggi 10 cm)", 450000, [
-                "16",
-                "16cm",
-                "size 16",
-                "real 16",
-                "real 16 cm",
-                "diameter 16",
-              ]),
-              variant("Real Diameter 18 cm (Tinggi 10 cm)", 550000, [
-                "18",
-                "18cm",
-                "size 18",
-                "real 18",
-                "real 18 cm",
-                "diameter 18",
-              ]),
-              variant("Real Diameter 20 cm (Tinggi 10 cm)", 650000, [
-                "20",
-                "20cm",
-                "size 20",
-                "real 20",
-                "real 20 cm",
-                "diameter 20",
-              ]),
-            ],
+            name: "Real Cake",
+            keywords: ["real", "real cake", "one tier real"],
+            defaultVariant: "D16-T10",
+            variants: buildOneTierCakeVariants("REAL"),
           },
           {
-            name: "Dummy Cake (10 cm)",
-            keywords: ["dummy", "dummy cake", "10 cm"],
-            defaultVariant: "Dummy Diameter 16 cm (Tinggi 10 cm)",
-            variants: [
-              variant("Dummy Diameter 14 cm (Tinggi 10 cm)", 250000, [
-                "14",
-                "14cm",
-                "dummy 14",
-                "dummy 14 cm",
-                "diameter 14",
-              ]),
-              variant("Dummy Diameter 16 cm (Tinggi 10 cm)", 275000, [
-                "16",
-                "16cm",
-                "dummy 16",
-                "dummy 16 cm",
-                "diameter 16",
-              ]),
-              variant("Dummy Diameter 18 cm (Tinggi 10 cm)", 300000, [
-                "18",
-                "18cm",
-                "dummy 18",
-                "dummy 18 cm",
-                "diameter 18",
-              ]),
-              variant("Dummy Diameter 20 cm (Tinggi 10 cm)", 350000, [
-                "20",
-                "20cm",
-                "dummy 20",
-                "dummy 20 cm",
-                "diameter 20",
-              ]),
-            ],
+            name: "Dummy Cake",
+            keywords: ["dummy", "dummy cake", "one tier dummy"],
+            defaultVariant: "D16-T10",
+            variants: buildOneTierCakeVariants("DUMMY"),
           },
         ],
       },
       {
-        name: "Cake Tinggi 15 cm",
-        keywords: [
-          "cake 15 cm",
-          "tall",
-          "15 cm",
-          "tinggi 15 cm",
-          "height 15 cm",
-          "real cake",
-          "dummy cake",
-        ],
+        name: "Two Tier Cake",
+        keywords: ["tier", "two tier", "2 tier", "two-tiered", "wedding"],
         products: [
           {
-            name: "Real Cake (15 cm)",
-            keywords: ["tall", "15 cm", "real", "real cake"],
-            defaultVariant: "Real Diameter 16 cm (Tinggi 15 cm)",
-            variants: [
-              variant("Real Diameter 14 cm (Tinggi 15 cm)", 500000, [
-                "14",
-                "14cm",
-                "real 14",
-                "real 14 cm",
-                "tall 14",
-                "diameter 14",
-              ]),
-              variant("Real Diameter 16 cm (Tinggi 15 cm)", 550000, [
-                "16",
-                "16cm",
-                "real 16",
-                "real 16 cm",
-                "tall 16",
-                "diameter 16",
-              ]),
-              variant("Real Diameter 18 cm (Tinggi 15 cm)", 650000, [
-                "18",
-                "18cm",
-                "real 18",
-                "real 18 cm",
-                "tall 18",
-                "diameter 18",
-              ]),
-              variant("Real Diameter 20 cm (Tinggi 15 cm)", 750000, [
-                "20",
-                "20cm",
-                "real 20",
-                "real 20 cm",
-                "tall 20",
-                "diameter 20",
-              ]),
-            ],
+            name: "Top Real + Bottom Real",
+            keywords: ["top real", "bottom real", "real real", "rr"],
+            defaultVariant: "Top D14-T10 + Bottom D18-T10",
+            variants: buildTwoTierVariants("REAL", "REAL"),
           },
           {
-            name: "Dummy Cake (15 cm)",
-            keywords: ["dummy", "dummy cake", "15 cm", "tall dummy"],
-            defaultVariant: "Dummy Diameter 16 cm (Tinggi 15 cm)",
-            variants: [
-              variant("Dummy Diameter 14 cm (Tinggi 15 cm)", 300000, [
-                "14",
-                "14cm",
-                "dummy 14",
-                "dummy 14 cm",
-                "tall dummy 14",
-                "diameter 14",
-              ]),
-              variant("Dummy Diameter 16 cm (Tinggi 15 cm)", 325000, [
-                "16",
-                "16cm",
-                "dummy 16",
-                "dummy 16 cm",
-                "tall dummy 16",
-                "diameter 16",
-              ]),
-              variant("Dummy Diameter 18 cm (Tinggi 15 cm)", 350000, [
-                "18",
-                "18cm",
-                "dummy 18",
-                "dummy 18 cm",
-                "tall dummy 18",
-                "diameter 18",
-              ]),
-              variant("Dummy Diameter 20 cm (Tinggi 15 cm)", 400000, [
-                "20",
-                "20cm",
-                "dummy 20",
-                "dummy 20 cm",
-                "tall dummy 20",
-                "diameter 20",
-              ]),
-            ],
+            name: "Top Real + Bottom Dummy",
+            keywords: ["top real", "bottom dummy", "real dummy", "rd"],
+            defaultVariant: "Top D14-T10 + Bottom D18-T10",
+            variants: buildTwoTierVariants("REAL", "DUMMY"),
           },
-        ],
-      },
-      {
-        name: "Two Tiered Cake",
-        keywords: ["tier", "two tier", "2 tier", "two-tiered"],
-        products: [
           {
-            name: "Two Tiered Cake",
-            keywords: ["tier", "two tier", "2 tier", "wedding"],
-            defaultVariant: "Medium (12 & 18 cm)",
-            variants: [
-              variant("Medium (12 & 18 cm)", 550000, [
-                "12",
-                "18",
-                "12 18",
-                "medium",
-              ]),
-              variant("Large (14 & 20 cm)", 650000, [
-                "14",
-                "20",
-                "14 20",
-                "large",
-              ]),
-              variant("Large Tall (14 & 20 cm)", 750000, [
-                "large tall",
-                "tall tier",
-                "4+4",
-              ]),
-            ],
+            name: "Top Dummy + Bottom Real",
+            keywords: ["top dummy", "bottom real", "dummy real", "dr"],
+            defaultVariant: "Top D14-T10 + Bottom D18-T10",
+            variants: buildTwoTierVariants("DUMMY", "REAL"),
+          },
+          {
+            name: "Top Dummy + Bottom Dummy",
+            keywords: ["top dummy", "bottom dummy", "dummy dummy", "dd"],
+            defaultVariant: "Top D14-T10 + Bottom D18-T10",
+            variants: buildTwoTierVariants("DUMMY", "DUMMY"),
           },
         ],
       },
@@ -449,10 +388,7 @@ export const BOOKING_PRODUCT_CATALOG: PricelistCategory[] = [
                 "30k",
               ]),
               variant("Chibi Face (20K / pcs)", 20000, ["chibi face", "20k"]),
-              variant("Chibi Face (25K / pcs)", 25000, [
-                "chibi face",
-                "25k",
-              ]),
+              variant("Chibi Face (25K / pcs)", 25000, ["chibi face", "25k"]),
               variant("Chibi Half Body (25K / pcs)", 25000, [
                 "chibi half",
                 "25k",
@@ -854,12 +790,24 @@ export const BOOKING_ADD_ON_CATALOG: Record<string, CatalogAddOn[]> = {
       label: option.label,
       price: option.price,
     })),
-    { id: "dark-color", label: "Dark Color Cake", price: 50000 },
+    { id: "dark-color", label: "Dark Color", price: 50000 },
     { id: "fondant-name", label: "Fondant Name", price: 20000 },
     { id: "mini-details", label: "Mini Details", price: 10000 },
-    { id: "small-cookies", label: "Small Cookies (4-6cm)", price: 20000 },
-    { id: "medium-cookies", label: "Medium Cookies (8-9cm)", price: 40000 },
-    { id: "large-cookies", label: "Large Cookies (10-18cm)", price: 70000 },
+    {
+      id: "small-cookies",
+      label: "Additional Cookies Small (4-6cm)",
+      price: 20000,
+    },
+    {
+      id: "medium-cookies",
+      label: "Additional Cookies Medium (8-9cm)",
+      price: 40000,
+    },
+    {
+      id: "large-cookies",
+      label: "Additional Cookies Large (10-18cm)",
+      price: 70000,
+    },
     { id: "candy-background", label: "Candy Background", price: 50000 },
     { id: "meringue-background", label: "Meringue Background", price: 50000 },
     {
@@ -1089,7 +1037,8 @@ export function ensureCatalogSelection(
     subcategoryData?.products[0];
 
   const variants = productData?.variants ?? [];
-  const size = findVariantBySelection(variants, partial.size ?? "")?.label ??
+  const size =
+    findVariantBySelection(variants, partial.size ?? "")?.label ??
     (productData ? getDefaultVariantLabel(productData) : "");
 
   return {
