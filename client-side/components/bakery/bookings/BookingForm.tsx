@@ -208,10 +208,7 @@ const itemSchema = z.object({
       }),
     )
     .optional(),
-  darkColorButtercreamColors: z
-    .array(z.string())
-    .max(3, "Maksimal 3 warna dark color buttercream.")
-    .optional(),
+  darkColorButtercreamColors: z.array(z.string()).optional(),
   parsedUnitPrice: z.number().min(0).optional(),
   parsedSubtotal: z.number().min(0).optional(),
   pricingSource: z.enum(["RECAP"]).optional(),
@@ -945,6 +942,7 @@ function getCustomAddOnTotal(
 }
 
 function supportsAddOnQuantity(category: string, addonId: string): boolean {
+  if (addonId === DARK_COLOR_BUTTERCREAM_ADDON_ID) return false;
   if (!category) return false;
   const flavorIds = new Set(getFlavorAddOnIdsByCategory(category));
   return !flavorIds.has(addonId);
@@ -1195,6 +1193,62 @@ function getIndividualCupcakeQuantityRule(
     min: CUPCAKE_INDIVIDUAL_MIN_QTY,
     helperText: `Individual cupcakes minimal ${CUPCAKE_INDIVIDUAL_MIN_QTY} pcs.`,
   };
+}
+
+function resolveIndividualCupcakeSizeByQuantity(args: {
+  catalog: PricelistCategory[];
+  selection: CatalogSelection;
+  quantity: number;
+}): string {
+  if (args.selection.category !== "Cupcakes") return args.selection.size;
+
+  const source =
+    `${args.selection.subcategory || ""} ${args.selection.productName || ""} ${args.selection.size || ""}`.toLowerCase();
+  if (!source.includes("individual")) return args.selection.size;
+
+  const variants = getVariantsFromCatalog(args.catalog, args.selection);
+  if (variants.length === 0) return args.selection.size;
+
+  const quantity = Math.max(1, Number(args.quantity) || 1);
+  const findVariant = (needle: string) =>
+    variants.find((entry) => entry.label.toLowerCase().includes(needle))?.label;
+
+  if (quantity >= 100) {
+    return (
+      findVariant(">=100") ||
+      findVariant(">=50") ||
+      findVariant("25-49") ||
+      findVariant("10-24") ||
+      args.selection.size ||
+      variants[0]?.label ||
+      ""
+    );
+  }
+
+  if (quantity >= 50) {
+    return (
+      findVariant(">=50") ||
+      findVariant("25-49") ||
+      findVariant("10-24") ||
+      args.selection.size ||
+      variants[0]?.label ||
+      ""
+    );
+  }
+
+  if (quantity >= 25) {
+    return (
+      findVariant("25-49") ||
+      findVariant("10-24") ||
+      args.selection.size ||
+      variants[0]?.label ||
+      ""
+    );
+  }
+
+  return (
+    findVariant("10-24") || args.selection.size || variants[0]?.label || ""
+  );
 }
 
 function getAutoQuantityForItem(item: BookingItemInput): number | null {
@@ -1707,6 +1761,33 @@ export default function BookingForm() {
           shouldValidate: true,
         });
       }
+    });
+  }, [clearParsedPricingOverride, watchedItems, productCatalog, setValue]);
+
+  useEffect(() => {
+    watchedItems.forEach((item, index) => {
+      const normalizedSelection = ensureSelectionFromCatalog(productCatalog, {
+        category: item?.category,
+        subcategory: item?.subcategory,
+        productName: item?.productName,
+        size: item?.size,
+      });
+
+      const quantity = Number(item?.quantity);
+      if (!Number.isFinite(quantity) || quantity <= 0) return;
+
+      const preferredSize = resolveIndividualCupcakeSizeByQuantity({
+        catalog: productCatalog,
+        selection: normalizedSelection,
+        quantity: Math.max(1, Math.round(quantity)),
+      });
+
+      if (!preferredSize || preferredSize === normalizedSelection.size) return;
+
+      clearParsedPricingOverride(index);
+      setValue(`items.${index}.size`, preferredSize, {
+        shouldValidate: true,
+      });
     });
   }, [clearParsedPricingOverride, watchedItems, productCatalog, setValue]);
 
@@ -2710,30 +2791,6 @@ export default function BookingForm() {
           return;
         }
       }
-
-      const hasDarkColorButtercream =
-        item.category === "Cupcakes" &&
-        (item.addOns ?? []).includes(DARK_COLOR_BUTTERCREAM_ADDON_ID);
-      if (!hasDarkColorButtercream) continue;
-
-      const darkButtercreamColors = normalizeDarkButtercreamColors(
-        item.darkColorButtercreamColors ?? [],
-      );
-      if (darkButtercreamColors.length === 0) {
-        const productLabel = item.productName || item.category || "Item";
-        toast.error(
-          `${productLabel}: pilih minimal 1 warna untuk add-on Dark Color Buttercream.`,
-        );
-        return;
-      }
-
-      if (darkButtercreamColors.length > MAX_DARK_BUTTERCREAM_COLORS) {
-        const productLabel = item.productName || item.category || "Item";
-        toast.error(
-          `${productLabel}: maksimal ${MAX_DARK_BUTTERCREAM_COLORS} warna untuk Dark Color Buttercream.`,
-        );
-        return;
-      }
     }
 
     if (referenceFilesChangedSinceParse) {
@@ -2760,6 +2817,9 @@ export default function BookingForm() {
         item.addOnPriceOverrides,
       );
       const normalizedCustomAddOns = normalizeCustomAddOns(item.customAddOns);
+      const darkButtercreamColors = normalizeDarkButtercreamColors(
+        item.darkColorButtercreamColors ?? [],
+      );
       const addOnTotalForItem = hasParsedRecapPrice
         ? 0
         : calculatePerUnitAddOnPrice({
@@ -2771,9 +2831,6 @@ export default function BookingForm() {
           }) *
             item.quantity +
           getCustomAddOnTotal(normalizedCustomAddOns, item.quantity);
-      const darkButtercreamColors = normalizeDarkButtercreamColors(
-        item.darkColorButtercreamColors ?? [],
-      );
       const selectedFlavorOption = getFlavorOptionsForCategory(
         item.category,
       ).find((option) => (item.addOns ?? []).includes(option.id));
@@ -2846,9 +2903,10 @@ export default function BookingForm() {
           ? `Rasa: ${selectedFlavorOption.label}${selectedFlavorOption.premium && selectedFlavorOption.price > 0 ? ` (Premium ${formatCurrency(selectedFlavorOption.price)})` : ""}`
           : "",
         item.category === "Cupcakes" &&
-        (item.addOns ?? []).includes(DARK_COLOR_BUTTERCREAM_ADDON_ID) &&
-        darkButtercreamColors.length > 0
-          ? `Dark Color Buttercream: ${darkButtercreamColors.join(", ")}`
+        (item.addOns ?? []).includes(DARK_COLOR_BUTTERCREAM_ADDON_ID)
+          ? darkButtercreamColors.length > 0
+            ? `Dark Color Buttercream: ${darkButtercreamColors.join(", ")} (+50k / item)`
+            : "Dark Color Buttercream (+50k / item)"
           : "",
         hasParsedRecapPrice && parsedUnitPrice
           ? `Harga recap: ${formatCurrency(parsedUnitPrice)} / unit`
@@ -3040,12 +3098,24 @@ export default function BookingForm() {
       });
     }
 
-    if (addonId !== DARK_COLOR_BUTTERCREAM_ADDON_ID) return;
-
-    if (isRemoving) {
-      setValue(`items.${itemIndex}.darkColorButtercreamColors`, [], {
+    if (addonId === DARK_COLOR_BUTTERCREAM_ADDON_ID) {
+      const nextOverrides = { ...currentPriceOverrides };
+      delete nextOverrides[addonId];
+      setValue(`items.${itemIndex}.addOnPriceOverrides`, nextOverrides, {
         shouldValidate: true,
       });
+
+      const nextQuantities = { ...currentQuantities };
+      delete nextQuantities[addonId];
+      setValue(`items.${itemIndex}.addOnQuantities`, nextQuantities, {
+        shouldValidate: true,
+      });
+
+      if (isRemoving) {
+        setValue(`items.${itemIndex}.darkColorButtercreamColors`, [], {
+          shouldValidate: true,
+        });
+      }
     }
   };
 
@@ -3080,6 +3150,8 @@ export default function BookingForm() {
     addonId: string,
     rawValue: string,
   ) => {
+    if (addonId === DARK_COLOR_BUTTERCREAM_ADDON_ID) return;
+
     const current = normalizeAddOnPriceOverrides(
       watchedItems[itemIndex]?.addOnPriceOverrides,
     );
@@ -3369,15 +3441,21 @@ export default function BookingForm() {
               normalized.category === "Cookies"
                 ? removeCookieBreakdownFromNotes(rawItemNotes)
                 : rawItemNotes;
+            const normalizedQuantity = Number.isFinite(parsedQuantity)
+              ? Math.max(1, Math.round(parsedQuantity))
+              : 1;
+            const normalizedSize = resolveIndividualCupcakeSizeByQuantity({
+              catalog: productCatalog,
+              selection: normalized,
+              quantity: normalizedQuantity,
+            });
 
             return {
               category: normalized.category,
               subcategory: normalized.subcategory,
               productName: normalized.productName,
-              size: normalized.size,
-              quantity: Number.isFinite(parsedQuantity)
-                ? Math.max(1, Math.round(parsedQuantity))
-                : 1,
+              size: normalizedSize,
+              quantity: normalizedQuantity,
               tokenDifficulty: parsedTokenDifficulty,
               customTokenPerUnit: undefined,
               cookiePrice: parsedCookiePrice,
@@ -4370,10 +4448,6 @@ export default function BookingForm() {
                       normalizeDarkButtercreamColors(
                         item?.darkColorButtercreamColors ?? [],
                       );
-                    const darkColorError = errors.items?.[index]
-                      ?.darkColorButtercreamColors?.message as
-                      | string
-                      | undefined;
                     const hasMultipleSubcategories = subcategories.length > 1;
                     const hasMultipleProducts = products.length > 1;
                     const hasMultipleVariants = displayVariants.length > 1;
@@ -5386,10 +5460,6 @@ export default function BookingForm() {
                           </div>
                           <div className="grid gap-1.5 sm:grid-cols-3">
                             {nonFlavorAddOns.map((addon) => {
-                              const addOnLabel =
-                                addon.id === DARK_COLOR_BUTTERCREAM_ADDON_ID
-                                  ? "Choose Color"
-                                  : addon.label;
                               const checked =
                                 item?.addOns?.includes(addon.id) ?? false;
                               const overriddenPrice =
@@ -5416,7 +5486,7 @@ export default function BookingForm() {
                                   className="flex items-center justify-between gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm text-gray-700"
                                 >
                                   <span className="min-w-0">
-                                    {addOnLabel}{" "}
+                                    {addon.label}{" "}
                                     <span className="text-xs text-gray-400">
                                       {formatCurrency(effectiveUnitPrice)}
                                       {supportsQuantity
@@ -5447,27 +5517,29 @@ export default function BookingForm() {
                                         className="h-8 w-16"
                                       />
                                     )}
-                                    {checked && (
-                                      <Input
-                                        type="number"
-                                        min={0}
-                                        step={1000}
-                                        value={
-                                          overriddenPrice !== undefined
-                                            ? overriddenPrice
-                                            : ""
-                                        }
-                                        placeholder={String(addon.price)}
-                                        onChange={(event) =>
-                                          setItemAddOnPriceOverride(
-                                            index,
-                                            addon.id,
-                                            event.target.value,
-                                          )
-                                        }
-                                        className="h-8 w-24"
-                                      />
-                                    )}
+                                    {checked &&
+                                      addon.id !==
+                                        DARK_COLOR_BUTTERCREAM_ADDON_ID && (
+                                        <Input
+                                          type="number"
+                                          min={0}
+                                          step={1000}
+                                          value={
+                                            overriddenPrice !== undefined
+                                              ? overriddenPrice
+                                              : ""
+                                          }
+                                          placeholder={String(addon.price)}
+                                          onChange={(event) =>
+                                            setItemAddOnPriceOverride(
+                                              index,
+                                              addon.id,
+                                              event.target.value,
+                                            )
+                                          }
+                                          className="h-8 w-24"
+                                        />
+                                      )}
                                     <input
                                       type="checkbox"
                                       checked={checked}
@@ -5605,7 +5677,7 @@ export default function BookingForm() {
 
                         {hasDarkColorButtercream && (
                           <label className="grid gap-1.5 text-sm font-medium text-gray-700 sm:max-w-sm">
-                            Choose Color (max 3)
+                            Pilih Warna Dark Color (maks. 3)
                             <div className="grid gap-1.5 sm:grid-cols-2">
                               {DARK_BUTTERCREAM_COLOR_OPTIONS.map((color) => {
                                 const checked =
@@ -5638,14 +5710,8 @@ export default function BookingForm() {
                               Dipilih:{" "}
                               {selectedDarkButtercreamColors.join(", ") ||
                                 "belum ada"}
-                              . Pilihan:{" "}
-                              {DARK_BUTTERCREAM_COLOR_OPTIONS.join(", ")}.
+                              . Dark color additional charge 50k / item.
                             </span>
-                            {darkColorError && (
-                              <span className="min-h-4 text-[11px] font-normal leading-4 text-rose-600">
-                                {darkColorError}
-                              </span>
-                            )}
                           </label>
                         )}
 
