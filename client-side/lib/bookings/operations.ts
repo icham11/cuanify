@@ -25,6 +25,8 @@ export interface BookingItemForOperations {
   quantity?: number;
   tokenDifficulty?: string;
   customTokenPerUnit?: number;
+  addOns?: string[];
+  addOnQuantities?: Record<string, number>;
 }
 
 export interface BookingOrderForOperations {
@@ -474,6 +476,8 @@ export function summarizeProductionTokensByItems(
         productName: item.productName,
         tokenDifficulty: item.tokenDifficulty,
         customTokenPerUnit: item.customTokenPerUnit,
+        addOns: item.addOns,
+        addOnQuantities: item.addOnQuantities,
         difficulty: difficultyFromPayload,
         quantity: item.quantity,
       };

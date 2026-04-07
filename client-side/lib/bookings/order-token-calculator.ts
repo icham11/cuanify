@@ -14,6 +14,8 @@ export interface OrderItemForTokenCalc {
   tokenDifficulty?: string;
   quantity?: number;
   customTokenPerUnit?: number;
+  addOns?: string[];
+  addOnQuantities?: Record<string, number>;
 }
 
 const COOKIE_DIFFICULTY_TOKEN_MAP: Record<string, number> = {
@@ -40,6 +42,16 @@ const BOUQUET_TOKEN_MAP: Record<string, number> = {
   standing_bouquet: 50,
 };
 
+const CUPCAKE_COOKIE_ADDON_TOKEN_MAP: Record<string, number> = {
+  "cookie-simple": COOKIE_DIFFICULTY_TOKEN_MAP.simple,
+  "cookie-normal": COOKIE_DIFFICULTY_TOKEN_MAP.normal,
+  "cookie-hard": COOKIE_DIFFICULTY_TOKEN_MAP.hard,
+  "cookie-advanced": COOKIE_DIFFICULTY_TOKEN_MAP.advanced,
+  "cookie-expert": COOKIE_DIFFICULTY_TOKEN_MAP.expert,
+};
+
+const CUPCAKE_PIECE_TOKEN = 2;
+
 const BOUQUET_COOKIE_QTY_MIN = 7;
 const BOUQUET_COOKIE_QTY_MAX = 20;
 
@@ -62,6 +74,21 @@ function parseQuantity(raw: number | undefined): number {
   if (!Number.isFinite(parsed)) return 1;
   if (parsed <= 0) return 0;
   return Math.min(1000, Math.round(parsed));
+}
+
+function normalizeQuantityMap(
+  value: Record<string, number> | undefined,
+): Record<string, number> {
+  if (!value || typeof value !== "object") return {};
+
+  const next: Record<string, number> = {};
+  for (const [key, raw] of Object.entries(value)) {
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed) || parsed <= 0) continue;
+    next[key] = Math.max(1, Math.round(parsed));
+  }
+
+  return next;
 }
 
 function resolveCookieDifficultyToken(item: OrderItemForTokenCalc): number {
@@ -119,6 +146,47 @@ function resolveBouquetToken(searchSource: string): number {
   return BOUQUET_TOKEN_MAP.hand_bouquet;
 }
 
+function resolveCupcakePieceQuantity(
+  searchSource: string,
+  qty: number,
+): number {
+  if (qty <= 0) return 0;
+
+  const isDozenCupcake =
+    searchSource.includes("dozen") ||
+    searchSource.includes("12 pcs") ||
+    searchSource.includes("12pcs") ||
+    searchSource.includes("lusin");
+
+  if (isDozenCupcake) {
+    return qty * 12;
+  }
+
+  return qty;
+}
+
+function resolveCupcakeAddOnToken(item: OrderItemForTokenCalc): number {
+  const addonIds = Array.isArray(item.addOns) ? item.addOns : [];
+  if (addonIds.length === 0) return 0;
+
+  const searchSource = getSearchSource(item);
+  const pieceCount = resolveCupcakePieceQuantity(
+    searchSource,
+    parseQuantity(item.quantity),
+  );
+  if (pieceCount <= 0) return 0;
+
+  const addOnQuantities = normalizeQuantityMap(item.addOnQuantities);
+
+  return addonIds.reduce((sum, addonId) => {
+    const tokenPerPiece = CUPCAKE_COOKIE_ADDON_TOKEN_MAP[addonId] ?? 0;
+    if (tokenPerPiece <= 0) return sum;
+
+    const units = Math.max(1, addOnQuantities[addonId] ?? 1);
+    return sum + tokenPerPiece * pieceCount * units;
+  }, 0);
+}
+
 function isBouquetCookieFillQuantity(quantity: number): boolean {
   return (
     quantity >= BOUQUET_COOKIE_QTY_MIN && quantity <= BOUQUET_COOKIE_QTY_MAX
@@ -174,15 +242,9 @@ function calculateItemToken(item: OrderItemForTokenCalc): number {
   }
 
   if (searchSource.includes("cupcake")) {
-    const isDozenCupcake =
-      searchSource.includes("dozen") ||
-      searchSource.includes("12 pcs") ||
-      searchSource.includes("12pcs") ||
-      searchSource.includes("lusin");
-    if (isDozenCupcake) {
-      return 2 * qty;
-    }
-    return 5 * qty;
+    const pieceCount = resolveCupcakePieceQuantity(searchSource, qty);
+    const pieceToken = Math.max(1, Math.round(CUPCAKE_PIECE_TOKEN));
+    return pieceCount * pieceToken + resolveCupcakeAddOnToken(item);
   }
 
   if (searchSource.includes("cookies") || searchSource.includes("cookie")) {

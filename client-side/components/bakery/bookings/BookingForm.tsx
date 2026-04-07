@@ -388,6 +388,13 @@ const DARK_BUTTERCREAM_COLOR_OPTIONS = [
   "Fuschia Pink",
 ] as const;
 const MAX_DARK_BUTTERCREAM_COLORS = 3;
+const CUPCAKE_COOKIE_ADDON_IDS = [
+  "cookie-simple",
+  "cookie-normal",
+  "cookie-hard",
+  "cookie-advanced",
+  "cookie-expert",
+] as const;
 const FRAGILE_ORDER_ALLOWED_METHODS: DeliveryMethod[] = [
   "PICKUP",
   "CUSTOMER_APP_COURIER",
@@ -416,6 +423,12 @@ function normalizeDarkButtercreamColors(value: unknown): string[] {
   }
 
   return normalized;
+}
+
+function isCupcakeCookieAddOnId(addOnId: string): boolean {
+  return CUPCAKE_COOKIE_ADDON_IDS.includes(
+    addOnId as (typeof CUPCAKE_COOKIE_ADDON_IDS)[number],
+  );
 }
 
 function normalizeTokenDifficultyValue(value: unknown): TokenDifficultyValue {
@@ -1445,6 +1458,8 @@ function getItemProductionToken(item: BookingItemInput): number {
       quantity: Number(item.quantity) || 0,
       tokenDifficulty: item.tokenDifficulty,
       customTokenPerUnit: item.customTokenPerUnit,
+      addOns: item.addOns,
+      addOnQuantities: item.addOnQuantities,
     },
   ]);
 }
@@ -2791,6 +2806,17 @@ export default function BookingForm() {
           return;
         }
       }
+
+      if (item.category === "Cupcakes") {
+        const selectedCookieAddOnCount = (item.addOns ?? []).filter((id) =>
+          isCupcakeCookieAddOnId(id),
+        ).length;
+        if (selectedCookieAddOnCount > 1) {
+          const productLabel = item.productName || item.category || "Item";
+          toast.error(`${productLabel}: pilih maksimal 1 add-on cookie.`);
+          return;
+        }
+      }
     }
 
     if (referenceFilesChangedSinceParse) {
@@ -3068,10 +3094,14 @@ export default function BookingForm() {
     const currentPriceOverrides = normalizeAddOnPriceOverrides(
       watchedItems[itemIndex]?.addOnPriceOverrides,
     );
+    const isCupcakeCookieAddOn = isCupcakeCookieAddOnId(addonId);
+    const currentWithoutCupcakeCookie = isCupcakeCookieAddOn
+      ? current.filter((id) => !isCupcakeCookieAddOnId(id))
+      : current;
     const isRemoving = current.includes(addonId);
-    const next = current.includes(addonId)
+    const next = isRemoving
       ? current.filter((id) => id !== addonId)
-      : [...current, addonId];
+      : [...currentWithoutCupcakeCookie, addonId];
     clearParsedPricingOverride(itemIndex);
     setValue(`items.${itemIndex}.addOns`, next, { shouldValidate: true });
 
@@ -3117,6 +3147,21 @@ export default function BookingForm() {
         });
       }
     }
+
+    if (isCupcakeCookieAddOn) {
+      const nextOverrides = { ...currentPriceOverrides };
+      const nextQuantities = { ...currentQuantities };
+      for (const id of CUPCAKE_COOKIE_ADDON_IDS) {
+        delete nextOverrides[id];
+        delete nextQuantities[id];
+      }
+      setValue(`items.${itemIndex}.addOnPriceOverrides`, nextOverrides, {
+        shouldValidate: true,
+      });
+      setValue(`items.${itemIndex}.addOnQuantities`, nextQuantities, {
+        shouldValidate: true,
+      });
+    }
   };
 
   const setItemAddOnQuantity = (
@@ -3151,6 +3196,7 @@ export default function BookingForm() {
     rawValue: string,
   ) => {
     if (addonId === DARK_COLOR_BUTTERCREAM_ADDON_ID) return;
+    if (isCupcakeCookieAddOnId(addonId)) return;
 
     const current = normalizeAddOnPriceOverrides(
       watchedItems[itemIndex]?.addOnPriceOverrides,
@@ -5519,7 +5565,8 @@ export default function BookingForm() {
                                     )}
                                     {checked &&
                                       addon.id !==
-                                        DARK_COLOR_BUTTERCREAM_ADDON_ID && (
+                                        DARK_COLOR_BUTTERCREAM_ADDON_ID &&
+                                      !isCupcakeCookieAddOnId(addon.id) && (
                                         <Input
                                           type="number"
                                           min={0}

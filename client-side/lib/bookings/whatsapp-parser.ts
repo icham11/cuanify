@@ -1284,6 +1284,14 @@ function normalizeByKey(key: string, value: string): string {
       }
       return cleaned;
     }
+    case "cupcakeColor": {
+      const colors = cleaned
+        .split(/\n|,|;|\s+\/\s+/g)
+        .map((entry) => cleanupValue(entry))
+        .filter((entry) => entry.length > 0);
+      if (colors.length === 0) return cleaned;
+      return Array.from(new Set(colors)).slice(0, 3).join(", ");
+    }
     default:
       return cleaned;
   }
@@ -1710,7 +1718,6 @@ const ADD_ON_ALIASES_BY_CATEGORY: Record<string, Record<string, string>> = {
   Cupcakes: {
     "dark color butter cream": "dark-color-buttercream",
     "dark buttercream": "dark-color-buttercream",
-    "cookie topper": "cookie-topper",
   },
 };
 

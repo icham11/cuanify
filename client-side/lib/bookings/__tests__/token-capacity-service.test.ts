@@ -196,36 +196,49 @@ describe("Token Capacity Service — Unit Tests", () => {
     });
 
     // ── Cupcakes ─────────────────────────────────────────────────────────
-    it("Cupcakes dozen: 2 tokens per quantity", () => {
+    it("Cupcakes dozen: 2 tokens per cupcake piece", () => {
       expect(
         calculateOrderTokenFromItems([
           { category: "Cupcakes", productName: "Dozen Box", quantity: 1 },
         ]),
-      ).toBe(2);
+      ).toBe(24);
     });
 
-    it("Cupcakes dozen quantity multiplies token", () => {
+    it("Cupcakes dozen quantity multiplies per cupcake piece token", () => {
       expect(
         calculateOrderTokenFromItems([
           { category: "Cupcakes", productName: "Dozen Box", quantity: 4 },
         ]),
-      ).toBe(8);
+      ).toBe(96);
     });
 
-    it("Cupcakes individual: 5 tokens per quantity", () => {
+    it("Cupcakes individual: per cupcake piece token", () => {
       expect(
         calculateOrderTokenFromItems([
           { category: "Cupcakes", productName: "Single Cupcake", quantity: 1 },
         ]),
-      ).toBe(5);
+      ).toBe(2);
     });
 
-    it("Cupcakes individual quantity multiplies token", () => {
+    it("Cupcakes individual quantity multiplies per cupcake piece token", () => {
       expect(
         calculateOrderTokenFromItems([
           { category: "Cupcakes", productName: "Single Cupcake", quantity: 10 },
         ]),
-      ).toBe(50);
+      ).toBe(20);
+    });
+
+    it("Cupcakes cookie add-on adds token per cupcake piece", () => {
+      expect(
+        calculateOrderTokenFromItems([
+          {
+            category: "Cupcakes",
+            productName: "Single Cupcake",
+            quantity: 10,
+            addOns: ["cookie-simple"],
+          },
+        ]),
+      ).toBe(30);
     });
 
     // ── Cookies Tower ────────────────────────────────────────────────────
