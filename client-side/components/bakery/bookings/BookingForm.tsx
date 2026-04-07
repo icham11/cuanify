@@ -142,6 +142,17 @@ const itemSchema = z.object({
   addOnQuantities: z
     .record(z.string(), z.number().int().min(1).max(999))
     .optional(),
+  addOnPriceOverrides: z
+    .record(z.string(), z.number().min(0).max(10_000_000))
+    .optional(),
+  customAddOns: z
+    .array(
+      z.object({
+        label: z.string().max(80).optional().or(z.literal("")),
+        price: z.number().min(0).max(10_000_000).default(0),
+      }),
+    )
+    .optional(),
   darkColorButtercreamColors: z
     .array(z.string())
     .max(3, "Maksimal 3 warna dark color buttercream.")
@@ -754,6 +765,51 @@ function normalizeAddOnQuantities(value: unknown): Record<string, number> {
   return next;
 }
 
+function normalizeAddOnPriceOverrides(value: unknown): Record<string, number> {
+  if (!value || typeof value !== "object") return {};
+
+  const next: Record<string, number> = {};
+  for (const [key, raw] of Object.entries(value)) {
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed) || parsed < 0) continue;
+    next[key] = Math.round(parsed);
+  }
+
+  return next;
+}
+
+type CustomAddOnInput = {
+  label: string;
+  price: number;
+};
+
+function normalizeCustomAddOns(value: unknown): CustomAddOnInput[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((entry) => {
+      const raw =
+        entry && typeof entry === "object"
+          ? (entry as { label?: unknown; price?: unknown })
+          : undefined;
+      const label = typeof raw?.label === "string" ? raw.label.trim() : "";
+      const parsedPrice = Number(raw?.price);
+      const price = Number.isFinite(parsedPrice)
+        ? Math.max(0, Math.round(parsedPrice))
+        : 0;
+      return { label, price } satisfies CustomAddOnInput;
+    })
+    .filter((entry) => entry.label.length > 0 || entry.price > 0);
+}
+
+function getCustomAddOnTotal(
+  customAddOns: CustomAddOnInput[],
+  quantity: number,
+): number {
+  const perUnit = customAddOns.reduce((sum, entry) => sum + entry.price, 0);
+  return perUnit * Math.max(1, quantity || 0);
+}
+
 function supportsAddOnQuantity(category: string, addonId: string): boolean {
   if (category !== "Cake") return false;
   const flavorIds = new Set(getFlavorAddOnIdsByCategory(category));
@@ -842,6 +898,7 @@ function calculatePerUnitAddOnPrice(args: {
   category: string;
   selectedAddOnIds: string[];
   addOnQuantities: Record<string, number>;
+  addOnPriceOverrides?: Record<string, number>;
   addOnCatalogEntries: CatalogAddOn[];
 }): number {
   return args.selectedAddOnIds.reduce((sum, addonId) => {
@@ -855,7 +912,12 @@ function calculatePerUnitAddOnPrice(args: {
       addonId,
       addOnQuantities: args.addOnQuantities,
     });
-    return sum + addon.price * multiplier;
+    const overriddenPrice = args.addOnPriceOverrides?.[addonId];
+    const unitPrice =
+      Number.isFinite(Number(overriddenPrice)) && Number(overriddenPrice) >= 0
+        ? Number(overriddenPrice)
+        : addon.price;
+    return sum + unitPrice * multiplier;
   }, 0);
 }
 
@@ -1247,6 +1309,8 @@ export default function BookingForm() {
               cookiePrice: undefined,
               addOns: [],
               addOnQuantities: {},
+              addOnPriceOverrides: {},
+              customAddOns: [],
               notes: "",
             }) ?? 1,
           tokenDifficulty: "SIMPLE",
@@ -1254,6 +1318,8 @@ export default function BookingForm() {
           cookiePrice: undefined,
           addOns: [],
           addOnQuantities: {},
+          addOnPriceOverrides: {},
+          customAddOns: [],
           darkColorButtercreamColors: [],
           parsedUnitPrice: undefined,
           parsedSubtotal: undefined,
@@ -1497,13 +1563,23 @@ export default function BookingForm() {
       const normalizedAddOnQuantities = normalizeAddOnQuantities(
         item.addOnQuantities,
       );
+      const normalizedAddOnPriceOverrides = normalizeAddOnPriceOverrides(
+        item.addOnPriceOverrides,
+      );
+      const normalizedCustomAddOns = normalizeCustomAddOns(item.customAddOns);
       const perItemAddOn = calculatePerUnitAddOnPrice({
         category: item.category,
         selectedAddOnIds: item.addOns ?? [],
         addOnQuantities: normalizedAddOnQuantities,
+        addOnPriceOverrides: normalizedAddOnPriceOverrides,
         addOnCatalogEntries: categoryAddOns,
       });
-      return sum + perItemAddOn * (Number(item.quantity) || 0);
+      const quantity = Number(item.quantity) || 0;
+      return (
+        sum +
+        perItemAddOn * quantity +
+        getCustomAddOnTotal(normalizedCustomAddOns, quantity)
+      );
     }, 0);
   }, [watchedItems, addOnCatalog]);
 
@@ -2431,14 +2507,21 @@ export default function BookingForm() {
       const normalizedAddOnQuantities = normalizeAddOnQuantities(
         item.addOnQuantities,
       );
+      const normalizedAddOnPriceOverrides = normalizeAddOnPriceOverrides(
+        item.addOnPriceOverrides,
+      );
+      const normalizedCustomAddOns = normalizeCustomAddOns(item.customAddOns);
       const addOnTotalForItem = hasParsedRecapPrice
         ? 0
         : calculatePerUnitAddOnPrice({
             category: item.category,
             selectedAddOnIds: item.addOns ?? [],
             addOnQuantities: normalizedAddOnQuantities,
+            addOnPriceOverrides: normalizedAddOnPriceOverrides,
             addOnCatalogEntries: categoryAddOns,
-          }) * item.quantity;
+          }) *
+            item.quantity +
+          getCustomAddOnTotal(normalizedCustomAddOns, item.quantity);
       const darkButtercreamColors = normalizeDarkButtercreamColors(
         item.darkColorButtercreamColors ?? [],
       );
@@ -2466,6 +2549,36 @@ export default function BookingForm() {
               })
               .filter((line) => line.length > 0)
               .join(", ")}`
+          : "",
+        normalizedCustomAddOns.length > 0
+          ? `Custom add-ons: ${normalizedCustomAddOns
+              .map(
+                (entry) =>
+                  `${entry.label} (${formatCurrency(entry.price)} / item)`,
+              )
+              .join(", ")}`
+          : "",
+        (item.addOns ?? []).length > 0
+          ? (() => {
+              const adjusted = (item.addOns ?? [])
+                .map((addonId) => {
+                  const addon = categoryAddOns.find(
+                    (entry) => entry.id === addonId,
+                  );
+                  if (!addon) return "";
+                  const overridePrice = normalizedAddOnPriceOverrides[addonId];
+                  if (
+                    overridePrice === undefined ||
+                    overridePrice === addon.price
+                  )
+                    return "";
+                  return `${addon.label} (${formatCurrency(overridePrice)} / item)`;
+                })
+                .filter((line) => line.length > 0);
+              return adjusted.length > 0
+                ? `Harga add-on adjust: ${adjusted.join(", ")}`
+                : "";
+            })()
           : "",
         selectedFlavorOption
           ? `Rasa: ${selectedFlavorOption.label}${selectedFlavorOption.premium && selectedFlavorOption.price > 0 ? ` (Premium ${formatCurrency(selectedFlavorOption.price)})` : ""}`
@@ -2624,6 +2737,9 @@ export default function BookingForm() {
     const currentQuantities = normalizeAddOnQuantities(
       watchedItems[itemIndex]?.addOnQuantities,
     );
+    const currentPriceOverrides = normalizeAddOnPriceOverrides(
+      watchedItems[itemIndex]?.addOnPriceOverrides,
+    );
     const isRemoving = current.includes(addonId);
     const next = current.includes(addonId)
       ? current.filter((id) => id !== addonId)
@@ -2642,6 +2758,14 @@ export default function BookingForm() {
       }
 
       setValue(`items.${itemIndex}.addOnQuantities`, nextQuantities, {
+        shouldValidate: true,
+      });
+    }
+
+    if (isRemoving && currentPriceOverrides[addonId] !== undefined) {
+      const nextOverrides = { ...currentPriceOverrides };
+      delete nextOverrides[addonId];
+      setValue(`items.${itemIndex}.addOnPriceOverrides`, nextOverrides, {
         shouldValidate: true,
       });
     }
@@ -2679,6 +2803,94 @@ export default function BookingForm() {
       },
       { shouldValidate: true },
     );
+  };
+
+  const setItemAddOnPriceOverride = (
+    itemIndex: number,
+    addonId: string,
+    rawValue: string,
+  ) => {
+    const current = normalizeAddOnPriceOverrides(
+      watchedItems[itemIndex]?.addOnPriceOverrides,
+    );
+    const next = { ...current };
+    const parsed = Number(rawValue);
+
+    if (
+      rawValue.trim().length === 0 ||
+      !Number.isFinite(parsed) ||
+      parsed < 0
+    ) {
+      delete next[addonId];
+    } else {
+      next[addonId] = Math.round(parsed);
+    }
+
+    clearParsedPricingOverride(itemIndex);
+    setValue(`items.${itemIndex}.addOnPriceOverrides`, next, {
+      shouldValidate: true,
+    });
+  };
+
+  const addCustomAddOn = (itemIndex: number) => {
+    const current = normalizeCustomAddOns(
+      watchedItems[itemIndex]?.customAddOns,
+    );
+    clearParsedPricingOverride(itemIndex);
+    setValue(
+      `items.${itemIndex}.customAddOns`,
+      [...current, { label: "Add-on Custom", price: 0 }],
+      { shouldValidate: true },
+    );
+  };
+
+  const removeCustomAddOn = (itemIndex: number, customIndex: number) => {
+    const current = normalizeCustomAddOns(
+      watchedItems[itemIndex]?.customAddOns,
+    );
+    clearParsedPricingOverride(itemIndex);
+    setValue(
+      `items.${itemIndex}.customAddOns`,
+      current.filter((_, index) => index !== customIndex),
+      { shouldValidate: true },
+    );
+  };
+
+  const setCustomAddOnLabel = (
+    itemIndex: number,
+    customIndex: number,
+    label: string,
+  ) => {
+    const current = normalizeCustomAddOns(
+      watchedItems[itemIndex]?.customAddOns,
+    );
+    const next = current.map((entry, index) =>
+      index === customIndex ? { ...entry, label } : entry,
+    );
+    clearParsedPricingOverride(itemIndex);
+    setValue(`items.${itemIndex}.customAddOns`, next, {
+      shouldValidate: true,
+    });
+  };
+
+  const setCustomAddOnPrice = (
+    itemIndex: number,
+    customIndex: number,
+    rawPrice: number,
+  ) => {
+    const current = normalizeCustomAddOns(
+      watchedItems[itemIndex]?.customAddOns,
+    );
+    const price = Number.isFinite(rawPrice)
+      ? Math.max(0, Math.round(rawPrice))
+      : 0;
+    const next = current.map((entry, index) =>
+      index === customIndex ? { ...entry, price } : entry,
+    );
+    clearParsedPricingOverride(itemIndex);
+    setValue(`items.${itemIndex}.customAddOns`, next, {
+      shouldValidate: true,
+    });
   };
 
   const toggleItemFlavor = (
@@ -2877,6 +3089,12 @@ export default function BookingForm() {
               addOns: Array.isArray(item.addOns) ? item.addOns : [],
               addOnQuantities: normalizeAddOnQuantities(
                 (item as { addOnQuantities?: unknown }).addOnQuantities,
+              ),
+              addOnPriceOverrides: normalizeAddOnPriceOverrides(
+                (item as { addOnPriceOverrides?: unknown }).addOnPriceOverrides,
+              ),
+              customAddOns: normalizeCustomAddOns(
+                (item as { customAddOns?: unknown }).customAddOns,
               ),
               darkColorButtercreamColors:
                 normalized.category === "Cupcakes" &&
@@ -3638,6 +3856,8 @@ export default function BookingForm() {
                         cookiePrice: undefined,
                         addOns: [],
                         addOnQuantities: {},
+                        addOnPriceOverrides: {},
+                        customAddOns: [],
                         notes: "",
                       }) ?? 1;
                     appendItem({
@@ -3651,6 +3871,8 @@ export default function BookingForm() {
                       cookiePrice: undefined,
                       addOns: [],
                       addOnQuantities: {},
+                      addOnPriceOverrides: {},
+                      customAddOns: [],
                       darkColorButtercreamColors: [],
                       parsedUnitPrice: undefined,
                       parsedSubtotal: undefined,
@@ -3811,6 +4033,11 @@ export default function BookingForm() {
                   const normalizedAddOnQuantities = normalizeAddOnQuantities(
                     item?.addOnQuantities,
                   );
+                  const normalizedAddOnPriceOverrides =
+                    normalizeAddOnPriceOverrides(item?.addOnPriceOverrides);
+                  const customAddOns = normalizeCustomAddOns(
+                    item?.customAddOns,
+                  );
                   const selectedNonFlavorAddOns = nonFlavorAddOns.filter(
                     (addon) => item?.addOns?.includes(addon.id) ?? false,
                   );
@@ -3821,15 +4048,26 @@ export default function BookingForm() {
                         addonId: addon.id,
                         addOnQuantities: normalizedAddOnQuantities,
                       });
-                      return sum + addon.price * multiplier;
+                      const overriddenPrice =
+                        normalizedAddOnPriceOverrides[addon.id];
+                      const unitPrice =
+                        overriddenPrice !== undefined
+                          ? overriddenPrice
+                          : addon.price;
+                      return sum + unitPrice * multiplier;
                     }, 0) * Math.max(1, quantityValue);
                   const selectedAllAddOnTotal =
                     calculatePerUnitAddOnPrice({
                       category: normalizedSelection.category,
                       selectedAddOnIds: item?.addOns ?? [],
                       addOnQuantities: normalizedAddOnQuantities,
+                      addOnPriceOverrides: normalizedAddOnPriceOverrides,
                       addOnCatalogEntries: addOns,
                     }) * Math.max(1, quantityValue);
+                  const customAddOnTotal = getCustomAddOnTotal(
+                    customAddOns,
+                    quantityValue,
+                  );
                   const displayUnitPrice =
                     hasParsedRecapPrice && parsedUnitPrice
                       ? parsedUnitPrice
@@ -3846,7 +4084,9 @@ export default function BookingForm() {
                   const itemTotalCostDisplay =
                     hasParsedRecapPrice && parsedSubtotal
                       ? parsedSubtotal
-                      : displayLinePrice + selectedAllAddOnTotal;
+                      : displayLinePrice +
+                        selectedAllAddOnTotal +
+                        customAddOnTotal;
 
                   return (
                     <div
@@ -3935,6 +4175,13 @@ export default function BookingForm() {
                               });
                               setValue(
                                 `items.${index}.addOnQuantities`,
+                                {},
+                                {
+                                  shouldValidate: true,
+                                },
+                              );
+                              setValue(
+                                `items.${index}.addOnPriceOverrides`,
                                 {},
                                 {
                                   shouldValidate: true,
@@ -4477,9 +4724,12 @@ export default function BookingForm() {
                             Add-ons
                           </span>
                           <span className="text-[11px] font-medium text-slate-500">
-                            {selectedNonFlavorAddOns.length} dipilih
-                            {selectedNonFlavorAddOns.length > 0
-                              ? ` • ${formatCurrency(selectedNonFlavorAddOnTotal)}`
+                            {selectedNonFlavorAddOns.length +
+                              customAddOns.length}{" "}
+                            dipilih
+                            {selectedNonFlavorAddOns.length > 0 ||
+                            customAddOns.length > 0
+                              ? ` • ${formatCurrency(selectedNonFlavorAddOnTotal + customAddOnTotal)}`
                               : ""}
                           </span>
                         </div>
@@ -4491,6 +4741,12 @@ export default function BookingForm() {
                                 : addon.label;
                             const checked =
                               item?.addOns?.includes(addon.id) ?? false;
+                            const overriddenPrice =
+                              normalizedAddOnPriceOverrides[addon.id];
+                            const baseUnitPrice =
+                              overriddenPrice !== undefined
+                                ? overriddenPrice
+                                : addon.price;
                             const supportsQuantity = supportsAddOnQuantity(
                               normalizedSelection.category,
                               addon.id,
@@ -4501,10 +4757,10 @@ export default function BookingForm() {
                               addOnQuantities: normalizedAddOnQuantities,
                             });
                             const effectiveUnitPrice =
-                              addon.price * perCakeUnits;
+                              baseUnitPrice * perCakeUnits;
 
                             return (
-                              <label
+                              <div
                                 key={addon.id}
                                 className="flex items-center justify-between gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm text-gray-700"
                               >
@@ -4514,6 +4770,9 @@ export default function BookingForm() {
                                     {formatCurrency(effectiveUnitPrice)}
                                     {supportsQuantity
                                       ? ` / cake (${perCakeUnits}x)`
+                                      : ""}
+                                    {overriddenPrice !== undefined
+                                      ? " (adjusted)"
                                       : ""}
                                     {quantityValue > 0
                                       ? ` (x${quantityValue} = ${formatCurrency(effectiveUnitPrice * quantityValue)})`
@@ -4537,6 +4796,27 @@ export default function BookingForm() {
                                       className="h-8 w-16"
                                     />
                                   )}
+                                  {checked && (
+                                    <Input
+                                      type="number"
+                                      min={0}
+                                      step={1000}
+                                      value={
+                                        overriddenPrice !== undefined
+                                          ? overriddenPrice
+                                          : ""
+                                      }
+                                      placeholder={String(addon.price)}
+                                      onChange={(event) =>
+                                        setItemAddOnPriceOverride(
+                                          index,
+                                          addon.id,
+                                          event.target.value,
+                                        )
+                                      }
+                                      className="h-8 w-24"
+                                    />
+                                  )}
                                   <input
                                     type="checkbox"
                                     checked={checked}
@@ -4546,9 +4826,74 @@ export default function BookingForm() {
                                     className="h-4 w-4 accent-indigo-600"
                                   />
                                 </span>
-                              </label>
+                              </div>
                             );
                           })}
+                        </div>
+                        <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                          <div className="mb-2 flex items-center justify-between gap-2">
+                            <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                              Add-on Custom
+                            </span>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="h-7 border-indigo-200 px-2 text-[11px] font-medium text-indigo-700"
+                              onClick={() => addCustomAddOn(index)}
+                            >
+                              + Tambah
+                            </Button>
+                          </div>
+                          {customAddOns.length === 0 ? (
+                            <p className="text-[11px] text-slate-500">
+                              Gunakan jika kebutuhan add-on tidak ada di list.
+                            </p>
+                          ) : (
+                            <div className="space-y-1.5">
+                              {customAddOns.map((customAddOn, customIndex) => (
+                                <div
+                                  key={`${customAddOn.label}-${customIndex}`}
+                                  className="grid gap-1.5 sm:grid-cols-[minmax(0,1fr)_130px_auto]"
+                                >
+                                  <Input
+                                    value={customAddOn.label}
+                                    placeholder="Nama add-on custom"
+                                    onChange={(event) =>
+                                      setCustomAddOnLabel(
+                                        index,
+                                        customIndex,
+                                        event.target.value,
+                                      )
+                                    }
+                                  />
+                                  <Input
+                                    type="number"
+                                    min={0}
+                                    step={1000}
+                                    value={customAddOn.price}
+                                    placeholder="Harga"
+                                    onChange={(event) =>
+                                      setCustomAddOnPrice(
+                                        index,
+                                        customIndex,
+                                        Number(event.target.value),
+                                      )
+                                    }
+                                  />
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="h-9 border-rose-200 px-2 text-xs text-rose-600"
+                                    onClick={() =>
+                                      removeCustomAddOn(index, customIndex)
+                                    }
+                                  >
+                                    Hapus
+                                  </Button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                         <div className="sticky bottom-2 z-10 rounded-xl border border-emerald-200 bg-linear-to-r from-emerald-50 via-white to-emerald-50 px-3 py-2.5 shadow-sm backdrop-blur-sm">
                           <div className="flex flex-wrap items-center justify-between gap-1.5">
@@ -4557,9 +4902,13 @@ export default function BookingForm() {
                             </span>
                             <span className="text-sm font-bold text-emerald-800 sm:text-base">
                               {formatCurrency(itemTotalCostDisplay)}
+                              <span>
+                                Add-on custom:{" "}
+                                {formatCurrency(customAddOnTotal)}
+                              </span>
                             </span>
                           </div>
-                          <div className="mt-1 grid gap-1 text-[11px] text-slate-600 sm:grid-cols-2">
+                          <div className="mt-1 grid gap-1 text-[11px] text-slate-600 sm:grid-cols-3">
                             <span>
                               Subtotal produk:{" "}
                               {formatCurrency(displayLinePrice)}
@@ -4577,10 +4926,11 @@ export default function BookingForm() {
                         </div>
                       </div>
 
-                      {selectedNonFlavorAddOns.length > 0 && (
+                      {(selectedNonFlavorAddOns.length > 0 ||
+                        customAddOns.length > 0) && (
                         <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
-                          {selectedNonFlavorAddOns
-                            .map((addon) => {
+                          {[
+                            ...selectedNonFlavorAddOns.map((addon) => {
                               const units = getAddOnUnitMultiplier({
                                 category: normalizedSelection.category,
                                 addonId: addon.id,
@@ -4589,8 +4939,12 @@ export default function BookingForm() {
                               return units > 1
                                 ? `${addon.label} x${units}`
                                 : addon.label;
-                            })
-                            .join(", ")}
+                            }),
+                            ...customAddOns.map(
+                              (entry) =>
+                                `${entry.label} (${formatCurrency(entry.price)} / item)`,
+                            ),
+                          ].join(", ")}
                         </div>
                       )}
 

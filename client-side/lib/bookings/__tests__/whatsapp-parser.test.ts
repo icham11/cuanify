@@ -390,6 +390,42 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
     );
   });
 
+  it("parses cake add-on unit price override from @price text", () => {
+    const text = [
+      "Data Cake",
+      "Tanggal Pengiriman: 10/5/26",
+      "KODE BOOKING: CK-90",
+      "Order: 1 cake",
+      "Nama di Cake: Atlas",
+      "Umur di cake: 8",
+      "Ukuran cake: 16 cm",
+      "Rasa cake: DC",
+      "Design cake: simple",
+      "Add on: 3 large cookies (2 mario, nama) @100k = 300k",
+      "Jam Pengiriman: 10:00",
+      "Metode Pengiriman: Gocar",
+      "Nama penerima: Test AddOn Override",
+      "No. telp penerima: 081234567891",
+      "Alamat lengkap: Central City",
+    ].join("\n");
+
+    const parsed = parseWhatsAppOrderText(text, {
+      preferredOrderType: "cake",
+      sourceType: "manual",
+    });
+    const autoFill = buildBookingAutoFillFromParsed(parsed);
+    const cakeItem = autoFill.items.find((item) => item.category === "Cake");
+
+    expect(Boolean(cakeItem)).toBe(true);
+    if (!cakeItem) {
+      throw new Error("Cake item was not generated");
+    }
+
+    expect(cakeItem.addOns.includes("large-cookies")).toBe(true);
+    expect(cakeItem.addOnQuantities?.["large-cookies"]).toBe(3);
+    expect(cakeItem.addOnPriceOverrides?.["large-cookies"]).toBe(100000);
+  });
+
   it("maps compact cake size code like d16t15 to the correct tall variant", () => {
     const text = [
       "Data Cake",

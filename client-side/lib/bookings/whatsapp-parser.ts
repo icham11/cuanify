@@ -392,6 +392,7 @@ export interface BookingFormAutoFill {
     cookiePrice?: number;
     addOns: string[];
     addOnQuantities?: Record<string, number>;
+    addOnPriceOverrides?: Record<string, number>;
     darkColorButtercreamColors?: string[];
     darkColorButtercreamColor?: string;
     parsedUnitPrice?: number;
@@ -1721,12 +1722,51 @@ function detectCupcakeDarkColorButtercream(value: string): {
 function detectCakeAddOnsFromText(value: string): {
   addOns: string[];
   addOnQuantities?: Record<string, number>;
+  addOnPriceOverrides?: Record<string, number>;
 } {
   const normalized = normalizeLabel(value);
   if (!normalized) return { addOns: [] };
 
   const addOns = new Set<string>();
   const addOnQuantities: Record<string, number> = {};
+  const addOnPriceOverrides: Record<string, number> = {};
+
+  const extractPriceOverrideForKeywords = (
+    keywords: string[],
+  ): number | null => {
+    const segments = value
+      .split(/\n|\||•|;/)
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+
+    for (const segment of segments) {
+      const normalizedSegment = normalizeLabel(segment);
+      const hasKeyword = keywords.some((keyword) =>
+        normalizedSegment.includes(normalizeLabel(keyword)),
+      );
+      if (!hasKeyword) continue;
+
+      const atPriceMatch = segment.match(/@\s*([0-9][0-9.,\s]*k?)/i);
+      if (atPriceMatch?.[1]) {
+        const parsedAtPrice = parseCurrencyAmount(atPriceMatch[1]);
+        if (parsedAtPrice && parsedAtPrice > 0) {
+          return parsedAtPrice;
+        }
+      }
+
+      const explicitPriceMatch = segment.match(
+        /(?:harga|price)\s*[:=-]?\s*([0-9][0-9.,\s]*k?)/i,
+      );
+      if (explicitPriceMatch?.[1]) {
+        const parsedExplicitPrice = parseCurrencyAmount(explicitPriceMatch[1]);
+        if (parsedExplicitPrice && parsedExplicitPrice > 0) {
+          return parsedExplicitPrice;
+        }
+      }
+    }
+
+    return null;
+  };
 
   const tryAssignCookieAddOn = (args: {
     addOnId: string;
@@ -1741,6 +1781,10 @@ function detectCakeAddOnsFromText(value: string): {
     addOns.add(args.addOnId);
     if (quantity && quantity > 0) {
       addOnQuantities[args.addOnId] = quantity;
+    }
+    const overridePrice = extractPriceOverrideForKeywords(args.keywords);
+    if (overridePrice && overridePrice > 0) {
+      addOnPriceOverrides[args.addOnId] = overridePrice;
     }
   };
 
@@ -1780,6 +1824,10 @@ function detectCakeAddOnsFromText(value: string): {
     addOns: Array.from(addOns),
     addOnQuantities:
       Object.keys(addOnQuantities).length > 0 ? addOnQuantities : undefined,
+    addOnPriceOverrides:
+      Object.keys(addOnPriceOverrides).length > 0
+        ? addOnPriceOverrides
+        : undefined,
   };
 }
 
@@ -2360,7 +2408,11 @@ function createAutoFillItemFromCategory(args: {
       ? detectCakeAddOnsFromText(
           `${args.searchSource || ""} ${args.notes || ""}`,
         )
-      : { addOns: [] as string[], addOnQuantities: undefined };
+      : {
+          addOns: [] as string[],
+          addOnQuantities: undefined,
+          addOnPriceOverrides: undefined,
+        };
 
   return {
     category: catalog.category,
@@ -2376,6 +2428,7 @@ function createAutoFillItemFromCategory(args: {
       cakeAddOns.addOns,
     ),
     addOnQuantities: cakeAddOns.addOnQuantities,
+    addOnPriceOverrides: cakeAddOns.addOnPriceOverrides,
     darkColorButtercreamColors: cupcakeDarkColor.darkColorButtercreamColors,
     darkColorButtercreamColor: cupcakeDarkColor.darkColorButtercreamColor,
     notes: args.notes,
@@ -2434,6 +2487,20 @@ function mergeAutoFillItems(
           const parsedQty = Math.max(1, Math.round(Number(qty) || 1));
           merged[id] = Math.max(merged[id] ?? 0, parsedQty);
         });
+        return Object.keys(merged).length > 0 ? merged : undefined;
+      })(),
+      addOnPriceOverrides: (() => {
+        const merged: Record<string, number> = {
+          ...(existing.addOnPriceOverrides ?? {}),
+        };
+        Object.entries(item.addOnPriceOverrides ?? {}).forEach(
+          ([id, price]) => {
+            const parsedPrice = Math.round(Number(price) || 0);
+            if (parsedPrice > 0) {
+              merged[id] = parsedPrice;
+            }
+          },
+        );
         return Object.keys(merged).length > 0 ? merged : undefined;
       })(),
       notes: existing.notes || item.notes,
