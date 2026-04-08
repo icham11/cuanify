@@ -162,7 +162,7 @@ const detailFieldDefinitions: Record<WhatsAppOrderType, FieldDefinition[]> = {
     {
       key: "toFromNotes",
       label: "To From Notes",
-      aliases: ["to from notes", "to-from-notes", "to from", "notes"],
+      aliases: ["to from notes", "to-from-notes", "to from"],
     },
     {
       key: "cookieDesign",

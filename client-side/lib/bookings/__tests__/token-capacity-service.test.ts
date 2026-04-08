@@ -198,13 +198,13 @@ describe("Token Capacity Service — Unit Tests", () => {
           {
             category: "Cookies",
             subcategory: "Christmas 2025",
-            productName: "DIY Classic",
+            productName: "Mini DIY (isi 3)",
             quantity: 2,
           },
           {
             category: "Cookies",
             subcategory: "Christmas 2025",
-            productName: "DIY Gingerbread House",
+            productName: "Regular DIY (isi 6)",
             quantity: 1,
           },
         ]),

@@ -51,9 +51,8 @@ const SHARING_BOX_TOKEN_PER_UNIT: Record<number, number> = {
 };
 
 const DIY_TOKEN_PER_UNIT: Record<string, number> = {
-  default: 3,
-  gingerbread: 6,
-  house: 6,
+  mini: 3,
+  regular: 6,
 };
 
 const CUPCAKE_COOKIE_ADDON_TOKEN_MAP: Record<string, number> = {
@@ -197,11 +196,20 @@ function resolveSharingBoxTokenPerUnit(searchSource: string): number {
 
 function resolveDiyTokenPerUnit(searchSource: string): number {
   if (!searchSource.includes("diy")) return 0;
-  if (searchSource.includes("gingerbread") || searchSource.includes("house")) {
-    return DIY_TOKEN_PER_UNIT.gingerbread;
+  if (
+    searchSource.includes("regular diy") ||
+    searchSource.includes("isi 6") ||
+    searchSource.includes("gingerbread") ||
+    searchSource.includes("house")
+  ) {
+    return DIY_TOKEN_PER_UNIT.regular;
   }
 
-  return DIY_TOKEN_PER_UNIT.default;
+  if (searchSource.includes("mini diy") || searchSource.includes("isi 3")) {
+    return DIY_TOKEN_PER_UNIT.mini;
+  }
+
+  return DIY_TOKEN_PER_UNIT.mini;
 }
 
 function resolveBouquetToken(searchSource: string): number {

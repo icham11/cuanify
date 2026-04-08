@@ -1198,4 +1198,27 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
       "To From Notes: Happy Birthday Elliora | From kuku & kim2",
     );
   });
+
+  it("does not map generic Design/Notes label into To From Notes", () => {
+    const text = [
+      "Tanggal Pengiriman: 8 April 2026",
+      "KODE BOOKING: AD-06",
+      "Order: 1 cake , 20 cookies",
+      "Design/Notes: Mario",
+      "Jam Pengiriman: 10:00",
+      "Metode Pengiriman: Pickup",
+      "Nama penerima: adina",
+      "No. telp penerima: 08118402606",
+      "Alamat lengkap: Jakarta Selatan",
+    ].join("\n");
+
+    const parsed = parseWhatsAppOrderText(text, {
+      preferredOrderType: "unknown",
+      sourceType: "manual",
+    });
+    const autoFill = buildBookingAutoFillFromParsed(parsed);
+
+    expect(parsed.detailsByOrderType?.cookies?.toFromNotes || "").toBe("");
+    expect(autoFill.customNotes).toBe("");
+  });
 });

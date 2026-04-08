@@ -412,10 +412,18 @@ export const BOOKING_PRODUCT_CATALOG: PricelistCategory[] = [
               variant("Character Box", 160000, ["character box", "box isi 9"]),
               variant("Bites Nastar", 200000, ["bites nastar"]),
               variant("Bauble", 60000, ["bauble"]),
-              variant("DIY Classic", 110000, ["diy classic", "diy"]),
-              variant("DIY Gingerbread House", 130000, [
+              variant("Mini DIY (isi 3)", 110000, [
+                "mini diy",
+                "diy classic",
+                "diy",
+                "isi 3",
+              ]),
+              variant("Regular DIY (isi 6)", 130000, [
+                "regular diy",
                 "diy gingerbread house",
                 "gingerbread",
+                "house",
+                "isi 6",
               ]),
               variant("Jingle Box", 100000, ["jingle box"]),
               variant("Joyful Box", 200000, ["joyful box"]),
@@ -440,7 +448,12 @@ export const BOOKING_PRODUCT_CATALOG: PricelistCategory[] = [
               variant("Bites Nastar", 200000, ["bites nastar"]),
               variant("Wishful Box", 110000, ["wishful box"]),
               variant("Dimsum Box", 220000, ["dimsum box"]),
-              variant("DIY Classic", 110000, ["diy classic", "diy"]),
+              variant("Mini DIY (isi 3)", 110000, [
+                "mini diy",
+                "diy classic",
+                "diy",
+                "isi 3",
+              ]),
             ],
           },
           {
@@ -458,7 +471,12 @@ export const BOOKING_PRODUCT_CATALOG: PricelistCategory[] = [
               ]),
               variant("Sharing Box isi 2", 45000, ["sharing box", "box isi 2"]),
               variant("Sharing Box isi 3", 60000, ["sharing box", "box isi 3"]),
-              variant("DIY Set", 120000, ["diy set", "diy"]),
+              variant("Mini DIY (isi 3)", 120000, [
+                "mini diy",
+                "diy set",
+                "diy",
+                "isi 3",
+              ]),
             ],
           },
           {
@@ -474,7 +492,12 @@ export const BOOKING_PRODUCT_CATALOG: PricelistCategory[] = [
               variant("Bites Nastar", 200000, ["bites nastar"]),
               variant("Dimsum Box", 250000, ["dimsum box"]),
               variant("Wishful Box", 110000, ["wishful box"]),
-              variant("DIY Classic", 110000, ["diy classic", "diy"]),
+              variant("Mini DIY (isi 3)", 110000, [
+                "mini diy",
+                "diy classic",
+                "diy",
+                "isi 3",
+              ]),
               variant("Lotus Box", 175000, ["lotus box"]),
             ],
           },

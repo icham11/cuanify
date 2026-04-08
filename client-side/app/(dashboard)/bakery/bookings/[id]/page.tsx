@@ -837,9 +837,8 @@ export default function OrderDetailPage() {
           <PriceSummaryCard
             basePrice={order.basePrice ?? 0}
             addOnTotal={order.addOnTotal ?? 0}
-            deliveryFee={
-              (order.deliveryFee ?? 0) + (order.manualAdjustment ?? 0)
-            }
+            deliveryFee={order.deliveryFee ?? 0}
+            manualAdjustment={order.manualAdjustment ?? 0}
             totalPrice={totalPrice}
           />
           <Card className="rounded-xl shadow-sm">

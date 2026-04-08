@@ -19,6 +19,7 @@ import PriceSummaryCard from "@/components/bakery/bookings/PriceSummaryCard";
 import { formatCurrency } from "@/components/orders/formatters";
 import {
   useOrders,
+  type BakeryOrder,
   type NewOrderInput,
   type OrderItem,
 } from "@/components/bakery/store";
@@ -368,6 +369,11 @@ const CUPCAKE_INDIVIDUAL_MIN_QTY = 10;
 const COOKIE_CUSTOM_TOTAL_MIN_QTY = 20;
 const COOKIE_INCLUDED_DESIGN_LIMIT = 5;
 const COOKIE_ADDITIONAL_DESIGN_PRICE = 10_000;
+const COOKIE_ADDITIONAL_DESIGN_ADDON_IDS = [
+  "cookie-additional-design",
+  "cookie-design-surcharge",
+  "cookie-design-extra",
+] as const;
 const DARK_COLOR_BUTTERCREAM_ADDON_ID = "dark-color-buttercream";
 const DARK_BUTTERCREAM_COLOR_OPTIONS = [
   "Black",
@@ -468,6 +474,24 @@ function normalizeCookieDesignCount(value: unknown): number | undefined {
 function getAdditionalCookieDesignCount(value: unknown): number {
   const designCount = normalizeCookieDesignCount(value) ?? 0;
   return Math.max(0, designCount - COOKIE_INCLUDED_DESIGN_LIMIT);
+}
+
+function getCookieAdditionalDesignCountFromItem(
+  item: Pick<BookingItemInput, "designCount" | "additionalDesignCount">,
+): number {
+  const explicitAdditionalDesignCount = normalizeCookieDesignCount(
+    item.additionalDesignCount,
+  );
+  if (explicitAdditionalDesignCount !== undefined) {
+    return explicitAdditionalDesignCount;
+  }
+
+  const designCount = normalizeCookieDesignCount(item.designCount);
+  if (designCount === undefined) {
+    return 0;
+  }
+
+  return getAdditionalCookieDesignCount(designCount);
 }
 
 function getTokenDifficultyOption(value: unknown) {
@@ -924,6 +948,51 @@ function getCategoryAddOnsFromCatalog(
   category: string,
 ) {
   return addOnCatalog[category] ?? [];
+}
+
+function getCookieAdditionalDesignUnitPrice(args?: {
+  addOnCatalog?: Record<string, CatalogAddOn[]>;
+  categoryAddOns?: CatalogAddOn[];
+  item?: Pick<BookingItemInput, "addOnPriceOverrides">;
+}): number {
+  const normalizedOverrides = normalizeAddOnPriceOverrides(
+    args?.item?.addOnPriceOverrides,
+  );
+
+  for (const addOnId of COOKIE_ADDITIONAL_DESIGN_ADDON_IDS) {
+    const overriddenPrice = normalizedOverrides[addOnId];
+    if (Number.isFinite(overriddenPrice) && overriddenPrice >= 0) {
+      return Math.round(overriddenPrice);
+    }
+  }
+
+  const addOns =
+    args?.categoryAddOns ??
+    (args?.addOnCatalog
+      ? getCategoryAddOnsFromCatalog(args.addOnCatalog, "Cookies")
+      : []);
+
+  for (const addOnId of COOKIE_ADDITIONAL_DESIGN_ADDON_IDS) {
+    const byId = addOns.find((addOn) => addOn.id === addOnId);
+    if (byId && Number.isFinite(byId.price) && byId.price >= 0) {
+      return Math.round(byId.price);
+    }
+  }
+
+  const byLabel = addOns.find((addOn) => {
+    const label = String(addOn.label || "").toLowerCase();
+    return (
+      (label.includes("design") || label.includes("desain")) &&
+      (label.includes("surcharge") ||
+        label.includes("extra") ||
+        label.includes("tambahan"))
+    );
+  });
+  if (byLabel && Number.isFinite(byLabel.price) && byLabel.price >= 0) {
+    return Math.round(byLabel.price);
+  }
+
+  return COOKIE_ADDITIONAL_DESIGN_PRICE;
 }
 
 function getFlavorOptionsForCategory(category: string) {
@@ -1533,14 +1602,19 @@ function resolveBouquetVariantForPaxel(
 function getItemBasePrice(
   catalog: PricelistCategory[],
   item: BookingItemInput,
+  options?: {
+    cookieAdditionalDesignUnitPrice?: number;
+  },
 ): number {
   const parsedSubtotal = getParsedSubtotalOverride(item);
   if (parsedSubtotal !== null) {
     if (isCustomCookieItem(item)) {
-      const designCount = normalizeCookieDesignCount(item.designCount);
-      const additionalDesignCount = getAdditionalCookieDesignCount(designCount);
+      const additionalDesignCount = getCookieAdditionalDesignCountFromItem(item);
+      const cookieAdditionalDesignUnitPrice =
+        options?.cookieAdditionalDesignUnitPrice ??
+        COOKIE_ADDITIONAL_DESIGN_PRICE;
       return (
-        parsedSubtotal + additionalDesignCount * COOKIE_ADDITIONAL_DESIGN_PRICE
+        parsedSubtotal + additionalDesignCount * cookieAdditionalDesignUnitPrice
       );
     }
 
@@ -1588,6 +1662,226 @@ function getItemProductionToken(item: BookingItemInput): number {
   ]);
 }
 
+function getDraftItemPriceBreakdown(args: {
+  catalog: PricelistCategory[];
+  addOnCatalog: Record<string, CatalogAddOn[]>;
+  item: BookingItemInput;
+}): {
+  categoryLabel: string;
+  itemLabel: string;
+  quantity: number;
+  baseAmount: number;
+  addOnAmount: number;
+  totalAmount: number;
+  addOnDetails: string[];
+} {
+  const { catalog, addOnCatalog, item } = args;
+  const quantity = Number(item.quantity) || 0;
+  const categoryLabel = item.category?.trim() || "Lainnya";
+  const itemVariantLabel =
+    isCustomCookieItem(item) &&
+    parseCookieDifficultyRows(
+      String(extractCookieDifficultyBreakdown(item) || ""),
+    ).length > 0
+      ? "Mixed by difficulty"
+      : item.size;
+  const itemLabel = [item.productName, itemVariantLabel]
+    .filter((part) => (part || "").trim().length > 0)
+    .join(" - ");
+
+  if (quantity <= 0) {
+    return {
+      categoryLabel,
+      itemLabel: itemLabel || item.category || "Item",
+      quantity: 0,
+      baseAmount: 0,
+      addOnAmount: 0,
+      totalAmount: 0,
+      addOnDetails: [],
+    };
+  }
+
+  const hasParsedRecapPrice = hasParsedPricingOverride(item);
+  const normalizedAddOnQuantities = normalizeAddOnQuantities(item.addOnQuantities);
+  const normalizedAddOnPriceOverrides = normalizeAddOnPriceOverrides(
+    item.addOnPriceOverrides,
+  );
+  const normalizedCustomAddOns = normalizeCustomAddOns(item.customAddOns);
+  const categoryAddOns = getCategoryAddOnsFromCatalog(addOnCatalog, item.category);
+  const selectedAddOnAmount = calculatePerUnitAddOnPrice({
+    category: item.category,
+    bouquetType: detectBouquetTypeFromItem(item),
+    selectedAddOnIds: item.addOns ?? [],
+    addOnQuantities: normalizedAddOnQuantities,
+    addOnPriceOverrides: normalizedAddOnPriceOverrides,
+    addOnCatalogEntries: categoryAddOns,
+  }) * quantity;
+  const customAddOnAmount = getCustomAddOnTotal(normalizedCustomAddOns, quantity);
+  const addOnFromSelection = selectedAddOnAmount + customAddOnAmount;
+
+  const isCustomCookiesItem = isCustomCookieItem(item);
+  const cookieDifficultyBreakdown = extractCookieDifficultyBreakdown(item);
+  const cookieDifficultyRows = parseCookieDifficultyRows(
+    String(cookieDifficultyBreakdown || ""),
+  );
+  const cookieBreakdownSubtotal =
+    isCustomCookiesItem && cookieDifficultyRows.length > 0
+      ? cookieDifficultyRows.reduce((sum, row) => {
+          const rowDifficulty = getTokenDifficultyOption(row.difficulty);
+          return sum + Math.max(0, row.quantity) * rowDifficulty.cookiePrice;
+        }, 0)
+      : 0;
+
+  const customCookieAdditionalDesignCount = isCustomCookiesItem
+    ? getCookieAdditionalDesignCountFromItem(item)
+    : 0;
+  const customCookieAdditionalDesignUnitPrice = isCustomCookiesItem
+    ? getCookieAdditionalDesignUnitPrice({ addOnCatalog, item })
+    : COOKIE_ADDITIONAL_DESIGN_PRICE;
+  const customCookieAdditionalDesignCharge =
+    customCookieAdditionalDesignCount * customCookieAdditionalDesignUnitPrice;
+  const addOnDetails: string[] = [];
+  const selectedAddOnIds = Array.isArray(item.addOns) ? item.addOns : [];
+
+  selectedAddOnIds.forEach((addOnId) => {
+    const addOn = categoryAddOns.find((entry) => entry.id === addOnId);
+    if (!addOn) return;
+
+    const quantityMultiplier = getAddOnUnitMultiplier({
+      category: item.category,
+      addonId: addOnId,
+      addOnQuantities: normalizedAddOnQuantities,
+    });
+    const qtyText = quantityMultiplier > 1 ? ` x${quantityMultiplier}` : "";
+    addOnDetails.push(`${addOn.label}${qtyText}`);
+  });
+
+  normalizedCustomAddOns.forEach((entry) => {
+    if (!entry.label.trim()) return;
+    addOnDetails.push(`Custom: ${entry.label}`);
+  });
+
+  if (customCookieAdditionalDesignCount > 0) {
+    addOnDetails.push(
+      `Surcharge design (${customCookieAdditionalDesignCount} x ${formatCurrency(customCookieAdditionalDesignUnitPrice)})`,
+    );
+  }
+
+  const baseBeforeSplit =
+    !hasParsedRecapPrice && cookieBreakdownSubtotal > 0
+      ? cookieBreakdownSubtotal
+      : getItemBasePrice(catalog, item, {
+          cookieAdditionalDesignUnitPrice: customCookieAdditionalDesignUnitPrice,
+        });
+  const recapTotalOverride =
+    hasParsedRecapPrice && isCustomCookiesItem && cookieBreakdownSubtotal > 0
+      ? Math.max(
+          0,
+          Math.round(cookieBreakdownSubtotal + customCookieAdditionalDesignCharge),
+        )
+      : null;
+
+  if (hasParsedRecapPrice) {
+    const totalAmount =
+      recapTotalOverride ?? Math.max(0, Math.round(baseBeforeSplit));
+    const addOnAmount = Math.min(
+      totalAmount,
+      Math.max(
+        0,
+        Math.round(addOnFromSelection + customCookieAdditionalDesignCharge),
+      ),
+    );
+    const baseAmount = Math.max(0, totalAmount - addOnAmount);
+    return {
+      categoryLabel,
+      itemLabel: itemLabel || item.category || "Item",
+      quantity,
+      baseAmount,
+      addOnAmount,
+      totalAmount,
+      addOnDetails,
+    };
+  }
+
+  const baseAmount = Math.max(0, Math.round(baseBeforeSplit));
+  const addOnAmount = Math.max(
+    0,
+    Math.round(addOnFromSelection + customCookieAdditionalDesignCharge),
+  );
+  const totalAmount = Math.max(0, baseAmount + addOnAmount);
+
+  return {
+    categoryLabel,
+    itemLabel: itemLabel || item.category || "Item",
+    quantity,
+    baseAmount,
+    addOnAmount,
+    totalAmount,
+    addOnDetails,
+  };
+}
+
+function toBookingDatePart(deliveryDate: string): string {
+  const normalizedDate = normalizeDateInput(deliveryDate);
+  if (!normalizedDate) return "000000";
+
+  const isoMatch = normalizedDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!isoMatch) return "000000";
+
+  const yearShort = isoMatch[1].slice(-2);
+  return `${isoMatch[3]}${isoMatch[2]}${yearShort}`;
+}
+
+function extractSequenceForDate(code: string, datePart: string): number {
+  const normalized = code.replace(/\s+/g, "").toUpperCase();
+  if (!normalized || !datePart || datePart === "000000") return 0;
+  const pattern = new RegExp(`^[A-Z]{2}\\d{3}-${datePart}-(\\d{3})$`);
+  const match = normalized.match(pattern);
+  if (!match?.[1]) return 0;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function getDailyBookingSequence(
+  orders: BakeryOrder[],
+  deliveryDate: string,
+): number {
+  const datePart = toBookingDatePart(deliveryDate);
+  const max = orders.reduce((currentMax, order) => {
+    const fromBooking = extractSequenceForDate(order.bookingCode || "", datePart);
+    const fromResi = extractSequenceForDate(order.resi || "", datePart);
+    return Math.max(currentMax, fromBooking, fromResi);
+  }, 0);
+  return max + 1;
+}
+
+function generateBookingCode(
+  customerName: string,
+  customerPhone: string,
+  deliveryDate: string,
+  sequence: number,
+): string {
+  const initials = customerName
+    .replace(/[^a-zA-Z]/g, "")
+    .slice(0, 2)
+    .toUpperCase()
+    .padEnd(2, "X");
+  const phoneDigits = customerPhone.replace(/\D/g, "");
+  const lastThree = phoneDigits.slice(-3).padStart(3, "0");
+  const datePart = toBookingDatePart(deliveryDate);
+  const sequencePart = String(sequence).padStart(3, "0");
+  return `${initials}${lastThree}-${datePart}-${sequencePart}`;
+}
+
+function formatSubmitTimestamp(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return new Intl.DateTimeFormat("id-ID", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(parsed);
+}
+
 export default function BookingForm() {
   const { addOrder, orders } = useOrders();
   const { productCatalog, addOnCatalog } = useCatalogAdminState();
@@ -1623,6 +1917,10 @@ export default function BookingForm() {
   const [isCapacityValidating, setIsCapacityValidating] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [submitSuccess, setSubmitSuccess] = useState("");
+  const [submitSuccessMeta, setSubmitSuccessMeta] = useState<{
+    bookingCode: string;
+    submittedAt: string;
+  } | null>(null);
 
   const {
     register,
@@ -1818,11 +2116,21 @@ export default function BookingForm() {
     selectedCalendarStatus === "FULL" ||
     selectedCalendarStatus === "CUTOFF";
 
+  const itemPriceBreakdowns = useMemo(() => {
+    return watchedItems.map((item) =>
+      getDraftItemPriceBreakdown({
+        catalog: productCatalog,
+        addOnCatalog,
+        item,
+      }),
+    );
+  }, [watchedItems, productCatalog, addOnCatalog]);
+
   const basePrice = useMemo(() => {
-    return watchedItems.reduce((sum, item) => {
-      return sum + getItemBasePrice(productCatalog, item);
+    return itemPriceBreakdowns.reduce((sum, item) => {
+      return sum + item.baseAmount;
     }, 0);
-  }, [watchedItems, productCatalog]);
+  }, [itemPriceBreakdowns]);
 
   useEffect(() => {
     if (deliveryMethod !== "ASSISTED_PAXEL") return;
@@ -1947,37 +2255,58 @@ export default function BookingForm() {
   }, [clearParsedPricingOverride, watchedItems, productCatalog, setValue]);
 
   const addOnTotal = useMemo(() => {
-    return watchedItems.reduce((sum, item) => {
-      if (hasParsedPricingOverride(item)) {
-        return sum;
-      }
-
-      const categoryAddOns = getCategoryAddOnsFromCatalog(
-        addOnCatalog,
-        item.category,
-      );
-      const normalizedAddOnQuantities = normalizeAddOnQuantities(
-        item.addOnQuantities,
-      );
-      const normalizedAddOnPriceOverrides = normalizeAddOnPriceOverrides(
-        item.addOnPriceOverrides,
-      );
-      const normalizedCustomAddOns = normalizeCustomAddOns(item.customAddOns);
-      const perItemAddOn = calculatePerUnitAddOnPrice({
-        category: item.category,
-        selectedAddOnIds: item.addOns ?? [],
-        addOnQuantities: normalizedAddOnQuantities,
-        addOnPriceOverrides: normalizedAddOnPriceOverrides,
-        addOnCatalogEntries: categoryAddOns,
-      });
-      const quantity = Number(item.quantity) || 0;
-      return (
-        sum +
-        perItemAddOn * quantity +
-        getCustomAddOnTotal(normalizedCustomAddOns, quantity)
-      );
+    return itemPriceBreakdowns.reduce((sum, item) => {
+      return sum + item.addOnAmount;
     }, 0);
-  }, [watchedItems, addOnCatalog]);
+  }, [itemPriceBreakdowns]);
+
+  const categoryPriceBreakdown = useMemo(() => {
+    const grouped = new Map<
+      string,
+      {
+        amount: number;
+        items: Array<{
+          label: string;
+          quantity: number;
+          baseAmount: number;
+          addOnAmount: number;
+          totalAmount: number;
+          addOnDetails?: string[];
+        }>;
+      }
+    >();
+
+    itemPriceBreakdowns.forEach((item) => {
+      if (item.quantity <= 0) return;
+      const categoryLabel = item.categoryLabel;
+
+      const current = grouped.get(categoryLabel) ?? {
+        amount: 0,
+        items: [],
+      };
+
+      grouped.set(categoryLabel, {
+        amount: current.amount + item.totalAmount,
+        items: [
+          ...current.items,
+          {
+            label: item.itemLabel,
+            quantity: item.quantity,
+            baseAmount: item.baseAmount,
+            addOnAmount: item.addOnAmount,
+            totalAmount: item.totalAmount,
+            addOnDetails: item.addOnDetails,
+          },
+        ],
+      });
+    });
+
+    return Array.from(grouped.entries()).map(([categoryLabel, summary]) => ({
+      label: categoryLabel,
+      amount: summary.amount,
+      items: summary.items,
+    }));
+  }, [itemPriceBreakdowns]);
 
   const shouldUseShippingEngine = useMemo(
     () => usesShippingEngine(deliveryMethod as DeliveryMethod),
@@ -2566,7 +2895,12 @@ export default function BookingForm() {
 
   const shippingItems = useMemo<ShippingQuoteItemInput[]>(() => {
     return watchedItems.map((item) => {
-      const itemBasePrice = getItemBasePrice(productCatalog, item);
+      const itemBasePrice = getItemBasePrice(productCatalog, item, {
+        cookieAdditionalDesignUnitPrice: getCookieAdditionalDesignUnitPrice({
+          addOnCatalog,
+          item,
+        }),
+      });
 
       return {
         name: `${item.productName} (${item.size})`,
@@ -2575,7 +2909,7 @@ export default function BookingForm() {
         value: Math.max(1000, Math.round(itemBasePrice)),
       };
     });
-  }, [watchedItems, productCatalog]);
+  }, [watchedItems, productCatalog, addOnCatalog]);
 
   const shippingWeightSummary = useMemo(() => {
     const rows = shippingItems.map((item) => {
@@ -2733,6 +3067,7 @@ export default function BookingForm() {
   const onSubmit: SubmitHandler<BookingFormValues> = async (values) => {
     setSubmitError("");
     setSubmitSuccess("");
+    setSubmitSuccessMeta(null);
 
     if (isCheckingShipping) {
       toast.error(
@@ -2960,7 +3295,15 @@ export default function BookingForm() {
 
     const mappedItems: OrderItem[] = values.items.map((item, index) => {
       const bouquetType = detectBouquetTypeFromItem(item);
-      const itemBasePrice = getItemBasePrice(productCatalog, item);
+      const cookieAdditionalDesignUnitPrice = getCookieAdditionalDesignUnitPrice(
+        {
+          addOnCatalog,
+          item,
+        },
+      );
+      const itemBasePrice = getItemBasePrice(productCatalog, item, {
+        cookieAdditionalDesignUnitPrice,
+      });
       const hasParsedRecapPrice = hasParsedPricingOverride(item);
       const parsedUnitPrice = getParsedUnitPriceOverride(item);
       const parsedSubtotal = getParsedSubtotalOverride(item);
@@ -2996,12 +3339,11 @@ export default function BookingForm() {
       const normalizedDesignCount = isCustomCookieItem(item)
         ? normalizeCookieDesignCount(item.designCount)
         : undefined;
-      const normalizedAdditionalDesignCount =
-        normalizedDesignCount !== undefined
-          ? getAdditionalCookieDesignCount(normalizedDesignCount)
-          : undefined;
+      const normalizedAdditionalDesignCount = isCustomCookieItem(item)
+        ? getCookieAdditionalDesignCountFromItem(item)
+        : undefined;
       const cookieAdditionalDesignCharge =
-        (normalizedAdditionalDesignCount ?? 0) * COOKIE_ADDITIONAL_DESIGN_PRICE;
+        (normalizedAdditionalDesignCount ?? 0) * cookieAdditionalDesignUnitPrice;
       const parsedSubtotalWithDesignCharge =
         hasParsedRecapPrice && parsedSubtotal
           ? parsedSubtotal + cookieAdditionalDesignCharge
@@ -3107,7 +3449,7 @@ export default function BookingForm() {
           ? `Surcharge design (recap): +${formatCurrency(cookieAdditionalDesignCharge)}`
           : "",
         normalizedDesignCount
-          ? `Design cookies: ${normalizedDesignCount}${normalizedAdditionalDesignCount ? ` (extra ${normalizedAdditionalDesignCount} x ${formatCurrency(COOKIE_ADDITIONAL_DESIGN_PRICE)})` : ""}`
+          ? `Design cookies: ${normalizedDesignCount}${normalizedAdditionalDesignCount ? ` (extra ${normalizedAdditionalDesignCount} x ${formatCurrency(cookieAdditionalDesignUnitPrice)})` : ""}`
           : "",
       ]
         .filter((line) => line.trim().length > 0)
@@ -3226,9 +3568,20 @@ export default function BookingForm() {
       shippingQuote: selectedShippingQuote,
     };
 
+    const predictedBookingCode = generateBookingCode(
+      values.customerName,
+      values.phoneNumber,
+      normalizedDeliveryDate,
+      getDailyBookingSequence(orders, normalizedDeliveryDate),
+    );
+
     try {
       await addOrder(submissionPayload);
       setSubmitSuccess("Booking berhasil disimpan ke server.");
+      setSubmitSuccessMeta({
+        bookingCode: predictedBookingCode,
+        submittedAt: new Date().toISOString(),
+      });
 
       setDraftImported(false);
       setQuickPaste("");
@@ -4932,22 +5285,33 @@ export default function BookingForm() {
                       quantityValue > 0 && cookieBreakdownSubtotal > 0
                         ? Math.round(cookieBreakdownSubtotal / quantityValue)
                         : 0;
-                    const customCookieDesignCount = isCustomCookiesItem
-                      ? (normalizeCookieDesignCount(item?.designCount) ?? 0)
+                    const customCookieAdditionalDesignCount = isCustomCookiesItem
+                      ? getCookieAdditionalDesignCountFromItem({
+                          designCount: item?.designCount,
+                          additionalDesignCount: item?.additionalDesignCount,
+                        })
                       : 0;
-                    const customCookieAdditionalDesignCount =
-                      customCookieDesignCount > 0
-                        ? getAdditionalCookieDesignCount(
-                            customCookieDesignCount,
-                          )
-                        : 0;
+                    const customCookieAdditionalDesignUnitPrice =
+                      isCustomCookiesItem
+                        ? getCookieAdditionalDesignUnitPrice({
+                            categoryAddOns: addOns,
+                            item: {
+                              addOnPriceOverrides: item?.addOnPriceOverrides,
+                            },
+                          })
+                        : COOKIE_ADDITIONAL_DESIGN_PRICE;
                     const customCookieAdditionalDesignCharge =
                       customCookieAdditionalDesignCount *
-                      COOKIE_ADDITIONAL_DESIGN_PRICE;
+                      customCookieAdditionalDesignUnitPrice;
                     const parsedSubtotalWithDesignCharge =
                       hasParsedRecapPrice && parsedSubtotal
                         ? parsedSubtotal + customCookieAdditionalDesignCharge
                         : parsedSubtotal;
+                    const cookieSubtotalWithDesignCharge =
+                      isCustomCookiesItem && cookieBreakdownSubtotal > 0
+                        ? cookieBreakdownSubtotal +
+                          customCookieAdditionalDesignCharge
+                        : undefined;
                     const displayUnitPrice =
                       hasParsedRecapPrice && parsedUnitPrice
                         ? parsedUnitPrice
@@ -4964,17 +5328,29 @@ export default function BookingForm() {
                               size: normalizedSelection.size,
                             });
                     const displayLinePrice =
-                      hasParsedRecapPrice && parsedSubtotalWithDesignCharge
-                        ? parsedSubtotalWithDesignCharge
+                      hasParsedRecapPrice && cookieSubtotalWithDesignCharge
+                        ? cookieSubtotalWithDesignCharge
+                        : hasParsedRecapPrice && parsedSubtotalWithDesignCharge
+                          ? parsedSubtotalWithDesignCharge
                         : isCustomCookiesItem && cookieBreakdownSubtotal > 0
                           ? cookieBreakdownSubtotal
-                          : getItemBasePrice(productCatalog, bouquetProbeItem);
+                          : getItemBasePrice(productCatalog, bouquetProbeItem, {
+                              cookieAdditionalDesignUnitPrice:
+                                customCookieAdditionalDesignUnitPrice,
+                            });
                     const itemTotalCostDisplay =
-                      hasParsedRecapPrice && parsedSubtotalWithDesignCharge
-                        ? parsedSubtotalWithDesignCharge
+                      hasParsedRecapPrice && cookieSubtotalWithDesignCharge
+                        ? cookieSubtotalWithDesignCharge
+                        : hasParsedRecapPrice && parsedSubtotalWithDesignCharge
+                          ? parsedSubtotalWithDesignCharge
                         : displayLinePrice +
                           selectedAllAddOnTotal +
-                          customAddOnTotal;
+                          customAddOnTotal +
+                          customCookieAdditionalDesignCharge;
+                    const totalAddOnAndSurchargeDisplay =
+                      selectedAllAddOnTotal +
+                      customAddOnTotal +
+                      customCookieAdditionalDesignCharge;
 
                     return (
                       <div
@@ -5504,7 +5880,7 @@ export default function BookingForm() {
                                   Maks {COOKIE_INCLUDED_DESIGN_LIMIT} design
                                   tanpa surcharge. Di atas itu dikenakan{" "}
                                   {formatCurrency(
-                                    COOKIE_ADDITIONAL_DESIGN_PRICE,
+                                    customCookieAdditionalDesignUnitPrice,
                                   )}{" "}
                                   per design tambahan.
                                 </span>
@@ -6220,8 +6596,8 @@ export default function BookingForm() {
                                 {formatCurrency(displayLinePrice)}
                               </span>
                               <span>
-                                Total add-ons:{" "}
-                                {formatCurrency(selectedAllAddOnTotal)}
+                                Total add-ons + surcharge:{" "}
+                                {formatCurrency(totalAddOnAndSurchargeDisplay)}
                               </span>
                             </div>
                             <p className="mt-1 text-[11px] font-medium text-slate-500">
@@ -6229,6 +6605,8 @@ export default function BookingForm() {
                                 ? customCookieAdditionalDesignCharge > 0
                                   ? "Sumber angka: recap parser + surcharge design tambahan."
                                   : "Sumber angka: recap parser (override aktif)."
+                                : customCookieAdditionalDesignCharge > 0
+                                  ? "Sumber angka: subtotal produk + add-ons + surcharge design dinamis."
                                 : "Sumber angka: subtotal produk + semua add-ons terpilih."}
                             </p>
                           </div>
@@ -6754,6 +7132,7 @@ export default function BookingForm() {
                   reset();
                   setSubmitError("");
                   setSubmitSuccess("");
+                  setSubmitSuccessMeta(null);
                   setQuickPaste("");
                   setSelectedOrderType("unknown");
                   setShowOrderTypeSelector(false);
@@ -6777,9 +7156,20 @@ export default function BookingForm() {
               <p className="text-sm font-medium text-rose-600">{submitError}</p>
             ) : null}
             {submitSuccess ? (
-              <p className="text-sm font-medium text-emerald-600">
-                {submitSuccess}
-              </p>
+              <div className="space-y-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                <p className="font-semibold">{submitSuccess}</p>
+                {submitSuccessMeta ? (
+                  <div className="space-y-1">
+                    <p>
+                      Status: <span className="font-semibold">Submitted</span>
+                    </p>
+                    <p>
+                      Kode Booking: <span className="font-semibold">{submitSuccessMeta.bookingCode}</span>
+                    </p>
+                    <p>Waktu Submit: {formatSubmitTimestamp(submitSuccessMeta.submittedAt)}</p>
+                  </div>
+                ) : null}
+              </div>
             ) : null}
           </CardContent>
         </Card>
@@ -6788,8 +7178,10 @@ export default function BookingForm() {
           <PriceSummaryCard
             basePrice={basePrice}
             addOnTotal={addOnTotal}
-            deliveryFee={deliveryFee + Number(manualAdjustment || 0)}
+            deliveryFee={deliveryFee}
+            manualAdjustment={Number(manualAdjustment || 0)}
             totalPrice={totalPrice}
+            categoryBreakdown={categoryPriceBreakdown}
           />
           <Card className="rounded-xl shadow-sm">
             <CardHeader className="p-6 pb-2">
