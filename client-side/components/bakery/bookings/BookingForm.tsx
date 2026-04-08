@@ -54,6 +54,7 @@ import {
   getSlotLimitByOrderType,
   getDeliverySlotsForDate,
   inferOrderTypeFromItems,
+  isSeasonalCookiesItem,
   isWithinBusinessHours,
   isDateBlockedForOrdering,
   summarizeProductionTokensByItems,
@@ -260,6 +261,9 @@ const bookingSchema = z
     paymentStatus: z.enum(["DP Paid", "Paid"]),
     dpPaidAmount: z.number().default(0),
     finalPaidAmount: z.number().default(0),
+    wholesaleDiscountPercent: z
+      .union([z.literal(0), z.literal(10), z.literal(15), z.literal(20)])
+      .default(0),
     manualAdjustment: z.number().default(0),
     items: z.array(itemSchema).min(1, "At least one item is required"),
     deliveryAddresses: z
@@ -511,6 +515,26 @@ interface ItemQuantityRule {
 
 function orderTypeLabel(orderType: SlotOrderType): string {
   return orderType === "SEASONAL" ? "Seasonal/Bulk" : "Custom";
+}
+
+type BookingItemGroupLabel = "CUSTOM" | "SEASONAL_EVENT";
+
+function getBookingItemGroupLabel(item: {
+  category?: string;
+  subcategory?: string;
+  productName?: string;
+  size?: string;
+  quantity?: number;
+}): BookingItemGroupLabel {
+  return isSeasonalCookiesItem({
+    category: item.category || "",
+    subcategory: item.subcategory,
+    productName: item.productName,
+    size: item.size,
+    quantity: Number(item.quantity) || 0,
+  })
+    ? "SEASONAL_EVENT"
+    : "CUSTOM";
 }
 
 function slotStatusLabel(status: SlotAvailabilityStatus): string {
@@ -863,6 +887,44 @@ function removeBouquetStructuredFieldsFromNotes(notes: string): string {
     .slice(0, 400);
 }
 
+function inferBouquetFlowerCountFromAddOns(args: {
+  addOns?: string[];
+  addOnQuantities?: Record<string, number>;
+}): string {
+  const addOnIds = Array.isArray(args.addOns) ? args.addOns : [];
+  const addOnQuantities = normalizeAddOnQuantities(args.addOnQuantities);
+
+  const getUnits = (addOnId: string) => Math.max(1, addOnQuantities[addOnId] ?? 1);
+
+  let totalFlowers = 0;
+  if (addOnIds.includes(BOUQUET_EXTRA_3_FLOWER_ADDON_ID)) {
+    totalFlowers += 3 * getUnits(BOUQUET_EXTRA_3_FLOWER_ADDON_ID);
+  }
+  if (addOnIds.includes(BOUQUET_EXTRA_6_FLOWER_ADDON_ID)) {
+    totalFlowers += 6 * getUnits(BOUQUET_EXTRA_6_FLOWER_ADDON_ID);
+  }
+
+  return totalFlowers > 0 ? String(totalFlowers) : "";
+}
+
+function inferBouquetCookieFillQuantityFromText(args: {
+  category?: string;
+  subcategory?: string;
+  productName?: string;
+  size?: string;
+  notes?: string;
+}): number | null {
+  if ((args.category || "") !== "Buket") return null;
+
+  const source = `${args.subcategory || ""} ${args.productName || ""} ${args.size || ""} ${args.notes || ""}`;
+  const match = source.match(/\bisi\s*(\d{1,3})\b/i);
+  if (!match?.[1]) return null;
+
+  const parsed = Number(match[1]);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return Math.max(1, Math.round(parsed));
+}
+
 function getDefaultSelectionFromCatalog(
   catalog: PricelistCategory[],
   preferredCategory?: string,
@@ -879,6 +941,64 @@ function getDefaultSelectionFromCatalog(
   return {
     category: categoryData?.category ?? "Cake",
     subcategory: subcategoryData?.name ?? "",
+    productName: productData?.name ?? "",
+    size: variantData?.label ?? "",
+  };
+}
+
+type CookieCatalogMode = "CUSTOM" | "SEASONAL_EVENT";
+
+function resolveCookieCatalogMode(selection: {
+  category?: string;
+  subcategory?: string;
+}): CookieCatalogMode {
+  if ((selection.category || "") !== "Cookies") return "CUSTOM";
+  const normalizedSubcategory = String(selection.subcategory || "")
+    .toLowerCase()
+    .trim();
+  return normalizedSubcategory.includes("event") ||
+    normalizedSubcategory.includes("seasonal")
+    ? "SEASONAL_EVENT"
+    : "CUSTOM";
+}
+
+function getCookieSelectionByMode(args: {
+  catalog: PricelistCategory[];
+  mode: CookieCatalogMode;
+  previousSelection?: Partial<CatalogSelection>;
+}): CatalogSelection {
+  const fallback = getDefaultSelectionFromCatalog(args.catalog, "Cookies");
+  const categoryData = args.catalog.find((entry) => entry.category === "Cookies");
+  if (!categoryData) return fallback;
+
+  const targetSubcategory =
+    args.mode === "SEASONAL_EVENT"
+      ? categoryData.subcategories.find((entry) =>
+          entry.name.toLowerCase().includes("event"),
+        )
+      : categoryData.subcategories.find((entry) =>
+          entry.name.toLowerCase().includes("custom"),
+        );
+
+  const resolvedSubcategory = targetSubcategory ?? categoryData.subcategories[0];
+  if (!resolvedSubcategory) return fallback;
+
+  const preservedProduct = resolvedSubcategory.products.find(
+    (entry) => entry.name === args.previousSelection?.productName,
+  );
+  const productData = preservedProduct ?? resolvedSubcategory.products[0];
+  const variantData =
+    productData?.variants.find(
+      (entry) => entry.label === args.previousSelection?.size,
+    ) ??
+    productData?.variants.find(
+      (entry) => entry.label === productData.defaultVariant,
+    ) ??
+    productData?.variants[0];
+
+  return {
+    category: "Cookies",
+    subcategory: resolvedSubcategory.name,
     productName: productData?.name ?? "",
     size: variantData?.label ?? "",
   };
@@ -1176,6 +1296,73 @@ function getBouquetFlowerAddOnUnitPrice(args: {
   return null;
 }
 
+function normalizeBubblewrapSourceText(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function resolveBubblewrapUnitPrice(args: {
+  category: string;
+  addonId: string;
+  defaultPrice: number;
+  itemSelection?: Pick<
+    BookingItemInput,
+    "category" | "subcategory" | "productName" | "size"
+  >;
+}): number {
+  const roundedDefault = Math.max(0, Math.round(args.defaultPrice));
+  if (args.addonId !== "bubblewrap") return roundedDefault;
+
+  const source = normalizeBubblewrapSourceText(
+    `${args.itemSelection?.category || ""} ${args.itemSelection?.subcategory || ""} ${args.itemSelection?.productName || ""} ${args.itemSelection?.size || ""}`,
+  );
+
+  if (source.includes("hand bouquet") || source.includes("hbq")) {
+    return 20_000;
+  }
+  if (
+    source.includes("character box") ||
+    source.includes("sharing box isi 9") ||
+    source.includes("box isi 9")
+  ) {
+    return 10_000;
+  }
+  if (
+    source.includes("sharing box isi 2") ||
+    source.includes("sharing box isi 3") ||
+    source.includes("sharing box isi 4") ||
+    source.includes("sharing box")
+  ) {
+    return 5_000;
+  }
+  if (source.includes("diy")) {
+    return 10_000;
+  }
+  if (source.includes("bauble")) {
+    return 5_000;
+  }
+  if (
+    source.includes("dimsum box") ||
+    source.includes("lotus box") ||
+    source.includes("bites box") ||
+    source.includes("bites nastar")
+  ) {
+    return 10_000;
+  }
+  if (
+    args.category === "Cookies" ||
+    source.includes("cookies") ||
+    source.includes("cookie")
+  ) {
+    return 2_000;
+  }
+
+  return roundedDefault;
+}
+
 function calculatePerUnitAddOnPrice(args: {
   category: string;
   bouquetType?: BouquetFormType | null;
@@ -1183,6 +1370,10 @@ function calculatePerUnitAddOnPrice(args: {
   addOnQuantities: Record<string, number>;
   addOnPriceOverrides?: Record<string, number>;
   addOnCatalogEntries: CatalogAddOn[];
+  itemSelection?: Pick<
+    BookingItemInput,
+    "category" | "subcategory" | "productName" | "size"
+  >;
 }): number {
   return args.selectedAddOnIds.reduce((sum, addonId) => {
     const addon = args.addOnCatalogEntries.find(
@@ -1196,7 +1387,7 @@ function calculatePerUnitAddOnPrice(args: {
       addOnQuantities: args.addOnQuantities,
     });
     const overriddenPrice = args.addOnPriceOverrides?.[addonId];
-    const unitPrice =
+    const baseUnitPrice =
       Number.isFinite(Number(overriddenPrice)) && Number(overriddenPrice) >= 0
         ? Number(overriddenPrice)
         : args.category === "Buket"
@@ -1205,6 +1396,12 @@ function calculatePerUnitAddOnPrice(args: {
               bouquetType: args.bouquetType ?? null,
             }) ?? addon.price)
           : addon.price;
+    const unitPrice = resolveBubblewrapUnitPrice({
+      category: args.category,
+      addonId,
+      defaultPrice: baseUnitPrice,
+      itemSelection: args.itemSelection,
+    });
     return sum + unitPrice * multiplier;
   }, 0);
 }
@@ -1652,6 +1849,7 @@ function getItemProductionToken(item: BookingItemInput): number {
       category: item.category,
       subcategory: item.subcategory,
       productName: item.productName,
+      size: item.size,
       quantity: Number(item.quantity) || 0,
       tokenDifficulty: item.tokenDifficulty,
       customTokenPerUnit: item.customTokenPerUnit,
@@ -1668,6 +1866,7 @@ function getDraftItemPriceBreakdown(args: {
   item: BookingItemInput;
 }): {
   categoryLabel: string;
+  groupLabel: BookingItemGroupLabel;
   itemLabel: string;
   quantity: number;
   baseAmount: number;
@@ -1678,6 +1877,7 @@ function getDraftItemPriceBreakdown(args: {
   const { catalog, addOnCatalog, item } = args;
   const quantity = Number(item.quantity) || 0;
   const categoryLabel = item.category?.trim() || "Lainnya";
+  const groupLabel = getBookingItemGroupLabel(item);
   const itemVariantLabel =
     isCustomCookieItem(item) &&
     parseCookieDifficultyRows(
@@ -1692,6 +1892,7 @@ function getDraftItemPriceBreakdown(args: {
   if (quantity <= 0) {
     return {
       categoryLabel,
+      groupLabel,
       itemLabel: itemLabel || item.category || "Item",
       quantity: 0,
       baseAmount: 0,
@@ -1715,6 +1916,12 @@ function getDraftItemPriceBreakdown(args: {
     addOnQuantities: normalizedAddOnQuantities,
     addOnPriceOverrides: normalizedAddOnPriceOverrides,
     addOnCatalogEntries: categoryAddOns,
+    itemSelection: {
+      category: item.category,
+      subcategory: item.subcategory,
+      productName: item.productName,
+      size: item.size,
+    },
   }) * quantity;
   const customAddOnAmount = getCustomAddOnTotal(normalizedCustomAddOns, quantity);
   const addOnFromSelection = selectedAddOnAmount + customAddOnAmount;
@@ -1794,6 +2001,7 @@ function getDraftItemPriceBreakdown(args: {
     const baseAmount = Math.max(0, totalAmount - addOnAmount);
     return {
       categoryLabel,
+      groupLabel,
       itemLabel: itemLabel || item.category || "Item",
       quantity,
       baseAmount,
@@ -1812,6 +2020,7 @@ function getDraftItemPriceBreakdown(args: {
 
   return {
     categoryLabel,
+    groupLabel,
     itemLabel: itemLabel || item.category || "Item",
     quantity,
     baseAmount,
@@ -1941,6 +2150,7 @@ export default function BookingForm() {
       paymentStatus: "DP Paid",
       dpPaidAmount: 0,
       finalPaidAmount: 0,
+      wholesaleDiscountPercent: 0,
       manualAdjustment: 0,
       items: [
         {
@@ -2030,6 +2240,8 @@ export default function BookingForm() {
   const deliverySlot = useWatch({ control, name: "deliverySlot" });
   const deliveryMethod =
     useWatch({ control, name: "deliveryMethod" }) ?? "REGULAR_JNE_JNT";
+  const wholesaleDiscountPercent =
+    useWatch({ control, name: "wholesaleDiscountPercent" }) ?? 0;
   const manualAdjustment = useWatch({ control, name: "manualAdjustment" }) ?? 0;
   const dpPaidInput = useWatch({ control, name: "dpPaidAmount" }) ?? 0;
   const finalPaidInput = useWatch({ control, name: "finalPaidAmount" }) ?? 0;
@@ -2264,6 +2476,8 @@ export default function BookingForm() {
     const grouped = new Map<
       string,
       {
+        groupLabel: BookingItemGroupLabel;
+        categoryLabel: string;
         amount: number;
         items: Array<{
           label: string;
@@ -2279,13 +2493,19 @@ export default function BookingForm() {
     itemPriceBreakdowns.forEach((item) => {
       if (item.quantity <= 0) return;
       const categoryLabel = item.categoryLabel;
+      const groupLabel = item.groupLabel;
+      const groupKey = `${groupLabel}::${categoryLabel}`;
 
-      const current = grouped.get(categoryLabel) ?? {
+      const current = grouped.get(groupKey) ?? {
+        groupLabel,
+        categoryLabel,
         amount: 0,
         items: [],
       };
 
-      grouped.set(categoryLabel, {
+      grouped.set(groupKey, {
+        groupLabel: current.groupLabel,
+        categoryLabel: current.categoryLabel,
         amount: current.amount + item.totalAmount,
         items: [
           ...current.items,
@@ -2301,12 +2521,28 @@ export default function BookingForm() {
       });
     });
 
-    return Array.from(grouped.entries()).map(([categoryLabel, summary]) => ({
-      label: categoryLabel,
+    return Array.from(grouped.values()).map((summary) => ({
+      label: summary.categoryLabel,
+      groupLabel: summary.groupLabel,
       amount: summary.amount,
       items: summary.items,
     }));
   }, [itemPriceBreakdowns]);
+
+  const orderItemGroupingSummary = useMemo(() => {
+    return watchedItems.reduce(
+      (acc, item) => {
+        const group = getBookingItemGroupLabel(item);
+        if (group === "SEASONAL_EVENT") {
+          acc.seasonalCount += 1;
+        } else {
+          acc.customCount += 1;
+        }
+        return acc;
+      },
+      { customCount: 0, seasonalCount: 0 },
+    );
+  }, [watchedItems]);
 
   const shouldUseShippingEngine = useMemo(
     () => usesShippingEngine(deliveryMethod as DeliveryMethod),
@@ -2698,9 +2934,19 @@ export default function BookingForm() {
     ? (selectedShippingQuote?.price ?? 0)
     : 0;
 
+  const subtotalBeforeDiscount =
+    basePrice + addOnTotal + deliveryFee + Number(manualAdjustment || 0);
+  const wholesaleDiscountAmount = Math.max(
+    0,
+    Math.round(
+      Math.max(0, subtotalBeforeDiscount) *
+        (Number(wholesaleDiscountPercent || 0) / 100),
+    ),
+  );
+
   const totalPrice = Math.max(
     0,
-    basePrice + addOnTotal + deliveryFee + Number(manualAdjustment || 0),
+    subtotalBeforeDiscount - wholesaleDiscountAmount,
   );
   const suggestedDownPaymentAmount = calculateDownPayment(totalPrice);
   const normalizedDpPaid = Math.max(0, Number(dpPaidInput || 0));
@@ -3330,6 +3576,12 @@ export default function BookingForm() {
             addOnQuantities: normalizedAddOnQuantities,
             addOnPriceOverrides: normalizedAddOnPriceOverrides,
             addOnCatalogEntries: categoryAddOns,
+            itemSelection: {
+              category: item.category,
+              subcategory: item.subcategory,
+              productName: item.productName,
+              size: item.size,
+            },
           }) *
             item.quantity +
           getCustomAddOnTotal(normalizedCustomAddOns, item.quantity);
@@ -3544,6 +3796,9 @@ export default function BookingForm() {
       deliverySlot: values.deliverySlot,
       notes: [
         values.customNotes ?? "",
+        Number(values.wholesaleDiscountPercent || 0) > 0
+          ? `Wholesale Discount: ${Number(values.wholesaleDiscountPercent || 0)}% (-${formatCurrency(wholesaleDiscountAmount)})`
+          : "",
         `Delivery Method: ${
           DELIVERY_METHOD_OPTIONS.find(
             (option) => option.value === values.deliveryMethod,
@@ -4118,6 +4373,19 @@ export default function BookingForm() {
               parsedCookieBreakdownRows.length > 0
                 ? formatCookieDifficultyRows(parsedCookieBreakdownRows)
                 : "";
+            const normalizedAddOnIds = Array.isArray(item.addOns)
+              ? item.addOns
+              : [];
+            const normalizedAddOnQuantities = normalizeAddOnQuantities(
+              (item as { addOnQuantities?: unknown }).addOnQuantities,
+            );
+            const inferredBouquetFlowerCount =
+              normalized.category === "Buket"
+                ? inferBouquetFlowerCountFromAddOns({
+                    addOns: normalizedAddOnIds,
+                    addOnQuantities: normalizedAddOnQuantities,
+                  })
+                : "";
             const cleanedItemNotes =
               normalized.category === "Cookies"
                 ? removeCookieBreakdownFromNotes(rawItemNotes)
@@ -4127,10 +4395,24 @@ export default function BookingForm() {
             const normalizedQuantity = Number.isFinite(parsedQuantity)
               ? Math.max(1, Math.round(parsedQuantity))
               : 1;
+            const inferredBouquetCookieFillQuantity =
+              inferBouquetCookieFillQuantityFromText({
+                category: normalized.category,
+                subcategory: normalized.subcategory,
+                productName: normalized.productName,
+                size: normalized.size,
+                notes: rawItemNotes,
+              });
+            const normalizedQuantityFinal =
+              normalized.category === "Buket" &&
+              normalizedQuantity <= 1 &&
+              inferredBouquetCookieFillQuantity !== null
+                ? inferredBouquetCookieFillQuantity
+                : normalizedQuantity;
             const normalizedSize = resolveIndividualCupcakeSizeByQuantity({
               catalog: productCatalog,
               selection: normalized,
-              quantity: normalizedQuantity,
+              quantity: normalizedQuantityFinal,
             });
 
             return {
@@ -4138,7 +4420,7 @@ export default function BookingForm() {
               subcategory: normalized.subcategory,
               productName: normalized.productName,
               size: normalizedSize,
-              quantity: normalizedQuantity,
+              quantity: normalizedQuantityFinal,
               tokenDifficulty: parsedTokenDifficulty,
               customTokenPerUnit: undefined,
               bouquetPriceOverride: parsedBouquetPriceOverride,
@@ -4151,10 +4433,8 @@ export default function BookingForm() {
                 (item as { additionalDesignCount?: unknown })
                   .additionalDesignCount,
               ),
-              addOns: Array.isArray(item.addOns) ? item.addOns : [],
-              addOnQuantities: normalizeAddOnQuantities(
-                (item as { addOnQuantities?: unknown }).addOnQuantities,
-              ),
+              addOns: normalizedAddOnIds,
+              addOnQuantities: normalizedAddOnQuantities,
               addOnPriceOverrides: normalizeAddOnPriceOverrides(
                 (item as { addOnPriceOverrides?: unknown }).addOnPriceOverrides,
               ),
@@ -4213,7 +4493,10 @@ export default function BookingForm() {
                 explicitBouquetPaperColor || parsedBouquetPaperColor || "",
               ribbon: explicitBouquetRibbon || parsedBouquetRibbon || "",
               flowerCount:
-                explicitBouquetFlowerCount || parsedBouquetFlowerCount || "",
+                explicitBouquetFlowerCount ||
+                parsedBouquetFlowerCount ||
+                inferredBouquetFlowerCount ||
+                "",
               flowerColor:
                 explicitBouquetFlowerColor || parsedBouquetFlowerColor || "",
               ribbonColor:
@@ -4994,6 +5277,15 @@ export default function BookingForm() {
                   </Button>
                 </div>
 
+                <div className="flex flex-wrap items-center gap-2 text-[11px] font-medium">
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-slate-700">
+                    Custom: {orderItemGroupingSummary.customCount}
+                  </span>
+                  <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-amber-700">
+                    Seasonal/Event: {orderItemGroupingSummary.seasonalCount}
+                  </span>
+                </div>
+
                 <div className="space-y-3">
                   {itemFields.map((field, index) => {
                     const item = watchedItems[index];
@@ -5106,6 +5398,15 @@ export default function BookingForm() {
                       normalizedSelection.category === "Cookies";
                     const isCustomCookiesItem =
                       isCookies && isCustomCookieItem(bouquetProbeItem);
+                    const itemGroupLabel = getBookingItemGroupLabel({
+                      category: normalizedSelection.category,
+                      subcategory: normalizedSelection.subcategory,
+                      productName: normalizedSelection.productName,
+                      size: normalizedSelection.size,
+                      quantity: Number(item?.quantity) || 0,
+                    });
+                    const isSeasonalEventItem =
+                      itemGroupLabel === "SEASONAL_EVENT";
                     const isCustomCookieSharingBox =
                       isCookies &&
                       isCustomCookieSharingBoxItem(bouquetProbeItem);
@@ -5171,6 +5472,10 @@ export default function BookingForm() {
                         DARK_COLOR_BUTTERCREAM_ADDON_ID,
                       ) ??
                         false);
+                    const cookieCatalogMode = resolveCookieCatalogMode({
+                      category: normalizedSelection.category,
+                      subcategory: normalizedSelection.subcategory,
+                    });
                     const selectedDarkButtercreamColors =
                       normalizeDarkButtercreamColors(
                         item?.darkColorButtercreamColors ?? [],
@@ -5261,6 +5566,12 @@ export default function BookingForm() {
                         addOnQuantities: normalizedAddOnQuantities,
                         addOnPriceOverrides: normalizedAddOnPriceOverrides,
                         addOnCatalogEntries: addOns,
+                        itemSelection: {
+                          category: normalizedSelection.category,
+                          subcategory: normalizedSelection.subcategory,
+                          productName: normalizedSelection.productName,
+                          size: normalizedSelection.size,
+                        },
                       }) * Math.max(1, quantityValue);
 
                     const selectedAllAddOnTotal =
@@ -5362,6 +5673,11 @@ export default function BookingForm() {
                             Item {index + 1}
                           </p>
                           <div className="flex items-center gap-2 text-[11px] font-medium text-slate-600">
+                            {isSeasonalEventItem && (
+                              <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-amber-700">
+                                Seasonal/Event
+                              </span>
+                            )}
                             {isTwoTierCake && (
                               <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-indigo-700">
                                 Two Tiered Cake
@@ -5565,8 +5881,75 @@ export default function BookingForm() {
                           </label>
 
                           <label className="grid gap-2 text-sm font-medium text-gray-700">
-                            Subcategory
-                            {hasMultipleSubcategories ? (
+                            {isCookies ? "Mode Cookies" : "Subcategory"}
+                            {isCookies ? (
+                              <>
+                                <Select
+                                  value={cookieCatalogMode}
+                                  onChange={(event) => {
+                                    const nextMode =
+                                      event.target.value as CookieCatalogMode;
+                                    const nextSelection =
+                                      getCookieSelectionByMode({
+                                        catalog: productCatalog,
+                                        mode: nextMode,
+                                        previousSelection: normalizedSelection,
+                                      });
+                                    const nextProbeItem: BookingItemInput = {
+                                      category: nextSelection.category,
+                                      subcategory: nextSelection.subcategory,
+                                      productName: nextSelection.productName,
+                                      size: nextSelection.size,
+                                      quantity: Number(item?.quantity) || 0,
+                                      tokenDifficulty: item?.tokenDifficulty,
+                                      customTokenPerUnit:
+                                        Number(item?.customTokenPerUnit) > 0
+                                          ? Number(item?.customTokenPerUnit)
+                                          : undefined,
+                                      cookiePrice:
+                                        Number(item?.cookiePrice) > 0
+                                          ? Number(item?.cookiePrice)
+                                          : undefined,
+                                      addOns: item?.addOns ?? [],
+                                      notes: item?.notes ?? "",
+                                    };
+                                    const nextAutoQuantity =
+                                      getAutoQuantityForItem(nextProbeItem);
+                                    clearParsedPricingOverride(index);
+                                    setValue(
+                                      `items.${index}.subcategory`,
+                                      nextSelection.subcategory,
+                                      { shouldValidate: true },
+                                    );
+                                    setValue(
+                                      `items.${index}.productName`,
+                                      nextSelection.productName,
+                                      { shouldValidate: true },
+                                    );
+                                    setValue(`items.${index}.size`, nextSelection.size, {
+                                      shouldValidate: true,
+                                    });
+                                    if (typeof nextAutoQuantity === "number") {
+                                      setValue(
+                                        `items.${index}.quantity`,
+                                        nextAutoQuantity,
+                                        {
+                                          shouldValidate: true,
+                                        },
+                                      );
+                                    }
+                                  }}
+                                >
+                                  <option value="CUSTOM">Custom</option>
+                                  <option value="SEASONAL_EVENT">
+                                    Seasonal/Event
+                                  </option>
+                                </Select>
+                                <span className="text-[11px] font-normal text-gray-500">
+                                  Subcategory aktif: {normalizedSelection.subcategory || "-"}
+                                </span>
+                              </>
+                            ) : hasMultipleSubcategories ? (
                               <Select
                                 {...register(`items.${index}.subcategory`)}
                                 value={normalizedSelection.subcategory}
@@ -6417,6 +6800,18 @@ export default function BookingForm() {
                                 overriddenPrice !== undefined
                                   ? overriddenPrice
                                   : addon.price;
+                              const dynamicBubblewrapUnitPrice =
+                                resolveBubblewrapUnitPrice({
+                                  category: normalizedSelection.category,
+                                  addonId: addon.id,
+                                  defaultPrice: baseUnitPrice,
+                                  itemSelection: {
+                                    category: normalizedSelection.category,
+                                    subcategory: normalizedSelection.subcategory,
+                                    productName: normalizedSelection.productName,
+                                    size: normalizedSelection.size,
+                                  },
+                                });
                               const supportsQuantity = supportsAddOnQuantity(
                                 normalizedSelection.category,
                                 addon.id,
@@ -6431,8 +6826,8 @@ export default function BookingForm() {
                                   ? (getBouquetFlowerAddOnUnitPrice({
                                       addonId: addon.id,
                                       bouquetType,
-                                    }) ?? baseUnitPrice)
-                                  : baseUnitPrice) * perCakeUnits;
+                                    }) ?? dynamicBubblewrapUnitPrice)
+                                  : dynamicBubblewrapUnitPrice) * perCakeUnits;
 
                               return (
                                 <div
@@ -7068,6 +7463,20 @@ export default function BookingForm() {
               </label>
 
               <label className="grid gap-2 text-sm font-medium text-gray-700">
+                Discount Grosir
+                <Select
+                  {...register("wholesaleDiscountPercent", {
+                    valueAsNumber: true,
+                  })}
+                >
+                  <option value={0}>Tanpa Diskon</option>
+                  <option value={10}>Diskon 10%</option>
+                  <option value={15}>Diskon 15%</option>
+                  <option value={20}>Diskon 20%</option>
+                </Select>
+              </label>
+
+              <label className="grid gap-2 text-sm font-medium text-gray-700">
                 Manual Adjustment (+/-)
                 <Input
                   type="number"
@@ -7180,6 +7589,8 @@ export default function BookingForm() {
             addOnTotal={addOnTotal}
             deliveryFee={deliveryFee}
             manualAdjustment={Number(manualAdjustment || 0)}
+            wholesaleDiscountPercent={Number(wholesaleDiscountPercent || 0)}
+            wholesaleDiscountAmount={wholesaleDiscountAmount}
             totalPrice={totalPrice}
             categoryBreakdown={categoryPriceBreakdown}
           />
@@ -7218,7 +7629,7 @@ export default function BookingForm() {
               </p>
               <p className="rounded-lg bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
                 Formula: Final Price = Base + Add-ons + Ongkir + Manual
-                adjustment.
+                adjustment - Discount Grosir.
               </p>
             </CardContent>
           </Card>

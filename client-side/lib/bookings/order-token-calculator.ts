@@ -10,6 +10,7 @@ export interface OrderItemForTokenCalc {
   category: string;
   subcategory?: string;
   productName?: string;
+  size?: string;
   difficulty?: string;
   tokenDifficulty?: string;
   quantity?: number;
@@ -55,6 +56,18 @@ const DIY_TOKEN_PER_UNIT: Record<string, number> = {
   regular: 6,
 };
 
+const SEASONAL_EVENT_COOKIE_TOKEN_PER_UNIT: Array<{
+  probe: string;
+  token: number;
+}> = [
+  { probe: "lotus box", token: 10 },
+  { probe: "dimsum box", token: 10 },
+  { probe: "bites box", token: 10 },
+  { probe: "bites nastar", token: 10 },
+  { probe: "3 in 1", token: 5 },
+  { probe: "bauble", token: 5 },
+];
+
 const CUPCAKE_COOKIE_ADDON_TOKEN_MAP: Record<string, number> = {
   "cookie-simple": COOKIE_DIFFICULTY_TOKEN_MAP.simple,
   "cookie-normal": COOKIE_DIFFICULTY_TOKEN_MAP.normal,
@@ -79,7 +92,7 @@ function normalizeText(value: string): string {
 
 function getSearchSource(item: OrderItemForTokenCalc): string {
   return normalizeText(
-    `${item.category || ""} ${item.subcategory || ""} ${item.productName || ""}`,
+    `${item.category || ""} ${item.subcategory || ""} ${item.productName || ""} ${item.size || ""}`,
   );
 }
 
@@ -212,6 +225,13 @@ function resolveDiyTokenPerUnit(searchSource: string): number {
   return DIY_TOKEN_PER_UNIT.mini;
 }
 
+function resolveSeasonalEventCookieTokenPerUnit(searchSource: string): number {
+  const matched = SEASONAL_EVENT_COOKIE_TOKEN_PER_UNIT.find((entry) =>
+    searchSource.includes(entry.probe),
+  );
+  return matched?.token ?? 0;
+}
+
 function resolveBouquetToken(searchSource: string): number {
   if (searchSource.includes("standing") || searchSource.includes("sbq")) {
     return BOUQUET_TOKEN_MAP.standing_bouquet;
@@ -323,6 +343,14 @@ function calculateItemToken(item: OrderItemForTokenCalc): number {
   const diyToken = resolveDiyTokenPerUnit(searchSource);
   if (diyToken > 0) {
     return diyToken * qty;
+  }
+
+  if (category === "cookies" || category === "seasonal event") {
+    const seasonalEventTokenPerUnit =
+      resolveSeasonalEventCookieTokenPerUnit(searchSource);
+    if (seasonalEventTokenPerUnit > 0) {
+      return seasonalEventTokenPerUnit * qty;
+    }
   }
 
   // Evaluate cake before cupcake to avoid product-name collisions (e.g. Cake with "cupcake" note).

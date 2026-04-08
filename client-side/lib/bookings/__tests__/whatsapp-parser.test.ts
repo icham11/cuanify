@@ -92,6 +92,53 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
     expect(autoFill.items.map((item) => item.category)).toEqual(["Cake"]);
   });
 
+  it("detects event cookies order lines that use pkt units", () => {
+    const text = [
+      "Tanggal Pengiriman : (10/3/26)",
+      "KODE BOOKING :",
+      "Order:",
+      "1 pkt Bite Nastar",
+      "1 pkt Lotus Box",
+      "1 pkt Dimsum Box",
+      "1 pkt character box",
+      "3 pkt sharing box isi 2",
+      "3 pkt sharing box isi 3",
+      "To From Notes : To : (Dikosongkan saja) , From : Alvernia , notes : Happy Eid",
+      "Jam Pengiriman : 10 pagi",
+      "Metode Pengiriman : pesan grabexpress sendiri",
+      "Nama penerima : Alvernia",
+      "No. telp penerima : 08176414563",
+      "Alamat lengkap : Gedung Tugure, Jl Raden Saleh No 50, Cikini, Menteng, Jakarta Pusat 10330",
+    ].join("\n");
+
+    const parsed = parseWhatsAppOrderText(text, {
+      preferredOrderType: "unknown",
+      sourceType: "manual",
+    });
+    const autoFill = buildBookingAutoFillFromParsed(parsed);
+
+    const cookieItems = autoFill.items.filter(
+      (item) => item.category === "Seasonal Event",
+    );
+    const byProduct = new Map(
+      cookieItems.map((item) => [
+        `${item.productName}||${item.size}`.toLowerCase(),
+        item.quantity,
+      ]),
+    );
+
+    expect(cookieItems.length).toBe(6);
+    expect(
+      cookieItems.every((item) => item.subcategory === "Event Cookies"),
+    ).toBe(true);
+    expect(byProduct.get("bites nastar||bites nastar")).toBe(1);
+    expect(byProduct.get("lotus box||lotus box")).toBe(1);
+    expect(byProduct.get("dimsum box||dimsum box")).toBe(1);
+    expect(byProduct.get("character box||character box")).toBe(1);
+    expect(byProduct.get("sharing box isi 2||sharing box isi 2")).toBe(3);
+    expect(byProduct.get("sharing box isi 3||sharing box isi 3")).toBe(3);
+  });
+
   it("detects cake supplement when primary parse is cupcakes", () => {
     const text = [
       "Data Cupcakes",
@@ -757,6 +804,28 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
     expect((bouquetItem.addOns ?? []).includes("bouquet-extra-3-flower")).toBe(
       true,
     );
+    expect(bouquetItem.addOnQuantities?.["bouquet-extra-3-flower"]).toBe(
+      undefined,
+    );
+  });
+
+  it("keeps bouquet flower add-on multiplier when explicitly written as 2x", () => {
+    const autoFill = buildAutoFillFromOrderLine(
+      "1 cake + hbq isi 10 + 2x 3 bunga",
+    );
+    const bouquetItem = autoFill.items.find(
+      (item) => item.category === "Buket",
+    );
+
+    expect(Boolean(bouquetItem)).toBe(true);
+    if (!bouquetItem) {
+      throw new Error("Bouquet item was not generated");
+    }
+
+    expect((bouquetItem.addOns ?? []).includes("bouquet-extra-3-flower")).toBe(
+      true,
+    );
+    expect(bouquetItem.addOnQuantities?.["bouquet-extra-3-flower"]).toBe(2);
   });
 
   it("infers bouquet cookie price from Harga Cookie / pcs", () => {
@@ -946,6 +1015,44 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
     expect(autoFill.items.map((item) => item.parsedSubtotal)).toEqual([
       450000, 450000,
     ]);
+  });
+
+  it("uses bouquet isi quantity from recap text when qty is 1", () => {
+    const text = [
+      "REKAP ORDER",
+      "Tanggal Pengiriman: 20/04/2026",
+      "Jam Pengiriman: 12:00",
+      "Metode Pengiriman: Pickup",
+      "",
+      "ITEM 1",
+      "Kategori: Buket",
+      "Nama Produk: HBQ isi 7",
+      "Qty: 1",
+      "Size/Varian: Hand Bouquet Cookies isi 7",
+      "Design/Notes: tema peach",
+      "Add On: 3 bunga",
+      "Harga Satuan: 240000",
+      "Subtotal: 240000",
+      "",
+      "Total: 240000",
+      "Nama penerima: QA Test",
+      "No. telp penerima: 081234567890",
+      "Alamat lengkap: Jakarta",
+    ].join("\n");
+
+    const parsed = parseWhatsAppOrderText(text, {
+      preferredOrderType: "unknown",
+      sourceType: "manual",
+    });
+    const autoFill = buildBookingAutoFillFromParsed(parsed);
+
+    expect(parsed.orderRecap?.items).toHaveLength(1);
+    expect(parsed.orderRecap?.items[0]?.quantity).toBe(7);
+    expect(autoFill.items).toHaveLength(1);
+    expect(autoFill.items[0]?.category).toBe("Buket");
+    expect(autoFill.items[0]?.quantity).toBe(7);
+    expect(autoFill.items[0]?.parsedSubtotal).toBe(240000);
+    expect(autoFill.items[0]?.pricingSource).toBe("RECAP");
   });
 
   it("reads one combined message with recap block without repeating common fields", () => {

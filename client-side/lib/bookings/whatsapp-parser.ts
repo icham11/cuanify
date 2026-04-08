@@ -651,6 +651,20 @@ function normalizeRecapCategory(value: string): string {
   }
   if (normalized.includes("cupcake")) return "Cupcakes";
   if (
+    normalized.includes("seasonal event") ||
+    normalized.includes("event cookies") ||
+    normalized.includes("lotus box") ||
+    normalized.includes("dimsum box") ||
+    normalized.includes("bites nastar") ||
+    normalized.includes("bites box") ||
+    normalized.includes("character box") ||
+    normalized.includes("sharing box") ||
+    normalized.includes("bauble") ||
+    normalized.includes("3 in 1")
+  ) {
+    return "Seasonal Event";
+  }
+  if (
     normalized.includes("buket") ||
     normalized.includes("bouquet") ||
     normalized.includes("hbq") ||
@@ -860,9 +874,21 @@ function parseOrderRecap(
         cleanupValue(productNameValue) ||
         cleanupValue(block.title || "") ||
         category;
-      const quantity = extractPositiveInteger(quantityValue) ?? 1;
       const size = cleanupValue(sizeValue);
       const designNotes = cleanupValue(designNotesValue);
+      const rawQuantity = extractPositiveInteger(quantityValue) ?? 1;
+      const bouquetIsiQuantity =
+        category === "Buket"
+          ? extractBouquetIsiQuantity(
+              [productNameValue, sizeValue, designNotesValue]
+                .filter(Boolean)
+                .join(" | "),
+            )
+          : null;
+      const quantity =
+        category === "Buket" && rawQuantity <= 1 && bouquetIsiQuantity
+          ? bouquetIsiQuantity
+          : rawQuantity;
       const addOn = cleanupValue(addOnValue);
       const unitPrice = parseCurrencyAmount(unitPriceValue) ?? undefined;
       const totalItemCost =
@@ -1668,6 +1694,42 @@ function parseAddOnSegmentQuantity(segment: string): number {
   return Math.round(quantity);
 }
 
+function normalizeMatchedAddOnQuantity(args: {
+  category: string;
+  addOnId: string;
+  segment: string;
+  parsedQuantity: number;
+}): number {
+  const baseQuantity = Math.max(1, Math.round(args.parsedQuantity || 1));
+  if (args.category !== "Buket") return baseQuantity;
+
+  const isBouquetFlowerPackage =
+    args.addOnId === "bouquet-extra-3-flower" ||
+    args.addOnId === "bouquet-extra-6-flower";
+  if (!isBouquetFlowerPackage) return baseQuantity;
+
+  const normalizedSegment = normalizeLabel(args.segment);
+  const explicitMultiplier = normalizedSegment.match(
+    /\b(\d{1,3})\s*x\s*(?:\+\s*)?(?:3|6)\s*bunga\b/i,
+  );
+  if (explicitMultiplier?.[1]) {
+    const parsedMultiplier = Number(explicitMultiplier[1]);
+    if (Number.isFinite(parsedMultiplier) && parsedMultiplier > 0) {
+      return Math.max(1, Math.round(parsedMultiplier));
+    }
+  }
+
+  if (
+    /\b(?:\+\s*)?(?:add\s*|additional\s*)?(?:3|6)\s*bunga\b/i.test(
+      normalizedSegment,
+    )
+  ) {
+    return 1;
+  }
+
+  return baseQuantity > 1 ? 1 : baseQuantity;
+}
+
 function parseAddOnSegmentTotalPrice(
   segment: string,
   quantity: number,
@@ -1820,10 +1882,16 @@ function detectCategoryAddOnsFromText(args: {
     });
 
     if (matchedAddOn) {
+      const normalizedQuantity = normalizeMatchedAddOnQuantity({
+        category: args.category,
+        addOnId: matchedAddOn.id,
+        segment,
+        parsedQuantity: quantity,
+      });
       addOns.add(matchedAddOn.id);
-      if (quantity > 1) {
+      if (normalizedQuantity > 1) {
         addOnQuantities[matchedAddOn.id] = Math.max(
-          quantity,
+          normalizedQuantity,
           addOnQuantities[matchedAddOn.id] ?? 0,
         );
       }
@@ -2259,6 +2327,17 @@ function extractPositiveInteger(value: string): number | null {
   if (!Number.isInteger(parsed) || parsed <= 0) return null;
   return parsed;
 }
+function extractBouquetIsiQuantity(value: string): number | null {
+  const text = String(value || "").trim();
+  if (!text) return null;
+
+  const match = text.match(/\bisi\s*(\d{1,3})\b/i);
+  if (!match?.[1]) return null;
+
+  const parsed = Number(match[1]);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return Math.max(1, Math.round(parsed));
+}
 
 function parseCurrencyAmount(value: string): number | null {
   const text = value.trim();
@@ -2531,7 +2610,7 @@ function extractOrderQuantity(value: string): number | null {
 
   const explicitContextual = parseMatchedQuantity(
     text.match(
-      /(?:qty|quantity|jumlah|order|pesan|x|isi|isian|isinya)\s*(?:cookies?|cookie|bunga|bouquet|buket|hbq|sbq|pcs?|pc|box|pack|dozen|lusin)?\s*[:=\-]?\s*(\d{1,4})\b/i,
+      /(?:qty|quantity|jumlah|order|pesan|x|isi|isian|isinya)\s*(?:cookies?|cookie|bunga|bouquet|buket|hbq|sbq|pcs?|pc|box|pack|pkt|paket|dozen|lusin)?\s*[:=\-]?\s*(\d{1,4})\b/i,
     ),
   );
   if (explicitContextual) return explicitContextual;
@@ -2542,11 +2621,64 @@ function extractOrderQuantity(value: string): number | null {
   const explicitQuantity = parseMatchedQuantity(explicit);
   if (explicitQuantity) return explicitQuantity;
 
-  const withUnit = text.match(/\b(\d{1,4})\s*(box|pack|pcs|pc|dozen|lusin)\b/i);
+  const withUnit = text.match(
+    /\b(\d{1,4})\s*(box|pack|pkt|paket|pcs|pc|dozen|lusin)\b/i,
+  );
   const unitQuantity = parseMatchedQuantity(withUnit);
   if (unitQuantity) return unitQuantity;
 
   return null;
+}
+
+function extractSeasonalPacketCookieQuantity(value: string): number | null {
+  const text = String(value || "").trim();
+  if (!text) return null;
+
+  const packetMatches = Array.from(
+    text.matchAll(
+      /(\d{1,4})\s*(?:pkt|pack|paket)\s*(?:sharing\s*box\s*isi\s*(\d{1,3})|(?:bites?\s*nastar|lotus\s*box|dimsum\s*box|character\s*box|bauble|3\s*in\s*1|bites?\s*box))/gi,
+    ),
+  );
+
+  if (packetMatches.length === 0) return null;
+
+  let total = 0;
+  for (const match of packetMatches) {
+    const packCount = Number(match[1] || 0);
+    if (!Number.isFinite(packCount) || packCount <= 0) continue;
+    total += packCount;
+  }
+
+  return total > 0 ? Math.round(total) : null;
+}
+
+function extractSeasonalPacketCookieEntries(
+  value: string,
+): Array<{ quantity: number; keyword: string }> {
+  const text = String(value || "").trim();
+  if (!text) return [];
+
+  const matches = Array.from(
+    text.matchAll(
+      /(\d{1,4})\s*(?:pkt|pack|paket)\s*(sharing\s*box\s*isi\s*\d{1,3}|bites?\s*nastar|lotus\s*box|dimsum\s*box|character\s*box|bauble|3\s*in\s*1|bites?\s*box)\b/gi,
+    ),
+  );
+
+  return matches
+    .map((match) => {
+      const quantity = Number(match[1] || 0);
+      const keyword = cleanupValue(match[2] || "");
+      if (!Number.isFinite(quantity) || quantity <= 0 || !keyword) {
+        return null;
+      }
+      return {
+        quantity: Math.round(quantity),
+        keyword,
+      };
+    })
+    .filter((entry): entry is { quantity: number; keyword: string } =>
+      Boolean(entry),
+    );
 }
 
 function chooseQuantity(parsed: ParsedWhatsAppOrder): number {
@@ -2745,7 +2877,7 @@ function extractQuantityForKeywords(
 
   const before = text.match(
     new RegExp(
-      `(\\d{1,4})\\s*(?:x\\s*)?(?:pcs?|pc|box|pack|dozen|lusin)?\\s*(?:${keywordPattern})\\b`,
+      `(\\d{1,4})\\s*(?:x\\s*)?(?:pcs?|pc|box|pack|pkt|paket|dozen|lusin)?\\s*(?:${keywordPattern})\\b`,
       "i",
     ),
   );
@@ -3098,9 +3230,13 @@ function buildRecapAutoFillItems(
 function buildMixedSupplementAutoFillItems(
   parsed: ParsedWhatsAppOrder,
   itemNotes: string,
+  options?: {
+    forceSeasonalEventMode?: boolean;
+  },
 ): BookingAutoFillItem[] {
   const orderText = parsed.common.order || "";
   const rawText = parsed.rawText || "";
+  const forceSeasonalEventMode = Boolean(options?.forceSeasonalEventMode);
 
   const hasTowerMarker =
     /cookies?\s*tower|tower\s*cookies?/i.test(orderText) ||
@@ -3125,6 +3261,10 @@ function buildMixedSupplementAutoFillItems(
   const hasCookiesMarker = /\bto\s+from\s+notes\b|\bdata\s+cookies\b/i.test(
     rawText,
   );
+  const hasCookiesEventMarker =
+    /\bbites?\s*nastar\b|\blotus\s*box\b|\bdimsum\s*box\b|\bcharacter\s*box\b|\bsharing\s*box\b|\bbauble\b|\b3\s*in\s*1\b|\bbites?\s*box\b/i.test(
+      `${orderText} ${rawText}`,
+    );
 
   if (!orderText.trim() && !rawText.trim()) return [];
 
@@ -3259,13 +3399,18 @@ function buildMixedSupplementAutoFillItems(
     /topper\s*cookies?/gi,
     " ",
   );
+  const seasonalPacketEntries =
+    extractSeasonalPacketCookieEntries(orderWithoutTopper);
+  const shouldForceSeasonalEventMode =
+    forceSeasonalEventMode || seasonalPacketEntries.length > 0;
   const hasCookiesOnly = /\bcookies?\b/i.test(orderWithoutTopper);
-  if (primaryCategory !== "Cookies" && (hasCookiesOnly || hasCookiesMarker)) {
-    const quantity =
-      extractQuantityForKeywords(orderWithoutTopper, ["cookies", "cookie"]) ??
-      extractOrderQuantity(orderWithoutTopper) ??
-      extractPositiveInteger(orderWithoutTopper) ??
-      1;
+  if (
+    (primaryCategory !== "Cookies" || shouldForceSeasonalEventMode) &&
+    (hasCookiesOnly ||
+      hasCookiesMarker ||
+      hasCookiesEventMarker ||
+      shouldForceSeasonalEventMode)
+  ) {
     const context = buildSupplementContext(
       "cookies",
       orderWithoutTopper || rawText,
@@ -3273,17 +3418,49 @@ function buildMixedSupplementAutoFillItems(
     const cookieDesignCount = inferCookieDesignCountFromText(
       getDetailsForOrderType(parsed, "cookies").cookieDesign || "",
     );
-    pushItem(
-      "Cookies",
-      quantity,
-      context.searchSource,
-      context.notes,
-      undefined,
-      cookieDesignCount,
-    );
+
+    if (seasonalPacketEntries.length > 0) {
+      seasonalPacketEntries.forEach((entry) => {
+        pushItem(
+          "Seasonal Event",
+          entry.quantity,
+          `event cookies | seasonal | ${entry.keyword}`,
+          context.notes,
+          undefined,
+          cookieDesignCount,
+        );
+      });
+    } else {
+      const quantity =
+        extractSeasonalPacketCookieQuantity(orderWithoutTopper) ??
+        extractQuantityForKeywords(orderWithoutTopper, ["cookies", "cookie"]) ??
+        extractOrderQuantity(orderWithoutTopper) ??
+        extractPositiveInteger(orderWithoutTopper) ??
+        1;
+      pushItem(
+        "Cookies",
+        quantity,
+        context.searchSource,
+        context.notes,
+        undefined,
+        cookieDesignCount,
+      );
+    }
   }
 
   return mergeAutoFillItems(supplements);
+}
+
+function isSeasonalEventPacketTemplate(parsed: ParsedWhatsAppOrder): boolean {
+  const orderText = parsed.common.order || "";
+  const rawText = parsed.rawText || "";
+  const source = `${orderText} ${rawText}`;
+
+  if (!/\b(?:pkt|pack|paket)\b/i.test(source)) return false;
+
+  return /\bbites?\s*nastar\b|\blotus\s*box\b|\bdimsum\s*box\b|\bcharacter\s*box\b|\bsharing\s*box\b|\bbauble\b|\b3\s*in\s*1\b|\bbites?\s*box\b|\bhappy\s+eid\b|\bseasonal\b|\bevent\b/i.test(
+    source,
+  );
 }
 
 function buildDefaultAutoFillItems(
@@ -3711,6 +3888,16 @@ export function buildBookingAutoFillFromParsed(
     recapAutoFillItems.length > 0
       ? recapAutoFillItems
       : (() => {
+          if (isSeasonalEventPacketTemplate(parsed)) {
+            const seasonalEventAutoFillItems =
+              buildMixedSupplementAutoFillItems(parsed, itemNotes, {
+                forceSeasonalEventMode: true,
+              });
+            if (seasonalEventAutoFillItems.length > 0) {
+              return mergeAutoFillItems(seasonalEventAutoFillItems);
+            }
+          }
+
           const primaryAutoFillItems =
             parsed.orderType === "cupcakes"
               ? buildCupcakeAutoFillItems(parsed, itemNotes)
@@ -3790,6 +3977,7 @@ function mapCategoryToOrderType(category: string): WhatsAppOrderType {
 
   if (normalized === "cupcakes") return "cupcakes";
   if (normalized === "cookies tower") return "cookies_tower";
+  if (normalized === "seasonal event") return "cookies";
   if (normalized === "cookies") return "cookies";
   if (normalized === "buket") return "buket";
   return "cake";

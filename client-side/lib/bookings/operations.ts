@@ -115,6 +115,19 @@ const seasonalHints = [
   "special edition",
 ];
 
+const seasonalEventCookieHints = [
+  "event cookies",
+  "lotus box",
+  "dimsum box",
+  "bites box",
+  "bites nastar",
+  "3 in 1",
+  "bauble",
+  "character box",
+  "noel box",
+  "lunar box",
+];
+
 const bulkCookieHints = [
   "sharing box",
   " box",
@@ -139,15 +152,16 @@ const bulkCookieHints = [
 
 const cookieUnitMap: Array<{ probe: string; units: number }> = [
   { probe: "bauble", units: 5 },
-  { probe: "3 in 1", units: 3 },
+  { probe: "3 in 1", units: 5 },
+  { probe: "bites box", units: 10 },
   { probe: "mini bites", units: 3 },
   { probe: "diy gingerbread", units: 10 },
   { probe: "diy", units: 6 },
   { probe: "character box", units: 9 },
-  { probe: "bites nastar", units: 15 },
+  { probe: "bites nastar", units: 10 },
   { probe: "noel box", units: 4 },
   { probe: "lunar box", units: 4 },
-  { probe: "lotus box", units: 15 },
+  { probe: "lotus box", units: 10 },
   { probe: "dimsum box", units: 10 },
   { probe: "cookies tower", units: 40 },
 ];
@@ -172,6 +186,11 @@ function getItemSource(item: BookingItemForOperations): string {
   );
 }
 
+function isCookieLikeCategory(category: string): boolean {
+  const normalized = normalize(category);
+  return normalized === "cookies" || normalized === "seasonal event";
+}
+
 function parseIsiCount(text: string): number | null {
   const match = text.match(/\bisi\s*(\d{1,3})\b/i);
   if (!match?.[1]) return null;
@@ -181,14 +200,26 @@ function parseIsiCount(text: string): number | null {
 }
 
 export function isSeasonalCookiesItem(item: BookingItemForOperations): boolean {
-  if (item.category !== "Cookies") return false;
+  if (!isCookieLikeCategory(item.category)) return false;
+
+  const normalizedSubcategory = normalize(item.subcategory || "");
+  if (
+    normalizedSubcategory.includes("event") ||
+    normalizedSubcategory.includes("seasonal")
+  ) {
+    return true;
+  }
 
   const source = getItemSource(item);
-  return seasonalHints.some((hint) => source.includes(hint));
+  if (seasonalHints.some((hint) => source.includes(hint))) return true;
+
+  return seasonalEventCookieHints.some((hint) =>
+    source.includes(normalize(hint)),
+  );
 }
 
 function isBulkCookiesItem(item: BookingItemForOperations): boolean {
-  if (item.category !== "Cookies") return false;
+  if (!isCookieLikeCategory(item.category)) return false;
   if (isSeasonalCookiesItem(item)) return true;
 
   const source = getItemSource(item);
@@ -202,7 +233,7 @@ export function isSeasonalOrderItems(
 ): boolean {
   if (!items.length) return false;
   return items.every(
-    (item) => item.category === "Cookies" && isBulkCookiesItem(item),
+    (item) => isCookieLikeCategory(item.category) && isBulkCookiesItem(item),
   );
 }
 
@@ -241,7 +272,7 @@ function isCookiesPickupHolidayException(
   const items = context.items ?? [];
   if (!items.length) return false;
 
-  return items.every((item) => item.category === "Cookies");
+  return items.every((item) => isCookieLikeCategory(item.category));
 }
 
 export function isNextDayCutoffBlocked(
@@ -322,7 +353,7 @@ function inferOrderTypeFromOrder(
 function classifyCapacityBucket(
   item: BookingItemForOperations,
 ): CapacityBucket | null {
-  if (item.category === "Cookies") {
+  if (isCookieLikeCategory(item.category)) {
     return isBulkCookiesItem(item) ? "seasonal_cookies" : "custom_cookies";
   }
 
@@ -475,6 +506,7 @@ export function summarizeProductionTokensByItems(
         category: item.category,
         subcategory: item.subcategory,
         productName: item.productName,
+        size: item.size,
         tokenDifficulty: item.tokenDifficulty,
         customTokenPerUnit: item.customTokenPerUnit,
         cookieDifficultyBreakdown: item.cookieDifficultyBreakdown,

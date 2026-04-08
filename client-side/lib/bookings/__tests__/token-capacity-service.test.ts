@@ -211,6 +211,70 @@ describe("Token Capacity Service — Unit Tests", () => {
       ).toBe(12);
     });
 
+    it("Seasonal/event cookies use fixed token map from SOP", () => {
+      expect(
+        calculateOrderTokenFromItems([
+          {
+            category: "Cookies",
+            subcategory: "Event Cookies",
+            productName: "Lotus Box",
+            quantity: 1,
+          },
+          {
+            category: "Cookies",
+            subcategory: "Event Cookies",
+            productName: "Dimsum Box",
+            quantity: 1,
+          },
+          {
+            category: "Cookies",
+            subcategory: "Event Cookies",
+            productName: "Bites Box",
+            quantity: 1,
+          },
+          {
+            category: "Cookies",
+            subcategory: "Event Cookies",
+            productName: "3 in 1 Mini Cookies",
+            quantity: 1,
+          },
+          {
+            category: "Cookies",
+            subcategory: "Event Cookies",
+            productName: "Bauble",
+            quantity: 1,
+          },
+        ]),
+      ).toBe(40);
+    });
+
+    it("Bites Nastar follows Bites Box seasonal token mapping", () => {
+      expect(
+        calculateOrderTokenFromItems([
+          {
+            category: "Cookies",
+            subcategory: "Event Cookies",
+            productName: "Bites Nastar",
+            quantity: 1,
+          },
+        ]),
+      ).toBe(10);
+    });
+
+    it("Seasonal token detects item keyword from size field", () => {
+      expect(
+        calculateOrderTokenFromItems([
+          {
+            category: "Cookies",
+            subcategory: "Event Cookies",
+            productName: "CNY 2026",
+            size: "Dimsum Box (Rp 220.000)",
+            quantity: 1,
+          },
+        ]),
+      ).toBe(10);
+    });
+
     // ── Bouquet ──────────────────────────────────────────────────────────
     it("Bouquet hand_bouquet: 20 tokens flat", () => {
       expect(

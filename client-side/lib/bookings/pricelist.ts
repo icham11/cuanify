@@ -410,7 +410,7 @@ export const BOOKING_PRODUCT_CATALOG: PricelistCategory[] = [
               variant("Sharing Box isi 3", 60000, ["sharing box", "box isi 3"]),
               variant("Noel Box", 90000, ["noel box"]),
               variant("Character Box", 160000, ["character box", "box isi 9"]),
-              variant("Bites Nastar", 200000, ["bites nastar"]),
+              variant("Bites Nastar", 200000, ["bites nastar", "bites box"]),
               variant("Bauble", 60000, ["bauble"]),
               variant("Mini DIY (isi 3)", 110000, [
                 "mini diy",
@@ -445,7 +445,7 @@ export const BOOKING_PRODUCT_CATALOG: PricelistCategory[] = [
               variant("Sharing Box isi 3", 60000, ["sharing box", "box isi 3"]),
               variant("Lunar Box", 90000, ["lunar box"]),
               variant("Character Box", 160000, ["character box", "box isi 9"]),
-              variant("Bites Nastar", 200000, ["bites nastar"]),
+              variant("Bites Nastar", 200000, ["bites nastar", "bites box"]),
               variant("Wishful Box", 110000, ["wishful box"]),
               variant("Dimsum Box", 220000, ["dimsum box"]),
               variant("Mini DIY (isi 3)", 110000, [
@@ -489,7 +489,7 @@ export const BOOKING_PRODUCT_CATALOG: PricelistCategory[] = [
               variant("Sharing Box isi 2", 45000, ["sharing box", "box isi 2"]),
               variant("Sharing Box isi 3", 60000, ["sharing box", "box isi 3"]),
               variant("Character Box", 160000, ["character box", "box isi 9"]),
-              variant("Bites Nastar", 200000, ["bites nastar"]),
+              variant("Bites Nastar", 200000, ["bites nastar", "bites box"]),
               variant("Dimsum Box", 250000, ["dimsum box"]),
               variant("Wishful Box", 110000, ["wishful box"]),
               variant("Mini DIY (isi 3)", 110000, [
@@ -501,6 +501,93 @@ export const BOOKING_PRODUCT_CATALOG: PricelistCategory[] = [
               variant("Lotus Box", 175000, ["lotus box"]),
             ],
           },
+        ],
+      },
+    ],
+  },
+  {
+    category: "Seasonal Event",
+    keywords: [
+      "seasonal",
+      "event",
+      "christmas",
+      "xmas",
+      "halloween",
+      "eid",
+      "ramadan",
+      "lebaran",
+      "cny",
+      "imlek",
+    ],
+    subcategories: [
+      {
+        name: "Event Cookies",
+        keywords: ["event", "seasonal"],
+        products: [
+          fixedProduct("Bites Nastar", 200000, {
+            keywords: ["bites nastar", "bites box"],
+            variantLabel: "Bites Nastar",
+          }),
+          fixedProduct("Lotus Box", 175000, {
+            keywords: ["lotus box"],
+            variantLabel: "Lotus Box",
+          }),
+          fixedProduct("Dimsum Box", 250000, {
+            keywords: ["dimsum box"],
+            variantLabel: "Dimsum Box",
+          }),
+          fixedProduct("Character Box", 160000, {
+            keywords: ["character box", "box isi 9"],
+            variantLabel: "Character Box",
+          }),
+          fixedProduct("Sharing Box isi 2", 45000, {
+            keywords: ["sharing box", "box isi 2", "isi 2"],
+            variantLabel: "Sharing Box isi 2",
+          }),
+          fixedProduct("Sharing Box isi 3", 60000, {
+            keywords: ["sharing box", "box isi 3", "isi 3"],
+            variantLabel: "Sharing Box isi 3",
+          }),
+          fixedProduct("Sharing Box isi 4", 75000, {
+            keywords: ["sharing box", "box isi 4", "isi 4"],
+            variantLabel: "Sharing Box isi 4",
+          }),
+          fixedProduct("Noel Box", 90000, {
+            keywords: ["noel box"],
+            variantLabel: "Noel Box",
+          }),
+          fixedProduct("Lunar Box", 90000, {
+            keywords: ["lunar box"],
+            variantLabel: "Lunar Box",
+          }),
+          fixedProduct("Wishful Box", 110000, {
+            keywords: ["wishful box"],
+            variantLabel: "Wishful Box",
+          }),
+          fixedProduct("Bauble", 60000, {
+            keywords: ["bauble"],
+            variantLabel: "Bauble",
+          }),
+          fixedProduct("3 in 1 Mini Cookies", 30000, {
+            keywords: ["3 in 1", "3in1", "mini bites"],
+            variantLabel: "3 in 1 Mini Cookies (Per pack)",
+          }),
+          fixedProduct("Mini DIY", 110000, {
+            keywords: ["mini diy", "diy", "isi 3"],
+            variantLabel: "Mini DIY (isi 3)",
+          }),
+          fixedProduct("Regular DIY", 130000, {
+            keywords: ["regular diy", "gingerbread", "house", "isi 6"],
+            variantLabel: "Regular DIY (isi 6)",
+          }),
+          fixedProduct("Jingle Box", 100000, {
+            keywords: ["jingle box"],
+            variantLabel: "Jingle Box",
+          }),
+          fixedProduct("Joyful Box", 200000, {
+            keywords: ["joyful box"],
+            variantLabel: "Joyful Box",
+          }),
         ],
       },
     ],
@@ -634,7 +721,11 @@ export const BOOKING_ADD_ON_CATALOG: Record<string, CatalogAddOn[]> = {
   ],
   Cookies: [
     { id: "custom-card", label: "Custom Card", price: 2000 },
-    { id: "bubblewrap", label: "Extra Bubblewrap", price: 1000 },
+    { id: "bubblewrap", label: "Extra Bubblewrap", price: 2000 },
+  ],
+  "Seasonal Event": [
+    { id: "custom-card", label: "Custom Card", price: 2000 },
+    { id: "bubblewrap", label: "Extra Bubblewrap", price: 2000 },
   ],
   Cupcakes: [
     ...CUPCAKE_FLAVOR_OPTIONS.map((option) => ({
