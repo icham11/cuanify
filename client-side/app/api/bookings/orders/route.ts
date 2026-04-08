@@ -246,9 +246,7 @@ function asArrayOfRecords(value: unknown): JsonRecord[] {
 
 function asStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  return value
-    .map((entry) => asString(entry).trim())
-    .filter(Boolean);
+  return value.map((entry) => asString(entry).trim()).filter(Boolean);
 }
 
 function parseJsonField(value: unknown): unknown {
@@ -284,7 +282,11 @@ const IMAGE_VALUE_KEYS = [
   "sourceImageUrl",
 ];
 
-const IMAGE_LIST_KEYS = ["uploadedImageUrls", "imageUrls", "referenceImageUrls"];
+const IMAGE_LIST_KEYS = [
+  "uploadedImageUrls",
+  "imageUrls",
+  "referenceImageUrls",
+];
 
 const IMAGE_COLLECTION_KEYS = [
   "selectedImages",
@@ -361,14 +363,20 @@ function collectReferenceImagesFromValue(
   }
 
   const resolvedLabel =
-    IMAGE_LABEL_KEYS.map((key) => record[key]).find((entry) => asString(entry)) ??
-    options?.label;
+    IMAGE_LABEL_KEYS.map((key) => record[key]).find((entry) =>
+      asString(entry),
+    ) ?? options?.label;
   const resolvedOrderIndex =
     IMAGE_ORDER_KEYS.map((key) => record[key]).find((entry) =>
       Number.isFinite(parseImageOrderIndex(entry)),
     ) ?? options?.orderIndex;
 
-  for (const key of [...PRIORITY_IMAGE_VALUE_KEYS, ...IMAGE_VALUE_KEYS, "url", "src"]) {
+  for (const key of [
+    ...PRIORITY_IMAGE_VALUE_KEYS,
+    ...IMAGE_VALUE_KEYS,
+    "url",
+    "src",
+  ]) {
     pushReferenceImage(target, record[key], {
       label: resolvedLabel,
       orderIndex: resolvedOrderIndex,
@@ -427,8 +435,11 @@ function dedupeReferenceImages(
 }
 
 function extractNotificationReferenceImages(order: NormalizedOrder) {
-  const references: Array<{ url: string; label?: string; orderIndex?: number }> =
-    [];
+  const references: Array<{
+    url: string;
+    label?: string;
+    orderIndex?: number;
+  }> = [];
   const parsedData = asRecord(order.whatsAppParsedData);
 
   for (const key of PRIORITY_IMAGE_VALUE_KEYS) {
@@ -583,7 +594,9 @@ function formatTemplateDate(value: unknown): string {
 }
 
 function formatTemplateTime(value: unknown): string {
-  return asString(value).trim().replace(/\s*wib$/i, "");
+  return asString(value)
+    .trim()
+    .replace(/\s*wib$/i, "");
 }
 
 function getParsedCommonFields(order: NormalizedOrder): JsonRecord | null {
@@ -591,9 +604,13 @@ function getParsedCommonFields(order: NormalizedOrder): JsonRecord | null {
   return asRecord(parsedData?.common);
 }
 
-function getParsedDetailsForTemplate(order: NormalizedOrder): JsonRecord | null {
+function getParsedDetailsForTemplate(
+  order: NormalizedOrder,
+): JsonRecord | null {
   const parsedData = asRecord(order.whatsAppParsedData);
-  const normalizedOrderType = normalizeParsedOrderTypeKey(parsedData?.orderType);
+  const normalizedOrderType = normalizeParsedOrderTypeKey(
+    parsedData?.orderType,
+  );
   const detailsByOrderType = asRecord(parsedData?.detailsByOrderType);
 
   if (normalizedOrderType) {
@@ -618,10 +635,14 @@ function buildTemplateFields(
     .filter(Boolean)
     .join(" | ");
 
-  const templateFields: NonNullable<SendOrderToWhatsAppInput["templateFields"]> = {
+  const templateFields: NonNullable<
+    SendOrderToWhatsAppInput["templateFields"]
+  > = {
     dateTime,
     recipientName:
-      asString(common?.recipientName) || asString(order.customerName) || "Customer",
+      asString(common?.recipientName) ||
+      asString(order.customerName) ||
+      "Customer",
     recipientPhone:
       asString(common?.recipientPhone) || asString(order.customerPhone),
   };
@@ -644,10 +665,7 @@ function buildTemplateFields(
       asString(details?.toFromNotes) || asString(details?.greetingCard);
   } else if (templateKey === "box") {
     templateFields.rightTop = itemSummary || asString(order.product);
-  } else if (
-    templateKey === "buket_hand" ||
-    templateKey === "buket_standing"
-  ) {
+  } else if (templateKey === "buket_hand" || templateKey === "buket_standing") {
     templateFields.rightTop = asString(details?.bouquetPaperColor);
     templateFields.rightMiddle = asString(details?.flowerCount);
     templateFields.rightBottom = asString(details?.flowerColor);
@@ -712,8 +730,11 @@ function toWhatsAppPayload(order: NormalizedOrder): SendOrderToWhatsAppInput {
     templateKey,
     productTags,
     recipientName:
-      asString(common?.recipientName) || asString(order.customerName) || "Customer",
-    recipientPhone: asString(common?.recipientPhone) || asString(order.customerPhone),
+      asString(common?.recipientName) ||
+      asString(order.customerName) ||
+      "Customer",
+    recipientPhone:
+      asString(common?.recipientPhone) || asString(order.customerPhone),
     shippingMethod: asString(common?.deliveryMethod),
     imageUrl: imageUrls[0] || "",
     imageUrls,
@@ -1358,6 +1379,10 @@ export async function POST(request: NextRequest) {
               customTokenPerUnit:
                 typeof item.customTokenPerUnit === "number"
                   ? item.customTokenPerUnit
+                  : undefined,
+              cookieDifficultyBreakdown:
+                typeof item.cookieDifficultyBreakdown === "string"
+                  ? item.cookieDifficultyBreakdown
                   : undefined,
             }));
             const tokenForOrder = calculateOrderTokenFromItems(orderItems);

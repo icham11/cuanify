@@ -190,6 +190,8 @@ const itemSchema = z.object({
     .enum(["SIMPLE", "NORMAL", "HARD", "ADVANCED", "EXPERT"])
     .optional(),
   customTokenPerUnit: z.number().int().min(1).max(999).optional(),
+  bouquetPriceOverride: z.number().min(0).optional(),
+  sharingBoxPriceOverride: z.number().min(0).optional(),
   cookiePrice: z.number().min(0).optional(),
   designCount: z.number().int().min(1).max(100).optional(),
   additionalDesignCount: z.number().int().min(0).max(100).optional(),
@@ -346,7 +348,6 @@ type TokenDifficultyValue =
 
 const BOUQUET_HAND_COST = 100000;
 const BOUQUET_STANDING_COST = 250000;
-const BOUQUET_DEFAULT_COOKIE_PRICE = 17000;
 const BOUQUET_HAND_MIN_QTY = 7;
 const BOUQUET_HAND_MAX_QTY = 10;
 const BOUQUET_STANDING_MIN_QTY = 12;
@@ -443,6 +444,21 @@ function normalizeBouquetCookiePriceValue(value: unknown): number | undefined {
   return rounded;
 }
 
+function normalizeBouquetPriceOverrideValue(value: unknown): number | undefined {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
+  return Math.round(parsed);
+}
+
+function normalizeSharingBoxPriceOverrideValue(
+  value: unknown,
+): number | undefined {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
+
+  return Math.round(parsed);
+}
+
 function normalizeCookieDesignCount(value: unknown): number | undefined {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
@@ -452,15 +468,6 @@ function normalizeCookieDesignCount(value: unknown): number | undefined {
 function getAdditionalCookieDesignCount(value: unknown): number {
   const designCount = normalizeCookieDesignCount(value) ?? 0;
   return Math.max(0, designCount - COOKIE_INCLUDED_DESIGN_LIMIT);
-}
-
-function getBouquetCookiePrice(
-  item: Pick<BookingItemInput, "cookiePrice">,
-): number {
-  return (
-    normalizeBouquetCookiePriceValue(item.cookiePrice) ??
-    BOUQUET_DEFAULT_COOKIE_PRICE
-  );
 }
 
 function getTokenDifficultyOption(value: unknown) {
@@ -1363,6 +1370,17 @@ function isCustomCookieItem(
   );
 }
 
+function isCustomCookieSharingBoxItem(
+  item: Pick<BookingItemInput, "category" | "subcategory" | "productName">,
+): boolean {
+  if (item.category !== "Cookies") return false;
+  const subcategory = String(item.subcategory || "").toLowerCase();
+  const productName = String(item.productName || "").toLowerCase();
+
+  return subcategory.includes("custom cookies") &&
+    productName.includes("sharing box");
+}
+
 function getItemQuantityRule(item: BookingItemInput): ItemQuantityRule {
   const source =
     `${item.subcategory || ""} ${item.productName || ""} ${item.size || ""}`.toLowerCase();
@@ -1455,16 +1473,26 @@ function getBouquetLineTotal(
     productName: item.productName,
     size: item.size,
   });
-  const cookiePrice = getBouquetCookiePrice(item);
+  const overriddenPrice = normalizeBouquetPriceOverrideValue(
+    item.bouquetPriceOverride,
+  );
 
   if (quantity <= 0) return null;
   if (startFromPrice <= 0) return null;
 
+  if (overriddenPrice !== undefined) {
+    // For normal bouquet flow qty is cookie-fill count (single bouquet).
+    if (isValidBouquetQuantity(quantity, bouquetType)) {
+      return overriddenPrice;
+    }
+
+    // Keep fallback behavior when qty is treated as bouquet units.
+    return overriddenPrice * quantity;
+  }
+
   // Qty in bouquet range means cookie-fill count for one bouquet unit.
   if (isValidBouquetQuantity(quantity, bouquetType)) {
-    return Math.round(
-      cookiePrice * quantity + getBouquetCostByType(bouquetType),
-    );
+    return Math.round(startFromPrice);
   }
 
   // Outside cookie-fill range, qty is treated as bouquet unit count.
@@ -1524,6 +1552,16 @@ function getItemBasePrice(
     return bouquetLineTotal;
   }
 
+  if (isCustomCookieSharingBoxItem(item)) {
+    const overriddenUnit = normalizeSharingBoxPriceOverrideValue(
+      item.sharingBoxPriceOverride,
+    );
+    if (overriddenUnit !== undefined) {
+      const qty = Number(item.quantity) || 0;
+      return overriddenUnit * qty;
+    }
+  }
+
   const unit = getUnitPriceFromCatalog(catalog, {
     category: item.category,
     subcategory: item.subcategory,
@@ -1543,6 +1581,7 @@ function getItemProductionToken(item: BookingItemInput): number {
       quantity: Number(item.quantity) || 0,
       tokenDifficulty: item.tokenDifficulty,
       customTokenPerUnit: item.customTokenPerUnit,
+      cookieDifficultyBreakdown: item.cookieDifficultyBreakdown,
       addOns: item.addOns,
       addOnQuantities: item.addOnQuantities,
     },
@@ -1620,6 +1659,8 @@ export default function BookingForm() {
               quantity: 1,
               tokenDifficulty: "SIMPLE",
               customTokenPerUnit: undefined,
+              bouquetPriceOverride: undefined,
+              sharingBoxPriceOverride: undefined,
               cookiePrice: undefined,
               addOns: [],
               addOnQuantities: {},
@@ -1635,6 +1676,8 @@ export default function BookingForm() {
             }) ?? 1,
           tokenDifficulty: "SIMPLE",
           customTokenPerUnit: undefined,
+          bouquetPriceOverride: undefined,
+          sharingBoxPriceOverride: undefined,
           cookiePrice: undefined,
           addOns: [],
           addOnQuantities: {},
@@ -2985,6 +3028,16 @@ export default function BookingForm() {
         item.category === "Buket" && (item.greetingCard ?? "").trim().length > 0
           ? `Kartu ucapan: ${(item.greetingCard ?? "").trim()}`
           : "",
+        item.category === "Buket" &&
+        normalizeBouquetPriceOverrideValue(item.bouquetPriceOverride) !==
+          undefined
+          ? `Harga buket override: ${formatCurrency(normalizeBouquetPriceOverrideValue(item.bouquetPriceOverride) ?? 0)}`
+          : "",
+        isCustomCookieSharingBoxItem(item) &&
+        normalizeSharingBoxPriceOverrideValue(item.sharingBoxPriceOverride) !==
+          undefined
+          ? `Harga sharing box override: ${formatCurrency(normalizeSharingBoxPriceOverrideValue(item.sharingBoxPriceOverride) ?? 0)} / box`
+          : "",
         isTwoTierCakeItem(item) ? getTwoTierSummaryLabel(item) : "",
         (item.addOns ?? []).length > 0
           ? `Add-ons: ${(item.addOns ?? [])
@@ -3080,6 +3133,14 @@ export default function BookingForm() {
                 | undefined)
             : undefined,
         customTokenPerUnit: item.customTokenPerUnit,
+        selectedPrice:
+          item.category === "Buket"
+            ? normalizeBouquetPriceOverrideValue(item.bouquetPriceOverride)
+            : isCustomCookieSharingBoxItem(item)
+              ? normalizeSharingBoxPriceOverrideValue(
+                  item.sharingBoxPriceOverride,
+                )
+              : undefined,
         basePrice: itemBasePrice,
         productType:
           item.category === "Buket" ? ("BOUQUET" as const) : undefined,
@@ -3558,6 +3619,25 @@ export default function BookingForm() {
               size: item.size,
             });
             const parsedQuantity = Number(item.quantity);
+            const parsedBouquetPriceOverride =
+              normalized.category === "Buket"
+                ? normalizeBouquetPriceOverrideValue(
+                    (item as { bouquetPriceOverride?: unknown })
+                      .bouquetPriceOverride,
+                  )
+                : undefined;
+            const parsedSharingBoxPriceOverride =
+              normalized.category === "Cookies" &&
+              isCustomCookieSharingBoxItem({
+                category: normalized.category,
+                subcategory: normalized.subcategory,
+                productName: normalized.productName,
+              })
+                ? normalizeSharingBoxPriceOverrideValue(
+                    (item as { sharingBoxPriceOverride?: unknown })
+                      .sharingBoxPriceOverride,
+                  )
+                : undefined;
             const parsedCookiePrice =
               normalized.category === "Buket"
                 ? normalizeBouquetCookiePriceValue(item.cookiePrice)
@@ -3708,6 +3788,8 @@ export default function BookingForm() {
               quantity: normalizedQuantity,
               tokenDifficulty: parsedTokenDifficulty,
               customTokenPerUnit: undefined,
+              bouquetPriceOverride: parsedBouquetPriceOverride,
+              sharingBoxPriceOverride: parsedSharingBoxPriceOverride,
               cookiePrice: parsedCookiePrice,
               designCount: normalizeCookieDesignCount(
                 (item as { designCount?: unknown }).designCount,
@@ -4510,6 +4592,8 @@ export default function BookingForm() {
                           quantity: 1,
                           tokenDifficulty: nextTokenDifficulty,
                           customTokenPerUnit: undefined,
+                          bouquetPriceOverride: undefined,
+                          sharingBoxPriceOverride: undefined,
                           cookiePrice: undefined,
                           addOns: [],
                           addOnQuantities: {},
@@ -4531,10 +4615,9 @@ export default function BookingForm() {
                         quantity: autoQuantity,
                         tokenDifficulty: nextTokenDifficulty,
                         customTokenPerUnit: undefined,
-                        cookiePrice:
-                          nextDefault.category === "Buket"
-                            ? BOUQUET_DEFAULT_COOKIE_PRICE
-                            : undefined,
+                        bouquetPriceOverride: undefined,
+                        sharingBoxPriceOverride: undefined,
+                        cookiePrice: undefined,
                         addOns: [],
                         addOnQuantities: {},
                         addOnPriceOverrides: {},
@@ -4646,6 +4729,14 @@ export default function BookingForm() {
                         Number(item?.customTokenPerUnit) > 0
                           ? Number(item?.customTokenPerUnit)
                           : undefined,
+                      bouquetPriceOverride:
+                        Number(item?.bouquetPriceOverride) > 0
+                          ? Number(item?.bouquetPriceOverride)
+                          : undefined,
+                      sharingBoxPriceOverride:
+                        Number(item?.sharingBoxPriceOverride) > 0
+                          ? Number(item?.sharingBoxPriceOverride)
+                          : undefined,
                       cookiePrice:
                         Number(item?.cookiePrice) > 0
                           ? Number(item?.cookiePrice)
@@ -4662,6 +4753,9 @@ export default function BookingForm() {
                       normalizedSelection.category === "Cookies";
                     const isCustomCookiesItem =
                       isCookies && isCustomCookieItem(bouquetProbeItem);
+                    const isCustomCookieSharingBox =
+                      isCookies &&
+                      isCustomCookieSharingBoxItem(bouquetProbeItem);
                     const isTwoTierCake = isTwoTierCakeItem(bouquetProbeItem);
                     const allowedVariants =
                       deliveryMethod === "ASSISTED_PAXEL" && isBouquet
@@ -4680,14 +4774,20 @@ export default function BookingForm() {
                     const quantityRule = getItemQuantityRule(bouquetProbeItem);
                     const itemTokenPreview =
                       getItemProductionToken(bouquetProbeItem);
-                    const bouquetCookiePrice =
-                      getBouquetCookiePrice(bouquetProbeItem);
-                    const hasCustomBouquetCookiePrice =
-                      normalizeBouquetCookiePriceValue(item?.cookiePrice) !==
-                      undefined;
+                    const bouquetPriceOverride = isBouquet
+                      ? normalizeBouquetPriceOverrideValue(
+                          item?.bouquetPriceOverride,
+                        )
+                      : undefined;
                     const hasParsedRecapPrice = hasParsedPricingOverride(item);
                     const parsedUnitPrice = getParsedUnitPriceOverride(item);
                     const parsedSubtotal = getParsedSubtotalOverride(item);
+                    const sharingBoxUnitPriceOverride =
+                      isCustomCookieSharingBox
+                        ? normalizeSharingBoxPriceOverrideValue(
+                            item?.sharingBoxPriceOverride,
+                          )
+                        : undefined;
                     const cookieDifficultyBreakdown =
                       extractCookieDifficultyBreakdown(item);
                     const cookieDifficultyRowsFromNotes =
@@ -4851,6 +4951,10 @@ export default function BookingForm() {
                     const displayUnitPrice =
                       hasParsedRecapPrice && parsedUnitPrice
                         ? parsedUnitPrice
+                        : bouquetPriceOverride !== undefined
+                          ? bouquetPriceOverride
+                        : sharingBoxUnitPriceOverride !== undefined
+                          ? sharingBoxUnitPriceOverride
                         : isCustomCookiesItem && cookieBreakdownUnitPrice > 0
                           ? cookieBreakdownUnitPrice
                           : getUnitPriceFromCatalog(productCatalog, {
@@ -4979,10 +5083,15 @@ export default function BookingForm() {
                                   },
                                 );
                                 setValue(
+                                  `items.${index}.bouquetPriceOverride`,
+                                  undefined,
+                                  {
+                                    shouldValidate: true,
+                                  },
+                                );
+                                setValue(
                                   `items.${index}.cookiePrice`,
-                                  nextSelection.category === "Buket"
-                                    ? BOUQUET_DEFAULT_COOKIE_PRICE
-                                    : undefined,
+                                  undefined,
                                   {
                                     shouldValidate: true,
                                   },
@@ -5623,6 +5732,34 @@ export default function BookingForm() {
                             )}
                           </label>
 
+                          {isCustomCookieSharingBox && (
+                            <label className="grid gap-1.5 text-sm font-medium text-gray-700">
+                              Override Harga Sharing Box
+                              <Input
+                                type="number"
+                                min={0}
+                                step={1000}
+                                placeholder={String(displayUnitPrice)}
+                                {...register(
+                                  `items.${index}.sharingBoxPriceOverride`,
+                                  {
+                                    setValueAs: (value) =>
+                                      normalizeSharingBoxPriceOverrideValue(
+                                        value,
+                                      ),
+                                    onChange: () => {
+                                      clearParsedPricingOverride(index);
+                                    },
+                                  },
+                                )}
+                              />
+                              <span className="min-h-4 text-[11px] font-normal leading-4 text-gray-500">
+                                Kosongkan jika ingin pakai harga default dari
+                                katalog.
+                              </span>
+                            </label>
+                          )}
+
                           {supportsDifficulty && !isCustomCookiesItem && (
                             <label className="grid gap-1.5 text-sm font-medium text-gray-700">
                               Difficulty Token
@@ -5644,34 +5781,28 @@ export default function BookingForm() {
 
                           {isBouquet && (
                             <label className="grid gap-1.5 text-sm font-medium text-gray-700">
-                              Harga Cookie / pcs
+                              Override Harga Buket
                               <Input
                                 type="number"
                                 min={0}
                                 step={1000}
-                                placeholder={String(BOUQUET_DEFAULT_COOKIE_PRICE)}
-                                {...register(`items.${index}.cookiePrice`, {
+                                placeholder={String(displayUnitPrice)}
+                                {...register(`items.${index}.bouquetPriceOverride`, {
                                   setValueAs: (value) =>
-                                    normalizeBouquetCookiePriceValue(value),
+                                    normalizeBouquetPriceOverrideValue(value),
+                                  onChange: () => {
+                                    clearParsedPricingOverride(index);
+                                  },
                                 })}
                               />
                               <span className="min-h-4 text-[11px] font-normal leading-4 text-gray-500">
-                                {hasCustomBouquetCookiePrice
-                                  ? `Custom harga cookie aktif: ${formatCurrency(bouquetCookiePrice)} / pcs.`
-                                  : `Default harga cookie: ${formatCurrency(BOUQUET_DEFAULT_COOKIE_PRICE)} / pcs.`}
+                                {bouquetPriceOverride !== undefined
+                                  ? `Override harga buket aktif: ${formatCurrency(bouquetPriceOverride)}.`
+                                  : "Kosongkan jika ingin pakai harga default start from katalog."}
                               </span>
                               <span className="min-h-4 text-[11px] font-normal leading-4 text-gray-500">
                                 Token bouquet fixed: Hand = 20, Standing = 50
                                 per bouquet.
-                              </span>
-                              <span className="min-h-4 text-[11px] font-normal leading-4 text-gray-500">
-                                Formula: (harga cookie x qty) +{" "}
-                                {formatCurrency(
-                                  bouquetType
-                                    ? getBouquetCostByType(bouquetType)
-                                    : BOUQUET_HAND_COST,
-                                )}
-                                .
                               </span>
                               {bouquetLineTotal !== null && (
                                 <span className="text-[11px] font-normal leading-4 text-indigo-600">

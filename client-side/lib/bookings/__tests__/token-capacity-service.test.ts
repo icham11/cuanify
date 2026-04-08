@@ -149,6 +149,68 @@ describe("Token Capacity Service — Unit Tests", () => {
       ).toBe(10);
     });
 
+    it("Cookies mixed breakdown uses per-row token pricing", () => {
+      expect(
+        calculateOrderTokenFromItems([
+          {
+            category: "Cookies",
+            quantity: 20,
+            cookieDifficultyBreakdown: "10 pcs SIMPLE\n10 pcs HARD",
+          },
+        ]),
+      ).toBe(40);
+    });
+
+    it("Sharing Box isi 2/3/4/9 uses fixed token map", () => {
+      expect(
+        calculateOrderTokenFromItems([
+          {
+            category: "Cookies",
+            subcategory: "Custom Cookies",
+            productName: "Sharing Box (isi 2)",
+            quantity: 1,
+          },
+          {
+            category: "Cookies",
+            subcategory: "Custom Cookies",
+            productName: "Sharing Box (isi 3)",
+            quantity: 1,
+          },
+          {
+            category: "Cookies",
+            subcategory: "Custom Cookies",
+            productName: "Sharing Box (isi 4)",
+            quantity: 1,
+          },
+          {
+            category: "Cookies",
+            subcategory: "Custom Cookies",
+            productName: "Sharing Box (isi 9)",
+            quantity: 1,
+          },
+        ]),
+      ).toBe(38);
+    });
+
+    it("DIY cookies use fixed token map", () => {
+      expect(
+        calculateOrderTokenFromItems([
+          {
+            category: "Cookies",
+            subcategory: "Christmas 2025",
+            productName: "DIY Classic",
+            quantity: 2,
+          },
+          {
+            category: "Cookies",
+            subcategory: "Christmas 2025",
+            productName: "DIY Gingerbread House",
+            quantity: 1,
+          },
+        ]),
+      ).toBe(12);
+    });
+
     // ── Bouquet ──────────────────────────────────────────────────────────
     it("Bouquet hand_bouquet: 20 tokens flat", () => {
       expect(

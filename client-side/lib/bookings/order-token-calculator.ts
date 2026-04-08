@@ -14,6 +14,7 @@ export interface OrderItemForTokenCalc {
   tokenDifficulty?: string;
   quantity?: number;
   customTokenPerUnit?: number;
+  cookieDifficultyBreakdown?: string;
   addOns?: string[];
   addOnQuantities?: Record<string, number>;
 }
@@ -40,6 +41,19 @@ const COOKIE_DIFFICULTY_TOKEN_MAP: Record<string, number> = {
 const BOUQUET_TOKEN_MAP: Record<string, number> = {
   hand_bouquet: 20,
   standing_bouquet: 50,
+};
+
+const SHARING_BOX_TOKEN_PER_UNIT: Record<number, number> = {
+  2: 4,
+  3: 6,
+  4: 8,
+  9: 20,
+};
+
+const DIY_TOKEN_PER_UNIT: Record<string, number> = {
+  default: 3,
+  gingerbread: 6,
+  house: 6,
 };
 
 const CUPCAKE_COOKIE_ADDON_TOKEN_MAP: Record<string, number> = {
@@ -135,6 +149,59 @@ function resolveCookieDifficultyToken(item: OrderItemForTokenCalc): number {
     return COOKIE_DIFFICULTY_TOKEN_MAP.simple;
   }
   return COOKIE_DIFFICULTY_TOKEN_MAP.simple;
+}
+
+function parseCookieDifficultyBreakdown(item: OrderItemForTokenCalc): number {
+  const breakdown = String(item.cookieDifficultyBreakdown || "").trim();
+  if (!breakdown) return 0;
+
+  const segments = breakdown
+    .split(/\n|\||;|,/)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+
+  if (segments.length === 0) return 0;
+
+  const total = segments.reduce((sum, segment) => {
+    const normalized = normalizeText(segment);
+    const match = normalized.match(
+      /(\d{1,3})\s*(?:pcs?|pieces?)?\s*(?:x\s*)?(simple|normal|hard|advanced|expert|medium|difficult|mudah|sedang|menengah|sederhana|gampang|sulit|susah|rumit|mahir)/,
+    );
+    if (!match?.[1] || !match[2]) return sum;
+
+    const quantity = Number(match[1]);
+    if (!Number.isFinite(quantity) || quantity <= 0) return sum;
+
+    const difficultyToken = resolveCookieDifficultyToken({
+      ...item,
+      tokenDifficulty: match[2],
+    });
+
+    return sum + quantity * difficultyToken;
+  }, 0);
+
+  return total > 0 ? total : 0;
+}
+
+function resolveSharingBoxTokenPerUnit(searchSource: string): number {
+  const isiMatch = searchSource.match(/\bisi\s*(\d{1,2})\b/);
+  if (isiMatch?.[1]) {
+    const parsedIsi = Number(isiMatch[1]);
+    if (Number.isFinite(parsedIsi) && SHARING_BOX_TOKEN_PER_UNIT[parsedIsi]) {
+      return SHARING_BOX_TOKEN_PER_UNIT[parsedIsi];
+    }
+  }
+
+  return 0;
+}
+
+function resolveDiyTokenPerUnit(searchSource: string): number {
+  if (!searchSource.includes("diy")) return 0;
+  if (searchSource.includes("gingerbread") || searchSource.includes("house")) {
+    return DIY_TOKEN_PER_UNIT.gingerbread;
+  }
+
+  return DIY_TOKEN_PER_UNIT.default;
 }
 
 function resolveBouquetToken(searchSource: string): number {
@@ -240,6 +307,16 @@ function calculateItemToken(item: OrderItemForTokenCalc): number {
     return calculateBouquetToken(searchSource, qty);
   }
 
+  const sharingBoxToken = resolveSharingBoxTokenPerUnit(searchSource);
+  if (sharingBoxToken > 0) {
+    return sharingBoxToken * qty;
+  }
+
+  const diyToken = resolveDiyTokenPerUnit(searchSource);
+  if (diyToken > 0) {
+    return diyToken * qty;
+  }
+
   // Evaluate cake before cupcake to avoid product-name collisions (e.g. Cake with "cupcake" note).
   if (isCakeItem) {
     if (
@@ -262,6 +339,11 @@ function calculateItemToken(item: OrderItemForTokenCalc): number {
   }
 
   if (searchSource.includes("cookies") || searchSource.includes("cookie")) {
+    const breakdownToken = parseCookieDifficultyBreakdown(item);
+    if (breakdownToken > 0) {
+      return breakdownToken;
+    }
+
     const diffToken = resolveCookieDifficultyToken(item);
     return diffToken * qty;
   }
