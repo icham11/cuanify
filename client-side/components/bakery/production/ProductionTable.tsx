@@ -11,6 +11,7 @@ import { summarizeProductionTokensByItems } from "@/lib/bookings/operations";
 import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 import { BAKERY_STAFF_DAILY_TOKEN_LIMIT } from "@/lib/bookings/config";
 import { DEFAULT_MAX_TOKEN } from "@/lib/calendar/getCalendarStatus";
+import { useBakerySettings } from "@/hooks/useBakerySettings";
 
 interface TeamMember {
   userId: number;
@@ -49,7 +50,7 @@ const MONTH_OPTIONS = [
   { value: "12", label: "December" },
 ] as const;
 
-const STAFF_DAILY_TOKEN_LIMIT = BAKERY_STAFF_DAILY_TOKEN_LIMIT;
+const STAFF_DAILY_TOKEN_LIMIT_FALLBACK = BAKERY_STAFF_DAILY_TOKEN_LIMIT;
 
 function monthKeyOf(date: Date): string {
   const year = date.getFullYear();
@@ -97,12 +98,11 @@ function statusBadgeClass(status: string): string {
 export default function ProductionTable() {
   const router = useRouter();
   const { business, businesses, switchBusiness } = useBusiness();
-  const {
-    orders,
-    updateOrderStatus,
-    assignOrderToStaff,
-  } = useOrders();
+  const { orders, updateOrderStatus, assignOrderToStaff } = useOrders();
   const { isOwner, isStaff, role, userName } = useRole();
+  const { settings: bakerySettings } = useBakerySettings();
+  const staffDailyTokenLimit =
+    bakerySettings?.staffDailyTokenLimit ?? STAFF_DAILY_TOKEN_LIMIT_FALLBACK;
 
   const [activeTab, setActiveTab] = useState<"active" | "ready">("active");
   const [viewer, setViewer] = useState<ViewerIdentity | null>(null);
@@ -118,7 +118,9 @@ export default function ProductionTable() {
     "all" | "mine" | "unassigned" | "heavy"
   >("all");
   const [isListTransitioning, setIsListTransitioning] = useState(false);
-  const [selectedDatePopupKey, setSelectedDatePopupKey] = useState<string | null>(null);
+  const [selectedDatePopupKey, setSelectedDatePopupKey] = useState<
+    string | null
+  >(null);
   const [transferOrderId, setTransferOrderId] = useState<string | null>(null);
   const [transferStaffUserId, setTransferStaffUserId] = useState<string>("");
   const [switchingBusinessId, setSwitchingBusinessId] = useState<string>("");
@@ -145,7 +147,14 @@ export default function ProductionTable() {
       cancelAnimationFrame(raf1);
       if (raf2) cancelAnimationFrame(raf2);
     };
-  }, [activeTab, filterMonth, filterYear, filterDate, quickFilter, normalizedQuery]);
+  }, [
+    activeTab,
+    filterMonth,
+    filterYear,
+    filterDate,
+    quickFilter,
+    normalizedQuery,
+  ]);
 
   const matchesDateFilter = useCallback(
     (deliveryDate: string | undefined): boolean => {
@@ -323,8 +332,7 @@ export default function ProductionTable() {
       .filter((order) => {
         const normalizedStatus = normalizeOrderStatus(order.orderStatus);
         return (
-          normalizedStatus === "Inquiry" ||
-          normalizedStatus === "In Production"
+          normalizedStatus === "Inquiry" || normalizedStatus === "In Production"
         );
       })
       .slice()
@@ -366,8 +374,9 @@ export default function ProductionTable() {
       if (!byUserId.has(order.assignedStaffUserId)) {
         const fallbackName =
           order.assignedStaffName?.trim() ||
-          teamMembers.find((member) => member.userId === order.assignedStaffUserId)
-            ?.name ||
+          teamMembers.find(
+            (member) => member.userId === order.assignedStaffUserId,
+          )?.name ||
           `Staff #${order.assignedStaffUserId}`;
 
         byUserId.set(order.assignedStaffUserId, {
@@ -445,13 +454,12 @@ export default function ProductionTable() {
 
       const token = summarizeProductionTokensByItems(order.items ?? []);
       const status = normalizeOrderStatus(order.orderStatus);
-      const current =
-        statsMap.get(staffUserId) ?? {
-          userId: staffUserId,
-          name: order.assignedStaffName || `Staff #${staffUserId}`,
-          doneRaw: 0,
-          inProgress: 0,
-        };
+      const current = statsMap.get(staffUserId) ?? {
+        userId: staffUserId,
+        name: order.assignedStaffName || `Staff #${staffUserId}`,
+        doneRaw: 0,
+        inProgress: 0,
+      };
 
       if (["Ready", "Delivered", "Completed"].includes(status)) {
         current.doneRaw += token;
@@ -479,7 +487,7 @@ export default function ProductionTable() {
           dailyTokenPercentage:
             dailyToken <= 0
               ? 0
-              : Math.round((dailyToken / STAFF_DAILY_TOKEN_LIMIT) * 100),
+              : Math.round((dailyToken / staffDailyTokenLimit) * 100),
         };
       })
       .sort((a, b) => b.doneVisible - a.doneVisible);
@@ -492,6 +500,7 @@ export default function ProductionTable() {
     filterMonth,
     filterYear,
     matchesDateFilter,
+    staffDailyTokenLimit,
   ]);
 
   const visibleOrders = useMemo(() => {
@@ -511,7 +520,8 @@ export default function ProductionTable() {
       }
 
       if (quickFilter === "mine") {
-        if (!viewer?.userId || order.assignedStaffUserId !== viewer.userId) return false;
+        if (!viewer?.userId || order.assignedStaffUserId !== viewer.userId)
+          return false;
       }
 
       if (quickFilter === "unassigned") {
@@ -577,7 +587,8 @@ export default function ProductionTable() {
         label: formatGroupDate(dateKey),
         items: groupItems,
         totalToken: groupItems.reduce(
-          (sum, item) => sum + summarizeProductionTokensByItems(item.items ?? []),
+          (sum, item) =>
+            sum + summarizeProductionTokensByItems(item.items ?? []),
           0,
         ),
       }));
@@ -593,10 +604,13 @@ export default function ProductionTable() {
     return productionScopedOrders
       .filter(
         (order) =>
-          (order.deliveryDate?.trim() || "Tanpa tanggal") === selectedDatePopupKey,
+          (order.deliveryDate?.trim() || "Tanpa tanggal") ===
+          selectedDatePopupKey,
       )
       .slice()
-      .sort((a, b) => (a.deliverySlot || "").localeCompare(b.deliverySlot || ""));
+      .sort((a, b) =>
+        (a.deliverySlot || "").localeCompare(b.deliverySlot || ""),
+      );
   }, [selectedDatePopupKey, productionScopedOrders]);
 
   const selectedDateLabel = useMemo(() => {
@@ -736,7 +750,10 @@ export default function ProductionTable() {
     }
   };
 
-  const handleResetStaffMonth = async (staffUserId: number, doneRaw: number) => {
+  const handleResetStaffMonth = async (
+    staffUserId: number,
+    doneRaw: number,
+  ) => {
     setResettingUserId(staffUserId);
     try {
       const response = await fetch("/api/bakery/production/staff-tokens", {
@@ -789,7 +806,7 @@ export default function ProductionTable() {
     selectedTransferBaselineToken + transferOrderToken;
   const selectedTransferOverLimit =
     transferCandidates.length > 0 &&
-    selectedTransferProjectedToken > STAFF_DAILY_TOKEN_LIMIT;
+    selectedTransferProjectedToken > staffDailyTokenLimit;
 
   const renderOrderRow = (order: (typeof orders)[number]) => {
     const normalizedOrderStatus = normalizeOrderStatus(order.orderStatus);
@@ -819,7 +836,7 @@ export default function ProductionTable() {
         : 0;
     const projectedStaffDailyToken = currentStaffDailyToken + orderToken;
     const exceedsStaffDailyLimit =
-      canStaffClaim && projectedStaffDailyToken > STAFF_DAILY_TOKEN_LIMIT;
+      canStaffClaim && projectedStaffDailyToken > staffDailyTokenLimit;
     const claimDisabled = claimedByOther || exceedsStaffDailyLimit;
 
     const canOwnerTransfer = isOwner && Boolean(order.assignedStaffUserId);
@@ -857,7 +874,9 @@ export default function ProductionTable() {
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
-            setSelectedDatePopupKey(order.deliveryDate?.trim() || "Tanpa tanggal");
+            setSelectedDatePopupKey(
+              order.deliveryDate?.trim() || "Tanpa tanggal",
+            );
           }
         }}
         className={`group flex cursor-pointer items-center justify-between gap-3 border-l-4 px-4 py-2.5 transition hover:bg-gray-50 ${accentClass}`}
@@ -867,7 +886,8 @@ export default function ProductionTable() {
             {order.customerName || "Walk-in Customer"}
           </p>
           <p className="truncate text-xs text-gray-500">
-            {productName} • Qty {orderQty || 0} • {order.deliverySlot || "No slot"}
+            {productName} • Qty {orderQty || 0} •{" "}
+            {order.deliverySlot || "No slot"}
           </p>
         </div>
 
@@ -878,29 +898,29 @@ export default function ProductionTable() {
 
         <div className="flex shrink-0 flex-col items-end gap-1.5">
           <div className="flex items-center gap-2">
-          {staffName ? (
-            <span className="rounded-full bg-green-100 px-2.5 py-1 text-xs font-medium text-green-700">
-              {staffName}
-            </span>
-          ) : (
-            <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-500">
-              Unassigned
-            </span>
-          )}
+            {staffName ? (
+              <span className="rounded-full bg-green-100 px-2.5 py-1 text-xs font-medium text-green-700">
+                {staffName}
+              </span>
+            ) : (
+              <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-500">
+                Unassigned
+              </span>
+            )}
 
             {canStaffClaim && (
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                handleClaimByStaff(order.id);
-              }}
-              disabled={claimDisabled}
-              className="rounded-full bg-blue-500 px-3 py-1 text-xs font-medium text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Ambil
-            </button>
-          )}
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleClaimByStaff(order.id);
+                }}
+                disabled={claimDisabled}
+                className="rounded-full bg-blue-500 px-3 py-1 text-xs font-medium text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Ambil
+              </button>
+            )}
 
             {canOwnerTransfer && (
               <button
@@ -929,12 +949,14 @@ export default function ProductionTable() {
           {exceedsStaffDailyLimit && (
             <p className="text-[11px] font-medium text-rose-600">
               Token harian staff melewati batas ({projectedStaffDailyToken}/
-              {STAFF_DAILY_TOKEN_LIMIT})
+              {staffDailyTokenLimit})
             </p>
           )}
 
           {statusDisabledMessage && (
-            <p className="text-[11px] text-slate-500">{statusDisabledMessage}</p>
+            <p className="text-[11px] text-slate-500">
+              {statusDisabledMessage}
+            </p>
           )}
         </div>
       </div>
@@ -954,12 +976,18 @@ export default function ProductionTable() {
       {isOwner ? (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
           <p className="text-xs font-medium text-slate-600">
-            Business aktif: <span className="font-semibold text-slate-900">{viewer?.businessName || business?.name || "-"}</span>
+            Business aktif:{" "}
+            <span className="font-semibold text-slate-900">
+              {viewer?.businessName || business?.name || "-"}
+            </span>
           </p>
 
           {businesses.length > 1 ? (
             <div className="inline-flex items-center gap-2">
-              <label htmlFor="production-business-switcher" className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              <label
+                htmlFor="production-business-switcher"
+                className="text-[11px] font-semibold uppercase tracking-wide text-slate-500"
+              >
                 Switch Business
               </label>
               <select
@@ -998,20 +1026,36 @@ export default function ProductionTable() {
 
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             <div className="rounded-xl border border-indigo-100 bg-indigo-50/70 px-3 py-2">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-indigo-700">Visible Orders</p>
-              <p className="text-base font-semibold text-indigo-900">{queueSummary.orderCount}</p>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-indigo-700">
+                Visible Orders
+              </p>
+              <p className="text-base font-semibold text-indigo-900">
+                {queueSummary.orderCount}
+              </p>
             </div>
             <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 px-3 py-2">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-emerald-700">Total Token</p>
-              <p className="text-base font-semibold text-emerald-900">{queueSummary.totalToken}</p>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-emerald-700">
+                Total Token
+              </p>
+              <p className="text-base font-semibold text-emerald-900">
+                {queueSummary.totalToken}
+              </p>
             </div>
             <div className="rounded-xl border border-amber-100 bg-amber-50/70 px-3 py-2">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-amber-700">Unassigned</p>
-              <p className="text-base font-semibold text-amber-900">{queueSummary.unassigned}</p>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-amber-700">
+                Unassigned
+              </p>
+              <p className="text-base font-semibold text-amber-900">
+                {queueSummary.unassigned}
+              </p>
             </div>
             <div className="rounded-xl border border-rose-100 bg-rose-50/70 px-3 py-2">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-rose-700">Due Today</p>
-              <p className="text-base font-semibold text-rose-900">{queueSummary.dueToday}</p>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-rose-700">
+                Due Today
+              </p>
+              <p className="text-base font-semibold text-rose-900">
+                {queueSummary.dueToday}
+              </p>
             </div>
           </div>
         </div>
@@ -1127,77 +1171,98 @@ export default function ProductionTable() {
 
       {isOwner ? (
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="mb-3 flex items-center justify-between">
-          <h4 className="text-sm font-semibold text-slate-900">Staff Productivity</h4>
-          <p className="text-xs text-slate-500">Berdasarkan filter aktif saat ini</p>
-        </div>
+          <div className="mb-3 flex items-center justify-between">
+            <h4 className="text-sm font-semibold text-slate-900">
+              Staff Productivity
+            </h4>
+            <p className="text-xs text-slate-500">
+              Berdasarkan filter aktif saat ini
+            </p>
+          </div>
 
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {staffStats.length === 0 ? (
-            <p className="text-xs text-gray-500">Belum ada data token staff.</p>
-          ) : (
-            staffStats.map((staff) => {
-              const totalWork = staff.doneVisible + staff.inProgress;
-              const completionPct =
-                totalWork <= 0 ? 0 : Math.round((staff.doneVisible / totalWork) * 100);
-              const dailyPct = Math.max(0, staff.dailyTokenPercentage);
-              const dailyIndicatorClass =
-                dailyPct >= 100
-                  ? "bg-rose-100 text-rose-700"
-                  : dailyPct >= 70
-                    ? "bg-amber-100 text-amber-700"
-                    : "bg-emerald-100 text-emerald-700";
-              const dailyStatusText =
-                dailyPct >= 100
-                  ? "Limit tercapai"
-                  : dailyPct >= 70
-                    ? "Mendekati limit"
-                    : "Masih aman";
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {staffStats.length === 0 ? (
+              <p className="text-xs text-gray-500">
+                Belum ada data token staff.
+              </p>
+            ) : (
+              staffStats.map((staff) => {
+                const totalWork = staff.doneVisible + staff.inProgress;
+                const completionPct =
+                  totalWork <= 0
+                    ? 0
+                    : Math.round((staff.doneVisible / totalWork) * 100);
+                const dailyPct = Math.max(0, staff.dailyTokenPercentage);
+                const dailyIndicatorClass =
+                  dailyPct >= 100
+                    ? "bg-rose-100 text-rose-700"
+                    : dailyPct >= 70
+                      ? "bg-amber-100 text-amber-700"
+                      : "bg-emerald-100 text-emerald-700";
+                const dailyStatusText =
+                  dailyPct >= 100
+                    ? "Limit tercapai"
+                    : dailyPct >= 70
+                      ? "Mendekati limit"
+                      : "Masih aman";
 
-              return (
-                <div
-                  key={staff.userId}
-                  className="rounded-xl border border-slate-200 bg-linear-to-br from-white via-slate-50 to-indigo-50/60 p-3"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="truncate text-sm font-semibold text-slate-900">{staff.name}</p>
-                    <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${dailyIndicatorClass}`}>
-                      {staff.dailyToken} / {STAFF_DAILY_TOKEN_LIMIT} token
-                    </span>
+                return (
+                  <div
+                    key={staff.userId}
+                    className="rounded-xl border border-slate-200 bg-linear-to-br from-white via-slate-50 to-indigo-50/60 p-3"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="truncate text-sm font-semibold text-slate-900">
+                        {staff.name}
+                      </p>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${dailyIndicatorClass}`}
+                      >
+                        {staff.dailyToken} / {staffDailyTokenLimit} token
+                      </span>
+                    </div>
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      Token harian ({staffDailyIndicatorDateKey}):{" "}
+                      {dailyStatusText}
+                    </p>
+                    <p className="mt-1 text-xs text-amber-700">
+                      In progress {staff.inProgress} token
+                    </p>
+
+                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200">
+                      <div
+                        className="h-full rounded-full bg-indigo-500 transition-all duration-500"
+                        style={{
+                          width: `${Math.min(100, Math.max(0, completionPct))}%`,
+                        }}
+                      />
+                    </div>
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      Progress selesai {completionPct}%
+                    </p>
+
+                    {isOwner && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleResetStaffMonth(staff.userId, staff.doneRaw)
+                        }
+                        disabled={resettingUserId === staff.userId}
+                        className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-red-500 transition hover:text-red-600 disabled:opacity-60"
+                      >
+                        {resettingUserId === staff.userId ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <RotateCcw className="h-3.5 w-3.5" />
+                        )}
+                        Reset Token Bulanan
+                      </button>
+                    )}
                   </div>
-                  <p className="mt-1 text-[11px] text-slate-500">
-                    Token harian ({staffDailyIndicatorDateKey}): {dailyStatusText}
-                  </p>
-                  <p className="mt-1 text-xs text-amber-700">In progress {staff.inProgress} token</p>
-
-                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200">
-                    <div
-                      className="h-full rounded-full bg-indigo-500 transition-all duration-500"
-                      style={{ width: `${Math.min(100, Math.max(0, completionPct))}%` }}
-                    />
-                  </div>
-                  <p className="mt-1 text-[11px] text-slate-500">Progress selesai {completionPct}%</p>
-
-                  {isOwner && (
-                    <button
-                      type="button"
-                      onClick={() => handleResetStaffMonth(staff.userId, staff.doneRaw)}
-                      disabled={resettingUserId === staff.userId}
-                      className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-red-500 transition hover:text-red-600 disabled:opacity-60"
-                    >
-                      {resettingUserId === staff.userId ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <RotateCcw className="h-3.5 w-3.5" />
-                      )}
-                      Reset Token Bulanan
-                    </button>
-                  )}
-                </div>
-              );
-            })
-          )}
-        </div>
+                );
+              })
+            )}
+          </div>
         </div>
       ) : null}
 
@@ -1228,7 +1293,9 @@ export default function ProductionTable() {
 
       <div
         className={`transition-all duration-300 ease-out ${
-          isListTransitioning ? "translate-y-1 opacity-70" : "translate-y-0 opacity-100"
+          isListTransitioning
+            ? "translate-y-1 opacity-70"
+            : "translate-y-0 opacity-100"
         }`}
       >
         {groupedOrders.length === 0 ? (
@@ -1238,7 +1305,10 @@ export default function ProductionTable() {
         ) : (
           <div className="space-y-4">
             {groupedOrders.map((group) => (
-              <div key={group.dateKey} className="rounded-xl border border-slate-200 bg-white shadow-sm">
+              <div
+                key={group.dateKey}
+                className="rounded-xl border border-slate-200 bg-white shadow-sm"
+              >
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-2.5">
                   <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                     {group.label}
@@ -1279,11 +1349,15 @@ export default function ProductionTable() {
           >
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
-                <h3 id="transfer-order-modal-title" className="text-base font-semibold text-slate-900">
+                <h3
+                  id="transfer-order-modal-title"
+                  className="text-base font-semibold text-slate-900"
+                >
                   Transfer Order
                 </h3>
                 <p className="mt-1 text-xs text-slate-500">
-                  Pindahkan order ke staff lain. Token order: {transferOrderToken}
+                  Pindahkan order ke staff lain. Token order:{" "}
+                  {transferOrderToken}
                 </p>
               </div>
               <button
@@ -1310,20 +1384,23 @@ export default function ProductionTable() {
                 </label>
                 <select
                   value={transferStaffUserId}
-                  onChange={(event) => setTransferStaffUserId(event.target.value)}
+                  onChange={(event) =>
+                    setTransferStaffUserId(event.target.value)
+                  }
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
                 >
                   {transferCandidates.map((member) => {
                     const baselineDailyToken = transferOrderDateKey
-                      ? (staffDailyTokenByDate.get(`${member.userId}:${transferOrderDateKey}`) ??
-                        0)
+                      ? (staffDailyTokenByDate.get(
+                          `${member.userId}:${transferOrderDateKey}`,
+                        ) ?? 0)
                       : 0;
                     const projected = baselineDailyToken + transferOrderToken;
-                    const overLimit = projected > STAFF_DAILY_TOKEN_LIMIT;
+                    const overLimit = projected > staffDailyTokenLimit;
 
                     return (
                       <option key={member.userId} value={String(member.userId)}>
-                        {member.name} ({projected}/{STAFF_DAILY_TOKEN_LIMIT}
+                        {member.name} ({projected}/{staffDailyTokenLimit}
                         {overLimit ? " - melebihi batas" : ""})
                       </option>
                     );
@@ -1332,11 +1409,13 @@ export default function ProductionTable() {
 
                 <p
                   className={`text-xs ${
-                    selectedTransferOverLimit ? "text-rose-600" : "text-slate-500"
+                    selectedTransferOverLimit
+                      ? "text-rose-600"
+                      : "text-slate-500"
                   }`}
                 >
                   Proyeksi token harian: {selectedTransferProjectedToken}/
-                  {STAFF_DAILY_TOKEN_LIMIT}
+                  {staffDailyTokenLimit}
                   {selectedTransferOverLimit ? " (melebihi batas)" : ""}
                 </p>
               </div>
@@ -1404,8 +1483,9 @@ export default function ProductionTable() {
                             : "bg-emerald-100 text-emerald-700"
                       }`}
                     >
-                      {selectedDateCapacity.usedToken} / {selectedDateCapacity.maxToken} token
-                      &nbsp;- sisa {selectedDateCapacity.remainingToken}
+                      {selectedDateCapacity.usedToken} /{" "}
+                      {selectedDateCapacity.maxToken} token &nbsp;- sisa{" "}
+                      {selectedDateCapacity.remainingToken}
                     </span>
                   ) : null}
                 </div>
@@ -1454,7 +1534,10 @@ export default function ProductionTable() {
                         {order.customerName || "Walk-in Customer"}
                       </p>
                       <p className="mt-1 truncate text-xs text-gray-500">
-                        {order.items?.[0]?.productName || order.product || "Produk"} - {order.deliverySlot || "-"}
+                        {order.items?.[0]?.productName ||
+                          order.product ||
+                          "Produk"}{" "}
+                        - {order.deliverySlot || "-"}
                       </p>
                     </div>
                     <span

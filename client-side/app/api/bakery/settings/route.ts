@@ -46,6 +46,7 @@ export async function PATCH(request: NextRequest) {
 
     const body = (await request.json().catch(() => ({}))) as {
       dailyProductionTokenLimit?: unknown;
+      staffDailyTokenLimit?: unknown;
       blockedDates?: unknown;
     };
 
@@ -56,6 +57,10 @@ export async function PATCH(request: NextRequest) {
         dailyProductionTokenLimit:
           body.dailyProductionTokenLimit !== undefined
             ? Number(body.dailyProductionTokenLimit)
+            : undefined,
+        staffDailyTokenLimit:
+          body.staffDailyTokenLimit !== undefined
+            ? Number(body.staffDailyTokenLimit)
             : undefined,
         blockedDates:
           body.blockedDates !== undefined

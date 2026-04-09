@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 export interface BakerySettingsState {
   dailyProductionTokenLimit: number;
+  staffDailyTokenLimit: number;
   blockedDates: string[];
 }
 

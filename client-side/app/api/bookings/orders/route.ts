@@ -1734,7 +1734,7 @@ export async function POST(request: NextRequest) {
     validateProjectedStaffDailyTokenLimit({
       orders,
       existingAssignments: existingAssignmentRows,
-      limit: STAFF_DAILY_TOKEN_LIMIT,
+      limit: bakerySettings.staffDailyTokenLimit,
     });
 
     const tokenValidation = validateDailyTokenCapacity(orders);

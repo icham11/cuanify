@@ -8,6 +8,7 @@ interface BakerySettingsResponse {
   success?: boolean;
   data?: {
     dailyProductionTokenLimit: number;
+    staffDailyTokenLimit: number;
     blockedDates: string[];
   };
   error?: string;
@@ -30,6 +31,7 @@ export default function BakerySettingsPage() {
 
   const [dailyProductionTokenLimit, setDailyProductionTokenLimit] =
     useState<number>(500);
+  const [staffDailyTokenLimit, setStaffDailyTokenLimit] = useState<number>(500);
   const [blockedDatesText, setBlockedDatesText] = useState("");
 
   useEffect(() => {
@@ -52,6 +54,7 @@ export default function BakerySettingsPage() {
         if (!active) return;
 
         setDailyProductionTokenLimit(payload.data.dailyProductionTokenLimit);
+        setStaffDailyTokenLimit(payload.data.staffDailyTokenLimit);
         setBlockedDatesText(payload.data.blockedDates.join("\n"));
       } catch (error) {
         const message =
@@ -88,6 +91,15 @@ export default function BakerySettingsPage() {
       return;
     }
 
+    if (
+      !Number.isFinite(staffDailyTokenLimit) ||
+      staffDailyTokenLimit < 1 ||
+      staffDailyTokenLimit > 10_000
+    ) {
+      toast.error("Token harian staff wajib di rentang 1-10000.");
+      return;
+    }
+
     setIsSaving(true);
     try {
       const response = await fetch("/api/bakery/settings", {
@@ -97,6 +109,7 @@ export default function BakerySettingsPage() {
         },
         body: JSON.stringify({
           dailyProductionTokenLimit: Math.round(dailyProductionTokenLimit),
+          staffDailyTokenLimit: Math.round(staffDailyTokenLimit),
           blockedDates: normalizedBlockedDates,
         }),
       });
@@ -110,6 +123,7 @@ export default function BakerySettingsPage() {
       }
 
       setDailyProductionTokenLimit(payload.data.dailyProductionTokenLimit);
+      setStaffDailyTokenLimit(payload.data.staffDailyTokenLimit);
       setBlockedDatesText(payload.data.blockedDates.join("\n"));
       toast.success("Bakery settings berhasil disimpan.");
     } catch (error) {
@@ -155,6 +169,23 @@ export default function BakerySettingsPage() {
               <span className="text-xs text-gray-500">
                 Dipakai untuk batas kapasitas produksi per hari pada order
                 bakery.
+              </span>
+            </label>
+
+            <label className="grid gap-2 text-sm font-medium text-gray-700">
+              Token Harian Staff
+              <input
+                type="number"
+                min={1}
+                max={10000}
+                value={staffDailyTokenLimit}
+                onChange={(event) =>
+                  setStaffDailyTokenLimit(Number(event.target.value || 0))
+                }
+                className="h-10 rounded-lg border border-gray-300 px-3 text-sm outline-none focus:border-indigo-400"
+              />
+              <span className="text-xs text-gray-500">
+                Dipakai untuk batas token harian assignment produksi per staff.
               </span>
             </label>
 

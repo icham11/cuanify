@@ -2,6 +2,7 @@ import prisma from "@/lib/prisma";
 import {
   BAKERY_BLOCKED_DATES,
   BAKERY_DAILY_PRODUCTION_TOKEN_LIMIT,
+  BAKERY_STAFF_DAILY_TOKEN_LIMIT,
 } from "@/lib/bookings/config";
 
 const BAKERY_SETTINGS_SOURCE_TYPE = "bakery_settings";
@@ -11,6 +12,7 @@ const MAX_DAILY_TOKEN_LIMIT = 10_000;
 
 export interface BakeryBusinessSettings {
   dailyProductionTokenLimit: number;
+  staffDailyTokenLimit: number;
   blockedDates: string[];
 }
 
@@ -37,6 +39,7 @@ function normalizeBlockedDates(value: unknown): string[] {
 export function getDefaultBakerySettings(): BakeryBusinessSettings {
   return {
     dailyProductionTokenLimit: BAKERY_DAILY_PRODUCTION_TOKEN_LIMIT,
+    staffDailyTokenLimit: BAKERY_STAFF_DAILY_TOKEN_LIMIT,
     blockedDates: [...BAKERY_BLOCKED_DATES],
   };
 }
@@ -54,6 +57,7 @@ function parseMetadataToSettings(metadata: unknown): BakeryBusinessSettings {
     dailyProductionTokenLimit: clampDailyTokenLimit(
       record.dailyProductionTokenLimit,
     ),
+    staffDailyTokenLimit: clampDailyTokenLimit(record.staffDailyTokenLimit),
     blockedDates: normalizeBlockedDates(record.blockedDates),
   };
 }
@@ -85,6 +89,10 @@ export async function upsertBakeryBusinessSettings(args: {
       args.input.dailyProductionTokenLimit !== undefined
         ? clampDailyTokenLimit(args.input.dailyProductionTokenLimit)
         : current.dailyProductionTokenLimit,
+    staffDailyTokenLimit:
+      args.input.staffDailyTokenLimit !== undefined
+        ? clampDailyTokenLimit(args.input.staffDailyTokenLimit)
+        : current.staffDailyTokenLimit,
     blockedDates:
       args.input.blockedDates !== undefined
         ? normalizeBlockedDates(args.input.blockedDates)

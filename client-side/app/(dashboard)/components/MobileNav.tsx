@@ -303,6 +303,13 @@ export default function MobileNav({
                     onClick={() => setIsDrawerOpen(false)}
                   />
                   <NavLink
+                    href="/dashboard/business/bakery-settings"
+                    icon={Settings2}
+                    label="Bakery Settings"
+                    active={isActive("/dashboard/business/bakery-settings")}
+                    onClick={() => setIsDrawerOpen(false)}
+                  />
+                  <NavLink
                     href="/dashboard/profile"
                     icon={User}
                     label="Profile"
