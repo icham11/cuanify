@@ -341,7 +341,9 @@ export function isWithinBusinessHours(
 }
 
 function isActiveOrder(orderStatus: string | undefined): boolean {
-  return !["Cancelled", "Completed", "Delivered"].includes(orderStatus || "");
+  return !["Cancelled", "Completed", "Delivery", "Delivered"].includes(
+    orderStatus || "",
+  );
 }
 
 function inferOrderTypeFromOrder(

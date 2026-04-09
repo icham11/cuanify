@@ -107,7 +107,9 @@ export default function OrderTable({ orders }: OrderTableProps) {
         const normalizedStatus = normalizeOrderStatus(order.orderStatus);
         if (
           order.deliveryDate < today &&
-          !["Delivered", "Completed", "Cancelled"].includes(normalizedStatus)
+          !["Delivery", "Delivered", "Completed", "Cancelled"].includes(
+            normalizedStatus,
+          )
         ) {
           return [order.id, { label: "Late Order", tone: "danger" }];
         }
@@ -302,6 +304,7 @@ export default function OrderTable({ orders }: OrderTableProps) {
                             event.target.value as
                               | "In Production"
                               | "Ready"
+                              | "Delivery"
                               | "Completed"
                               | "Delivered"
                               | "Cancelled",

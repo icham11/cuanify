@@ -77,7 +77,7 @@ class PastDateError extends Error {
   }
 }
 
-const INACTIVE_STATUSES = ["Cancelled", "Completed", "Delivered"];
+const INACTIVE_STATUSES = ["Cancelled", "Completed", "Delivery", "Delivered"];
 const STAFF_DAILY_TOKEN_LIMIT = BAKERY_STAFF_DAILY_TOKEN_LIMIT;
 const STAFF_DAILY_TOKEN_LIMIT_MESSAGE =
   "Token harian staff melebihi limit assignment";
@@ -832,7 +832,7 @@ function validateDailyTokenCapacity(orders: NormalizedOrder[]) {
         .filter(
           (order) =>
             Boolean(order.deliveryDate) &&
-            !["Cancelled", "Completed", "Delivered"].includes(
+            !["Cancelled", "Completed", "Delivery", "Delivered"].includes(
               order.orderStatus || "",
             ),
         )
@@ -1653,6 +1653,7 @@ export async function POST(request: NextRequest) {
       const staffUpdatableStatuses = new Set([
         "In Production",
         "Ready",
+        "Delivery",
         "Delivered",
         "Completed",
       ]);

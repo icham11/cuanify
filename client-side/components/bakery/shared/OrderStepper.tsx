@@ -1,9 +1,4 @@
-import {
-  Factory,
-  PackageCheck,
-  Truck,
-  XCircle,
-} from "lucide-react";
+import { Factory, PackageCheck, Truck, XCircle } from "lucide-react";
 import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 
 const steps = [
@@ -19,6 +14,7 @@ function resolveStepIndex(status: string) {
   switch (normalizedStatus) {
     case "Ready":
       return 1;
+    case "Delivery":
     case "Delivered":
     case "Completed":
       return 2;

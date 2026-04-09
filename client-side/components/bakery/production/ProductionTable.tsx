@@ -105,7 +105,7 @@ function statusBadgeClass(status: string): string {
   if (normalized === "Ready") {
     return "bg-violet-100 text-violet-700";
   }
-  if (normalized === "Delivered" || normalized === "Completed") {
+  if (normalized === "Delivery" || normalized === "Completed") {
     return "bg-emerald-100 text-emerald-700";
   }
   return "bg-indigo-100 text-indigo-700";
@@ -117,6 +117,8 @@ export default function ProductionTable() {
   const { orders, updateOrderStatus, assignOrderToStaff } = useOrders();
   const { isOwner, isStaff, role, userName } = useRole();
   const { settings: bakerySettings } = useBakerySettings();
+  const productionDailyTokenLimit =
+    bakerySettings?.dailyProductionTokenLimit ?? DEFAULT_MAX_TOKEN;
   const staffDailyTokenLimit =
     bakerySettings?.staffDailyTokenLimit ?? STAFF_DAILY_TOKEN_LIMIT_FALLBACK;
 
@@ -358,7 +360,7 @@ export default function ProductionTable() {
   const readyOrders = useMemo(() => {
     return orders
       .filter((order) =>
-        ["Ready", "Delivered", "Completed"].includes(
+        ["Ready", "Delivery", "Completed"].includes(
           normalizeOrderStatus(order.orderStatus),
         ),
       )
@@ -429,7 +431,7 @@ export default function ProductionTable() {
       if (!staffUserId || !deliveryDate) continue;
 
       const status = normalizeOrderStatus(order.orderStatus);
-      if (["Delivered", "Completed", "Cancelled"].includes(status)) {
+      if (["Delivery", "Completed", "Cancelled"].includes(status)) {
         continue;
       }
 
@@ -477,7 +479,7 @@ export default function ProductionTable() {
         inProgress: 0,
       };
 
-      if (["Ready", "Delivered", "Completed"].includes(status)) {
+      if (["Ready", "Delivery", "Completed"].includes(status)) {
         current.doneRaw += token;
       } else if (status === "In Production") {
         current.inProgress += token;
@@ -702,16 +704,16 @@ export default function ProductionTable() {
   const updateStatus = (id: string, status: string) => {
     updateOrderStatus(
       id,
-      status as "In Production" | "Ready" | "Delivered" | "Completed",
+      status as "In Production" | "Ready" | "Delivery" | "Completed",
     );
   };
 
   const getStatusOptions = (status: string) => {
     if (status === "In Production")
-      return ["In Production", "Ready", "Delivered"];
-    if (status === "Ready") return ["Ready", "Delivered"];
-    if (status === "Delivered") return ["Delivered", "Completed"];
-    return ["In Production", "Ready", "Delivered", "Completed"];
+      return ["In Production", "Ready", "Delivery"];
+    if (status === "Ready") return ["Ready", "Delivery"];
+    if (status === "Delivery") return ["Delivery", "Completed"];
+    return ["In Production", "Ready", "Delivery", "Completed"];
   };
 
   const handleClaimByStaff = (orderId: string) => {
@@ -1050,7 +1052,7 @@ export default function ProductionTable() {
             <h3 className="mt-1 text-lg font-semibold text-slate-900">
               {activeTab === "active"
                 ? "Open Queue (Inquiry + In Production)"
-                : "Ready & Delivered"}
+                : "Ready & Delivery"}
             </h3>
           </div>
 
@@ -1317,7 +1319,7 @@ export default function ProductionTable() {
               : "border border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
           }`}
         >
-          Ready / Delivered ({readyOrders.length})
+          Ready / Delivery ({readyOrders.length})
         </button>
       </div>
 

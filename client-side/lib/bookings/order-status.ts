@@ -1,7 +1,7 @@
 export const BOOKING_STATUS_OPTIONS = [
   { value: "In Production", label: "In Production" },
   { value: "Ready", label: "Ready" },
-  { value: "Delivered", label: "Delivered" },
+  { value: "Delivery", label: "Delivery" },
   { value: "Completed", label: "Completed" },
   { value: "Cancelled", label: "Cancelled" },
 ] as const;
@@ -13,11 +13,20 @@ const LEGACY_PRE_PRODUCTION_STATUSES = new Set([
   "Confirmed",
 ]);
 
-const CLOSED_ORDER_STATUSES = new Set(["Delivered", "Completed", "Cancelled"]);
+const CLOSED_ORDER_STATUSES = new Set([
+  "Delivery",
+  "Delivered",
+  "Completed",
+  "Cancelled",
+]);
 
 export function normalizeOrderStatus(status?: string | null): string {
   if (!status || LEGACY_PRE_PRODUCTION_STATUSES.has(status)) {
     return "In Production";
+  }
+
+  if (status === "Delivered") {
+    return "Delivery";
   }
 
   return status;

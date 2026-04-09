@@ -24,6 +24,7 @@ function resolveIndex(status: string) {
     case "Ready":
       return 2;
     case "Completed":
+    case "Delivery":
     case "Delivered":
       return 3;
     case "Cancelled":
@@ -57,14 +58,18 @@ export default function OrderTimeline({
   deliveryDate: string;
   history?: OrderStatusLog[];
 }) {
-  const sortedHistory = (history ?? []).slice().sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+  const sortedHistory = (history ?? [])
+    .slice()
+    .sort((a, b) => a.timestamp.localeCompare(b.timestamp));
   const currentIndex = resolveIndex(status);
   const normalizedStatus = normalizeOrderStatus(status);
 
   return (
     <div className="rounded-xl border border-gray-100 bg-white px-6 py-6 shadow-sm">
       <div className="mb-4 flex items-center justify-between">
-        <h3 className="text-base font-semibold text-gray-900">Activity Timeline</h3>
+        <h3 className="text-base font-semibold text-gray-900">
+          Activity Timeline
+        </h3>
         <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
           Latest updates
         </span>
@@ -85,7 +90,9 @@ export default function OrderTimeline({
                     <Clock size={16} />
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-gray-900">{entry.note}</p>
+                    <p className="text-sm font-medium text-gray-900">
+                      {entry.note}
+                    </p>
                     <p className="text-xs text-gray-500">
                       {new Date(entry.timestamp).toLocaleString("id-ID", {
                         dateStyle: "medium",
@@ -115,7 +122,9 @@ export default function OrderTimeline({
                     <Icon size={18} />
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-gray-900">{step.label}</p>
+                    <p className="text-sm font-medium text-gray-900">
+                      {step.label}
+                    </p>
                     <p className="text-xs text-gray-500">
                       {formatDate(deliveryDate, step.offset)}
                     </p>

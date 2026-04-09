@@ -32,7 +32,8 @@ export default function OrdersStats() {
       title: "In Production",
       value: String(
         orders.filter(
-          (order) => normalizeOrderStatus(order.orderStatus) === "In Production",
+          (order) =>
+            normalizeOrderStatus(order.orderStatus) === "In Production",
         ).length,
       ),
     },
@@ -40,7 +41,9 @@ export default function OrdersStats() {
       title: "Completed",
       value: String(
         orders.filter((order) =>
-          ["Completed", "Delivered"].includes(order.orderStatus),
+          ["Completed", "Delivery"].includes(
+            normalizeOrderStatus(order.orderStatus),
+          ),
         ).length,
       ),
     },

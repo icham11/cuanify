@@ -38,6 +38,7 @@ export type OrderStatus =
   | "Confirmed"
   | "In Production"
   | "Ready"
+  | "Delivery"
   | "Completed"
   | "Cancelled"
   | "Delivered";
@@ -669,56 +670,60 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
     return payload;
   }, []);
 
-  const hydrateOrdersFromServer = useCallback(async (force = false) => {
-    if (typeof window === "undefined") return;
-    if (hydrationInFlightRef.current) return;
+  const hydrateOrdersFromServer = useCallback(
+    async (force = false) => {
+      if (typeof window === "undefined") return;
+      if (hydrationInFlightRef.current) return;
 
-    hydrationInFlightRef.current = true;
-    const localSnapshot = window.localStorage.getItem(STORAGE_KEY);
-    const localOrders = parseSnapshot(localSnapshot ?? INITIAL_SNAPSHOT);
+      hydrationInFlightRef.current = true;
+      const localSnapshot = window.localStorage.getItem(STORAGE_KEY);
+      const localOrders = parseSnapshot(localSnapshot ?? INITIAL_SNAPSHOT);
 
-    try {
-      const response = await fetch(ORDERS_SYNC_ENDPOINT, {
-        method: "GET",
-        cache: "no-store",
-      });
-      const payload = (await response.json().catch(() => ({}))) as {
-        success?: boolean;
-        data?: { orders?: BakeryOrder[] };
-      };
-
-      if (!response.ok || !payload.success) return;
-
-      const serverOrders = Array.isArray(payload.data?.orders)
-        ? payload.data.orders
-        : [];
-
-      if (serverOrders.length > 0) {
-        const recentlyChangedLocally =
-          !force &&
-          Date.now() - lastLocalWriteAtRef.current < LOCAL_WRITE_STALE_GUARD_MS;
-        if (recentlyChangedLocally) return;
-
-        if (!areOrdersSnapshotsEqual(localOrders, serverOrders)) {
-          writeOrdersSnapshot(serverOrders);
-        }
-        return;
-      }
-
-      if (localOrders.length > 0) {
-        void syncOrdersToServer(localOrders).catch((error) => {
-          console.warn("[bookings][frontend] hydrate sync failed", {
-            endpoint: ORDERS_SYNC_ENDPOINT,
-            message: error instanceof Error ? error.message : String(error),
-          });
+      try {
+        const response = await fetch(ORDERS_SYNC_ENDPOINT, {
+          method: "GET",
+          cache: "no-store",
         });
+        const payload = (await response.json().catch(() => ({}))) as {
+          success?: boolean;
+          data?: { orders?: BakeryOrder[] };
+        };
+
+        if (!response.ok || !payload.success) return;
+
+        const serverOrders = Array.isArray(payload.data?.orders)
+          ? payload.data.orders
+          : [];
+
+        if (serverOrders.length > 0) {
+          const recentlyChangedLocally =
+            !force &&
+            Date.now() - lastLocalWriteAtRef.current <
+              LOCAL_WRITE_STALE_GUARD_MS;
+          if (recentlyChangedLocally) return;
+
+          if (!areOrdersSnapshotsEqual(localOrders, serverOrders)) {
+            writeOrdersSnapshot(serverOrders);
+          }
+          return;
+        }
+
+        if (localOrders.length > 0) {
+          void syncOrdersToServer(localOrders).catch((error) => {
+            console.warn("[bookings][frontend] hydrate sync failed", {
+              endpoint: ORDERS_SYNC_ENDPOINT,
+              message: error instanceof Error ? error.message : String(error),
+            });
+          });
+        }
+      } catch {
+        // Keep local snapshot if server is unreachable.
+      } finally {
+        hydrationInFlightRef.current = false;
       }
-    } catch {
-      // Keep local snapshot if server is unreachable.
-    } finally {
-      hydrationInFlightRef.current = false;
-    }
-  }, [syncOrdersToServer]);
+    },
+    [syncOrdersToServer],
+  );
 
   useEffect(() => {
     void hydrateOrdersFromServer();
@@ -775,9 +780,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
           endpoint: ORDERS_SYNC_ENDPOINT,
           message,
         });
-        toast.error(
-          `Perubahan dibatalkan karena sinkron gagal: ${message}`,
-        );
+        toast.error(`Perubahan dibatalkan karena sinkron gagal: ${message}`);
       });
     },
     [hydrateOrdersFromServer, syncOrdersToServer],
