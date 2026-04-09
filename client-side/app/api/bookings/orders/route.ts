@@ -929,7 +929,9 @@ export function validateAssignmentTransitionRules(params: {
 
     const currentStatus = existing.order_status ?? "Inquiry";
     const statusChanged = currentStatus !== order.orderStatus;
-    const currentAssignee = asPositiveIntOrNull(existing.assigned_staff_user_id);
+    const currentAssignee = asPositiveIntOrNull(
+      existing.assigned_staff_user_id,
+    );
     const nextAssignee = order.assignedStaffUserId;
 
     if (statusChanged && !nextAssignee) {
@@ -964,7 +966,11 @@ export function validateProjectedStaffDailyTokenLimit(params: {
   existingAssignments: ExistingAssignmentState[];
   limit?: number;
 }) {
-  const { orders, existingAssignments, limit = STAFF_DAILY_TOKEN_LIMIT } = params;
+  const {
+    orders,
+    existingAssignments,
+    limit = STAFF_DAILY_TOKEN_LIMIT,
+  } = params;
   const projectedStaffDailyTokenMap = buildStaffDailyTokenMap(orders);
   const existingAssignmentMap = new Map(
     existingAssignments.map((row) => [row.external_id, row]),
@@ -974,7 +980,9 @@ export function validateProjectedStaffDailyTokenLimit(params: {
     const existing = existingAssignmentMap.get(order.id);
     if (!existing) continue;
 
-    const currentAssignee = asPositiveIntOrNull(existing.assigned_staff_user_id);
+    const currentAssignee = asPositiveIntOrNull(
+      existing.assigned_staff_user_id,
+    );
     const nextAssignee = order.assignedStaffUserId;
     if (!nextAssignee || currentAssignee === nextAssignee) continue;
 
@@ -1574,7 +1582,9 @@ export async function POST(request: NextRequest) {
         customerPhone: row.customer_phone ?? "",
         customerAddress: row.customer_address ?? "",
         deliveryDate:
-          normalizeDateInput(row.delivery_date ?? "") ?? row.delivery_date ?? "",
+          normalizeDateInput(row.delivery_date ?? "") ??
+          row.delivery_date ??
+          "",
         deliverySlot: row.delivery_slot ?? "",
         notes: row.notes ?? "",
         basePrice: asNumber(row.base_price),
@@ -1606,7 +1616,9 @@ export async function POST(request: NextRequest) {
         deliveryAddresses: addressesMap.get(row.external_id) ?? [],
       }));
 
-      const existingById = new Map(existingOrders.map((order) => [order.id, order]));
+      const existingById = new Map(
+        existingOrders.map((order) => [order.id, order]),
+      );
       const incomingById = new Map(orders.map((order) => [order.id, order]));
 
       const unauthorizedCreate = orders
@@ -1650,7 +1662,8 @@ export async function POST(request: NextRequest) {
 
         const currentAssignee = existingOrder.assignedStaffUserId;
         const nextAssignee = incomingOrder.assignedStaffUserId;
-        const statusChanged = incomingOrder.orderStatus !== existingOrder.orderStatus;
+        const statusChanged =
+          incomingOrder.orderStatus !== existingOrder.orderStatus;
 
         const assigneeChangeAllowed =
           currentAssignee === nextAssignee ||
@@ -1663,10 +1676,15 @@ export async function POST(request: NextRequest) {
         }
 
         if (statusChanged && !nextAssignee) {
-          throw new ForbiddenError("Order must be assigned before changing status");
+          throw new ForbiddenError(
+            "Order must be assigned before changing status",
+          );
         }
 
-        if (statusChanged && !staffUpdatableStatuses.has(incomingOrder.orderStatus)) {
+        if (
+          statusChanged &&
+          !staffUpdatableStatuses.has(incomingOrder.orderStatus)
+        ) {
           throw new ForbiddenError(
             `Status update denied for order ${existingOrder.id}. Staff hanya boleh set status ke In Production, Ready, Delivered, atau Completed.`,
           );
@@ -1692,7 +1710,8 @@ export async function POST(request: NextRequest) {
         if (nextAssignee === null) {
           nextAssignedAt = null;
         } else if (nextAssignee === userId && currentAssignee === null) {
-          nextAssignedAt = incomingOrder.productionAssignedAt || new Date().toISOString();
+          nextAssignedAt =
+            incomingOrder.productionAssignedAt || new Date().toISOString();
         } else if (nextAssignee === userId) {
           nextAssignedAt =
             incomingOrder.productionAssignedAt ||
@@ -1869,13 +1888,17 @@ export async function POST(request: NextRequest) {
                 order.deliveryDate,
                 tx,
               );
-              const status = getCalendarStatus({
-                usedToken: capacity.usedToken,
-                maxToken: capacity.maxToken,
-                date: order.deliveryDate,
-              }, undefined, {
-                blockedDates: bakerySettings.blockedDates,
-              });
+              const status = getCalendarStatus(
+                {
+                  usedToken: capacity.usedToken,
+                  maxToken: capacity.maxToken,
+                  date: order.deliveryDate,
+                },
+                undefined,
+                {
+                  blockedDates: bakerySettings.blockedDates,
+                },
+              );
 
               if (status === "BLOCKED") {
                 throw new CapacityBlockedDateError(order.deliveryDate);

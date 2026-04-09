@@ -67,12 +67,16 @@ export default function SidebarNav() {
                 }`}
               />
             </span>
-            <span className={`text-xs font-bold ${isStaff ? "text-sky-800" : "text-amber-800"}`}>
+            <span
+              className={`text-xs font-bold ${isStaff ? "text-sky-800" : "text-amber-800"}`}
+            >
               {isStaff ? "MODE STAFF" : "MODE KASIR"}
             </span>
           </div>
           {userName && (
-            <p className={`text-[11px] font-medium truncate pl-4.5 ${isStaff ? "text-sky-700" : "text-amber-700"}`}>
+            <p
+              className={`text-[11px] font-medium truncate pl-4.5 ${isStaff ? "text-sky-700" : "text-amber-700"}`}
+            >
               👤 {userName}
             </p>
           )}

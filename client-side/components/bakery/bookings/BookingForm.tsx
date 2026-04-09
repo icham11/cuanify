@@ -455,7 +455,9 @@ function normalizeBouquetCookiePriceValue(value: unknown): number | undefined {
   return rounded;
 }
 
-function normalizeBouquetPriceOverrideValue(value: unknown): number | undefined {
+function normalizeBouquetPriceOverrideValue(
+  value: unknown,
+): number | undefined {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
   return Math.round(parsed);
@@ -829,9 +831,7 @@ function removeCookieBreakdownFromNotes(notes: string): string {
 
 function extractBouquetGreetingCardFromNotes(notes: string): string {
   const source = String(notes || "");
-  const matched = source.match(
-    /(?:^|\||\n)\s*kartu\s*ucapan\s*:\s*([^|\n]+)/i,
-  );
+  const matched = source.match(/(?:^|\||\n)\s*kartu\s*ucapan\s*:\s*([^|\n]+)/i);
   return (matched?.[1] || "").trim().slice(0, 400);
 }
 
@@ -851,25 +851,19 @@ function extractBouquetRibbonFromNotes(notes: string): string {
 
 function extractBouquetFlowerCountFromNotes(notes: string): string {
   const source = String(notes || "");
-  const matched = source.match(
-    /(?:^|\||\n)\s*jumlah\s*bunga\s*:\s*([^|\n]+)/i,
-  );
+  const matched = source.match(/(?:^|\||\n)\s*jumlah\s*bunga\s*:\s*([^|\n]+)/i);
   return (matched?.[1] || "").trim().slice(0, 200);
 }
 
 function extractBouquetFlowerColorFromNotes(notes: string): string {
   const source = String(notes || "");
-  const matched = source.match(
-    /(?:^|\||\n)\s*warna\s*bunga\s*:\s*([^|\n]+)/i,
-  );
+  const matched = source.match(/(?:^|\||\n)\s*warna\s*bunga\s*:\s*([^|\n]+)/i);
   return (matched?.[1] || "").trim().slice(0, 200);
 }
 
 function extractBouquetRibbonColorFromNotes(notes: string): string {
   const source = String(notes || "");
-  const matched = source.match(
-    /(?:^|\||\n)\s*warna\s*pita\s*:\s*([^|\n]+)/i,
-  );
+  const matched = source.match(/(?:^|\||\n)\s*warna\s*pita\s*:\s*([^|\n]+)/i);
   return (matched?.[1] || "").trim().slice(0, 200);
 }
 
@@ -895,7 +889,8 @@ function inferBouquetFlowerCountFromAddOns(args: {
   const addOnIds = Array.isArray(args.addOns) ? args.addOns : [];
   const addOnQuantities = normalizeAddOnQuantities(args.addOnQuantities);
 
-  const getUnits = (addOnId: string) => Math.max(1, addOnQuantities[addOnId] ?? 1);
+  const getUnits = (addOnId: string) =>
+    Math.max(1, addOnQuantities[addOnId] ?? 1);
 
   let totalFlowers = 0;
   if (addOnIds.includes(BOUQUET_EXTRA_3_FLOWER_ADDON_ID)) {
@@ -969,7 +964,9 @@ function getCookieSelectionByMode(args: {
   previousSelection?: Partial<CatalogSelection>;
 }): CatalogSelection {
   const fallback = getDefaultSelectionFromCatalog(args.catalog, "Cookies");
-  const categoryData = args.catalog.find((entry) => entry.category === "Cookies");
+  const categoryData = args.catalog.find(
+    (entry) => entry.category === "Cookies",
+  );
   if (!categoryData) return fallback;
 
   const targetSubcategory =
@@ -981,7 +978,8 @@ function getCookieSelectionByMode(args: {
           entry.name.toLowerCase().includes("custom"),
         );
 
-  const resolvedSubcategory = targetSubcategory ?? categoryData.subcategories[0];
+  const resolvedSubcategory =
+    targetSubcategory ?? categoryData.subcategories[0];
   if (!resolvedSubcategory) return fallback;
 
   const preservedProduct = resolvedSubcategory.products.find(
@@ -1644,8 +1642,10 @@ function isCustomCookieSharingBoxItem(
   const subcategory = String(item.subcategory || "").toLowerCase();
   const productName = String(item.productName || "").toLowerCase();
 
-  return subcategory.includes("custom cookies") &&
-    productName.includes("sharing box");
+  return (
+    subcategory.includes("custom cookies") &&
+    productName.includes("sharing box")
+  );
 }
 
 function getItemQuantityRule(item: BookingItemInput): ItemQuantityRule {
@@ -1807,7 +1807,8 @@ function getItemBasePrice(
   const parsedSubtotal = getParsedSubtotalOverride(item);
   if (parsedSubtotal !== null) {
     if (isCustomCookieItem(item)) {
-      const additionalDesignCount = getCookieAdditionalDesignCountFromItem(item);
+      const additionalDesignCount =
+        getCookieAdditionalDesignCountFromItem(item);
       const cookieAdditionalDesignUnitPrice =
         options?.cookieAdditionalDesignUnitPrice ??
         COOKIE_ADDITIONAL_DESIGN_PRICE;
@@ -1904,27 +1905,36 @@ function getDraftItemPriceBreakdown(args: {
   }
 
   const hasParsedRecapPrice = hasParsedPricingOverride(item);
-  const normalizedAddOnQuantities = normalizeAddOnQuantities(item.addOnQuantities);
+  const normalizedAddOnQuantities = normalizeAddOnQuantities(
+    item.addOnQuantities,
+  );
   const normalizedAddOnPriceOverrides = normalizeAddOnPriceOverrides(
     item.addOnPriceOverrides,
   );
   const normalizedCustomAddOns = normalizeCustomAddOns(item.customAddOns);
-  const categoryAddOns = getCategoryAddOnsFromCatalog(addOnCatalog, item.category);
-  const selectedAddOnAmount = calculatePerUnitAddOnPrice({
-    category: item.category,
-    bouquetType: detectBouquetTypeFromItem(item),
-    selectedAddOnIds: item.addOns ?? [],
-    addOnQuantities: normalizedAddOnQuantities,
-    addOnPriceOverrides: normalizedAddOnPriceOverrides,
-    addOnCatalogEntries: categoryAddOns,
-    itemSelection: {
+  const categoryAddOns = getCategoryAddOnsFromCatalog(
+    addOnCatalog,
+    item.category,
+  );
+  const selectedAddOnAmount =
+    calculatePerUnitAddOnPrice({
       category: item.category,
-      subcategory: item.subcategory,
-      productName: item.productName,
-      size: item.size,
-    },
-  }) * quantity;
-  const customAddOnAmount = getCustomAddOnTotal(normalizedCustomAddOns, quantity);
+      bouquetType: detectBouquetTypeFromItem(item),
+      selectedAddOnIds: item.addOns ?? [],
+      addOnQuantities: normalizedAddOnQuantities,
+      addOnPriceOverrides: normalizedAddOnPriceOverrides,
+      addOnCatalogEntries: categoryAddOns,
+      itemSelection: {
+        category: item.category,
+        subcategory: item.subcategory,
+        productName: item.productName,
+        size: item.size,
+      },
+    }) * quantity;
+  const customAddOnAmount = getCustomAddOnTotal(
+    normalizedCustomAddOns,
+    quantity,
+  );
   const addOnFromSelection = selectedAddOnAmount + customAddOnAmount;
 
   const isCustomCookiesItem = isCustomCookieItem(item);
@@ -1979,13 +1989,16 @@ function getDraftItemPriceBreakdown(args: {
     !hasParsedRecapPrice && cookieBreakdownSubtotal > 0
       ? cookieBreakdownSubtotal
       : getItemBasePrice(catalog, item, {
-          cookieAdditionalDesignUnitPrice: customCookieAdditionalDesignUnitPrice,
+          cookieAdditionalDesignUnitPrice:
+            customCookieAdditionalDesignUnitPrice,
         });
   const recapTotalOverride =
     hasParsedRecapPrice && isCustomCookiesItem && cookieBreakdownSubtotal > 0
       ? Math.max(
           0,
-          Math.round(cookieBreakdownSubtotal + customCookieAdditionalDesignCharge),
+          Math.round(
+            cookieBreakdownSubtotal + customCookieAdditionalDesignCharge,
+          ),
         )
       : null;
 
@@ -2058,7 +2071,10 @@ function getDailyBookingSequence(
 ): number {
   const datePart = toBookingDatePart(deliveryDate);
   const max = orders.reduce((currentMax, order) => {
-    const fromBooking = extractSequenceForDate(order.bookingCode || "", datePart);
+    const fromBooking = extractSequenceForDate(
+      order.bookingCode || "",
+      datePart,
+    );
     const fromResi = extractSequenceForDate(order.resi || "", datePart);
     return Math.max(currentMax, fromBooking, fromResi);
   }, 0);
@@ -2306,11 +2322,15 @@ export default function BookingForm() {
       return "AVAILABLE" as const;
     }
     const selectedCapacity = getCalendarCapacity(normalizedDeliveryDate);
-    return getCalendarStatus({
-      usedToken: selectedCapacity.usedToken,
-      maxToken: selectedCapacity.maxToken,
-      date: normalizedDeliveryDate,
-    }, undefined, { blockedDates });
+    return getCalendarStatus(
+      {
+        usedToken: selectedCapacity.usedToken,
+        maxToken: selectedCapacity.maxToken,
+        date: normalizedDeliveryDate,
+      },
+      undefined,
+      { blockedDates },
+    );
   }, [normalizedDeliveryDate, getCalendarCapacity, blockedDates]);
 
   const calendarDateError = useMemo(() => {
@@ -3405,11 +3425,16 @@ export default function BookingForm() {
         throw new Error(payload.error || "Gagal validasi kapasitas produksi.");
       }
 
-      const status = getCalendarStatus({
-        usedToken: Number(payload.data.usedToken) || 0,
-        maxToken: Number(payload.data.maxToken) || DAILY_PRODUCTION_TOKEN_LIMIT,
-        date: normalizedDeliveryDate,
-      }, undefined, { blockedDates });
+      const status = getCalendarStatus(
+        {
+          usedToken: Number(payload.data.usedToken) || 0,
+          maxToken:
+            Number(payload.data.maxToken) || DAILY_PRODUCTION_TOKEN_LIMIT,
+          date: normalizedDeliveryDate,
+        },
+        undefined,
+        { blockedDates },
+      );
 
       validatedUsedTokens = Number(payload.data.usedToken) || 0;
       validatedMaxTokens =
@@ -3545,12 +3570,11 @@ export default function BookingForm() {
 
     const mappedItems: OrderItem[] = values.items.map((item, index) => {
       const bouquetType = detectBouquetTypeFromItem(item);
-      const cookieAdditionalDesignUnitPrice = getCookieAdditionalDesignUnitPrice(
-        {
+      const cookieAdditionalDesignUnitPrice =
+        getCookieAdditionalDesignUnitPrice({
           addOnCatalog,
           item,
-        },
-      );
+        });
       const itemBasePrice = getItemBasePrice(productCatalog, item, {
         cookieAdditionalDesignUnitPrice,
       });
@@ -3599,7 +3623,8 @@ export default function BookingForm() {
         ? getCookieAdditionalDesignCountFromItem(item)
         : undefined;
       const cookieAdditionalDesignCharge =
-        (normalizedAdditionalDesignCount ?? 0) * cookieAdditionalDesignUnitPrice;
+        (normalizedAdditionalDesignCount ?? 0) *
+        cookieAdditionalDesignUnitPrice;
       const parsedSubtotalWithDesignCharge =
         hasParsedRecapPrice && parsedSubtotal
           ? parsedSubtotal + cookieAdditionalDesignCharge
@@ -3608,7 +3633,8 @@ export default function BookingForm() {
         item.category === "Buket"
           ? removeBouquetStructuredFieldsFromNotes(item.notes ?? "")
           : (item.notes ?? ""),
-        item.category === "Buket" && (item.bouquetPaperColor ?? "").trim().length > 0
+        item.category === "Buket" &&
+        (item.bouquetPaperColor ?? "").trim().length > 0
           ? `Warna kertas bouquet: ${(item.bouquetPaperColor ?? "").trim()}`
           : "",
         item.category === "Buket" && (item.ribbon ?? "").trim().length > 0
@@ -4395,7 +4421,7 @@ export default function BookingForm() {
                 ? removeCookieBreakdownFromNotes(rawItemNotes)
                 : normalized.category === "Buket"
                   ? removeBouquetStructuredFieldsFromNotes(rawItemNotes)
-                : rawItemNotes;
+                  : rawItemNotes;
             const normalizedQuantity = Number.isFinite(parsedQuantity)
               ? Math.max(1, Math.round(parsedQuantity))
               : 1;
@@ -5440,12 +5466,11 @@ export default function BookingForm() {
                     const hasParsedRecapPrice = hasParsedPricingOverride(item);
                     const parsedUnitPrice = getParsedUnitPriceOverride(item);
                     const parsedSubtotal = getParsedSubtotalOverride(item);
-                    const sharingBoxUnitPriceOverride =
-                      isCustomCookieSharingBox
-                        ? normalizeSharingBoxPriceOverrideValue(
-                            item?.sharingBoxPriceOverride,
-                          )
-                        : undefined;
+                    const sharingBoxUnitPriceOverride = isCustomCookieSharingBox
+                      ? normalizeSharingBoxPriceOverrideValue(
+                          item?.sharingBoxPriceOverride,
+                        )
+                      : undefined;
                     const cookieDifficultyBreakdown =
                       extractCookieDifficultyBreakdown(item);
                     const cookieDifficultyRowsFromNotes =
@@ -5600,12 +5625,13 @@ export default function BookingForm() {
                       quantityValue > 0 && cookieBreakdownSubtotal > 0
                         ? Math.round(cookieBreakdownSubtotal / quantityValue)
                         : 0;
-                    const customCookieAdditionalDesignCount = isCustomCookiesItem
-                      ? getCookieAdditionalDesignCountFromItem({
-                          designCount: item?.designCount,
-                          additionalDesignCount: item?.additionalDesignCount,
-                        })
-                      : 0;
+                    const customCookieAdditionalDesignCount =
+                      isCustomCookiesItem
+                        ? getCookieAdditionalDesignCountFromItem({
+                            designCount: item?.designCount,
+                            additionalDesignCount: item?.additionalDesignCount,
+                          })
+                        : 0;
                     const customCookieAdditionalDesignUnitPrice =
                       isCustomCookiesItem
                         ? getCookieAdditionalDesignUnitPrice({
@@ -5632,36 +5658,41 @@ export default function BookingForm() {
                         ? parsedUnitPrice
                         : bouquetPriceOverride !== undefined
                           ? bouquetPriceOverride
-                        : sharingBoxUnitPriceOverride !== undefined
-                          ? sharingBoxUnitPriceOverride
-                        : isCustomCookiesItem && cookieBreakdownUnitPrice > 0
-                          ? cookieBreakdownUnitPrice
-                          : getUnitPriceFromCatalog(productCatalog, {
-                              category: normalizedSelection.category,
-                              subcategory: normalizedSelection.subcategory,
-                              productName: normalizedSelection.productName,
-                              size: normalizedSelection.size,
-                            });
+                          : sharingBoxUnitPriceOverride !== undefined
+                            ? sharingBoxUnitPriceOverride
+                            : isCustomCookiesItem &&
+                                cookieBreakdownUnitPrice > 0
+                              ? cookieBreakdownUnitPrice
+                              : getUnitPriceFromCatalog(productCatalog, {
+                                  category: normalizedSelection.category,
+                                  subcategory: normalizedSelection.subcategory,
+                                  productName: normalizedSelection.productName,
+                                  size: normalizedSelection.size,
+                                });
                     const displayLinePrice =
                       hasParsedRecapPrice && cookieSubtotalWithDesignCharge
                         ? cookieSubtotalWithDesignCharge
                         : hasParsedRecapPrice && parsedSubtotalWithDesignCharge
                           ? parsedSubtotalWithDesignCharge
-                        : isCustomCookiesItem && cookieBreakdownSubtotal > 0
-                          ? cookieBreakdownSubtotal
-                          : getItemBasePrice(productCatalog, bouquetProbeItem, {
-                              cookieAdditionalDesignUnitPrice:
-                                customCookieAdditionalDesignUnitPrice,
-                            });
+                          : isCustomCookiesItem && cookieBreakdownSubtotal > 0
+                            ? cookieBreakdownSubtotal
+                            : getItemBasePrice(
+                                productCatalog,
+                                bouquetProbeItem,
+                                {
+                                  cookieAdditionalDesignUnitPrice:
+                                    customCookieAdditionalDesignUnitPrice,
+                                },
+                              );
                     const itemTotalCostDisplay =
                       hasParsedRecapPrice && cookieSubtotalWithDesignCharge
                         ? cookieSubtotalWithDesignCharge
                         : hasParsedRecapPrice && parsedSubtotalWithDesignCharge
                           ? parsedSubtotalWithDesignCharge
-                        : displayLinePrice +
-                          selectedAllAddOnTotal +
-                          customAddOnTotal +
-                          customCookieAdditionalDesignCharge;
+                          : displayLinePrice +
+                            selectedAllAddOnTotal +
+                            customAddOnTotal +
+                            customCookieAdditionalDesignCharge;
                     const totalAddOnAndSurchargeDisplay =
                       selectedAllAddOnTotal +
                       customAddOnTotal +
@@ -5891,8 +5922,8 @@ export default function BookingForm() {
                                 <Select
                                   value={cookieCatalogMode}
                                   onChange={(event) => {
-                                    const nextMode =
-                                      event.target.value as CookieCatalogMode;
+                                    const nextMode = event.target
+                                      .value as CookieCatalogMode;
                                     const nextSelection =
                                       getCookieSelectionByMode({
                                         catalog: productCatalog,
@@ -5930,9 +5961,13 @@ export default function BookingForm() {
                                       nextSelection.productName,
                                       { shouldValidate: true },
                                     );
-                                    setValue(`items.${index}.size`, nextSelection.size, {
-                                      shouldValidate: true,
-                                    });
+                                    setValue(
+                                      `items.${index}.size`,
+                                      nextSelection.size,
+                                      {
+                                        shouldValidate: true,
+                                      },
+                                    );
                                     if (typeof nextAutoQuantity === "number") {
                                       setValue(
                                         `items.${index}.quantity`,
@@ -5950,7 +5985,8 @@ export default function BookingForm() {
                                   </option>
                                 </Select>
                                 <span className="text-[11px] font-normal text-gray-500">
-                                  Subcategory aktif: {normalizedSelection.subcategory || "-"}
+                                  Subcategory aktif:{" "}
+                                  {normalizedSelection.subcategory || "-"}
                                 </span>
                               </>
                             ) : hasMultipleSubcategories ? (
@@ -6550,13 +6586,16 @@ export default function BookingForm() {
                                 min={0}
                                 step={1000}
                                 placeholder={String(displayUnitPrice)}
-                                {...register(`items.${index}.bouquetPriceOverride`, {
-                                  setValueAs: (value) =>
-                                    normalizeBouquetPriceOverrideValue(value),
-                                  onChange: () => {
-                                    clearParsedPricingOverride(index);
+                                {...register(
+                                  `items.${index}.bouquetPriceOverride`,
+                                  {
+                                    setValueAs: (value) =>
+                                      normalizeBouquetPriceOverrideValue(value),
+                                    onChange: () => {
+                                      clearParsedPricingOverride(index);
+                                    },
                                   },
-                                })}
+                                )}
                               />
                               <span className="min-h-4 text-[11px] font-normal leading-4 text-gray-500">
                                 {bouquetPriceOverride !== undefined
@@ -6811,8 +6850,10 @@ export default function BookingForm() {
                                   defaultPrice: baseUnitPrice,
                                   itemSelection: {
                                     category: normalizedSelection.category,
-                                    subcategory: normalizedSelection.subcategory,
-                                    productName: normalizedSelection.productName,
+                                    subcategory:
+                                      normalizedSelection.subcategory,
+                                    productName:
+                                      normalizedSelection.productName,
                                     size: normalizedSelection.size,
                                   },
                                 });
@@ -7006,7 +7047,7 @@ export default function BookingForm() {
                                   : "Sumber angka: recap parser (override aktif)."
                                 : customCookieAdditionalDesignCharge > 0
                                   ? "Sumber angka: subtotal produk + add-ons + surcharge design dinamis."
-                                : "Sumber angka: subtotal produk + semua add-ons terpilih."}
+                                  : "Sumber angka: subtotal produk + semua add-ons terpilih."}
                             </p>
                           </div>
                         </div>
@@ -7577,9 +7618,15 @@ export default function BookingForm() {
                       Status: <span className="font-semibold">Submitted</span>
                     </p>
                     <p>
-                      Kode Booking: <span className="font-semibold">{submitSuccessMeta.bookingCode}</span>
+                      Kode Booking:{" "}
+                      <span className="font-semibold">
+                        {submitSuccessMeta.bookingCode}
+                      </span>
                     </p>
-                    <p>Waktu Submit: {formatSubmitTimestamp(submitSuccessMeta.submittedAt)}</p>
+                    <p>
+                      Waktu Submit:{" "}
+                      {formatSubmitTimestamp(submitSuccessMeta.submittedAt)}
+                    </p>
                   </div>
                 ) : null}
               </div>

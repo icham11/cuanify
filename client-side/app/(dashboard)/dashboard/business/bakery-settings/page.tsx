@@ -153,7 +153,8 @@ export default function BakerySettingsPage() {
                 className="h-10 rounded-lg border border-gray-300 px-3 text-sm outline-none focus:border-indigo-400"
               />
               <span className="text-xs text-gray-500">
-                Dipakai untuk batas kapasitas produksi per hari pada order bakery.
+                Dipakai untuk batas kapasitas produksi per hari pada order
+                bakery.
               </span>
             </label>
 
@@ -172,8 +173,8 @@ export default function BakerySettingsPage() {
             </label>
 
             <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs text-blue-700">
-              Edit harga produk tetap dilakukan dari menu Products. Endpoint update
-              harga sekarang sudah owner-only.
+              Edit harga produk tetap dilakukan dari menu Products. Endpoint
+              update harga sekarang sudah owner-only.
             </div>
 
             <button

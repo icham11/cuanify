@@ -69,7 +69,10 @@ export async function GET(request: NextRequest) {
     // ── Single date query ──
     if (!date) {
       return NextResponse.json(
-        { error: "Missing required query parameter: 'date' (YYYY-MM-DD) or 'startDate' + 'endDate'." },
+        {
+          error:
+            "Missing required query parameter: 'date' (YYYY-MM-DD) or 'startDate' + 'endDate'.",
+        },
         { status: 400 },
       );
     }
@@ -95,7 +98,9 @@ export async function GET(request: NextRequest) {
       const tokenNeeded = Number(tokenNeededParam);
       if (!Number.isFinite(tokenNeeded) || tokenNeeded < 0) {
         return NextResponse.json(
-          { error: "Invalid tokenNeeded value. Must be a non-negative number." },
+          {
+            error: "Invalid tokenNeeded value. Must be a non-negative number.",
+          },
           { status: 400 },
         );
       }

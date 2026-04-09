@@ -34,9 +34,7 @@ export async function GET() {
     }
 
     const message =
-      error instanceof Error
-        ? error.message
-        : "Failed to load bakery settings";
+      error instanceof Error ? error.message : "Failed to load bakery settings";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

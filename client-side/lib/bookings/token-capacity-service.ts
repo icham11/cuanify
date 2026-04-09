@@ -128,9 +128,7 @@ function normalizeCapacityDateOrThrow(date: string): string {
   return normalizeDateOrThrow(date, "date");
 }
 
-async function getBusinessDefaultMaxToken(
-  businessId: number,
-): Promise<number> {
+async function getBusinessDefaultMaxToken(businessId: number): Promise<number> {
   const settings = await getBakeryBusinessSettings(businessId);
   return settings.dailyProductionTokenLimit;
 }

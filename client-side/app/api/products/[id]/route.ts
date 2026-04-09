@@ -13,20 +13,25 @@ export const runtime = "nodejs";
 
 // ---------- PATCH /api/products/[id] — update selling price only ----------
 
-
 import { recipeItemSchema } from "@/lib/validations/product";
 
 const patchSchema = z.object({
   name: z.string().min(1).max(200).optional(),
   categoryId: z.coerce.number().int().optional(),
   categoryName: z.string().min(1).max(100).optional(),
-  sellingPrice: z.coerce.number().positive("Selling price must be positive").optional(),
+  sellingPrice: z.coerce
+    .number()
+    .positive("Selling price must be positive")
+    .optional(),
   productType: z.enum(["ReadyStock", "PreOrder"]).optional(),
   createdAt: z.string().datetime().optional(),
   recipe: z.array(recipeItemSchema).optional(),
 });
 
-export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
   try {
     const auth = await requireAuth();
     requireRole(auth, "Owner");
@@ -34,7 +39,10 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const { id: idParam } = await params;
     const id = Number(idParam);
     if (!id || isNaN(id)) {
-      return NextResponse.json({ error: "Invalid product ID" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Invalid product ID" },
+        { status: 400 },
+      );
     }
 
     // Ownership check — also blocks patching soft-deleted products
@@ -49,9 +57,17 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const body = await request.json();
     const parsed = patchSchema.safeParse(body);
     if (!parsed.success) {
-      console.error("PATCH /api/products/[id] validation failed:", JSON.stringify(parsed.error.flatten(), null, 2), "Body:", JSON.stringify(body));
+      console.error(
+        "PATCH /api/products/[id] validation failed:",
+        JSON.stringify(parsed.error.flatten(), null, 2),
+        "Body:",
+        JSON.stringify(body),
+      );
       return NextResponse.json(
-        { error: "Validation failed", details: parsed.error.flatten().fieldErrors },
+        {
+          error: "Validation failed",
+          details: parsed.error.flatten().fieldErrors,
+        },
         { status: 400 },
       );
     }
@@ -60,7 +76,10 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (!categoryId && parsed.data.categoryName) {
       // Find or create category by name (case-insensitive)
       let category = await prisma.category.findFirst({
-        where: { businessId, name: { equals: parsed.data.categoryName, mode: "insensitive" } },
+        where: {
+          businessId,
+          name: { equals: parsed.data.categoryName, mode: "insensitive" },
+        },
       });
       if (!category) {
         category = await prisma.category.create({
@@ -74,9 +93,12 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const updateData: Record<string, unknown> = {};
     if (parsed.data.name !== undefined) updateData.name = parsed.data.name;
     if (categoryId !== undefined) updateData.categoryId = categoryId;
-    if (parsed.data.sellingPrice !== undefined) updateData.sellingPrice = parsed.data.sellingPrice;
-    if (parsed.data.productType !== undefined) updateData.productType = parsed.data.productType;
-    if (parsed.data.createdAt !== undefined) updateData.createdAt = new Date(parsed.data.createdAt);
+    if (parsed.data.sellingPrice !== undefined)
+      updateData.sellingPrice = parsed.data.sellingPrice;
+    if (parsed.data.productType !== undefined)
+      updateData.productType = parsed.data.productType;
+    if (parsed.data.createdAt !== undefined)
+      updateData.createdAt = new Date(parsed.data.createdAt);
 
     // Update product main fields
     const updatedProduct = await prisma.product.update({
@@ -128,19 +150,28 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       return NextResponse.json({ error: error.message }, { status: 403 });
     }
     console.error("PATCH /api/products/[id] error:", error);
-    return NextResponse.json({ error: "Failed to update product" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Failed to update product" },
+      { status: 500 },
+    );
   }
 }
 
 // ---------- DELETE /api/products/[id] — delete product + cascades recipes ----------
 
-export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
   try {
     const { businessId } = await requireAuth();
     const { id: idParam } = await params;
     const id = Number(idParam);
     if (!id || isNaN(id)) {
-      return NextResponse.json({ error: "Invalid product ID" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Invalid product ID" },
+        { status: 400 },
+      );
     }
 
     // Ownership check
@@ -153,7 +184,10 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
     }
 
     // Soft-delete: keeps SaleItem / ProductMetrics / ProductForecast intact
-    await prisma.product.update({ where: { id }, data: { deletedAt: new Date() } });
+    await prisma.product.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
 
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
@@ -161,6 +195,9 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     console.error("DELETE /api/products/[id] error:", error);
-    return NextResponse.json({ error: "Failed to delete product" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Failed to delete product" },
+      { status: 500 },
+    );
   }
 }
