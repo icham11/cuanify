@@ -1248,10 +1248,10 @@ export default function ProductionTable() {
                   overDailyToken > 0
                     ? `Melebihi batas +${overDailyToken} token`
                     : dailyPct >= 100
-                    ? "Limit tercapai"
-                    : dailyPct >= 70
-                      ? `Mendekati limit (${remainingDailyToken} token tersisa)`
-                      : `Masih aman (${remainingDailyToken} token tersisa)`;
+                      ? "Limit tercapai"
+                      : dailyPct >= 70
+                        ? `Mendekati limit (${remainingDailyToken} token tersisa)`
+                        : `Masih aman (${remainingDailyToken} token tersisa)`;
 
                 return (
                   <div
@@ -1270,7 +1270,8 @@ export default function ProductionTable() {
                       </span>
                     </div>
                     <p className="mt-1 text-[11px] text-slate-500">
-                      Tanggal acuan token: {formatGroupDate(staffDailyIndicatorDateKey)}
+                      Tanggal acuan token:{" "}
+                      {formatGroupDate(staffDailyIndicatorDateKey)}
                     </p>
                     <p className="mt-1 text-[11px] text-slate-600">
                       Status token: {dailyStatusText}
