@@ -402,6 +402,42 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
     );
   });
 
+  it("prefers cake-specific flavor token when cake and cupcake shorthand share one line", () => {
+    const text = [
+      "Data Cake",
+      "Tanggal Pengiriman: 24/4/26",
+      "KODE BOOKING: ME-33",
+      "Order: 1 cake + 30 single cupcakes",
+      "Nama di Cake: Sophia",
+      "Umur di cake: 1",
+      "Ukuran cake: tall cake",
+      "Rasa cake: cupcake DC, cake CV",
+      "Design cake: candy background pink",
+      "Jam Pengiriman: 19:00",
+      "Metode Pengiriman: ambil sendiri",
+      "Nama penerima: meta",
+      "No. telp penerima: 081188021533",
+      "Alamat lengkap: PIK",
+    ].join("\n");
+
+    const parsed = parseWhatsAppOrderText(text, {
+      preferredOrderType: "cake",
+      sourceType: "manual",
+    });
+    const autoFill = buildBookingAutoFillFromParsed(parsed);
+    const cakeItem = autoFill.items.find((item) => item.category === "Cake");
+
+    expect(Boolean(cakeItem)).toBe(true);
+    if (!cakeItem) {
+      throw new Error("Cake item was not generated");
+    }
+
+    expect(cakeItem.addOns.includes("flavor-cake-classic-vanilla")).toBe(
+      true,
+    );
+    expect(cakeItem.addOns.includes("flavor-cake-double-choco")).toBe(false);
+  });
+
   it("maps premium cake flavor to premium flavor add-on", () => {
     const text = [
       "Data Cake",
@@ -471,6 +507,39 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
     expect(cakeItem.addOns.includes("large-cookies")).toBe(true);
     expect(cakeItem.addOnQuantities?.["large-cookies"]).toBe(3);
     expect(cakeItem.addOnPriceOverrides?.["large-cookies"]).toBe(100000);
+  });
+
+  it("does not create fake custom add-ons from non-price cake tokens", () => {
+    const text = [
+      "Data Cake",
+      "Tanggal Pengiriman: 24/4/26",
+      "KODE BOOKING: ME-33",
+      "Order: 30pcs indv cookies + 30single cupcakes + d16t15",
+      "Nama di Cake: Sophia",
+      "Umur di cake: 1",
+      "Ukuran cake: d16t15",
+      "Rasa cake: cake CV",
+      "Design cake: candy background pink",
+      "Jam Pengiriman: 19:00",
+      "Metode Pengiriman: ambil sendiri",
+      "Nama penerima: meta",
+      "No. telp penerima: 081188021533",
+      "Alamat lengkap: PIK",
+    ].join("\n");
+
+    const parsed = parseWhatsAppOrderText(text, {
+      preferredOrderType: "cake",
+      sourceType: "manual",
+    });
+    const autoFill = buildBookingAutoFillFromParsed(parsed);
+    const cakeItem = autoFill.items.find((item) => item.category === "Cake");
+
+    expect(Boolean(cakeItem)).toBe(true);
+    if (!cakeItem) {
+      throw new Error("Cake item was not generated");
+    }
+
+    expect(cakeItem.customAddOns ?? []).toHaveLength(0);
   });
 
   it("maps compact cake size code like d16t15 to the correct tall variant", () => {

@@ -8,6 +8,7 @@ import { useOrders } from "@/components/bakery/store";
 import { useRole } from "@/context/RoleContext";
 import { summarizeProductionTokensByItems } from "@/lib/bookings/operations";
 import { normalizeOrderStatus } from "@/lib/bookings/order-status";
+import { BAKERY_STAFF_DAILY_TOKEN_LIMIT } from "@/lib/bookings/config";
 import { DEFAULT_MAX_TOKEN } from "@/lib/calendar/getCalendarStatus";
 
 interface TeamMember {
@@ -45,6 +46,8 @@ const MONTH_OPTIONS = [
   { value: "11", label: "November" },
   { value: "12", label: "December" },
 ] as const;
+
+const STAFF_DAILY_TOKEN_LIMIT = BAKERY_STAFF_DAILY_TOKEN_LIMIT;
 
 function monthKeyOf(date: Date): string {
   const year = date.getFullYear();
@@ -95,7 +98,6 @@ export default function ProductionTable() {
     orders,
     updateOrderStatus,
     assignOrderToStaff,
-    clearOrderAssignee,
   } = useOrders();
   const { isOwner, isStaff, role, userName } = useRole();
 
@@ -114,6 +116,8 @@ export default function ProductionTable() {
   >("all");
   const [isListTransitioning, setIsListTransitioning] = useState(false);
   const [selectedDatePopupKey, setSelectedDatePopupKey] = useState<string | null>(null);
+  const [transferOrderId, setTransferOrderId] = useState<string | null>(null);
+  const [transferStaffUserId, setTransferStaffUserId] = useState<string>("");
 
   const fallbackMonthKey = useMemo(() => monthKeyOf(new Date()), []);
   const selectedMonthKey = useMemo(() => {
@@ -302,9 +306,13 @@ export default function ProductionTable() {
 
   const activeOrders = useMemo(() => {
     return orders
-      .filter(
-        (order) => normalizeOrderStatus(order.orderStatus) === "In Production",
-      )
+      .filter((order) => {
+        const normalizedStatus = normalizeOrderStatus(order.orderStatus);
+        return (
+          normalizedStatus === "Inquiry" ||
+          normalizedStatus === "In Production"
+        );
+      })
       .slice()
       .sort((a, b) => a.deliveryDate.localeCompare(b.deliveryDate));
   }, [orders]);
@@ -340,11 +348,17 @@ export default function ProductionTable() {
     }
 
     for (const order of orders) {
-      if (!order.assignedStaffUserId || !order.assignedStaffName) continue;
+      if (!order.assignedStaffUserId) continue;
       if (!byUserId.has(order.assignedStaffUserId)) {
+        const fallbackName =
+          order.assignedStaffName?.trim() ||
+          teamMembers.find((member) => member.userId === order.assignedStaffUserId)
+            ?.name ||
+          `Staff #${order.assignedStaffUserId}`;
+
         byUserId.set(order.assignedStaffUserId, {
           userId: order.assignedStaffUserId,
-          name: order.assignedStaffName,
+          name: fallbackName,
           role: "Staff",
           businessId: viewer?.businessId ?? 0,
         });
@@ -364,6 +378,29 @@ export default function ProductionTable() {
       a.name.localeCompare(b.name),
     );
   }, [isOwner, isStaff, orders, teamMembers, viewer, userName]);
+
+  const staffDailyIndicatorDateKey = filterDate || todayDateKey;
+
+  const staffDailyTokenByDate = useMemo(() => {
+    const usage = new Map<string, number>();
+
+    for (const order of orders) {
+      const staffUserId = order.assignedStaffUserId ?? null;
+      const deliveryDate = (order.deliveryDate || "").trim();
+      if (!staffUserId || !deliveryDate) continue;
+
+      const status = normalizeOrderStatus(order.orderStatus);
+      if (["Delivered", "Completed", "Cancelled"].includes(status)) {
+        continue;
+      }
+
+      const token = summarizeProductionTokensByItems(order.items ?? []);
+      const key = `${staffUserId}:${deliveryDate}`;
+      usage.set(key, (usage.get(key) ?? 0) + token);
+    }
+
+    return usage;
+  }, [orders]);
 
   const staffStats = useMemo(() => {
     const statsMap = new Map<
@@ -416,16 +453,27 @@ export default function ProductionTable() {
         const baseline = applyMonthlyBaseline
           ? (resetMap[entry.userId]?.baselineToken ?? 0)
           : 0;
+        const dailyToken =
+          staffDailyTokenByDate.get(
+            `${entry.userId}:${staffDailyIndicatorDateKey}`,
+          ) ?? 0;
         return {
           ...entry,
           baseline,
           doneVisible: Math.max(0, entry.doneRaw - baseline),
+          dailyToken,
+          dailyTokenPercentage:
+            dailyToken <= 0
+              ? 0
+              : Math.round((dailyToken / STAFF_DAILY_TOKEN_LIMIT) * 100),
         };
       })
       .sort((a, b) => b.doneVisible - a.doneVisible);
   }, [
     orders,
     resetMap,
+    staffDailyTokenByDate,
+    staffDailyIndicatorDateKey,
     trackedStaff,
     filterMonth,
     filterYear,
@@ -579,6 +627,33 @@ export default function ProductionTable() {
     return "Kapasitas masih tersedia";
   }, [selectedDateCapacity]);
 
+  const transferOrder = useMemo(() => {
+    if (!transferOrderId) return null;
+    return orders.find((order) => order.id === transferOrderId) ?? null;
+  }, [orders, transferOrderId]);
+
+  const transferCandidates = useMemo(() => {
+    if (!transferOrder?.assignedStaffUserId) return [] as TeamMember[];
+    return teamMembers.filter(
+      (member) => member.userId !== transferOrder.assignedStaffUserId,
+    );
+  }, [teamMembers, transferOrder]);
+
+  useEffect(() => {
+    if (!transferOrderId) return;
+    if (transferCandidates.length === 0) {
+      setTransferStaffUserId("");
+      return;
+    }
+
+    const selectedExists = transferCandidates.some(
+      (member) => String(member.userId) === transferStaffUserId,
+    );
+    if (!selectedExists) {
+      setTransferStaffUserId(String(transferCandidates[0].userId));
+    }
+  }, [transferCandidates, transferOrderId, transferStaffUserId]);
+
   const updateStatus = (id: string, status: string) => {
     updateOrderStatus(
       id,
@@ -600,6 +675,35 @@ export default function ProductionTable() {
       userId: viewer.userId,
       name: viewer.name || userName || "Staff",
     });
+  };
+
+  const handleOpenTransferModal = (orderId: string) => {
+    const order = orders.find((entry) => entry.id === orderId);
+    if (!order?.assignedStaffUserId) return;
+
+    const candidate = teamMembers.find(
+      (member) => member.userId !== order.assignedStaffUserId,
+    );
+
+    setTransferOrderId(orderId);
+    setTransferStaffUserId(candidate ? String(candidate.userId) : "");
+  };
+
+  const handleTransferOrder = () => {
+    if (!transferOrderId) return;
+    const targetStaffId = Number(transferStaffUserId);
+    if (!Number.isInteger(targetStaffId) || targetStaffId <= 0) return;
+
+    const member = teamMembers.find((entry) => entry.userId === targetStaffId);
+    if (!member) return;
+
+    assignOrderToStaff(transferOrderId, {
+      userId: member.userId,
+      name: member.name,
+    });
+
+    setTransferOrderId(null);
+    setTransferStaffUserId("");
   };
 
   const handleResetStaffMonth = async (staffUserId: number, doneRaw: number) => {
@@ -640,6 +744,23 @@ export default function ProductionTable() {
     setQuickFilter("all");
   };
 
+  const transferOrderToken = transferOrder
+    ? summarizeProductionTokensByItems(transferOrder.items ?? [])
+    : 0;
+  const transferOrderDateKey = (transferOrder?.deliveryDate || "").trim();
+  const selectedTransferTargetId = Number(transferStaffUserId);
+  const selectedTransferBaselineToken =
+    transferOrderDateKey && Number.isInteger(selectedTransferTargetId)
+      ? (staffDailyTokenByDate.get(
+          `${selectedTransferTargetId}:${transferOrderDateKey}`,
+        ) ?? 0)
+      : 0;
+  const selectedTransferProjectedToken =
+    selectedTransferBaselineToken + transferOrderToken;
+  const selectedTransferOverLimit =
+    transferCandidates.length > 0 &&
+    selectedTransferProjectedToken > STAFF_DAILY_TOKEN_LIMIT;
+
   const renderOrderRow = (order: (typeof orders)[number]) => {
     const normalizedOrderStatus = normalizeOrderStatus(order.orderStatus);
     const orderToken = summarizeProductionTokensByItems(order.items ?? []);
@@ -653,13 +774,41 @@ export default function ProductionTable() {
       order.items?.[0]?.subcategory ||
       "Produk";
     const staffName = order.assignedStaffName?.trim();
+    const orderDateKey = (order.deliveryDate || "").trim();
 
+    const isUnassigned = !order.assignedStaffUserId;
     const assignedToMe =
       Boolean(viewer?.userId) && order.assignedStaffUserId === viewer?.userId;
     const claimedByOther =
       Boolean(order.assignedStaffUserId) &&
       viewer?.userId !== order.assignedStaffUserId;
-    const claimLocked = claimedByOther && !isOwner;
+    const canStaffClaim = isStaff && isUnassigned && Boolean(viewer?.userId);
+    const currentStaffDailyToken =
+      viewer?.userId && orderDateKey
+        ? (staffDailyTokenByDate.get(`${viewer.userId}:${orderDateKey}`) ?? 0)
+        : 0;
+    const projectedStaffDailyToken = currentStaffDailyToken + orderToken;
+    const exceedsStaffDailyLimit =
+      canStaffClaim && projectedStaffDailyToken > STAFF_DAILY_TOKEN_LIMIT;
+    const claimDisabled = claimedByOther || exceedsStaffDailyLimit;
+
+    const canOwnerTransfer = isOwner && Boolean(order.assignedStaffUserId);
+    const transferCandidates = canOwnerTransfer
+      ? teamMembers.filter(
+          (member) => member.userId !== order.assignedStaffUserId,
+        )
+      : [];
+
+    let statusDisabledMessage = "";
+    if (!order.assignedStaffUserId) {
+      statusDisabledMessage =
+        "Ambil order terlebih dahulu sebelum mengubah status";
+    } else if (isStaff && !assignedToMe) {
+      statusDisabledMessage =
+        "Hanya staff yang ditugaskan dapat mengubah status";
+    }
+    const isStatusDisabled = Boolean(statusDisabledMessage);
+
     const accentClass =
       normalizedOrderStatus === "In Production"
         ? "border-l-amber-400"
@@ -697,7 +846,8 @@ export default function ProductionTable() {
           <p className="text-gray-500">{order.deliveryDate || "-"}</p>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 flex-col items-end gap-1.5">
+          <div className="flex items-center gap-2">
           {staffName ? (
             <span className="rounded-full bg-green-100 px-2.5 py-1 text-xs font-medium text-green-700">
               {staffName}
@@ -708,45 +858,53 @@ export default function ProductionTable() {
             </span>
           )}
 
-          {isStaff && !staffName && (
+            {canStaffClaim && (
             <button
               type="button"
               onClick={(event) => {
                 event.stopPropagation();
                 handleClaimByStaff(order.id);
               }}
-              disabled={claimLocked}
-              className="rounded-full bg-blue-500 px-3 py-1 text-xs font-medium text-white transition hover:bg-blue-600 disabled:opacity-60"
+              disabled={claimDisabled}
+              className="rounded-full bg-blue-500 px-3 py-1 text-xs font-medium text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Ambil
             </button>
           )}
 
-          {assignedToMe && (
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                clearOrderAssignee(order.id);
-              }}
-              className="rounded-full bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-600 transition hover:bg-rose-100"
-            >
-              Lepas
-            </button>
-          )}
+            {canOwnerTransfer && (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleOpenTransferModal(order.id);
+                }}
+                disabled={transferCandidates.length === 0}
+                className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Transfer
+              </button>
+            )}
 
-          {claimLocked ? (
-            <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-500">
-              Locked
-            </span>
-          ) : (
             <div className="w-32" onClick={(event) => event.stopPropagation()}>
               <StatusDropdown
                 value={normalizedOrderStatus}
                 onChange={(value) => updateStatus(order.id, value)}
                 options={getStatusOptions(normalizedOrderStatus)}
+                disabled={isStatusDisabled}
               />
             </div>
+          </div>
+
+          {exceedsStaffDailyLimit && (
+            <p className="text-[11px] font-medium text-rose-600">
+              Token harian staff melewati batas ({projectedStaffDailyToken}/
+              {STAFF_DAILY_TOKEN_LIMIT})
+            </p>
+          )}
+
+          {statusDisabledMessage && (
+            <p className="text-[11px] text-slate-500">{statusDisabledMessage}</p>
           )}
         </div>
       </div>
@@ -771,7 +929,9 @@ export default function ProductionTable() {
               Live Production Queue
             </p>
             <h3 className="mt-1 text-lg font-semibold text-slate-900">
-              {activeTab === "active" ? "Active Production" : "Ready & Delivered"}
+              {activeTab === "active"
+                ? "Open Queue (Inquiry + In Production)"
+                : "Ready & Delivered"}
             </h3>
           </div>
 
@@ -904,7 +1064,8 @@ export default function ProductionTable() {
         </div>
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      {isOwner ? (
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="mb-3 flex items-center justify-between">
           <h4 className="text-sm font-semibold text-slate-900">Staff Productivity</h4>
           <p className="text-xs text-slate-500">Berdasarkan filter aktif saat ini</p>
@@ -918,6 +1079,19 @@ export default function ProductionTable() {
               const totalWork = staff.doneVisible + staff.inProgress;
               const completionPct =
                 totalWork <= 0 ? 0 : Math.round((staff.doneVisible / totalWork) * 100);
+              const dailyPct = Math.max(0, staff.dailyTokenPercentage);
+              const dailyIndicatorClass =
+                dailyPct >= 100
+                  ? "bg-rose-100 text-rose-700"
+                  : dailyPct >= 70
+                    ? "bg-amber-100 text-amber-700"
+                    : "bg-emerald-100 text-emerald-700";
+              const dailyStatusText =
+                dailyPct >= 100
+                  ? "Limit tercapai"
+                  : dailyPct >= 70
+                    ? "Mendekati limit"
+                    : "Masih aman";
 
               return (
                 <div
@@ -926,10 +1100,13 @@ export default function ProductionTable() {
                 >
                   <div className="flex items-start justify-between gap-2">
                     <p className="truncate text-sm font-semibold text-slate-900">{staff.name}</p>
-                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
-                      {staff.doneVisible} token
+                    <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${dailyIndicatorClass}`}>
+                      {staff.dailyToken} / {STAFF_DAILY_TOKEN_LIMIT} token
                     </span>
                   </div>
+                  <p className="mt-1 text-[11px] text-slate-500">
+                    Token harian ({staffDailyIndicatorDateKey}): {dailyStatusText}
+                  </p>
                   <p className="mt-1 text-xs text-amber-700">In progress {staff.inProgress} token</p>
 
                   <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200">
@@ -960,7 +1137,8 @@ export default function ProductionTable() {
             })
           )}
         </div>
-      </div>
+        </div>
+      ) : null}
 
       <div className="flex flex-wrap items-center gap-2">
         <button
@@ -972,7 +1150,7 @@ export default function ProductionTable() {
               : "border border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
           }`}
         >
-          Active ({activeOrders.length})
+          Open Queue ({activeOrders.length})
         </button>
         <button
           type="button"
@@ -1022,6 +1200,114 @@ export default function ProductionTable() {
           Role kasir tidak memiliki akses pengambilan order produksi.
         </p>
       )}
+
+      {transferOrderId && transferOrder ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="transfer-order-modal-title"
+          onClick={() => {
+            setTransferOrderId(null);
+            setTransferStaffUserId("");
+          }}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h3 id="transfer-order-modal-title" className="text-base font-semibold text-slate-900">
+                  Transfer Order
+                </h3>
+                <p className="mt-1 text-xs text-slate-500">
+                  Pindahkan order ke staff lain. Token order: {transferOrderToken}
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label="Tutup modal transfer"
+                onClick={() => {
+                  setTransferOrderId(null);
+                  setTransferStaffUserId("");
+                }}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-600 transition hover:bg-slate-100"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {transferCandidates.length === 0 ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                Tidak ada staff lain yang tersedia untuk transfer.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Pilih staff tujuan
+                </label>
+                <select
+                  value={transferStaffUserId}
+                  onChange={(event) => setTransferStaffUserId(event.target.value)}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                >
+                  {transferCandidates.map((member) => {
+                    const baselineDailyToken = transferOrderDateKey
+                      ? (staffDailyTokenByDate.get(`${member.userId}:${transferOrderDateKey}`) ??
+                        0)
+                      : 0;
+                    const projected = baselineDailyToken + transferOrderToken;
+                    const overLimit = projected > STAFF_DAILY_TOKEN_LIMIT;
+
+                    return (
+                      <option key={member.userId} value={String(member.userId)}>
+                        {member.name} ({projected}/{STAFF_DAILY_TOKEN_LIMIT}
+                        {overLimit ? " - melebihi batas" : ""})
+                      </option>
+                    );
+                  })}
+                </select>
+
+                <p
+                  className={`text-xs ${
+                    selectedTransferOverLimit ? "text-rose-600" : "text-slate-500"
+                  }`}
+                >
+                  Proyeksi token harian: {selectedTransferProjectedToken}/
+                  {STAFF_DAILY_TOKEN_LIMIT}
+                  {selectedTransferOverLimit ? " (melebihi batas)" : ""}
+                </p>
+              </div>
+            )}
+
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setTransferOrderId(null);
+                  setTransferStaffUserId("");
+                }}
+                className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-100"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleTransferOrder}
+                disabled={
+                  !transferStaffUserId ||
+                  transferCandidates.length === 0 ||
+                  selectedTransferOverLimit
+                }
+                className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Konfirmasi Transfer
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {selectedDatePopupKey ? (
         <div

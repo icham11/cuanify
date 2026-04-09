@@ -6945,7 +6945,7 @@ export default function BookingForm() {
                                       <Input
                                         type="number"
                                         min={0}
-                                        step={1000}
+                                        step={1}
                                         value={customAddOn.price}
                                         placeholder="Harga"
                                         onChange={(event) =>

@@ -2017,6 +2017,48 @@ function extractCupcakeFlavorSegmentText(
   return matched[1].split(/(?:,|\b(?:dozen|lusin)\b)/i)[0].trim();
 }
 
+function detectCakeFlavorOptionByText(
+  options: FlavorOption[],
+  value: string,
+): FlavorOption | undefined {
+  const text = String(value || "").trim();
+  if (!text) return undefined;
+
+  const contextualCandidates: string[] = [];
+  const cakeContextRegex = /\bcake\b\s*[:=\-]?\s*([^\n|;]+)/gi;
+  let matched: RegExpExecArray | null;
+
+  while ((matched = cakeContextRegex.exec(text)) !== null) {
+    const candidate = cleanupValue(matched[1] || "");
+    if (candidate) contextualCandidates.push(candidate);
+  }
+
+  for (let index = contextualCandidates.length - 1; index >= 0; index -= 1) {
+    const candidate = contextualCandidates[index]
+      .split(/(?:,|\b(?:cupcakes?|dozen|lusin|indv|individual|individu(?:al)?)\b)/i)[0]
+      .trim();
+    const detected = detectFlavorOptionByText(options, candidate);
+    if (detected) return detected;
+  }
+
+  const taggedSegments = text
+    .split(/[\n|;,]/)
+    .map((segment) => cleanupValue(segment))
+    .filter(Boolean);
+
+  for (let index = taggedSegments.length - 1; index >= 0; index -= 1) {
+    const segment = taggedSegments[index];
+    if (!/\bcake\b/i.test(segment) || /\bcupcakes?\b/i.test(segment)) {
+      continue;
+    }
+
+    const detected = detectFlavorOptionByText(options, segment);
+    if (detected) return detected;
+  }
+
+  return undefined;
+}
+
 function detectFlavorAddOnIdsForCategory(args: {
   category: string;
   value: string;
@@ -2032,6 +2074,11 @@ function detectFlavorAddOnIdsForCategory(args: {
     );
     const segmentMatch = detectFlavorOptionByText(options, segmentValue);
     if (segmentMatch) return [segmentMatch.id];
+  }
+
+  if (args.category === "Cake") {
+    const cakeMatch = detectCakeFlavorOptionByText(options, args.value);
+    if (cakeMatch) return [cakeMatch.id];
   }
 
   const fallbackMatch = detectFlavorOptionByText(options, args.value);
@@ -2170,6 +2217,13 @@ function detectCakeAddOnsFromText(value: string): {
         return parsedAtPrice * Math.max(1, quantity);
       }
     }
+
+    // Guardrail: do not treat arbitrary digits (e.g. d16t15, umur 1)
+    // as a custom add-on price without explicit currency markers.
+    const hasExplicitPriceMarker =
+      /(?:\brp\b|\bk\b|\bharga\b|\bprice\b)/i.test(segment) ||
+      /@|=/.test(segment);
+    if (!hasExplicitPriceMarker) return 0;
 
     const parsedFallback = parseCurrencyAmount(segment);
     if (parsedFallback && parsedFallback > 0) return parsedFallback;

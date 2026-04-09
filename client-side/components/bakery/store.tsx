@@ -2,6 +2,7 @@
 
 import {
   createContext,
+  useRef,
   useCallback,
   useContext,
   useEffect,
@@ -228,6 +229,8 @@ const ORDERS_SYNC_ENDPOINT = NORMALIZED_BOOKINGS_API_BASE
   ? `${NORMALIZED_BOOKINGS_API_BASE}/api/bookings/orders`
   : "/api/bookings/orders";
 const INITIAL_SNAPSHOT = JSON.stringify(initialOrders);
+const SERVER_SYNC_POLL_INTERVAL_MS = 15000;
+const LOCAL_WRITE_STALE_GUARD_MS = 2500;
 let hasHydrated = false;
 
 type OrdersSyncResponse = {
@@ -528,6 +531,14 @@ function parseSnapshot(snapshot: string): BakeryOrder[] {
   }
 }
 
+function areOrdersSnapshotsEqual(
+  left: BakeryOrder[],
+  right: BakeryOrder[],
+): boolean {
+  if (left.length !== right.length) return false;
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
 function writeOrdersSnapshot(nextOrders: BakeryOrder[]) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextOrders));
@@ -565,6 +576,8 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
     userId: null,
     name: "System",
   });
+  const hydrationInFlightRef = useRef(false);
+  const lastLocalWriteAtRef = useRef(0);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -656,59 +669,91 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
     return payload;
   }, []);
 
+  const hydrateOrdersFromServer = useCallback(async () => {
+    if (typeof window === "undefined") return;
+    if (hydrationInFlightRef.current) return;
+
+    hydrationInFlightRef.current = true;
+    const localSnapshot = window.localStorage.getItem(STORAGE_KEY);
+    const localOrders = parseSnapshot(localSnapshot ?? INITIAL_SNAPSHOT);
+
+    try {
+      const response = await fetch(ORDERS_SYNC_ENDPOINT, {
+        method: "GET",
+        cache: "no-store",
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        success?: boolean;
+        data?: { orders?: BakeryOrder[] };
+      };
+
+      if (!response.ok || !payload.success) return;
+
+      const serverOrders = Array.isArray(payload.data?.orders)
+        ? payload.data.orders
+        : [];
+
+      if (serverOrders.length > 0) {
+        const recentlyChangedLocally =
+          Date.now() - lastLocalWriteAtRef.current < LOCAL_WRITE_STALE_GUARD_MS;
+        if (recentlyChangedLocally) return;
+
+        if (!areOrdersSnapshotsEqual(localOrders, serverOrders)) {
+          writeOrdersSnapshot(serverOrders);
+        }
+        return;
+      }
+
+      if (localOrders.length > 0) {
+        void syncOrdersToServer(localOrders).catch((error) => {
+          console.warn("[bookings][frontend] hydrate sync failed", {
+            endpoint: ORDERS_SYNC_ENDPOINT,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        });
+      }
+    } catch {
+      // Keep local snapshot if server is unreachable.
+    } finally {
+      hydrationInFlightRef.current = false;
+    }
+  }, [syncOrdersToServer]);
+
+  useEffect(() => {
+    void hydrateOrdersFromServer();
+  }, [hydrateOrdersFromServer]);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    let active = true;
+    const pollId = window.setInterval(() => {
+      void hydrateOrdersFromServer();
+    }, SERVER_SYNC_POLL_INTERVAL_MS);
 
-    const hydrateOrdersFromServer = async () => {
-      const localSnapshot = window.localStorage.getItem(STORAGE_KEY);
-      const localOrders = parseSnapshot(localSnapshot ?? INITIAL_SNAPSHOT);
+    const handleFocus = () => {
+      void hydrateOrdersFromServer();
+    };
 
-      try {
-        const response = await fetch(ORDERS_SYNC_ENDPOINT, {
-          method: "GET",
-          cache: "no-store",
-        });
-        const payload = (await response.json().catch(() => ({}))) as {
-          success?: boolean;
-          data?: { orders?: BakeryOrder[] };
-        };
-
-        if (!active || !response.ok || !payload.success) return;
-
-        const serverOrders = Array.isArray(payload.data?.orders)
-          ? payload.data.orders
-          : [];
-
-        if (serverOrders.length > 0) {
-          writeOrdersSnapshot(serverOrders);
-          return;
-        }
-
-        if (localOrders.length > 0) {
-          void syncOrdersToServer(localOrders).catch((error) => {
-            console.warn("[bookings][frontend] hydrate sync failed", {
-              endpoint: ORDERS_SYNC_ENDPOINT,
-              message: error instanceof Error ? error.message : String(error),
-            });
-          });
-        }
-      } catch {
-        // Keep local snapshot if server is unreachable.
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        void hydrateOrdersFromServer();
       }
     };
 
-    void hydrateOrdersFromServer();
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibility);
 
     return () => {
-      active = false;
+      window.clearInterval(pollId);
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibility);
     };
-  }, [syncOrdersToServer]);
+  }, [hydrateOrdersFromServer]);
 
   const persistOrders = useCallback(
     (nextOrders: BakeryOrder[]) => {
       if (typeof window === "undefined") return;
+      lastLocalWriteAtRef.current = Date.now();
       writeOrdersSnapshot(nextOrders);
       void syncOrdersToServer(nextOrders).catch((error) => {
         const message =
@@ -1181,6 +1226,9 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       const target = orders.find((order) => order.id === id);
       if (!target) return;
       if (target.assignedStaffUserId === staff.userId) return;
+      const isTransfer =
+        Boolean(target.assignedStaffUserId) &&
+        target.assignedStaffUserId !== staff.userId;
 
       const nowIso = new Date().toISOString();
       const nextOrders = orders.map((order) => {
@@ -1200,7 +1248,11 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       });
 
       persistOrders(nextOrders);
-      toast.success(`Order di-assign ke ${staff.name}`);
+      if (isTransfer) {
+        toast.success("Order berhasil dipindahkan");
+      } else {
+        toast.success(`Order di-assign ke ${staff.name}`);
+      }
     },
     [orders, persistOrders, actorIdentity],
   );

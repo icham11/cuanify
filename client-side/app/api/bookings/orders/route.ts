@@ -11,6 +11,7 @@ import {
   DEFAULT_MAX_TOKEN,
   calculateOrderTokenFromItems,
 } from "@/lib/bookings/token-capacity-service";
+import { BAKERY_STAFF_DAILY_TOKEN_LIMIT } from "@/lib/bookings/config";
 import {
   getCalendarStatus,
   isPastDate,
@@ -76,6 +77,9 @@ class PastDateError extends Error {
 }
 
 const INACTIVE_STATUSES = ["Cancelled", "Completed", "Delivered"];
+const STAFF_DAILY_TOKEN_LIMIT = BAKERY_STAFF_DAILY_TOKEN_LIMIT;
+const STAFF_DAILY_TOKEN_LIMIT_MESSAGE =
+  "Token harian staff melebihi limit assignment";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -168,6 +172,20 @@ interface DbAddressRow {
   order_external_id: string;
   address_index: number;
   payload: unknown;
+}
+
+interface ExistingAssignmentState {
+  external_id: string;
+  order_status: string | null;
+  assigned_staff_user_id: number | null;
+}
+
+interface StaffValidationOrder {
+  id: string;
+  orderStatus: string;
+  assignedStaffUserId: number | null;
+  deliveryDate: string;
+  items: JsonRecord[];
 }
 
 type SnapshotSource = "rows" | "snapshot-fallback";
@@ -844,6 +862,134 @@ function validateDailyTokenCapacity(orders: NormalizedOrder[]) {
   };
 }
 
+function calculateOrderTokenForLimit(
+  order: Pick<StaffValidationOrder, "items">,
+): number {
+  const orderItems = (order.items || []).map((item) => ({
+    category: typeof item.category === "string" ? item.category : "",
+    subcategory:
+      typeof item.subcategory === "string" ? item.subcategory : undefined,
+    productName:
+      typeof item.productName === "string" ? item.productName : undefined,
+    size: typeof item.size === "string" ? item.size : undefined,
+    quantity: typeof item.quantity === "number" ? item.quantity : undefined,
+    tokenDifficulty:
+      typeof item.tokenDifficulty === "string"
+        ? item.tokenDifficulty
+        : undefined,
+    customTokenPerUnit:
+      typeof item.customTokenPerUnit === "number"
+        ? item.customTokenPerUnit
+        : undefined,
+    cookieDifficultyBreakdown:
+      typeof item.cookieDifficultyBreakdown === "string"
+        ? item.cookieDifficultyBreakdown
+        : undefined,
+  }));
+
+  return calculateOrderTokenFromItems(orderItems);
+}
+
+function buildStaffDailyTokenMap(
+  orders: StaffValidationOrder[],
+): Map<string, number> {
+  const usage = new Map<string, number>();
+
+  for (const order of orders) {
+    if (!order.assignedStaffUserId || !order.deliveryDate) continue;
+    if (INACTIVE_STATUSES.includes(order.orderStatus || "")) continue;
+
+    const token = calculateOrderTokenForLimit(order);
+    if (token <= 0) continue;
+
+    const key = `${order.assignedStaffUserId}:${order.deliveryDate}`;
+    usage.set(key, (usage.get(key) ?? 0) + token);
+  }
+
+  return usage;
+}
+
+export function validateAssignmentTransitionRules(params: {
+  orders: StaffValidationOrder[];
+  existingAssignments: ExistingAssignmentState[];
+  roleName: string;
+  userId: number;
+}) {
+  const { orders, existingAssignments, roleName, userId } = params;
+  const isOwnerRequest = roleName === "Owner";
+  const isStaffRequest = roleName === "Staff";
+  const existingAssignmentMap = new Map(
+    existingAssignments.map((row) => [row.external_id, row]),
+  );
+
+  for (const order of orders) {
+    const existing = existingAssignmentMap.get(order.id);
+    if (!existing) continue;
+
+    const currentStatus = existing.order_status ?? "Inquiry";
+    const statusChanged = currentStatus !== order.orderStatus;
+    const currentAssignee = asPositiveIntOrNull(existing.assigned_staff_user_id);
+    const nextAssignee = order.assignedStaffUserId;
+
+    if (statusChanged && !nextAssignee) {
+      throw new ForbiddenError("Order must be assigned before changing status");
+    }
+
+    if (currentAssignee === nextAssignee) {
+      continue;
+    }
+
+    if (currentAssignee !== null && nextAssignee === null) {
+      throw new ForbiddenError(
+        "Order yang sudah diambil tidak bisa dilepas. Gunakan transfer oleh owner.",
+      );
+    }
+
+    if (!isOwnerRequest) {
+      const isStaffClaimOwnUnassignedOrder =
+        isStaffRequest && currentAssignee === null && nextAssignee === userId;
+
+      if (!isStaffClaimOwnUnassignedOrder) {
+        throw new ForbiddenError(
+          "Hanya owner yang dapat memindahkan assignment order.",
+        );
+      }
+    }
+  }
+}
+
+export function validateProjectedStaffDailyTokenLimit(params: {
+  orders: StaffValidationOrder[];
+  existingAssignments: ExistingAssignmentState[];
+  limit?: number;
+}) {
+  const { orders, existingAssignments, limit = STAFF_DAILY_TOKEN_LIMIT } = params;
+  const projectedStaffDailyTokenMap = buildStaffDailyTokenMap(orders);
+  const existingAssignmentMap = new Map(
+    existingAssignments.map((row) => [row.external_id, row]),
+  );
+
+  for (const order of orders) {
+    const existing = existingAssignmentMap.get(order.id);
+    if (!existing) continue;
+
+    const currentAssignee = asPositiveIntOrNull(existing.assigned_staff_user_id);
+    const nextAssignee = order.assignedStaffUserId;
+    if (!nextAssignee || currentAssignee === nextAssignee) continue;
+
+    if (!order.deliveryDate) continue;
+    if (INACTIVE_STATUSES.includes(order.orderStatus || "")) continue;
+
+    const staffDayKey = `${nextAssignee}:${order.deliveryDate}`;
+    const projectedToken = projectedStaffDailyTokenMap.get(staffDayKey) ?? 0;
+    if (projectedToken > limit) {
+      throw new ForbiddenError(
+        `${STAFF_DAILY_TOKEN_LIMIT_MESSAGE}. Staff ${nextAssignee} pada ${order.deliveryDate}: ${projectedToken}/${limit} token.`,
+      );
+    }
+  }
+}
+
 async function readOrdersSnapshot(businessId: number) {
   return prisma.businessDocument.findFirst({
     where: {
@@ -1322,11 +1468,31 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const isStaffRequest = (role as unknown as string) === "Staff";
+    const roleName = role as unknown as string;
+    const isStaffRequest = roleName === "Staff";
+
+    await ensureBakeryTables();
+
+    const existingAssignmentRows = await prisma.$queryRaw<
+      {
+        external_id: string;
+        order_status: string | null;
+        assigned_staff_user_id: number | null;
+      }[]
+    >`
+      SELECT external_id, order_status, assigned_staff_user_id
+      FROM bakery_orders
+      WHERE business_id = ${businessId}
+    `;
+
+    validateAssignmentTransitionRules({
+      orders,
+      existingAssignments: existingAssignmentRows,
+      roleName,
+      userId,
+    });
 
     if (isStaffRequest) {
-      await ensureBakeryTables();
-
       const existingRows = await prisma.$queryRaw<DbOrderRow[]>`
         SELECT
           external_id,
@@ -1472,6 +1638,7 @@ export async function POST(request: NextRequest) {
       const staffUpdatableStatuses = new Set([
         "In Production",
         "Ready",
+        "Delivered",
         "Completed",
       ]);
 
@@ -1485,18 +1652,21 @@ export async function POST(request: NextRequest) {
 
         const assigneeChangeAllowed =
           currentAssignee === nextAssignee ||
-          (currentAssignee === null && nextAssignee === userId) ||
-          (currentAssignee === userId && (nextAssignee === userId || nextAssignee === null));
+          (currentAssignee === null && nextAssignee === userId);
 
         if (!assigneeChangeAllowed) {
           throw new ForbiddenError(
-            `Staff assignment denied for order ${existingOrder.id}. Staff hanya boleh claim order unassigned atau melepas claim miliknya sendiri.`,
+            `Staff assignment denied for order ${existingOrder.id}. Staff hanya boleh ambil order unassigned miliknya sendiri. Pelepasan/transfer hanya owner.`,
           );
+        }
+
+        if (statusChanged && !nextAssignee) {
+          throw new ForbiddenError("Order must be assigned before changing status");
         }
 
         if (statusChanged && !staffUpdatableStatuses.has(incomingOrder.orderStatus)) {
           throw new ForbiddenError(
-            `Status update denied for order ${existingOrder.id}. Staff hanya boleh set status ke In Production, Ready, atau Completed.`,
+            `Status update denied for order ${existingOrder.id}. Staff hanya boleh set status ke In Production, Ready, Delivered, atau Completed.`,
           );
         }
 
@@ -1539,6 +1709,12 @@ export async function POST(request: NextRequest) {
         };
       });
     }
+
+    validateProjectedStaffDailyTokenLimit({
+      orders,
+      existingAssignments: existingAssignmentRows,
+      limit: STAFF_DAILY_TOKEN_LIMIT,
+    });
 
     const tokenValidation = validateDailyTokenCapacity(orders);
     if (!tokenValidation.isValid) {
