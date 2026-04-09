@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
 
-export type UserRole = "Owner" | "Cashier";
+export type UserRole = "Owner" | "Cashier" | "Staff";
 
 interface RoleContextType {
   role: UserRole;
@@ -10,6 +10,7 @@ interface RoleContextType {
   loading: boolean;
   isOwner: boolean;
   isCashier: boolean;
+  isStaff: boolean;
   refresh: () => Promise<void>;
 }
 
@@ -47,6 +48,7 @@ export function RoleProvider({ children }: { children: React.ReactNode }) {
         loading,
         isOwner: role === "Owner",
         isCashier: role === "Cashier",
+        isStaff: role === "Staff",
         refresh: fetchRole,
       }}
     >

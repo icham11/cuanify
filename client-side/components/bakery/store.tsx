@@ -143,6 +143,9 @@ export interface BakeryOrder {
   totalPrice: number;
   paymentStatus: PaymentStatus;
   orderStatus: OrderStatus;
+  assignedStaffUserId?: number | null;
+  assignedStaffName?: string;
+  productionAssignedAt?: string | null;
   statusHistory: OrderStatusLog[];
   automationLogs?: OrderAutomationLog[];
   whatsAppParsedData?: ParsedWhatsAppOrder;
@@ -189,6 +192,11 @@ interface OrdersContextValue {
   orders: BakeryOrder[];
   addOrder: (order: NewOrderInput) => Promise<void>;
   updateOrderStatus: (id: string, status: OrderStatus) => Promise<void>;
+  assignOrderToStaff: (
+    id: string,
+    staff: { userId: number; name: string },
+  ) => void;
+  clearOrderAssignee: (id: string) => void;
   updatePaymentStatus: (id: string, status: PaymentStatus) => void;
   recordPayment: (
     id: string,
@@ -1055,6 +1063,9 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         totalPrice: order.totalPrice,
         paymentStatus: order.paymentStatus,
         orderStatus: "In Production",
+        assignedStaffUserId: null,
+        assignedStaffName: "",
+        productionAssignedAt: null,
         whatsAppParsedData: order.whatsAppParsedData,
         shippingQuote: order.shippingQuote ?? null,
         shipment: null,
@@ -1163,6 +1174,62 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       }
     },
     [orders, persistOrders, runAutomationsForOrder, actorIdentity],
+  );
+
+  const assignOrderToStaff = useCallback(
+    (id: string, staff: { userId: number; name: string }) => {
+      const target = orders.find((order) => order.id === id);
+      if (!target) return;
+      if (target.assignedStaffUserId === staff.userId) return;
+
+      const nowIso = new Date().toISOString();
+      const nextOrders = orders.map((order) => {
+        if (order.id !== id) return order;
+        return {
+          ...order,
+          assignedStaffUserId: staff.userId,
+          assignedStaffName: staff.name,
+          productionAssignedAt: order.productionAssignedAt || nowIso,
+          statusHistory: appendStatusLog(
+            order.statusHistory,
+            order.orderStatus,
+            `Order diambil oleh ${staff.name}`,
+            actorIdentity,
+          ),
+        };
+      });
+
+      persistOrders(nextOrders);
+      toast.success(`Order di-assign ke ${staff.name}`);
+    },
+    [orders, persistOrders, actorIdentity],
+  );
+
+  const clearOrderAssignee = useCallback(
+    (id: string) => {
+      const target = orders.find((order) => order.id === id);
+      if (!target || !target.assignedStaffUserId) return;
+
+      const nextOrders = orders.map((order) => {
+        if (order.id !== id) return order;
+        return {
+          ...order,
+          assignedStaffUserId: null,
+          assignedStaffName: "",
+          productionAssignedAt: null,
+          statusHistory: appendStatusLog(
+            order.statusHistory,
+            order.orderStatus,
+            "Assignment staff produksi dilepas",
+            actorIdentity,
+          ),
+        };
+      });
+
+      persistOrders(nextOrders);
+      toast.message("Assignment staff dilepas");
+    },
+    [orders, persistOrders, actorIdentity],
   );
 
   const updatePaymentStatus = useCallback(
@@ -1384,6 +1451,8 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       orders,
       addOrder,
       updateOrderStatus,
+      assignOrderToStaff,
+      clearOrderAssignee,
       updatePaymentStatus,
       recordPayment,
       updateOrderSchedule,
@@ -1395,6 +1464,8 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       orders,
       addOrder,
       updateOrderStatus,
+      assignOrderToStaff,
+      clearOrderAssignee,
       updatePaymentStatus,
       recordPayment,
       updateOrderSchedule,

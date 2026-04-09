@@ -999,6 +999,7 @@ async function buildBusinessChunks(businessId: number): Promise<DocumentChunk[]>
   if (business) {
     const ownerMembers = business.members.filter((m) => m.role === "Owner");
     const cashierMembers = business.members.filter((m) => m.role === "Cashier");
+    const productionStaffMembers = business.members.filter((m) => m.role === "Staff");
 
     const staffLines = [
       `Owner: ${business.user.name} (${business.user.email})`,
@@ -1008,6 +1009,9 @@ async function buildBusinessChunks(businessId: number): Promise<DocumentChunk[]>
     }
     if (cashierMembers.length > 0) {
       staffLines.push(`Kasir: ${cashierMembers.map((m) => `${m.user.name} (${m.user.email})`).join(", ")}`);
+    }
+    if (productionStaffMembers.length > 0) {
+      staffLines.push(`Staff Produksi: ${productionStaffMembers.map((m) => `${m.user.name} (${m.user.email})`).join(", ")}`);
     }
 
     chunks.push({

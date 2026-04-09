@@ -18,7 +18,7 @@ export function isForbiddenError(error: unknown): error is ForbiddenError {
 export type AuthResult = {
   userId: number
   businessId: number
-  role: UserRole // "Owner" | "Cashier"
+  role: UserRole // "Owner" | "Cashier" | "Staff"
 }
 
 function normalizeNumericId(value: unknown): number | undefined {

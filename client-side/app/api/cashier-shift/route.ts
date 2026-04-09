@@ -21,8 +21,8 @@ export async function GET(request: NextRequest) {
 
     const where = {
       businessId: auth.businessId,
-      // Cashier can only see their own shifts
-      ...(auth.role === "Cashier" ? { userId: auth.userId } : {}),
+      // Non-owner users can only see their own shifts.
+      ...(auth.role !== "Owner" ? { userId: auth.userId } : {}),
     };
 
     const [shifts, total] = await Promise.all([

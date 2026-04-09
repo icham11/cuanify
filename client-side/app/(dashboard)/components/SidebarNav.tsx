@@ -23,7 +23,7 @@ import {
 import { useRole } from "@/context/RoleContext";
 
 export default function SidebarNav() {
-  const { isOwner, isCashier, userName, loading } = useRole();
+  const { isOwner, isCashier, isStaff, userName, loading } = useRole();
   const pathname = usePathname();
 
   const isActive = (href: string) =>
@@ -45,18 +45,34 @@ export default function SidebarNav() {
 
   return (
     <nav className="space-y-6">
-      {/* Kasir Mode Banner */}
-      {isCashier && (
-        <div className="p-3 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-xl">
+      {/* Role Mode Banner */}
+      {(isCashier || isStaff) && (
+        <div
+          className={`p-3 border rounded-xl ${
+            isStaff
+              ? "bg-gradient-to-r from-sky-50 to-cyan-50 border-sky-200"
+              : "bg-gradient-to-r from-amber-50 to-orange-50 border-amber-200"
+          }`}
+        >
           <div className="flex items-center gap-2 mb-1">
             <span className="relative flex h-2.5 w-2.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-500 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500" />
+              <span
+                className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                  isStaff ? "bg-sky-500" : "bg-amber-500"
+                }`}
+              />
+              <span
+                className={`relative inline-flex rounded-full h-2.5 w-2.5 ${
+                  isStaff ? "bg-sky-500" : "bg-amber-500"
+                }`}
+              />
             </span>
-            <span className="text-xs font-bold text-amber-800">MODE KASIR</span>
+            <span className={`text-xs font-bold ${isStaff ? "text-sky-800" : "text-amber-800"}`}>
+              {isStaff ? "MODE STAFF" : "MODE KASIR"}
+            </span>
           </div>
           {userName && (
-            <p className="text-[11px] text-amber-700 font-medium truncate pl-4.5">
+            <p className={`text-[11px] font-medium truncate pl-4.5 ${isStaff ? "text-sky-700" : "text-amber-700"}`}>
               👤 {userName}
             </p>
           )}
@@ -79,48 +95,56 @@ export default function SidebarNav() {
         </div>
       )}
 
-      {/* Bakery — Owner only */}
-      {isOwner && (
+      {/* Bakery — Owner + Staff */}
+      {(isOwner || isStaff) && (
         <div>
           <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-wider px-3 mb-1.5">
             Bakery
           </p>
-          <SidebarLink
-            href="/bakery/dashboard"
-            icon={BarChart3}
-            label="Dashboard"
-            active={isActive("/bakery/dashboard")}
-          />
-          <SidebarLink
-            href="/bakery/bookings"
-            icon={ClipboardList}
-            label="Bookings"
-            active={isActive("/bakery/bookings")}
-          />
-          <SidebarLink
-            href="/bakery/calendar"
-            icon={CalendarDays}
-            label="Calendar"
-            active={isActive("/bakery/calendar")}
-          />
+          {isOwner && (
+            <>
+              <SidebarLink
+                href="/bakery/dashboard"
+                icon={BarChart3}
+                label="Dashboard"
+                active={isActive("/bakery/dashboard")}
+              />
+              <SidebarLink
+                href="/bakery/bookings"
+                icon={ClipboardList}
+                label="Bookings"
+                active={isActive("/bakery/bookings")}
+              />
+              <SidebarLink
+                href="/bakery/calendar"
+                icon={CalendarDays}
+                label="Calendar"
+                active={isActive("/bakery/calendar")}
+              />
+            </>
+          )}
           <SidebarLink
             href="/bakery/production"
             icon={Factory}
             label="Production"
             active={isActive("/bakery/production")}
           />
-          <SidebarLink
-            href="/bakery/reports"
-            icon={FileText}
-            label="Reports"
-            active={isActive("/bakery/reports")}
-          />
-          <SidebarLink
-            href="/bakery/catalog"
-            icon={Settings2}
-            label="Catalog"
-            active={isActive("/bakery/catalog")}
-          />
+          {isOwner && (
+            <>
+              <SidebarLink
+                href="/bakery/reports"
+                icon={FileText}
+                label="Reports"
+                active={isActive("/bakery/reports")}
+              />
+              <SidebarLink
+                href="/bakery/catalog"
+                icon={Settings2}
+                label="Catalog"
+                active={isActive("/bakery/catalog")}
+              />
+            </>
+          )}
         </div>
       )}
 

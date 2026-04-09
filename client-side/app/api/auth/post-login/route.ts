@@ -8,6 +8,7 @@ import { requireAuth, AuthError } from "@/lib/auth/session";
  * and redirects them to the correct page:
  *   - Owner  → /dashboard
  *   - Cashier → /pos
+ *   - Staff   → /bakery/production
  *   - No business → /onboarding
  */
 export async function GET(request: NextRequest) {
@@ -21,6 +22,9 @@ export async function GET(request: NextRequest) {
     }
     if (auth.role === "Cashier") {
       return NextResponse.redirect(new URL("/pos", baseUrl));
+    }
+    if (auth.role === "Staff") {
+      return NextResponse.redirect(new URL("/bakery/production", baseUrl));
     }
 
     return NextResponse.redirect(new URL("/dashboard/business", baseUrl));

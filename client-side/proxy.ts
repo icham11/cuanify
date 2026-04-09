@@ -4,27 +4,117 @@ import { getToken } from "next-auth/jwt";
 /**
  * Proxy — runs BEFORE any page renders (replaces deprecated middleware.ts).
  *
- * Handles role-based redirects so Cashiers never see Owner pages,
+ * Handles role-based redirects so non-owner roles never see Owner pages,
  * and unauthenticated users get sent to /login.
  *
  * Flow:
  *   1. Extract userId from JWT cookie or NextAuth session token
  *   2. If no auth → let /login, /register, /api, /_next pass through; block the rest → /login
- *   3. If auth and is Cashier hitting /home or /dashboard (overview) → redirect to /pos
+ *   3. If auth and non-owner hitting blocked owner pages → redirect by role
  */
 
-// Pages that require NO authentication
-const PUBLIC_PATHS = ["/login", "/register", "/onboarding", "/api", "/_next", "/favicon.ico", "/icons", "/manifest.json", "/sw.js", "/offline"];
+const STATIC_PATH_PREFIXES = [
+  "/_next",
+  "/favicon.ico",
+  "/icons",
+  "/manifest.json",
+  "/sw.js",
+];
 
-function isPublic(pathname: string) {
-  return PUBLIC_PATHS.some((p) => pathname.startsWith(p));
+const PUBLIC_PAGE_PREFIXES = ["/login", "/register", "/onboarding", "/offline"];
+
+const CASHIER_BLOCKED_PATHS = [
+  "/home",
+  "/dashboard/analytics",
+  "/dashboard/products",
+  "/dashboard/ingredients",
+  "/dashboard/recipes",
+  "/dashboard/ai",
+  "/dashboard/business",
+  "/dashboard/staff",
+  "/dashboard/ai-analysis",
+];
+
+const STAFF_ALLOWED_PAGE_PREFIXES = ["/bakery/production"];
+
+const STAFF_ALLOWED_API_RULES: Array<{
+  prefix: string;
+  methods: ReadonlyArray<string>;
+}> = [
+  { prefix: "/api/auth/me", methods: ["GET"] },
+  { prefix: "/api/auth/logout", methods: ["POST"] },
+  { prefix: "/api/auth/post-login", methods: ["GET"] },
+  { prefix: "/api/auth/session", methods: ["GET"] },
+  { prefix: "/api/auth/csrf", methods: ["GET"] },
+  { prefix: "/api/auth/providers", methods: ["GET"] },
+  { prefix: "/api/businesses", methods: ["GET"] },
+  { prefix: "/api/bookings/orders", methods: ["GET", "POST"] },
+  { prefix: "/api/bookings/automations", methods: ["GET", "POST"] },
+  { prefix: "/api/bakery/production/staff-tokens", methods: ["GET"] },
+];
+
+function isStaticPath(pathname: string) {
+  return STATIC_PATH_PREFIXES.some((p) => pathname.startsWith(p));
+}
+
+function isPublicPage(pathname: string) {
+  return PUBLIC_PAGE_PREFIXES.some((p) => pathname.startsWith(p));
+}
+
+function isApiPath(pathname: string) {
+  return pathname.startsWith("/api");
+}
+
+function isStaffAllowedPage(pathname: string) {
+  return STAFF_ALLOWED_PAGE_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
+}
+
+function isStaffAllowedApi(pathname: string, method: string) {
+  return STAFF_ALLOWED_API_RULES.some((rule) => {
+    if (!(pathname === rule.prefix || pathname.startsWith(`${rule.prefix}/`))) {
+      return false;
+    }
+    return rule.methods.includes(method.toUpperCase());
+  });
+}
+
+async function resolveRole(request: NextRequest): Promise<string | null> {
+  try {
+    const meUrl = new URL("/api/auth/me", request.url);
+    const meRes = await fetch(meUrl.toString(), {
+      headers: {
+        cookie: request.headers.get("cookie") || "",
+      },
+    });
+
+    if (!meRes.ok) return null;
+    const meData = await meRes.json();
+    const role = meData?.data?.role;
+    return typeof role === "string" ? role : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const method = request.method.toUpperCase();
+  const apiRequest = isApiPath(pathname);
 
-  // Let public paths and static assets through
-  if (isPublic(pathname) || pathname.includes(".")) {
+  // Let static assets through.
+  if (isStaticPath(pathname) || pathname.includes(".")) {
+    return NextResponse.next();
+  }
+
+  // Always allow auth self-check endpoint to avoid proxy recursion.
+  if (pathname === "/api/auth/me") {
+    return NextResponse.next();
+  }
+
+  // Public pages stay public.
+  if (!apiRequest && isPublicPage(pathname)) {
     return NextResponse.next();
   }
 
@@ -34,47 +124,56 @@ export async function proxy(request: NextRequest) {
 
   const isAuthenticated = !!jwtToken || !!nextAuthToken;
 
-  // Not logged in → redirect to /login (except root landing page)
+  // Not logged in → let API route decide, page route redirects to /login.
   if (!isAuthenticated) {
+    if (apiRequest) {
+      return NextResponse.next();
+    }
     if (pathname === "/") {
       return NextResponse.next(); // Allow landing page
     }
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
-  // ── Authenticated — check if Cashier needs redirect ──
-  const cashierBlockedPaths = ["/home", "/dashboard/analytics", "/dashboard/products", "/dashboard/ingredients", "/dashboard/recipes", "/dashboard/ai", "/dashboard/business", "/dashboard/staff", "/dashboard/ai-analysis"];
-  const needsRoleCheck = pathname === "/home" || pathname === "/" || cashierBlockedPaths.some((p) => pathname.startsWith(p));
+  const role = await resolveRole(request);
 
-  if (needsRoleCheck) {
-    try {
-      const meUrl = new URL("/api/auth/me", request.url);
-      const meRes = await fetch(meUrl.toString(), {
-        headers: {
-          cookie: request.headers.get("cookie") || "",
+  // API hardening: strict allowlist for Staff (deny by default).
+  if (apiRequest && role === "Staff") {
+    if (!isStaffAllowedApi(pathname, method)) {
+      return NextResponse.json(
+        {
+          error:
+            "Akses API ditolak untuk role Staff. Endpoint ini tidak termasuk allowlist.",
         },
-      });
+        { status: 403 },
+      );
+    }
+    return NextResponse.next();
+  }
 
-      if (meRes.ok) {
-        const meData = await meRes.json();
-        const role = meData?.data?.role;
+  // Page hardening for non-owner roles.
+  if (role === "Cashier") {
+    const blockedForCashier =
+      pathname === "/home" ||
+      pathname === "/" ||
+      CASHIER_BLOCKED_PATHS.some((p) => pathname.startsWith(p));
 
-        if (role === "Cashier") {
-          if (pathname !== "/pos" && !pathname.startsWith("/pos/") &&
-              !pathname.startsWith("/dashboard/sales-history") &&
-              !pathname.startsWith("/dashboard/debts")) {
-            return NextResponse.redirect(new URL("/pos", request.url));
-          }
-        }
-
-          // Redirect ke /home dan /pos dari root dihapus, biarkan user tetap di '/'
-      }
-    } catch {
-      // If role check fails, let the page handle it
+    if (
+      blockedForCashier &&
+      pathname !== "/pos" &&
+      !pathname.startsWith("/pos/") &&
+      !pathname.startsWith("/dashboard/sales-history") &&
+      !pathname.startsWith("/dashboard/debts")
+    ) {
+      return NextResponse.redirect(new URL("/pos", request.url));
     }
   }
 
-    // Redirect default ke /home dihapus, biarkan user tetap di '/'
+  if (role === "Staff") {
+    if (!isStaffAllowedPage(pathname)) {
+      return NextResponse.redirect(new URL("/bakery/production", request.url));
+    }
+  }
 
   return NextResponse.next();
 }
@@ -89,7 +188,4 @@ export const config = {
     "/((?!_next/static|_next/image|favicon.ico).*)",
   ],
 };
-
-
-    // Tidak ada logic sisa di bawah, pastikan file ditutup dengan benar
 

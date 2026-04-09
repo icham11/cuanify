@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { AuthError, requireAuth } from "@/lib/auth/session";
+import { AuthError, ForbiddenError, requireAuth } from "@/lib/auth/session";
 import { evaluateProductionTokenCapacity } from "@/lib/bookings/operations";
 import { z } from "zod";
 import {
@@ -107,13 +107,16 @@ interface NormalizedOrder {
   totalPrice: number;
   paymentStatus: string;
   orderStatus: string;
+  assignedStaffUserId: number | null;
+  assignedStaffName: string;
+  productionAssignedAt: string | null;
   shippingQuote: unknown;
   shipment: unknown;
   simulations: unknown;
   whatsAppParsedData: unknown;
-  statusHistory: unknown;
-  automationLogs: unknown;
-  paymentTransactions: unknown;
+  statusHistory: JsonRecord[];
+  automationLogs: JsonRecord[];
+  paymentTransactions: JsonRecord[];
   items: JsonRecord[];
   deliveryAddresses: JsonRecord[];
 }
@@ -141,6 +144,9 @@ interface DbOrderRow {
   total_price: unknown;
   payment_status: string | null;
   order_status: string | null;
+  assigned_staff_user_id: number | null;
+  assigned_staff_name: string | null;
+  production_assigned_at: unknown;
   shipping_quote: unknown;
   shipment: unknown;
   simulations: unknown;
@@ -193,6 +199,9 @@ const normalizedOrderSchema = z.object({
   totalPrice: z.number().finite().min(0, "totalPrice must be >= 0"),
   paymentStatus: z.string().trim().min(1, "paymentStatus is required"),
   orderStatus: z.string().trim().min(1, "orderStatus is required"),
+  assignedStaffUserId: z.number().int().positive().nullable(),
+  assignedStaffName: z.string(),
+  productionAssignedAt: z.string().nullable(),
   shippingQuote: z.unknown().nullable(),
   shipment: z.unknown().nullable(),
   simulations: z.unknown().nullable(),
@@ -203,6 +212,8 @@ const normalizedOrderSchema = z.object({
   items: z.array(z.record(z.string(), z.unknown())),
   deliveryAddresses: z.array(z.record(z.string(), z.unknown())),
 });
+
+type ParsedOrder = z.infer<typeof normalizedOrderSchema>;
 
 function formatValidationIssues(error: z.ZodError): string[] {
   return error.issues.map((issue) => {
@@ -235,6 +246,19 @@ function asString(value: unknown): string {
 function asNumber(value: unknown): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function asPositiveIntOrNull(value: unknown): number | null {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) return null;
+  return parsed;
+}
+
+function toIsoOrNull(value: unknown): string | null {
+  if (!value) return null;
+  if (value instanceof Date) return value.toISOString();
+  const parsed = new Date(String(value));
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }
 
 function asArrayOfRecords(value: unknown): JsonRecord[] {
@@ -921,13 +945,16 @@ function normalizeOrder(raw: unknown, index: number): NormalizedOrder | null {
     totalPrice: asNumber(record.totalPrice),
     paymentStatus: asString(record.paymentStatus),
     orderStatus: asString(record.orderStatus),
+    assignedStaffUserId: asPositiveIntOrNull(record.assignedStaffUserId),
+    assignedStaffName: asString(record.assignedStaffName),
+    productionAssignedAt: toIsoOrNull(record.productionAssignedAt),
     shippingQuote: record.shippingQuote ?? null,
     shipment: record.shipment ?? null,
     simulations: record.simulations ?? null,
     whatsAppParsedData: record.whatsAppParsedData ?? null,
-    statusHistory: record.statusHistory ?? [],
-    automationLogs: record.automationLogs ?? [],
-    paymentTransactions: record.paymentTransactions ?? [],
+    statusHistory: asArrayOfRecords(record.statusHistory),
+    automationLogs: asArrayOfRecords(record.automationLogs),
+    paymentTransactions: asArrayOfRecords(record.paymentTransactions),
     items: asArrayOfRecords(record.items),
     deliveryAddresses: asArrayOfRecords(record.deliveryAddresses),
   };
@@ -1021,6 +1048,21 @@ async function ensureBakeryTables() {
     ADD COLUMN IF NOT EXISTS token_used INTEGER NOT NULL DEFAULT 0;
   `);
 
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE bakery_orders
+    ADD COLUMN IF NOT EXISTS assigned_staff_user_id INTEGER;
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE bakery_orders
+    ADD COLUMN IF NOT EXISTS assigned_staff_name TEXT;
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE bakery_orders
+    ADD COLUMN IF NOT EXISTS production_assigned_at TIMESTAMPTZ;
+  `);
+
   // ── Ensure production_capacity table exists ──
   await ensureCapacityTable();
 }
@@ -1057,6 +1099,9 @@ export async function GET() {
           total_price,
           payment_status,
           order_status,
+          assigned_staff_user_id,
+          assigned_staff_name,
+          production_assigned_at,
           shipping_quote,
           shipment,
           simulations,
@@ -1128,6 +1173,9 @@ export async function GET() {
           totalPrice: asNumber(row.total_price),
           paymentStatus: row.payment_status ?? "Pending",
           orderStatus: row.order_status ?? "Inquiry",
+          assignedStaffUserId: asPositiveIntOrNull(row.assigned_staff_user_id),
+          assignedStaffName: row.assigned_staff_name ?? "",
+          productionAssignedAt: toIsoOrNull(row.production_assigned_at),
           shippingQuote: parseJsonField(row.shipping_quote),
           shipment: parseJsonField(row.shipment),
           simulations: parseJsonField(row.simulations),
@@ -1187,7 +1235,7 @@ export async function POST(request: NextRequest) {
   const requestStartedAt = Date.now();
 
   try {
-    const { businessId, userId } = await requireAuth();
+    const { businessId, userId, role } = await requireAuth();
     const contentType = request.headers.get("content-type") ?? "";
     if (!contentType.toLowerCase().includes("application/json")) {
       return NextResponse.json(
@@ -1243,7 +1291,7 @@ export async function POST(request: NextRequest) {
     }
 
     const dateNormalizationIssues: string[] = [];
-    const orders = parsedOrders.data.map((order) => {
+    let orders: ParsedOrder[] = parsedOrders.data.map((order) => {
       if (!order.deliveryDate) return order;
 
       const normalizedDeliveryDate = normalizeDateInput(order.deliveryDate);
@@ -1272,6 +1320,224 @@ export async function POST(request: NextRequest) {
         },
         { status: 400 },
       );
+    }
+
+    const isStaffRequest = (role as unknown as string) === "Staff";
+
+    if (isStaffRequest) {
+      await ensureBakeryTables();
+
+      const existingRows = await prisma.$queryRaw<DbOrderRow[]>`
+        SELECT
+          external_id,
+          booking_code,
+          resi,
+          customer_name,
+          customer_phone,
+          customer_address,
+          delivery_date,
+          delivery_slot,
+          notes,
+          base_price,
+          add_on_total,
+          delivery_fee,
+          manual_adjustment,
+          dp_paid_amount,
+          final_paid_amount,
+          total_paid_amount,
+          down_payment_amount,
+          remaining_balance,
+          product,
+          total_price,
+          payment_status,
+          order_status,
+          assigned_staff_user_id,
+          assigned_staff_name,
+          production_assigned_at,
+          shipping_quote,
+          shipment,
+          simulations,
+          whatsapp_parsed_data,
+          status_history,
+          automation_logs,
+          payment_transactions,
+          created_at,
+          updated_at
+        FROM bakery_orders
+        WHERE business_id = ${businessId}
+        ORDER BY updated_at DESC
+      `;
+
+      const itemRows = await prisma.$queryRaw<DbItemRow[]>`
+        SELECT order_external_id, item_index, payload
+        FROM bakery_order_items
+        WHERE business_id = ${businessId}
+        ORDER BY order_external_id ASC, item_index ASC
+      `;
+
+      const addressRows = await prisma.$queryRaw<DbAddressRow[]>`
+        SELECT order_external_id, address_index, payload
+        FROM bakery_order_addresses
+        WHERE business_id = ${businessId}
+        ORDER BY order_external_id ASC, address_index ASC
+      `;
+
+      const itemsMap = new Map<string, JsonRecord[]>();
+      for (const row of itemRows) {
+        const current = itemsMap.get(row.order_external_id) ?? [];
+        const payload = asRecord(parseJsonField(row.payload));
+        if (payload) current.push(payload);
+        itemsMap.set(row.order_external_id, current);
+      }
+
+      const addressesMap = new Map<string, JsonRecord[]>();
+      for (const row of addressRows) {
+        const current = addressesMap.get(row.order_external_id) ?? [];
+        const payload = asRecord(parseJsonField(row.payload));
+        if (payload) current.push(payload);
+        addressesMap.set(row.order_external_id, current);
+      }
+
+      const existingOrders: ParsedOrder[] = existingRows.map((row) => ({
+        id: row.external_id,
+        bookingCode: row.booking_code ?? "",
+        resi: row.resi ?? "",
+        customerName: row.customer_name ?? "",
+        customerPhone: row.customer_phone ?? "",
+        customerAddress: row.customer_address ?? "",
+        deliveryDate:
+          normalizeDateInput(row.delivery_date ?? "") ?? row.delivery_date ?? "",
+        deliverySlot: row.delivery_slot ?? "",
+        notes: row.notes ?? "",
+        basePrice: asNumber(row.base_price),
+        addOnTotal: asNumber(row.add_on_total),
+        deliveryFee: asNumber(row.delivery_fee),
+        manualAdjustment: asNumber(row.manual_adjustment),
+        dpPaidAmount: asNumber(row.dp_paid_amount),
+        finalPaidAmount: asNumber(row.final_paid_amount),
+        totalPaidAmount: asNumber(row.total_paid_amount),
+        downPaymentAmount: asNumber(row.down_payment_amount),
+        remainingBalance: asNumber(row.remaining_balance),
+        product: row.product ?? "",
+        totalPrice: asNumber(row.total_price),
+        paymentStatus: row.payment_status ?? "Pending",
+        orderStatus: row.order_status ?? "Inquiry",
+        assignedStaffUserId: asPositiveIntOrNull(row.assigned_staff_user_id),
+        assignedStaffName: row.assigned_staff_name ?? "",
+        productionAssignedAt: toIsoOrNull(row.production_assigned_at),
+        shippingQuote: parseJsonField(row.shipping_quote),
+        shipment: parseJsonField(row.shipment),
+        simulations: parseJsonField(row.simulations),
+        whatsAppParsedData: parseJsonField(row.whatsapp_parsed_data),
+        statusHistory: asArrayOfRecords(parseJsonField(row.status_history)),
+        automationLogs: asArrayOfRecords(parseJsonField(row.automation_logs)),
+        paymentTransactions: asArrayOfRecords(
+          parseJsonField(row.payment_transactions),
+        ),
+        items: itemsMap.get(row.external_id) ?? [],
+        deliveryAddresses: addressesMap.get(row.external_id) ?? [],
+      }));
+
+      const existingById = new Map(existingOrders.map((order) => [order.id, order]));
+      const incomingById = new Map(orders.map((order) => [order.id, order]));
+
+      const unauthorizedCreate = orders
+        .map((order) => order.id)
+        .filter((id) => !existingById.has(id));
+      if (unauthorizedCreate.length > 0) {
+        return NextResponse.json(
+          {
+            error:
+              "Role Staff tidak diizinkan membuat booking/order baru melalui endpoint ini.",
+            details: unauthorizedCreate.map((id) => `create denied: ${id}`),
+          },
+          { status: 403 },
+        );
+      }
+
+      const unauthorizedDelete = existingOrders
+        .map((order) => order.id)
+        .filter((id) => !incomingById.has(id));
+      if (unauthorizedDelete.length > 0) {
+        return NextResponse.json(
+          {
+            error:
+              "Role Staff tidak diizinkan menghapus booking/order melalui endpoint ini.",
+            details: unauthorizedDelete.map((id) => `delete denied: ${id}`),
+          },
+          { status: 403 },
+        );
+      }
+
+      const staffUpdatableStatuses = new Set([
+        "In Production",
+        "Ready",
+        "Completed",
+      ]);
+
+      orders = existingOrders.map((existingOrder) => {
+        const incomingOrder = incomingById.get(existingOrder.id);
+        if (!incomingOrder) return existingOrder;
+
+        const currentAssignee = existingOrder.assignedStaffUserId;
+        const nextAssignee = incomingOrder.assignedStaffUserId;
+        const statusChanged = incomingOrder.orderStatus !== existingOrder.orderStatus;
+
+        const assigneeChangeAllowed =
+          currentAssignee === nextAssignee ||
+          (currentAssignee === null && nextAssignee === userId) ||
+          (currentAssignee === userId && (nextAssignee === userId || nextAssignee === null));
+
+        if (!assigneeChangeAllowed) {
+          throw new ForbiddenError(
+            `Staff assignment denied for order ${existingOrder.id}. Staff hanya boleh claim order unassigned atau melepas claim miliknya sendiri.`,
+          );
+        }
+
+        if (statusChanged && !staffUpdatableStatuses.has(incomingOrder.orderStatus)) {
+          throw new ForbiddenError(
+            `Status update denied for order ${existingOrder.id}. Staff hanya boleh set status ke In Production, Ready, atau Completed.`,
+          );
+        }
+
+        if (statusChanged && nextAssignee !== userId) {
+          throw new ForbiddenError(
+            `Status update denied for order ${existingOrder.id}. Staff hanya boleh mengubah status order yang di-assign ke dirinya sendiri.`,
+          );
+        }
+
+        let nextAssignedName = existingOrder.assignedStaffName;
+        if (nextAssignee === null) {
+          nextAssignedName = "";
+        } else if (nextAssignee === userId) {
+          nextAssignedName =
+            incomingOrder.assignedStaffName.trim() ||
+            existingOrder.assignedStaffName ||
+            `Staff #${userId}`;
+        }
+
+        let nextAssignedAt = existingOrder.productionAssignedAt;
+        if (nextAssignee === null) {
+          nextAssignedAt = null;
+        } else if (nextAssignee === userId && currentAssignee === null) {
+          nextAssignedAt = incomingOrder.productionAssignedAt || new Date().toISOString();
+        } else if (nextAssignee === userId) {
+          nextAssignedAt =
+            incomingOrder.productionAssignedAt ||
+            existingOrder.productionAssignedAt ||
+            new Date().toISOString();
+        }
+
+        return {
+          ...existingOrder,
+          orderStatus: statusChanged
+            ? incomingOrder.orderStatus
+            : existingOrder.orderStatus,
+          assignedStaffUserId: nextAssignee,
+          assignedStaffName: nextAssignedName,
+          productionAssignedAt: nextAssignedAt,
+        };
+      });
     }
 
     const tokenValidation = validateDailyTokenCapacity(orders);
@@ -1522,6 +1788,9 @@ export async function POST(request: NextRequest) {
               total_price,
               payment_status,
               order_status,
+              assigned_staff_user_id,
+              assigned_staff_name,
+              production_assigned_at,
               shipping_quote,
               shipment,
               simulations,
@@ -1556,6 +1825,9 @@ export async function POST(request: NextRequest) {
               ${order.totalPrice},
               ${order.paymentStatus || null},
               ${order.orderStatus || null},
+              ${order.assignedStaffUserId},
+              ${order.assignedStaffName || null},
+              ${order.productionAssignedAt ? new Date(order.productionAssignedAt) : null},
               ${JSON.stringify(order.shippingQuote ?? null)}::jsonb,
               ${JSON.stringify(order.shipment ?? null)}::jsonb,
               ${JSON.stringify(order.simulations ?? null)}::jsonb,
@@ -1590,6 +1862,9 @@ export async function POST(request: NextRequest) {
               total_price = EXCLUDED.total_price,
               payment_status = EXCLUDED.payment_status,
               order_status = EXCLUDED.order_status,
+              assigned_staff_user_id = EXCLUDED.assigned_staff_user_id,
+              assigned_staff_name = EXCLUDED.assigned_staff_name,
+              production_assigned_at = EXCLUDED.production_assigned_at,
               shipping_quote = EXCLUDED.shipping_quote,
               shipment = EXCLUDED.shipment,
               simulations = EXCLUDED.simulations,
@@ -1835,6 +2110,10 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (error instanceof AuthError) {
       return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+
+    if (error instanceof ForbiddenError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
     }
 
     if (error instanceof CapacityFullError) {

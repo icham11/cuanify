@@ -5,37 +5,25 @@ import { Factory } from "lucide-react";
 
 export default function ProductionPage() {
   return (
-    <div className="space-y-6 pb-10">
+    <div className="space-y-6 bg-linear-to-b from-slate-50/70 to-white pb-10">
       <GradientPageHeader
         title="Production"
-        description="Track cakes in progress and prepare them for delivery."
+        description="Rangkuman booking produksi, assignment staff, dan progres token per bulan."
         icon={Factory}
       />
 
-      <Card className="rounded-xl shadow-sm">
+      <Card className="rounded-2xl border-slate-200/80 shadow-sm">
         <CardHeader className="p-6 pb-2">
-          <CardTitle>Production Queue</CardTitle>
+          <CardTitle className="text-xl">Production Booking List</CardTitle>
+          <p className="text-sm text-slate-500">
+            Monitor beban produksi, atur assignment staff, dan update status order dalam satu dashboard.
+          </p>
         </CardHeader>
         <CardContent className="px-6 pb-6 pt-0">
           <ProductionTable />
         </CardContent>
       </Card>
 
-      <Card className="rounded-xl shadow-sm">
-        <CardHeader className="p-6 pb-2">
-          <CardTitle>Operational Notes</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3 px-6 pb-6 pt-0 text-sm text-gray-600">
-          <p>
-            Orders are sorted by delivery date to prioritize urgent jobs first.
-          </p>
-          <div className="flex flex-wrap gap-2 text-xs font-semibold">
-            <span className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-rose-700">Delivery Today</span>
-            <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-amber-700">Delivery Tomorrow</span>
-            <span className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-gray-600">Normal</span>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }

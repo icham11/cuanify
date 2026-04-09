@@ -4,6 +4,9 @@ import { requireAuth, requireRole, AuthError, ForbiddenError } from "@/lib/auth/
 
 export const dynamic = "force-dynamic";
 
+const ALLOWED_MEMBER_ROLES = ["Cashier", "Staff"] as const;
+type ManagedMemberRole = (typeof ALLOWED_MEMBER_ROLES)[number];
+
 /**
  * GET /api/staff — List all staff members across ALL businesses owned by this user
  * Only Owner can see this.
@@ -68,8 +71,8 @@ export async function GET() {
 }
 
 /**
- * POST /api/staff — Invite a cashier by email to the ACTIVE business
- * Body: { email: string, role?: "Cashier", businessId?: number }
+ * POST /api/staff — Invite a cashier/staff by email to the ACTIVE business
+ * Body: { email: string, role?: "Cashier" | "Staff", businessId?: number }
  * Only Owner can invite.
  */
 export async function POST(request: NextRequest) {
@@ -78,15 +81,22 @@ export async function POST(request: NextRequest) {
     requireRole(auth, "Owner");
 
     const body = await request.json();
-    const { email, role = "Cashier", businessId } = body;
+    const { email, role = "Staff", businessId } = body;
     const targetBusinessId = businessId ? Number(businessId) : auth.businessId;
+    const normalizedRole =
+      typeof role === "string" && ALLOWED_MEMBER_ROLES.includes(role as ManagedMemberRole)
+        ? (role as ManagedMemberRole)
+        : null;
 
     if (!email) {
       return NextResponse.json({ error: "Email wajib diisi" }, { status: 400 });
     }
 
-    if (role !== "Cashier") {
-      return NextResponse.json({ error: "Hanya bisa menambahkan role Cashier" }, { status: 400 });
+    if (!normalizedRole) {
+      return NextResponse.json(
+        { error: `Role tidak valid. Gunakan ${ALLOWED_MEMBER_ROLES.join(" atau ")}.` },
+        { status: 400 },
+      );
     }
 
     // Verify the target business belongs to this owner
@@ -124,7 +134,7 @@ export async function POST(request: NextRequest) {
       data: {
         businessId: targetBusinessId,
         userId: targetUser.id,
-        role: "Cashier",
+        role: normalizedRole,
       },
     });
 
@@ -151,10 +161,11 @@ export async function POST(request: NextRequest) {
 
 /**
  * PATCH /api/staff — Edit a staff member
- * Body: { memberId: number, name?: string, businessId?: number }
+ * Body: { memberId: number, name?: string, businessId?: number, role?: "Cashier" | "Staff" }
  * Owner can:
- *   - Update the kasir's display name
- *   - Reassign the kasir to a different business (owned by the same owner)
+ *   - Update the staff display name
+ *   - Update the staff role (Cashier/Staff)
+ *   - Reassign the staff to a different business (owned by the same owner)
  */
 export async function PATCH(request: NextRequest) {
   try {
@@ -162,10 +173,21 @@ export async function PATCH(request: NextRequest) {
     requireRole(auth, "Owner");
 
     const body = await request.json();
-    const { memberId, name, businessId } = body;
+    const { memberId, name, businessId, role } = body;
+    const normalizedRole =
+      typeof role === "string" && ALLOWED_MEMBER_ROLES.includes(role as ManagedMemberRole)
+        ? (role as ManagedMemberRole)
+        : null;
 
     if (!memberId) {
       return NextResponse.json({ error: "memberId wajib diisi" }, { status: 400 });
+    }
+
+    if (role && !normalizedRole) {
+      return NextResponse.json(
+        { error: `Role tidak valid. Gunakan ${ALLOWED_MEMBER_ROLES.join(" atau ")}.` },
+        { status: 400 },
+      );
     }
 
     // Find the member — must belong to one of owner's businesses
@@ -208,22 +230,27 @@ export async function PATCH(request: NextRequest) {
 
       if (existingInTarget) {
         return NextResponse.json(
-          { error: "Kasir sudah terdaftar di bisnis tujuan" },
+          { error: "Staff sudah terdaftar di bisnis tujuan" },
           { status: 409 },
         );
       }
 
-      // Move: delete old membership, create new one
+      // Move: delete old membership, create new one (keeping current role unless role override is provided)
       await prisma.$transaction([
         prisma.businessMember.delete({ where: { id: member.id } }),
         prisma.businessMember.create({
           data: {
             businessId: newBusinessId,
             userId: member.userId,
-            role: member.role,
+            role: normalizedRole ?? member.role,
           },
         }),
       ]);
+    } else if (normalizedRole && normalizedRole !== member.role) {
+      await prisma.businessMember.update({
+        where: { id: member.id },
+        data: { role: normalizedRole },
+      });
     }
 
     // Fetch updated data
@@ -239,6 +266,7 @@ export async function PATCH(request: NextRequest) {
         userId: member.userId,
         name: updatedUser?.name,
         email: updatedUser?.email,
+        role: normalizedRole ?? member.role,
       },
       message: "Staff berhasil diperbarui",
     });

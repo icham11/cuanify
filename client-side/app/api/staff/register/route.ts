@@ -5,16 +5,19 @@ import { requireAuth, requireRole, AuthError, ForbiddenError } from "@/lib/auth/
 
 export const dynamic = "force-dynamic";
 
+const ALLOWED_MEMBER_ROLES = ["Cashier", "Staff"] as const;
+type ManagedMemberRole = (typeof ALLOWED_MEMBER_ROLES)[number];
+
 /**
- * POST /api/staff/register — Owner creates a new Cashier account
+ * POST /api/staff/register — Owner creates a new Cashier/Staff account
  *
  * This is the "one-stop" registration for UMKM owners.
  * The owner fills in the kasir's name, email, and password,
  * and the system creates:
  *   1. A new User account
- *   2. A BusinessMember record linking the user to the owner's business as "Cashier"
+ *   2. A BusinessMember record linking the user to the owner's business as selected role
  *
- * Body: { name: string, email: string, password: string }
+ * Body: { name: string, email: string, password: string, role?: "Cashier" | "Staff" }
  *
  * Only Owner can call this.
  */
@@ -24,8 +27,12 @@ export async function POST(request: NextRequest) {
     requireRole(auth, "Owner");
 
     const body = await request.json();
-    const { name, email, password, businessId } = body;
+    const { name, email, password, businessId, role = "Staff" } = body;
     const targetBusinessId = businessId ? Number(businessId) : auth.businessId;
+    const normalizedRole =
+      typeof role === "string" && ALLOWED_MEMBER_ROLES.includes(role as ManagedMemberRole)
+        ? (role as ManagedMemberRole)
+        : null;
 
     // ── Validation ──
     if (!name || !name.trim()) {
@@ -37,6 +44,13 @@ export async function POST(request: NextRequest) {
     if (!password || password.length < 6) {
       return NextResponse.json(
         { error: "Password minimal 6 karakter" },
+        { status: 400 },
+      );
+    }
+
+    if (!normalizedRole) {
+      return NextResponse.json(
+        { error: `Role tidak valid. Gunakan ${ALLOWED_MEMBER_ROLES.join(" atau ")}.` },
         { status: 400 },
       );
     }
@@ -92,7 +106,7 @@ export async function POST(request: NextRequest) {
         data: {
           businessId: targetBusinessId,
           userId: existingUser.id,
-          role: "Cashier",
+          role: normalizedRole,
         },
       });
 
@@ -110,7 +124,7 @@ export async function POST(request: NextRequest) {
             joinedAt: member.createdAt,
             isNewAccount: false,
           },
-          message: `${existingUser.name} sudah punya akun dan langsung ditambahkan sebagai Kasir di ${targetBusiness.name}.`,
+          message: `${existingUser.name} sudah punya akun dan langsung ditambahkan sebagai ${normalizedRole} di ${targetBusiness.name}.`,
         },
         { status: 201 },
       );
@@ -132,7 +146,7 @@ export async function POST(request: NextRequest) {
         data: {
           businessId: targetBusinessId,
           userId: newUser.id,
-          role: "Cashier",
+          role: normalizedRole,
         },
       });
 
@@ -151,7 +165,7 @@ export async function POST(request: NextRequest) {
           joinedAt: result.member.createdAt,
           isNewAccount: true,
         },
-        message: `Akun kasir "${result.newUser.name}" berhasil dibuat dan ditambahkan ke bisnis Anda.`,
+        message: `Akun ${normalizedRole.toLowerCase()} "${result.newUser.name}" berhasil dibuat dan ditambahkan ke bisnis Anda.`,
       },
       { status: 201 },
     );

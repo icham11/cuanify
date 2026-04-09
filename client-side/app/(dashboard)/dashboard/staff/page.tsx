@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import {
@@ -24,6 +24,7 @@ import {
   X,
   Building2,
   ArrowRightLeft,
+  ChevronDown,
 } from "lucide-react";
 import { useRole } from "@/context/RoleContext";
 
@@ -37,11 +38,13 @@ interface StaffMember {
   userId: number;
   name: string;
   email: string;
-  role: "Owner" | "Cashier";
+  role: "Owner" | "Cashier" | "Staff";
   businessId: number;
   businessName: string;
   joinedAt: string;
 }
+
+type ManagedRole = "Cashier" | "Staff";
 
 interface OwnerInfo {
   id: number;
@@ -66,18 +69,21 @@ export default function StaffPage() {
   const [regName, setRegName] = useState("");
   const [regEmail, setRegEmail] = useState("");
   const [regPassword, setRegPassword] = useState("");
+  const [regRole, setRegRole] = useState<ManagedRole>("Staff");
   const [regBusinessId, setRegBusinessId] = useState<number | "">("");
   const [showPassword, setShowPassword] = useState(false);
   const [registering, setRegistering] = useState(false);
 
   // Existing user invite
   const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState<ManagedRole>("Staff");
   const [inviteBusinessId, setInviteBusinessId] = useState<number | "">("");
   const [inviting, setInviting] = useState(false);
 
   // Edit modal
   const [editMember, setEditMember] = useState<StaffMember | null>(null);
   const [editName, setEditName] = useState("");
+  const [editRole, setEditRole] = useState<ManagedRole>("Staff");
   const [editBusinessId, setEditBusinessId] = useState<number | "">("");
   const [saving, setSaving] = useState(false);
 
@@ -86,6 +92,7 @@ export default function StaffPage() {
     name: string;
     email: string;
     password: string;
+    role: ManagedRole;
     businessName: string;
     isNewAccount: boolean;
   } | null>(null);
@@ -150,20 +157,22 @@ export default function StaffPage() {
           name: regName.trim(),
           email: regEmail.trim(),
           password: regPassword,
+          role: regRole,
           businessId: regBusinessId,
         }),
       });
       const data = await res.json();
       if (!res.ok) {
-        toast.error(data.error || "Gagal mendaftarkan kasir");
+        toast.error(data.error || "Gagal mendaftarkan staff");
         return;
       }
       const biz = businesses.find((b) => b.id === regBusinessId);
-      toast.success(data.message || "Kasir berhasil didaftarkan!");
+      toast.success(data.message || `${regRole} berhasil didaftarkan!`);
       setNewCashierInfo({
         name: regName.trim(),
         email: regEmail.trim(),
         password: regPassword,
+        role: regRole,
         businessName: biz?.name || "",
         isNewAccount: data.data.isNewAccount,
       });
@@ -172,7 +181,7 @@ export default function StaffPage() {
       setRegPassword("");
       fetchStaff();
     } catch {
-      toast.error("Gagal mendaftarkan kasir baru");
+      toast.error("Gagal mendaftarkan staff baru");
     } finally {
       setRegistering(false);
     }
@@ -189,6 +198,7 @@ export default function StaffPage() {
         credentials: "include",
         body: JSON.stringify({
           email: inviteEmail.trim(),
+          role: inviteRole,
           businessId: inviteBusinessId,
         }),
       });
@@ -197,7 +207,7 @@ export default function StaffPage() {
         toast.error(data.error || "Gagal menambahkan");
         return;
       }
-      toast.success(`${data.data.name} berhasil ditambahkan sebagai Kasir!`);
+      toast.success(`${data.data.name} berhasil ditambahkan sebagai ${data.data.role || inviteRole}!`);
       setInviteEmail("");
       fetchStaff();
     } catch {
@@ -211,6 +221,7 @@ export default function StaffPage() {
   function openEditModal(member: StaffMember) {
     setEditMember(member);
     setEditName(member.name);
+    setEditRole(member.role === "Cashier" ? "Cashier" : "Staff");
     setEditBusinessId(member.businessId);
   }
 
@@ -225,6 +236,7 @@ export default function StaffPage() {
         body: JSON.stringify({
           memberId: editMember.id,
           name: editName.trim(),
+          role: editRole,
           businessId: editBusinessId,
         }),
       });
@@ -270,6 +282,38 @@ export default function StaffPage() {
   // ── Filtered members ──
   const filteredMembers =
     filterBusinessId === "all" ? members : members.filter((m) => m.businessId === filterBusinessId);
+
+  const sortedMembers = useMemo(() => {
+    const roleWeight: Record<ManagedRole, number> = {
+      Staff: 0,
+      Cashier: 1,
+    };
+
+    return filteredMembers
+      .slice()
+      .sort((a, b) => {
+        const weightA = roleWeight[(a.role as ManagedRole) ?? "Staff"] ?? 9;
+        const weightB = roleWeight[(b.role as ManagedRole) ?? "Staff"] ?? 9;
+        if (weightA !== weightB) return weightA - weightB;
+        return a.name.localeCompare(b.name);
+      });
+  }, [filteredMembers]);
+
+  const roleCounts = useMemo(() => {
+    let cashier = 0;
+    let staff = 0;
+
+    for (const member of filteredMembers) {
+      if (member.role === "Cashier") cashier += 1;
+      if (member.role === "Staff") staff += 1;
+    }
+
+    return {
+      owner: owner ? 1 : 0,
+      cashier,
+      staff,
+    };
+  }, [filteredMembers, owner]);
 
   // ── Access denied for Cashier ──
   if (!isOwner) {
@@ -318,7 +362,7 @@ export default function StaffPage() {
           </div>
           Staff
         </h1>
-        <p className="text-gray-500 mt-1 text-sm">Daftarkan kasir, atur bisnis penempatan, dan kelola tim Anda.</p>
+        <p className="text-gray-500 mt-1 text-sm">Daftarkan staff/kasir, atur bisnis penempatan, dan kelola tim Anda.</p>
       </motion.div>
 
       {/* ═══ RBAC Explanation ═══ */}
@@ -389,7 +433,7 @@ export default function StaffPage() {
           >
             <span className="flex items-center justify-center gap-2">
               <UserPlus className="w-4 h-4" />
-              Daftarkan Kasir Baru
+              Daftarkan Staff Baru
             </span>
           </button>
           <button
@@ -415,7 +459,7 @@ export default function StaffPage() {
           {tabMode === "register" && (
             <div className="space-y-4">
               <p className="text-xs text-gray-400">
-                Buat akun baru untuk kasir Anda. Pilih bisnis penempatan, lalu berikan email dan password kepada kasir.
+                Buat akun baru untuk staff/kasir. Pilih bisnis penempatan, lalu berikan email dan password ke anggota tim.
               </p>
 
               {/* Success Card */}
@@ -430,10 +474,12 @@ export default function StaffPage() {
                     <div className="flex items-center gap-2">
                       <Check className="w-5 h-5 text-green-600" />
                       <p className="font-bold text-green-800 text-sm">
-                        {newCashierInfo.isNewAccount ? "Akun kasir berhasil dibuat!" : "Kasir berhasil ditambahkan!"}
+                        {newCashierInfo.isNewAccount
+                          ? `Akun ${newCashierInfo.role.toLowerCase()} berhasil dibuat!`
+                          : `${newCashierInfo.role} berhasil ditambahkan!`}
                       </p>
                     </div>
-                    <p className="text-xs text-green-700">Berikan info berikut kepada kasir agar mereka bisa login:</p>
+                    <p className="text-xs text-green-700">Berikan info berikut kepada staff agar mereka bisa login:</p>
                     <div className="space-y-2">
                       <div className="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-green-200">
                         <div>
@@ -445,6 +491,12 @@ export default function StaffPage() {
                         <div>
                           <p className="text-[10px] text-gray-400 font-medium">Ditempatkan di</p>
                           <p className="text-sm font-semibold text-indigo-700">{newCashierInfo.businessName}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-green-200">
+                        <div>
+                          <p className="text-[10px] text-gray-400 font-medium">Role</p>
+                          <p className="text-sm font-semibold text-gray-900">{newCashierInfo.role}</p>
                         </div>
                       </div>
                       <div className="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-green-200">
@@ -496,7 +548,7 @@ export default function StaffPage() {
                   )}
                   {/* Name */}
                   <div>
-                    <label className="text-xs font-semibold text-gray-600 mb-1 block">Nama Kasir</label>
+                    <label className="text-xs font-semibold text-gray-600 mb-1 block">Nama Staff</label>
                     <div className="relative">
                       <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                       <input
@@ -510,7 +562,7 @@ export default function StaffPage() {
                   </div>
                   {/* Email */}
                   <div>
-                    <label className="text-xs font-semibold text-gray-600 mb-1 block">Email Kasir</label>
+                    <label className="text-xs font-semibold text-gray-600 mb-1 block">Email Staff</label>
                     <div className="relative">
                       <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                       <input
@@ -524,7 +576,7 @@ export default function StaffPage() {
                   </div>
                   {/* Password */}
                   <div>
-                    <label className="text-xs font-semibold text-gray-600 mb-1 block">Password Kasir</label>
+                    <label className="text-xs font-semibold text-gray-600 mb-1 block">Password Staff</label>
                     <div className="relative">
                       <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                       <input
@@ -552,6 +604,20 @@ export default function StaffPage() {
                       🎲 Generate password otomatis
                     </button>
                   </div>
+                  <div>
+                    <label className="text-xs font-semibold text-gray-600 mb-1 block">Role</label>
+                    <div className="relative">
+                      <select
+                        value={regRole}
+                        onChange={(e) => setRegRole(e.target.value as ManagedRole)}
+                        className="w-full appearance-none rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 pr-9 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                      >
+                        <option value="Staff">Staff Produksi</option>
+                        <option value="Cashier">Kasir</option>
+                      </select>
+                      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-700" />
+                    </div>
+                  </div>
                   {/* Submit */}
                   <button
                     onClick={handleRegister}
@@ -566,7 +632,7 @@ export default function StaffPage() {
                     className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition cursor-pointer flex items-center justify-center gap-2"
                   >
                     {registering ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
-                    Daftarkan Kasir
+                    Daftarkan {regRole}
                   </button>
                 </div>
               )}
@@ -577,11 +643,22 @@ export default function StaffPage() {
           {tabMode === "existing" && (
             <div className="space-y-3">
               <p className="text-xs text-gray-400">
-                Tambahkan user yang <strong>sudah punya akun</strong> sebagai kasir. Pilih bisnis penempatannya.
+                Tambahkan user yang <strong>sudah punya akun</strong> sebagai staff. Pilih role dan bisnis penempatannya.
               </p>
               {businesses.length > 1 && (
                 <BusinessSelect value={inviteBusinessId} onChange={(v) => setInviteBusinessId(v)} />
               )}
+              <div className="relative">
+                <select
+                  value={inviteRole}
+                  onChange={(e) => setInviteRole(e.target.value as ManagedRole)}
+                  className="w-full appearance-none rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 pr-9 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                >
+                  <option value="Staff">Staff Produksi</option>
+                  <option value="Cashier">Kasir</option>
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-700" />
+              </div>
               <div className="flex gap-3">
                 <div className="relative flex-1">
                   <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -590,7 +667,7 @@ export default function StaffPage() {
                     value={inviteEmail}
                     onChange={(e) => setInviteEmail(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && handleInvite()}
-                    placeholder="email@kasir.com"
+                    placeholder="email@staff.com"
                     className="w-full pl-9 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-300 focus:outline-none text-black placeholder-gray-400"
                   />
                 </div>
@@ -600,7 +677,7 @@ export default function StaffPage() {
                   className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition cursor-pointer flex items-center gap-2"
                 >
                   {inviting ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
-                  Tambahkan
+                  Tambahkan {inviteRole}
                 </button>
               </div>
             </div>
@@ -616,7 +693,20 @@ export default function StaffPage() {
         className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden"
       >
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
-          <h3 className="font-bold text-gray-900 text-sm">Daftar Anggota ({filteredMembers.length + 1})</h3>
+          <div>
+            <h3 className="font-bold text-gray-900 text-sm">Daftar Anggota ({filteredMembers.length + 1})</h3>
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                <ShieldCheck className="h-3 w-3" /> Owner {roleCounts.owner}
+              </span>
+              <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
+                <BadgeCheck className="h-3 w-3" /> Cashier {roleCounts.cashier}
+              </span>
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                <Users className="h-3 w-3" /> Staff {roleCounts.staff}
+              </span>
+            </div>
+          </div>
           {/* Filter by business */}
           {businesses.length > 1 && (
             <select
@@ -667,10 +757,23 @@ export default function StaffPage() {
             )}
 
             {/* Members */}
-            {filteredMembers.map((member) => (
+            {sortedMembers.map((member) => {
+              const isCashier = member.role === "Cashier";
+              const avatarClass = isCashier ? "bg-blue-100" : "bg-emerald-100";
+              const iconClass = isCashier ? "text-blue-600" : "text-emerald-600";
+              const roleBadgeClass = isCashier
+                ? "bg-blue-100 text-blue-700"
+                : "bg-emerald-100 text-emerald-700";
+              const roleLabel = isCashier ? "Cashier" : "Staff";
+
+              return (
               <div key={member.id} className="px-5 py-4 flex items-center gap-4 hover:bg-gray-50 transition">
-                <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center shrink-0">
-                  <BadgeCheck className="w-5 h-5 text-blue-600" />
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${avatarClass}`}>
+                  {isCashier ? (
+                    <BadgeCheck className={`w-5 h-5 ${iconClass}`} />
+                  ) : (
+                    <Users className={`w-5 h-5 ${iconClass}`} />
+                  )}
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-gray-900 text-sm">{member.name}</p>
@@ -684,8 +787,8 @@ export default function StaffPage() {
                     </span>
                   </div>
                 </div>
-                <span className="px-3 py-1 bg-blue-100 text-blue-700 text-xs font-bold rounded-full shrink-0">
-                  Kasir
+                <span className={`px-3 py-1 text-xs font-bold rounded-full shrink-0 ${roleBadgeClass}`}>
+                  {roleLabel}
                 </span>
                 {/* Edit button */}
                 <button
@@ -709,15 +812,16 @@ export default function StaffPage() {
                   )}
                 </button>
               </div>
-            ))}
+            );
+            })}
 
             {filteredMembers.length === 0 && (
               <div className="px-5 py-8 text-center text-gray-400">
                 <Users className="w-10 h-10 mx-auto mb-2 opacity-40" />
                 <p className="text-sm">
                   {members.length === 0
-                    ? "Belum ada kasir. Daftarkan kasir pertama Anda!"
-                    : "Tidak ada kasir di bisnis ini."}
+                    ? "Belum ada staff. Daftarkan staff pertama Anda!"
+                    : "Tidak ada staff di bisnis ini."}
                 </p>
               </div>
             )}
@@ -778,6 +882,22 @@ export default function StaffPage() {
                 </div>
 
                 {/* Business assignment */}
+                <div>
+                  <label className="text-xs font-semibold text-gray-600 mb-1 block">Role</label>
+                  <div className="relative">
+                    <select
+                      value={editRole}
+                      onChange={(e) => setEditRole(e.target.value as ManagedRole)}
+                      className="w-full appearance-none rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 pr-9 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                    >
+                      <option value="Staff">Staff Produksi</option>
+                      <option value="Cashier">Kasir</option>
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-700" />
+                  </div>
+                </div>
+
+                {/* Business assignment */}
                 {businesses.length > 1 && (
                   <div>
                     <label className="text-xs font-semibold text-gray-600 mb-1 flex items-center gap-1">
@@ -787,7 +907,7 @@ export default function StaffPage() {
                     <BusinessSelect value={editBusinessId} onChange={(v) => setEditBusinessId(v)} />
                     {editBusinessId !== editMember.businessId && (
                       <p className="mt-1.5 text-[11px] text-amber-600 font-medium">
-                        ⚠️ Kasir akan dipindahkan dari <strong>{editMember.businessName}</strong> ke{" "}
+                        ⚠️ Staff akan dipindahkan dari <strong>{editMember.businessName}</strong> ke{" "}
                         <strong>{businesses.find((b) => b.id === editBusinessId)?.name}</strong>
                       </p>
                     )}

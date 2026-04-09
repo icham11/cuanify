@@ -47,6 +47,7 @@ enum ProductType {
 enum UserRole {
   Owner
   Cashier
+  Staff
 }
 
 enum DebtStatus {
