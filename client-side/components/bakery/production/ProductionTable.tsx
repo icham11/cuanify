@@ -645,7 +645,7 @@ export default function ProductionTable() {
       (sum, order) => sum + summarizeProductionTokensByItems(order.items ?? []),
       0,
     );
-    const maxToken = DEFAULT_MAX_TOKEN;
+    const maxToken = productionDailyTokenLimit;
     const remainingToken = Math.max(0, maxToken - usedToken);
     const status =
       usedToken >= maxToken
@@ -660,7 +660,7 @@ export default function ProductionTable() {
       remainingToken,
       status,
     };
-  }, [selectedDatePopupKey, selectedDateOrders]);
+  }, [productionDailyTokenLimit, selectedDatePopupKey, selectedDateOrders]);
 
   const selectedDateStatusMessage = useMemo(() => {
     if (!selectedDateCapacity) return "";
@@ -1250,7 +1250,7 @@ export default function ProductionTable() {
                       <span
                         className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${dailyIndicatorClass}`}
                       >
-                        {staff.dailyToken} / {staffDailyTokenLimit} token
+                        Token staff: {staff.dailyToken} / {staffDailyTokenLimit}
                       </span>
                     </div>
                     <p className="mt-1 text-[11px] text-slate-500">
@@ -1527,7 +1527,7 @@ export default function ProductionTable() {
                             : "bg-emerald-100 text-emerald-700"
                       }`}
                     >
-                      {selectedDateCapacity.usedToken} /{" "}
+                      Kapasitas produksi: {selectedDateCapacity.usedToken} /{" "}
                       {selectedDateCapacity.maxToken} token &nbsp;- sisa{" "}
                       {selectedDateCapacity.remainingToken}
                     </span>
