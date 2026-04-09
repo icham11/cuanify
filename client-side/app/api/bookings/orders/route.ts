@@ -971,6 +971,8 @@ function validateProjectedStaffDailyTokenLimit(params: {
     existingAssignments,
     limit = STAFF_DAILY_TOKEN_LIMIT,
   } = params;
+  if (limit <= 0) return;
+
   const projectedStaffDailyTokenMap = buildStaffDailyTokenMap(orders);
   const existingAssignmentMap = new Map(
     existingAssignments.map((row) => [row.external_id, row]),
@@ -989,9 +991,15 @@ function validateProjectedStaffDailyTokenLimit(params: {
     if (!order.deliveryDate) continue;
     if (INACTIVE_STATUSES.includes(order.orderStatus || "")) continue;
 
+    const incomingToken = calculateOrderTokenForLimit(order);
+    if (incomingToken <= 0) continue;
+
     const staffDayKey = `${nextAssignee}:${order.deliveryDate}`;
     const projectedToken = projectedStaffDailyTokenMap.get(staffDayKey) ?? 0;
-    if (projectedToken > limit) {
+    const tokenBeforeAssignment = Math.max(0, projectedToken - incomingToken);
+
+    // Allow assigning one oversized order as the first workload of the day.
+    if (projectedToken > limit && tokenBeforeAssignment > 0) {
       throw new ForbiddenError(
         `${STAFF_DAILY_TOKEN_LIMIT_MESSAGE}. Staff ${nextAssignee} pada ${order.deliveryDate}: ${projectedToken}/${limit} token.`,
       );
@@ -1495,13 +1503,6 @@ export async function POST(request: NextRequest) {
       WHERE business_id = ${businessId}
     `;
 
-    validateAssignmentTransitionRules({
-      orders,
-      existingAssignments: existingAssignmentRows,
-      roleName,
-      userId,
-    });
-
     if (isStaffRequest) {
       const existingRows = await prisma.$queryRaw<DbOrderRow[]>`
         SELECT
@@ -1665,35 +1666,26 @@ export async function POST(request: NextRequest) {
         const statusChanged =
           incomingOrder.orderStatus !== existingOrder.orderStatus;
 
-        const assigneeChangeAllowed =
-          currentAssignee === nextAssignee ||
-          (currentAssignee === null && nextAssignee === userId);
+        const sameAssignee = currentAssignee === nextAssignee;
+        const staffClaimingUnassignedOwnOrder =
+          currentAssignee === null && nextAssignee === userId;
 
-        if (!assigneeChangeAllowed) {
-          throw new ForbiddenError(
-            `Staff assignment denied for order ${existingOrder.id}. Staff hanya boleh ambil order unassigned miliknya sendiri. Pelepasan/transfer hanya owner.`,
-          );
+        // Staff payload can be stale for unrelated orders; keep server truth
+        // and only apply changes that are explicitly allowed.
+        if (!sameAssignee && !staffClaimingUnassignedOwnOrder) {
+          return existingOrder;
         }
 
-        if (statusChanged && !nextAssignee) {
-          throw new ForbiddenError(
-            "Order must be assigned before changing status",
-          );
-        }
-
-        if (
-          statusChanged &&
-          !staffUpdatableStatuses.has(incomingOrder.orderStatus)
-        ) {
-          throw new ForbiddenError(
-            `Status update denied for order ${existingOrder.id}. Staff hanya boleh set status ke In Production, Ready, Delivered, atau Completed.`,
-          );
-        }
-
-        if (statusChanged && nextAssignee !== userId) {
-          throw new ForbiddenError(
-            `Status update denied for order ${existingOrder.id}. Staff hanya boleh mengubah status order yang di-assign ke dirinya sendiri.`,
-          );
+        if (statusChanged) {
+          if (!nextAssignee) {
+            return existingOrder;
+          }
+          if (!staffUpdatableStatuses.has(incomingOrder.orderStatus)) {
+            return existingOrder;
+          }
+          if (nextAssignee !== userId) {
+            return existingOrder;
+          }
         }
 
         let nextAssignedName = existingOrder.assignedStaffName;
@@ -1728,6 +1720,13 @@ export async function POST(request: NextRequest) {
           assignedStaffName: nextAssignedName,
           productionAssignedAt: nextAssignedAt,
         };
+      });
+    } else {
+      validateAssignmentTransitionRules({
+        orders,
+        existingAssignments: existingAssignmentRows,
+        roleName,
+        userId,
       });
     }
 

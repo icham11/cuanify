@@ -52,6 +52,22 @@ const MONTH_OPTIONS = [
 
 const STAFF_DAILY_TOKEN_LIMIT_FALLBACK = BAKERY_STAFF_DAILY_TOKEN_LIMIT;
 
+function isStaffDailyTokenAssignmentBlocked(params: {
+  currentToken: number;
+  incomingToken: number;
+  limit: number;
+}): boolean {
+  const { currentToken, incomingToken, limit } = params;
+  if (limit <= 0) return false;
+  if (incomingToken <= 0) return false;
+
+  const projectedToken = currentToken + incomingToken;
+  if (projectedToken <= limit) return false;
+
+  // Keep big-ticket orders claimable as first assignment of the day.
+  return currentToken > 0;
+}
+
 function monthKeyOf(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -661,7 +677,8 @@ export default function ProductionTable() {
   }, [orders, transferOrderId]);
 
   const transferCandidates = useMemo(() => {
-    if (!transferOrder?.assignedStaffUserId) return [] as TeamMember[];
+    if (!transferOrder) return [] as TeamMember[];
+    if (!transferOrder.assignedStaffUserId) return teamMembers;
     return teamMembers.filter(
       (member) => member.userId !== transferOrder.assignedStaffUserId,
     );
@@ -707,11 +724,13 @@ export default function ProductionTable() {
 
   const handleOpenTransferModal = (orderId: string) => {
     const order = orders.find((entry) => entry.id === orderId);
-    if (!order?.assignedStaffUserId) return;
+    if (!order) return;
 
-    const candidate = teamMembers.find(
-      (member) => member.userId !== order.assignedStaffUserId,
-    );
+    const candidate = order.assignedStaffUserId
+      ? teamMembers.find(
+          (member) => member.userId !== order.assignedStaffUserId,
+        )
+      : teamMembers[0];
 
     setTransferOrderId(orderId);
     setTransferStaffUserId(candidate ? String(candidate.userId) : "");
@@ -806,7 +825,11 @@ export default function ProductionTable() {
     selectedTransferBaselineToken + transferOrderToken;
   const selectedTransferOverLimit =
     transferCandidates.length > 0 &&
-    selectedTransferProjectedToken > staffDailyTokenLimit;
+    isStaffDailyTokenAssignmentBlocked({
+      currentToken: selectedTransferBaselineToken,
+      incomingToken: transferOrderToken,
+      limit: staffDailyTokenLimit,
+    });
 
   const renderOrderRow = (order: (typeof orders)[number]) => {
     const normalizedOrderStatus = normalizeOrderStatus(order.orderStatus);
@@ -824,23 +847,30 @@ export default function ProductionTable() {
     const orderDateKey = (order.deliveryDate || "").trim();
 
     const isUnassigned = !order.assignedStaffUserId;
+    const isStaffViewer = isStaff || viewer?.role === "Staff";
     const assignedToMe =
       Boolean(viewer?.userId) && order.assignedStaffUserId === viewer?.userId;
     const claimedByOther =
       Boolean(order.assignedStaffUserId) &&
       viewer?.userId !== order.assignedStaffUserId;
-    const canStaffClaim = isStaff && isUnassigned && Boolean(viewer?.userId);
+    const canStaffClaim =
+      isStaffViewer && isUnassigned && Boolean(viewer?.userId);
     const currentStaffDailyToken =
       viewer?.userId && orderDateKey
         ? (staffDailyTokenByDate.get(`${viewer.userId}:${orderDateKey}`) ?? 0)
         : 0;
     const projectedStaffDailyToken = currentStaffDailyToken + orderToken;
     const exceedsStaffDailyLimit =
-      canStaffClaim && projectedStaffDailyToken > staffDailyTokenLimit;
+      canStaffClaim &&
+      isStaffDailyTokenAssignmentBlocked({
+        currentToken: currentStaffDailyToken,
+        incomingToken: orderToken,
+        limit: staffDailyTokenLimit,
+      });
     const claimDisabled = claimedByOther || exceedsStaffDailyLimit;
 
-    const canOwnerTransfer = isOwner && Boolean(order.assignedStaffUserId);
-    const transferCandidates = canOwnerTransfer
+    const canOwnerAssignOrTransfer = isOwner;
+    const ownerActionCandidates = canOwnerAssignOrTransfer
       ? teamMembers.filter(
           (member) => member.userId !== order.assignedStaffUserId,
         )
@@ -850,7 +880,7 @@ export default function ProductionTable() {
     if (!order.assignedStaffUserId) {
       statusDisabledMessage =
         "Ambil order terlebih dahulu sebelum mengubah status";
-    } else if (isStaff && !assignedToMe) {
+    } else if (isStaffViewer && !assignedToMe) {
       statusDisabledMessage =
         "Hanya staff yang ditugaskan dapat mengubah status";
     }
@@ -922,17 +952,17 @@ export default function ProductionTable() {
               </button>
             )}
 
-            {canOwnerTransfer && (
+            {canOwnerAssignOrTransfer && (
               <button
                 type="button"
                 onClick={(event) => {
                   event.stopPropagation();
                   handleOpenTransferModal(order.id);
                 }}
-                disabled={transferCandidates.length === 0}
+                disabled={ownerActionCandidates.length === 0}
                 className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Transfer
+                {isUnassigned ? "Assign" : "Transfer"}
               </button>
             )}
 
@@ -1353,11 +1383,15 @@ export default function ProductionTable() {
                   id="transfer-order-modal-title"
                   className="text-base font-semibold text-slate-900"
                 >
-                  Transfer Order
+                  {transferOrder.assignedStaffUserId
+                    ? "Transfer Order"
+                    : "Assign Order"}
                 </h3>
                 <p className="mt-1 text-xs text-slate-500">
-                  Pindahkan order ke staff lain. Token order:{" "}
-                  {transferOrderToken}
+                  {transferOrder.assignedStaffUserId
+                    ? "Pindahkan order ke staff lain."
+                    : "Assign order ke staff untuk mulai produksi."}{" "}
+                  Token order: {transferOrderToken}
                 </p>
               </div>
               <button
@@ -1375,7 +1409,9 @@ export default function ProductionTable() {
 
             {transferCandidates.length === 0 ? (
               <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                Tidak ada staff lain yang tersedia untuk transfer.
+                {transferOrder.assignedStaffUserId
+                  ? "Tidak ada staff lain yang tersedia untuk transfer."
+                  : "Belum ada staff tersedia untuk assignment."}
               </div>
             ) : (
               <div className="space-y-3">
@@ -1396,7 +1432,11 @@ export default function ProductionTable() {
                         ) ?? 0)
                       : 0;
                     const projected = baselineDailyToken + transferOrderToken;
-                    const overLimit = projected > staffDailyTokenLimit;
+                    const overLimit = isStaffDailyTokenAssignmentBlocked({
+                      currentToken: baselineDailyToken,
+                      incomingToken: transferOrderToken,
+                      limit: staffDailyTokenLimit,
+                    });
 
                     return (
                       <option key={member.userId} value={String(member.userId)}>
@@ -1442,7 +1482,9 @@ export default function ProductionTable() {
                 }
                 className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Konfirmasi Transfer
+                {transferOrder.assignedStaffUserId
+                  ? "Konfirmasi Transfer"
+                  : "Konfirmasi Assign"}
               </button>
             </div>
           </div>
