@@ -1,6 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "if [ -d client-side ]; then cd client-side; fi && npx prisma generate && npx next build --webpack",
+  "buildCommand": "cd client-side && npx prisma generate && npx next build --webpack",
+  "outputDirectory": "client-side/.next",
   "framework": "nextjs",
   "crons": [
     {
