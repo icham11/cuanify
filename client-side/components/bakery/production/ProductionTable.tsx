@@ -449,6 +449,7 @@ export default function ProductionTable() {
       {
         userId: number;
         name: string;
+        assignedActive: number;
         doneRaw: number;
         inProgress: number;
       }
@@ -458,6 +459,7 @@ export default function ProductionTable() {
       statsMap.set(staff.userId, {
         userId: staff.userId,
         name: staff.name,
+        assignedActive: 0,
         doneRaw: 0,
         inProgress: 0,
       });
@@ -475,9 +477,14 @@ export default function ProductionTable() {
       const current = statsMap.get(staffUserId) ?? {
         userId: staffUserId,
         name: order.assignedStaffName || `Staff #${staffUserId}`,
+        assignedActive: 0,
         doneRaw: 0,
         inProgress: 0,
       };
+
+      if (!["Delivery", "Completed", "Cancelled"].includes(status)) {
+        current.assignedActive += token;
+      }
 
       if (["Ready", "Delivery", "Completed"].includes(status)) {
         current.doneRaw += token;
@@ -508,7 +515,7 @@ export default function ProductionTable() {
               : Math.round((dailyToken / staffDailyTokenLimit) * 100),
         };
       })
-      .sort((a, b) => b.doneVisible - a.doneVisible);
+      .sort((a, b) => b.assignedActive - a.assignedActive);
   }, [
     orders,
     resetMap,
@@ -899,10 +906,11 @@ export default function ProductionTable() {
       <div
         key={order.id}
         role="button"
-        tabIndex={0}
-        onClick={() =>
-          setSelectedDatePopupKey(order.deliveryDate?.trim() || "Tanpa tanggal")
-        }
+        onClick={() => {
+          setSelectedDatePopupKey(
+            order.deliveryDate?.trim() || "Tanpa tanggal",
+          );
+        }}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
@@ -1265,13 +1273,18 @@ export default function ProductionTable() {
                       <span
                         className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${dailyIndicatorClass}`}
                       >
-                        Terpakai hari ini: {usedDailyToken} /{" "}
-                        {normalizedDailyLimit} token
+                        Token aktif: {staff.assignedActive} token
                       </span>
                     </div>
+                    <p className="mt-1 text-[11px] text-slate-600">
+                      Token diambil (sesuai filter): {staff.assignedActive}
+                    </p>
                     <p className="mt-1 text-[11px] text-slate-500">
                       Tanggal acuan token:{" "}
                       {formatGroupDate(staffDailyIndicatorDateKey)}
+                    </p>
+                    <p className="mt-1 text-[11px] text-slate-600">
+                      Token harian: {usedDailyToken} / {normalizedDailyLimit}
                     </p>
                     <p className="mt-1 text-[11px] text-slate-600">
                       Status token: {dailyStatusText}
