@@ -669,7 +669,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
     return payload;
   }, []);
 
-  const hydrateOrdersFromServer = useCallback(async () => {
+  const hydrateOrdersFromServer = useCallback(async (force = false) => {
     if (typeof window === "undefined") return;
     if (hydrationInFlightRef.current) return;
 
@@ -695,6 +695,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
 
       if (serverOrders.length > 0) {
         const recentlyChangedLocally =
+          !force &&
           Date.now() - lastLocalWriteAtRef.current < LOCAL_WRITE_STALE_GUARD_MS;
         if (recentlyChangedLocally) return;
 
@@ -753,6 +754,8 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
   const persistOrders = useCallback(
     (nextOrders: BakeryOrder[]) => {
       if (typeof window === "undefined") return;
+      const previousSnapshot =
+        window.localStorage.getItem(STORAGE_KEY) ?? INITIAL_SNAPSHOT;
       lastLocalWriteAtRef.current = Date.now();
       writeOrdersSnapshot(nextOrders);
       void syncOrdersToServer(nextOrders).catch((error) => {
@@ -760,16 +763,24 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
           error instanceof Error
             ? error.message
             : "Gagal sinkron perubahan booking ke server.";
+
+        // Revert optimistic local state so role-based guardrail failures
+        // do not leave this browser out of sync from server truth.
+        const rollbackOrders = parseSnapshot(previousSnapshot);
+        writeOrdersSnapshot(rollbackOrders);
+        lastLocalWriteAtRef.current = 0;
+        void hydrateOrdersFromServer(true);
+
         console.warn("[bookings][frontend] persist sync failed", {
           endpoint: ORDERS_SYNC_ENDPOINT,
           message,
         });
         toast.error(
-          `Perubahan lokal tersimpan, tetapi sinkron gagal: ${message}`,
+          `Perubahan dibatalkan karena sinkron gagal: ${message}`,
         );
       });
     },
-    [syncOrdersToServer],
+    [hydrateOrdersFromServer, syncOrdersToServer],
   );
 
   const runAutomationsForOrder = useCallback(

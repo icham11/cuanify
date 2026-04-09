@@ -5,6 +5,7 @@ import { Loader2, RotateCcw, Search, Sparkles, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import StatusDropdown from "@/components/bakery/production/StatusDropdown";
 import { useOrders } from "@/components/bakery/store";
+import { useBusiness } from "@/context/BusinessContext";
 import { useRole } from "@/context/RoleContext";
 import { summarizeProductionTokensByItems } from "@/lib/bookings/operations";
 import { normalizeOrderStatus } from "@/lib/bookings/order-status";
@@ -23,6 +24,7 @@ interface ViewerIdentity {
   businessId: number;
   role: "Owner" | "Cashier" | "Staff";
   name: string;
+  businessName: string;
 }
 
 interface StaffTokenReset {
@@ -94,6 +96,7 @@ function statusBadgeClass(status: string): string {
 
 export default function ProductionTable() {
   const router = useRouter();
+  const { business, businesses, switchBusiness } = useBusiness();
   const {
     orders,
     updateOrderStatus,
@@ -118,6 +121,7 @@ export default function ProductionTable() {
   const [selectedDatePopupKey, setSelectedDatePopupKey] = useState<string | null>(null);
   const [transferOrderId, setTransferOrderId] = useState<string | null>(null);
   const [transferStaffUserId, setTransferStaffUserId] = useState<string>("");
+  const [switchingBusinessId, setSwitchingBusinessId] = useState<string>("");
 
   const fallbackMonthKey = useMemo(() => monthKeyOf(new Date()), []);
   const selectedMonthKey = useMemo(() => {
@@ -173,6 +177,7 @@ export default function ProductionTable() {
           data?: {
             userId?: unknown;
             businessId?: unknown;
+            businessName?: unknown;
             role?: unknown;
             name?: unknown;
           };
@@ -199,6 +204,10 @@ export default function ProductionTable() {
             typeof mePayload.data?.name === "string"
               ? mePayload.data.name
               : "User",
+          businessName:
+            typeof mePayload.data?.businessName === "string"
+              ? mePayload.data.businessName
+              : "",
         });
 
         if (parsedRole === "Owner") {
@@ -215,7 +224,7 @@ export default function ProductionTable() {
               };
             };
 
-            const members = (staffPayload.data?.members ?? [])
+            const allStaffMembers = (staffPayload.data?.members ?? [])
               .map((member) => {
                 const memberUserId = parseNumericId(member.userId);
                 const memberBusinessId = parseNumericId(member.businessId);
@@ -243,14 +252,19 @@ export default function ProductionTable() {
                 };
               })
               .filter((member): member is TeamMember => Boolean(member))
-              .filter(
-                (member) =>
-                  member.businessId === parsedBusinessId &&
-                  member.role === "Staff",
-              );
+              .filter((member) => member.role === "Staff");
+
+            const currentBusinessStaff = allStaffMembers.filter(
+              (member) => member.businessId === parsedBusinessId,
+            );
+
+            const membersToShow =
+              currentBusinessStaff.length > 0
+                ? currentBusinessStaff
+                : allStaffMembers;
 
             if (active) {
-              setTeamMembers(members);
+              setTeamMembers(membersToShow);
             }
           }
         }
@@ -706,6 +720,22 @@ export default function ProductionTable() {
     setTransferStaffUserId("");
   };
 
+  const handleSwitchBusiness = async (nextBusinessId: string) => {
+    const normalized = String(nextBusinessId || "").trim();
+    if (!normalized) return;
+    if (!isOwner) return;
+    if (String(viewer?.businessId ?? "") === normalized) return;
+
+    setSwitchingBusinessId(normalized);
+    try {
+      await switchBusiness(normalized);
+      router.refresh();
+      window.location.reload();
+    } finally {
+      setSwitchingBusinessId("");
+    }
+  };
+
   const handleResetStaffMonth = async (staffUserId: number, doneRaw: number) => {
     setResettingUserId(staffUserId);
     try {
@@ -921,6 +951,37 @@ export default function ProductionTable() {
 
   return (
     <div className="space-y-6">
+      {isOwner ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+          <p className="text-xs font-medium text-slate-600">
+            Business aktif: <span className="font-semibold text-slate-900">{viewer?.businessName || business?.name || "-"}</span>
+          </p>
+
+          {businesses.length > 1 ? (
+            <div className="inline-flex items-center gap-2">
+              <label htmlFor="production-business-switcher" className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                Switch Business
+              </label>
+              <select
+                id="production-business-switcher"
+                value={String(viewer?.businessId ?? business?.id ?? "")}
+                onChange={(event) => {
+                  void handleSwitchBusiness(event.target.value);
+                }}
+                disabled={Boolean(switchingBusinessId)}
+                className="h-8 rounded-md border border-slate-300 bg-white px-2 text-xs font-medium text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {businesses.map((entry) => (
+                  <option key={String(entry.id)} value={String(entry.id)}>
+                    {entry.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="sticky top-2 z-10 space-y-4 rounded-2xl border border-slate-200/80 bg-white/95 p-4 shadow-sm backdrop-blur">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
