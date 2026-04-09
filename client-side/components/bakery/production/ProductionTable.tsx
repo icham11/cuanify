@@ -1224,19 +1224,34 @@ export default function ProductionTable() {
                   totalWork <= 0
                     ? 0
                     : Math.round((staff.doneVisible / totalWork) * 100);
-                const dailyPct = Math.max(0, staff.dailyTokenPercentage);
+                const normalizedDailyLimit = Math.max(1, staffDailyTokenLimit);
+                const usedDailyToken = Math.max(0, staff.dailyToken);
+                const remainingDailyToken = Math.max(
+                  0,
+                  normalizedDailyLimit - usedDailyToken,
+                );
+                const overDailyToken = Math.max(
+                  0,
+                  usedDailyToken - normalizedDailyLimit,
+                );
+                const dailyPct = Math.max(
+                  0,
+                  Math.round((usedDailyToken / normalizedDailyLimit) * 100),
+                );
                 const dailyIndicatorClass =
-                  dailyPct >= 100
+                  overDailyToken > 0 || dailyPct >= 100
                     ? "bg-rose-100 text-rose-700"
                     : dailyPct >= 70
                       ? "bg-amber-100 text-amber-700"
                       : "bg-emerald-100 text-emerald-700";
                 const dailyStatusText =
-                  dailyPct >= 100
+                  overDailyToken > 0
+                    ? `Melebihi batas +${overDailyToken} token`
+                    : dailyPct >= 100
                     ? "Limit tercapai"
                     : dailyPct >= 70
-                      ? "Mendekati limit"
-                      : "Masih aman";
+                      ? `Mendekati limit (${remainingDailyToken} token tersisa)`
+                      : `Masih aman (${remainingDailyToken} token tersisa)`;
 
                 return (
                   <div
@@ -1250,15 +1265,23 @@ export default function ProductionTable() {
                       <span
                         className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${dailyIndicatorClass}`}
                       >
-                        Token staff: {staff.dailyToken} / {staffDailyTokenLimit}
+                        Terpakai hari ini: {usedDailyToken} /{" "}
+                        {normalizedDailyLimit} token
                       </span>
                     </div>
                     <p className="mt-1 text-[11px] text-slate-500">
-                      Token harian ({staffDailyIndicatorDateKey}):{" "}
-                      {dailyStatusText}
+                      Tanggal acuan token: {formatGroupDate(staffDailyIndicatorDateKey)}
+                    </p>
+                    <p className="mt-1 text-[11px] text-slate-600">
+                      Status token: {dailyStatusText}
                     </p>
                     <p className="mt-1 text-xs text-amber-700">
-                      In progress {staff.inProgress} token
+                      Selesai {staff.doneVisible} token • In progress{" "}
+                      {staff.inProgress} token
+                    </p>
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      Sisa token hari ini: {remainingDailyToken}
+                      {overDailyToken > 0 ? ` • Over ${overDailyToken}` : ""}
                     </p>
 
                     <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200">
