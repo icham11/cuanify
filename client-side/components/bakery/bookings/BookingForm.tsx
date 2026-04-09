@@ -80,6 +80,7 @@ import {
   usesShippingEngine,
 } from "@/lib/bookings/delivery-rules";
 import { useCalendarCapacity } from "@/hooks/useCalendarCapacity";
+import { useBakerySettings } from "@/hooks/useBakerySettings";
 import {
   getCalendarStatus,
   isPastDate,
@@ -2297,6 +2298,8 @@ export default function BookingForm() {
     isLoading: isCalendarCapacityLoading,
     refetch: refetchSelectedDateCapacity,
   } = useCalendarCapacity(selectedCalendarDate, selectedCalendarDate);
+  const { settings: bakerySettings } = useBakerySettings();
+  const blockedDates = bakerySettings?.blockedDates ?? BAKERY_BLOCKED_DATES;
 
   const selectedCalendarStatus = useMemo(() => {
     if (!normalizedDeliveryDate) {
@@ -2307,8 +2310,8 @@ export default function BookingForm() {
       usedToken: selectedCapacity.usedToken,
       maxToken: selectedCapacity.maxToken,
       date: normalizedDeliveryDate,
-    });
-  }, [normalizedDeliveryDate, getCalendarCapacity]);
+    }, undefined, { blockedDates });
+  }, [normalizedDeliveryDate, getCalendarCapacity, blockedDates]);
 
   const calendarDateError = useMemo(() => {
     if (selectedCalendarStatus === "PAST") {
@@ -2981,10 +2984,11 @@ export default function BookingForm() {
   );
   const isBlockedDate = Boolean(
     deliveryDate &&
-    isDateBlockedForOrdering(deliveryDate, undefined, {
+    (isDateBlockedForOrdering(deliveryDate, undefined, {
       deliveryMethod,
       items: watchedItems,
-    }),
+    }) ||
+      blockedDates.includes(normalizeDateInput(deliveryDate) ?? deliveryDate)),
   );
 
   useEffect(() => {
@@ -3405,7 +3409,7 @@ export default function BookingForm() {
         usedToken: Number(payload.data.usedToken) || 0,
         maxToken: Number(payload.data.maxToken) || DAILY_PRODUCTION_TOKEN_LIMIT,
         date: normalizedDeliveryDate,
-      });
+      }, undefined, { blockedDates });
 
       validatedUsedTokens = Number(payload.data.usedToken) || 0;
       validatedMaxTokens =
@@ -5011,7 +5015,7 @@ export default function BookingForm() {
                       Kalender Libur
                     </p>
                     <div className="mt-1 flex flex-wrap gap-1.5">
-                      {BAKERY_BLOCKED_DATES.map((blockedDate) => {
+                      {blockedDates.map((blockedDate) => {
                         const active = deliveryDate === blockedDate;
                         return (
                           <button

@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { requireAuth, isAuthError } from "@/lib/auth/session";
+import {
+  requireAuth,
+  requireRole,
+  isAuthError,
+  ForbiddenError,
+} from "@/lib/auth/session";
 import { z } from "zod";
 import { recomputeRecipeCost } from "@/lib/computeRecipeCost";
 
@@ -23,7 +28,9 @@ const patchSchema = z.object({
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { businessId } = await requireAuth();
+    const auth = await requireAuth();
+    requireRole(auth, "Owner");
+    const { businessId } = auth;
     const { id: idParam } = await params;
     const id = Number(idParam);
     if (!id || isNaN(id)) {
@@ -116,6 +123,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   } catch (error: unknown) {
     if (isAuthError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (error instanceof ForbiddenError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
     }
     console.error("PATCH /api/products/[id] error:", error);
     return NextResponse.json({ error: "Failed to update product" }, { status: 500 });

@@ -21,6 +21,7 @@
 import prisma from "@/lib/prisma";
 import { normalizeDateOrThrow } from "@/lib/helpers/date-normalization";
 import { BAKERY_DAILY_PRODUCTION_TOKEN_LIMIT } from "@/lib/bookings/config";
+import { getBakeryBusinessSettings } from "@/lib/bakery/settings";
 import {
   calculateOrderTokenFromItems,
   type OrderItemForTokenCalc,
@@ -127,6 +128,13 @@ function normalizeCapacityDateOrThrow(date: string): string {
   return normalizeDateOrThrow(date, "date");
 }
 
+async function getBusinessDefaultMaxToken(
+  businessId: number,
+): Promise<number> {
+  const settings = await getBakeryBusinessSettings(businessId);
+  return settings.dailyProductionTokenLimit;
+}
+
 // ─── Core Functions ──────────────────────────────────────────────────────────
 
 /**
@@ -153,9 +161,10 @@ export async function getCapacityForDate(
   `;
 
   if (rows.length === 0) {
+    const defaultMaxToken = await getBusinessDefaultMaxToken(businessId);
     return {
       date: normalizedDate,
-      maxToken: DEFAULT_MAX_TOKEN,
+      maxToken: defaultMaxToken,
       usedToken: 0,
     };
   }
@@ -212,6 +221,7 @@ export async function consumeToken(
   dbClient?: SqlExecutor,
 ): Promise<ConsumeResult> {
   const normalizedDate = normalizeCapacityDateOrThrow(date);
+  const defaultMaxToken = await getBusinessDefaultMaxToken(businessId);
 
   if (tokenUsed <= 0) {
     const capacity = await getCapacityForDate(
@@ -275,7 +285,7 @@ export async function consumeToken(
   try {
     await db.$executeRaw`
       INSERT INTO production_capacity (business_id, date, max_token, used_token, created_at, updated_at)
-      VALUES (${businessId}, ${normalizedDate}::date, ${DEFAULT_MAX_TOKEN}, 0, NOW(), NOW())
+      VALUES (${businessId}, ${normalizedDate}::date, ${defaultMaxToken}, 0, NOW(), NOW())
       ON CONFLICT (business_id, date) DO NOTHING
     `;
   } catch {
@@ -316,7 +326,7 @@ export async function consumeToken(
   return {
     success: false,
     usedToken: finalRow ? Number(finalRow.used_token) : 0,
-    maxToken: finalRow ? Number(finalRow.max_token) : DEFAULT_MAX_TOKEN,
+    maxToken: finalRow ? Number(finalRow.max_token) : defaultMaxToken,
     message: "Production capacity full",
   };
 }
@@ -335,6 +345,7 @@ export async function releaseToken(
   dbClient?: SqlExecutor,
 ): Promise<ReleaseResult> {
   const normalizedDate = normalizeCapacityDateOrThrow(date);
+  const defaultMaxToken = await getBusinessDefaultMaxToken(businessId);
 
   if (tokenToRelease <= 0) {
     const capacity = await getCapacityForDate(
@@ -376,7 +387,7 @@ export async function releaseToken(
   return {
     success: true,
     usedToken: 0,
-    maxToken: DEFAULT_MAX_TOKEN,
+    maxToken: defaultMaxToken,
   };
 }
 

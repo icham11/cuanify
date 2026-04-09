@@ -14,6 +14,13 @@ export interface CapacityEntry {
 interface CapacityApiResponse {
   success?: boolean;
   data?: {
+    defaultMaxToken?: number;
+    date?: string;
+    usedToken?: number;
+    maxToken?: number;
+    availableToken?: number;
+    tokenNeeded?: number;
+    isAvailable?: boolean;
     capacities?: Array<{
       date: string;
       usedToken: number;
@@ -72,6 +79,8 @@ export function useCalendarCapacity(
   );
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [defaultMaxToken, setDefaultMaxToken] =
+    useState<number>(DEFAULT_MAX_TOKEN);
 
   // Track the current range as strings to detect changes
   const startStr = toLocalDateString(startDate);
@@ -108,6 +117,10 @@ export function useCalendarCapacity(
       const payload = (await response.json()) as CapacityApiResponse;
 
       const newMap = new Map<string, CapacityEntry>();
+      const apiDefaultMaxToken = Number(payload.data?.defaultMaxToken);
+      if (Number.isFinite(apiDefaultMaxToken) && apiDefaultMaxToken > 0) {
+        setDefaultMaxToken(Math.round(apiDefaultMaxToken));
+      }
 
       if (payload.data?.capacities) {
         for (const entry of payload.data.capacities) {
@@ -116,7 +129,11 @@ export function useCalendarCapacity(
           newMap.set(dateKey, {
             date: dateKey,
             usedToken: Number(entry.usedToken) || 0,
-            maxToken: Number(entry.maxToken) || DEFAULT_MAX_TOKEN,
+            maxToken:
+              Number(entry.maxToken) ||
+              (Number.isFinite(apiDefaultMaxToken) && apiDefaultMaxToken > 0
+                ? Math.round(apiDefaultMaxToken)
+                : defaultMaxToken),
           });
         }
       }
@@ -130,7 +147,7 @@ export function useCalendarCapacity(
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [defaultMaxToken]);
 
   // Fetch on mount and when date range changes
   useEffect(() => {
@@ -154,10 +171,10 @@ export function useCalendarCapacity(
       return {
         date: dateKey,
         usedToken: 0,
-        maxToken: DEFAULT_MAX_TOKEN,
+        maxToken: defaultMaxToken,
       };
     },
-    [capacityMap],
+    [capacityMap, defaultMaxToken],
   );
 
   return {

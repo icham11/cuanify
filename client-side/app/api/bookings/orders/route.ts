@@ -21,6 +21,7 @@ import {
   sendOrderToWhatsApp,
   type SendOrderToWhatsAppInput,
 } from "@/lib/whatsapp/sendOrderToWhatsApp";
+import { getBakeryBusinessSettings } from "@/lib/bakery/settings";
 
 // ─── Custom Error for capacity-full rejections ───────────────────────────────
 
@@ -1470,6 +1471,7 @@ export async function POST(request: NextRequest) {
 
     const roleName = role as unknown as string;
     const isStaffRequest = roleName === "Staff";
+    const bakerySettings = await getBakeryBusinessSettings(businessId);
 
     await ensureBakeryTables();
 
@@ -1871,6 +1873,8 @@ export async function POST(request: NextRequest) {
                 usedToken: capacity.usedToken,
                 maxToken: capacity.maxToken,
                 date: order.deliveryDate,
+              }, undefined, {
+                blockedDates: bakerySettings.blockedDates,
               });
 
               if (status === "BLOCKED") {

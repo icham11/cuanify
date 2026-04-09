@@ -5,6 +5,7 @@ import {
   getCapacityForDateRange,
   checkTokenAvailability,
 } from "@/lib/bookings/token-capacity-service";
+import { getBakeryBusinessSettings } from "@/lib/bakery/settings";
 import { normalizeDateInput } from "@/lib/helpers/date-normalization";
 
 export const runtime = "nodejs";
@@ -28,6 +29,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
   try {
     const { businessId } = await requireAuth();
+    const settings = await getBakeryBusinessSettings(businessId);
     const { searchParams } = new URL(request.url);
 
     const date = searchParams.get("date");
@@ -55,6 +57,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         success: true,
         data: {
+          defaultMaxToken: settings.dailyProductionTokenLimit,
           capacities: capacities.map((c) => ({
             ...c,
             availableToken: c.maxToken - c.usedToken,
@@ -108,7 +111,10 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      data: responseData,
+      data: {
+        defaultMaxToken: settings.dailyProductionTokenLimit,
+        ...responseData,
+      },
     });
   } catch (error) {
     if (error instanceof AuthError) {

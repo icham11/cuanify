@@ -41,6 +41,7 @@ import {
   type CalendarStatus,
 } from "@/lib/calendar/getCalendarStatus";
 import { useCalendarCapacity } from "@/hooks/useCalendarCapacity";
+import { useBakerySettings } from "@/hooks/useBakerySettings";
 import CalendarCell from "@/components/calendar/CalendarCell";
 
 const locales = { id: localeId };
@@ -245,6 +246,8 @@ export default function BakeryCalendarPage() {
     error: capacityError,
     refetch: refetchCapacity,
   } = useCalendarCapacity(calendarRange.start, calendarRange.end);
+  const { settings: bakerySettings } = useBakerySettings();
+  const blockedDates = bakerySettings?.blockedDates;
 
   const capacitySyncKey = useMemo(() => {
     return orders
@@ -281,6 +284,7 @@ export default function BakeryCalendarPage() {
             date: dateKey,
           },
           now,
+          { blockedDates },
         );
         result.set(dateKey, status);
       }

@@ -50,8 +50,8 @@ export default function SidebarNav() {
         <div
           className={`p-3 border rounded-xl ${
             isStaff
-              ? "bg-gradient-to-r from-sky-50 to-cyan-50 border-sky-200"
-              : "bg-gradient-to-r from-amber-50 to-orange-50 border-amber-200"
+              ? "bg-linear-to-r from-sky-50 to-cyan-50 border-sky-200"
+              : "bg-linear-to-r from-amber-50 to-orange-50 border-amber-200"
           }`}
         >
           <div className="flex items-center gap-2 mb-1">
@@ -237,6 +237,12 @@ export default function SidebarNav() {
             active={isActive("/dashboard/business")}
           />
           <SidebarLink
+            href="/dashboard/business/bakery-settings"
+            icon={Settings2}
+            label="Bakery Settings"
+            active={isActive("/dashboard/business/bakery-settings")}
+          />
+          <SidebarLink
             href="/dashboard/profile"
             icon={User}
             label="Profile"
@@ -276,7 +282,7 @@ function SidebarLink({
         active
           ? "bg-indigo-600 text-white shadow-md shadow-indigo-200/50"
           : accent
-            ? "bg-gradient-to-r from-purple-50 to-indigo-50 text-purple-700 hover:from-purple-100 hover:to-indigo-100 border border-purple-200/60"
+            ? "bg-linear-to-r from-purple-50 to-indigo-50 text-purple-700 hover:from-purple-100 hover:to-indigo-100 border border-purple-200/60"
             : "text-gray-600 hover:bg-indigo-50/60 hover:text-indigo-700"
       }`}
     >

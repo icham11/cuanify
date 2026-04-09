@@ -36,6 +36,10 @@ function isBlockedDate(dateStr: string): boolean {
   return BAKERY_BLOCKED_DATES.includes(dateStr);
 }
 
+interface CalendarStatusOptions {
+  blockedDates?: readonly string[];
+}
+
 function getDatePartsInTimeZone(
   date: Date,
   timeZone: string,
@@ -137,6 +141,7 @@ function isCutoff(dateStr: string, now: Date = new Date()): boolean {
 export function getCalendarStatus(
   day: CalendarDayInput,
   now: Date = new Date(),
+  options?: CalendarStatusOptions,
 ): CalendarStatus {
   const { usedToken, maxToken, date } = day;
 
@@ -146,7 +151,12 @@ export function getCalendarStatus(
   }
 
   // Priority 2: BLOCKED
-  if (isBlockedDate(date)) {
+  const blockedDates =
+    options?.blockedDates && options.blockedDates.length > 0
+      ? options.blockedDates
+      : BAKERY_BLOCKED_DATES;
+
+  if (blockedDates.includes(date) || isBlockedDate(date)) {
     return "BLOCKED";
   }
 
