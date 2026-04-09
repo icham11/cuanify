@@ -528,6 +528,23 @@ export default function ProductionTable() {
     staffDailyTokenLimit,
   ]);
 
+  const currentViewerStaffStat = useMemo(() => {
+    if (!isStaff || !viewer?.userId) return null;
+    return (
+      staffStats.find((staff) => staff.userId === viewer.userId) ?? {
+        userId: viewer.userId,
+        name: viewer.name || userName || "Staff",
+        assignedActive: 0,
+        doneRaw: 0,
+        doneVisible: 0,
+        inProgress: 0,
+        baseline: 0,
+        dailyToken: 0,
+        dailyTokenPercentage: 0,
+      }
+    );
+  }, [isStaff, viewer?.userId, viewer?.name, staffStats, userName]);
+
   const visibleOrders = useMemo(() => {
     const source = activeTab === "active" ? activeOrders : readyOrders;
     return source.filter((order) => {
@@ -1331,6 +1348,63 @@ export default function ProductionTable() {
                 );
               })
             )}
+          </div>
+        </div>
+      ) : null}
+
+      {isStaff && currentViewerStaffStat ? (
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="mb-3 flex items-center justify-between">
+            <h4 className="text-sm font-semibold text-slate-900">Token Saya</h4>
+            <p className="text-xs text-slate-500">
+              Data token milik akun staff ini
+            </p>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="rounded-xl border border-slate-200 bg-linear-to-br from-white via-slate-50 to-indigo-50/60 p-3">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                Token aktif
+              </p>
+              <p className="mt-1 text-lg font-semibold text-slate-900">
+                {currentViewerStaffStat.assignedActive} token
+              </p>
+              <p className="mt-1 text-[11px] text-slate-500">
+                Total token order yang sedang dipegang staff ini.
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-white p-3">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                Token harian
+              </p>
+              <p className="mt-1 text-lg font-semibold text-slate-900">
+                {currentViewerStaffStat.dailyToken} / {staffDailyTokenLimit}
+              </p>
+              <p className="mt-1 text-[11px] text-slate-500">
+                {currentViewerStaffStat.dailyTokenPercentage}% dari limit
+                harian.
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-white p-3">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                Status
+              </p>
+              <p className="mt-1 text-lg font-semibold text-slate-900">
+                {currentViewerStaffStat.dailyToken <= 0
+                  ? "Belum ada token"
+                  : currentViewerStaffStat.dailyToken >= staffDailyTokenLimit
+                    ? "Limit tercapai"
+                    : currentViewerStaffStat.dailyToken >=
+                        Math.ceil(staffDailyTokenLimit * 0.7)
+                      ? "Mendekati limit"
+                      : "Masih aman"}
+              </p>
+              <p className="mt-1 text-[11px] text-slate-500">
+                Tanggal acuan: {formatGroupDate(staffDailyIndicatorDateKey)}
+              </p>
+            </div>
           </div>
         </div>
       ) : null}
