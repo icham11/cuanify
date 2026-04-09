@@ -910,7 +910,7 @@ function buildStaffDailyTokenMap(
   return usage;
 }
 
-export function validateAssignmentTransitionRules(params: {
+function validateAssignmentTransitionRules(params: {
   orders: StaffValidationOrder[];
   existingAssignments: ExistingAssignmentState[];
   roleName: string;
@@ -961,7 +961,7 @@ export function validateAssignmentTransitionRules(params: {
   }
 }
 
-export function validateProjectedStaffDailyTokenLimit(params: {
+function validateProjectedStaffDailyTokenLimit(params: {
   orders: StaffValidationOrder[];
   existingAssignments: ExistingAssignmentState[];
   limit?: number;
