@@ -11,7 +11,7 @@ declare const expect: (value: unknown) => {
 import {
   validateAssignmentTransitionRules,
   validateProjectedStaffDailyTokenLimit,
-} from "../route";
+} from "../staff-assignment-rules";
 
 function makeOrder(overrides: Record<string, unknown> = {}) {
   return {

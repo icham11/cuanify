@@ -152,12 +152,12 @@ function CalendarToolbar({
   const label = format(date, "MMMM yyyy", { locale: localeId });
 
   return (
-    <div className="mb-4 flex flex-col gap-3 rounded-xl border border-indigo-100 bg-indigo-50/60 p-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-[#ffd8b7] bg-linear-to-r from-[#fff6e8] via-[#fff1dc] to-[#e9f8ff] p-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex items-center gap-2">
         <button
           type="button"
           onClick={() => onNavigate("PREV")}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-indigo-200 bg-white text-indigo-700 transition hover:bg-indigo-100"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-[#ffc894] bg-white text-[#173a7a] transition hover:bg-[#fff1dc]"
           aria-label="Previous month"
         >
           <ChevronLeft className="h-4 w-4" />
@@ -165,7 +165,7 @@ function CalendarToolbar({
         <button
           type="button"
           onClick={() => onNavigate("NEXT")}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-indigo-200 bg-white text-indigo-700 transition hover:bg-indigo-100"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-[#ffc894] bg-white text-[#173a7a] transition hover:bg-[#fff1dc]"
           aria-label="Next month"
         >
           <ChevronRight className="h-4 w-4" />
@@ -173,22 +173,22 @@ function CalendarToolbar({
         <button
           type="button"
           onClick={() => onNavigate("TODAY")}
-          className="rounded-lg border border-indigo-200 bg-white px-3 py-2 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-100"
+          className="rounded-xl border border-[#ffc894] bg-white px-3 py-2 text-xs font-semibold text-[#173a7a] transition hover:bg-[#fff1dc]"
         >
           Today
         </button>
       </div>
-      <h3 className="text-base font-semibold text-indigo-900 sm:text-lg">
+      <h3 className="text-base font-semibold text-[#173a7a] sm:text-lg">
         {label}
       </h3>
       <div className="flex items-center gap-2">
         <button
           type="button"
           onClick={() => onView(Views.MONTH)}
-          className={`rounded-lg px-3 py-2 text-xs font-semibold transition ${
+          className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
             view === Views.MONTH
-              ? "bg-indigo-600 text-white"
-              : "border border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-100"
+              ? "bg-[#173a7a] text-white"
+              : "border border-[#ffc894] bg-white text-[#173a7a] hover:bg-[#fff1dc]"
           }`}
         >
           Month
@@ -196,10 +196,10 @@ function CalendarToolbar({
         <button
           type="button"
           onClick={() => onView(Views.WEEK)}
-          className={`rounded-lg px-3 py-2 text-xs font-semibold transition ${
+          className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
             view === Views.WEEK
-              ? "bg-indigo-600 text-white"
-              : "border border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-100"
+              ? "bg-[#173a7a] text-white"
+              : "border border-[#ffc894] bg-white text-[#173a7a] hover:bg-[#fff1dc]"
           }`}
         >
           Week
@@ -291,7 +291,7 @@ export default function BakeryCalendarPage() {
       cursor.setDate(cursor.getDate() + 1);
     }
     return result;
-  }, [calendarRange, getCapacity]);
+  }, [blockedDates, calendarRange, getCapacity]);
 
   const selectedDateKey = selectedDate ? toDateKey(selectedDate) : "";
   const selectedCapacity = selectedDateKey
@@ -589,7 +589,7 @@ export default function BakeryCalendarPage() {
       />
 
       {/* Google Calendar Account Card */}
-      <Card className="rounded-xl border-indigo-100 shadow-sm">
+      <Card className="rounded-3xl bg-[linear-gradient(155deg,rgba(255,255,255,0.96)_0%,rgba(255,247,236,0.92)_58%,rgba(233,248,255,0.9)_100%)] ring-[#ffd8b7]">
         <CardContent className="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
           <div className="text-sm">
             <p className="font-semibold text-gray-900">
@@ -609,8 +609,8 @@ export default function BakeryCalendarPage() {
               variant={calendarViewMode === "internal" ? "default" : "outline"}
               className={
                 calendarViewMode === "internal"
-                  ? "bg-indigo-600 text-white hover:bg-indigo-700"
-                  : "border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                  ? "bg-[#243b5a] text-white hover:bg-[#1f324d]"
+                  : "border-[#dbe2ea] text-[#243b5a] hover:bg-[#fff4ed]"
               }
               onClick={() => setCalendarViewMode("internal")}
             >
@@ -621,8 +621,8 @@ export default function BakeryCalendarPage() {
               variant={calendarViewMode === "google" ? "default" : "outline"}
               className={
                 calendarViewMode === "google"
-                  ? "bg-indigo-600 text-white hover:bg-indigo-700"
-                  : "border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                  ? "bg-[#243b5a] text-white hover:bg-[#1f324d]"
+                  : "border-[#dbe2ea] text-[#243b5a] hover:bg-[#fff4ed]"
               }
               onClick={() => setCalendarViewMode("google")}
             >
@@ -631,7 +631,7 @@ export default function BakeryCalendarPage() {
             <Button
               type="button"
               variant="outline"
-              className="border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+              className="border-[#dbe2ea] text-[#243b5a] hover:bg-[#fff4ed]"
               onClick={connectGoogleCalendar}
             >
               {oauthStatus.connected
@@ -654,10 +654,10 @@ export default function BakeryCalendarPage() {
       </Card>
 
       {/* Stats Bar */}
-      <Card className="rounded-xl border-indigo-100 shadow-sm">
+      <Card className="rounded-3xl bg-[linear-gradient(155deg,rgba(255,255,255,0.96)_0%,rgba(255,247,236,0.92)_58%,rgba(233,248,255,0.9)_100%)] ring-[#ffd8b7]">
         <CardContent className="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
           <div className="flex flex-wrap gap-2 text-xs font-semibold">
-            <span className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-indigo-700">
+            <span className="rounded-full border border-[#dbe2ea] bg-[#eef2f7] px-3 py-1 text-[#243b5a]">
               Internal Today: {internalTodayCount}
             </span>
             <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-amber-700">
@@ -676,7 +676,7 @@ export default function BakeryCalendarPage() {
             <Button
               type="button"
               variant="outline"
-              className="border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+              className="border-[#dbe2ea] text-[#243b5a] hover:bg-[#fff4ed]"
               onClick={() => void fetchGoogleEvents(currentDate, currentView)}
               disabled={isLoadingGoogleEvents}
             >
@@ -699,7 +699,7 @@ export default function BakeryCalendarPage() {
 
       {/* Capacity Error Banner */}
       {capacityError ? (
-        <Card className="rounded-xl border-rose-200 bg-rose-50 shadow-sm">
+        <Card className="rounded-3xl border-rose-200 bg-rose-50/95 shadow-[0_14px_30px_-24px_rgba(225,29,72,0.7)]">
           <CardContent className="px-6 py-3">
             <p className="text-sm font-medium text-rose-700">
               Failed to load capacity data: {capacityError}
@@ -717,13 +717,13 @@ export default function BakeryCalendarPage() {
       ) : null}
 
       {/* Quick Navigation + Filters */}
-      <Card className="rounded-xl border-indigo-100 shadow-sm">
+      <Card className="rounded-3xl bg-[linear-gradient(155deg,rgba(255,255,255,0.96)_0%,rgba(255,247,236,0.92)_58%,rgba(233,248,255,0.9)_100%)] ring-[#ffd8b7]">
         <CardContent className="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
           <div className="flex flex-wrap gap-2">
             <Button
               type="button"
               variant="outline"
-              className="border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+              className="border-[#dbe2ea] text-[#243b5a] hover:bg-[#fff4ed]"
               onClick={() => setSelectedDate(new Date())}
             >
               Today
@@ -731,7 +731,7 @@ export default function BakeryCalendarPage() {
             <Button
               type="button"
               variant="outline"
-              className="border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+              className="border-[#dbe2ea] text-[#243b5a] hover:bg-[#fff4ed]"
               onClick={() => {
                 const tomorrow = new Date();
                 tomorrow.setDate(tomorrow.getDate() + 1);
@@ -748,8 +748,8 @@ export default function BakeryCalendarPage() {
                 variant={listFilterMode === "all" ? "default" : "outline"}
                 className={
                   listFilterMode === "all"
-                    ? "bg-indigo-600 text-white hover:bg-indigo-700"
-                    : "border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                    ? "bg-[#243b5a] text-white hover:bg-[#1f324d]"
+                    : "border-[#dbe2ea] text-[#243b5a] hover:bg-[#fff4ed]"
                 }
                 onClick={() => setListFilterMode("all")}
               >
@@ -788,10 +788,10 @@ export default function BakeryCalendarPage() {
 
       {/* Loading State */}
       {isCapacityLoading ? (
-        <Card className="rounded-xl border-indigo-100 shadow-sm">
+        <Card className="rounded-3xl bg-[linear-gradient(145deg,#fffaf0_0%,#e9f8ff_100%)] ring-[#ffd8b7]">
           <CardContent className="flex items-center justify-center gap-3 px-6 py-8">
-            <Loader2 className="h-5 w-5 animate-spin text-indigo-500" />
-            <p className="text-sm font-medium text-indigo-600">
+            <Loader2 className="h-5 w-5 animate-spin text-[#173a7a]" />
+            <p className="text-sm font-medium text-[#173a7a]">
               Loading capacity data...
             </p>
           </CardContent>
@@ -799,7 +799,7 @@ export default function BakeryCalendarPage() {
       ) : null}
 
       {/* Calendar */}
-      <Card className="rounded-xl border-indigo-100 shadow-sm">
+      <Card className="rounded-3xl bg-[linear-gradient(145deg,#fffaf0_0%,#e9f8ff_100%)] ring-[#ffd8b7]">
         <CardContent className="px-3 pb-4 pt-4 sm:px-6 sm:pb-6 sm:pt-6">
           <Calendar
             localizer={localizer}
@@ -861,7 +861,7 @@ export default function BakeryCalendarPage() {
                 dateHeader: DateHeader,
               },
             }}
-            className="rounded-xl"
+            className="rounded-2xl"
           />
 
           {/* Legend */}
@@ -916,7 +916,7 @@ export default function BakeryCalendarPage() {
           </div>
 
           {calendarViewMode === "google" && isLoadingGoogleEvents ? (
-            <p className="mt-2 text-xs text-indigo-600">
+            <p className="mt-2 text-xs text-[#173a7a]">
               Loading Google Calendar events...
             </p>
           ) : null}
@@ -925,7 +925,7 @@ export default function BakeryCalendarPage() {
 
       {/* Selected Date Detail Panel (Step 7) */}
       {selectedDate && selectedCapacity && (
-        <Card className="rounded-xl border-indigo-100 shadow-sm">
+        <Card className="rounded-3xl bg-[linear-gradient(145deg,#fffaf0_0%,#e9f8ff_100%)] ring-[#ffd8b7]">
           <CardContent className="px-6 py-4">
             <div className="flex flex-wrap items-start justify-between gap-4">
               {/* Left: date label + status message */}
@@ -1042,7 +1042,7 @@ export default function BakeryCalendarPage() {
           onClick={() => setIsDateOrdersPopupOpen(false)}
         >
           <div
-            className="w-full max-w-2xl overflow-hidden rounded-2xl border border-indigo-100 bg-white shadow-2xl"
+            className="w-full max-w-2xl overflow-hidden rounded-3xl border border-[#ffd8b7] bg-white shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-start justify-between border-b border-gray-100 px-5 py-4">
@@ -1123,7 +1123,7 @@ export default function BakeryCalendarPage() {
                   <button
                     key={order.id}
                     type="button"
-                    className="flex w-full flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-100 bg-gray-50/70 px-4 py-3 text-left transition hover:border-indigo-200 hover:bg-indigo-50/50"
+                    className="flex w-full flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-100 bg-gray-50/70 px-4 py-3 text-left transition hover:border-[#ffd8b7] hover:bg-[#fff4df]"
                     onClick={() => {
                       setIsDateOrdersPopupOpen(false);
                       router.push(`/bakery/bookings/${order.id}`);

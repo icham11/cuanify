@@ -6,7 +6,11 @@ import AppProviders from "@/context/AppProviders";
 import PWAProvider from "@/app/components/PWAProvider";
 
 // Initialize auto-cleanup scheduler for ImageKit (server only)
-if (typeof window === "undefined") {
+if (
+  typeof window === "undefined" &&
+  process.env.NODE_ENV === "production" &&
+  process.env.ENABLE_AUTO_CLEANUP === "true"
+) {
   import("@/lib/cleanup-scheduler");
 }
 
@@ -25,10 +29,9 @@ const midtransSnapScriptSrc = midtransIsProduction
   : "https://app.sandbox.midtrans.com/snap/snap.js";
 
 export const viewport: Viewport = {
-  themeColor: "#4f46e5",
+  themeColor: "#173a7a",
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
 };
 
 export const metadata: Metadata = {

@@ -70,33 +70,43 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex items-center justify-center p-4">
+    <div className="relative flex min-h-screen items-center justify-center bg-linear-to-br from-[#f6f8fc] via-[#fffaf5] to-[#fef3ea] p-4">
       {/* Decorative blobs */}
-      <div className="absolute top-0 left-0 w-96 h-96 bg-indigo-200/30 rounded-full blur-3xl -translate-x-1/2 -translate-y-1/2 pointer-events-none" />
-      <div className="absolute bottom-0 right-0 w-80 h-80 bg-purple-200/30 rounded-full blur-3xl translate-x-1/3 translate-y-1/3 pointer-events-none" />
+      <div className="pointer-events-none absolute -left-32 -top-32 h-96 w-96 rounded-full bg-[#dbe2ea]/70 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-28 -right-20 h-80 w-80 rounded-full bg-[#ffd6bf]/50 blur-3xl" />
 
       <div className="w-full max-w-md relative z-10">
         {/* Card */}
-        <div className="bg-white/90 backdrop-blur-sm p-8 sm:p-10 rounded-2xl shadow-xl border border-white/60">
+        <div className="rounded-2xl border border-[#e5e7eb] bg-white/95 p-8 shadow-xl shadow-slate-200/70 backdrop-blur-sm sm:p-10">
           {/* Logo */}
-          <div className="flex justify-center mb-6">
+          <div className="mb-6 flex justify-center">
             <Link href="/" className="group">
-              <Image
-                src="/cuanify-logo.svg"
-                alt="Cuanify"
-                width={180}
-                height={44}
-                className="h-10 w-auto"
-                priority
-              />
+              <div className="flex items-center gap-3 rounded-2xl border border-[#e8ecf2] bg-[#fffaf5] px-4 py-3">
+                <Image
+                  src="/branding/Copy%20of%20logo%20versi%202%20transparant.png"
+                  alt="Crumbella"
+                  width={44}
+                  height={44}
+                  className="h-11 w-11 object-contain"
+                  priority
+                />
+                <Image
+                  src="/branding/Copy%20of%20logofont%20transparant.png"
+                  alt="Crumbella Admin"
+                  width={160}
+                  height={34}
+                  className="h-8 w-auto object-contain"
+                  priority
+                />
+              </div>
             </Link>
           </div>
 
-          <h1 className="text-2xl font-bold text-center text-gray-900 mb-1">
+          <h1 className="mb-1 text-center text-2xl font-bold text-[#243b5a]">
             Selamat Datang
           </h1>
-          <p className="text-center text-gray-500 mb-7 text-sm">
-            Masuk ke akun Anda untuk mulai kelola bisnis
+          <p className="mb-7 text-center text-sm text-gray-500">
+            Masuk ke dashboard Crumbella untuk kelola operasional cake shop
           </p>
 
           {/* Error message */}
@@ -118,7 +128,7 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleEmailLogin()}
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-gray-900 placeholder-gray-400 text-sm transition"
+                className="w-full rounded-xl border border-[#dbe2ea] px-4 py-3 text-sm text-gray-900 placeholder-gray-400 transition focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[#334e68]"
               />
             </div>
             <div className="relative">
@@ -131,12 +141,13 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleEmailLogin()}
-                className="w-full px-4 py-3 pr-11 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-gray-900 placeholder-gray-400 text-sm transition"
+                className="w-full rounded-xl border border-[#dbe2ea] px-4 py-3 pr-11 text-sm text-gray-900 placeholder-gray-400 transition focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[#334e68]"
               />
               <button
                 type="button"
-                tabIndex={-1}
-                className="absolute right-3 top-[34px] text-gray-400 hover:text-gray-600 transition"
+                aria-label={showPassword ? "Sembunyikan password" : "Tampilkan password"}
+                aria-pressed={showPassword}
+                className="absolute right-3 top-8.5 text-gray-400 transition hover:text-gray-600"
                 onClick={() => setShowPassword((v) => !v)}
               >
                 {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
@@ -147,7 +158,7 @@ export default function LoginPage() {
           <button
             onClick={handleEmailLogin}
             disabled={loading}
-            className="w-full mt-5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold py-3 rounded-xl transition shadow-md shadow-indigo-200 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+            className="mt-5 w-full rounded-xl bg-linear-to-r from-[#f36f21] to-[#d85f1c] py-3 text-sm font-bold text-white shadow-md shadow-orange-200 transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {loading ? "Memproses..." : "Masuk"}
           </button>
@@ -164,7 +175,7 @@ export default function LoginPage() {
             onClick={() =>
               signIn("google", { callbackUrl: "/api/auth/post-login" })
             }
-            className="flex items-center justify-center gap-3 w-full bg-white border border-gray-200 text-gray-700 font-semibold py-3 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition text-sm"
+            className="flex w-full items-center justify-center gap-3 rounded-xl border border-[#dbe2ea] bg-white py-3 text-sm font-semibold text-gray-700 transition hover:border-[#cfd7e3] hover:bg-[#fffaf5]"
           >
             <svg className="w-5 h-5" viewBox="0 0 48 48" fill="none">
               <path
@@ -193,7 +204,7 @@ export default function LoginPage() {
               Belum punya akun?{" "}
               <button
                 onClick={() => router.push("/register")}
-                className="font-semibold text-indigo-600 hover:text-indigo-700 transition"
+                className="font-semibold text-[#243b5a] transition hover:text-[#1f324d]"
               >
                 Daftar gratis
               </button>
@@ -203,7 +214,7 @@ export default function LoginPage() {
 
         {/* Footer */}
         <p className="text-xs text-gray-400 text-center mt-6">
-          &copy; 2026 Cuanify. All rights reserved.
+          &copy; 2026 Crumbella Admin. All rights reserved.
         </p>
       </div>
     </div>

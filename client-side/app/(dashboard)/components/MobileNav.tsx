@@ -66,7 +66,7 @@ export default function MobileNav({
   return (
     <>
       {/* ─── Mobile Bottom Navigation Bar ─── */}
-      <div className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur-lg border-t border-gray-200 safe-area-bottom">
+      <div className="safe-area-bottom fixed inset-x-0 bottom-0 z-40 border-t border-[#ffd8b7] bg-[linear-gradient(90deg,#fff8ec_0%,#ffefd8_45%,#e9f8ff_100%)]/95 backdrop-blur-lg md:hidden">
         <div className="flex items-center justify-around px-1 py-1.5">
           {bottomItems.map((item) => {
             const active = isActive(item.href);
@@ -74,14 +74,14 @@ export default function MobileNav({
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl transition-all min-w-0 flex-1 ${
+                className={`flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-2xl px-3 py-1.5 transition-all ${
                   active
-                    ? "text-indigo-600 bg-indigo-50"
-                    : "text-gray-500 hover:text-gray-700"
+                    ? "bg-linear-to-r from-[#ffe8cf] via-[#fff3c8] to-[#e2f7fc] text-[#a94713]"
+                    : "text-gray-500 hover:text-[#173a7a]"
                 }`}
               >
                 <item.icon
-                  className={`w-5 h-5 ${active ? "text-indigo-600" : ""}`}
+                  className={`h-5 w-5 ${active ? "text-[#f26a21]" : ""}`}
                 />
                 <span className="text-[10px] font-medium truncate">
                   {item.label}
@@ -92,7 +92,7 @@ export default function MobileNav({
           {/* Hamburger for full menu */}
           <button
             onClick={() => setIsDrawerOpen(true)}
-            className="flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl text-gray-500 hover:text-gray-700 transition min-w-0 flex-1"
+            className="flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-2xl px-3 py-1.5 text-gray-500 transition hover:text-[#173a7a]"
           >
             <Menu className="w-5 h-5" />
             <span className="text-[10px] font-medium">Menu</span>
@@ -105,25 +105,27 @@ export default function MobileNav({
         <div className="md:hidden fixed inset-0 z-50 flex">
           {/* Backdrop */}
           <div
-            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            className="absolute inset-0 bg-[#111827]/45 backdrop-blur-sm"
             onClick={() => setIsDrawerOpen(false)}
           />
           {/* Drawer */}
-          <div className="relative ml-auto w-80 max-w-[85vw] h-full bg-white shadow-2xl overflow-y-auto flex flex-col animate-slide-in-right">
+          <div className="animate-slide-in-right relative ml-auto flex h-full w-80 max-w-[85vw] flex-col overflow-y-auto border-l border-[#ffd8b7] bg-linear-to-b from-[#fff9ef] via-[#ffefdb] to-[#e9f8ff] shadow-2xl">
+            <div className="pointer-events-none absolute -left-8 top-16 h-28 w-28 rounded-full bg-[#f26a21]/15 blur-2xl" />
+            <div className="pointer-events-none absolute right-4 bottom-12 h-24 w-24 rounded-full bg-[#25b4c8]/15 blur-2xl" />
             {/* Drawer header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-              <div className="flex items-center">
+            <div className="flex items-center justify-between border-b border-[#ffd8b7] px-5 py-4">
+              <div className="flex items-center gap-2.5">
                 <Image
-                  src="/cuanify-logo.svg"
-                  alt="Cuanify"
-                  width={130}
-                  height={32}
-                  className="h-8 w-auto"
+                  src="/branding/Copy%20of%20naik%20payung.png"
+                  alt="Crumbella Mascot"
+                  width={72}
+                  height={72}
+                  className="h-14 w-14 object-contain"
                 />
               </div>
               <button
                 onClick={() => setIsDrawerOpen(false)}
-                className="p-2 hover:bg-gray-100 rounded-xl transition"
+                className="rounded-2xl p-2 transition hover:bg-[#f3f4f6]"
               >
                 <X className="w-5 h-5 text-gray-500" />
               </button>
@@ -172,10 +174,10 @@ export default function MobileNav({
             )}
 
             {/* Nav links */}
-            <div className="flex-1 px-4 py-4 space-y-1">
+            <div className="relative flex-1 space-y-1 px-4 py-4">
               {(isOwner || isStaff) && (
                 <>
-                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-3 pt-2 pb-1">
+                  <p className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5f78a1]">
                     Bakery
                   </p>
                   {isOwner && (
@@ -249,7 +251,7 @@ export default function MobileNav({
 
               {isOwner && (
                 <>
-                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-3 pt-4 pb-1">
+                  <p className="px-3 pb-1 pt-4 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5f78a1]">
                     AI Tools
                   </p>
                   <NavLink
@@ -265,7 +267,7 @@ export default function MobileNav({
 
               {!isStaff && (
                 <>
-                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-3 pt-4 pb-1">
+                  <p className="px-3 pb-1 pt-4 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5f78a1]">
                     Sales
                   </p>
                   <NavLink
@@ -310,7 +312,7 @@ export default function MobileNav({
 
               {isOwner && (
                 <>
-                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-3 pt-4 pb-1">
+                  <p className="px-3 pb-1 pt-4 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5f78a1]">
                     Inventory
                   </p>
                   <NavLink
@@ -332,7 +334,7 @@ export default function MobileNav({
 
               {isOwner && (
                 <>
-                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-3 pt-4 pb-1">
+                  <p className="px-3 pb-1 pt-4 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5f78a1]">
                     Settings
                   </p>
                   <NavLink
@@ -368,7 +370,7 @@ export default function MobileNav({
             </div>
 
             {/* User info at bottom */}
-            <div className="border-t border-gray-100 px-4 py-4">
+            <div className="border-t border-[#ffd8b7] px-4 py-4">
               <SidebarUserInfo
                 jwtUserName={jwtUserName}
                 jwtUserEmail={jwtUserEmail}
@@ -400,15 +402,19 @@ function NavLink({
     <Link
       href={href}
       onClick={onClick}
-      className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
+      className={`group flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm font-medium transition-all ${
         active
-          ? "bg-indigo-50 text-indigo-700 font-semibold"
+          ? "border border-[#ffc894] bg-linear-to-r from-[#ffe8cf] via-[#fff3c8] to-[#e2f7fc] font-semibold text-[#a94713]"
           : accent
-            ? "bg-linear-to-r from-purple-50 to-indigo-50 text-purple-700 border border-purple-200 hover:from-purple-100 hover:to-indigo-100"
-            : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+            ? "border border-[#8ad9e4] bg-linear-to-r from-[#e5f7fb] via-[#fff4df] to-[#e8efff] text-[#173a7a] hover:brightness-95"
+            : "text-gray-600 hover:bg-linear-to-r hover:from-[#fff4df] hover:via-[#e9f8ff] hover:to-[#fff1d8] hover:text-[#173a7a]"
       }`}
     >
-      <Icon className="w-4.5 h-4.5 shrink-0" />
+      <Icon
+        className={`h-4.5 w-4.5 shrink-0 ${
+          active ? "text-[#f26a21]" : "text-[#43639b] group-hover:text-[#f26a21]"
+        }`}
+      />
       {label}
     </Link>
   );

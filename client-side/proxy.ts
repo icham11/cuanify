@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
+import { verifyToken } from "@/lib/auth/jwt";
 
 /**
  * Proxy — runs BEFORE any page renders (replaces deprecated middleware.ts).
@@ -53,6 +54,15 @@ const STAFF_ALLOWED_API_RULES: Array<{
   { prefix: "/api/bakery/production/staff-tokens", methods: ["GET"] },
 ];
 
+type AppRole = "Owner" | "Cashier" | "Staff";
+
+function normalizeRole(value: unknown): AppRole | null {
+  if (value === "Owner" || value === "Cashier" || value === "Staff") {
+    return value;
+  }
+  return null;
+}
+
 function isStaticPath(pathname: string) {
   return STATIC_PATH_PREFIXES.some((p) => pathname.startsWith(p));
 }
@@ -80,22 +90,21 @@ function isStaffAllowedApi(pathname: string, method: string) {
   });
 }
 
-async function resolveRole(request: NextRequest): Promise<string | null> {
-  try {
-    const meUrl = new URL("/api/auth/me", request.url);
-    const meRes = await fetch(meUrl.toString(), {
-      headers: {
-        cookie: request.headers.get("cookie") || "",
-      },
-    });
-
-    if (!meRes.ok) return null;
-    const meData = await meRes.json();
-    const role = meData?.data?.role;
-    return typeof role === "string" ? role : null;
-  } catch {
-    return null;
+function resolveRoleFromClaims(jwtToken: string | undefined, nextAuthToken: unknown): AppRole | null {
+  if (jwtToken) {
+    const decoded = verifyToken(jwtToken);
+    if (decoded && typeof decoded === "object" && "role" in decoded) {
+      const tokenRole = normalizeRole((decoded as { role?: unknown }).role);
+      if (tokenRole) return tokenRole;
+    }
   }
+
+  if (nextAuthToken && typeof nextAuthToken === "object" && "role" in nextAuthToken) {
+    const nextAuthRole = normalizeRole((nextAuthToken as { role?: unknown }).role);
+    if (nextAuthRole) return nextAuthRole;
+  }
+
+  return null;
 }
 
 export async function proxy(request: NextRequest) {
@@ -135,7 +144,7 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
-  const role = await resolveRole(request);
+  const role = resolveRoleFromClaims(jwtToken, nextAuthToken);
 
   // API hardening: strict allowlist for Staff (deny by default).
   if (apiRequest && role === "Staff") {

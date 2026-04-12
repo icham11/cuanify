@@ -20,8 +20,8 @@ export default function DashboardClientLayout({
 
   if (!mounted) {
     return (
-      <div className="min-h-screen bg-white px-4 py-6">
-        <div className="mx-auto h-10 w-48 animate-pulse rounded-xl bg-gray-100" />
+      <div className="min-h-screen bg-[#f6f8fc] px-4 py-6">
+        <div className="mx-auto h-10 w-48 animate-pulse rounded-xl bg-[#e8ecf2]" />
       </div>
     );
   }

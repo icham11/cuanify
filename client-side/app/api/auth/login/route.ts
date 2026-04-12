@@ -39,8 +39,30 @@ export async function POST(req: Request) {
     return new NextResponse("Invalid credentials", { status: 401 });
   }
 
+  const ownedBusiness = await prisma.business.findFirst({
+    where: { userId: user.id },
+    select: { id: true },
+    orderBy: { createdAt: "asc" },
+  });
 
-  const token = signToken({ userId: user.id, name: user.name, email: user.email })
+  const membership = ownedBusiness
+    ? null
+    : await prisma.businessMember.findFirst({
+        where: { userId: user.id },
+        select: { businessId: true, role: true },
+        orderBy: { createdAt: "asc" },
+      });
+
+  const role = ownedBusiness ? "Owner" : membership?.role;
+  const businessId = ownedBusiness?.id ?? membership?.businessId;
+
+  const token = signToken({
+    userId: user.id,
+    name: user.name,
+    email: user.email,
+    ...(role ? { role } : {}),
+    ...(businessId ? { businessId } : {}),
+  });
 
 
   const response = NextResponse.json({ success: true });

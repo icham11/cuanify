@@ -36,7 +36,7 @@ export default function SidebarNav() {
         {[1, 2, 3, 4, 5].map((i) => (
           <div
             key={i}
-            className="h-8 bg-indigo-100/50 rounded-lg animate-pulse"
+            className="h-9 rounded-xl bg-[#eef2f7] animate-pulse"
           />
         ))}
       </div>
@@ -44,14 +44,14 @@ export default function SidebarNav() {
   }
 
   return (
-    <nav className="space-y-6">
+    <nav className="space-y-7">
       {/* Role Mode Banner */}
       {(isCashier || isStaff) && (
         <div
-          className={`p-3 border rounded-xl ${
+          className={`rounded-2xl border p-3.5 shadow-sm ${
             isStaff
-              ? "bg-linear-to-r from-sky-50 to-cyan-50 border-sky-200"
-              : "bg-linear-to-r from-amber-50 to-orange-50 border-amber-200"
+              ? "border-sky-200 bg-linear-to-r from-sky-50 via-cyan-50 to-[#fff9df]"
+              : "border-amber-200 bg-linear-to-r from-amber-50 via-[#fff9df] to-orange-50"
           }`}
         >
           <div className="flex items-center gap-2 mb-1">
@@ -67,15 +67,13 @@ export default function SidebarNav() {
                 }`}
               />
             </span>
-            <span
-              className={`text-xs font-bold ${isStaff ? "text-sky-800" : "text-amber-800"}`}
-            >
+            <span className={`text-xs font-bold tracking-wide ${isStaff ? "text-sky-800" : "text-amber-800"}`}>
               {isStaff ? "MODE STAFF" : "MODE KASIR"}
             </span>
           </div>
           {userName && (
             <p
-              className={`text-[11px] font-medium truncate pl-4.5 ${isStaff ? "text-sky-700" : "text-amber-700"}`}
+              className={`truncate pl-4.5 text-[11px] font-medium ${isStaff ? "text-sky-700" : "text-amber-700"}`}
             >
               👤 {userName}
             </p>
@@ -86,7 +84,7 @@ export default function SidebarNav() {
       {/* Dashboard — Owner only */}
       {isOwner && (
         <div>
-          <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-wider px-3 mb-1.5">
+          <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5f78a1]">
             Dashboard
           </p>
           {/*<SidebarLink href="/dashboard" icon={BarChart3} label="Overview" active={isActive("/dashboard") && pathname === "/dashboard"} />*/}
@@ -102,7 +100,7 @@ export default function SidebarNav() {
       {/* Bakery — Owner + Staff */}
       {(isOwner || isStaff) && (
         <div>
-          <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-wider px-3 mb-1.5">
+          <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5f78a1]">
             Bakery
           </p>
           {isOwner && (
@@ -155,7 +153,7 @@ export default function SidebarNav() {
       {/* AI Tools — Owner only */}
       {isOwner && (
         <div>
-          <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-wider px-3 mb-1.5">
+          <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5f78a1]">
             AI Tools
           </p>
           <SidebarLink
@@ -170,7 +168,7 @@ export default function SidebarNav() {
 
       {/* Sales — All roles */}
       <div>
-        <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-wider px-3 mb-1.5">
+        <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5f78a1]">
           Sales
         </p>
         <SidebarLink
@@ -210,7 +208,7 @@ export default function SidebarNav() {
       {/* Inventory — Owner only */}
       {isOwner && (
         <div>
-          <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-wider px-3 mb-1.5">
+          <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5f78a1]">
             Inventory
           </p>
           <SidebarLink
@@ -231,7 +229,7 @@ export default function SidebarNav() {
       {/* Settings — Owner only */}
       {isOwner && (
         <div>
-          <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-wider px-3 mb-1.5">
+          <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5f78a1]">
             Settings
           </p>
           <SidebarLink
@@ -282,18 +280,25 @@ function SidebarLink({
   return (
     <Link
       href={href}
-      className={`flex items-center gap-2.5 py-2 px-3 rounded-lg text-[13px] font-medium transition-all ${
+      className={`group relative flex items-center gap-2.5 rounded-2xl px-3 py-2.5 text-[13px] font-medium transition-all duration-200 ${
         active
-          ? "bg-indigo-600 text-white shadow-md shadow-indigo-200/50"
+          ? "bg-linear-to-r from-[#ffe8cf] via-[#fff3c8] to-[#e2f7fc] text-[#a94713] shadow-[0_12px_24px_-18px_rgba(242,106,33,0.95)] ring-1 ring-[#ffc894]/70"
           : accent
-            ? "bg-linear-to-r from-purple-50 to-indigo-50 text-purple-700 hover:from-purple-100 hover:to-indigo-100 border border-purple-200/60"
-            : "text-gray-600 hover:bg-indigo-50/60 hover:text-indigo-700"
+            ? "bg-linear-to-r from-[#e5f7fb] via-[#fff4df] to-[#e8efff] text-[#173a7a] ring-1 ring-[#8ad9e4]/60 hover:brightness-95"
+            : "text-[#4b5563] hover:bg-linear-to-r hover:from-[#fff4df] hover:via-[#e9f8ff] hover:to-[#fff1d8] hover:text-[#173a7a] hover:ring-1 hover:ring-[#ffd8b7]/65"
       }`}
     >
-      <Icon className={`w-4 h-4 shrink-0 ${active ? "text-white" : ""}`} />
+      {active ? (
+        <span className="absolute left-1 top-1/2 h-5 w-1 -translate-y-1/2 rounded-full bg-[#f36f21]" />
+      ) : null}
+      <Icon
+        className={`h-4 w-4 shrink-0 transition ${
+          active ? "text-[#f26a21]" : "text-[#43639b] group-hover:text-[#f26a21]"
+        }`}
+      />
       <span className="truncate">{label}</span>
       {badge && (
-        <span className="ml-auto text-[9px] bg-indigo-200 text-indigo-800 px-1.5 py-0.5 rounded-full font-bold">
+        <span className="ml-auto rounded-full bg-[#ffe1cf] px-1.5 py-0.5 text-[9px] font-bold text-[#b4531a]">
           {badge}
         </span>
       )}

@@ -15,12 +15,12 @@ export interface ButtonProps
 
 const variantClasses: Record<ButtonVariant, string> = {
   default:
-    "bg-indigo-600 text-white hover:bg-indigo-700 focus-visible:ring-indigo-500",
+    "bg-[#f36f21] text-white hover:bg-[#d85f1c] focus-visible:ring-[#f36f21]",
   outline:
-    "border border-indigo-200 text-indigo-700 hover:bg-indigo-50 focus-visible:ring-indigo-400",
-  ghost: "text-indigo-700 hover:bg-indigo-50 focus-visible:ring-indigo-400",
+    "border border-[#dbe2ea] text-[#243b5a] hover:bg-[#fff4ed] focus-visible:ring-[#334e68]",
+  ghost: "text-[#243b5a] hover:bg-[#fff4ed] focus-visible:ring-[#334e68]",
   secondary:
-    "bg-gray-900 text-white hover:bg-gray-800 focus-visible:ring-gray-400",
+    "bg-[#243b5a] text-white hover:bg-[#1f324d] focus-visible:ring-[#334e68]",
 };
 
 const sizeClasses: Record<ButtonSize, string> = {

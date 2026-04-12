@@ -5,9 +5,9 @@ type CardProps = {
 
 export function Card({ title, value }: CardProps) {
   return (
-    <div className="bg-white rounded-2xl p-4 sm:p-6 shadow-sm border border-gray-100 hover:shadow-md transition">
-      <p className="text-xs sm:text-sm text-gray-500">{title}</p>
-      <h3 className="text-xl sm:text-2xl md:text-3xl font-semibold mt-2 sm:mt-3 text-gray-900 wrap-break-word">
+    <div className="rounded-2xl border border-[#e5e7eb] bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md sm:p-6">
+      <p className="text-xs sm:text-sm text-[#6b7280]">{title}</p>
+      <h3 className="mt-2 wrap-break-word text-xl font-semibold text-[#243b5a] sm:mt-3 sm:text-2xl md:text-3xl">
         {typeof value === "number"
           ? `Rp ${value.toLocaleString("id-ID")}`
           : value}

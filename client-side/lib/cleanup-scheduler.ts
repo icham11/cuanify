@@ -6,14 +6,16 @@
 import { logCron } from "@/lib/logger";
 
 let cleanupInterval: NodeJS.Timeout | null = null;
+let cleanupBootstrapped = false;
 
 /**
  * Start the cleanup scheduler
  */
 export function startCleanupScheduler() {
-  if (cleanupInterval) {
+  if (cleanupInterval || cleanupBootstrapped) {
     return;
   }
+  cleanupBootstrapped = true;
 
   // Run first cleanup after 30 seconds (let the server fully start)
   setTimeout(() => runCleanup(), 30_000);
@@ -44,12 +46,18 @@ export function stopCleanupScheduler() {
  */
 async function runCleanup() {
   try {
-    const cronSecret = process.env.CRON_SECRET || "development-secret";
+    const cronSecret = process.env.CRON_SECRET;
+    if (!cronSecret) {
+      logCron.info("Cleanup skipped: CRON_SECRET not set");
+      return;
+    }
+
+    const localBaseUrl = `http://127.0.0.1:${process.env.PORT || "3000"}`;
     const baseUrl =
       process.env.NEXTAUTH_URL ||
       (process.env.VERCEL_URL
         ? `https://${process.env.VERCEL_URL}`
-        : "https://crumbella-demo.vercel.app");
+        : localBaseUrl);
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 25_000); // 25s timeout
@@ -66,10 +74,17 @@ async function runCleanup() {
     clearTimeout(timeout);
 
     if (!response.ok) {
-      logCron.warn("Cleanup HTTP error", {
-        status: response.status,
-        statusText: response.statusText,
-      });
+      if (response.status === 401 || response.status === 403) {
+        logCron.info("Cleanup skipped: unauthorized", {
+          status: response.status,
+          statusText: response.statusText,
+        });
+      } else {
+        logCron.warn("Cleanup HTTP error", {
+          status: response.status,
+          statusText: response.statusText,
+        });
+      }
       return;
     }
 
@@ -91,8 +106,14 @@ async function runCleanup() {
 
 // Auto-start in Node.js environment
 if (typeof window === "undefined") {
+  const isBuildPhase =
+    process.env.NEXT_PHASE === "phase-production-build" ||
+    process.env.npm_lifecycle_event === "build";
+  const isProdRuntime = process.env.NODE_ENV === "production";
+
   if (
-    process.env.NODE_ENV === "production" ||
+    isProdRuntime &&
+    !isBuildPhase &&
     process.env.ENABLE_AUTO_CLEANUP === "true"
   ) {
     startCleanupScheduler();

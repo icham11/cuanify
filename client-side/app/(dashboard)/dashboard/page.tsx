@@ -171,20 +171,25 @@ export default function DashboardPage() {
   if (loading)
     return (
       <div className="flex items-center justify-center py-20">
-        <div className="animate-spin rounded-full h-10 w-10 border-2 border-indigo-600 border-t-transparent" />
+        <div className="h-10 w-10 animate-spin rounded-full border-2 border-[#243b5a] border-t-transparent" />
       </div>
     );
 
   return (
     <>
-      <div className="space-y-5 sm:space-y-6 lg:space-y-8">
+      <div className="relative space-y-5 sm:space-y-6 lg:space-y-8">
+        <div className="pointer-events-none absolute -left-8 top-24 h-24 w-24 rounded-full bg-[#f26a21]/14 blur-xl" />
+        <div className="pointer-events-none absolute right-0 top-10 h-24 w-24 rounded-full bg-[#25b4c8]/14 blur-xl" />
+
         {/* Header */}
-        <div className="bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 rounded-2xl p-5 sm:p-8 shadow-lg shadow-indigo-200/30">
-          <h1 className="text-xl sm:text-3xl font-bold text-white flex items-center gap-3">
-            <Smile className="text-yellow-300 shrink-0" size={24} />
-            Good {greeting || "..."}, Polo
+        <div className="rounded-2xl border border-[#ffc894] bg-linear-to-r from-[#173a7a] via-[#f26a21] to-[#25b4c8] p-5 shadow-lg shadow-slate-200/40 sm:p-8">
+          <h1 className="flex items-center gap-3 text-xl font-bold text-white sm:text-3xl">
+            <Smile className="shrink-0 text-[#ffd8a8]" size={24} />
+            Good {greeting || "..."}, Crumbella Team
           </h1>
-          <p className="text-indigo-200 mt-2 text-xs sm:text-sm">Here&apos;s your business performance overview.</p>
+          <p className="mt-2 text-xs text-slate-200 sm:text-sm">
+            Here&apos;s your cake business performance overview.
+          </p>
         </div>
 
         {/* Filter */}
@@ -195,8 +200,8 @@ export default function DashboardPage() {
               onClick={() => setRange(r as "today" | "7d" | "30d" | "all")}
               className={`px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-medium transition ${
                 range === r
-                  ? "bg-indigo-600 text-white shadow-md shadow-indigo-200/50"
-                  : "bg-white text-gray-600 border border-gray-200 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200"
+                  ? "bg-[#243b5a] text-white shadow-md shadow-slate-200/60"
+                  : "border border-[#ffd8b7] bg-white text-gray-600 hover:border-[#25b4c8] hover:bg-[#eaf9fd] hover:text-[#145066]"
               }`}
             >
               {r.toUpperCase()}
@@ -217,7 +222,7 @@ export default function DashboardPage() {
 
         {/* Inventory Alerts Card */}
         <div
-          className="relative group bg-linear-to-r from-amber-100 via-amber-50 to-white border border-amber-200 rounded-2xl p-6 shadow-lg cursor-pointer hover:shadow-amber-300/40 transition flex items-center justify-between"
+          className="relative group flex cursor-pointer items-center justify-between rounded-2xl border border-amber-200 bg-linear-to-r from-amber-100 via-amber-50 to-white p-6 shadow-lg transition hover:shadow-amber-300/40"
           onClick={() => setIsAlertOpen(true)}
         >
           <div className="flex items-center gap-4">
@@ -244,17 +249,17 @@ export default function DashboardPage() {
         </div>
 
         {/* Chart */}
-        <div className="bg-white border border-indigo-100 rounded-2xl shadow-sm p-4 sm:p-6 lg:p-8">
-          <h2 className="text-base sm:text-lg font-semibold text-gray-800 mb-4 sm:mb-6 flex items-center gap-2">
-            <TrendingUp size={20} className="text-indigo-500" />
+        <div className="rounded-2xl border border-[#8ad9e4] bg-linear-to-br from-white via-[#f7fdff] to-[#eaf9fd] p-4 shadow-sm sm:p-6 lg:p-8">
+          <h2 className="mb-4 flex items-center gap-2 text-base font-semibold text-[#243b5a] sm:mb-6 sm:text-lg">
+            <TrendingUp size={20} className="text-[#f36f21]" />
             Revenue Trend
           </h2>
           <RevenueChart />
         </div>
 
         {/* AI Insight */}
-        <div className="bg-white border border-indigo-100 rounded-2xl shadow-sm p-4 sm:p-6 lg:p-8">
-          <h2 className="text-base sm:text-lg font-semibold text-gray-800 mb-4">🤖 AI Insight</h2>
+        <div className="rounded-2xl border border-[#ffd8b7] bg-linear-to-br from-white via-[#fffaf1] to-[#fff2df] p-4 shadow-sm sm:p-6 lg:p-8">
+          <h2 className="mb-4 text-base font-semibold text-[#243b5a] sm:text-lg">🤖 AI Insight</h2>
           <p className="text-gray-600 text-sm leading-relaxed">{aiInsight}</p>
         </div>
       </div>
@@ -267,10 +272,19 @@ export default function DashboardPage() {
 /* Extra Components */
 
 function GlassCard({ title, value }: { title: string; value: string | number }) {
+  const toneClass =
+    title === "Revenue"
+      ? "before:bg-[#f26a21]"
+      : title === "Transactions"
+        ? "before:bg-[#25b4c8]"
+        : title === "Profit"
+          ? "before:bg-[#f9bd1f]"
+          : "before:bg-[#2a4d91]";
+
   return (
-    <div className="bg-white/80 backdrop-blur border border-indigo-100 rounded-xl sm:rounded-2xl p-4 sm:p-6 shadow-sm hover:shadow-md hover:border-indigo-200 transition">
-      <p className="text-xs sm:text-sm text-gray-500">{title}</p>
-      <h2 className="text-lg sm:text-2xl font-bold text-gray-900 mt-1 sm:mt-2 truncate">{value}</h2>
+    <div className={`relative rounded-xl border border-[#ffd8b7] bg-white/90 p-4 pt-5 shadow-sm transition before:absolute before:left-4 before:top-0 before:h-1 before:w-14 before:rounded-full hover:-translate-y-0.5 hover:border-[#ffc894] hover:shadow-md sm:rounded-2xl sm:p-6 sm:pt-7 ${toneClass}`}>
+      <p className="text-xs text-[#6b7280] sm:text-sm">{title}</p>
+      <h2 className="mt-1 truncate text-lg font-bold text-[#243b5a] sm:mt-2 sm:text-2xl">{value}</h2>
     </div>
   );
 }
@@ -288,9 +302,9 @@ function PremiumModal({
   onClose: () => void;
 }) {
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#111827]/45 backdrop-blur-sm" onClick={onClose}>
       <div
-        className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-lg relative"
+        className="relative w-full max-w-lg rounded-3xl border border-[#ffd8b7] bg-white p-8 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <button className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 text-xl" onClick={onClose}>
