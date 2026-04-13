@@ -1,7 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import puppeteer, { type Page } from "puppeteer";
-
+import type { Page } from "puppeteer-core";
 export interface WhatsAppReferenceImage {
   url: string;
   label?: string;
@@ -1373,13 +1372,27 @@ export async function generateOrderImage(
   const layout = TEMPLATE_LAYOUTS[templateKey];
   const templateDataUrl = await readTemplateDataUrl(layout.fileName);
 
-  let browser: Awaited<ReturnType<typeof puppeteer.launch>> | null = null;
+  let browser: any = null;
+  const isProd = process.env.NODE_ENV === "production" || process.env.VERCEL_ENV === "production" || process.env.VERCEL === "1";
 
   try {
-    browser = await puppeteer.launch({
-      headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
-    });
+    if (isProd) {
+      const puppeteerCore = require("puppeteer-core");
+      const chromium = require("@sparticuz/chromium");
+      // Required for Vercel/AWS Lambda Serverless environments
+      browser = await puppeteerCore.launch({
+        args: chromium.args,
+        defaultViewport: chromium.defaultViewport,
+        executablePath: await chromium.executablePath(),
+        headless: chromium.headless,
+      });
+    } else {
+      const puppeteer = require("puppeteer");
+      browser = await puppeteer.launch({
+        headless: true,
+        args: ["--no-sandbox", "--disable-setuid-sandbox"],
+      });
+    }
 
     const page = await browser.newPage();
     const renderableReferenceImages = await resolveRenderableReferenceImages(
