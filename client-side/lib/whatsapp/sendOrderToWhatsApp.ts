@@ -10,6 +10,38 @@ const FALLBACK_IMAGE_URL = "https://via.placeholder.com/300";
 
 export interface SendOrderToWhatsAppInput extends WhatsAppOrderImagePayload {
   imageUrl?: string;
+  customerNotes?: string;
+  designNotes?: string;
+}
+
+function normalizeCaptionText(value?: string): string {
+  return (value || "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function truncateCaptionText(value: string, maxLength = 240): string {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength - 3).trimEnd()}...`;
+}
+
+function buildProductionCaption(order: SendOrderToWhatsAppInput): string {
+  const lines = ["ORDER BARU MASUK - PRODUKSI"];
+  const customerNotes = truncateCaptionText(
+    normalizeCaptionText(order.customerNotes || order.notes),
+  );
+  const designNotes = truncateCaptionText(
+    normalizeCaptionText(order.designNotes),
+  );
+
+  if (customerNotes) {
+    lines.push(`Customer notes: ${customerNotes}`);
+  }
+  if (designNotes) {
+    lines.push(`Design notes: ${designNotes}`);
+  }
+
+  return lines.join("\n");
 }
 
 function normalizeReferenceImageUrl(url?: string): string | null {
@@ -129,7 +161,10 @@ export async function sendOrderToWhatsApp(
   try {
     console.log("📤 Sending to WA:", generatedOrderImageUrl);
 
-    await sendWhatsAppImage(generatedOrderImageUrl);
+    await sendWhatsAppImage(
+      generatedOrderImageUrl,
+      buildProductionCaption(payload),
+    );
 
     console.log("✅ WA Image sent successfully");
   } catch (error) {

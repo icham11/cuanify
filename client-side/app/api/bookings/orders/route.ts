@@ -739,6 +739,41 @@ function buildTemplateSlotNotes(order: NormalizedOrder): string[] {
     .filter(Boolean);
 }
 
+function normalizeWhatsAppCaptionValue(value: unknown): string {
+  return asString(value)
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildWhatsAppCustomerNotes(order: NormalizedOrder): string {
+  return normalizeWhatsAppCaptionValue(order.notes);
+}
+
+function buildWhatsAppDesignNotes(order: NormalizedOrder): string {
+  const parsedData = asRecord(order.whatsAppParsedData);
+  const details = getParsedDetailsForTemplate(order);
+  const labeledReferences = asArrayOfRecords(parsedData?.referenceImages)
+    .map((entry) =>
+      normalizeWhatsAppCaptionValue(
+        IMAGE_LABEL_KEYS.map((key) => entry[key]).find((value) =>
+          Boolean(asString(value)),
+        ),
+      ),
+    )
+    .filter(Boolean);
+
+  const candidates = [
+    ...DESIGN_REQUEST_KEYS.map((key) =>
+      normalizeWhatsAppCaptionValue(details?.[key] ?? parsedData?.[key]),
+    ),
+    normalizeWhatsAppCaptionValue(details?.cookieDesign),
+    normalizeWhatsAppCaptionValue(details?.colorTheme),
+    ...labeledReferences,
+  ].filter(Boolean);
+
+  return Array.from(new Set(candidates)).join(" | ");
+}
+
 function toWhatsAppPayload(order: NormalizedOrder): SendOrderToWhatsAppInput {
   const parsedData = asRecord(order.whatsAppParsedData);
   const itemSummary = order.items
@@ -785,6 +820,8 @@ function toWhatsAppPayload(order: NormalizedOrder): SendOrderToWhatsAppInput {
     requestedImageLabels: extractRequestedImageLabels(order),
     templateFields: buildTemplateFields(order, templateKey, itemSummary),
     slotNotes: buildTemplateSlotNotes(order),
+    customerNotes: buildWhatsAppCustomerNotes(order),
+    designNotes: buildWhatsAppDesignNotes(order),
   };
 }
 
@@ -1413,6 +1450,7 @@ export async function POST(request: NextRequest) {
 
     const body = (await request.json().catch(() => ({}))) as {
       orders?: unknown;
+      skipWhatsAppNotification?: unknown;
     };
     if (!Array.isArray(body.orders)) {
       return NextResponse.json(
@@ -1420,6 +1458,7 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
+    const skipWhatsAppNotification = body.skipWhatsAppNotification === true;
 
     const normalizedOrders = body.orders
       .map((entry, index) => normalizeOrder(entry, index))
@@ -2218,12 +2257,26 @@ export async function POST(request: NextRequest) {
         userId,
         durationMs,
         ...summaryStats,
-        waNotificationQueued: createdOrdersForWhatsApp.length,
+        waNotificationEligible: createdOrdersForWhatsApp.length,
+        waNotificationQueued: skipWhatsAppNotification
+          ? 0
+          : createdOrdersForWhatsApp.length,
+        waNotificationMode: skipWhatsAppNotification ? "skipped" : "sent",
       });
 
-      // Fire-and-forget to avoid blocking order sync response.
-      for (const orderPayload of createdOrdersForWhatsApp) {
-        void sendOrderToWhatsApp(orderPayload);
+      if (skipWhatsAppNotification) {
+        console.info("[api/bookings/orders] WA notification skipped by request", {
+          businessId,
+          userId,
+          eligibleCount: createdOrdersForWhatsApp.length,
+        });
+      } else {
+        // Wait for WA delivery so image generation/upload/send is not cut off by serverless teardown.
+        await Promise.allSettled(
+          createdOrdersForWhatsApp.map((orderPayload) =>
+            sendOrderToWhatsApp(orderPayload),
+          ),
+        );
       }
 
       return NextResponse.json({
@@ -2233,7 +2286,12 @@ export async function POST(request: NextRequest) {
           itemCount: orders.length,
           durationMs,
           ...summaryStats,
-          waNotificationQueued: createdOrdersForWhatsApp.length,
+          waNotificationMode: skipWhatsAppNotification ? "skipped" : "sent",
+          waNotificationEligible: createdOrdersForWhatsApp.length,
+          waNotificationQueued: skipWhatsAppNotification
+            ? 0
+            : createdOrdersForWhatsApp.length,
+          skipWhatsAppNotification,
         },
       });
     } catch (rowError) {
