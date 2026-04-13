@@ -45,8 +45,19 @@ export const metadata: Metadata = {
     title: "Crumbella Workspace",
   },
   icons: {
-    icon: "/icons/icon-192x192.png",
-    apple: "/icons/icon-192x192.png",
+    icon: [
+      {
+        url: "/branding/Copy%20of%20logo%20versi%202%20transparant.png",
+        type: "image/png",
+      },
+    ],
+    apple: [
+      {
+        url: "/branding/Copy%20of%20logo%20versi%202%20transparant.png",
+        type: "image/png",
+      },
+    ],
+    shortcut: "/favicon.ico",
   },
 };
 

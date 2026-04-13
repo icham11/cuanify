@@ -9,7 +9,10 @@ function isValidHttpUrl(value: string): boolean {
   }
 }
 
-export async function sendWhatsAppImage(imageUrl: string): Promise<void> {
+export async function sendWhatsAppImage(
+  imageUrl: string,
+  caption = "ORDER BARU MASUK - PRODUKSI",
+): Promise<void> {
   const token = process.env.FONNTE_TOKEN;
   const target = process.env.FONNTE_PRODUCTION_TARGET;
 
@@ -25,19 +28,18 @@ export async function sendWhatsAppImage(imageUrl: string): Promise<void> {
     throw new Error("Missing FONNTE_PRODUCTION_TARGET env variable.");
   }
 
+  const body = new FormData();
+  body.set("target", target);
+  body.set("url", imageUrl);
+  body.set("message", caption);
+  body.set("delay", "2");
+
   const response = await fetch(FONNTE_ENDPOINT, {
     method: "POST",
     headers: {
       Authorization: token,
-      "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      target,
-      file: imageUrl,
-      message: "ORDER BARU MASUK - PRODUKSI",
-      type: "image",
-      delay: "2",
-    }),
+    body,
   });
 
   const rawText = await response.text();
