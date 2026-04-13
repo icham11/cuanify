@@ -22,7 +22,7 @@ const STATIC_PATH_PREFIXES = [
   "/sw.js",
 ];
 
-const PUBLIC_PAGE_PREFIXES = ["/login", "/register", "/onboarding", "/offline"];
+const PUBLIC_PAGE_PREFIXES = ["/login", "/register", "/offline"];
 
 const CASHIER_BLOCKED_PATHS = [
   "/home",
@@ -37,6 +37,13 @@ const CASHIER_BLOCKED_PATHS = [
 ];
 
 const STAFF_ALLOWED_PAGE_PREFIXES = ["/bakery/production"];
+
+const ADMIN_ALLOWED_PAGE_PREFIXES = [
+  "/bakery/dashboard",
+  "/bakery/bookings",
+  "/bakery/calendar",
+  "/bakery/production",
+];
 
 const STAFF_ALLOWED_API_RULES: Array<{
   prefix: string;
@@ -54,10 +61,40 @@ const STAFF_ALLOWED_API_RULES: Array<{
   { prefix: "/api/bakery/production/staff-tokens", methods: ["GET"] },
 ];
 
-type AppRole = "Owner" | "Cashier" | "Staff";
+const ADMIN_ALLOWED_API_RULES: Array<{
+  prefix: string;
+  methods: ReadonlyArray<string>;
+}> = [
+  { prefix: "/api/auth/me", methods: ["GET"] },
+  { prefix: "/api/auth/logout", methods: ["POST"] },
+  { prefix: "/api/auth/post-login", methods: ["GET"] },
+  { prefix: "/api/auth/session", methods: ["GET"] },
+  { prefix: "/api/auth/csrf", methods: ["GET"] },
+  { prefix: "/api/auth/providers", methods: ["GET"] },
+  { prefix: "/api/businesses", methods: ["GET"] },
+  { prefix: "/api/staff", methods: ["GET"] },
+  { prefix: "/api/bakery/settings", methods: ["GET"] },
+  { prefix: "/api/bakery/production/staff-tokens", methods: ["GET"] },
+  { prefix: "/api/bookings/orders", methods: ["GET", "POST"] },
+  { prefix: "/api/bookings/automations", methods: ["GET", "POST"] },
+  { prefix: "/api/bookings/capacity", methods: ["GET"] },
+  { prefix: "/api/bookings/catalog-config", methods: ["GET", "PUT"] },
+  { prefix: "/api/bookings/shipping/quote", methods: ["POST"] },
+  { prefix: "/api/bookings/shipping/create-resi", methods: ["POST"] },
+  { prefix: "/api/bookings/parse-whatsapp", methods: ["POST"] },
+  { prefix: "/api/bookings/marketplace-email/latest", methods: ["GET"] },
+  { prefix: "/api/bookings/google-calendar/connect", methods: ["GET"] },
+  { prefix: "/api/bookings/google-calendar/callback", methods: ["GET"] },
+  { prefix: "/api/bookings/google-calendar/disconnect", methods: ["POST"] },
+  { prefix: "/api/bookings/google-calendar/status", methods: ["GET"] },
+  { prefix: "/api/bookings/google-calendar/events", methods: ["GET"] },
+  { prefix: "/api/sales", methods: ["GET"] },
+];
+
+type AppRole = "Owner" | "Admin" | "Cashier" | "Staff";
 
 function normalizeRole(value: unknown): AppRole | null {
-  if (value === "Owner" || value === "Cashier" || value === "Staff") {
+  if (value === "Owner" || value === "Admin" || value === "Cashier" || value === "Staff") {
     return value;
   }
   return null;
@@ -81,8 +118,23 @@ function isStaffAllowedPage(pathname: string) {
   );
 }
 
+function isAdminAllowedPage(pathname: string) {
+  return ADMIN_ALLOWED_PAGE_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
+}
+
 function isStaffAllowedApi(pathname: string, method: string) {
   return STAFF_ALLOWED_API_RULES.some((rule) => {
+    if (!(pathname === rule.prefix || pathname.startsWith(`${rule.prefix}/`))) {
+      return false;
+    }
+    return rule.methods.includes(method.toUpperCase());
+  });
+}
+
+function isAdminAllowedApi(pathname: string, method: string) {
+  return ADMIN_ALLOWED_API_RULES.some((rule) => {
     if (!(pathname === rule.prefix || pathname.startsWith(`${rule.prefix}/`))) {
       return false;
     }
@@ -146,13 +198,26 @@ export async function proxy(request: NextRequest) {
 
   const role = resolveRoleFromClaims(jwtToken, nextAuthToken);
 
-  // API hardening: strict allowlist for Staff (deny by default).
+  // API hardening: strict allowlist for Staff/Admin (deny by default).
   if (apiRequest && role === "Staff") {
     if (!isStaffAllowedApi(pathname, method)) {
       return NextResponse.json(
         {
           error:
             "Akses API ditolak untuk role Staff. Endpoint ini tidak termasuk allowlist.",
+        },
+        { status: 403 },
+      );
+    }
+    return NextResponse.next();
+  }
+
+  if (apiRequest && role === "Admin") {
+    if (!isAdminAllowedApi(pathname, method)) {
+      return NextResponse.json(
+        {
+          error:
+            "Akses API ditolak untuk role Admin. Endpoint ini tidak termasuk allowlist operasional.",
         },
         { status: 403 },
       );
@@ -175,6 +240,12 @@ export async function proxy(request: NextRequest) {
       !pathname.startsWith("/dashboard/debts")
     ) {
       return NextResponse.redirect(new URL("/pos", request.url));
+    }
+  }
+
+  if (role === "Admin") {
+    if (!isAdminAllowedPage(pathname)) {
+      return NextResponse.redirect(new URL("/bakery/bookings", request.url));
     }
   }
 

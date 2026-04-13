@@ -20,6 +20,8 @@ interface OrderTableProps {
   orders: BakeryOrder[];
 }
 
+type ViewDensity = "compact" | "comfortable";
+
 type Highlight = {
   label: string;
   tone: "warning" | "danger" | "info";
@@ -33,6 +35,42 @@ type TokenDifficulty =
   | "EXPERT"
   | "MEDIUM"
   | "DIFFICULT";
+
+function compactText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function formatDeliveryDate(date: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return date;
+  const parsed = new Date(`${date}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return date;
+  return new Intl.DateTimeFormat("id-ID", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(parsed);
+}
+
+function resolvePrimaryDifficulty(
+  items: BakeryOrder["items"],
+): TokenDifficulty | null {
+  if (!items.length) return null;
+
+  const rank: Record<TokenDifficulty, number> = {
+    SIMPLE: 1,
+    NORMAL: 2,
+    MEDIUM: 2,
+    HARD: 3,
+    DIFFICULT: 3,
+    ADVANCED: 4,
+    EXPERT: 5,
+  };
+
+  return items.reduce<TokenDifficulty>((selected, item) => {
+    const current = resolveItemDifficulty(item);
+    return rank[current] > rank[selected] ? current : selected;
+  }, resolveItemDifficulty(items[0]));
+}
 
 function resolveItemDifficulty(
   item: BakeryOrder["items"][number],
@@ -91,6 +129,37 @@ export default function OrderTable({ orders }: OrderTableProps) {
   const { updateOrderStatus, updatePaymentStatus, getCustomerMessagePreview } =
     useOrders();
   const [isLoading, setIsLoading] = useState(true);
+  const [density, setDensity] = useState<ViewDensity>(() => {
+    if (typeof window === "undefined") return "comfortable";
+    const saved = window.localStorage.getItem("bookings-orders-density");
+    return saved === "compact" || saved === "comfortable"
+      ? saved
+      : "comfortable";
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem("bookings-orders-density", density);
+  }, [density]);
+
+  const isCompact = density === "compact";
+  const tableTextClass = isCompact ? "text-[13px]" : "text-sm";
+  const headPaddingClass = isCompact ? "px-3 py-2.5" : "px-4 py-3";
+  const cellPaddingClass = isCompact ? "px-3 py-2" : "px-4 py-3";
+  const skeletonPaddingClass = isCompact ? "px-3 py-3" : "px-4 py-4";
+  const rowTitleClass = isCompact
+    ? "text-[13px] leading-4"
+    : "text-sm leading-5";
+  const chipClass = isCompact
+    ? "rounded-full border px-2 py-0.5 text-[10px] font-semibold"
+    : "rounded-full border px-2 py-0.5 text-[11px] font-semibold";
+  const actionButtonClass = isCompact
+    ? "inline-flex h-7 items-center justify-center rounded-lg border border-indigo-200 px-2 text-[11px] font-semibold text-indigo-700 transition hover:bg-indigo-50"
+    : "inline-flex h-8 items-center justify-center rounded-lg border border-indigo-200 px-2.5 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-50";
+  const actionGhostClass = isCompact
+    ? "inline-flex h-7 items-center justify-center gap-1 rounded-lg px-2 text-[11px] font-semibold transition"
+    : "inline-flex h-8 items-center justify-center gap-1 rounded-lg px-2.5 text-xs font-semibold transition";
+
   useEffect(() => {
     const timer = setTimeout(() => setIsLoading(false), 300);
     return () => clearTimeout(timer);
@@ -140,17 +209,45 @@ export default function OrderTable({ orders }: OrderTableProps) {
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-left text-sm">
+      <div className="mb-3 flex items-center justify-end gap-2">
+        <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+          View
+        </span>
+        <button
+          type="button"
+          onClick={() => setDensity("compact")}
+          className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
+            isCompact
+              ? "bg-indigo-600 text-white"
+              : "border border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+          }`}
+        >
+          Compact
+        </button>
+        <button
+          type="button"
+          onClick={() => setDensity("comfortable")}
+          className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
+            !isCompact
+              ? "bg-indigo-600 text-white"
+              : "border border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+          }`}
+        >
+          Comfortable
+        </button>
+      </div>
+
+      <table className={`w-full text-left ${tableTextClass}`}>
         <thead className="bg-gray-50 text-xs uppercase text-gray-500">
           <tr>
-            <th className="px-4 py-3 font-semibold">Resi</th>
-            <th className="px-4 py-3 font-semibold">Customer Name</th>
-            <th className="px-4 py-3 font-semibold">Delivery Date</th>
-            <th className="px-4 py-3 font-semibold">Product</th>
-            <th className="px-4 py-3 font-semibold">Total Price</th>
-            <th className="px-4 py-3 font-semibold">Payment Status</th>
-            <th className="px-4 py-3 font-semibold">Order Status</th>
-            <th className="px-4 py-3 font-semibold">Actions</th>
+            <th className={`${headPaddingClass} font-semibold`}>Resi</th>
+            <th className={`${headPaddingClass} font-semibold`}>Customer Name</th>
+            <th className={`${headPaddingClass} font-semibold`}>Delivery Date</th>
+            <th className={`${headPaddingClass} font-semibold`}>Product</th>
+            <th className={`${headPaddingClass} font-semibold`}>Total Price</th>
+            <th className={`${headPaddingClass} font-semibold`}>Payment Status</th>
+            <th className={`${headPaddingClass} font-semibold`}>Order Status</th>
+            <th className={`${headPaddingClass} font-semibold`}>Actions</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-100">
@@ -160,7 +257,7 @@ export default function OrderTable({ orders }: OrderTableProps) {
                 {Array.from({ length: 8 }).map((__, cellIndex) => (
                   <td
                     key={`skeleton-cell-${rowIndex}-${cellIndex}`}
-                    className="px-4 py-4"
+                    className={skeletonPaddingClass}
                   >
                     <SkeletonBlock className="h-4 w-full" />
                   </td>
@@ -197,6 +294,18 @@ export default function OrderTable({ orders }: OrderTableProps) {
               const orderTokenTotal = summarizeProductionTokensByItems(
                 order.items ?? [],
               );
+              const productSummary = order.items?.length
+                ? order.items
+                    .map(
+                      (item) =>
+                        `${Math.max(1, Number(item.quantity) || 1)}x ${compactText(item.productName || "Produk")}`,
+                    )
+                    .join(" • ")
+                : compactText(order.product || "Custom Cake");
+              const primaryDifficulty = resolvePrimaryDifficulty(order.items ?? []);
+              const difficultyMeta = primaryDifficulty
+                ? getDifficultyMeta(primaryDifficulty)
+                : null;
               return (
                 <tr
                   key={order.id}
@@ -204,15 +313,17 @@ export default function OrderTable({ orders }: OrderTableProps) {
                     index % 2 === 0 ? "bg-white" : "bg-gray-50/60"
                   }`}
                 >
-                  <td className="px-4 py-3 font-semibold text-gray-900 whitespace-nowrap">
+                  <td
+                    className={`${cellPaddingClass} max-w-45 break-all font-semibold text-gray-900`}
+                  >
                     {order.resi || order.bookingCode || `Draft-${order.id}`}
                   </td>
-                  <td className="px-4 py-3">
+                  <td className={cellPaddingClass}>
                     {order.customerName || "Walk-in Customer"}
                   </td>
-                  <td className="px-4 py-3 whitespace-nowrap">
+                  <td className={cellPaddingClass}>
                     <div className="flex flex-wrap items-center gap-2">
-                      <span>{order.deliveryDate}</span>
+                      <span>{formatDeliveryDate(order.deliveryDate)}</span>
                       {(() => {
                         const highlight = highlightMap.get(order.id);
                         if (!highlight || !highlight.label) return null;
@@ -225,57 +336,37 @@ export default function OrderTable({ orders }: OrderTableProps) {
                       })()}
                     </div>
                   </td>
-                  <td className="px-4 py-3">
-                    {order.items?.length ? (
-                      <div className="space-y-1">
-                        <p>
-                          {order.items
-                            .map(
-                              (item) => `${item.quantity}x ${item.productName}`,
-                            )
-                            .join(", ")}
-                        </p>
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-700">
-                            Workload {orderTokenTotal} token
+                  <td className={cellPaddingClass}>
+                    <div className={`max-w-105 ${isCompact ? "space-y-0.5" : "space-y-1"}`}>
+                      <p
+                        className={`${rowTitleClass} whitespace-normal wrap-break-word text-gray-700`}
+                        title={productSummary}
+                      >
+                        {productSummary}
+                      </p>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className={`${chipClass} border-sky-200 bg-sky-50 text-sky-700`}>
+                          {orderTokenTotal} token
+                        </span>
+                        {difficultyMeta && (
+                          <span
+                            className={`${chipClass} ${difficultyMeta.className}`}
+                          >
+                            {difficultyMeta.label}
                           </span>
-                          {order.items.slice(0, 2).map((item) => {
-                            if (Number(item.customTokenPerUnit) > 0) {
-                              return (
-                                <span
-                                  key={`${order.id}-${item.id}`}
-                                  className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-700"
-                                >
-                                  Custom
-                                </span>
-                              );
-                            }
-                            const difficulty = resolveItemDifficulty(item);
-                            const meta = getDifficultyMeta(difficulty);
-                            return (
-                              <span
-                                key={`${order.id}-${item.id}`}
-                                className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${meta.className}`}
-                              >
-                                {meta.label}
-                              </span>
-                            );
-                          })}
-                          {order.items.length > 2 && (
-                            <span className="text-[11px] font-medium text-gray-500">
-                              +{order.items.length - 2} item
-                            </span>
-                          )}
-                        </div>
+                        )}
+                        {(order.items?.length ?? 0) > 1 && (
+                          <span className={`${chipClass} border-gray-200 bg-white font-medium text-gray-500`}>
+                            {order.items.length} items
+                          </span>
+                        )}
                       </div>
-                    ) : (
-                      order.product || "Custom Cake"
-                    )}
+                    </div>
                   </td>
-                  <td className="px-4 py-3 whitespace-nowrap">
+                  <td className={cellPaddingClass}>
                     {formatCurrency(order.totalPrice ?? 0)}
                   </td>
-                  <td className="px-4 py-3">
+                  <td className={cellPaddingClass}>
                     <div className="flex flex-col gap-2">
                       <PaymentBadge status={normalizedPaymentStatus} />
                       <Select
@@ -286,14 +377,14 @@ export default function OrderTable({ orders }: OrderTableProps) {
                             event.target.value as "DP Paid" | "Paid",
                           )
                         }
-                        className="h-8 text-xs"
+                        className={`${isCompact ? "h-7" : "h-8"} min-w-24 text-xs`}
                       >
                         <option value="DP Paid">DP Paid</option>
                         <option value="Paid">Paid</option>
                       </Select>
                     </div>
                   </td>
-                  <td className="px-4 py-3">
+                  <td className={cellPaddingClass}>
                     <div className="flex flex-col gap-2">
                       <StatusBadge status={normalizedOrderStatus} />
                       <Select
@@ -310,7 +401,7 @@ export default function OrderTable({ orders }: OrderTableProps) {
                               | "Cancelled",
                           )
                         }
-                        className="h-8 text-xs"
+                        className={`${isCompact ? "h-7" : "h-8"} min-w-28 text-xs`}
                       >
                         {BOOKING_STATUS_OPTIONS.map((option) => (
                           <option key={option.value} value={option.value}>
@@ -320,17 +411,17 @@ export default function OrderTable({ orders }: OrderTableProps) {
                       </Select>
                     </div>
                   </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2 whitespace-nowrap">
+                  <td className={cellPaddingClass}>
+                    <div className="flex flex-wrap items-center gap-1.5">
                       <Link
                         href={`/bakery/bookings/${order.id}`}
-                        className="inline-flex h-8 items-center justify-center rounded-xl border border-indigo-200 px-3 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-50"
+                        className={actionButtonClass}
                       >
                         View
                       </Link>
                       <Link
                         href={`/bakery/bookings/${order.id}#edit-delivery`}
-                        className="inline-flex h-8 items-center justify-center gap-1.5 rounded-xl border border-indigo-200 px-3 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-50"
+                        className={`${actionButtonClass} gap-1`}
                       >
                         <Pencil size={14} />
                         Edit
@@ -343,14 +434,14 @@ export default function OrderTable({ orders }: OrderTableProps) {
                         onClick={(event) => {
                           if (!messageLink) event.preventDefault();
                         }}
-                        className={`inline-flex h-8 items-center justify-center gap-1.5 rounded-xl px-3 text-xs font-semibold transition ${
+                        className={`${actionGhostClass} ${
                           messageLink
                             ? "text-indigo-700 hover:bg-indigo-50"
                             : "pointer-events-none text-gray-400"
                         }`}
                       >
                         <MessageCircle size={14} />
-                        Message
+                        {isCompact ? "Msg" : "Message"}
                       </a>
                     </div>
                   </td>

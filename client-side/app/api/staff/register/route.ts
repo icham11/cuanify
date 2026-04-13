@@ -5,19 +5,19 @@ import { requireAuth, requireRole, AuthError, ForbiddenError } from "@/lib/auth/
 
 export const dynamic = "force-dynamic";
 
-const ALLOWED_MEMBER_ROLES = ["Cashier", "Staff"] as const;
+const ALLOWED_MEMBER_ROLES = ["Admin", "Cashier", "Staff"] as const;
 type ManagedMemberRole = (typeof ALLOWED_MEMBER_ROLES)[number];
 
 /**
- * POST /api/staff/register — Owner creates a new Cashier/Staff account
+ * POST /api/staff/register — Owner creates a new Admin/Cashier/Staff account
  *
  * This is the "one-stop" registration for UMKM owners.
- * The owner fills in the kasir's name, email, and password,
+ * The owner fills in the member's name, email, and password,
  * and the system creates:
  *   1. A new User account
  *   2. A BusinessMember record linking the user to the owner's business as selected role
  *
- * Body: { name: string, email: string, password: string, role?: "Cashier" | "Staff" }
+ * Body: { name: string, email: string, password: string, role?: "Admin" | "Cashier" | "Staff" }
  *
  * Only Owner can call this.
  */
@@ -36,10 +36,10 @@ export async function POST(request: NextRequest) {
 
     // ── Validation ──
     if (!name || !name.trim()) {
-      return NextResponse.json({ error: "Nama kasir wajib diisi" }, { status: 400 });
+      return NextResponse.json({ error: "Nama anggota tim wajib diisi" }, { status: 400 });
     }
     if (!email || !email.trim()) {
-      return NextResponse.json({ error: "Email kasir wajib diisi" }, { status: 400 });
+      return NextResponse.json({ error: "Email anggota tim wajib diisi" }, { status: 400 });
     }
     if (!password || password.length < 6) {
       return NextResponse.json(
@@ -88,7 +88,7 @@ export async function POST(request: NextRequest) {
 
       if (existingMember) {
         return NextResponse.json(
-          { error: "User dengan email ini sudah menjadi staff di bisnis ini" },
+          { error: "User dengan email ini sudah menjadi anggota tim di bisnis ini" },
           { status: 409 },
         );
       }
@@ -96,7 +96,7 @@ export async function POST(request: NextRequest) {
       // Can't add the owner themselves
       if (existingUser.id === auth.userId) {
         return NextResponse.json(
-          { error: "Tidak bisa mendaftarkan diri sendiri sebagai kasir" },
+          { error: "Tidak bisa mendaftarkan diri sendiri sebagai anggota tim" },
           { status: 400 },
         );
       }
@@ -178,7 +178,7 @@ export async function POST(request: NextRequest) {
     }
     console.error("POST /api/staff/register error:", error);
     return NextResponse.json(
-      { error: "Gagal mendaftarkan kasir baru" },
+      { error: "Gagal mendaftarkan anggota tim baru" },
       { status: 500 },
     );
   }

@@ -813,7 +813,7 @@ async function geocodeAddress(
         `https://nominatim.openstreetmap.org/search?${query.toString()}`,
         {
           headers: {
-            "User-Agent": "cuanify-bakery-oms/1.0",
+            "User-Agent": "crumbella-bakery-oms/1.0",
           },
           cache: "no-store",
         },

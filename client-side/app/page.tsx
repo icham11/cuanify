@@ -1,25 +1,28 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
+import { Space_Grotesk, Manrope } from "next/font/google";
 import {
-  ShoppingCart,
-  Package,
-  BarChart3,
-  Sparkles,
-  CheckCircle,
-  Bot,
-  BookOpen,
-  Users,
-  Download,
-  Wifi,
-  Shield,
   ArrowRight,
-  Star,
-  Zap,
+  CalendarCheck2,
+  ClipboardList,
+  KeyRound,
+  MonitorCog,
+  UserCog,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+
+const headingFont = Space_Grotesk({
+  subsets: ["latin"],
+  weight: ["500", "700"],
+});
+
+const bodyFont = Manrope({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+});
 
 function getCookie(name: string): string | null {
   if (typeof window === "undefined") return null;
@@ -29,405 +32,206 @@ function getCookie(name: string): string | null {
   return null;
 }
 
-const FEATURES = [
+const QUICK_ROUTES: Array<{
+  title: string;
+  hint: string;
+  href: string;
+  icon: LucideIcon;
+  accent: string;
+}> = [
   {
-    icon: ShoppingCart,
-    title: "POS Kasir Modern",
-    desc: "Transaksi cepat dengan Cash, QRIS, Transfer, dan e-Wallet. Shortcut keyboard untuk kecepatan kasir.",
-    color: "from-blue-500 to-indigo-500",
-    bg: "bg-blue-50",
-    iconColor: "text-blue-600",
+    title: "Dashboard Owner",
+    hint: "Kontrol KPI, laporan, dan setup bisnis.",
+    href: "/dashboard/business",
+    icon: MonitorCog,
+    accent: "from-[#173a7a] to-[#2a4d91]",
   },
   {
-    icon: Package,
-    title: "Inventori FIFO Otomatis",
-    desc: "Stok bahan baku terpotong otomatis saat transaksi. Perhitungan cost akurat dengan metode FIFO.",
-    color: "from-emerald-500 to-teal-500",
-    bg: "bg-emerald-50",
-    iconColor: "text-emerald-600",
+    title: "Produksi Staff",
+    hint: "Update assignment dan progres harian.",
+    href: "/bakery/production",
+    icon: ClipboardList,
+    accent: "from-[#f26a21] to-[#d85f1c]",
   },
   {
-    icon: BookOpen,
-    title: "Kasbon & Piutang",
-    desc: "Catat utang pelanggan langsung dari POS. Lacak jatuh tempo dan status pelunasan.",
-    color: "from-amber-500 to-orange-500",
-    bg: "bg-amber-50",
-    iconColor: "text-amber-600",
+    title: "POS Kasir",
+    hint: "Akses kasir cepat untuk transaksi toko.",
+    href: "/pos",
+    icon: UserCog,
+    accent: "from-[#25b4c8] to-[#0f6f7d]",
   },
   {
-    icon: Bot,
-    title: "AI Assistant",
-    desc: "Chatbot AI yang paham data bisnis Anda. Analisis gambar, upload PDF, dan saran pintar.",
-    color: "from-violet-500 to-purple-500",
-    bg: "bg-violet-50",
-    iconColor: "text-violet-600",
+    title: "Kalender Booking",
+    hint: "Kelola timeline order produksi mingguan.",
+    href: "/bakery/calendar",
+    icon: CalendarCheck2,
+    accent: "from-[#f9bd1f] to-[#f26a21]",
   },
-  {
-    icon: BarChart3,
-    title: "Analytics Real-time",
-    desc: "Dashboard penjualan, profit margin, produk terlaris, dan forecasting otomatis.",
-    color: "from-indigo-500 to-blue-500",
-    bg: "bg-indigo-50",
-    iconColor: "text-indigo-600",
-  },
-  {
-    icon: Users,
-    title: "Multi-Role: Owner & Kasir",
-    desc: "Owner lihat semua data. Kasir hanya akses POS. Cegah kecurangan dengan role terpisah.",
-    color: "from-pink-500 to-rose-500",
-    bg: "bg-pink-50",
-    iconColor: "text-pink-600",
-  },
-  {
-    icon: Download,
-    title: "Export CSV & Excel",
-    desc: "Download laporan transaksi dan inventori untuk pembukuan atau lapor pajak.",
-    color: "from-cyan-500 to-sky-500",
-    bg: "bg-cyan-50",
-    iconColor: "text-cyan-600",
-  },
-  {
-    icon: Wifi,
-    title: "PWA & Offline Support",
-    desc: "Install di HP seperti app native. Tetap bisa akses saat internet putus sebentar.",
-    color: "from-teal-500 to-emerald-500",
-    bg: "bg-teal-50",
-    iconColor: "text-teal-600",
-  },
-];
-
-const STATS = [
-  { value: "100%", label: "Gratis Selamanya" },
-  { value: "8+", label: "Fitur Lengkap" },
-  { value: "< 2 dtk", label: "Transaksi Kasir" },
-  { value: "24/7", label: "AI Assistant" },
 ];
 
 export default function LandingPage() {
-  const router = useRouter();
   const [isChecking, setIsChecking] = useState(true);
+  const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
     const token = getCookie("token");
     if (token) {
       window.location.href = "/api/auth/post-login";
-    } else {
-      setTimeout(() => setIsChecking(false), 0);
+      return;
     }
-  }, [router]);
+
+    setIsChecking(false);
+    requestAnimationFrame(() => setIsReady(true));
+  }, []);
 
   if (isChecking) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-indigo-50 via-white to-purple-50">
+      <div className="flex min-h-screen items-center justify-center bg-[#f6f8fc]">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4" />
-          <p className="text-gray-500 text-sm">Memuat...</p>
+          <div className="mx-auto mb-4 h-12 w-12 animate-spin rounded-full border-b-2 border-[#173a7a]" />
+          <p className="text-sm text-gray-500">Menyiapkan Workspace Crumbella...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex flex-col relative overflow-hidden">
-      {/* Decorative bg blobs */}
-      <div className="absolute top-0 left-0 w-[600px] h-[600px] bg-indigo-200/20 rounded-full blur-3xl -translate-x-1/2 -translate-y-1/2 pointer-events-none" />
-      <div className="absolute bottom-0 right-0 w-[500px] h-[500px] bg-purple-200/20 rounded-full blur-3xl translate-x-1/3 translate-y-1/3 pointer-events-none" />
+    <div
+      className={`${bodyFont.className} relative min-h-screen overflow-hidden bg-[#f8fafc] text-[#111827]`}
+    >
+      <div className="pointer-events-none absolute -left-20 -top-20 h-96 w-96 rounded-full bg-[#f26a21]/15 blur-3xl" />
+      <div className="pointer-events-none absolute right-0 top-0 h-80 w-80 rounded-full bg-[#25b4c8]/18 blur-3xl" />
+      <div className="pointer-events-none absolute bottom-0 left-1/2 h-72 w-72 -translate-x-1/2 rounded-full bg-[#f9bd1f]/18 blur-3xl" />
 
-      {/* ═══ Navigation ═══ */}
-      <nav className="container mx-auto px-4 sm:px-6 py-4 sm:py-5 flex justify-between items-center relative z-10">
-        <Link href="/" className="flex items-center group">
-          <Image
-            src="/cuanify-logo.svg"
-            alt="Cuanify"
-            width={160}
-            height={40}
-            className="h-8 sm:h-10 w-auto"
-            priority
-          />
-        </Link>
-        <div className="flex items-center gap-2 sm:gap-3">
-          <Link
-            href="/login"
-            className="px-3 sm:px-5 py-2 sm:py-2.5 text-indigo-600 hover:text-indigo-700 font-semibold transition text-xs sm:text-sm"
+      <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-6xl flex-col px-4 pb-10 pt-4 sm:px-6 lg:px-8">
+        <main className="mt-4 grid flex-1 items-stretch gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+          <section
+            className={`rounded-4xl border border-[#ffd8b7] bg-[linear-gradient(135deg,#173a7a_0%,#243b5a_45%,#f26a21_100%)] p-6 text-white shadow-[0_28px_60px_-35px_rgba(23,58,122,0.95)] transition-all duration-700 sm:p-9 ${
+              isReady ? "translate-y-0 opacity-100" : "translate-y-4 opacity-0"
+            }`}
           >
-            Masuk
-          </Link>
-          <Link
-            href="/register"
-            className="px-3 sm:px-5 py-2 sm:py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl hover:from-indigo-700 hover:to-purple-700 font-semibold transition shadow-md shadow-indigo-200 hover:shadow-lg text-xs sm:text-sm"
-          >
-            Daftar
-          </Link>
-        </div>
-      </nav>
-
-      {/* ═══ Hero ═══ */}
-      <section className="container mx-auto px-4 sm:px-6 pt-10 sm:pt-16 pb-14 sm:pb-20 flex flex-col lg:flex-row items-center gap-10 sm:gap-16 relative z-10">
-        {/* Left */}
-        <div className="flex-1 space-y-7 max-w-2xl">
-          <div className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-100/80 text-indigo-700 rounded-full text-xs font-semibold border border-indigo-200/50">
-            <Sparkles className="w-3.5 h-3.5" />
-            Platform Bisnis dengan AI
-          </div>
-
-          <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-extrabold text-gray-900 leading-[1.1] tracking-tight">
-            Bikin Bisnis{" "}
-            <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
-              Makin Cuan
-            </span>
-          </h1>
-
-          <p className="text-lg text-gray-600 leading-relaxed max-w-xl">
-            <strong className="text-gray-800">Cuanify</strong> adalah platform
-            lengkap untuk UMKM Indonesia — dari kasir, stok bahan baku, kasbon,
-            sampai AI yang bantu analisis bisnis Anda. Semua dalam satu
-            aplikasi.
-          </p>
-
-          <div className="flex flex-col sm:flex-row gap-3 pt-2">
-            <Link
-              href="/register"
-              className="flex items-center justify-center gap-2 px-7 py-3.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl font-bold text-base hover:from-indigo-700 hover:to-purple-700 transition shadow-lg shadow-indigo-200 hover:shadow-xl"
-            >
-              Mulai Sekarang yuk!
-              <ArrowRight className="w-4 h-4" />
-            </Link>
-            <Link
-              href="#features"
-              className="flex items-center justify-center gap-2 px-7 py-3.5 bg-white text-gray-700 rounded-xl font-semibold text-base border border-gray-200 hover:border-indigo-300 hover:bg-indigo-50 transition"
-            >
-              Lihat Fitur
-            </Link>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3 sm:gap-5 pt-4">
-            <div className="flex items-center gap-1.5 text-sm text-gray-500">
-              {/* <CheckCircle className="w-4 h-4 text-green-500" />
-              Gratis selamanya */}
+            <div className="-mx-1 mb-5 overflow-hidden rounded-2xl border border-white/20 bg-white/5 sm:-mx-2">
+              <Image
+                src="/branding/Copy%20of%20booth%20sisi%20atas.png"
+                alt="Crumbella Booth"
+                width={1100}
+                height={300}
+                className="h-auto w-full object-contain"
+                sizes="(max-width: 768px) 100vw, 52vw"
+                priority
+              />
             </div>
-            <div className="flex items-center gap-1.5 text-sm text-gray-500">
-              <CheckCircle className="w-4 h-4 text-green-500" />
-              Tanpa kartu kredit
-            </div>
-            <div className="flex items-center gap-1.5 text-sm text-gray-500">
-              <CheckCircle className="w-4 h-4 text-green-500" />
-              Setup 5 menit
-            </div>
-          </div>
-        </div>
 
-        {/* Right — Feature preview cards */}
-        <div className="hidden md:grid flex-1 grid-cols-2 gap-4 max-w-md w-full">
-          {FEATURES.slice(0, 4).map((f, i) => (
-            <div
-              key={f.title}
-              className="bg-white/80 backdrop-blur-sm p-5 rounded-2xl shadow-lg border border-white/60 hover:shadow-xl hover:-translate-y-1 transition-all duration-300"
-              style={{ animationDelay: `${i * 0.1}s` }}
+            <h1
+              className={`${headingFont.className} mt-4 text-4xl font-bold leading-[1.05] sm:text-5xl`}
             >
-              <div
-                className={`w-10 h-10 ${f.bg} rounded-xl flex items-center justify-center mb-3`}
+              Command Center untuk Tim Internal Crumbella
+            </h1>
+
+            <p className="mt-4 max-w-xl text-sm leading-relaxed text-slate-100/95 sm:text-base">
+              Halaman ini untuk operasional tim internal Crumbella: owner,
+              staff, kasir, dan admin. Semua alur pencatatan dan monitoring
+              harian dimulai dari sini.
+            </p>
+
+            <div className="mt-6 flex flex-wrap gap-2.5">
+              {["Role-based Access", "Secure Session", "Operational Mode"].map(
+                (tag) => (
+                  <span
+                    key={tag}
+                    className="rounded-full border border-white/25 bg-white/10 px-3 py-1 text-xs font-medium"
+                  >
+                    {tag}
+                  </span>
+                ),
+              )}
+            </div>
+
+            <div className="mt-8 flex flex-wrap gap-3">
+              <Link
+                href="/login"
+                className="inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-bold text-[#173a7a] transition hover:brightness-95"
               >
-                <f.icon className={`w-5 h-5 ${f.iconColor}`} />
-              </div>
-              <h3 className="font-bold text-gray-900 text-sm mb-1">
-                {f.title}
-              </h3>
-              <p className="text-xs text-gray-500 leading-relaxed line-clamp-2">
-                {f.desc}
-              </p>
-            </div>
-          ))}
-        </div>
-      </section>
+                Masuk ke Workspace
+                <ArrowRight className="h-4 w-4" />
+              </Link>
 
-      {/* ═══ Stats bar ═══ */}
-      <section className="relative z-10 border-y border-indigo-100 bg-white/60 backdrop-blur-sm">
-        <div className="container mx-auto px-4 sm:px-6 py-6 sm:py-8 grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6">
-          {STATS.map((s) => (
-            <div key={s.label} className="text-center">
-              <p className="text-3xl font-extrabold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
-                {s.value}
-              </p>
-              <p className="text-sm text-gray-500 mt-1">{s.label}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ═══ All Features ═══ */}
-      <section
-        id="features"
-        className="container mx-auto px-4 sm:px-6 py-14 sm:py-20 relative z-10"
-      >
-        <div className="text-center mb-10 sm:mb-14 max-w-2xl mx-auto">
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-purple-100/80 text-purple-700 rounded-full text-xs font-semibold mb-4">
-            <Zap className="w-3.5 h-3.5" />
-            Fitur Lengkap
-          </div>
-          <h2 className="text-3xl sm:text-4xl font-extrabold text-gray-900 mb-4">
-            Semua yang UMKM Butuhkan,{" "}
-            <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
-              Satu Platform
-            </span>
-          </h2>
-          <p className="text-gray-500 text-lg">
-            Dari jualan sampai laporan, Cuanify bantu semua — tanpa ribet.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
-          {FEATURES.map((f, i) => (
-            <div
-              key={f.title}
-              className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 border border-gray-100 shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all duration-300 group"
-              style={{ animationDelay: `${i * 0.05}s` }}
-            >
-              <div
-                className={`w-12 h-12 ${f.bg} rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform`}
+              <Link
+                href="/register"
+                className="inline-flex items-center gap-2 rounded-xl border border-white/40 bg-white/10 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/20"
               >
-                <f.icon className={`w-6 h-6 ${f.iconColor}`} />
-              </div>
-              <h3 className="font-bold text-gray-900 mb-2">{f.title}</h3>
-              <p className="text-sm text-gray-500 leading-relaxed">{f.desc}</p>
+                Buat Akun Tim
+                <KeyRound className="h-4 w-4" />
+              </Link>
             </div>
-          ))}
-        </div>
-      </section>
 
-      {/* ═══ Trust / Why Cuanify ═══ */}
-      <section className="container mx-auto px-4 sm:px-6 pb-14 sm:pb-20 relative z-10">
-        <div className="bg-gradient-to-br from-indigo-600 via-purple-600 to-violet-600 rounded-2xl sm:rounded-3xl p-6 sm:p-10 md:p-14 text-white relative overflow-hidden">
-          {/* Decorative */}
-          <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full blur-2xl -translate-y-1/2 translate-x-1/3 pointer-events-none" />
+          </section>
 
-          <div className="relative z-10 max-w-3xl">
-            <div className="flex items-center gap-2 mb-4">
-              <Shield className="w-5 h-5 text-indigo-200" />
-              <span className="text-indigo-200 text-sm font-semibold">
-                Kenapa Cuanify?
-              </span>
-            </div>
-            <h2 className="text-3xl sm:text-4xl font-extrabold mb-6 leading-tight">
-              Dirancang Khusus untuk Pemilik UMKM Indonesia
-            </h2>
-            <div className="grid sm:grid-cols-2 gap-4 mb-8">
-              {[
-                "Bahasa Indonesia, mudah dipahami",
-                "Support kasbon — tradisi warung Indonesia",
-                "AI paham konteks bisnis Anda",
-                "Bisa di-install di HP seperti app biasa",
-                // "Gratis selamanya, tanpa batasan",
-                "Data aman & terenkripsi",
-              ].map((item) => (
-                <div key={item} className="flex items-start gap-2">
-                  <CheckCircle className="w-4 h-4 text-emerald-300 mt-0.5 shrink-0" />
-                  <span className="text-indigo-100 text-sm">{item}</span>
-                </div>
-              ))}
-            </div>
-            <Link
-              href="/register"
-              className="inline-flex items-center gap-2 px-7 py-3.5 bg-white text-indigo-700 rounded-xl font-bold text-base hover:bg-indigo-50 transition shadow-lg"
-            >
-              Daftar Sekarang
-              <ArrowRight className="w-4 h-4" />
-            </Link>
+          <section className="grid h-full gap-4 lg:grid-rows-4">
+            {QUICK_ROUTES.map((item, index) => {
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.title}
+                  href={`/login?next=${encodeURIComponent(item.href)}`}
+                  className={`group flex h-full flex-col rounded-3xl border border-[#ffd8b7] bg-white/92 p-5 shadow-[0_18px_40px_-30px_rgba(23,58,122,0.8)] transition-all duration-700 hover:-translate-y-0.5 hover:shadow-[0_22px_44px_-30px_rgba(23,58,122,0.9)] ${
+                    isReady ? "translate-y-0 opacity-100" : "translate-y-5 opacity-0"
+                  }`}
+                  style={{ transitionDelay: `${180 + index * 90}ms` }}
+                >
+                  <div className="flex items-center justify-between">
+                    <div
+                      className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-linear-to-br ${item.accent} text-white`}
+                    >
+                      <Icon className="h-5 w-5" />
+                    </div>
+                    <ArrowRight className="h-4 w-4 text-[#64748b] transition group-hover:translate-x-0.5 group-hover:text-[#173a7a]" />
+                  </div>
+                  <h2
+                    className={`${headingFont.className} mt-4 text-lg font-semibold text-[#173a7a]`}
+                  >
+                    {item.title}
+                  </h2>
+                  <p className="mt-1 text-sm text-[#475569]">{item.hint}</p>
+                </Link>
+              );
+            })}
+          </section>
+        </main>
+
+        <section
+          className={`mt-6 rounded-3xl border border-[#dbe2ea] bg-white/90 p-5 shadow-[0_14px_28px_-22px_rgba(23,58,122,0.8)] backdrop-blur-sm transition-all duration-700 sm:p-6 ${
+            isReady ? "translate-y-0 opacity-100" : "translate-y-4 opacity-0"
+          }`}
+          style={{ transitionDelay: "420ms" }}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#64748b]">
+              Kickoff Harian Tim
+            </p>
+            <span className="rounded-full border border-[#ffd8b7] bg-[#fff4ed] px-3 py-1 text-xs font-semibold text-[#b4531a]">
+              Internal Operations
+            </span>
           </div>
-        </div>
-      </section>
 
-      {/* ═══ Testimonial / Social proof ═══ */}
-      <section className="container mx-auto px-4 sm:px-6 pb-14 sm:pb-20 relative z-10">
-        <div className="text-center mb-8 sm:mb-10">
-          <h2 className="text-2xl font-bold text-gray-900">
-            Apa Kata Pengguna?
-          </h2>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 max-w-4xl mx-auto">
-          {[
-            {
-              name: "Rina",
-              biz: "Warung Kopi",
-              text: "Sekarang stok bahan baku otomatis terpotong, ga perlu catat manual lagi!",
-            },
-            {
-              name: "Budi",
-              biz: "Toko Kelontong",
-              text: "Fitur kasbon bikin pelanggan tetap tercatat. Tidak ada lagi hutang yang lupa.",
-            },
-            {
-              name: "Sari",
-              biz: "Bakery & Cake",
-              text: "AI-nya bisa kasih saran produk terlaris. Omset naik 30% dalam sebulan!",
-            },
-          ].map((t) => (
-            <div
-              key={t.name}
-              className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm"
-            >
-              <div className="flex gap-1 mb-3">
-                {[1, 2, 3, 4, 5].map((s) => (
-                  <Star
-                    key={s}
-                    className="w-4 h-4 text-amber-400 fill-amber-400"
-                  />
-                ))}
-              </div>
-              <p className="text-gray-600 text-sm mb-4 leading-relaxed">
-                &ldquo;{t.text}&rdquo;
-              </p>
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 bg-gradient-to-br from-indigo-400 to-purple-400 rounded-full flex items-center justify-center text-white text-xs font-bold">
-                  {t.name[0]}
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-gray-900">
-                    {t.name}
-                  </p>
-                  <p className="text-xs text-gray-400">{t.biz}</p>
-                </div>
-              </div>
+          <div className="mt-3 grid gap-2 text-sm text-[#334155] sm:grid-cols-3">
+            <div className="rounded-2xl border border-[#eef2f7] bg-[#f8fafc] px-4 py-3">
+              1. Verifikasi akses role tim pagi ini.
             </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ═══ Final CTA ═══ */}
-      <section className="container mx-auto px-4 sm:px-6 pb-14 sm:pb-20 relative z-10">
-        <div className="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-2xl sm:rounded-3xl p-6 sm:p-10 md:p-14 text-center text-white shadow-2xl shadow-indigo-200">
-          <h2 className="text-3xl sm:text-4xl font-extrabold mb-3">
-            Siap Bikin Bisnis Makin Cuan?
-          </h2>
-          <p className="text-indigo-200 text-lg mb-8 max-w-lg mx-auto">
-            Bergabung dengan Cuanify sekarang, tanpa ribet, langsung pakai.
-          </p>
-          <Link
-            href="/register"
-            className="inline-flex items-center gap-2 px-8 py-4 bg-white text-indigo-700 rounded-xl font-bold text-lg hover:bg-indigo-50 transition shadow-lg"
-          >
-            Daftar Sekarang gan!
-            <ArrowRight className="w-5 h-5" />
-          </Link>
-        </div>
-      </section>
-
-      {/* ═══ Footer ═══ */}
-      <footer className="border-t border-gray-200 bg-white/50 backdrop-blur-sm relative z-10">
-        <div className="container mx-auto px-4 sm:px-6 py-6 sm:py-8 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center">
-            <Image
-              src="/cuanify-logo.svg"
-              alt="Cuanify"
-              width={130}
-              height={32}
-              className="h-7 w-auto"
-            />
+            <div className="rounded-2xl border border-[#eef2f7] bg-[#f8fafc] px-4 py-3">
+              2. Cek antrean produksi dan kalender booking.
+            </div>
+            <div className="rounded-2xl border border-[#eef2f7] bg-[#f8fafc] px-4 py-3">
+              3. Jalankan operasional kasir dan monitoring dashboard.
+            </div>
           </div>
-          <p className="text-sm text-gray-400">
-            &copy; 2026 Cuanify. All rights reserved.
-          </p>
-        </div>
-      </footer>
+        </section>
+
+        <footer className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-[#e5e7eb] pt-4 text-xs text-[#64748b]">
+          <p>© 2026 Crumbella. Internal team workspace.</p>
+          <p>Powered by role-aware access and secure session routing.</p>
+        </footer>
+      </div>
     </div>
   );
 }

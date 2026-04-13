@@ -4,7 +4,7 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Complete Documentation
 
-Dokumentasi teknis dan operasional lengkap ada di `../SOP/Cuanify-Complete-Documentation.md`.
+Dokumentasi teknis dan operasional lengkap ada di `../SOP/Crumbella-Complete-Documentation.md`.
 
 ## WhatsApp Parser Customer Templates
 

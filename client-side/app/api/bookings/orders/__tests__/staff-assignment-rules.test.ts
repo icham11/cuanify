@@ -65,6 +65,29 @@ describe("Orders API staff assignment and status transition rules", () => {
     ).toThrow("Order must be assigned before changing status");
   });
 
+  it("allows cancelling unassigned order", () => {
+    const orders = [
+      makeOrder({
+        orderStatus: "Cancelled",
+        assignedStaffUserId: null,
+      }),
+    ];
+
+    const existingAssignments = [
+      makeExistingAssignment({
+        order_status: "Inquiry",
+        assigned_staff_user_id: null,
+      }),
+    ];
+
+    validateAssignmentTransitionRules({
+      orders,
+      existingAssignments,
+      roleName: "Owner",
+      userId: 1,
+    });
+  });
+
   it("rejects staff unassign action for already claimed order", () => {
     const orders = [
       makeOrder({
@@ -108,7 +131,7 @@ describe("Orders API staff assignment and status transition rules", () => {
         roleName: "Staff",
         userId: 22,
       }),
-    ).toThrow("Hanya owner yang dapat memindahkan assignment order");
+    ).toThrow("Hanya owner/admin yang dapat memindahkan assignment order");
   });
 
   it("allows owner transfer action", () => {
@@ -129,6 +152,27 @@ describe("Orders API staff assignment and status transition rules", () => {
       existingAssignments,
       roleName: "Owner",
       userId: 1,
+    });
+  });
+
+  it("allows admin transfer action", () => {
+    const orders = [
+      makeOrder({
+        assignedStaffUserId: 33,
+      }),
+    ];
+
+    const existingAssignments = [
+      makeExistingAssignment({
+        assigned_staff_user_id: 22,
+      }),
+    ];
+
+    validateAssignmentTransitionRules({
+      orders,
+      existingAssignments,
+      roleName: "Admin",
+      userId: 7,
     });
   });
 

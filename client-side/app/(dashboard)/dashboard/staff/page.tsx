@@ -38,13 +38,13 @@ interface StaffMember {
   userId: number;
   name: string;
   email: string;
-  role: "Owner" | "Cashier" | "Staff";
+  role: "Owner" | "Admin" | "Cashier" | "Staff";
   businessId: number;
   businessName: string;
   joinedAt: string;
 }
 
-type ManagedRole = "Cashier" | "Staff";
+type ManagedRole = "Admin" | "Cashier" | "Staff";
 
 interface OwnerInfo {
   id: number;
@@ -65,7 +65,7 @@ export default function StaffPage() {
   // Tab mode
   const [tabMode, setTabMode] = useState<TabMode>("register");
 
-  // Register new kasir form
+  // Register new team member form
   const [regName, setRegName] = useState("");
   const [regEmail, setRegEmail] = useState("");
   const [regPassword, setRegPassword] = useState("");
@@ -144,7 +144,7 @@ export default function StaffPage() {
     setTimeout(() => setCopiedField(null), 2000);
   }
 
-  // ── Register new kasir ──
+  // ── Register new team member ──
   async function handleRegister() {
     if (!regName.trim() || !regEmail.trim() || !regPassword || !regBusinessId) return;
     setRegistering(true);
@@ -163,7 +163,7 @@ export default function StaffPage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        toast.error(data.error || "Gagal mendaftarkan staff");
+        toast.error(data.error || "Gagal mendaftarkan anggota tim");
         return;
       }
       const biz = businesses.find((b) => b.id === regBusinessId);
@@ -181,7 +181,7 @@ export default function StaffPage() {
       setRegPassword("");
       fetchStaff();
     } catch {
-      toast.error("Gagal mendaftarkan staff baru");
+      toast.error("Gagal mendaftarkan anggota tim baru");
     } finally {
       setRegistering(false);
     }
@@ -211,7 +211,7 @@ export default function StaffPage() {
       setInviteEmail("");
       fetchStaff();
     } catch {
-      toast.error("Gagal menambahkan staff");
+      toast.error("Gagal menambahkan anggota tim");
     } finally {
       setInviting(false);
     }
@@ -221,7 +221,7 @@ export default function StaffPage() {
   function openEditModal(member: StaffMember) {
     setEditMember(member);
     setEditName(member.name);
-    setEditRole(member.role === "Cashier" ? "Cashier" : "Staff");
+    setEditRole(member.role as ManagedRole);
     setEditBusinessId(member.businessId);
   }
 
@@ -245,11 +245,11 @@ export default function StaffPage() {
         toast.error(data.error || "Gagal memperbarui");
         return;
       }
-      toast.success("Staff berhasil diperbarui!");
+      toast.success("Anggota tim berhasil diperbarui!");
       setEditMember(null);
       fetchStaff();
     } catch {
-      toast.error("Gagal memperbarui staff");
+      toast.error("Gagal memperbarui anggota tim");
     } finally {
       setSaving(false);
     }
@@ -257,7 +257,7 @@ export default function StaffPage() {
 
   // ── Remove member ──
   async function handleRemove(memberId: number) {
-    if (!confirm("Yakin ingin menghapus staff ini? Mereka tidak bisa mengakses bisnis Anda lagi.")) return;
+    if (!confirm("Yakin ingin menghapus anggota tim ini? Mereka tidak bisa mengakses bisnis Anda lagi.")) return;
     setDeletingId(memberId);
     try {
       const res = await fetch("/api/staff", {
@@ -267,13 +267,13 @@ export default function StaffPage() {
         body: JSON.stringify({ memberId }),
       });
       if (res.ok) {
-        toast.success("Staff berhasil dihapus");
+        toast.success("Anggota tim berhasil dihapus");
         fetchStaff();
       } else {
-        toast.error("Gagal menghapus staff");
+        toast.error("Gagal menghapus anggota tim");
       }
     } catch {
-      toast.error("Gagal menghapus staff");
+      toast.error("Gagal menghapus anggota tim");
     } finally {
       setDeletingId(null);
     }
@@ -285,8 +285,9 @@ export default function StaffPage() {
 
   const sortedMembers = useMemo(() => {
     const roleWeight: Record<ManagedRole, number> = {
-      Staff: 0,
-      Cashier: 1,
+      Admin: 0,
+      Staff: 1,
+      Cashier: 2,
     };
 
     return filteredMembers
@@ -300,16 +301,19 @@ export default function StaffPage() {
   }, [filteredMembers]);
 
   const roleCounts = useMemo(() => {
+    let admin = 0;
     let cashier = 0;
     let staff = 0;
 
     for (const member of filteredMembers) {
+      if (member.role === "Admin") admin += 1;
       if (member.role === "Cashier") cashier += 1;
       if (member.role === "Staff") staff += 1;
     }
 
     return {
       owner: owner ? 1 : 0,
+      admin,
       cashier,
       staff,
     };
@@ -362,7 +366,7 @@ export default function StaffPage() {
           </div>
           Staff
         </h1>
-        <p className="text-gray-500 mt-1 text-sm">Daftarkan staff/kasir, atur bisnis penempatan, dan kelola tim Anda.</p>
+        <p className="text-gray-500 mt-1 text-sm">Daftarkan admin/staff/kasir, atur bisnis penempatan, dan kelola tim Anda.</p>
       </motion.div>
 
       {/* ═══ RBAC Explanation ═══ */}
@@ -373,7 +377,7 @@ export default function StaffPage() {
         className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5"
       >
         <h3 className="font-bold text-gray-900 text-sm mb-3">Perbedaan Hak Akses</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="p-4 bg-amber-50 rounded-xl border border-amber-100">
             <div className="flex items-center gap-2 mb-2">
               <Crown className="w-4 h-4 text-amber-600" />
@@ -386,6 +390,23 @@ export default function StaffPage() {
               <li>✅ Analytics & AI</li>
               <li>✅ Kelola staff</li>
               <li>✅ Export data</li>
+            </ul>
+          </div>
+          <div className="p-4 bg-violet-50 rounded-xl border border-violet-100">
+            <div className="flex items-center gap-2 mb-2">
+              <Shield className="w-4 h-4 text-violet-600" />
+              <span className="font-bold text-violet-800 text-sm">Admin</span>
+            </div>
+            <ul className="text-xs text-violet-700 space-y-1">
+              <li>✅ Kelola operasional harian</li>
+              <li>✅ Akses penjualan & produksi</li>
+              <li>✅ Lihat data tim sesuai bisnis</li>
+              <li>
+                ❌ <s>Kelola owner & hak penuh bisnis</s>
+              </li>
+              <li>
+                ❌ <s>Ubah kepemilikan bisnis</s>
+              </li>
             </ul>
           </div>
           <div className="p-4 bg-blue-50 rounded-xl border border-blue-100">
@@ -433,7 +454,7 @@ export default function StaffPage() {
           >
             <span className="flex items-center justify-center gap-2">
               <UserPlus className="w-4 h-4" />
-              Daftarkan Staff Baru
+              Daftarkan Anggota Baru
             </span>
           </button>
           <button
@@ -455,11 +476,11 @@ export default function StaffPage() {
         </div>
 
         <div className="p-5">
-          {/* ── Tab: Register new kasir ── */}
+          {/* ── Tab: Register new member ── */}
           {tabMode === "register" && (
             <div className="space-y-4">
               <p className="text-xs text-gray-400">
-                Buat akun baru untuk staff/kasir. Pilih bisnis penempatan, lalu berikan email dan password ke anggota tim.
+                Buat akun baru untuk admin/staff/kasir. Pilih bisnis penempatan, lalu berikan email dan password ke anggota tim.
               </p>
 
               {/* Success Card */}
@@ -479,7 +500,7 @@ export default function StaffPage() {
                           : `${newCashierInfo.role} berhasil ditambahkan!`}
                       </p>
                     </div>
-                    <p className="text-xs text-green-700">Berikan info berikut kepada staff agar mereka bisa login:</p>
+                    <p className="text-xs text-green-700">Berikan info berikut kepada anggota tim agar mereka bisa login:</p>
                     <div className="space-y-2">
                       <div className="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-green-200">
                         <div>
@@ -548,7 +569,7 @@ export default function StaffPage() {
                   )}
                   {/* Name */}
                   <div>
-                    <label className="text-xs font-semibold text-gray-600 mb-1 block">Nama Staff</label>
+                    <label className="text-xs font-semibold text-gray-600 mb-1 block">Nama Anggota Tim</label>
                     <div className="relative">
                       <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                       <input
@@ -562,7 +583,7 @@ export default function StaffPage() {
                   </div>
                   {/* Email */}
                   <div>
-                    <label className="text-xs font-semibold text-gray-600 mb-1 block">Email Staff</label>
+                    <label className="text-xs font-semibold text-gray-600 mb-1 block">Email Anggota Tim</label>
                     <div className="relative">
                       <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                       <input
@@ -576,7 +597,7 @@ export default function StaffPage() {
                   </div>
                   {/* Password */}
                   <div>
-                    <label className="text-xs font-semibold text-gray-600 mb-1 block">Password Staff</label>
+                    <label className="text-xs font-semibold text-gray-600 mb-1 block">Password Anggota Tim</label>
                     <div className="relative">
                       <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                       <input
@@ -612,6 +633,7 @@ export default function StaffPage() {
                         onChange={(e) => setRegRole(e.target.value as ManagedRole)}
                         className="w-full appearance-none rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 pr-9 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-300"
                       >
+                        <option value="Admin">Admin Operasional</option>
                         <option value="Staff">Staff Produksi</option>
                         <option value="Cashier">Kasir</option>
                       </select>
@@ -643,7 +665,7 @@ export default function StaffPage() {
           {tabMode === "existing" && (
             <div className="space-y-3">
               <p className="text-xs text-gray-400">
-                Tambahkan user yang <strong>sudah punya akun</strong> sebagai staff. Pilih role dan bisnis penempatannya.
+                Tambahkan user yang <strong>sudah punya akun</strong> sebagai anggota tim. Pilih role dan bisnis penempatannya.
               </p>
               {businesses.length > 1 && (
                 <BusinessSelect value={inviteBusinessId} onChange={(v) => setInviteBusinessId(v)} />
@@ -654,6 +676,7 @@ export default function StaffPage() {
                   onChange={(e) => setInviteRole(e.target.value as ManagedRole)}
                   className="w-full appearance-none rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 pr-9 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-300"
                 >
+                  <option value="Admin">Admin Operasional</option>
                   <option value="Staff">Staff Produksi</option>
                   <option value="Cashier">Kasir</option>
                 </select>
@@ -698,6 +721,9 @@ export default function StaffPage() {
             <div className="mt-1 flex flex-wrap gap-1.5">
               <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
                 <ShieldCheck className="h-3 w-3" /> Owner {roleCounts.owner}
+              </span>
+              <span className="inline-flex items-center gap-1 rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
+                <Shield className="h-3 w-3" /> Admin {roleCounts.admin}
               </span>
               <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
                 <BadgeCheck className="h-3 w-3" /> Cashier {roleCounts.cashier}
@@ -758,21 +784,37 @@ export default function StaffPage() {
 
             {/* Members */}
             {sortedMembers.map((member) => {
+              const isAdmin = member.role === "Admin";
               const isCashier = member.role === "Cashier";
-              const avatarClass = isCashier ? "bg-blue-100" : "bg-emerald-100";
-              const iconClass = isCashier ? "text-blue-600" : "text-emerald-600";
-              const roleBadgeClass = isCashier
-                ? "bg-blue-100 text-blue-700"
-                : "bg-emerald-100 text-emerald-700";
-              const roleLabel = isCashier ? "Cashier" : "Staff";
+              const isStaff = member.role === "Staff";
+              const avatarClass = isAdmin
+                ? "bg-violet-100"
+                : isCashier
+                  ? "bg-blue-100"
+                  : "bg-emerald-100";
+              const iconClass = isAdmin
+                ? "text-violet-600"
+                : isCashier
+                  ? "text-blue-600"
+                  : "text-emerald-600";
+              const roleBadgeClass = isAdmin
+                ? "bg-violet-100 text-violet-700"
+                : isCashier
+                  ? "bg-blue-100 text-blue-700"
+                  : "bg-emerald-100 text-emerald-700";
+              const roleLabel = isAdmin ? "Admin" : isCashier ? "Cashier" : "Staff";
 
               return (
               <div key={member.id} className="px-5 py-4 flex items-center gap-4 hover:bg-gray-50 transition">
                 <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${avatarClass}`}>
-                  {isCashier ? (
+                  {isAdmin ? (
+                    <Shield className={`w-5 h-5 ${iconClass}`} />
+                  ) : isCashier ? (
                     <BadgeCheck className={`w-5 h-5 ${iconClass}`} />
-                  ) : (
+                  ) : isStaff ? (
                     <Users className={`w-5 h-5 ${iconClass}`} />
+                  ) : (
+                    <User className={`w-5 h-5 ${iconClass}`} />
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
@@ -794,7 +836,7 @@ export default function StaffPage() {
                 <button
                   onClick={() => openEditModal(member)}
                   className="p-2 text-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition cursor-pointer"
-                  title="Edit staff"
+                  title="Edit anggota tim"
                 >
                   <Pencil className="w-4 h-4" />
                 </button>
@@ -803,7 +845,7 @@ export default function StaffPage() {
                   onClick={() => handleRemove(member.id)}
                   disabled={deletingId === member.id}
                   className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition cursor-pointer disabled:opacity-50"
-                  title="Hapus staff"
+                  title="Hapus anggota tim"
                 >
                   {deletingId === member.id ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -820,8 +862,8 @@ export default function StaffPage() {
                 <Users className="w-10 h-10 mx-auto mb-2 opacity-40" />
                 <p className="text-sm">
                   {members.length === 0
-                    ? "Belum ada staff. Daftarkan staff pertama Anda!"
-                    : "Tidak ada staff di bisnis ini."}
+                    ? "Belum ada anggota tim. Daftarkan anggota pertama Anda!"
+                    : "Tidak ada anggota tim di bisnis ini."}
                 </p>
               </div>
             )}
@@ -849,7 +891,7 @@ export default function StaffPage() {
               <div className="flex items-center justify-between">
                 <h3 className="font-bold text-gray-900 flex items-center gap-2">
                   <Pencil className="w-4 h-4 text-indigo-600" />
-                  Edit Staff
+                  Edit Anggota Tim
                 </h3>
                 <button onClick={() => setEditMember(null)} className="p-1 hover:bg-gray-100 rounded-lg cursor-pointer">
                   <X className="w-5 h-5 text-gray-400" />
@@ -890,6 +932,7 @@ export default function StaffPage() {
                       onChange={(e) => setEditRole(e.target.value as ManagedRole)}
                       className="w-full appearance-none rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 pr-9 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-300"
                     >
+                      <option value="Admin">Admin Operasional</option>
                       <option value="Staff">Staff Produksi</option>
                       <option value="Cashier">Kasir</option>
                     </select>
@@ -907,7 +950,7 @@ export default function StaffPage() {
                     <BusinessSelect value={editBusinessId} onChange={(v) => setEditBusinessId(v)} />
                     {editBusinessId !== editMember.businessId && (
                       <p className="mt-1.5 text-[11px] text-amber-600 font-medium">
-                        ⚠️ Staff akan dipindahkan dari <strong>{editMember.businessName}</strong> ke{" "}
+                        ⚠️ Anggota tim akan dipindahkan dari <strong>{editMember.businessName}</strong> ke{" "}
                         <strong>{businesses.find((b) => b.id === editBusinessId)?.name}</strong>
                       </p>
                     )}

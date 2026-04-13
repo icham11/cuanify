@@ -1355,7 +1355,7 @@ function buildFallbackHtml(
             ${field("Address", order.address)}
             ${field("Notes", order.notes)}
           </div>
-          <div class="footer">Cuanify Bakery Notification</div>
+          <div class="footer">Crumbella Bakery Notification</div>
         </div>
       </body>
     </html>

@@ -2,8 +2,6 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
-import Image from "next/image";
 import { Eye, EyeOff } from "lucide-react";
 
 export default function RegisterPage() {
@@ -53,27 +51,13 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-linear-to-br from-indigo-50 via-white to-purple-50 flex items-center justify-center p-4">
       {/* Decorative blobs */}
       <div className="absolute top-0 right-0 w-96 h-96 bg-purple-200/30 rounded-full blur-3xl translate-x-1/3 -translate-y-1/3 pointer-events-none" />
       <div className="absolute bottom-0 left-0 w-80 h-80 bg-indigo-200/30 rounded-full blur-3xl -translate-x-1/3 translate-y-1/3 pointer-events-none" />
 
       <div className="w-full max-w-md relative z-10">
         <div className="bg-white/90 backdrop-blur-sm p-8 sm:p-10 rounded-2xl shadow-xl border border-white/60">
-          {/* Logo */}
-          <div className="flex justify-center mb-6">
-            <Link href="/" className="group">
-              <Image
-                src="/cuanify-logo.svg"
-                alt="Cuanify"
-                width={180}
-                height={44}
-                className="h-10 w-auto"
-                priority
-              />
-            </Link>
-          </div>
-
           <h1 className="text-2xl font-bold text-center text-gray-900 mb-1">
             Buat Akun Baru
           </h1>
@@ -127,7 +111,7 @@ export default function RegisterPage() {
               <button
                 type="button"
                 tabIndex={-1}
-                className="absolute right-3 top-[34px] text-gray-400 hover:text-gray-600 transition"
+                className="absolute right-3 top-8.5 text-gray-400 hover:text-gray-600 transition"
                 onClick={() => setShowPassword((v) => !v)}
               >
                 {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
@@ -158,7 +142,7 @@ export default function RegisterPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full mt-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold py-3 rounded-xl transition shadow-md shadow-indigo-200 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+              className="w-full mt-2 bg-linear-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold py-3 rounded-xl transition shadow-md shadow-indigo-200 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
             >
               {loading ? "Mendaftar..." : "Daftar Gratis"}
             </button>
@@ -178,7 +162,7 @@ export default function RegisterPage() {
         </div>
 
         <p className="text-xs text-gray-400 text-center mt-6">
-          &copy; 2026 Cuanify. All rights reserved.
+          &copy; 2026 Crumbella Admin. All rights reserved.
         </p>
       </div>
     </div>

@@ -245,7 +245,7 @@ export default function DebtsPage() {
         @media print { body { margin: 0; } }
       </style></head><body>
       <div class="center">
-        <h2>${business?.name || "Cuanify"}</h2>
+        <h2>${business?.name || "Crumbella"}</h2>
         <p style="margin:0">${business?.location || ""}</p>
         <div class="divider"></div>
         <p class="bold">${paymentAmount ? "BUKTI PEMBAYARAN KASBON" : "BUKTI KASBON"}</p>
@@ -270,7 +270,7 @@ export default function DebtsPage() {
       </div>
       ${debt.notes ? `<div class="divider"></div><p style="font-size:11px;color:#666">Catatan: ${debt.notes}</p>` : ""}
       <div class="divider"></div>
-      <p class="center" style="font-size:10px;color:#999;margin-top:8px">Dicetak oleh Cuanify<br/>${now}</p>
+      <p class="center" style="font-size:10px;color:#999;margin-top:8px">Dicetak oleh Crumbella<br/>${now}</p>
       </body></html>`);
     w.document.close();
     w.print();

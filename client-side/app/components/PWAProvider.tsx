@@ -155,7 +155,7 @@ export default function PWAProvider() {
                 <Download className="w-5 h-5 text-indigo-600" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="font-semibold text-gray-900 text-sm">Install Cuanify</p>
+                <p className="font-semibold text-gray-900 text-sm">Install Crumbella</p>
                 <p className="text-xs text-gray-500 mt-0.5">
                   Install aplikasi di perangkat Anda untuk akses cepat dan pengalaman yang lebih baik
                 </p>

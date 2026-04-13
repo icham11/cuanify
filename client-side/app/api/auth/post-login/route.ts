@@ -6,7 +6,8 @@ import { requireAuth, AuthError } from "@/lib/auth/session";
  *
  * After login (email/password or Google OAuth), this route checks the user's role
  * and redirects them to the correct page:
- *   - Owner  → /dashboard
+ *   - Owner → /dashboard/business
+ *   - Admin → /bakery/bookings
  *   - Cashier → /pos
  *   - Staff   → /bakery/production
  *   - No business → /onboarding
@@ -20,6 +21,9 @@ export async function GET(request: NextRequest) {
     if (auth.role === "Owner") {
       return NextResponse.redirect(new URL("/dashboard/business", baseUrl));
     }
+    if (auth.role === "Admin") {
+      return NextResponse.redirect(new URL("/bakery/bookings", baseUrl));
+    }
     if (auth.role === "Cashier") {
       return NextResponse.redirect(new URL("/pos", baseUrl));
     }
@@ -27,7 +31,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(new URL("/bakery/production", baseUrl));
     }
 
-    return NextResponse.redirect(new URL("/dashboard/business", baseUrl));
+    return NextResponse.redirect(new URL("/bakery/bookings", baseUrl));
   } catch (error) {
     if (error instanceof AuthError) {
       // No business found → onboarding

@@ -38,7 +38,8 @@ export default function MobileNav({
 }: MobileNavProps) {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const pathname = usePathname();
-  const { isOwner, isCashier, isStaff, userName } = useRole();
+  const { isOwner, isAdmin, isCashier, isStaff, userName } = useRole();
+  const isBakeryManager = isOwner || isAdmin;
 
   const isActive = (href: string) => {
     if (!pathname) return false;
@@ -55,6 +56,13 @@ export default function MobileNav({
         { href: "/bakery/production", icon: Factory, label: "Produksi" },
         { href: "/bakery/calendar", icon: CalendarDays, label: "Calendar" },
       ]
+    : isAdmin
+      ? [
+          { href: "/bakery/bookings", icon: ClipboardList, label: "Bookings" },
+          { href: "/bakery/production", icon: Factory, label: "Produksi" },
+          { href: "/bakery/calendar", icon: CalendarDays, label: "Calendar" },
+          { href: "/bakery/dashboard", icon: History, label: "Omzet" },
+        ]
     : isStaff
       ? [{ href: "/bakery/production", icon: Factory, label: "Produksi" }]
       : [
@@ -175,7 +183,7 @@ export default function MobileNav({
 
             {/* Nav links */}
             <div className="relative flex-1 space-y-1 px-4 py-4">
-              {(isOwner || isStaff) && (
+              {(isBakeryManager || isStaff) && (
                 <>
                   <p className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5f78a1]">
                     Bakery
@@ -189,6 +197,10 @@ export default function MobileNav({
                         active={isActive("/bakery/dashboard")}
                         onClick={() => setIsDrawerOpen(false)}
                       />
+                    </>
+                  )}
+                  {isBakeryManager && (
+                    <>
                       <NavLink
                         href="/bakery/bookings"
                         icon={ClipboardList}
@@ -270,34 +282,44 @@ export default function MobileNav({
                   <p className="px-3 pb-1 pt-4 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5f78a1]">
                     Sales
                   </p>
+                  {!isAdmin && (
+                    <NavLink
+                      href="/pos"
+                      icon={ShoppingCart}
+                      label="POS"
+                      active={isActive("/pos")}
+                      onClick={() => setIsDrawerOpen(false)}
+                    />
+                  )}
                   <NavLink
-                    href="/pos"
-                    icon={ShoppingCart}
-                    label="POS"
-                    active={isActive("/pos")}
-                    onClick={() => setIsDrawerOpen(false)}
-                  />
-                  <NavLink
-                    href="/dashboard/sales-history"
+                    href={isAdmin ? "/bakery/dashboard" : "/dashboard/sales-history"}
                     icon={History}
-                    label="Sales History"
-                    active={isActive("/dashboard/sales-history")}
+                    label={isAdmin ? "Omzet Harian" : "Sales History"}
+                    active={
+                      isAdmin
+                        ? isActive("/bakery/dashboard")
+                        : isActive("/dashboard/sales-history")
+                    }
                     onClick={() => setIsDrawerOpen(false)}
                   />
-                  <NavLink
-                    href="/dashboard/debts"
-                    icon={ClipboardList}
-                    label="Kasbon"
-                    active={isActive("/dashboard/debts")}
-                    onClick={() => setIsDrawerOpen(false)}
-                  />
-                  <NavLink
-                    href="/dashboard/shift-history"
-                    icon={Clock}
-                    label="Closing"
-                    active={isActive("/dashboard/shift-history")}
-                    onClick={() => setIsDrawerOpen(false)}
-                  />
+                  {!isAdmin && (
+                    <>
+                      <NavLink
+                        href="/dashboard/debts"
+                        icon={ClipboardList}
+                        label="Kasbon"
+                        active={isActive("/dashboard/debts")}
+                        onClick={() => setIsDrawerOpen(false)}
+                      />
+                      <NavLink
+                        href="/dashboard/shift-history"
+                        icon={Clock}
+                        label="Closing"
+                        active={isActive("/dashboard/shift-history")}
+                        onClick={() => setIsDrawerOpen(false)}
+                      />
+                    </>
+                  )}
                   {isOwner && (
                     <NavLink
                       href="/dashboard/export"

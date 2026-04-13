@@ -4,30 +4,39 @@ import { requireAuth, requireRole, AuthError, ForbiddenError } from "@/lib/auth/
 
 export const dynamic = "force-dynamic";
 
-const ALLOWED_MEMBER_ROLES = ["Cashier", "Staff"] as const;
+const ALLOWED_MEMBER_ROLES = ["Admin", "Cashier", "Staff"] as const;
 type ManagedMemberRole = (typeof ALLOWED_MEMBER_ROLES)[number];
 
 /**
- * GET /api/staff — List all staff members across ALL businesses owned by this user
- * Only Owner can see this.
+ * GET /api/staff — List team members.
+ * - Owner: across all owned businesses
+ * - Admin: active business only
  */
 export async function GET() {
   try {
     const auth = await requireAuth();
-    requireRole(auth, "Owner");
+    if (auth.role !== "Owner" && auth.role !== "Admin") {
+      throw new ForbiddenError("Akses ditolak.");
+    }
 
-    // Get ALL businesses owned by this user
-    const ownedBusinesses = await prisma.business.findMany({
-      where: { userId: auth.userId },
-      select: { id: true, name: true },
-      orderBy: { createdAt: "asc" },
-    });
+    const businesses =
+      auth.role === "Owner"
+        ? await prisma.business.findMany({
+            where: { userId: auth.userId },
+            select: { id: true, name: true },
+            orderBy: { createdAt: "asc" },
+          })
+        : await prisma.business.findMany({
+            where: { id: auth.businessId },
+            select: { id: true, name: true },
+            take: 1,
+          });
 
-    const ownedBusinessIds = ownedBusinesses.map((b) => b.id);
+    const businessIds = businesses.map((b) => b.id);
 
-    // Get all members across all owned businesses
+    // Get members for allowed business scope.
     const members = await prisma.businessMember.findMany({
-      where: { businessId: { in: ownedBusinessIds } },
+      where: { businessId: { in: businessIds } },
       include: {
         user: {
           select: { id: true, name: true, email: true, createdAt: true },
@@ -39,17 +48,19 @@ export async function GET() {
       orderBy: { createdAt: "desc" },
     });
 
-    // Also include the owner
-    const owner = await prisma.user.findUnique({
-      where: { id: auth.userId },
-      select: { id: true, name: true, email: true, createdAt: true },
-    });
+    const owner =
+      auth.role === "Owner"
+        ? await prisma.user.findUnique({
+            where: { id: auth.userId },
+            select: { id: true, name: true, email: true, createdAt: true },
+          })
+        : null;
 
     return NextResponse.json({
       success: true,
       data: {
         owner,
-        businesses: ownedBusinesses,
+        businesses,
         members: members.map((m) => ({
           id: m.id,
           userId: m.userId,
@@ -66,13 +77,13 @@ export async function GET() {
     if (error instanceof AuthError) return NextResponse.json({ error: error.message }, { status: 401 });
     if (error instanceof ForbiddenError) return NextResponse.json({ error: error.message }, { status: 403 });
     console.error("GET /api/staff error:", error);
-    return NextResponse.json({ error: "Gagal memuat data staff" }, { status: 500 });
+    return NextResponse.json({ error: "Gagal memuat data anggota tim" }, { status: 500 });
   }
 }
 
 /**
- * POST /api/staff — Invite a cashier/staff by email to the ACTIVE business
- * Body: { email: string, role?: "Cashier" | "Staff", businessId?: number }
+ * POST /api/staff — Invite an admin/cashier/staff by email to the ACTIVE business
+ * Body: { email: string, role?: "Admin" | "Cashier" | "Staff", businessId?: number }
  * Only Owner can invite.
  */
 export async function POST(request: NextRequest) {
@@ -155,17 +166,17 @@ export async function POST(request: NextRequest) {
     if (error instanceof AuthError) return NextResponse.json({ error: error.message }, { status: 401 });
     if (error instanceof ForbiddenError) return NextResponse.json({ error: error.message }, { status: 403 });
     console.error("POST /api/staff error:", error);
-    return NextResponse.json({ error: "Gagal menambahkan staff" }, { status: 500 });
+    return NextResponse.json({ error: "Gagal menambahkan anggota tim" }, { status: 500 });
   }
 }
 
 /**
- * PATCH /api/staff — Edit a staff member
- * Body: { memberId: number, name?: string, businessId?: number, role?: "Cashier" | "Staff" }
+ * PATCH /api/staff — Edit a team member
+ * Body: { memberId: number, name?: string, businessId?: number, role?: "Admin" | "Cashier" | "Staff" }
  * Owner can:
- *   - Update the staff display name
- *   - Update the staff role (Cashier/Staff)
- *   - Reassign the staff to a different business (owned by the same owner)
+ *   - Update the member display name
+ *   - Update the member role (Admin/Cashier/Staff)
+ *   - Reassign the member to a different business (owned by the same owner)
  */
 export async function PATCH(request: NextRequest) {
   try {
@@ -203,7 +214,7 @@ export async function PATCH(request: NextRequest) {
     });
 
     if (!member) {
-      return NextResponse.json({ error: "Staff tidak ditemukan" }, { status: 404 });
+      return NextResponse.json({ error: "Anggota tim tidak ditemukan" }, { status: 404 });
     }
 
     // Update user name if provided
@@ -230,7 +241,7 @@ export async function PATCH(request: NextRequest) {
 
       if (existingInTarget) {
         return NextResponse.json(
-          { error: "Staff sudah terdaftar di bisnis tujuan" },
+          { error: "Anggota tim sudah terdaftar di bisnis tujuan" },
           { status: 409 },
         );
       }
@@ -268,18 +279,18 @@ export async function PATCH(request: NextRequest) {
         email: updatedUser?.email,
         role: normalizedRole ?? member.role,
       },
-      message: "Staff berhasil diperbarui",
+      message: "Anggota tim berhasil diperbarui",
     });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ error: error.message }, { status: 401 });
     if (error instanceof ForbiddenError) return NextResponse.json({ error: error.message }, { status: 403 });
     console.error("PATCH /api/staff error:", error);
-    return NextResponse.json({ error: "Gagal memperbarui staff" }, { status: 500 });
+    return NextResponse.json({ error: "Gagal memperbarui anggota tim" }, { status: 500 });
   }
 }
 
 /**
- * DELETE /api/staff — Remove a staff member
+ * DELETE /api/staff — Remove a team member
  * Body: { memberId: number }
  * Only Owner can remove. Works across all owned businesses.
  */
@@ -307,7 +318,7 @@ export async function DELETE(request: NextRequest) {
     });
 
     if (!member) {
-      return NextResponse.json({ error: "Staff tidak ditemukan" }, { status: 404 });
+      return NextResponse.json({ error: "Anggota tim tidak ditemukan" }, { status: 404 });
     }
 
     await prisma.businessMember.delete({ where: { id: member.id } });
@@ -317,7 +328,7 @@ export async function DELETE(request: NextRequest) {
     if (error instanceof AuthError) return NextResponse.json({ error: error.message }, { status: 401 });
     if (error instanceof ForbiddenError) return NextResponse.json({ error: error.message }, { status: 403 });
     console.error("DELETE /api/staff error:", error);
-    return NextResponse.json({ error: "Gagal menghapus staff" }, { status: 500 });
+    return NextResponse.json({ error: "Gagal menghapus anggota tim" }, { status: 500 });
   }
 }
 

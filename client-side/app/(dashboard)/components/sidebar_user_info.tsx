@@ -13,7 +13,8 @@ type Props = {
 export default function SidebarUserInfo({ jwtUserName, jwtUserEmail }: Props) {
   const { data: session, status } = useSession()
   const { business, loading } = useBusiness()
-  const { isCashier, userName: roleUserName } = useRole()
+  const { role, userName: roleUserName } = useRole()
+  const isCashier = role === "Cashier"
 
   const userName =
     roleUserName?.trim() ||
@@ -24,6 +25,8 @@ export default function SidebarUserInfo({ jwtUserName, jwtUserEmail }: Props) {
     "User"
 
   const businessName = loading ? "Loading business..." : business?.name ?? "No business"
+  const roleLabel =
+    role === "Owner" ? "Owner" : role === "Admin" ? "Admin" : role === "Staff" ? "Staff" : "Kasir"
 
   return (
     <div className="w-full rounded-3xl bg-[linear-gradient(145deg,rgba(255,255,255,0.95)_0%,rgba(255,245,230,0.92)_100%)] p-4 shadow-[0_16px_34px_-24px_rgba(23,58,122,0.8)] ring-1 ring-white/75 backdrop-blur-sm">
@@ -55,7 +58,7 @@ export default function SidebarUserInfo({ jwtUserName, jwtUserEmail }: Props) {
       </div>
 
       <div className="mb-1 text-center text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9ca3af]">
-        {isCashier ? "Kasir" : "Logged In"}
+        {roleLabel}
       </div>
 
       <div className="truncate text-center text-base font-bold text-[#243b5a]" title={userName}>

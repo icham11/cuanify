@@ -18,7 +18,7 @@ export function isForbiddenError(error: unknown): error is ForbiddenError {
 export type AuthResult = {
   userId: number
   businessId: number
-  role: UserRole // "Owner" | "Cashier" | "Staff"
+  role: UserRole // "Owner" | "Admin" | "Cashier" | "Staff"
 }
 
 function normalizeNumericId(value: unknown): number | undefined {
@@ -128,7 +128,7 @@ export async function requireAuth(): Promise<AuthResult> {
       where: { id: Number(preferredId), userId: Number(userId) },
     })
 
-    // Or as a member (cashier)
+    // Or as a member (admin/cashier/staff)
     if (!business) {
       const membership = await prisma.businessMember.findFirst({
         where: { userId: Number(userId), businessId: Number(preferredId) },
@@ -152,7 +152,7 @@ export async function requireAuth(): Promise<AuthResult> {
     })
   }
 
-  // 5️⃣ If not an owner, check if they're a member (Cashier) of any business
+  // 5️⃣ If not an owner, check if they're a member of any business
   if (!business) {
     const membership = await prisma.businessMember.findFirst({
       where: { userId: Number(userId) },

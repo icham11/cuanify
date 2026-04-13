@@ -50,7 +50,7 @@ export default function NotFound() {
         </div>
 
         <p className="text-xs text-gray-400 mt-6">
-          Cuanify — Bikin Bisnis Makin Cuan
+          Crumbella — Bikin Bisnis Makin Cuan
         </p>
       </div>
     </div>

@@ -9,10 +9,10 @@ export const dynamic = "force-dynamic";
  *
  * The `role` field reflects the user's role for their ACTIVE business:
  *   - If they OWN a business → role = "Owner" (always takes priority)
- *   - If they're only a member (cashier) → role = "Cashier"
+ *   - If they're only a member → role = "Admin" | "Cashier" | "Staff"
  *
  * This prevents the bug where an Owner of Business A who is also
- * added as Cashier in Business B accidentally gets treated as Cashier.
+ * added as member in Business B accidentally gets treated as member.
  */
 export async function GET() {
   try {

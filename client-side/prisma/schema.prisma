@@ -46,6 +46,7 @@ enum ProductType {
 
 enum UserRole {
   Owner
+  Admin
   Cashier
   Staff
 }

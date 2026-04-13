@@ -35,18 +35,18 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "Cuanify — Bikin Bisnis Makin Cuan",
+  title: "Crumbella Workspace",
   description:
-    "Platform cerdas untuk UMKM Indonesia — POS kasir, inventori FIFO, kasbon, AI assistant, dan analytics real-time. Gratis selamanya.",
+    "Workspace operasional internal Crumbella untuk owner, admin, staff, dan kasir.",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "Cuanify",
+    title: "Crumbella Workspace",
   },
   icons: {
-    icon: "/cuanify-icon.svg",
-    apple: "/cuanify-icon.svg",
+    icon: "/icons/icon-192x192.png",
+    apple: "/icons/icon-192x192.png",
   },
 };
 

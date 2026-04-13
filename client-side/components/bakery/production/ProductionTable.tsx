@@ -23,7 +23,7 @@ interface TeamMember {
 interface ViewerIdentity {
   userId: number;
   businessId: number;
-  role: "Owner" | "Cashier" | "Staff";
+  role: "Owner" | "Admin" | "Cashier" | "Staff";
   name: string;
   businessName: string;
 }
@@ -115,7 +115,8 @@ export default function ProductionTable() {
   const router = useRouter();
   const { business, businesses, switchBusiness } = useBusiness();
   const { orders, updateOrderStatus, assignOrderToStaff } = useOrders();
-  const { isOwner, isStaff, role, userName } = useRole();
+  const { isOwner, isAdmin, isStaff, role, userName } = useRole();
+  const isPrivilegedManager = isOwner || isAdmin;
   const { settings: bakerySettings } = useBakerySettings();
   const productionDailyTokenLimit =
     bakerySettings?.dailyProductionTokenLimit ?? DEFAULT_MAX_TOKEN;
@@ -214,6 +215,7 @@ export default function ProductionTable() {
         const parsedBusinessId = parseNumericId(mePayload.data?.businessId);
         const parsedRole =
           mePayload.data?.role === "Owner" ||
+          mePayload.data?.role === "Admin" ||
           mePayload.data?.role === "Cashier" ||
           mePayload.data?.role === "Staff"
             ? mePayload.data.role
@@ -237,7 +239,7 @@ export default function ProductionTable() {
               : "",
         });
 
-        if (parsedRole === "Owner") {
+        if (parsedRole === "Owner" || parsedRole === "Admin") {
           const staffRes = await fetch("/api/staff", { cache: "no-store" });
           if (staffRes.ok) {
             const staffPayload = (await staffRes.json()) as {
@@ -381,7 +383,7 @@ export default function ProductionTable() {
   const trackedStaff = useMemo(() => {
     const byUserId = new Map<number, TeamMember>();
 
-    if (isOwner) {
+    if (isPrivilegedManager) {
       for (const member of teamMembers) {
         byUserId.set(member.userId, member);
       }
@@ -406,7 +408,7 @@ export default function ProductionTable() {
       }
     }
 
-    if (!isOwner && isStaff && viewer?.userId) {
+    if (!isPrivilegedManager && isStaff && viewer?.userId) {
       byUserId.set(viewer.userId, {
         userId: viewer.userId,
         name: viewer.name || userName || "Staff",
@@ -418,7 +420,7 @@ export default function ProductionTable() {
     return Array.from(byUserId.values()).sort((a, b) =>
       a.name.localeCompare(b.name),
     );
-  }, [isOwner, isStaff, orders, teamMembers, viewer, userName]);
+  }, [isPrivilegedManager, isStaff, orders, teamMembers, viewer, userName]);
 
   const staffDailyIndicatorDateKey = filterDate || todayDateKey;
 
@@ -728,16 +730,34 @@ export default function ProductionTable() {
   const updateStatus = (id: string, status: string) => {
     updateOrderStatus(
       id,
-      status as "In Production" | "Ready" | "Delivery" | "Completed",
+      status as
+        | "In Production"
+        | "Ready"
+        | "Delivery"
+        | "Completed"
+        | "Cancelled",
     );
   };
 
-  const getStatusOptions = (status: string) => {
-    if (status === "In Production")
-      return ["In Production", "Ready", "Delivery"];
-    if (status === "Ready") return ["Ready", "Delivery"];
-    if (status === "Delivery") return ["Delivery", "Completed"];
-    return ["In Production", "Ready", "Delivery", "Completed"];
+  const getStatusOptions = (status: string, canCancel: boolean) => {
+    const withCancellation = (options: string[]) =>
+      canCancel ? [...options, "Cancelled"] : options;
+
+    if (status === "In Production") {
+      return withCancellation(["In Production", "Ready", "Delivery"]);
+    }
+    if (status === "Ready") {
+      return withCancellation(["Ready", "Delivery"]);
+    }
+    if (status === "Delivery") {
+      return withCancellation(["Delivery", "Completed"]);
+    }
+    return withCancellation([
+      "In Production",
+      "Ready",
+      "Delivery",
+      "Completed",
+    ]);
   };
 
   const handleClaimByStaff = (orderId: string) => {
@@ -782,7 +802,7 @@ export default function ProductionTable() {
   const handleSwitchBusiness = async (nextBusinessId: string) => {
     const normalized = String(nextBusinessId || "").trim();
     if (!normalized) return;
-    if (!isOwner) return;
+    if (!isPrivilegedManager) return;
     if (String(viewer?.businessId ?? "") === normalized) return;
 
     setSwitchingBusinessId(normalized);
@@ -895,7 +915,7 @@ export default function ProductionTable() {
       });
     const claimDisabled = claimedByOther || exceedsStaffDailyLimit;
 
-    const canOwnerAssignOrTransfer = isOwner;
+    const canOwnerAssignOrTransfer = isPrivilegedManager;
     const ownerActionCandidates = canOwnerAssignOrTransfer
       ? teamMembers.filter(
           (member) => member.userId !== order.assignedStaffUserId,
@@ -997,7 +1017,10 @@ export default function ProductionTable() {
               <StatusDropdown
                 value={normalizedOrderStatus}
                 onChange={(value) => updateStatus(order.id, value)}
-                options={getStatusOptions(normalizedOrderStatus)}
+                options={getStatusOptions(
+                  normalizedOrderStatus,
+                  isPrivilegedManager,
+                )}
                 disabled={isStatusDisabled}
               />
             </div>
@@ -1030,7 +1053,7 @@ export default function ProductionTable() {
 
   return (
     <div className="space-y-6">
-      {isOwner ? (
+      {isPrivilegedManager ? (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
           <p className="text-xs font-medium text-slate-600">
             Business aktif:{" "}
@@ -1226,7 +1249,7 @@ export default function ProductionTable() {
         </div>
       </div>
 
-      {isOwner ? (
+      {isPrivilegedManager ? (
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="mb-3 flex items-center justify-between">
             <h4 className="text-sm font-semibold text-slate-900">
@@ -1327,7 +1350,7 @@ export default function ProductionTable() {
                       Progress selesai {completionPct}%
                     </p>
 
-                    {isOwner && (
+                    {isPrivilegedManager && (
                       <button
                         type="button"
                         onClick={() =>

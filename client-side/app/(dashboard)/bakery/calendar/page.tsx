@@ -43,6 +43,7 @@ import {
 import { useCalendarCapacity } from "@/hooks/useCalendarCapacity";
 import { useBakerySettings } from "@/hooks/useBakerySettings";
 import CalendarCell from "@/components/calendar/CalendarCell";
+import { useRole } from "@/context/RoleContext";
 
 const locales = { id: localeId };
 
@@ -212,6 +213,8 @@ function CalendarToolbar({
 export default function BakeryCalendarPage() {
   const router = useRouter();
   const { orders } = useOrders();
+  const { isOwner, isAdmin } = useRole();
+  const canManageCalendarConnection = isOwner || isAdmin;
   const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
   const [isDateOrdersPopupOpen, setIsDateOrdersPopupOpen] = useState(false);
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -628,27 +631,35 @@ export default function BakeryCalendarPage() {
             >
               Google Events
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className="border-[#dbe2ea] text-[#243b5a] hover:bg-[#fff4ed]"
-              onClick={connectGoogleCalendar}
-            >
-              {oauthStatus.connected
-                ? "Reconnect OAuth"
-                : "Connect Google OAuth"}
-            </Button>
-            {oauthStatus.connected ? (
-              <Button
-                type="button"
-                variant="outline"
-                className="border-rose-200 text-rose-700 hover:bg-rose-50"
-                onClick={() => void disconnectGoogleCalendar()}
-                disabled={isDisconnectingOAuth}
-              >
-                {isDisconnectingOAuth ? "Disconnecting..." : "Disconnect"}
-              </Button>
-            ) : null}
+            {canManageCalendarConnection ? (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="border-[#dbe2ea] text-[#243b5a] hover:bg-[#fff4ed]"
+                  onClick={connectGoogleCalendar}
+                >
+                  {oauthStatus.connected
+                    ? "Reconnect OAuth"
+                    : "Connect Google OAuth"}
+                </Button>
+                {oauthStatus.connected ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="border-rose-200 text-rose-700 hover:bg-rose-50"
+                    onClick={() => void disconnectGoogleCalendar()}
+                    disabled={isDisconnectingOAuth}
+                  >
+                    {isDisconnectingOAuth ? "Disconnecting..." : "Disconnect"}
+                  </Button>
+                ) : null}
+              </>
+            ) : (
+              <span className="self-center text-[11px] font-medium text-slate-500">
+                Hanya owner/admin yang dapat mengubah koneksi OAuth.
+              </span>
+            )}
           </div>
         </CardContent>
       </Card>

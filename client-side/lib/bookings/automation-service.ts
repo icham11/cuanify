@@ -106,7 +106,7 @@ function buildCustomerMessage(order: BookingAutomationOrderPayload): string {
     `Total: ${formatCurrency(order.totalPrice)}`,
     `Pengiriman: ${getDeliverySummary(order)}`,
     `Alamat: ${getPrimaryAddress(order)}`,
-    "Terima kasih sudah order di Cuanify Bakery.",
+    "Terima kasih sudah order di Crumbella Bakery.",
   ].join("\n");
 }
 

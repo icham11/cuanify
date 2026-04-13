@@ -23,7 +23,8 @@ import {
 import { useRole } from "@/context/RoleContext";
 
 export default function SidebarNav() {
-  const { isOwner, isCashier, isStaff, userName, loading } = useRole();
+  const { isOwner, isAdmin, isCashier, isStaff, userName, loading } = useRole();
+  const isBakeryManager = isOwner || isAdmin;
   const pathname = usePathname();
 
   const isActive = (href: string) =>
@@ -97,8 +98,8 @@ export default function SidebarNav() {
         </div>
       )}
 
-      {/* Bakery — Owner + Staff */}
-      {(isOwner || isStaff) && (
+      {/* Bakery — Owner/Admin + Staff */}
+      {(isBakeryManager || isStaff) && (
         <div>
           <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5f78a1]">
             Bakery
@@ -111,6 +112,10 @@ export default function SidebarNav() {
                 label="Dashboard"
                 active={isActive("/bakery/dashboard")}
               />
+            </>
+          )}
+          {isBakeryManager && (
+            <>
               <SidebarLink
                 href="/bakery/bookings"
                 icon={ClipboardList}
@@ -166,35 +171,46 @@ export default function SidebarNav() {
         </div>
       )}
 
-      {/* Sales — All roles */}
+      {/* Sales — Owner/Cashier/Admin */}
+      {!isStaff && (
       <div>
         <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5f78a1]">
           Sales
         </p>
+        {!isAdmin && (
+          <SidebarLink
+            href="/pos"
+            icon={ShoppingCart}
+            label="POS"
+            active={isActive("/pos")}
+          />
+        )}
         <SidebarLink
-          href="/pos"
-          icon={ShoppingCart}
-          label="POS"
-          active={isActive("/pos")}
-        />
-        <SidebarLink
-          href="/dashboard/sales-history"
+          href={isAdmin ? "/bakery/dashboard" : "/dashboard/sales-history"}
           icon={History}
-          label="Sales History"
-          active={isActive("/dashboard/sales-history")}
+          label={isAdmin ? "Omzet Harian" : "Sales History"}
+          active={
+            isAdmin
+              ? isActive("/bakery/dashboard")
+              : isActive("/dashboard/sales-history")
+          }
         />
-        <SidebarLink
-          href="/dashboard/debts"
-          icon={ClipboardList}
-          label="Kasbon"
-          active={isActive("/dashboard/debts")}
-        />
-        <SidebarLink
-          href="/dashboard/shift-history"
-          icon={Clock}
-          label="Closing"
-          active={isActive("/dashboard/shift-history")}
-        />
+        {!isAdmin && (
+          <>
+            <SidebarLink
+              href="/dashboard/debts"
+              icon={ClipboardList}
+              label="Kasbon"
+              active={isActive("/dashboard/debts")}
+            />
+            <SidebarLink
+              href="/dashboard/shift-history"
+              icon={Clock}
+              label="Closing"
+              active={isActive("/dashboard/shift-history")}
+            />
+          </>
+        )}
         {isOwner && (
           <SidebarLink
             href="/dashboard/export"
@@ -204,6 +220,7 @@ export default function SidebarNav() {
           />
         )}
       </div>
+      )}
 
       {/* Inventory — Owner only */}
       {isOwner && (

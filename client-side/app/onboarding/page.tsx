@@ -42,11 +42,11 @@ export default function OnboardingPage() {
           {/* Logo */}
           <div className="flex justify-center mb-6">
             <Image
-              src="/cuanify-logo.svg"
-              alt="Cuanify"
-              width={180}
-              height={44}
-              className="h-10 w-auto"
+              src="/branding/Copy%20of%20logofont%20transparant.png"
+              alt="Crumbella"
+              width={220}
+              height={60}
+              className="h-10 w-auto object-contain"
               priority
             />
           </div>
@@ -66,7 +66,7 @@ export default function OnboardingPage() {
             Setup Bisnis Anda
           </h1>
           <p className="text-center text-gray-500 mb-7 text-sm">
-            Satu langkah lagi sebelum Anda bisa mulai pakai Cuanify
+            Satu langkah lagi sebelum Anda bisa mulai pakai Crumbella
           </p>
 
           <div className="space-y-4">
@@ -109,7 +109,7 @@ export default function OnboardingPage() {
         </div>
 
         <p className="text-xs text-gray-400 text-center mt-6">
-          &copy; 2026 Cuanify. All rights reserved.
+          &copy; 2026 Crumbella Admin. All rights reserved.
         </p>
       </div>
     </div>

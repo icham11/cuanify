@@ -917,7 +917,7 @@ function validateAssignmentTransitionRules(params: {
   userId: number;
 }) {
   const { orders, existingAssignments, roleName, userId } = params;
-  const isOwnerRequest = roleName === "Owner";
+  const isPrivilegedRequest = roleName === "Owner" || roleName === "Admin";
   const isStaffRequest = roleName === "Staff";
   const existingAssignmentMap = new Map(
     existingAssignments.map((row) => [row.external_id, row]),
@@ -929,12 +929,13 @@ function validateAssignmentTransitionRules(params: {
 
     const currentStatus = existing.order_status ?? "Inquiry";
     const statusChanged = currentStatus !== order.orderStatus;
+    const nextStatus = order.orderStatus ?? "";
     const currentAssignee = asPositiveIntOrNull(
       existing.assigned_staff_user_id,
     );
     const nextAssignee = order.assignedStaffUserId;
 
-    if (statusChanged && !nextAssignee) {
+    if (statusChanged && !nextAssignee && nextStatus !== "Cancelled") {
       throw new ForbiddenError("Order must be assigned before changing status");
     }
 
@@ -948,13 +949,13 @@ function validateAssignmentTransitionRules(params: {
       );
     }
 
-    if (!isOwnerRequest) {
+    if (!isPrivilegedRequest) {
       const isStaffClaimOwnUnassignedOrder =
         isStaffRequest && currentAssignee === null && nextAssignee === userId;
 
       if (!isStaffClaimOwnUnassignedOrder) {
         throw new ForbiddenError(
-          "Hanya owner yang dapat memindahkan assignment order.",
+          "Hanya owner/admin yang dapat memindahkan assignment order.",
         );
       }
     }

@@ -3,8 +3,6 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
-import Link from "next/link";
-import Image from "next/image";
 import { Eye, EyeOff } from "lucide-react";
 
 // Helper to read cookie value
@@ -78,30 +76,6 @@ export default function LoginPage() {
       <div className="w-full max-w-md relative z-10">
         {/* Card */}
         <div className="rounded-2xl border border-[#e5e7eb] bg-white/95 p-8 shadow-xl shadow-slate-200/70 backdrop-blur-sm sm:p-10">
-          {/* Logo */}
-          <div className="mb-6 flex justify-center">
-            <Link href="/" className="group">
-              <div className="flex items-center gap-3 rounded-2xl border border-[#e8ecf2] bg-[#fffaf5] px-4 py-3">
-                <Image
-                  src="/branding/Copy%20of%20logo%20versi%202%20transparant.png"
-                  alt="Crumbella"
-                  width={44}
-                  height={44}
-                  className="h-11 w-11 object-contain"
-                  priority
-                />
-                <Image
-                  src="/branding/Copy%20of%20logofont%20transparant.png"
-                  alt="Crumbella Admin"
-                  width={160}
-                  height={34}
-                  className="h-8 w-auto object-contain"
-                  priority
-                />
-              </div>
-            </Link>
-          </div>
-
           <h1 className="mb-1 text-center text-2xl font-bold text-[#243b5a]">
             Selamat Datang
           </h1>

@@ -1,5 +1,5 @@
 /**
- * Cuanify — Service Worker
+ * Crumbella — Service Worker
  *
  * Strategy:
  *  - App Shell (layout, CSS, fonts): Cache-first

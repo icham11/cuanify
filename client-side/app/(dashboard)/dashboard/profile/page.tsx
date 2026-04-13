@@ -623,7 +623,7 @@ export default function ProfilePage() {
         className="flex items-center justify-between px-4 py-3 bg-gray-50 rounded-xl text-xs text-gray-400"
       >
         <span>User ID: #{profile.id}</span>
-        <span>Cuanify • {currentYear}</span>
+        <span>Crumbella • {currentYear}</span>
       </motion.div>
     </div>
   );

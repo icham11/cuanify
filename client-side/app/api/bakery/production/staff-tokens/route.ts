@@ -4,7 +4,6 @@ import {
   AuthError,
   ForbiddenError,
   requireAuth,
-  requireRole,
 } from "@/lib/auth/session";
 
 export const runtime = "nodejs";
@@ -104,7 +103,10 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const auth = await requireAuth();
-    requireRole(auth, "Owner");
+    const roleName = String(auth.role);
+    if (roleName !== "Owner" && roleName !== "Admin") {
+      throw new ForbiddenError("Akses ditolak.");
+    }
 
     await ensureStaffTokenResetTable();
 
