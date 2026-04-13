@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { Page } from "puppeteer-core";
+import chromium from "@sparticuz/chromium";
+import puppeteerCore, { type Page } from "puppeteer-core";
 export interface WhatsAppReferenceImage {
   url: string;
   label?: string;
@@ -1377,8 +1378,6 @@ export async function generateOrderImage(
 
   try {
     if (isProd) {
-      const puppeteerCore = require("puppeteer-core");
-      const chromium = require("@sparticuz/chromium");
       // Required for Vercel/AWS Lambda Serverless environments
       browser = await puppeteerCore.launch({
         args: chromium.args,
@@ -1387,8 +1386,11 @@ export async function generateOrderImage(
         headless: chromium.headless,
       });
     } else {
-      const puppeteer = require("puppeteer");
-      browser = await puppeteer.launch({
+      // Trick Vercel's NFT (Node File Trace) so it DOES NOT bundle the massive local puppeteer package!
+      const puppeteerModule = "puppeteer";
+      const puppeteerLocal = require(puppeteerModule);
+      
+      browser = await puppeteerLocal.launch({
         headless: true,
         args: ["--no-sandbox", "--disable-setuid-sandbox"],
       });
