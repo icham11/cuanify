@@ -84,7 +84,15 @@ const TEMPLATE_WIDTH = 1414;
 const TEMPLATE_HEIGHT = 2000;
 const MARKED_SELECTION_MIN_PIXELS = 180;
 const COMMON_LEFT_TEXT_FIELDS: TemplateTextField[] = [
-  { key: "dateTime", x: 315, y: 296, w: 340, h: 90, fontSize: 30, lineHeight: 1.25 },
+  {
+    key: "dateTime",
+    x: 315,
+    y: 296,
+    w: 340,
+    h: 90,
+    fontSize: 30,
+    lineHeight: 1.25,
+  },
   { key: "recipientName", x: 315, y: 394, w: 340, fontSize: 32 },
   { key: "recipientPhone", x: 315, y: 476, w: 340, fontSize: 32 },
 ];
@@ -107,9 +115,27 @@ const TEMPLATE_LAYOUTS: Record<TemplateKey, TemplateLayout> = {
     ],
     textFields: [
       ...COMMON_LEFT_TEXT_FIELDS,
-      { key: "rightTop", x: COMMON_RIGHT_COLUMN_X, y: 296, w: 280, fontSize: 30 },
-      { key: "rightMiddle", x: COMMON_RIGHT_COLUMN_X, y: 394, w: 280, fontSize: 30 },
-      { key: "rightBottom", x: COMMON_RIGHT_COLUMN_X, y: 476, w: 280, fontSize: 30 },
+      {
+        key: "rightTop",
+        x: COMMON_RIGHT_COLUMN_X,
+        y: 296,
+        w: 280,
+        fontSize: 30,
+      },
+      {
+        key: "rightMiddle",
+        x: COMMON_RIGHT_COLUMN_X,
+        y: 394,
+        w: 280,
+        fontSize: 30,
+      },
+      {
+        key: "rightBottom",
+        x: COMMON_RIGHT_COLUMN_X,
+        y: 476,
+        w: 280,
+        fontSize: 30,
+      },
     ],
   },
   cookies_tower: {
@@ -117,9 +143,27 @@ const TEMPLATE_LAYOUTS: Record<TemplateKey, TemplateLayout> = {
     slots: [{ x: 220, y: 600, w: 980, h: 980 }],
     textFields: [
       ...COMMON_LEFT_TEXT_FIELDS,
-      { key: "rightTop", x: COMMON_RIGHT_COLUMN_X, y: 296, w: 280, fontSize: 30 },
-      { key: "rightMiddle", x: COMMON_RIGHT_COLUMN_X, y: 394, w: 280, fontSize: 30 },
-      { key: "rightBottom", x: COMMON_RIGHT_COLUMN_X, y: 476, w: 280, fontSize: 30 },
+      {
+        key: "rightTop",
+        x: COMMON_RIGHT_COLUMN_X,
+        y: 296,
+        w: 280,
+        fontSize: 30,
+      },
+      {
+        key: "rightMiddle",
+        x: COMMON_RIGHT_COLUMN_X,
+        y: 394,
+        w: 280,
+        fontSize: 30,
+      },
+      {
+        key: "rightBottom",
+        x: COMMON_RIGHT_COLUMN_X,
+        y: 476,
+        w: 280,
+        fontSize: 30,
+      },
     ],
   },
   cupcakes: {
@@ -135,7 +179,13 @@ const TEMPLATE_LAYOUTS: Record<TemplateKey, TemplateLayout> = {
     ],
     textFields: [
       ...COMMON_LEFT_TEXT_FIELDS,
-      { key: "rightTop", x: COMMON_RIGHT_COLUMN_X, y: 296, w: 280, fontSize: 30 },
+      {
+        key: "rightTop",
+        x: COMMON_RIGHT_COLUMN_X,
+        y: 296,
+        w: 280,
+        fontSize: 30,
+      },
       {
         key: "rightMiddle",
         x: COMMON_RIGHT_COLUMN_X,
@@ -217,9 +267,27 @@ const TEMPLATE_LAYOUTS: Record<TemplateKey, TemplateLayout> = {
     ],
     textFields: [
       ...COMMON_LEFT_TEXT_FIELDS,
-      { key: "rightTop", x: COMMON_RIGHT_COLUMN_X, y: 296, w: 280, fontSize: 30 },
-      { key: "rightMiddle", x: COMMON_RIGHT_COLUMN_X, y: 394, w: 280, fontSize: 30 },
-      { key: "rightBottom", x: COMMON_RIGHT_COLUMN_X, y: 476, w: 280, fontSize: 30 },
+      {
+        key: "rightTop",
+        x: COMMON_RIGHT_COLUMN_X,
+        y: 296,
+        w: 280,
+        fontSize: 30,
+      },
+      {
+        key: "rightMiddle",
+        x: COMMON_RIGHT_COLUMN_X,
+        y: 394,
+        w: 280,
+        fontSize: 30,
+      },
+      {
+        key: "rightBottom",
+        x: COMMON_RIGHT_COLUMN_X,
+        y: 476,
+        w: 280,
+        fontSize: 30,
+      },
     ],
   },
   buket_standing: {
@@ -238,9 +306,27 @@ const TEMPLATE_LAYOUTS: Record<TemplateKey, TemplateLayout> = {
     ],
     textFields: [
       ...COMMON_LEFT_TEXT_FIELDS,
-      { key: "rightTop", x: COMMON_RIGHT_COLUMN_X, y: 296, w: 280, fontSize: 30 },
-      { key: "rightMiddle", x: COMMON_RIGHT_COLUMN_X, y: 394, w: 280, fontSize: 30 },
-      { key: "rightBottom", x: COMMON_RIGHT_COLUMN_X, y: 476, w: 280, fontSize: 30 },
+      {
+        key: "rightTop",
+        x: COMMON_RIGHT_COLUMN_X,
+        y: 296,
+        w: 280,
+        fontSize: 30,
+      },
+      {
+        key: "rightMiddle",
+        x: COMMON_RIGHT_COLUMN_X,
+        y: 394,
+        w: 280,
+        fontSize: 30,
+      },
+      {
+        key: "rightBottom",
+        x: COMMON_RIGHT_COLUMN_X,
+        y: 476,
+        w: 280,
+        fontSize: 30,
+      },
     ],
   },
 };
@@ -340,9 +426,7 @@ function tokenizeMatchText(value?: string): string[] {
     .map((token) => token.trim())
     .filter(
       (token) =>
-        token.length > 1 &&
-        !MATCH_STOPWORDS.has(token) &&
-        !/^\d+$/.test(token),
+        token.length > 1 && !MATCH_STOPWORDS.has(token) && !/^\d+$/.test(token),
     );
 }
 
@@ -456,10 +540,7 @@ function scoreReferenceMatch(
       score += 200;
     } else {
       for (const referenceToken of referenceSet) {
-        if (
-          referenceToken.includes(token) ||
-          token.includes(referenceToken)
-        ) {
+        if (referenceToken.includes(token) || token.includes(referenceToken)) {
           score += 80;
           break;
         }
@@ -480,13 +561,17 @@ function orderReferenceImagesForTemplate(
 
   const baseOrdered = [...referenceImages].sort((left, right) => {
     const leftIndex =
-      typeof left.orderIndex === "number" ? left.orderIndex : Number.MAX_SAFE_INTEGER;
+      typeof left.orderIndex === "number"
+        ? left.orderIndex
+        : Number.MAX_SAFE_INTEGER;
     const rightIndex =
       typeof right.orderIndex === "number"
         ? right.orderIndex
         : Number.MAX_SAFE_INTEGER;
     if (leftIndex !== rightIndex) return leftIndex - rightIndex;
-    return normalizeLabel(left.label).localeCompare(normalizeLabel(right.label));
+    return normalizeLabel(left.label).localeCompare(
+      normalizeLabel(right.label),
+    );
   });
 
   if (requestedLabels.length === 0) {
@@ -909,12 +994,23 @@ async function extractMarkedSelectionCrops(
         for (const component of sortedComponents) {
           const boxWidth = component.maxX - component.minX + 1;
           const boxHeight = component.maxY - component.minY + 1;
-          const inset = Math.max(10, Math.round(Math.min(boxWidth, boxHeight) * 0.08));
+          const inset = Math.max(
+            10,
+            Math.round(Math.min(boxWidth, boxHeight) * 0.08),
+          );
 
           const searchMinX = clamp(component.minX + inset, 0, width - 1);
           const searchMinY = clamp(component.minY + inset, 0, height - 1);
-          const searchMaxX = clamp(component.maxX - inset, searchMinX, width - 1);
-          const searchMaxY = clamp(component.maxY - inset, searchMinY, height - 1);
+          const searchMaxX = clamp(
+            component.maxX - inset,
+            searchMinX,
+            width - 1,
+          );
+          const searchMaxY = clamp(
+            component.maxY - inset,
+            searchMinY,
+            height - 1,
+          );
 
           const samples = [
             sampleColor(searchMinX, searchMinY),
@@ -1121,7 +1217,10 @@ function formatTemplateTime(value?: string): string {
 function buildDefaultTemplateFields(
   order: WhatsAppOrderImagePayload,
 ): WhatsAppOrderTemplateFields {
-  const dateLine = [formatTemplateDate(order.deliveryDate), formatTemplateTime(order.deliveryTime)]
+  const dateLine = [
+    formatTemplateDate(order.deliveryDate),
+    formatTemplateTime(order.deliveryTime),
+  ]
     .filter(Boolean)
     .join(" | ");
 
@@ -1143,7 +1242,9 @@ function withRepeatedReferences(
   return Array.from({ length: targetLength }, (_, index) => {
     const source = references[index % references.length];
     return source ?? references[0];
-  }).filter((reference): reference is RenderableReferenceImage => Boolean(reference));
+  }).filter((reference): reference is RenderableReferenceImage =>
+    Boolean(reference),
+  );
 }
 
 function resolveSlotNotes(
@@ -1159,10 +1260,14 @@ function resolveSlotNotes(
     .map((reference) => normalizeLabel(reference.label))
     .filter(Boolean);
 
-  const sourceNotes = explicitNotes.length > 0 ? explicitNotes : referenceLabels;
+  const sourceNotes =
+    explicitNotes.length > 0 ? explicitNotes : referenceLabels;
   if (sourceNotes.length === 0) return [];
 
-  return Array.from({ length: slotCount }, (_, index) => sourceNotes[index % sourceNotes.length]);
+  return Array.from(
+    { length: slotCount },
+    (_, index) => sourceNotes[index % sourceNotes.length],
+  );
 }
 
 function buildTemplateHtml(
@@ -1374,22 +1479,26 @@ export async function generateOrderImage(
   const templateDataUrl = await readTemplateDataUrl(layout.fileName);
 
   let browser: any = null;
-  const isProd = process.env.NODE_ENV === "production" || process.env.VERCEL_ENV === "production" || process.env.VERCEL === "1";
+  const isProd =
+    process.env.NODE_ENV === "production" ||
+    process.env.VERCEL_ENV === "production" ||
+    process.env.VERCEL === "1";
 
   try {
     if (isProd) {
       // Required for Vercel/AWS Lambda Serverless environments
+      const chr = chromium as any;
       browser = await puppeteerCore.launch({
-        args: chromium.args,
-        defaultViewport: chromium.defaultViewport,
-        executablePath: await chromium.executablePath(),
-        headless: chromium.headless,
+        args: chr.args,
+        defaultViewport: chr.defaultViewport,
+        executablePath: await chr.executablePath(),
+        headless: chr.headless,
       });
     } else {
       // Trick Vercel's NFT (Node File Trace) so it DOES NOT bundle the massive local puppeteer package!
       const puppeteerModule = "puppeteer";
       const puppeteerLocal = require(puppeteerModule);
-      
+
       browser = await puppeteerLocal.launch({
         headless: true,
         args: ["--no-sandbox", "--disable-setuid-sandbox"],
