@@ -1,0 +1,463 @@
+"use client";
+
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
+import { formatCurrency } from "@/components/orders/formatters";
+import { useRole } from "@/context/RoleContext";
+import {
+  BarChart3,
+  CalendarClock,
+  Coins,
+  ReceiptText,
+  RefreshCcw,
+} from "lucide-react";
+
+type PaymentStatus = "Paid" | "DP Paid" | "Pending" | "Unknown";
+
+interface DailyOmzetData {
+  businessDate: string;
+  businessDateLabel: string;
+  timeZone: string;
+  generatedAt: string;
+  summary: {
+    bookingCountCreatedToday: number;
+    fullyPaidBookingCountCreatedToday: number;
+    bookingSalesCreatedToday: number;
+    pendingFromCreatedToday: number;
+    paymentReceiptCountToday: number;
+    dpReceivedToday: number;
+    finalReceivedToday: number;
+    totalPaymentsReceived: number;
+  };
+  reconciliation: {
+    bakery: {
+      bookingSalesCreatedToday: number;
+      pendingSalesToday: number;
+      paymentsReceivedToday: number;
+      paymentReceiptCountToday: number;
+    };
+    deltaPaymentsMinusBookingSales: number;
+  };
+  sales: Array<{
+    id: string;
+    reference: string;
+    customerName: string;
+    paymentStatus: PaymentStatus;
+    totalPrice: number;
+    totalPaidAmount: number;
+    remainingBalance: number;
+    createdAt: string;
+  }>;
+  payments: Array<{
+    id: string;
+    reference: string;
+    customerName: string;
+    amount: number;
+    paymentType: "DP" | "Final";
+    note?: string;
+    createdAt: string;
+  }>;
+}
+
+const BUSINESS_TIME_ZONE = "Asia/Jakarta";
+const SALES_PAGE_SIZE = 5;
+
+function getJakartaDateKey(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: BUSINESS_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+}
+
+function formatTimeWib(dateIso: string): string {
+  return new Intl.DateTimeFormat("id-ID", {
+    timeZone: BUSINESS_TIME_ZONE,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(new Date(dateIso));
+}
+
+function formatPaymentStatusLabel(status: PaymentStatus): string {
+  if (status === "Paid") return "Lunas";
+  if (status === "DP Paid") return "DP";
+  if (status === "Pending") return "Belum Bayar";
+  return "-";
+}
+
+export default function AdminDailyOmzetPage() {
+  const { loading: roleLoading, isAdmin } = useRole();
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState("");
+  const [data, setData] = useState<DailyOmzetData | null>(null);
+  const [currentSalesPage, setCurrentSalesPage] = useState(1);
+  const dateKeyRef = useRef<string>(getJakartaDateKey());
+
+  const fetchDailyOmzet = useCallback(async (silent = false) => {
+    if (silent) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
+
+    try {
+      const response = await fetch("/api/admin/daily-omzet", {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      });
+
+      const payload = (await response.json()) as {
+        success?: boolean;
+        data?: DailyOmzetData;
+        error?: string;
+      };
+
+      if (!response.ok || !payload.success || !payload.data) {
+        throw new Error(payload.error || "Gagal memuat data omzet harian");
+      }
+
+      setData(payload.data);
+      setError("");
+      dateKeyRef.current = getJakartaDateKey();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Gagal memuat data omzet harian",
+      );
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (roleLoading || !isAdmin) {
+      if (!roleLoading) {
+        setLoading(false);
+      }
+      return;
+    }
+
+    void fetchDailyOmzet(false);
+  }, [fetchDailyOmzet, roleLoading, isAdmin]);
+
+  useEffect(() => {
+    if (roleLoading || !isAdmin) return;
+
+    const timer = window.setInterval(() => {
+      const currentDateKey = getJakartaDateKey();
+      if (currentDateKey !== dateKeyRef.current) {
+        dateKeyRef.current = currentDateKey;
+      }
+      void fetchDailyOmzet(true);
+    }, 60_000);
+
+    return () => window.clearInterval(timer);
+  }, [fetchDailyOmzet, roleLoading, isAdmin]);
+
+  useEffect(() => {
+    if (roleLoading || !isAdmin) return;
+
+    const handleFocus = () => {
+      void fetchDailyOmzet(true);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void fetchDailyOmzet(true);
+      }
+    };
+
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [fetchDailyOmzet, roleLoading, isAdmin]);
+
+  const summaryCards = useMemo(() => {
+    if (!data) return [];
+
+    const paidBookingCount = data.sales.filter(
+      (sale) => sale.totalPaidAmount > 0,
+    ).length;
+    const dpBookingCount = Math.max(0, paidBookingCount - data.summary.fullyPaidBookingCountCreatedToday);
+
+    return [
+      {
+        title: "Uang Masuk Hari Ini",
+        value: formatCurrency(data.summary.totalPaymentsReceived),
+        hint: `${paidBookingCount} booking sudah bayar (DP atau Lunas)`,
+        icon: ReceiptText,
+      },
+      {
+        title: "Total Pesanan Hari Ini",
+        value: formatCurrency(data.summary.bookingSalesCreatedToday),
+        hint: `${data.summary.bookingCountCreatedToday} booking dibuat hari ini`,
+        icon: BarChart3,
+      },
+      {
+        title: "Sisa Belum Lunas Hari Ini",
+        value: formatCurrency(data.summary.pendingFromCreatedToday),
+        hint: "Sisa dari booking hari ini yang belum lunas",
+        icon: CalendarClock,
+      },
+      {
+        title: "Jumlah Booking Lunas",
+        value: `${data.summary.fullyPaidBookingCountCreatedToday} booking`,
+        hint: `${dpBookingCount} booking DP, ${data.summary.fullyPaidBookingCountCreatedToday} booking lunas`,
+        icon: Coins,
+      },
+    ];
+  }, [data]);
+
+  const totalSales = data?.sales.length ?? 0;
+  const totalSalesPages = Math.max(1, Math.ceil(totalSales / SALES_PAGE_SIZE));
+
+  const paginatedSales = useMemo(() => {
+    if (!data) return [];
+
+    const startIndex = (currentSalesPage - 1) * SALES_PAGE_SIZE;
+    const endIndex = startIndex + SALES_PAGE_SIZE;
+    return data.sales.slice(startIndex, endIndex);
+  }, [data, currentSalesPage]);
+
+  useEffect(() => {
+    setCurrentSalesPage((prev) => Math.min(prev, totalSalesPages));
+  }, [totalSalesPages]);
+
+  if (roleLoading || loading) {
+    return (
+      <div className="space-y-6 pb-10">
+        <GradientPageHeader
+          title="Omzet Harian"
+          description="Memuat ringkasan penjualan booking hari ini..."
+          icon={BarChart3}
+        />
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-2">
+          {Array.from({ length: 4 }).map((_, idx) => (
+            <Card key={idx} className="rounded-xl shadow-sm">
+              <CardContent className="px-6 py-6">
+                <div className="h-4 w-28 animate-pulse rounded bg-gray-100" />
+                <div className="mt-3 h-8 w-40 animate-pulse rounded bg-gray-100" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className="space-y-6 pb-10">
+        <GradientPageHeader
+          title="Omzet Harian"
+          description="Halaman ini khusus untuk role Admin."
+          icon={BarChart3}
+        />
+        <Card className="rounded-xl shadow-sm">
+          <CardContent className="px-6 py-8 text-sm text-gray-600">
+            Kamu tidak punya akses ke halaman ini.
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div className="space-y-6 pb-10">
+        <GradientPageHeader
+          title="Omzet Harian"
+          description="Ringkasan booking hari ini"
+          icon={BarChart3}
+          actions={
+            <button
+              type="button"
+              onClick={() => void fetchDailyOmzet(true)}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-60"
+              disabled={refreshing}
+            >
+              <RefreshCcw
+                className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`}
+              />
+              {refreshing ? "Menyegarkan..." : "Refresh"}
+            </button>
+          }
+        />
+        <Card className="rounded-xl border border-amber-200 shadow-sm">
+          <CardContent className="px-6 py-4 text-sm text-amber-800">
+            Data belum tersedia. Silakan tekan refresh.
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6 pb-10">
+      <GradientPageHeader
+        title="Omzet Harian"
+        description={
+          `Ringkasan booking untuk ${data.businessDateLabel} (${data.timeZone})`
+        }
+        icon={BarChart3}
+        actions={
+          <button
+            type="button"
+            onClick={() => void fetchDailyOmzet(true)}
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-60"
+            disabled={refreshing}
+          >
+            <RefreshCcw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+            {refreshing ? "Menyegarkan..." : "Refresh"}
+          </button>
+        }
+      />
+
+      {error ? (
+        <Card className="rounded-xl border border-rose-200 shadow-sm">
+          <CardContent className="px-6 py-4 text-sm text-rose-700">{error}</CardContent>
+        </Card>
+      ) : null}
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-2">
+        {summaryCards.map((card) => {
+          const Icon = card.icon;
+          return (
+            <Card key={card.title} className="rounded-xl shadow-sm">
+              <CardHeader className="p-6 pb-2">
+                <div className="flex items-center justify-between gap-2">
+                  <CardTitle className="text-sm font-medium text-gray-500">{card.title}</CardTitle>
+                  <span className="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-50 text-indigo-700">
+                    <Icon className="h-4.5 w-4.5" />
+                  </span>
+                </div>
+              </CardHeader>
+              <CardContent className="px-6 pb-6 pt-0">
+                <div className="text-2xl font-semibold text-gray-900">{card.value}</div>
+                <div className="mt-1 text-xs text-gray-500">{card.hint}</div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+
+      <Card className="rounded-xl shadow-sm">
+        <CardContent className="px-6 py-4 text-sm text-gray-600">
+          Cara baca halaman ini: booking yang dibuat hari ini dan sudah dibayar (DP atau Lunas) langsung dihitung sebagai uang masuk hari ini sesuai nominal yang dibayarkan.
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-xl shadow-sm">
+        <CardHeader className="p-6 pb-2">
+          <CardTitle>Daftar Booking Hari Ini</CardTitle>
+          <p className="text-xs text-gray-500">
+            Klik kode booking untuk buka detail lalu ubah status bayar ke Lunas.
+          </p>
+        </CardHeader>
+        <CardContent className="px-6 pb-6 pt-0">
+          {data?.sales.length ? (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-100 text-left text-xs uppercase tracking-wide text-gray-500">
+                    <th className="py-2 pr-4">Jam</th>
+                    <th className="py-2 pr-4">Kode Booking</th>
+                    <th className="py-2 pr-4">Customer</th>
+                    <th className="py-2 pr-4">Status Bayar</th>
+                    <th className="py-2 text-right">Total Pesanan</th>
+                    <th className="py-2 text-right">Sudah Dibayar</th>
+                    <th className="py-2 text-right">Sisa</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginatedSales.map((sale) => (
+                    <tr key={sale.id} className="border-b border-gray-50">
+                      <td className="py-2 pr-4 text-gray-600">{formatTimeWib(sale.createdAt)}</td>
+                      <td className="py-2 pr-4 font-medium text-gray-800">
+                        <Link
+                          href={`/bakery/bookings/${sale.id}`}
+                          className="text-indigo-700 underline decoration-indigo-200 underline-offset-2 transition hover:text-indigo-900"
+                        >
+                          {sale.reference}
+                        </Link>
+                      </td>
+                      <td className="py-2 pr-4 text-gray-600">{sale.customerName}</td>
+                      <td className="py-2 pr-4 text-gray-600">{formatPaymentStatusLabel(sale.paymentStatus)}</td>
+                      <td className="py-2 text-right font-semibold text-gray-900">
+                        {formatCurrency(sale.totalPrice)}
+                      </td>
+                      <td className="py-2 text-right font-semibold text-gray-900">
+                        {formatCurrency(sale.totalPaidAmount)}
+                      </td>
+                      <td className="py-2 text-right font-semibold text-gray-900">
+                        {formatCurrency(sale.remainingBalance)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {totalSalesPages > 1 ? (
+                <div className="mt-4 flex flex-col gap-2 text-sm text-gray-600 sm:flex-row sm:items-center sm:justify-between">
+                  <span>
+                    Menampilkan {(currentSalesPage - 1) * SALES_PAGE_SIZE + 1}-
+                    {Math.min(currentSalesPage * SALES_PAGE_SIZE, totalSales)} dari {totalSales} booking
+                  </span>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setCurrentSalesPage((prev) => Math.max(1, prev - 1))
+                      }
+                      disabled={currentSalesPage === 1}
+                      className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Sebelumnya
+                    </button>
+
+                    <span className="text-xs font-medium text-gray-500">
+                      Halaman {currentSalesPage} / {totalSalesPages}
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setCurrentSalesPage((prev) =>
+                          Math.min(totalSalesPages, prev + 1),
+                        )
+                      }
+                      disabled={currentSalesPage === totalSalesPages}
+                      className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Berikutnya
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/70 px-4 py-6 text-center text-sm text-gray-500">
+              Belum ada booking hari ini.
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <div className="text-xs text-gray-500">
+        Terakhir diperbarui {data ? formatTimeWib(data.generatedAt) : "-"} WIB. Data diperbarui otomatis setiap 1 menit.
+      </div>
+    </div>
+  );
+}

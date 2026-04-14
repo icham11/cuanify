@@ -40,6 +40,7 @@ const STAFF_ALLOWED_PAGE_PREFIXES = ["/bakery/production"];
 
 const ADMIN_ALLOWED_PAGE_PREFIXES = [
   "/bakery/dashboard",
+  "/bakery/omzet-harian",
   "/bakery/bookings",
   "/bakery/calendar",
   "/bakery/production",
@@ -88,6 +89,8 @@ const ADMIN_ALLOWED_API_RULES: Array<{
   { prefix: "/api/bookings/google-calendar/disconnect", methods: ["POST"] },
   { prefix: "/api/bookings/google-calendar/status", methods: ["GET"] },
   { prefix: "/api/bookings/google-calendar/events", methods: ["GET"] },
+  { prefix: "/api/admin/daily-omzet", methods: ["GET"] },
+  { prefix: "/api/admin/daily-omzet/reconciliation", methods: ["GET"] },
   { prefix: "/api/sales", methods: ["GET"] },
 ];
 

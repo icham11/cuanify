@@ -1,13 +1,17 @@
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import puppeteerCore, { type Page } from "puppeteer-core";
+import puppeteerCore, {
+  type Browser,
+  type Page,
+  type Viewport,
+} from "puppeteer-core";
 
 const requireFromHere = createRequire(import.meta.url);
 
 interface ChromiumRuntimeModule {
   args: string[];
-  defaultViewport: Record<string, unknown> | null;
+  defaultViewport: Viewport | null;
   executablePath: () => Promise<string>;
   headless: boolean | "shell" | "new";
 }
@@ -1488,7 +1492,7 @@ export async function generateOrderImage(
   const layout = TEMPLATE_LAYOUTS[templateKey];
   const templateDataUrl = await readTemplateDataUrl(layout.fileName);
 
-  let browser: any = null;
+  let browser: Browser | null = null;
   const isProd =
     process.env.NODE_ENV === "production" ||
     process.env.VERCEL_ENV === "production" ||
@@ -1505,12 +1509,14 @@ export async function generateOrderImage(
           ? chromiumModule.default || chromiumModule
           : chromiumModule
       ) as ChromiumRuntimeModule;
+      const resolvedHeadless: boolean | "shell" =
+        chr.headless === "new" ? true : chr.headless;
 
       browser = await puppeteerCore.launch({
         args: chr.args,
         defaultViewport: chr.defaultViewport,
         executablePath: await chr.executablePath(),
-        headless: chr.headless,
+        headless: resolvedHeadless,
       });
     } else {
       // Load local Chromium only in dev runtime to keep serverless bundles lean.

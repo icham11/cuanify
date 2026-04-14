@@ -61,7 +61,7 @@ export default function MobileNav({
           { href: "/bakery/bookings", icon: ClipboardList, label: "Bookings" },
           { href: "/bakery/production", icon: Factory, label: "Produksi" },
           { href: "/bakery/calendar", icon: CalendarDays, label: "Calendar" },
-          { href: "/bakery/dashboard", icon: History, label: "Omzet" },
+          { href: "/bakery/omzet-harian", icon: History, label: "Omzet" },
         ]
     : isStaff
       ? [{ href: "/bakery/production", icon: Factory, label: "Produksi" }]
@@ -292,12 +292,12 @@ export default function MobileNav({
                     />
                   )}
                   <NavLink
-                    href={isAdmin ? "/bakery/dashboard" : "/dashboard/sales-history"}
+                    href={isAdmin ? "/bakery/omzet-harian" : "/dashboard/sales-history"}
                     icon={History}
                     label={isAdmin ? "Omzet Harian" : "Sales History"}
                     active={
                       isAdmin
-                        ? isActive("/bakery/dashboard")
+                        ? isActive("/bakery/omzet-harian")
                         : isActive("/dashboard/sales-history")
                     }
                     onClick={() => setIsDrawerOpen(false)}

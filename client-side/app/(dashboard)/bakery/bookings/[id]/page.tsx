@@ -37,6 +37,15 @@ import {
   normalizeOrderStatus,
 } from "@/lib/bookings/order-status";
 
+type SaveSyncState = "idle" | "saving" | "saved" | "failed";
+
+type ServerOrderPayload = {
+  id: string;
+  paymentStatus?: string;
+  totalPaidAmount?: number;
+  remainingBalance?: number;
+};
+
 type TokenDifficulty =
   | "SIMPLE"
   | "NORMAL"
@@ -148,6 +157,9 @@ export default function OrderDetailPage() {
   const [isCreatingResi, setIsCreatingResi] = useState(false);
   const [dpPaidDraft, setDpPaidDraft] = useState(0);
   const [finalPaidDraft, setFinalPaidDraft] = useState(0);
+  const [paymentSaveSyncState, setPaymentSaveSyncState] =
+    useState<SaveSyncState>("idle");
+  const [paymentSaveSyncMessage, setPaymentSaveSyncMessage] = useState("");
 
   const order = useMemo(
     () => orders.find((item) => item.id === orderId),
@@ -237,6 +249,116 @@ export default function OrderDetailPage() {
     setDpPaidDraft(Number(order.dpPaidAmount ?? 0));
     setFinalPaidDraft(Number(order.finalPaidAmount ?? 0));
   }, [order]);
+
+  useEffect(() => {
+    setPaymentSaveSyncState("idle");
+    setPaymentSaveSyncMessage("");
+  }, [order?.id]);
+
+  const verifyPaymentSavedToServer = async (params: {
+    orderId: string;
+    expectedStatus: "DP Paid" | "Paid";
+    expectedTotalPaid: number;
+    expectedRemaining: number;
+  }) => {
+    const { orderId, expectedStatus, expectedTotalPaid, expectedRemaining } =
+      params;
+
+    for (let attempt = 0; attempt < 7; attempt += 1) {
+      try {
+        const response = await fetch("/api/bookings/orders", {
+          method: "GET",
+          credentials: "include",
+          cache: "no-store",
+        });
+
+        if (response.ok) {
+          const payload = (await response.json()) as {
+            success?: boolean;
+            data?: { orders?: ServerOrderPayload[] };
+          };
+
+          const serverOrder = payload.data?.orders?.find(
+            (entry) => entry.id === orderId,
+          );
+
+          if (serverOrder) {
+            const normalizedStatus =
+              serverOrder.paymentStatus === "Pending"
+                ? "DP Paid"
+                : serverOrder.paymentStatus;
+            const normalizedTotalPaid = Math.max(
+              0,
+              Math.round(Number(serverOrder.totalPaidAmount ?? 0)),
+            );
+            const normalizedRemaining = Math.max(
+              0,
+              Math.round(Number(serverOrder.remainingBalance ?? 0)),
+            );
+
+            if (
+              normalizedStatus === expectedStatus &&
+              normalizedTotalPaid === expectedTotalPaid &&
+              normalizedRemaining === expectedRemaining
+            ) {
+              return true;
+            }
+          }
+        }
+      } catch {
+        // Retry shortly; server sync can be slightly delayed.
+      }
+
+      await new Promise((resolve) => window.setTimeout(resolve, 450));
+    }
+
+    return false;
+  };
+
+  const runPaymentSaveConfirmation = async (params: {
+    orderId: string;
+    expectedStatus: "DP Paid" | "Paid";
+    expectedTotalPaid: number;
+    expectedRemaining: number;
+  }) => {
+    setPaymentSaveSyncState("saving");
+    setPaymentSaveSyncMessage("Menyimpan ke server...");
+
+    const saved = await verifyPaymentSavedToServer(params);
+    if (saved) {
+      const savedAt = new Intl.DateTimeFormat("id-ID", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      }).format(new Date());
+      setPaymentSaveSyncState("saved");
+      setPaymentSaveSyncMessage(`Tersimpan ke server (${savedAt})`);
+      return;
+    }
+
+    setPaymentSaveSyncState("failed");
+    setPaymentSaveSyncMessage(
+      "Belum terverifikasi di server. Coba refresh atau simpan lagi.",
+    );
+  };
+
+  const handlePaymentStatusChange = (nextStatus: "DP Paid" | "Paid") => {
+    if (!order) return;
+
+    updatePaymentStatus(order.id, nextStatus);
+
+    const total = Math.max(0, Math.round(Number(order.totalPrice || 0)));
+    const expectedTotalPaid =
+      nextStatus === "Paid" ? total : calculateDownPayment(total);
+    const expectedRemaining = Math.max(0, total - expectedTotalPaid);
+
+    void runPaymentSaveConfirmation({
+      orderId: order.id,
+      expectedStatus: nextStatus,
+      expectedTotalPaid,
+      expectedRemaining,
+    });
+  };
 
   const handleReschedule = () => {
     if (!order) return;
@@ -435,10 +557,24 @@ export default function OrderDetailPage() {
 
   const handleRecordPayment = () => {
     if (!order) return;
+    const nextDpPaid = Math.max(0, Math.round(Number(dpPaidDraft || 0)));
+    const nextFinalPaid = Math.max(0, Math.round(Number(finalPaidDraft || 0)));
+    const total = Math.max(0, Math.round(Number(order.totalPrice || 0)));
+    const nextTotalPaid = Math.min(total, nextDpPaid + nextFinalPaid);
+    const nextRemaining = Math.max(0, total - nextTotalPaid);
+    const expectedStatus = nextTotalPaid >= total ? "Paid" : "DP Paid";
+
     recordPayment(order.id, {
-      dpPaidAmount: Math.max(0, Math.round(Number(dpPaidDraft || 0))),
-      finalPaidAmount: Math.max(0, Math.round(Number(finalPaidDraft || 0))),
+      dpPaidAmount: nextDpPaid,
+      finalPaidAmount: nextFinalPaid,
       note: "Payment verified from booking detail",
+    });
+
+    void runPaymentSaveConfirmation({
+      orderId: order.id,
+      expectedStatus,
+      expectedTotalPaid: nextTotalPaid,
+      expectedRemaining: nextRemaining,
     });
   };
 
@@ -853,14 +989,14 @@ export default function OrderDetailPage() {
               <Select
                 value={normalizedPaymentStatus}
                 onChange={(event) =>
-                  updatePaymentStatus(
-                    order.id,
+                  handlePaymentStatusChange(
                     event.target.value as "DP Paid" | "Paid",
                   )
                 }
+                disabled={paymentSaveSyncState === "saving"}
               >
-                <option value="DP Paid">DP Paid</option>
-                <option value="Paid">Paid</option>
+                <option value="DP Paid">DP 50%</option>
+                <option value="Paid">Lunas</option>
               </Select>
               <div className="flex items-center justify-between text-sm text-gray-600">
                 <span>Order Status</span>
@@ -942,9 +1078,25 @@ export default function OrderDetailPage() {
                 variant="outline"
                 className="border-indigo-200 text-indigo-700 hover:bg-indigo-50"
                 onClick={handleRecordPayment}
+                disabled={paymentSaveSyncState === "saving"}
               >
-                Save Payment Verification
+                {paymentSaveSyncState === "saving"
+                  ? "Menyimpan..."
+                  : "Save Payment Verification"}
               </Button>
+              {paymentSaveSyncState !== "idle" ? (
+                <p
+                  className={`text-xs font-medium ${
+                    paymentSaveSyncState === "saved"
+                      ? "text-emerald-700"
+                      : paymentSaveSyncState === "failed"
+                        ? "text-rose-700"
+                        : "text-indigo-700"
+                  }`}
+                >
+                  {paymentSaveSyncMessage}
+                </p>
+              ) : null}
             </CardContent>
           </Card>
 
