@@ -5,9 +5,7 @@ const nextConfig: NextConfig = {
     root: process.cwd(),
   },
 
-  experimental: {
-    serverExternalPackages: ["@sparticuz/chromium", "puppeteer-core"],
-  },
+  serverExternalPackages: ["@sparticuz/chromium", "puppeteer-core"],
 
   // Allow Google profile images + ImageKit
   images: {
