@@ -64,7 +64,6 @@ import {
 import {
   BAKERY_BLOCKED_DATES,
   calculateDownPayment,
-  getDownPaymentLabel,
 } from "@/lib/bookings/config";
 import { calculateOrderTokenFromItems } from "@/lib/bookings/order-token-calculator";
 import {
@@ -2260,8 +2259,8 @@ export default function BookingForm() {
   const wholesaleDiscountPercent =
     useWatch({ control, name: "wholesaleDiscountPercent" }) ?? 0;
   const manualAdjustment = useWatch({ control, name: "manualAdjustment" }) ?? 0;
-  const dpPaidInput = useWatch({ control, name: "dpPaidAmount" }) ?? 0;
-  const finalPaidInput = useWatch({ control, name: "finalPaidAmount" }) ?? 0;
+  const selectedPaymentStatus =
+    useWatch({ control, name: "paymentStatus" }) ?? "DP Paid";
 
   const clearParsedPricingOverride = useCallback(
     (itemIndex: number) => {
@@ -2972,15 +2971,19 @@ export default function BookingForm() {
     subtotalBeforeDiscount - wholesaleDiscountAmount,
   );
   const suggestedDownPaymentAmount = calculateDownPayment(totalPrice);
-  const normalizedDpPaid = Math.max(0, Number(dpPaidInput || 0));
-  const normalizedFinalPaid = Math.max(0, Number(finalPaidInput || 0));
+  const effectiveDpPaidAmount =
+    selectedPaymentStatus === "DP Paid" ? suggestedDownPaymentAmount : 0;
+  const effectiveFinalPaidAmount =
+    selectedPaymentStatus === "Paid" ? totalPrice : 0;
+
   const totalPaid = Math.min(
     totalPrice,
-    normalizedDpPaid + normalizedFinalPaid,
+    effectiveDpPaidAmount + effectiveFinalPaidAmount,
   );
-  const downPaymentAmount = normalizedDpPaid;
+  const downPaymentAmount = effectiveDpPaidAmount;
   const remainingBalance = Math.max(0, totalPrice - totalPaid);
-  const effectivePaymentStatus = remainingBalance <= 0 ? "Paid" : "DP Paid";
+  const effectivePaymentStatus =
+    selectedPaymentStatus === "Paid" ? "Paid" : "DP Paid";
 
   const deliverySlots = useMemo(
     () =>
@@ -3847,8 +3850,8 @@ export default function BookingForm() {
       downPaymentAmount,
       remainingBalance,
       paymentStatus: effectivePaymentStatus,
-      dpPaidAmount: normalizedDpPaid,
-      finalPaidAmount: normalizedFinalPaid,
+      dpPaidAmount: effectiveDpPaidAmount,
+      finalPaidAmount: effectiveFinalPaidAmount,
       whatsAppParsedData: normalizedParsedPreview,
       shippingQuote: selectedShippingQuote,
     };
@@ -7502,8 +7505,8 @@ export default function BookingForm() {
               <label className="grid gap-2 text-sm font-medium text-gray-700">
                 Payment Status
                 <Select {...register("paymentStatus")}>
-                  <option value="DP Paid">DP Paid</option>
-                  <option value="Paid">Paid</option>
+                  <option value="DP Paid">DP 50%</option>
+                  <option value="Paid">Lunas</option>
                 </Select>
               </label>
 
@@ -7531,25 +7534,15 @@ export default function BookingForm() {
               </label>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="grid gap-2 text-sm font-medium text-gray-700">
-                DP Paid Amount (Actual)
-                <Input
-                  type="number"
-                  step="1000"
-                  min={0}
-                  {...register("dpPaidAmount", { valueAsNumber: true })}
-                />
-              </label>
-              <label className="grid gap-2 text-sm font-medium text-gray-700">
-                Final Payment Amount (Actual)
-                <Input
-                  type="number"
-                  step="1000"
-                  min={0}
-                  {...register("finalPaidAmount", { valueAsNumber: true })}
-                />
-              </label>
+            <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 px-4 py-3 text-sm text-indigo-800">
+              <p className="font-semibold">Pembayaran otomatis dari pilihan status:</p>
+              <p className="mt-1">
+                {selectedPaymentStatus === "Paid"
+                  ? "Jika pilih Lunas, sistem otomatis set pembayaran 100% dari total pesanan."
+                  : `Jika pilih DP 50%, sistem otomatis set DP sebesar ${formatCurrency(
+                      suggestedDownPaymentAmount,
+                    )}.`}
+              </p>
             </div>
 
             <label className="grid gap-2 text-sm font-medium text-gray-700">
@@ -7644,46 +7637,10 @@ export default function BookingForm() {
             wholesaleDiscountAmount={wholesaleDiscountAmount}
             totalPrice={totalPrice}
             categoryBreakdown={categoryPriceBreakdown}
+            paymentStatus={effectivePaymentStatus}
+            paymentPaidAmount={totalPaid}
+            paymentRemainingAmount={remainingBalance}
           />
-          <Card className="rounded-xl shadow-sm">
-            <CardHeader className="p-6 pb-2">
-              <CardTitle>Payment Breakdown</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 px-6 pb-6 pt-0 text-sm text-gray-600">
-              <p className="flex items-center justify-between">
-                <span>{getDownPaymentLabel()}</span>
-                <span className="font-semibold text-gray-900">
-                  {formatCurrency(suggestedDownPaymentAmount)}
-                </span>
-              </p>
-              <p className="flex items-center justify-between">
-                <span>DP Paid (Actual)</span>
-                <span className="font-semibold text-gray-900">
-                  {formatCurrency(downPaymentAmount)}
-                </span>
-              </p>
-              <p className="flex items-center justify-between">
-                <span>Total Paid (Actual)</span>
-                <span className="font-semibold text-gray-900">
-                  {formatCurrency(totalPaid)}
-                </span>
-              </p>
-              <p className="flex items-center justify-between">
-                <span>Remaining Balance</span>
-                <span className="font-semibold text-gray-900">
-                  {formatCurrency(remainingBalance)}
-                </span>
-              </p>
-              <p className="text-xs text-gray-500">
-                Effective status from actual paid amounts:{" "}
-                {effectivePaymentStatus}.
-              </p>
-              <p className="rounded-lg bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
-                Formula: Final Price = Base + Add-ons + Ongkir + Manual
-                adjustment - Discount Grosir.
-              </p>
-            </CardContent>
-          </Card>
         </div>
       </div>
     </form>

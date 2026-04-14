@@ -9,6 +9,9 @@ interface PriceSummaryCardProps {
   wholesaleDiscountPercent?: number;
   wholesaleDiscountAmount?: number;
   totalPrice: number;
+  paymentStatus?: "DP Paid" | "Paid";
+  paymentPaidAmount?: number;
+  paymentRemainingAmount?: number;
   categoryBreakdown?: Array<{
     label: string;
     groupLabel?: "CUSTOM" | "SEASONAL_EVENT";
@@ -32,6 +35,9 @@ export default function PriceSummaryCard({
   wholesaleDiscountPercent = 0,
   wholesaleDiscountAmount = 0,
   totalPrice,
+  paymentStatus,
+  paymentPaidAmount,
+  paymentRemainingAmount,
   categoryBreakdown,
 }: PriceSummaryCardProps) {
   const hasCategoryBreakdown = (categoryBreakdown?.length ?? 0) > 0;
@@ -134,6 +140,27 @@ export default function PriceSummaryCard({
             <span>Discount Grosir ({wholesaleDiscountPercent}%)</span>
             <span>-{formatCurrency(wholesaleDiscountAmount)}</span>
           </div>
+        ) : null}
+        {paymentStatus ? (
+          <>
+            <div className="h-px bg-gray-100" />
+            <div className="flex items-center justify-between text-sm text-gray-600">
+              <span>
+                {paymentStatus === "Paid"
+                  ? "Pembayaran (Lunas)"
+                  : "Pembayaran (DP 50%)"}
+              </span>
+              <span className="font-semibold text-gray-900">
+                {formatCurrency(paymentPaidAmount ?? 0)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-sm text-gray-600">
+              <span>Sisa Pembayaran</span>
+              <span className="font-semibold text-gray-900">
+                {formatCurrency(paymentRemainingAmount ?? 0)}
+              </span>
+            </div>
+          </>
         ) : null}
         <div className="h-px bg-gray-100" />
         <div className="flex items-center justify-between rounded-lg bg-indigo-50 px-3 py-2 text-base font-semibold text-indigo-800">

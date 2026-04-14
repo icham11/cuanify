@@ -186,12 +186,12 @@ export default function SidebarNav() {
           />
         )}
         <SidebarLink
-          href={isAdmin ? "/bakery/dashboard" : "/dashboard/sales-history"}
+          href={isAdmin ? "/bakery/omzet-harian" : "/dashboard/sales-history"}
           icon={History}
           label={isAdmin ? "Omzet Harian" : "Sales History"}
           active={
             isAdmin
-              ? isActive("/bakery/dashboard")
+              ? isActive("/bakery/omzet-harian")
               : isActive("/dashboard/sales-history")
           }
         />

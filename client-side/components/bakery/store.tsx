@@ -1050,12 +1050,12 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         );
       }
 
-      const nextId =
-        orders.reduce((max, item) => {
-          const parsed = Number(item.id);
-          return Number.isFinite(parsed) ? Math.max(max, parsed) : max;
-        }, 9300) + 1;
-      const id = String(nextId);
+      const localMaxId = orders.reduce((max, item) => {
+        const parsed = Number(item.id);
+        return Number.isFinite(parsed) ? Math.max(max, parsed) : max;
+      }, 9300);
+      const timestampId = Date.now();
+      const id = String(Math.max(localMaxId + 1, timestampId));
       const sequence = getDailyBookingSequence(orders, order.deliveryDate);
       const bookingCode = generateBookingCode(
         order.customerName,
@@ -1063,6 +1063,26 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         order.deliveryDate,
         sequence,
       );
+
+      const normalizedTotalPrice = normalizeMoney(order.totalPrice);
+      const normalizedDpPaid = normalizeMoney(order.dpPaidAmount);
+      const normalizedFinalPaid = normalizeMoney(order.finalPaidAmount);
+      const normalizedTotalPaid = Math.min(
+        normalizedTotalPrice,
+        normalizedDpPaid + normalizedFinalPaid,
+      );
+
+      if (normalizedTotalPaid <= 0) {
+        throw new Error(
+          "Booking harus sudah dibayar minimal DP sebelum disimpan.",
+        );
+      }
+
+      const inferredPaymentStatus = inferPaymentStatus(
+        normalizedTotalPrice,
+        normalizedTotalPaid,
+      );
+
       const newOrder: BakeryOrder = {
         id,
         resi: "",
@@ -1078,20 +1098,18 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         addOnTotal: order.addOnTotal,
         deliveryFee: order.deliveryFee,
         manualAdjustment: order.manualAdjustment,
-        dpPaidAmount: normalizeMoney(order.dpPaidAmount),
-        finalPaidAmount: normalizeMoney(order.finalPaidAmount),
-        totalPaidAmount:
-          normalizeMoney(order.dpPaidAmount) +
-          normalizeMoney(order.finalPaidAmount),
-        downPaymentAmount: order.downPaymentAmount,
-        remainingBalance: order.remainingBalance,
+        dpPaidAmount: normalizedDpPaid,
+        finalPaidAmount: normalizedFinalPaid,
+        totalPaidAmount: normalizedTotalPaid,
+        downPaymentAmount: normalizedDpPaid,
+        remainingBalance: Math.max(0, normalizedTotalPrice - normalizedTotalPaid),
         paymentTransactions: [
-          ...(normalizeMoney(order.dpPaidAmount) > 0
+          ...(normalizedDpPaid > 0
             ? [
                 {
                   id: `pay-${id}-dp`,
                   timestamp: new Date().toISOString(),
-                  amount: normalizeMoney(order.dpPaidAmount),
+                  amount: normalizedDpPaid,
                   type: "DP" as const,
                   note: "Initial DP recorded on create",
                   userId: actorIdentity.userId,
@@ -1099,12 +1117,12 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
                 },
               ]
             : []),
-          ...(normalizeMoney(order.finalPaidAmount) > 0
+          ...(normalizedFinalPaid > 0
             ? [
                 {
                   id: `pay-${id}-final`,
                   timestamp: new Date().toISOString(),
-                  amount: normalizeMoney(order.finalPaidAmount),
+                  amount: normalizedFinalPaid,
                   type: "Final" as const,
                   note: "Initial final payment recorded on create",
                   userId: actorIdentity.userId,
@@ -1119,8 +1137,8 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         size: order.items[0]?.size,
         addOns: order.items.flatMap((item) => item.addOns).join(", "),
         product: `${order.items.length} item(s)`,
-        totalPrice: order.totalPrice,
-        paymentStatus: order.paymentStatus,
+        totalPrice: normalizedTotalPrice,
+        paymentStatus: inferredPaymentStatus,
         orderStatus: "In Production",
         assignedStaffUserId: null,
         assignedStaffName: "",
@@ -1304,24 +1322,59 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         if (order.id !== id) return order;
         const total = normalizeMoney(order.totalPrice);
         const suggestedDp = calculateDownPayment(total);
-        let dpPaidAmount = normalizeMoney(order.dpPaidAmount);
-        let finalPaidAmount = normalizeMoney(order.finalPaidAmount);
+        const previousDpPaid = normalizeMoney(order.dpPaidAmount);
+        const previousFinalPaid = normalizeMoney(order.finalPaidAmount);
+        let dpPaidAmount = previousDpPaid;
+        let finalPaidAmount = previousFinalPaid;
 
         if (status === "Pending") {
           dpPaidAmount = 0;
           finalPaidAmount = 0;
         } else if (status === "DP Paid") {
-          dpPaidAmount = Math.max(dpPaidAmount, suggestedDp);
+          dpPaidAmount = suggestedDp;
           finalPaidAmount = 0;
         } else {
-          const paidSoFar = dpPaidAmount + finalPaidAmount;
-          if (paidSoFar < total) {
-            finalPaidAmount += total - paidSoFar;
-          }
+          dpPaidAmount = 0;
+          finalPaidAmount = total;
         }
 
         const totalPaidAmount = Math.min(total, dpPaidAmount + finalPaidAmount);
         const remainingBalance = Math.max(0, total - totalPaidAmount);
+        const nowIso = new Date().toISOString();
+        const deltaDp = normalizeMoney(dpPaidAmount - previousDpPaid);
+        const deltaFinal = normalizeMoney(finalPaidAmount - previousFinalPaid);
+
+        const appendedTransactions: PaymentTransaction[] = [];
+        if (deltaDp !== 0) {
+          const direction = deltaDp > 0 ? "added" : "adjusted";
+          appendedTransactions.push({
+            id: `pay-${id}-dp-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+            timestamp: nowIso,
+            amount: deltaDp,
+            type: "DP",
+            note: `Status set to ${status} (DP ${direction})`,
+            userId: actorIdentity.userId,
+            actorName: actorIdentity.name,
+          });
+        }
+
+        if (deltaFinal !== 0) {
+          const direction = deltaFinal > 0 ? "added" : "adjusted";
+          appendedTransactions.push({
+            id: `pay-${id}-final-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+            timestamp: nowIso,
+            amount: deltaFinal,
+            type: "Final",
+            note: `Status set to ${status} (Final ${direction})`,
+            userId: actorIdentity.userId,
+            actorName: actorIdentity.name,
+          });
+        }
+
+        const existingTransactions = Array.isArray(order.paymentTransactions)
+          ? order.paymentTransactions
+          : [];
+
         return {
           ...order,
           paymentStatus: status,
@@ -1330,12 +1383,16 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
           totalPaidAmount,
           downPaymentAmount: dpPaidAmount,
           remainingBalance,
+          paymentTransactions: [
+            ...existingTransactions,
+            ...appendedTransactions,
+          ],
         };
       });
       persistOrders(nextOrders);
       toast.message("Payment status updated");
     },
-    [orders, persistOrders],
+    [orders, persistOrders, actorIdentity],
   );
 
   const recordPayment = useCallback(
@@ -1351,35 +1408,48 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         if (order.id !== id) return order;
 
         const total = normalizeMoney(order.totalPrice);
+        const previousDpPaid = normalizeMoney(order.dpPaidAmount);
+        const previousFinalPaid = normalizeMoney(order.finalPaidAmount);
         const nextDpPaid = normalizeMoney(payload.dpPaidAmount);
         const nextFinalPaid = normalizeMoney(payload.finalPaidAmount);
         const totalPaidAmount = Math.min(total, nextDpPaid + nextFinalPaid);
         const remainingBalance = Math.max(0, total - totalPaidAmount);
         const inferredStatus = inferPaymentStatus(total, totalPaidAmount);
 
-        const transactions: PaymentTransaction[] = [];
-        if (nextDpPaid > 0) {
-          transactions.push({
-            id: `pay-${id}-dp-${Date.now()}`,
+        const deltaDp = normalizeMoney(nextDpPaid - previousDpPaid);
+        const deltaFinal = normalizeMoney(nextFinalPaid - previousFinalPaid);
+        const nowIso = new Date().toISOString();
+
+        const appendedTransactions: PaymentTransaction[] = [];
+        if (deltaDp !== 0) {
+          const direction = deltaDp > 0 ? "added" : "adjusted";
+          appendedTransactions.push({
+            id: `pay-${id}-dp-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
             timestamp: new Date().toISOString(),
-            amount: nextDpPaid,
+            amount: deltaDp,
             type: "DP",
-            note: payload.note || "DP verified",
+            note: payload.note || `DP ${direction}`,
             userId: actorIdentity.userId,
             actorName: actorIdentity.name,
           });
         }
-        if (nextFinalPaid > 0) {
-          transactions.push({
-            id: `pay-${id}-final-${Date.now()}`,
-            timestamp: new Date().toISOString(),
-            amount: nextFinalPaid,
+
+        if (deltaFinal !== 0) {
+          const direction = deltaFinal > 0 ? "added" : "adjusted";
+          appendedTransactions.push({
+            id: `pay-${id}-final-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+            timestamp: nowIso,
+            amount: deltaFinal,
             type: "Final",
-            note: payload.note || "Final payment verified",
+            note: payload.note || `Final payment ${direction}`,
             userId: actorIdentity.userId,
             actorName: actorIdentity.name,
           });
         }
+
+        const existingTransactions = Array.isArray(order.paymentTransactions)
+          ? order.paymentTransactions
+          : [];
 
         return {
           ...order,
@@ -1389,7 +1459,10 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
           totalPaidAmount,
           downPaymentAmount: nextDpPaid,
           remainingBalance,
-          paymentTransactions: transactions,
+          paymentTransactions: [
+            ...existingTransactions,
+            ...appendedTransactions,
+          ],
         };
       });
 
