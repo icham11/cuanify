@@ -1,7 +1,17 @@
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
-import chromium from "@sparticuz/chromium";
 import puppeteerCore, { type Page } from "puppeteer-core";
+
+const requireFromHere = createRequire(import.meta.url);
+
+interface ChromiumRuntimeModule {
+  args: string[];
+  defaultViewport: Record<string, unknown> | null;
+  executablePath: () => Promise<string>;
+  headless: boolean | "shell" | "new";
+}
+
 export interface WhatsAppReferenceImage {
   url: string;
   label?: string;
@@ -1487,7 +1497,15 @@ export async function generateOrderImage(
   try {
     if (isProd) {
       // Required for Vercel/AWS Lambda Serverless environments
-      const chr = chromium as any;
+      const chromiumModule = requireFromHere("@sparticuz/chromium") as
+        | ChromiumRuntimeModule
+        | { default?: ChromiumRuntimeModule };
+      const chr = (
+        "default" in chromiumModule
+          ? chromiumModule.default || chromiumModule
+          : chromiumModule
+      ) as ChromiumRuntimeModule;
+
       browser = await puppeteerCore.launch({
         args: chr.args,
         defaultViewport: chr.defaultViewport,
@@ -1495,9 +1513,8 @@ export async function generateOrderImage(
         headless: chr.headless,
       });
     } else {
-      // Trick Vercel's NFT (Node File Trace) so it DOES NOT bundle the massive local puppeteer package!
-      const puppeteerModule = "puppeteer";
-      const puppeteerLocal = require(puppeteerModule);
+      // Load local Chromium only in dev runtime to keep serverless bundles lean.
+      const puppeteerLocal = requireFromHere("puppeteer") as typeof import("puppeteer");
 
       browser = await puppeteerLocal.launch({
         headless: true,
