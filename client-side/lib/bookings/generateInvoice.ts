@@ -130,15 +130,32 @@ export interface InvoiceData {
   bank: typeof BANK_INFO;
 }
 
+function parseWholesaleDiscountPercent(notes?: string): number | null {
+  if (!notes) return null;
+
+  const match = notes.match(
+    /wholesale\s*discount\s*:\s*(\d+(?:[.,]\d+)?)\s*%/i,
+  );
+  if (!match) return null;
+
+  const parsed = Number(match[1].replace(",", "."));
+  if (!Number.isFinite(parsed)) return null;
+
+  return Math.max(0, Math.min(100, Number(parsed.toFixed(2))));
+}
+
+function deriveDiscountPercent(subtotal: number, discountAmount: number): number {
+  if (subtotal <= 0 || discountAmount <= 0) return 0;
+
+  const derived = (discountAmount / subtotal) * 100;
+  return Math.max(0, Math.min(100, Number(derived.toFixed(2))));
+}
+
 /**
  * Build data invoice dari BakeryOrder.
  * @param order - Data order dari store
- * @param discountPercent - Persentase diskon (0-100), default 0
  */
-export function buildInvoiceData(
-  order: BakeryOrder,
-  discountPercent = 0,
-): InvoiceData {
+export function buildInvoiceData(order: BakeryOrder): InvoiceData {
   // Konversi setiap item order ke baris invoice
   const lineItems: InvoiceLineItem[] = (order.items ?? []).map(
     (item: OrderItem) => {
@@ -179,10 +196,19 @@ export function buildInvoiceData(
   const manualAdjustment = Math.round(Number(order.manualAdjustment || 0));
   const subtotal = Math.max(0, itemsSubtotal + deliveryFee + manualAdjustment);
 
-  // Hitung diskon
-  const clampedDiscount = Math.max(0, Math.min(100, discountPercent));
-  const discountAmount = Math.round(subtotal * (clampedDiscount / 100));
-  const grandTotal = Math.max(0, subtotal - discountAmount);
+  // Prioritaskan total final order yang tersimpan dari booking agar sinkron
+  // dengan nilai yang disimpan setelah diskon grosir dipilih di form booking.
+  const savedGrandTotal = Math.max(0, Math.round(Number(order.totalPrice || 0)));
+  const grandTotal = Math.min(subtotal, savedGrandTotal);
+  const discountAmount = Math.max(0, subtotal - grandTotal);
+
+  const parsedDiscountPercent = parseWholesaleDiscountPercent(order.notes);
+  let discountPercent = parsedDiscountPercent ?? 0;
+  if (discountAmount <= 0) {
+    discountPercent = 0;
+  } else if (discountPercent <= 0) {
+    discountPercent = deriveDiscountPercent(subtotal, discountAmount);
+  }
 
   return {
     invoiceNumber: generateInvoiceNumber(order),
@@ -194,7 +220,7 @@ export function buildInvoiceData(
     deliveryFee,
     manualAdjustment,
     subtotal,
-    discountPercent: clampedDiscount,
+    discountPercent,
     discountAmount,
     grandTotal,
     bank: BANK_INFO,

@@ -45,11 +45,15 @@ function buildInvoiceHtml(data: InvoiceData): string {
     )
     .join("");
 
-  // Baris diskon (hanya render jika > 0)
-  const discountRow =
+  // Baris diskon (render jika ada potongan)
+  const discountLabel =
     data.discountPercent > 0
+      ? `Diskon (${data.discountPercent}%)`
+      : "Diskon";
+  const discountRow =
+    data.discountAmount > 0
       ? `<tr class="summary-row">
-          <td class="summary-label">Diskon (${data.discountPercent}%)</td>
+          <td class="summary-label">${discountLabel}</td>
           <td class="summary-value">(${formatInvoiceCurrency(data.discountAmount)})</td>
         </tr>`
       : "";
@@ -500,14 +504,10 @@ function escapeHtml(value: string): string {
  * Hanya bisa dipanggil dari client-side (browser).
  *
  * @param order - Data order dari bakery store
- * @param discountPercent - Persentase diskon (0-100), default 0
  */
-export function openInvoicePrintWindow(
-  order: BakeryOrder,
-  discountPercent = 0,
-): void {
+export function openInvoicePrintWindow(order: BakeryOrder): void {
   // Build data invoice dari order
-  const invoiceData = buildInvoiceData(order, discountPercent);
+  const invoiceData = buildInvoiceData(order);
 
   // Build HTML
   const html = buildInvoiceHtml(invoiceData);

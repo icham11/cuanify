@@ -11,7 +11,7 @@ import OrderTimeline from "@/components/bakery/shared/OrderTimeline";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { FileText, Printer, Receipt } from "lucide-react";
+import { FileText, Printer } from "lucide-react";
 import { useOrders } from "@/components/bakery/store";
 import { useParams } from "next/navigation";
 import { formatCurrency } from "@/components/orders/formatters";
@@ -169,8 +169,6 @@ export default function OrderDetailPage() {
   const [finalPaidDraft, setFinalPaidDraft] = useState(0);
   const [paymentSaveSyncState, setPaymentSaveSyncState] =
     useState<SaveSyncState>("idle");
-  const [invoiceDiscountPercent, setInvoiceDiscountPercent] = useState(0);
-  const [showInvoiceOptions, setShowInvoiceOptions] = useState(false);
   const [paymentSaveSyncMessage, setPaymentSaveSyncMessage] = useState("");
 
   const order = useMemo(
@@ -708,55 +706,17 @@ export default function OrderDetailPage() {
                       type="button"
                       variant="outline"
                       className="h-8 gap-1 border-orange-200 bg-orange-50 text-orange-700 hover:bg-orange-100"
-                      onClick={() => setShowInvoiceOptions(!showInvoiceOptions)}
-                    >
-                      <Receipt size={14} />
-                      Generate Invoice
-                    </Button>
-                  </>
-                )}
-              </div>
-
-              {/* Panel opsi invoice (diskon) — muncul setelah klik tombol */}
-              {canGenerateInvoice && showInvoiceOptions && (
-                <div className="mt-3 rounded-lg border border-orange-200 bg-orange-50/60 p-3">
-                  <p className="mb-2 text-xs font-semibold text-orange-700">
-                    Opsi Invoice
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <label
-                      htmlFor="invoice-discount"
-                      className="text-xs font-medium text-gray-600"
-                    >
-                      Diskon (%)
-                    </label>
-                    <Input
-                      id="invoice-discount"
-                      type="number"
-                      min={0}
-                      max={100}
-                      value={invoiceDiscountPercent}
-                      onChange={(e) =>
-                        setInvoiceDiscountPercent(
-                          Math.max(0, Math.min(100, Number(e.target.value) || 0)),
-                        )
-                      }
-                      className="h-8 w-20 text-center text-sm"
-                    />
-                    <Button
-                      type="button"
-                      className="h-8 gap-1 bg-orange-600 text-white hover:bg-orange-700"
                       onClick={() => {
-                        openInvoicePrintWindow(order, invoiceDiscountPercent);
+                        openInvoicePrintWindow(order);
                         toast.success("Invoice dibuka di tab baru.");
                       }}
                     >
                       <Printer size={14} />
                       Cetak Invoice
                     </Button>
-                  </div>
-                </div>
-              )}
+                  </>
+                )}
+              </div>
             </CardContent>
           </Card>
 
