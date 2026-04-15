@@ -18,6 +18,7 @@ import { formatCurrency } from "@/components/orders/formatters";
 import { toast } from "sonner";
 import { useRole } from "@/context/RoleContext";
 import { openInvoicePrintWindow } from "@/components/bakery/bookings/InvoiceTemplate";
+import { useBakerySettings } from "@/hooks/useBakerySettings";
 import {
   getDisplayFields,
   WHATSAPP_ORDER_LABELS,
@@ -160,6 +161,8 @@ export default function OrderDetailPage() {
   } = useOrders();
   const params = useParams();
   const { isOwner, isAdmin } = useRole();
+  const { settings: bakerySettings } = useBakerySettings();
+  const blockedDates = bakerySettings?.blockedDates;
   const canGenerateInvoice = isOwner || isAdmin;
   const orderId = typeof params?.id === "string" ? params.id : "";
   const [rescheduleDate, setRescheduleDate] = useState("");
@@ -212,8 +215,9 @@ export default function OrderDetailPage() {
       getDeliverySlotsForDate(effectiveDate, undefined, {
         deliveryMethod,
         items: order?.items ?? [],
+        blockedDates,
       }),
-    [effectiveDate, deliveryMethod, order?.items],
+    [effectiveDate, deliveryMethod, order?.items, blockedDates],
   );
 
   useEffect(() => {
@@ -244,6 +248,7 @@ export default function OrderDetailPage() {
     isDateBlockedForOrdering(effectiveDate, undefined, {
       deliveryMethod,
       items: order?.items ?? [],
+      blockedDates,
     }),
   );
   const isSlotFull = slotUsage >= slotLimitPerHour;

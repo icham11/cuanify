@@ -41,6 +41,7 @@ export interface BookingOrderForOperations {
 export interface DateBlockingContext {
   deliveryMethod?: string;
   items?: BookingItemForOperations[];
+  blockedDates?: readonly string[];
 }
 
 export type SlotOrderType = "CUSTOM" | "SEASONAL";
@@ -298,7 +299,10 @@ export function isDateBlockedForOrdering(
 ): boolean {
   const normalized = normalizeDateInput(deliveryDate);
   if (!normalized) return true;
-  if (BAKERY_BLOCKED_DATES.includes(normalized)) {
+
+  const blockedDates = context?.blockedDates ?? BAKERY_BLOCKED_DATES;
+
+  if (blockedDates.includes(normalized)) {
     if (isCookiesPickupHolidayException(context)) return false;
     return true;
   }

@@ -2990,8 +2990,9 @@ export default function BookingForm() {
       getDeliverySlotsForDate(deliveryDate, undefined, {
         deliveryMethod,
         items: watchedItems,
+        blockedDates,
       }),
-    [deliveryDate, deliveryMethod, watchedItems],
+    [deliveryDate, deliveryMethod, watchedItems, blockedDates],
   );
   const draftOrderType = useMemo<SlotOrderType>(
     () => inferOrderTypeFromItems(watchedItems),
@@ -3010,6 +3011,7 @@ export default function BookingForm() {
     (isDateBlockedForOrdering(deliveryDate, undefined, {
       deliveryMethod,
       items: watchedItems,
+      blockedDates,
     }) ||
       blockedDates.includes(normalizeDateInput(deliveryDate) ?? deliveryDate)),
   );
@@ -3037,6 +3039,7 @@ export default function BookingForm() {
         dateContext: {
           deliveryMethod,
           items: watchedItems,
+          blockedDates,
         },
       });
       return {
@@ -3052,6 +3055,7 @@ export default function BookingForm() {
     draftOrderType,
     deliveryMethod,
     watchedItems,
+    blockedDates,
   ]);
 
   const slotStatusByTime = useMemo(() => {
@@ -3126,6 +3130,7 @@ export default function BookingForm() {
           !isDateBlockedForOrdering(dateKey, now, {
             deliveryMethod,
             items: watchedItems,
+            blockedDates,
           })
         ) {
           const cap = getRecommendationCapacity(dateKey);
@@ -3155,6 +3160,7 @@ export default function BookingForm() {
     getRecommendationCapacity,
     deliveryMethod,
     watchedItems,
+    blockedDates,
   ]);
 
   const handleSuggestionClick = (dateKey: string) => {
@@ -3395,6 +3401,7 @@ export default function BookingForm() {
         {
           deliveryMethod: values.deliveryMethod,
           items: values.items,
+          blockedDates,
         },
       )
     ) {

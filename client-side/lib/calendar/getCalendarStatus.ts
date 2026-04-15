@@ -32,10 +32,6 @@ export interface CalendarDayInput {
   date: string;
 }
 
-function isBlockedDate(dateStr: string): boolean {
-  return BAKERY_BLOCKED_DATES.includes(dateStr);
-}
-
 interface CalendarStatusOptions {
   blockedDates?: readonly string[];
 }
@@ -151,12 +147,9 @@ export function getCalendarStatus(
   }
 
   // Priority 2: BLOCKED
-  const blockedDates =
-    options?.blockedDates && options.blockedDates.length > 0
-      ? options.blockedDates
-      : BAKERY_BLOCKED_DATES;
+  const blockedDates = options?.blockedDates ?? BAKERY_BLOCKED_DATES;
 
-  if (blockedDates.includes(date) || isBlockedDate(date)) {
+  if (blockedDates.includes(date)) {
     return "BLOCKED";
   }
 

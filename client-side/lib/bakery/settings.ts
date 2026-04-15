@@ -33,7 +33,7 @@ function normalizeBlockedDates(value: unknown): string[] {
     .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
     .filter((entry) => /^\d{4}-\d{2}-\d{2}$/.test(entry));
 
-  return Array.from(new Set([...BAKERY_BLOCKED_DATES, ...parsed])).sort();
+  return Array.from(new Set(parsed)).sort();
 }
 
 export function getDefaultBakerySettings(): BakeryBusinessSettings {
