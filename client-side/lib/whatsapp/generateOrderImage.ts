@@ -100,17 +100,17 @@ const MARKED_SELECTION_MIN_PIXELS = 180;
 const COMMON_LEFT_TEXT_FIELDS: TemplateTextField[] = [
   {
     key: "dateTime",
-    x: 335,
-    y: 296,
+    x: 260,
+    y: 238,
     w: 340,
-    h: 90,
+    h: 80,
     fontSize: 30,
     lineHeight: 1.25,
   },
-  { key: "recipientName", x: 335, y: 394, w: 340, fontSize: 32 },
-  { key: "recipientPhone", x: 335, y: 476, w: 340, fontSize: 32 },
+  { key: "recipientName", x: 260, y: 315, w: 340, fontSize: 32 },
+  { key: "recipientPhone", x: 260, y: 392, w: 340, fontSize: 32 },
 ];
-const COMMON_RIGHT_COLUMN_X = 1045;
+const COMMON_RIGHT_COLUMN_X = 965;
 const NOTE_TEXT_X_OFFSET = 115;
 const NOTE_TEXT_Y_OFFSET = 48;
 
@@ -132,14 +132,14 @@ const TEMPLATE_LAYOUTS: Record<TemplateKey, TemplateLayout> = {
       {
         key: "rightTop",
         x: COMMON_RIGHT_COLUMN_X,
-        y: 296,
+        y: 238,
         w: 320,
         fontSize: 30,
       },
       {
         key: "rightMiddle",
         x: COMMON_RIGHT_COLUMN_X,
-        y: 394,
+        y: 315,
         w: 320,
         h: 90,
         fontSize: 30,
@@ -147,7 +147,7 @@ const TEMPLATE_LAYOUTS: Record<TemplateKey, TemplateLayout> = {
       {
         key: "rightBottom",
         x: COMMON_RIGHT_COLUMN_X,
-        y: 476,
+        y: 392,
         w: 320,
         fontSize: 30,
       },
