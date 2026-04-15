@@ -100,19 +100,19 @@ const MARKED_SELECTION_MIN_PIXELS = 180;
 const COMMON_LEFT_TEXT_FIELDS: TemplateTextField[] = [
   {
     key: "dateTime",
-    x: 315,
+    x: 335,
     y: 296,
     w: 340,
     h: 90,
     fontSize: 30,
     lineHeight: 1.25,
   },
-  { key: "recipientName", x: 315, y: 394, w: 340, fontSize: 32 },
-  { key: "recipientPhone", x: 315, y: 476, w: 340, fontSize: 32 },
+  { key: "recipientName", x: 335, y: 394, w: 340, fontSize: 32 },
+  { key: "recipientPhone", x: 335, y: 476, w: 340, fontSize: 32 },
 ];
-const COMMON_RIGHT_COLUMN_X = 1015;
-const NOTE_TEXT_X_OFFSET = 86;
-const NOTE_TEXT_Y_OFFSET = 34;
+const COMMON_RIGHT_COLUMN_X = 1045;
+const NOTE_TEXT_X_OFFSET = 115;
+const NOTE_TEXT_Y_OFFSET = 48;
 
 const TEMPLATE_LAYOUTS: Record<TemplateKey, TemplateLayout> = {
   cake: {
@@ -133,21 +133,22 @@ const TEMPLATE_LAYOUTS: Record<TemplateKey, TemplateLayout> = {
         key: "rightTop",
         x: COMMON_RIGHT_COLUMN_X,
         y: 296,
-        w: 280,
+        w: 320,
         fontSize: 30,
       },
       {
         key: "rightMiddle",
         x: COMMON_RIGHT_COLUMN_X,
         y: 394,
-        w: 280,
+        w: 320,
+        h: 90,
         fontSize: 30,
       },
       {
         key: "rightBottom",
         x: COMMON_RIGHT_COLUMN_X,
         y: 476,
-        w: 280,
+        w: 320,
         fontSize: 30,
       },
     ],
@@ -161,21 +162,21 @@ const TEMPLATE_LAYOUTS: Record<TemplateKey, TemplateLayout> = {
         key: "rightTop",
         x: COMMON_RIGHT_COLUMN_X,
         y: 296,
-        w: 280,
+        w: 320,
         fontSize: 30,
       },
       {
         key: "rightMiddle",
         x: COMMON_RIGHT_COLUMN_X,
         y: 394,
-        w: 280,
+        w: 320,
         fontSize: 30,
       },
       {
         key: "rightBottom",
         x: COMMON_RIGHT_COLUMN_X,
         y: 476,
-        w: 280,
+        w: 320,
         fontSize: 30,
       },
     ],
@@ -197,14 +198,14 @@ const TEMPLATE_LAYOUTS: Record<TemplateKey, TemplateLayout> = {
         key: "rightTop",
         x: COMMON_RIGHT_COLUMN_X,
         y: 296,
-        w: 280,
+        w: 320,
         fontSize: 30,
       },
       {
         key: "rightMiddle",
         x: COMMON_RIGHT_COLUMN_X,
         y: 394,
-        w: 280,
+        w: 320,
         h: 120,
         fontSize: 28,
         lineHeight: 1.25,
@@ -230,7 +231,7 @@ const TEMPLATE_LAYOUTS: Record<TemplateKey, TemplateLayout> = {
         key: "rightMiddle",
         x: COMMON_RIGHT_COLUMN_X,
         y: 394,
-        w: 280,
+        w: 320,
         h: 120,
         fontSize: 28,
         lineHeight: 1.25,
@@ -257,7 +258,7 @@ const TEMPLATE_LAYOUTS: Record<TemplateKey, TemplateLayout> = {
         key: "rightTop",
         x: COMMON_RIGHT_COLUMN_X,
         y: 296,
-        w: 280,
+        w: 320,
         h: 80,
         fontSize: 28,
         lineHeight: 1.25,
@@ -285,21 +286,21 @@ const TEMPLATE_LAYOUTS: Record<TemplateKey, TemplateLayout> = {
         key: "rightTop",
         x: COMMON_RIGHT_COLUMN_X,
         y: 296,
-        w: 280,
+        w: 320,
         fontSize: 30,
       },
       {
         key: "rightMiddle",
         x: COMMON_RIGHT_COLUMN_X,
         y: 394,
-        w: 280,
+        w: 320,
         fontSize: 30,
       },
       {
         key: "rightBottom",
         x: COMMON_RIGHT_COLUMN_X,
         y: 476,
-        w: 280,
+        w: 320,
         fontSize: 30,
       },
     ],
@@ -324,21 +325,21 @@ const TEMPLATE_LAYOUTS: Record<TemplateKey, TemplateLayout> = {
         key: "rightTop",
         x: COMMON_RIGHT_COLUMN_X,
         y: 296,
-        w: 280,
+        w: 320,
         fontSize: 30,
       },
       {
         key: "rightMiddle",
         x: COMMON_RIGHT_COLUMN_X,
         y: 394,
-        w: 280,
+        w: 320,
         fontSize: 30,
       },
       {
         key: "rightBottom",
         x: COMMON_RIGHT_COLUMN_X,
         y: 476,
-        w: 280,
+        w: 320,
         fontSize: 30,
       },
     ],
@@ -1318,8 +1319,8 @@ function buildTemplateHtml(
 
       const heightStyle = fieldConfig.h ? `height:${fieldConfig.h}px;` : "";
       const fontSize = fieldConfig.fontSize ?? 32;
-      const fontWeight = fieldConfig.fontWeight ?? 600;
-      const lineHeight = fieldConfig.lineHeight ?? 1.2;
+      const fontWeight = fieldConfig.fontWeight ?? 700;
+      const lineHeight = fieldConfig.lineHeight ?? 1.15;
 
       return `<div class="template-text" style="left:${fieldConfig.x}px;top:${fieldConfig.y}px;width:${fieldConfig.w}px;${heightStyle}font-size:${fontSize}px;font-weight:${fontWeight};line-height:${lineHeight};">${escapeHtml(value)}</div>`;
     })
@@ -1368,8 +1369,8 @@ function buildTemplateHtml(
             position: absolute;
             color: #111827;
             font-size: 24px;
-            font-weight: 500;
-            line-height: 1.2;
+            font-weight: 700;
+            line-height: 1.15;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;

@@ -130,7 +130,7 @@ const commonFieldDefinitions: FieldDefinition[] = [
   },
 ];
 
-const detailFieldDefinitions: Record<WhatsAppOrderType, FieldDefinition[]> = {
+export const detailFieldDefinitions: Record<WhatsAppOrderType, FieldDefinition[]> = {
   cake: [
     {
       key: "cakeName",

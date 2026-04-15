@@ -10,8 +10,11 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { toast } from "sonner";
-import type { ParsedWhatsAppOrder } from "@/lib/bookings/whatsapp-parser";
+import {
+  detailFieldDefinitions,
+  type ParsedWhatsAppOrder,
+  type WhatsAppOrderType,
+} from "@/lib/bookings/whatsapp-parser";
 import type {
   BookingAutomationEvent,
   BookingAutomationOrderPayload,
@@ -1645,51 +1648,92 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
     (id: string) => {
       const order = orders.find((item) => item.id === id);
       if (!order) return "Order not found.";
-      const code = order.bookingCode || "(pending code)";
-      const productList =
-        order.items?.length > 0
-          ? order.items
-              .map(
-                (item) =>
-                  `${item.quantity}x ${item.productName} (${item.size})`,
-              )
-              .join(", ")
-          : order.product || "-";
-      const address =
-        order.deliveryAddresses?.[0]?.addressLine ||
-        order.customerAddress ||
-        "-";
-      const shippingMethod = order.shippingQuote
-        ? `${order.shippingQuote.provider} ${order.shippingQuote.courierServiceName}`
-        : "-";
+
+      const lines: string[] = ["REKAP ORDER"];
+
+      // 1. Itemized Financials
+      order.items?.forEach((item, index) => {
+        lines.push(`ITEM ${index + 1}`);
+        lines.push("");
+        lines.push(`Nama Produk: ${item.productName}`);
+        lines.push(`Harga Satuan: ${formatIdr(item.basePrice)}`);
+        lines.push(`Qty: ${item.quantity}`);
+        if (item.addOns?.length > 0) {
+          lines.push(`Add On: ${item.addOns.join(", ")}`);
+        }
+        const itemSubtotal = (item.basePrice + (item.addOnTotal || 0)) * item.quantity;
+        lines.push(`Subtotal: ${formatIdr(itemSubtotal)}`);
+        lines.push("");
+      });
+
+      // 2. Financial Summary
+      lines.push(`ONGKIR: ${formatIdr(order.deliveryFee ?? 0)}`);
+      lines.push(`ADJUSTMENT: ${formatIdr(order.manualAdjustment ?? 0)}`);
+      lines.push(`TOTAL: ${formatIdr(order.totalPrice ?? 0)}`);
       const dpAmount =
         order.downPaymentAmount ?? calculateDownPayment(order.totalPrice ?? 0);
+      lines.push(`DP: ${formatIdr(dpAmount)}`);
       const remainingBalance =
         order.paymentStatus === "Paid"
           ? 0
           : (order.remainingBalance ??
             Math.max(0, (order.totalPrice ?? 0) - dpAmount));
-      const tracking = order.shipment?.trackingNumber || "-";
+      lines.push(`SISA: ${formatIdr(remainingBalance)}`);
+      lines.push("");
 
-      return [
-        `Halo Kak ${order.customerName || "Customer"},`,
-        "Terima kasih sudah order di Crumbella.",
-        "",
-        `Kode Booking: ${code}`,
-        `Pesanan: ${productList}`,
-        `Tanggal Pengiriman: ${order.deliveryDate || "-"}`,
-        `Jam Pengiriman: ${order.deliverySlot || "-"}`,
-        `Metode Pengiriman: ${shippingMethod}`,
-        `Alamat Pengiriman: ${address}`,
-        "",
-        `Total: ${formatIdr(order.totalPrice ?? 0)}`,
-        `DP (${BAKERY_DOWN_PAYMENT_PERCENT}%): ${formatIdr(dpAmount)}`,
-        `Sisa Bayar: ${formatIdr(remainingBalance)}`,
-        `Status Pembayaran: ${paymentStatusLabel(order.paymentStatus)}`,
-        `No. Resi: ${tracking}`,
-        "",
-        "Mohon dicek ya Kak. Jika ada revisi, silakan balas chat ini.",
-      ].join("\n");
+      // 3. Logistics Overview
+      lines.push(`Tanggal Pengiriman :`);
+      lines.push(`${order.deliveryDate || "-"}`);
+      lines.push("");
+      lines.push(`KODE BOOKING : ${order.bookingCode || "PENDING"}`);
+      lines.push("");
+
+      // 4. Detailed Product Attributes
+      order.items?.forEach((item) => {
+        lines.push(`Order :`);
+        lines.push(item.productName);
+        lines.push("");
+
+        // Find relevant details for this product type
+        const orderType =
+          item.productType?.toLowerCase() as keyof typeof detailFieldDefinitions;
+        const fieldDefs = detailFieldDefinitions[orderType] || [];
+
+        fieldDefs.forEach((field) => {
+          // Priority: 1. whatsAppParsedData details, 2. Item notes (via simple regex)
+          let value = order.whatsAppParsedData?.details?.[field.key] || "";
+
+          if (!value && item.notes) {
+            const pattern = new RegExp(
+              `${field.label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*[:=-]\\s*([^\\n]+)`,
+              "i",
+            );
+            const match = item.notes.match(pattern);
+            if (match?.[1]) value = match[1].trim();
+          }
+
+          if (value) {
+            lines.push(`${field.label} : ${value}`);
+          }
+        });
+        lines.push("");
+      });
+
+      // 5. Fulfillment & Recipient Details
+      lines.push(`Jam Pengiriman: ${order.deliverySlot || "-"}`);
+      const shippingMethod = order.shippingQuote
+        ? `${order.shippingQuote.provider} ${order.shippingQuote.courierServiceName}`
+        : "-";
+      lines.push(`Metode Pengiriman : ${shippingMethod}`);
+      lines.push(`Nama penerima : ${order.customerName || "-"}`);
+      lines.push(`No. telp penerima : ${order.customerPhone || "-"}`);
+      const address =
+        order.deliveryAddresses?.[0]?.addressLine ||
+        order.customerAddress ||
+        "-";
+      lines.push(`Alamat lengkap : ${address}`);
+
+      return lines.join("\n");
     },
     [orders],
   );
