@@ -387,6 +387,28 @@ function normalizeAreaHint(value: string | undefined): string | undefined {
   return normalized;
 }
 
+/**
+ * Memberikan label kurir yang cerdas.
+ * Jika dijadwalkan untuk nanti, tambahkan awalan "Terjadwal".
+ */
+export function getSmartCourierLabel(args: {
+  courierName: string;
+  deliveryDate?: string;
+  isScheduled?: boolean;
+}): string {
+  const { courierName, deliveryDate, isScheduled } = args;
+  
+  // Jika sudah ditandai terjadwal atau tanggal bukan hari ini
+  const today = parseJakartaToday();
+  const needsScheduledTag = isScheduled || (deliveryDate && deliveryDate > today);
+
+  if (needsScheduledTag) {
+    return `Terjadwal (${courierName})`;
+  }
+
+  return courierName;
+}
+
 function normalizeAddressForLookup(address: string): string {
   return cleanSpaces(
     address
@@ -1442,11 +1464,16 @@ export async function createShippingResi(
     /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) &&
     requestedDate > todayJakarta,
   );
+
+  // Biteship Parameter: scheduled_at
+  // Digunakan untuk menjadwalkan pickup Instant/Same Day di masa depan.
+  const deliveryTime = normalizeDeliveryTime(payload.deliveryTime);
+  const scheduledAt = isFutureDelivery
+    ? `${requestedDate} ${deliveryTime}:00`
+    : undefined;
+
   const deliveryType = isFutureDelivery ? "later" : "now";
   const deliveryDate = isFutureDelivery ? requestedDate : undefined;
-  const deliveryTime = isFutureDelivery
-    ? normalizeDeliveryTime(payload.deliveryTime)
-    : undefined;
 
   const referenceId =
     payload.referenceId || payload.bookingCode || payload.orderId;
@@ -1490,6 +1517,7 @@ export async function createShippingResi(
       delivery_type: deliveryType,
       delivery_date: deliveryDate,
       delivery_time: deliveryTime,
+      scheduled_at: scheduledAt,
       order_note: `Booking ${referenceId}`,
       courier_company: payload.selectedQuote.courierCode,
       courier_type: payload.selectedQuote.courierServiceCode,
@@ -1559,6 +1587,7 @@ export async function createShippingResi(
     trackingUrl: waybill
       ? `https://biteship.com/id/tracking/${encodeURIComponent(waybill)}`
       : undefined,
+    scheduledAt: scheduledAt || undefined,
     createdAt: new Date().toISOString(),
   };
 

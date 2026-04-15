@@ -44,6 +44,7 @@ import {
   isScheduledShipmentOrder,
 } from "@/lib/bookings/shipping-schedule";
 import { normalizeDateInput } from "@/lib/helpers/date-normalization";
+import { getSmartCourierLabel } from "@/lib/bookings/shipping-service";
 
 type SaveSyncState = "idle" | "saving" | "saved" | "failed";
 
@@ -729,7 +730,10 @@ export default function OrderDetailPage() {
                 <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
                   <p className="font-semibold">
                     {order.shippingQuote.provider} -{" "}
-                    {order.shippingQuote.courierServiceName}
+                    {getSmartCourierLabel({
+                      courierName: order.shippingQuote.courierServiceName,
+                      deliveryDate: order.deliveryDate,
+                    })}
                   </p>
                   <p className="text-xs text-gray-600">
                     Ongkir {formatCurrency(order.shippingQuote.price)} | ETA{" "}
