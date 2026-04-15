@@ -575,7 +575,21 @@ export default function OrderDetailPage() {
     } catch (error: unknown) {
       const message =
         error instanceof Error ? error.message : "Gagal membuat resi.";
-      toast.error(message);
+
+      if (message === "biteship_insufficient_balance") {
+        toast.error("Saldo Biteship Tidak Mencukupi!", {
+          description:
+            "Mohon top up saldo Bite Points di dashboard Biteship agar kurir bisa dipanggil.",
+          action: {
+            label: "Top Up Sekarang",
+            onClick: () =>
+              window.open("https://dashboard.biteship.com/pembayaran", "_blank"),
+          },
+          duration: 10000,
+        });
+      } else {
+        toast.error(message);
+      }
     } finally {
       setIsCreatingResi(false);
     }
@@ -635,7 +649,15 @@ export default function OrderDetailPage() {
         title="Order Detail"
         description="Review the booking, update the status, and keep production on track."
         icon={FileText}
-      />
+      >
+        <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-[10px] font-bold tracking-tight text-emerald-700 uppercase">
+          <span className="relative flex h-1.5 w-1.5">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
+            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+          </span>
+          Biteship Live Ready
+        </div>
+      </GradientPageHeader>
 
       {showAutomationSummary && (
         <div className="space-y-2 rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm font-semibold text-indigo-700">

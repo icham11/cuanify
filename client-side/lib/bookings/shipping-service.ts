@@ -1309,6 +1309,7 @@ export async function getShippingQuote(
   const destinationPostalCode = destination.postalCode;
 
   if (!destinationPoint && !destinationPostalCode) {
+
     return {
       success: false,
       quotes: [],
@@ -1548,9 +1549,9 @@ export async function createShippingResi(
     const normalizedMessage = message.toLowerCase();
     return {
       success: false,
-      error: normalizedMessage.includes(
-        "reference id has already been used before",
-      )
+      error: normalizedMessage.includes("bite points tidak cukup")
+        ? "biteship_insufficient_balance"
+        : normalizedMessage.includes("reference id has already been used before")
         ? `Reference ID resi bentrok. Kemungkinan booking ini sudah pernah dipakai untuk membuat order kurir sebelumnya.`
         : message,
     };

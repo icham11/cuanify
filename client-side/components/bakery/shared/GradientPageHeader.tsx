@@ -7,6 +7,7 @@ interface GradientPageHeaderProps {
   description: string;
   icon: LucideIcon;
   actions?: ReactNode;
+  children?: ReactNode;
 }
 
 export default function GradientPageHeader({
@@ -14,6 +15,7 @@ export default function GradientPageHeader({
   description,
   icon: Icon,
   actions,
+  children,
 }: GradientPageHeaderProps) {
   return (
     <div className="relative overflow-hidden rounded-3xl border border-[#f3d7b6] bg-[#fffdf7] px-6 py-5 shadow-[0_20px_44px_-32px_rgba(23,58,122,0.28)]">
@@ -25,6 +27,7 @@ export default function GradientPageHeader({
           <div>
             <h1 className="text-2xl font-semibold leading-tight text-[#173a7a]">{title}</h1>
             <p className="mt-1 text-sm leading-relaxed text-slate-600">{description}</p>
+            {children}
           </div>
         </div>
         <div className="flex items-center gap-3">
