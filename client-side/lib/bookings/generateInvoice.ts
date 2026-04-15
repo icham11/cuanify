@@ -120,6 +120,9 @@ export interface InvoiceData {
   customerName: string;
   customerPhone: string;
   lineItems: InvoiceLineItem[];
+  itemsSubtotal: number;
+  deliveryFee: number;
+  manualAdjustment: number;
   subtotal: number;
   discountPercent: number;
   discountAmount: number;
@@ -139,10 +142,22 @@ export function buildInvoiceData(
   // Konversi setiap item order ke baris invoice
   const lineItems: InvoiceLineItem[] = (order.items ?? []).map(
     (item: OrderItem) => {
-      // Harga per unit: basePrice + addOn
-      const unitPrice = (item.basePrice || 0) + (item.addOnTotal || 0);
       const quantity = Math.max(1, Number(item.quantity) || 1);
-      const total = unitPrice * quantity;
+
+      // Nilai item pada data order sudah disimpan sebagai line total (bukan unit).
+      const baseLineTotal = Math.max(
+        0,
+        Math.round(Number(item.lineTotal ?? item.basePrice ?? 0)),
+      );
+      const addOnLineTotal = Math.max(
+        0,
+        Math.round(Number(item.addOnTotal ?? 0)),
+      );
+      const total = Math.max(0, baseLineTotal + addOnLineTotal);
+
+      // Harga yang ditampilkan pada kolom Price adalah harga per unit.
+      const unitPrice =
+        quantity > 0 ? Math.round(total / quantity) : Math.round(total);
 
       // Deskripsi: nama produk + size + add-ons
       const parts = [item.productName];
@@ -158,13 +173,16 @@ export function buildInvoiceData(
     },
   );
 
-  // Hitung subtotal dari semua item
-  const subtotal = lineItems.reduce((sum, item) => sum + item.total, 0);
+  // Hitung subtotal item, lalu tambahkan ongkir dan adjustment agar sinkron dengan total order.
+  const itemsSubtotal = lineItems.reduce((sum, item) => sum + item.total, 0);
+  const deliveryFee = Math.max(0, Math.round(Number(order.deliveryFee || 0)));
+  const manualAdjustment = Math.round(Number(order.manualAdjustment || 0));
+  const subtotal = Math.max(0, itemsSubtotal + deliveryFee + manualAdjustment);
 
   // Hitung diskon
   const clampedDiscount = Math.max(0, Math.min(100, discountPercent));
   const discountAmount = Math.round(subtotal * (clampedDiscount / 100));
-  const grandTotal = subtotal - discountAmount;
+  const grandTotal = Math.max(0, subtotal - discountAmount);
 
   return {
     invoiceNumber: generateInvoiceNumber(order),
@@ -172,6 +190,9 @@ export function buildInvoiceData(
     customerName: order.customerName || "Customer",
     customerPhone: order.customerPhone || "-",
     lineItems,
+    itemsSubtotal,
+    deliveryFee,
+    manualAdjustment,
     subtotal,
     discountPercent: clampedDiscount,
     discountAmount,

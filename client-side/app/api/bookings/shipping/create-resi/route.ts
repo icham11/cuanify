@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAuth, AuthError } from "@/lib/auth/session";
+import prisma from "@/lib/prisma";
 import { createShippingResi } from "@/lib/bookings/shipping-service";
-import type { ShippingResiRequest } from "@/lib/bookings/shipping-types";
+import type {
+  ShippingResiRequest,
+  ShippingShipment,
+} from "@/lib/bookings/shipping-types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -63,9 +67,48 @@ function getErrorMessage(error: unknown): string {
   }
 }
 
+function parseExistingShipment(value: unknown): ShippingShipment | null {
+  if (!value) return null;
+  if (typeof value === "string") {
+    try {
+      return parseExistingShipment(JSON.parse(value));
+    } catch {
+      return null;
+    }
+  }
+  if (typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const trackingNumber =
+    typeof record.trackingNumber === "string"
+      ? record.trackingNumber.trim()
+      : "";
+  if (!trackingNumber) return null;
+
+  return record as unknown as ShippingShipment;
+}
+
+async function findExistingShipment(args: {
+  businessId: number;
+  orderId: string;
+}): Promise<ShippingShipment | null> {
+  const rows = await prisma.$queryRaw<{ shipment: unknown }[]>`
+    SELECT shipment
+    FROM bakery_orders
+    WHERE business_id = ${args.businessId}
+      AND external_id = ${args.orderId}
+    LIMIT 1
+  `;
+
+  const shipment = rows[0]?.shipment;
+  return parseExistingShipment(shipment);
+}
+
 export async function POST(request: NextRequest) {
   try {
-    await requireAuth();
+    const { businessId } = await requireAuth();
 
     const body = (await request.json()) as ShippingResiRequest;
     const parsed = createResiSchema.safeParse(body);
@@ -78,6 +121,22 @@ export async function POST(request: NextRequest) {
           details: parsed.error.issues,
         },
         { status: 400 },
+      );
+    }
+
+    const existingShipment = await findExistingShipment({
+      businessId,
+      orderId: parsed.data.orderId,
+    });
+
+    if (existingShipment) {
+      return NextResponse.json(
+        {
+          success: true,
+          shipment: existingShipment,
+          warning: "Order ini sudah memiliki resi aktif.",
+        },
+        { status: 200 },
       );
     }
 

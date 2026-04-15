@@ -26,7 +26,7 @@ function buildInvoiceHtml(data: InvoiceData): string {
         <tr>
           <td class="item-desc">${escapeHtml(item.description)}</td>
           <td class="item-price">${formatInvoiceCurrency(item.price)}</td>
-          <td class="item-qty">${item.quantity} pax</td>
+          <td class="item-qty">${item.quantity}</td>
           <td class="item-total">${formatInvoiceCurrency(item.total)}</td>
         </tr>`,
     )
@@ -51,6 +51,22 @@ function buildInvoiceHtml(data: InvoiceData): string {
       ? `<tr class="summary-row">
           <td class="summary-label">Diskon (${data.discountPercent}%)</td>
           <td class="summary-value">(${formatInvoiceCurrency(data.discountAmount)})</td>
+        </tr>`
+      : "";
+
+  const deliveryFeeRow =
+    data.deliveryFee > 0
+      ? `<tr class="summary-row">
+          <td class="summary-label">Ongkir</td>
+          <td class="summary-value">${formatInvoiceCurrency(data.deliveryFee)}</td>
+        </tr>`
+      : "";
+
+  const adjustmentRow =
+    data.manualAdjustment !== 0
+      ? `<tr class="summary-row">
+          <td class="summary-label">Adjustment</td>
+          <td class="summary-value">${formatInvoiceCurrency(data.manualAdjustment)}</td>
         </tr>`
       : "";
 
@@ -427,12 +443,18 @@ function buildInvoiceHtml(data: InvoiceData): string {
       </div>
       <table class="summary-table">
         <tr class="summary-row">
-          <td class="summary-label">Total</td>
+          <td class="summary-label">Subtotal Item</td>
+          <td class="summary-value">${formatInvoiceCurrency(data.itemsSubtotal)}</td>
+        </tr>
+        ${deliveryFeeRow}
+        ${adjustmentRow}
+        <tr class="summary-row">
+          <td class="summary-label">Subtotal</td>
           <td class="summary-value">${formatInvoiceCurrency(data.subtotal)}</td>
         </tr>
         ${discountRow}
         <tr class="summary-row summary-grand-total">
-          <td class="summary-label">SubTotal</td>
+          <td class="summary-label">Total</td>
           <td class="summary-value">${formatInvoiceCurrency(data.grandTotal)}</td>
         </tr>
       </table>
