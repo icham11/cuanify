@@ -81,6 +81,7 @@ export interface ShippingShipment {
   source: ShippingDataSource;
   externalOrderId?: string;
   trackingUrl?: string;
+  scheduledAt?: string;
   createdAt: string;
 }
 
