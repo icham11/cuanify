@@ -8,9 +8,8 @@ import {
 // ==================== KONSTANTA ASET ====================
 
 // Path ke aset branding Crumbella (relatif terhadap public/)
-const LOGO_PATH = "/branding/Copy of logofont transparant-cropped.png";
-const MASCOT_TOP_PATH = "/branding/Copy of naik payung.png";
-const MASCOT_BOTTOM_PATH = "/branding/Copy of main air.png";
+const HEADER_IMAGE_PATH = "/branding/header.png";
+const FOOTER_IMAGE_PATH = "/branding/footer.png";
 
 // ==================== HTML BUILDER ====================
 
@@ -81,11 +80,28 @@ function buildInvoiceHtml(data: InvoiceData): string {
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Invoice ${escapeHtml(data.invoiceNumber)}</title>
   <style>
+    :root {
+      --page-width: 210mm;
+      --page-height: 297mm;
+      --header-height: 168px;
+      --banner-height: 46px;
+      --footer-height: 120px;
+      --content-padding-x: 28px;
+    }
+
     /* ==================== RESET & BASE ==================== */
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
+    html,
+    body {
+      width: var(--page-width);
+      height: var(--page-height);
+      margin: 0;
+      padding: 0;
+    }
+
     @page {
-      size: A4 portrait;
+      size: A4;
       margin: 0;
     }
 
@@ -93,99 +109,90 @@ function buildInvoiceHtml(data: InvoiceData): string {
       font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
       background: #ffffff;
       color: #1a1a2e;
-      width: 210mm;
-      min-height: 297mm;
-      margin: 0 auto;
+      width: var(--page-width);
+      height: var(--page-height);
       position: relative;
-      overflow: hidden;
+      display: flex;
+      flex-direction: column;
     }
 
-    /* ==================== HEADER (WAVE + LOGO) ==================== */
+    .top-section {
+      flex-shrink: 0;
+      margin-top: 0;
+      padding-top: 0;
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+
+    /* ==================== HEADER IMAGE ==================== */
     .header {
+      width: 100%;
       position: relative;
+      z-index: 3;
+      line-height: 0;
+      overflow: visible;
+      margin-top: 0;
+      padding-top: 0;
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+
+    .header-image {
+      display: block;
       width: 100%;
-      height: 180px;
-      background: linear-gradient(135deg, #0e4d8f 0%, #1565c0 40%, #1b88d4 70%, #2ba0db 100%);
-      overflow: hidden;
-    }
-
-    /* Dekorasi wave di bawah header */
-    .header::after {
-      content: "";
-      position: absolute;
-      bottom: -2px;
-      left: 0;
-      width: 100%;
-      height: 60px;
-      background: #ffffff;
-      border-radius: 50% 50% 0 0 / 100% 100% 0 0;
-    }
-
-    /* Splash dekoratif kiri */
-    .header-splash-left {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 200px;
-      height: 180px;
-      background: radial-gradient(ellipse at top left, rgba(255,165,0,0.4) 0%, transparent 70%);
-    }
-
-    /* Splash dekoratif kanan */
-    .header-splash-right {
-      position: absolute;
-      top: 0;
-      right: 0;
-      width: 200px;
-      height: 180px;
-      background: radial-gradient(ellipse at top right, rgba(0,180,220,0.3) 0%, transparent 70%);
-    }
-
-    .header-logo {
-      position: absolute;
-      top: 24px;
-      left: 36px;
-      width: 140px;
-      z-index: 2;
-    }
-
-    .header-mascot {
-      position: absolute;
-      top: 10px;
-      right: 30px;
-      width: 130px;
-      z-index: 2;
+      height: auto;
+      object-fit: contain;
+      object-position: center top;
+      margin-top: 0;
     }
 
     /* ==================== INVOICE BANNER ==================== */
     .invoice-banner {
-      background: linear-gradient(90deg, #e8740c 0%, #f59e0b 100%);
-      text-align: center;
-      padding: 10px 0;
-      margin: -10px 40px 0 40px;
-      border-radius: 6px;
+      background: #F37021;
+      height: var(--banner-height);
       position: relative;
-      z-index: 3;
+      z-index: 1;
+      margin-top: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      page-break-inside: avoid;
+      break-inside: avoid;
     }
 
     .invoice-banner h1 {
       color: #ffffff;
-      font-size: 26px;
+      font-size: 22px;
       font-weight: 700;
-      letter-spacing: 12px;
+      letter-spacing: 9px;
       text-transform: uppercase;
+    }
+
+    .content-wrap {
+      flex: 0 0 auto;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      padding: 14px var(--content-padding-x) 0;
+      page-break-inside: avoid;
+      break-inside: avoid;
     }
 
     /* ==================== BODY CONTENT ==================== */
     .invoice-body {
-      padding: 24px 40px 0 40px;
+      padding: 0;
     }
 
     /* Info header: customer + invoice meta */
     .info-section {
       display: flex;
       justify-content: space-between;
-      margin-bottom: 20px;
+      align-items: flex-start;
+      gap: 16px;
+      margin-bottom: 14px;
+      page-break-inside: avoid;
+      break-inside: avoid;
     }
 
     .info-left {
@@ -197,14 +204,15 @@ function buildInvoiceHtml(data: InvoiceData): string {
     }
 
     .info-label {
-      font-size: 13px;
+      font-size: 11px;
       color: #555;
-      font-style: italic;
-      margin-bottom: 2px;
+      margin-bottom: 3px;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
     }
 
     .info-value {
-      font-size: 15px;
+      font-size: 14px;
       font-weight: 700;
       color: #1a1a2e;
       margin-bottom: 8px;
@@ -213,7 +221,7 @@ function buildInvoiceHtml(data: InvoiceData): string {
     }
 
     .info-value-normal {
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 600;
       color: #1a1a2e;
       margin-bottom: 8px;
@@ -223,15 +231,18 @@ function buildInvoiceHtml(data: InvoiceData): string {
     .items-table {
       width: 100%;
       border-collapse: collapse;
-      margin-bottom: 16px;
+      table-layout: fixed;
+      margin-bottom: 10px;
+      page-break-inside: avoid;
+      break-inside: avoid;
     }
 
     .items-table thead th {
       background: #f0f0f0;
       border-top: 2px solid #1a1a2e;
       border-bottom: 2px solid #1a1a2e;
-      padding: 10px 12px;
-      font-size: 13px;
+      padding: 8px 10px;
+      font-size: 12px;
       font-weight: 700;
       text-align: left;
       color: #1a1a2e;
@@ -244,10 +255,12 @@ function buildInvoiceHtml(data: InvoiceData): string {
     }
 
     .items-table tbody td {
-      padding: 10px 12px;
-      font-size: 13px;
+      padding: 7px 10px;
+      font-size: 12px;
       border-bottom: 1px solid #e0e0e0;
       vertical-align: middle;
+      page-break-inside: avoid;
+      break-inside: avoid;
     }
 
     .item-desc { text-align: left; }
@@ -255,39 +268,49 @@ function buildInvoiceHtml(data: InvoiceData): string {
     .item-qty { text-align: center; }
     .item-total { text-align: right; font-weight: 600; }
 
+    .item-desc {
+      word-break: break-word;
+      overflow-wrap: anywhere;
+    }
+
     /* ==================== SUMMARY / FOOTER ==================== */
     .summary-section {
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
+      gap: 16px;
       margin-top: 8px;
-      padding-top: 4px;
+      padding-top: 8px;
       border-top: 2px solid #1a1a2e;
+      page-break-inside: avoid;
+      break-inside: avoid;
     }
 
     .bank-info {
-      font-size: 14px;
-      line-height: 1.6;
+      font-size: 12px;
+      line-height: 1.45;
     }
 
     .bank-info .bank-name {
       color: #e8740c;
       font-weight: 700;
-      font-size: 15px;
+      font-size: 13px;
     }
 
     .bank-info .account-number {
       font-weight: 600;
-      font-size: 14px;
+      font-size: 12px;
     }
 
     .summary-table {
       border-collapse: collapse;
+      page-break-inside: avoid;
+      break-inside: avoid;
     }
 
     .summary-table .summary-row td {
-      padding: 4px 0;
-      font-size: 14px;
+      padding: 3px 0;
+      font-size: 12px;
     }
 
     .summary-label {
@@ -299,113 +322,113 @@ function buildInvoiceHtml(data: InvoiceData): string {
     .summary-value {
       text-align: right;
       font-weight: 700;
-      min-width: 120px;
+      min-width: 110px;
     }
 
     .summary-grand-total .summary-value {
-      font-size: 16px;
+      font-size: 14px;
       color: #e8740c;
     }
 
     /* ==================== CLOSING / TANDA TANGAN ==================== */
-    .closing-section {
+    .bottom-meta-row {
       display: flex;
       justify-content: space-between;
       align-items: flex-end;
-      margin-top: 30px;
-      padding: 0 40px 20px 40px;
-      position: relative;
+      margin-top: -6px;
+      page-break-inside: avoid;
+      break-inside: avoid;
     }
 
-    .closing-mascot {
-      width: 120px;
-    }
-
-    .closing-tagline {
-      font-size: 22px;
-      font-weight: 800;
-      color: #e8740c;
-      font-style: italic;
-      margin-left: 8px;
+    .closing-section {
+      margin-top: 0;
+      padding: 0;
+      display: flex;
+      justify-content: flex-end;
+      page-break-inside: avoid;
+      break-inside: avoid;
     }
 
     .closing-signature {
       text-align: right;
-      font-size: 13px;
-      line-height: 1.5;
+      font-size: 12px;
+      line-height: 1.4;
+      min-width: 170px;
     }
 
     .closing-signature .hormat {
       font-style: italic;
       color: #555;
-      margin-bottom: 30px;
+      margin-bottom: 18px;
     }
 
     .closing-signature .name {
       font-weight: 700;
       text-decoration: underline;
-      font-size: 14px;
+      font-size: 13px;
     }
 
     .closing-signature .title {
-      font-size: 12px;
+      font-size: 11px;
       color: #555;
     }
 
-    /* ==================== DEKORASI BAWAH ==================== */
-    .footer-wave {
-      position: absolute;
-      bottom: 0;
-      left: 0;
-      width: 100%;
-      height: 80px;
-      background: linear-gradient(135deg, #0e4d8f 0%, #1565c0 40%, #1b88d4 70%, #2ba0db 100%);
-      border-radius: 0 0 0 0;
+    /* ==================== FOOTER IMAGE ==================== */
+    .footer-image-wrap {
+      width: 400px;
+      height: var(--footer-height);
+      margin-top: 0;
+      margin-left: calc(-1 * var(--content-padding-x));
+      align-self: flex-end;
+      flex-shrink: 0;
+      line-height: 0;
       overflow: hidden;
+      page-break-inside: avoid;
+      break-inside: avoid;
     }
 
-    .footer-wave::before {
-      content: "";
-      position: absolute;
-      top: -2px;
-      left: 0;
+    .footer-image {
+      display: block;
       width: 100%;
-      height: 40px;
-      background: #ffffff;
-      border-radius: 0 0 50% 50% / 0 0 100% 100%;
+      height: 100%;
+      object-fit: contain;
+      object-position: left top;
+    }
+
+    .items-table tr,
+    .summary-table tr {
+      page-break-inside: avoid;
+      break-inside: avoid;
     }
 
     /* ==================== PRINT MEDIA ==================== */
     @media print {
+      html,
       body {
-        width: 100%;
-        min-height: auto;
+        width: var(--page-width);
+        height: var(--page-height);
         -webkit-print-color-adjust: exact;
         print-color-adjust: exact;
-      }
-
-      .footer-wave {
-        position: fixed;
-        bottom: 0;
       }
     }
   </style>
 </head>
 <body>
 
+  <div class="top-section">
+
   <!-- ===== HEADER ===== -->
   <div class="header">
-    <div class="header-splash-left"></div>
-    <div class="header-splash-right"></div>
-    <img class="header-logo" src="${LOGO_PATH}" alt="Crumbella Logo" />
-    <img class="header-mascot" src="${MASCOT_TOP_PATH}" alt="Mascot" />
+    <img class="header-image" src="${HEADER_IMAGE_PATH}" alt="Crumbella Header" />
   </div>
 
   <!-- ===== INVOICE BANNER ===== -->
   <div class="invoice-banner">
     <h1>Invoice</h1>
   </div>
+  </div>
 
+  <div class="content-wrap">
   <!-- ===== BODY ===== -->
   <div class="invoice-body">
     <!-- Info Section -->
@@ -465,21 +488,22 @@ function buildInvoiceHtml(data: InvoiceData): string {
     </div>
   </div>
 
-  <!-- ===== CLOSING ===== -->
-  <div class="closing-section">
-    <div style="display: flex; align-items: flex-end;">
-      <img class="closing-mascot" src="${MASCOT_BOTTOM_PATH}" alt="Mascot" />
-      <span class="closing-tagline">Art you can taste</span>
+  <div class="bottom-meta-row">
+    <!-- ===== FOOTER IMAGE ===== -->
+    <div class="footer-image-wrap">
+      <img class="footer-image" src="${FOOTER_IMAGE_PATH}" alt="Crumbella Footer" />
     </div>
-    <div class="closing-signature">
-      <div class="hormat">Hormat kami,</div>
-      <div class="name">${escapeHtml(data.bank.accountName)}</div>
-      <div class="title">Owner Crumbella</div>
+
+    <!-- ===== CLOSING ===== -->
+    <div class="closing-section">
+      <div class="closing-signature">
+        <div class="hormat">Hormat kami,</div>
+        <div class="name">${escapeHtml(data.bank.accountName)}</div>
+        <div class="title">Owner Crumbella</div>
+      </div>
     </div>
   </div>
-
-  <!-- ===== FOOTER WAVE ===== -->
-  <div class="footer-wave"></div>
+  </div>
 
 </body>
 </html>`;
