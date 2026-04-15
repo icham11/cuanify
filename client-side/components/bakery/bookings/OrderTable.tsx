@@ -21,8 +21,6 @@ interface OrderTableProps {
   orders: BakeryOrder[];
 }
 
-type ViewDensity = "compact" | "comfortable";
-
 type Highlight = {
   label: string;
   tone: "warning" | "danger" | "info";
@@ -130,36 +128,17 @@ export default function OrderTable({ orders }: OrderTableProps) {
   const { updateOrderStatus, updatePaymentStatus, getCustomerMessagePreview } =
     useOrders();
   const [isLoading, setIsLoading] = useState(true);
-  const [density, setDensity] = useState<ViewDensity>(() => {
-    if (typeof window === "undefined") return "comfortable";
-    const saved = window.localStorage.getItem("bookings-orders-density");
-    return saved === "compact" || saved === "comfortable"
-      ? saved
-      : "comfortable";
-  });
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem("bookings-orders-density", density);
-  }, [density]);
-
-  const isCompact = density === "compact";
-  const tableTextClass = isCompact ? "text-[13px]" : "text-sm";
-  const headPaddingClass = isCompact ? "px-3 py-2.5" : "px-4 py-3";
-  const cellPaddingClass = isCompact ? "px-3 py-2" : "px-4 py-3";
-  const skeletonPaddingClass = isCompact ? "px-3 py-3" : "px-4 py-4";
-  const rowTitleClass = isCompact
-    ? "text-[13px] leading-4"
-    : "text-sm leading-5";
-  const chipClass = isCompact
-    ? "rounded-full border px-2 py-0.5 text-[10px] font-semibold"
-    : "rounded-full border px-2 py-0.5 text-[11px] font-semibold";
-  const actionButtonClass = isCompact
-    ? "inline-flex h-7 items-center justify-center rounded-lg border border-indigo-200 px-2 text-[11px] font-semibold text-indigo-700 transition hover:bg-indigo-50"
-    : "inline-flex h-8 items-center justify-center rounded-lg border border-indigo-200 px-2.5 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-50";
-  const actionGhostClass = isCompact
-    ? "inline-flex h-7 items-center justify-center gap-1 rounded-lg px-2 text-[11px] font-semibold transition"
-    : "inline-flex h-8 items-center justify-center gap-1 rounded-lg px-2.5 text-xs font-semibold transition";
+  const tableTextClass = "text-sm";
+  const headPaddingClass = "px-4 py-3";
+  const cellPaddingClass = "px-4 py-3";
+  const skeletonPaddingClass = "px-4 py-4";
+  const rowTitleClass = "text-sm leading-5";
+  const chipClass =
+    "rounded-full border px-2 py-0.5 text-[11px] font-semibold";
+  const actionButtonClass =
+    "inline-flex h-8 items-center justify-center rounded-lg border border-indigo-200 px-2.5 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-50";
+  const actionGhostClass =
+    "inline-flex h-8 items-center justify-center gap-1 rounded-lg px-2.5 text-xs font-semibold transition";
 
   useEffect(() => {
     const timer = setTimeout(() => setIsLoading(false), 300);
@@ -210,34 +189,6 @@ export default function OrderTable({ orders }: OrderTableProps) {
 
   return (
     <div className="overflow-x-auto">
-      <div className="mb-3 flex items-center justify-end gap-2">
-        <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-          View
-        </span>
-        <button
-          type="button"
-          onClick={() => setDensity("compact")}
-          className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
-            isCompact
-              ? "bg-indigo-600 text-white"
-              : "border border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
-          }`}
-        >
-          Compact
-        </button>
-        <button
-          type="button"
-          onClick={() => setDensity("comfortable")}
-          className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
-            !isCompact
-              ? "bg-indigo-600 text-white"
-              : "border border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
-          }`}
-        >
-          Comfortable
-        </button>
-      </div>
-
       <table className={`w-full text-left ${tableTextClass}`}>
         <thead className="bg-gray-50 text-xs uppercase text-gray-500">
           <tr>
@@ -339,7 +290,7 @@ export default function OrderTable({ orders }: OrderTableProps) {
                     </div>
                   </td>
                   <td className={cellPaddingClass}>
-                    <div className={`max-w-105 ${isCompact ? "space-y-0.5" : "space-y-1"}`}>
+                    <div className="max-w-105 space-y-1">
                       <p
                         className={`${rowTitleClass} whitespace-normal wrap-break-word text-gray-700`}
                         title={productSummary}
@@ -384,7 +335,7 @@ export default function OrderTable({ orders }: OrderTableProps) {
                             event.target.value as "DP Paid" | "Paid",
                           )
                         }
-                        className={`${isCompact ? "h-7" : "h-8"} min-w-24 text-xs`}
+                        className="h-8 min-w-24 text-xs"
                       >
                         <option value="DP Paid">DP Paid</option>
                         <option value="Paid">Paid</option>
@@ -408,7 +359,7 @@ export default function OrderTable({ orders }: OrderTableProps) {
                               | "Cancelled",
                           )
                         }
-                        className={`${isCompact ? "h-7" : "h-8"} min-w-28 text-xs`}
+                        className="h-8 min-w-28 text-xs"
                       >
                         {BOOKING_STATUS_OPTIONS.map((option) => (
                           <option key={option.value} value={option.value}>
@@ -448,7 +399,7 @@ export default function OrderTable({ orders }: OrderTableProps) {
                         }`}
                       >
                         <MessageCircle size={14} />
-                        {isCompact ? "Msg" : "Message"}
+                        Message
                       </a>
                     </div>
                   </td>

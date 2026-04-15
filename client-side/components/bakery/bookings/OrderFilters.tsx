@@ -8,11 +8,13 @@ interface OrderFiltersProps {
   query: string;
   status: string;
   date: string;
+  courier: "" | "grab-gojek" | "paxel";
   sortBy: "delivery-asc" | "delivery-desc" | "name-asc" | "value-desc";
   hasActiveFilters: boolean;
   onQueryChange: (value: string) => void;
   onStatusChange: (value: string) => void;
   onDateChange: (value: string) => void;
+  onCourierChange: (value: "" | "grab-gojek" | "paxel") => void;
   onSortChange: (
     value: "delivery-asc" | "delivery-desc" | "name-asc" | "value-desc",
   ) => void;
@@ -26,11 +28,13 @@ export default function OrderFilters({
   query,
   status,
   date,
+  courier,
   sortBy,
   hasActiveFilters,
   onQueryChange,
   onStatusChange,
   onDateChange,
+  onCourierChange,
   onSortChange,
   onReset,
   onSavedViewSelect,
@@ -76,7 +80,7 @@ export default function OrderFilters({
           </Button>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-[2fr,1fr,1fr,1fr,auto]">
+        <div className="grid gap-4 lg:grid-cols-[2fr,1fr,1fr,1fr,1fr,auto]">
           <Input
             placeholder="Search booking code or customer"
             value={query}
@@ -98,6 +102,16 @@ export default function OrderFilters({
             value={date}
             onChange={(event) => onDateChange(event.target.value)}
           />
+          <Select
+            value={courier}
+            onChange={(event) =>
+              onCourierChange(event.target.value as "" | "grab-gojek" | "paxel")
+            }
+          >
+            <option value="">All courier</option>
+            <option value="grab-gojek">Grab/Gojek</option>
+            <option value="paxel">Paxel</option>
+          </Select>
           <Select
             value={sortBy}
             onChange={(event) =>

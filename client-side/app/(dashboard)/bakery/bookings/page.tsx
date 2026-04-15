@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select } from "@/components/ui/select";
 import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import OrderFilters from "@/components/bakery/bookings/OrderFilters";
 import OrderTable from "@/components/bakery/bookings/OrderTable";
@@ -12,8 +13,11 @@ import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 import {
   getJakartaTodayIsoDate,
   isTodayScheduledReminderOrder,
+  resolveShippingProvider,
 } from "@/lib/bookings/shipping-schedule";
 import { BookOpen } from "lucide-react";
+
+type CourierFilter = "" | "grab-gojek" | "paxel";
 
 export default function BookingListPage() {
   const { orders } = useOrders();
@@ -25,12 +29,13 @@ export default function BookingListPage() {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [dateFilter, setDateFilter] = useState("");
+  const [courierFilter, setCourierFilter] = useState<CourierFilter>("");
   const [sortBy, setSortBy] = useState<
     "delivery-asc" | "delivery-desc" | "name-asc" | "value-desc"
   >("delivery-asc");
   const [currentPage, setCurrentPage] = useState(1);
   const [dismissedReminderKey, setDismissedReminderKey] = useState("");
-  const PAGE_SIZE = 20;
+  const PAGE_SIZE = 10;
 
   const dueScheduledShipmentsToday = useMemo(() => {
     const todayJakarta = getJakartaTodayIsoDate();
@@ -56,7 +61,14 @@ export default function BookingListPage() {
         ? normalizedOrderStatus === statusFilter
         : true;
       const matchesDate = dateFilter ? order.deliveryDate === dateFilter : true;
-      return matchesQuery && matchesStatus && matchesDate;
+      const provider = resolveShippingProvider(order);
+      const matchesCourier =
+        courierFilter === ""
+          ? true
+          : courierFilter === "grab-gojek"
+            ? provider === "GRAB" || provider === "GOJEK"
+            : provider === "PAXEL";
+      return matchesQuery && matchesStatus && matchesDate && matchesCourier;
     });
 
     if (sortBy === "delivery-asc") {
@@ -80,14 +92,17 @@ export default function BookingListPage() {
     return filtered
       .slice()
       .sort((a, b) => (b.totalPrice || 0) - (a.totalPrice || 0));
-  }, [orders, query, statusFilter, dateFilter, sortBy]);
+  }, [orders, query, statusFilter, dateFilter, courierFilter, sortBy]);
 
-  const hasActiveFilters = Boolean(query || statusFilter || dateFilter);
+  const hasActiveFilters = Boolean(
+    query || statusFilter || dateFilter || courierFilter,
+  );
 
   const clearFilters = () => {
     setQuery("");
     setStatusFilter("");
     setDateFilter("");
+    setCourierFilter("");
     setSortBy("delivery-asc");
     setCurrentPage(1);
   };
@@ -96,6 +111,7 @@ export default function BookingListPage() {
     view: "today" | "tomorrow" | "production" | "ready",
   ) => {
     setQuery("");
+    setCourierFilter("");
     setSortBy("delivery-asc");
     setCurrentPage(1);
 
@@ -122,10 +138,17 @@ export default function BookingListPage() {
   };
 
   const totalPages = Math.max(1, Math.ceil(filteredOrders.length / PAGE_SIZE));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
   const pagedOrders = filteredOrders.slice(
-    (currentPage - 1) * PAGE_SIZE,
-    currentPage * PAGE_SIZE,
+    (safeCurrentPage - 1) * PAGE_SIZE,
+    safeCurrentPage * PAGE_SIZE,
   );
+  const activeCourierLabel =
+    courierFilter === "grab-gojek"
+      ? "Grab/Gojek"
+      : courierFilter === "paxel"
+        ? "Paxel"
+        : "";
 
   const handlePrevPage = () => {
     setCurrentPage((prev) => Math.max(1, prev - 1));
@@ -133,6 +156,33 @@ export default function BookingListPage() {
 
   const handleNextPage = () => {
     setCurrentPage((prev) => Math.min(totalPages, prev + 1));
+  };
+
+  const handleQueryChange = (value: string) => {
+    setQuery(value);
+    setCurrentPage(1);
+  };
+
+  const handleStatusChange = (value: string) => {
+    setStatusFilter(value);
+    setCurrentPage(1);
+  };
+
+  const handleDateChange = (value: string) => {
+    setDateFilter(value);
+    setCurrentPage(1);
+  };
+
+  const handleCourierChange = (value: CourierFilter) => {
+    setCourierFilter(value);
+    setCurrentPage(1);
+  };
+
+  const handleSortChange = (
+    value: "delivery-asc" | "delivery-desc" | "name-asc" | "value-desc",
+  ) => {
+    setSortBy(value);
+    setCurrentPage(1);
   };
 
   return (
@@ -201,12 +251,14 @@ export default function BookingListPage() {
         query={query}
         status={statusFilter}
         date={dateFilter}
+        courier={courierFilter}
         sortBy={sortBy}
         hasActiveFilters={hasActiveFilters}
-        onQueryChange={setQuery}
-        onStatusChange={setStatusFilter}
-        onDateChange={setDateFilter}
-        onSortChange={setSortBy}
+        onQueryChange={handleQueryChange}
+        onStatusChange={handleStatusChange}
+        onDateChange={handleDateChange}
+        onCourierChange={(value) => handleCourierChange(value as CourierFilter)}
+        onSortChange={handleSortChange}
         onReset={clearFilters}
         onSavedViewSelect={applySavedView}
       />
@@ -216,14 +268,37 @@ export default function BookingListPage() {
           <CardTitle>Orders</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 px-6 pb-6 pt-0">
-          <div className="text-xs font-medium text-gray-500">
-            Showing {filteredOrders.length} of {orders.length} orders
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="text-xs font-medium text-gray-500">
+              Showing {filteredOrders.length} of {orders.length} orders
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-gray-500">
+                Courier:
+              </span>
+              <Select
+                value={courierFilter}
+                onChange={(event) =>
+                  handleCourierChange(event.target.value as CourierFilter)
+                }
+                className="h-8 min-w-36 rounded-lg border-gray-300 bg-white px-2 text-xs"
+              >
+                <option value="">All courier</option>
+                <option value="grab-gojek">Grab/Gojek</option>
+                <option value="paxel">Paxel</option>
+              </Select>
+            </div>
           </div>
+          {activeCourierLabel ? (
+            <div className="inline-flex items-center rounded-full border border-cyan-200 bg-cyan-50 px-3 py-1 text-xs font-semibold text-cyan-800">
+              Courier filter: {activeCourierLabel}
+            </div>
+          ) : null}
           <OrderTable orders={pagedOrders} />
           {filteredOrders.length > PAGE_SIZE ? (
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 pt-3">
               <p className="text-xs text-gray-500">
-                Page {currentPage} of {totalPages}
+                Page {safeCurrentPage} of {totalPages}
               </p>
               <div className="flex items-center gap-2">
                 <button

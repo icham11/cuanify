@@ -40,6 +40,7 @@ import {
   isScheduledShipmentOrder,
 } from "@/lib/bookings/shipping-schedule";
 import { normalizeDateInput } from "@/lib/helpers/date-normalization";
+import { useBakerySettings } from "@/hooks/useBakerySettings";
 
 export type OrderStatus =
   | "Inquiry"
@@ -571,6 +572,8 @@ function parseOrdersSyncError(
 }
 
 export function OrdersProvider({ children }: { children: React.ReactNode }) {
+  const { settings: bakerySettings } = useBakerySettings();
+  const blockedDates = bakerySettings?.blockedDates;
   const snapshot = useSyncExternalStore(
     subscribe,
     getSnapshot,
@@ -1112,6 +1115,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
           {
             deliveryMethod,
             items: order.items,
+            blockedDates,
           },
         )
       ) {
@@ -1261,6 +1265,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       runAutomationsForOrder,
       createShipmentForOrder,
       syncOrdersToServer,
+      blockedDates,
     ],
   );
 
@@ -1579,6 +1584,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         !isWithinBusinessHours(deliveryDate, deliverySlot, undefined, {
           deliveryMethod,
           items: targetOrder?.items ?? [],
+          blockedDates,
         })
       ) {
         toast.error(
@@ -1619,6 +1625,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       runAutomationsForOrder,
       actorIdentity,
       createShipmentForOrder,
+      blockedDates,
     ],
   );
 
