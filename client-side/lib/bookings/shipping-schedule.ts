@@ -7,6 +7,7 @@ type ShippingQuoteLike = {
 
 type ShippingScheduleOrderLike = {
   deliveryDate?: string | null;
+  deliverySlot?: string | null;
   orderStatus?: string | null;
   notes?: string | null;
   shippingQuote?: ShippingQuoteLike | null;
@@ -49,9 +50,53 @@ function resolveProviderFromDeliveryMethod(
 }
 
 export function getJakartaTodayIsoDate(): string {
-  return new Date().toLocaleDateString("en-CA", {
+  return getJakartaClock().isoDate;
+}
+
+function getJakartaClock(referenceDate: Date = new Date()): {
+  isoDate: string;
+  minutesSinceMidnight: number;
+} {
+  const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Jakarta",
-  });
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(referenceDate);
+
+  const year = parts.find((part) => part.type === "year")?.value || "1970";
+  const month = parts.find((part) => part.type === "month")?.value || "01";
+  const day = parts.find((part) => part.type === "day")?.value || "01";
+  const hour = Number(parts.find((part) => part.type === "hour")?.value || "0");
+  const minute = Number(
+    parts.find((part) => part.type === "minute")?.value || "0",
+  );
+
+  const safeHour = Number.isFinite(hour) ? Math.max(0, Math.min(23, hour)) : 0;
+  const safeMinute = Number.isFinite(minute)
+    ? Math.max(0, Math.min(59, minute))
+    : 0;
+
+  return {
+    isoDate: `${year}-${month}-${day}`,
+    minutesSinceMidnight: safeHour * 60 + safeMinute,
+  };
+}
+
+function parseDeliverySlotToMinutes(slot?: string | null): number | null {
+  const matched = String(slot || "").match(/(\d{1,2}):(\d{2})/);
+  if (!matched) return null;
+
+  const hour = Number(matched[1]);
+  const minute = Number(matched[2]);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
+  if (hour < 0 || hour > 23) return null;
+  if (minute < 0 || minute > 59) return null;
+
+  return hour * 60 + minute;
 }
 
 export function isScheduledShipmentProvider(provider?: string | null): boolean {
@@ -102,7 +147,20 @@ export function isDueForScheduledShipment(
   const normalizedDeliveryDate = normalizeDateInput(order.deliveryDate || "");
   if (!normalizedDeliveryDate) return false;
 
-  return normalizedDeliveryDate <= todayIsoDate;
+  if (normalizedDeliveryDate < todayIsoDate) {
+    return true;
+  }
+
+  if (normalizedDeliveryDate > todayIsoDate) {
+    return false;
+  }
+
+  const slotMinutes = parseDeliverySlotToMinutes(order.deliverySlot);
+  if (slotMinutes === null) {
+    return true;
+  }
+
+  return getJakartaClock().minutesSinceMidnight >= slotMinutes;
 }
 
 export function isTodayScheduledReminderOrder(
@@ -110,6 +168,7 @@ export function isTodayScheduledReminderOrder(
   todayIsoDate: string,
 ): boolean {
   if (!isScheduledShipmentOrder(order)) return false;
+  if (order.shipment) return false;
   if (isDeliveredOrCancelled(order.orderStatus)) return false;
 
   const normalizedDeliveryDate = normalizeDateInput(order.deliveryDate || "");

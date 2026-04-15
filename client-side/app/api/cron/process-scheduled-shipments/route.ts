@@ -451,6 +451,7 @@ async function handleCronRequest(req: NextRequest) {
       const shippingQuote = parseShippingQuote(row.shipping_quote);
       const candidate = {
         deliveryDate: parseDueDate(row.delivery_date),
+        deliverySlot: asString(row.delivery_slot).trim() || undefined,
         orderStatus: row.order_status,
         notes: row.notes,
         shippingQuote,

@@ -148,6 +148,10 @@ export default function BookingListPage() {
                 Ada {dueScheduledShipmentsToday.length} order Grab/Gojek/Paxel
                 yang harus diproses pengiriman hari ini.
               </p>
+              <p className="mt-1 text-[11px] text-amber-700">
+                Resi otomatis akan dibuat saat jam slot masing-masing order
+                sudah masuk.
+              </p>
             </div>
             <button
               type="button"
