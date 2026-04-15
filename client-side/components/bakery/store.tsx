@@ -29,6 +29,12 @@ import {
 import { isWithinBusinessHours } from "@/lib/bookings/operations";
 import { estimateOperationalWeightGram } from "@/lib/bookings/delivery-rules";
 import { normalizeOrderStatus } from "@/lib/bookings/order-status";
+import {
+  getJakartaTodayIsoDate,
+  isDueForScheduledShipment,
+  isGrabOrGojekOrder,
+  isScheduledShipmentOrder,
+} from "@/lib/bookings/shipping-schedule";
 import { normalizeDateInput } from "@/lib/helpers/date-normalization";
 
 export type OrderStatus =
@@ -579,6 +585,8 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
   });
   const hydrationInFlightRef = useRef(false);
   const lastLocalWriteAtRef = useRef(0);
+  const scheduledShipmentRunInFlightRef = useRef(false);
+  const processingShipmentIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -910,126 +918,184 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
   const createShipmentForOrder = useCallback(
     async (orderId: string) => {
       if (typeof window === "undefined") return;
+      if (processingShipmentIdsRef.current.has(orderId)) return;
 
-      const currentSnapshot =
-        window.localStorage.getItem(STORAGE_KEY) ?? INITIAL_SNAPSHOT;
-      const currentOrders = parseSnapshot(currentSnapshot);
-      const order = currentOrders.find((item) => item.id === orderId);
-      if (!order || order.shipment || !order.shippingQuote) return;
-
-      const primaryAddress =
-        order.deliveryAddresses?.[0]?.addressLine ||
-        order.customerAddress ||
-        "";
-      if (!primaryAddress) return;
-
-      const items = (order.items ?? []).map((item) => ({
-        name: `${item.productName} (${item.size})`,
-        quantity: Math.max(1, Number(item.quantity) || 1),
-        weightGram: estimateOperationalWeightGram(item),
-        value: Math.max(
-          1000,
-          Math.round((item.basePrice || 0) + (item.addOnTotal || 0)),
-        ),
-      }));
-
-      if (!items.length) return;
-
+      processingShipmentIdsRef.current.add(orderId);
       try {
-        const shippingReferenceId =
-          order.shippingReferenceId ||
-          generateShippingReferenceId(order.bookingCode || order.id, order.id);
-
-        if (!order.shippingReferenceId) {
-          const updatedOrders = currentOrders.map((entry) =>
-            entry.id === orderId
-              ? {
-                  ...entry,
-                  shippingReferenceId,
-                }
-              : entry,
-          );
-          persistOrders(updatedOrders);
-        }
-
-        const destinationLatitude = Number.isFinite(
-          order.shippingQuote?.destinationLatitude,
-        )
-          ? Number(order.shippingQuote?.destinationLatitude)
-          : undefined;
-        const destinationLongitude = Number.isFinite(
-          order.shippingQuote?.destinationLongitude,
-        )
-          ? Number(order.shippingQuote?.destinationLongitude)
-          : undefined;
-
-        const response = await fetch("/api/bookings/shipping/create-resi", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            orderId: order.id,
-            bookingCode: order.bookingCode || order.id,
-            referenceId: shippingReferenceId,
-            customerName: order.customerName,
-            customerPhone: order.customerPhone,
-            destinationAddress: primaryAddress,
-            destinationPostalCode:
-              order.shippingQuote?.destinationPostalCode ||
-              primaryAddress.match(/\b\d{5}\b/)?.[0],
-            destinationLatitude,
-            destinationLongitude,
-            deliveryDate: order.deliveryDate,
-            deliveryTime: order.deliverySlot,
-            selectedQuote: order.shippingQuote,
-            items,
-            totalValue: Math.max(1000, Math.round(order.totalPrice || 0)),
-          }),
-        });
-
-        const payload = (await response
-          .json()
-          .catch(() => ({}))) as ShippingResiResponse;
-
-        if (!response.ok || !payload.success || !payload.shipment) {
-          throw new Error(payload.error || "Gagal membuat resi otomatis.");
-        }
-
-        const latestSnapshot =
+        const currentSnapshot =
           window.localStorage.getItem(STORAGE_KEY) ?? INITIAL_SNAPSHOT;
-        const latestOrders = parseSnapshot(latestSnapshot);
-        const nextOrders = latestOrders.map((entry) => {
-          if (entry.id !== orderId) return entry;
-          return {
-            ...entry,
-            resi:
-              payload.shipment?.trackingNumber ||
-              entry.resi ||
-              entry.bookingCode,
-            shipment: payload.shipment,
-          };
-        });
+        const currentOrders = parseSnapshot(currentSnapshot);
+        const order = currentOrders.find((item) => item.id === orderId);
+        if (!order || order.shipment || !order.shippingQuote) return;
 
-        persistOrders(nextOrders);
-        if (payload.warning) {
-          toast.warning(payload.warning);
+        const primaryAddress =
+          order.deliveryAddresses?.[0]?.addressLine ||
+          order.customerAddress ||
+          "";
+        if (!primaryAddress) return;
+
+        const items = (order.items ?? []).map((item) => ({
+          name: `${item.productName} (${item.size})`,
+          quantity: Math.max(1, Number(item.quantity) || 1),
+          weightGram: estimateOperationalWeightGram(item),
+          value: Math.max(
+            1000,
+            Math.round((item.basePrice || 0) + (item.addOnTotal || 0)),
+          ),
+        }));
+
+        if (!items.length) return;
+
+        try {
+          const shippingReferenceId =
+            order.shippingReferenceId ||
+            generateShippingReferenceId(
+              order.bookingCode || order.id,
+              order.id,
+            );
+
+          if (!order.shippingReferenceId) {
+            const updatedOrders = currentOrders.map((entry) =>
+              entry.id === orderId
+                ? {
+                    ...entry,
+                    shippingReferenceId,
+                  }
+                : entry,
+            );
+            persistOrders(updatedOrders);
+          }
+
+          const destinationLatitude = Number.isFinite(
+            order.shippingQuote?.destinationLatitude,
+          )
+            ? Number(order.shippingQuote?.destinationLatitude)
+            : undefined;
+          const destinationLongitude = Number.isFinite(
+            order.shippingQuote?.destinationLongitude,
+          )
+            ? Number(order.shippingQuote?.destinationLongitude)
+            : undefined;
+
+          const response = await fetch("/api/bookings/shipping/create-resi", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              orderId: order.id,
+              bookingCode: order.bookingCode || order.id,
+              referenceId: shippingReferenceId,
+              customerName: order.customerName,
+              customerPhone: order.customerPhone,
+              destinationAddress: primaryAddress,
+              destinationPostalCode:
+                order.shippingQuote?.destinationPostalCode ||
+                primaryAddress.match(/\b\d{5}\b/)?.[0],
+              destinationLatitude,
+              destinationLongitude,
+              deliveryDate: order.deliveryDate,
+              deliveryTime: order.deliverySlot,
+              selectedQuote: order.shippingQuote,
+              items,
+              totalValue: Math.max(1000, Math.round(order.totalPrice || 0)),
+            }),
+          });
+
+          const payload = (await response
+            .json()
+            .catch(() => ({}))) as ShippingResiResponse;
+
+          if (!response.ok || !payload.success || !payload.shipment) {
+            throw new Error(payload.error || "Gagal membuat resi otomatis.");
+          }
+
+          const latestSnapshot =
+            window.localStorage.getItem(STORAGE_KEY) ?? INITIAL_SNAPSHOT;
+          const latestOrders = parseSnapshot(latestSnapshot);
+          const nextOrders = latestOrders.map((entry) => {
+            if (entry.id !== orderId) return entry;
+            return {
+              ...entry,
+              resi:
+                payload.shipment?.trackingNumber ||
+                entry.resi ||
+                entry.bookingCode,
+              shipment: payload.shipment,
+            };
+          });
+
+          persistOrders(nextOrders);
+          if (payload.warning) {
+            toast.warning(payload.warning);
+          }
+          toast.success(
+            `Resi otomatis dibuat: ${payload.shipment.trackingNumber}`,
+          );
+        } catch (error: unknown) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : "Resi otomatis belum bisa dibuat.";
+          toast.warning(
+            `Booking tersimpan, tapi resi belum otomatis: ${message}`,
+          );
         }
-        toast.success(
-          `Resi otomatis dibuat: ${payload.shipment.trackingNumber}`,
-        );
-      } catch (error: unknown) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : "Resi otomatis belum bisa dibuat.";
-        toast.warning(
-          `Booking tersimpan, tapi resi belum otomatis: ${message}`,
-        );
+      } finally {
+        processingShipmentIdsRef.current.delete(orderId);
       }
     },
     [persistOrders],
   );
+
+  const runScheduledShipmentCreation = useCallback(async () => {
+    if (typeof window === "undefined") return;
+    if (scheduledShipmentRunInFlightRef.current) return;
+
+    scheduledShipmentRunInFlightRef.current = true;
+    try {
+      const currentSnapshot =
+        window.localStorage.getItem(STORAGE_KEY) ?? INITIAL_SNAPSHOT;
+      const currentOrders = parseSnapshot(currentSnapshot);
+      const todayJakarta = getJakartaTodayIsoDate();
+
+      const dueOrderIds = currentOrders
+        .filter((order) => isDueForScheduledShipment(order, todayJakarta))
+        .map((order) => order.id);
+
+      for (const dueOrderId of dueOrderIds) {
+        await createShipmentForOrder(dueOrderId);
+      }
+    } finally {
+      scheduledShipmentRunInFlightRef.current = false;
+    }
+  }, [createShipmentForOrder]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const run = () => {
+      void runScheduledShipmentCreation();
+    };
+
+    run();
+    const intervalId = window.setInterval(run, 60000);
+    const handleFocus = () => run();
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        run();
+      }
+    };
+
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [runScheduledShipmentCreation]);
 
   const addOrder = useCallback(
     async (order: NewOrderInput) => {
@@ -1171,7 +1237,18 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       writeOrdersSnapshot(nextOrders);
 
       toast.success(`Booking masuk produksi: ${bookingCode}`);
-      void createShipmentForOrder(id);
+      if (isScheduledShipmentOrder(newOrder)) {
+        const todayJakarta = getJakartaTodayIsoDate();
+        if (isDueForScheduledShipment(newOrder, todayJakarta)) {
+          void createShipmentForOrder(id);
+        } else {
+          toast.message(
+            "Order Grab/Gojek/Paxel dijadwalkan. Resi akan dibuat otomatis di hari pengiriman.",
+          );
+        }
+      } else {
+        void createShipmentForOrder(id);
+      }
       void runAutomationsForOrder("order_confirmed", id);
     },
     [
@@ -1318,6 +1395,11 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
 
   const updatePaymentStatus = useCallback(
     (id: string, status: PaymentStatus) => {
+      const targetOrder = orders.find((order) => order.id === id);
+      const hasGojekGrabTag = targetOrder
+        ? isGrabOrGojekOrder(targetOrder)
+        : false;
+
       const nextOrders: BakeryOrder[] = orders.map((order) => {
         if (order.id !== id) return order;
         const total = normalizeMoney(order.totalPrice);
@@ -1390,7 +1472,11 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         };
       });
       persistOrders(nextOrders);
-      toast.message("Payment status updated");
+      toast.message(
+        hasGojekGrabTag
+          ? "Payment status updated (order Grab/Gojek)"
+          : "Payment status updated",
+      );
     },
     [orders, persistOrders, actorIdentity],
   );
@@ -1404,6 +1490,11 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         note?: string;
       },
     ) => {
+      const targetOrder = orders.find((order) => order.id === id);
+      const hasGojekGrabTag = targetOrder
+        ? isGrabOrGojekOrder(targetOrder)
+        : false;
+
       const nextOrders: BakeryOrder[] = orders.map((order) => {
         if (order.id !== id) return order;
 
@@ -1467,7 +1558,11 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       });
 
       persistOrders(nextOrders);
-      toast.success("Payment amounts recorded");
+      toast.success(
+        hasGojekGrabTag
+          ? "Payment amounts recorded (order Grab/Gojek)"
+          : "Payment amounts recorded",
+      );
     },
     [orders, persistOrders, actorIdentity],
   );
@@ -1505,8 +1600,22 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       persistOrders(nextOrders);
       toast.success("Order schedule updated");
       void runAutomationsForOrder("order_rescheduled", id);
+
+      const updatedOrder = nextOrders.find((order) => order.id === id);
+      if (
+        updatedOrder &&
+        isDueForScheduledShipment(updatedOrder, getJakartaTodayIsoDate())
+      ) {
+        void createShipmentForOrder(id);
+      }
     },
-    [orders, persistOrders, runAutomationsForOrder, actorIdentity],
+    [
+      orders,
+      persistOrders,
+      runAutomationsForOrder,
+      actorIdentity,
+      createShipmentForOrder,
+    ],
   );
 
   const syncOrderCalendar = useCallback(

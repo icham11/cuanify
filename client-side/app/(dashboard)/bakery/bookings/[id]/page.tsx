@@ -36,6 +36,12 @@ import {
   BOOKING_STATUS_OPTIONS,
   normalizeOrderStatus,
 } from "@/lib/bookings/order-status";
+import {
+  getJakartaTodayIsoDate,
+  isGrabOrGojekOrder,
+  isScheduledShipmentOrder,
+} from "@/lib/bookings/shipping-schedule";
+import { normalizeDateInput } from "@/lib/helpers/date-normalization";
 
 type SaveSyncState = "idle" | "saving" | "saved" | "failed";
 
@@ -170,6 +176,15 @@ export default function OrderDetailPage() {
     order?.paymentStatus === "Pending"
       ? "DP Paid"
       : (order?.paymentStatus ?? "DP Paid");
+  const isGrabOrGojekPaymentOrder = order ? isGrabOrGojekOrder(order) : false;
+  const isScheduledShipmentProviderOrder = order
+    ? isScheduledShipmentOrder(order)
+    : false;
+  const todayJakarta = getJakartaTodayIsoDate();
+  const normalizedDeliveryDate = normalizeDateInput(order?.deliveryDate || "");
+  const isBeforeScheduledShippingDate =
+    isScheduledShipmentProviderOrder &&
+    Boolean(normalizedDeliveryDate && normalizedDeliveryDate > todayJakarta);
   const showAutomationSummary = [
     "In Production",
     "Ready",
@@ -481,6 +496,12 @@ export default function OrderDetailPage() {
       );
       return;
     }
+    if (isBeforeScheduledShippingDate) {
+      toast.error(
+        "Order Grab/Gojek/Paxel dijadwalkan otomatis. Resi baru bisa dibuat di hari pengiriman.",
+      );
+      return;
+    }
 
     const primaryAddress =
       order.deliveryAddresses?.[0]?.addressLine || order.customerAddress || "";
@@ -743,15 +764,27 @@ export default function OrderDetailPage() {
               )}
 
               {!order.shipment && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="border-indigo-200 text-indigo-700 hover:bg-indigo-50"
-                  disabled={!order.shippingQuote || isCreatingResi}
-                  onClick={handleCreateResi}
-                >
-                  {isCreatingResi ? "Membuat Resi..." : "Generate Resi"}
-                </Button>
+                <div className="space-y-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                    disabled={
+                      !order.shippingQuote ||
+                      isCreatingResi ||
+                      isBeforeScheduledShippingDate
+                    }
+                    onClick={handleCreateResi}
+                  >
+                    {isCreatingResi ? "Membuat Resi..." : "Generate Resi"}
+                  </Button>
+                  {isBeforeScheduledShippingDate && (
+                    <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-700">
+                      Order ini akan otomatis dibuatkan resi di hari pengiriman
+                      (jam 00.00 WIB ke atas).
+                    </p>
+                  )}
+                </div>
               )}
             </CardContent>
           </Card>
@@ -986,6 +1019,11 @@ export default function OrderDetailPage() {
                 <span>Payment Status</span>
                 <PaymentBadge status={order.paymentStatus} />
               </div>
+              {isGrabOrGojekPaymentOrder && (
+                <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-700">
+                  Penanda pembayaran: order ini menggunakan Grab/Gojek.
+                </div>
+              )}
               <Select
                 value={normalizedPaymentStatus}
                 onChange={(event) =>

@@ -9,6 +9,10 @@ import OrderTable from "@/components/bakery/bookings/OrderTable";
 import BookingStats from "@/components/bakery/bookings/BookingStats";
 import { useOrders } from "@/components/bakery/store";
 import { normalizeOrderStatus } from "@/lib/bookings/order-status";
+import {
+  getJakartaTodayIsoDate,
+  isTodayScheduledReminderOrder,
+} from "@/lib/bookings/shipping-schedule";
 import { BookOpen } from "lucide-react";
 
 export default function BookingListPage() {
@@ -25,7 +29,21 @@ export default function BookingListPage() {
     "delivery-asc" | "delivery-desc" | "name-asc" | "value-desc"
   >("delivery-asc");
   const [currentPage, setCurrentPage] = useState(1);
+  const [dismissedReminderKey, setDismissedReminderKey] = useState("");
   const PAGE_SIZE = 20;
+
+  const dueScheduledShipmentsToday = useMemo(() => {
+    const todayJakarta = getJakartaTodayIsoDate();
+    return orders.filter((order) =>
+      isTodayScheduledReminderOrder(order, todayJakarta),
+    );
+  }, [orders]);
+  const reminderKey = useMemo(
+    () => dueScheduledShipmentsToday.map((order) => order.id).join("|"),
+    [dueScheduledShipmentsToday],
+  );
+  const showDeliveryReminder =
+    dueScheduledShipmentsToday.length > 0 && dismissedReminderKey !== reminderKey;
 
   const filteredOrders = useMemo(() => {
     const filtered = orders.filter((order) => {
@@ -119,6 +137,46 @@ export default function BookingListPage() {
 
   return (
     <div className="space-y-6 pb-10">
+      {showDeliveryReminder && dueScheduledShipmentsToday.length > 0 && (
+        <div className="fixed right-4 top-4 z-50 w-[min(92vw,430px)] rounded-xl border border-amber-300 bg-amber-50 p-4 shadow-xl">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-amber-900">
+                Reminder Pengiriman Hari Ini
+              </p>
+              <p className="mt-1 text-xs text-amber-800">
+                Ada {dueScheduledShipmentsToday.length} order Grab/Gojek/Paxel
+                yang harus diproses pengiriman hari ini.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setDismissedReminderKey(reminderKey)}
+              className="rounded-md border border-amber-300 bg-white px-2 py-1 text-[11px] font-semibold text-amber-800 hover:bg-amber-100"
+            >
+              Tutup
+            </button>
+          </div>
+          <div className="mt-3 max-h-56 space-y-2 overflow-y-auto pr-1">
+            {dueScheduledShipmentsToday.map((order) => (
+              <Link
+                key={order.id}
+                href={`/bakery/bookings/${order.id}`}
+                className="block rounded-lg border border-amber-200 bg-white px-3 py-2 text-xs text-amber-900 hover:bg-amber-100"
+              >
+                <p className="font-semibold">
+                  {order.resi || order.bookingCode || `Order ${order.id}`}
+                </p>
+                <p className="mt-0.5 text-[11px] text-amber-800">
+                  {order.customerName} • {order.deliverySlot || "-"} •{" "}
+                  {order.shippingQuote?.provider || "Kurir"}
+                </p>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
       <GradientPageHeader
         title="Bookings"
         description="Track and manage all incoming cake orders and delivery schedules."

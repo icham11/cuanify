@@ -14,6 +14,7 @@ import {
   BOOKING_STATUS_OPTIONS,
   normalizeOrderStatus,
 } from "@/lib/bookings/order-status";
+import { isGrabOrGojekOrder } from "@/lib/bookings/shipping-schedule";
 import { MessageCircle, Pencil } from "lucide-react";
 
 interface OrderTableProps {
@@ -291,6 +292,7 @@ export default function OrderTable({ orders }: OrderTableProps) {
               const normalizedOrderStatus = normalizeOrderStatus(
                 order.orderStatus,
               );
+              const showGrabGojekPaymentTag = isGrabOrGojekOrder(order);
               const orderTokenTotal = summarizeProductionTokensByItems(
                 order.items ?? [],
               );
@@ -368,6 +370,11 @@ export default function OrderTable({ orders }: OrderTableProps) {
                   </td>
                   <td className={cellPaddingClass}>
                     <div className="flex flex-col gap-2">
+                      {showGrabGojekPaymentTag && (
+                        <span className="inline-flex w-fit rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-700">
+                          Grab/Gojek Order
+                        </span>
+                      )}
                       <PaymentBadge status={normalizedPaymentStatus} />
                       <Select
                         value={normalizedPaymentStatus}
