@@ -16,6 +16,7 @@ export interface WhatsAppRecapItem {
 export interface WhatsAppRecapInput {
   items: WhatsAppRecapItem[];
   deliveryFee?: number;
+  serviceCharge?: number;
   manualAdjustment?: number;
   totalPrice?: number;
   downPaymentAmount?: number;
@@ -122,6 +123,7 @@ export function buildOrderRecapWhatsAppText(
   });
 
   lines.push(`ONGKIR: ${formatMoney(input.deliveryFee)}`);
+  lines.push(`SERVICE CHARGE: ${formatMoney(input.serviceCharge)}`);
   lines.push(`ADJUSTMENT: ${formatMoney(input.manualAdjustment)}`);
   lines.push(`TOTAL: ${formatMoney(input.totalPrice)}`);
   lines.push(`DP: ${formatMoney(input.downPaymentAmount)}`);

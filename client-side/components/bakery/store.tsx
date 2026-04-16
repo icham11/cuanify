@@ -29,7 +29,10 @@ import type {
 } from "@/lib/bookings/shipping-types";
 import { calculateDownPayment } from "@/lib/bookings/config";
 import { isWithinBusinessHours } from "@/lib/bookings/operations";
-import { estimateOperationalWeightGram } from "@/lib/bookings/delivery-rules";
+import {
+  estimateOperationalWeightGram,
+  parseServiceChargeFromNotes,
+} from "@/lib/bookings/delivery-rules";
 import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 import {
   getJakartaTodayIsoDate,
@@ -1792,6 +1795,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
           detailLines: buildMessageDetailLines(order, item),
         })),
         deliveryFee: order.deliveryFee,
+        serviceCharge: parseServiceChargeFromNotes(order.notes),
         manualAdjustment: order.manualAdjustment,
         totalPrice: order.totalPrice,
         downPaymentAmount: dpAmount,

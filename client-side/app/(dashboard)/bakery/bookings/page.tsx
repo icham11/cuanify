@@ -18,6 +18,64 @@ import {
 import { BookOpen } from "lucide-react";
 
 type CourierFilter = "" | "grab-gojek" | "paxel";
+type OrderSourceFilter = "" | "customer" | "admin";
+
+function inferDeliveryMethodFromText(rawValue?: string): string | undefined {
+  const raw = (rawValue || "").trim().toLowerCase();
+  if (!raw) return undefined;
+
+  if (raw.includes("pickup")) return "PICKUP";
+  if (raw.includes("customer_app_courier") || raw.includes("pesan customer") || raw.includes("customer")) {
+    return "CUSTOMER_APP_COURIER";
+  }
+  if (raw.includes("assisted_")) {
+    return raw.toUpperCase();
+  }
+  if (raw.includes("gosend") || raw.includes("go send")) {
+    return "ASSISTED_GOSEND";
+  }
+  if (raw.includes("gocar") || raw.includes("go car")) {
+    return "ASSISTED_GOCAR";
+  }
+  if (raw.includes("grab")) return "ASSISTED_GRAB";
+  if (raw.includes("paxel")) return "ASSISTED_PAXEL";
+  if (
+    raw.includes("same day") ||
+    raw.includes("same-day") ||
+    raw.includes("sameday")
+  ) {
+    return "ASSISTED_SAME_DAY";
+  }
+  if (raw.includes("jne") || raw.includes("j&t") || raw.includes("jnt")) {
+    return "REGULAR_JNE_JNT";
+  }
+
+  return undefined;
+}
+
+function inferDeliveryMethodFromNotes(notes?: string): string | undefined {
+  const match = notes?.match(/delivery\s*method\s*:\s*([^\n]+)/i);
+  return inferDeliveryMethodFromText(match?.[1]);
+}
+
+function resolveOrderSource(order: {
+  notes?: string;
+  whatsAppParsedData?: { common?: { deliveryMethod?: string } };
+}): "customer" | "admin" | null {
+  const parsedMethod = inferDeliveryMethodFromText(
+    order.whatsAppParsedData?.common?.deliveryMethod,
+  );
+  const noteMethod = inferDeliveryMethodFromNotes(order.notes);
+  const deliveryMethod = parsedMethod || noteMethod;
+
+  if (!deliveryMethod || deliveryMethod === "PICKUP") return null;
+  if (deliveryMethod === "CUSTOMER_APP_COURIER") return "customer";
+  if (deliveryMethod.startsWith("ASSISTED_") || deliveryMethod === "REGULAR_JNE_JNT") {
+    return "admin";
+  }
+
+  return null;
+}
 
 export default function BookingListPage() {
   const { orders } = useOrders();
@@ -30,6 +88,8 @@ export default function BookingListPage() {
   const [statusFilter, setStatusFilter] = useState("");
   const [dateFilter, setDateFilter] = useState("");
   const [courierFilter, setCourierFilter] = useState<CourierFilter>("");
+  const [orderSourceFilter, setOrderSourceFilter] =
+    useState<OrderSourceFilter>("");
   const [sortBy, setSortBy] = useState<
     "delivery-asc" | "delivery-desc" | "name-asc" | "value-desc"
   >("delivery-asc");
@@ -68,7 +128,16 @@ export default function BookingListPage() {
           : courierFilter === "grab-gojek"
             ? provider === "GRAB" || provider === "GOJEK"
             : provider === "PAXEL";
-      return matchesQuery && matchesStatus && matchesDate && matchesCourier;
+      const source = resolveOrderSource(order);
+      const matchesOrderSource =
+        orderSourceFilter === "" ? true : source === orderSourceFilter;
+      return (
+        matchesQuery &&
+        matchesStatus &&
+        matchesDate &&
+        matchesCourier &&
+        matchesOrderSource
+      );
     });
 
     if (sortBy === "delivery-asc") {
@@ -92,10 +161,18 @@ export default function BookingListPage() {
     return filtered
       .slice()
       .sort((a, b) => (b.totalPrice || 0) - (a.totalPrice || 0));
-  }, [orders, query, statusFilter, dateFilter, courierFilter, sortBy]);
+  }, [
+    orders,
+    query,
+    statusFilter,
+    dateFilter,
+    courierFilter,
+    orderSourceFilter,
+    sortBy,
+  ]);
 
   const hasActiveFilters = Boolean(
-    query || statusFilter || dateFilter || courierFilter,
+    query || statusFilter || dateFilter || courierFilter || orderSourceFilter,
   );
 
   const clearFilters = () => {
@@ -103,6 +180,7 @@ export default function BookingListPage() {
     setStatusFilter("");
     setDateFilter("");
     setCourierFilter("");
+    setOrderSourceFilter("");
     setSortBy("delivery-asc");
     setCurrentPage(1);
   };
@@ -112,6 +190,7 @@ export default function BookingListPage() {
   ) => {
     setQuery("");
     setCourierFilter("");
+    setOrderSourceFilter("");
     setSortBy("delivery-asc");
     setCurrentPage(1);
 
@@ -149,6 +228,12 @@ export default function BookingListPage() {
       : courierFilter === "paxel"
         ? "Paxel"
         : "";
+  const activeOrderSourceLabel =
+    orderSourceFilter === "customer"
+      ? "Dipesan Customer"
+      : orderSourceFilter === "admin"
+        ? "Dibantu Admin"
+        : "";
 
   const handlePrevPage = () => {
     setCurrentPage((prev) => Math.max(1, prev - 1));
@@ -175,6 +260,11 @@ export default function BookingListPage() {
 
   const handleCourierChange = (value: CourierFilter) => {
     setCourierFilter(value);
+    setCurrentPage(1);
+  };
+
+  const handleOrderSourceChange = (value: OrderSourceFilter) => {
+    setOrderSourceFilter(value);
     setCurrentPage(1);
   };
 
@@ -287,13 +377,36 @@ export default function BookingListPage() {
                 <option value="grab-gojek">Grab/Gojek</option>
                 <option value="paxel">Paxel</option>
               </Select>
+              <span className="ml-1 text-xs font-medium text-gray-500">
+                Dipesan oleh:
+              </span>
+              <Select
+                value={orderSourceFilter}
+                onChange={(event) =>
+                  handleOrderSourceChange(
+                    event.target.value as OrderSourceFilter,
+                  )
+                }
+                className="h-8 min-w-36 rounded-lg border-gray-300 bg-white px-2 text-xs"
+              >
+                <option value="">Semua</option>
+                <option value="customer">Customer</option>
+                <option value="admin">Admin</option>
+              </Select>
             </div>
           </div>
-          {activeCourierLabel ? (
-            <div className="inline-flex items-center rounded-full border border-cyan-200 bg-cyan-50 px-3 py-1 text-xs font-semibold text-cyan-800">
-              Courier filter: {activeCourierLabel}
-            </div>
-          ) : null}
+          <div className="flex flex-wrap items-center gap-2">
+            {activeCourierLabel ? (
+              <div className="inline-flex items-center rounded-full border border-cyan-200 bg-cyan-50 px-3 py-1 text-xs font-semibold text-cyan-800">
+                Courier filter: {activeCourierLabel}
+              </div>
+            ) : null}
+            {activeOrderSourceLabel ? (
+              <div className="inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-800">
+                Filter pemesan: {activeOrderSourceLabel}
+              </div>
+            ) : null}
+          </div>
           <OrderTable orders={pagedOrders} />
           {filteredOrders.length > PAGE_SIZE ? (
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 pt-3">

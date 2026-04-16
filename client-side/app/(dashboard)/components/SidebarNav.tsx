@@ -6,17 +6,13 @@ import {
   BarChart3,
   Bot,
   CalendarDays,
-  ShoppingCart,
-  History,
   Boxes,
   Package,
   Building2,
   User,
-  FileDown,
   FileText,
   Users,
   ClipboardList,
-  Clock,
   Factory,
   Settings2,
 } from "lucide-react";
@@ -169,57 +165,6 @@ export default function SidebarNav() {
             accent
           />
         </div>
-      )}
-
-      {/* Sales — Owner/Cashier/Admin */}
-      {!isStaff && (
-      <div>
-        <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5f78a1]">
-          Sales
-        </p>
-        {!isAdmin && (
-          <SidebarLink
-            href="/pos"
-            icon={ShoppingCart}
-            label="POS"
-            active={isActive("/pos")}
-          />
-        )}
-        <SidebarLink
-          href={isAdmin ? "/bakery/omzet-harian" : "/dashboard/sales-history"}
-          icon={History}
-          label={isAdmin ? "Omzet Harian" : "Sales History"}
-          active={
-            isAdmin
-              ? isActive("/bakery/omzet-harian")
-              : isActive("/dashboard/sales-history")
-          }
-        />
-        {!isAdmin && (
-          <>
-            <SidebarLink
-              href="/dashboard/debts"
-              icon={ClipboardList}
-              label="Kasbon"
-              active={isActive("/dashboard/debts")}
-            />
-            <SidebarLink
-              href="/dashboard/shift-history"
-              icon={Clock}
-              label="Closing"
-              active={isActive("/dashboard/shift-history")}
-            />
-          </>
-        )}
-        {isOwner && (
-          <SidebarLink
-            href="/dashboard/export"
-            icon={FileDown}
-            label="Export Data"
-            active={isActive("/dashboard/export")}
-          />
-        )}
-      </div>
       )}
 
       {/* Inventory — Owner only */}

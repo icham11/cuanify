@@ -14,6 +14,8 @@ export interface DeliveryMethodOption {
   description: string;
 }
 
+export const ADMIN_ASSISTED_SERVICE_CHARGE = 10_000;
+
 export interface DeliveryRuleItem {
   category?: string;
   subcategory?: string;
@@ -85,6 +87,41 @@ export const DELIVERY_METHOD_OPTIONS: DeliveryMethodOption[] = [
     description: "Dibantu admin dengan opsi reguler antarkota.",
   },
 ];
+
+function normalizeDeliveryMethodValue(
+  value: DeliveryMethod | string | null | undefined,
+): string {
+  return String(value || "").trim().toUpperCase();
+}
+
+export function isAdminManagedDeliveryMethod(
+  method: DeliveryMethod | string | null | undefined,
+): boolean {
+  const normalized = normalizeDeliveryMethodValue(method);
+  return normalized.startsWith("ASSISTED_") || normalized === "REGULAR_JNE_JNT";
+}
+
+export function resolveAdminServiceCharge(
+  method: DeliveryMethod | string | null | undefined,
+): number {
+  return isAdminManagedDeliveryMethod(method)
+    ? ADMIN_ASSISTED_SERVICE_CHARGE
+    : 0;
+}
+
+export function parseServiceChargeFromNotes(notes?: string | null): number {
+  const match = String(notes || "").match(
+    /service\s*charge\s*:\s*([+\-]?\s*[\d.,]+)/i,
+  );
+  if (!match?.[1]) return 0;
+
+  const digits = match[1].replace(/[^\d-]/g, "");
+  if (!digits || digits === "-") return 0;
+
+  const parsed = Number(digits);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.max(0, Math.round(parsed));
+}
 
 function normalizeText(value: string): string {
   return value

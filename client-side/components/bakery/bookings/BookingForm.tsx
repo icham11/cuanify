@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import NextLink from "next/link";
 import { startOfDay } from "date-fns";
 import {
   SubmitHandler,
@@ -24,7 +25,7 @@ import {
   type OrderItem,
 } from "@/components/bakery/store";
 import { toast } from "sonner";
-import { Plus, Trash2, Upload } from "lucide-react";
+import { Plus, Trash2, Upload, X } from "lucide-react";
 import {
   buildWhatsAppTemplate,
   getDisplayFields,
@@ -47,6 +48,7 @@ import {
   getFlavorOptionsByCategory,
 } from "@/lib/bookings/flavor-options";
 import { useCatalogAdminState } from "@/lib/bookings/catalog-admin";
+import { useRole } from "@/context/RoleContext";
 import {
   DAILY_PRODUCTION_TOKEN_LIMIT,
   checkSlotAvailability,
@@ -71,10 +73,12 @@ import {
   parseSafeDate,
 } from "@/lib/helpers/date-normalization";
 import {
+  ADMIN_ASSISTED_SERVICE_CHARGE,
   DELIVERY_METHOD_OPTIONS,
   estimateOperationalWeightGram,
   getGrabCarOnlyReasons,
   isGrabCarOnlyItem,
+  isAdminManagedDeliveryMethod,
   type DeliveryMethod,
   usesShippingEngine,
 } from "@/lib/bookings/delivery-rules";
@@ -614,6 +618,18 @@ interface CapacitySingleDateResponse {
     isAvailable?: boolean;
     tokenNeeded?: number;
   };
+}
+
+interface DuplicateTemplateWarningState {
+  templatePreview: string;
+  matches: Array<{
+    id: string;
+    bookingLabel: string;
+    customerName: string;
+    deliveryDateLabel: string;
+    similarityLabel: string;
+    matchType: "exact" | "similar";
+  }>;
 }
 
 const whatsappOrderTypeOptions: Array<{
@@ -2107,8 +2123,180 @@ function formatSubmitTimestamp(value: string): string {
   }).format(parsed);
 }
 
+function normalizeDuplicateTemplateText(value?: string): string {
+  return String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/[\u200B-\u200D\u2060\uFEFF]/g, "")
+    .trim();
+}
+
+function normalizeTemplateForSimilarity(value: string): string {
+  return normalizeDuplicateTemplateText(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildCharacterNgrams(value: string, size = 4): Set<string> {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (!normalized) return new Set();
+  if (normalized.length <= size) return new Set([normalized]);
+
+  const ngrams = new Set<string>();
+  for (let i = 0; i <= normalized.length - size; i += 1) {
+    ngrams.add(normalized.slice(i, i + size));
+  }
+  return ngrams;
+}
+
+function calculateDiceCoefficient(left: Set<string>, right: Set<string>): number {
+  if (!left.size || !right.size) return 0;
+
+  let intersection = 0;
+  for (const token of left) {
+    if (right.has(token)) intersection += 1;
+  }
+
+  return (2 * intersection) / (left.size + right.size);
+}
+
+function calculateTokenJaccard(leftSource: string, rightSource: string): number {
+  const left = new Set(leftSource.split(" ").filter((token) => token.length > 0));
+  const right = new Set(
+    rightSource.split(" ").filter((token) => token.length > 0),
+  );
+  if (!left.size || !right.size) return 0;
+
+  let intersection = 0;
+  for (const token of left) {
+    if (right.has(token)) intersection += 1;
+  }
+  const union = left.size + right.size - intersection;
+  return union > 0 ? intersection / union : 0;
+}
+
+function calculateTemplateSimilarity(
+  leftSource: string,
+  rightSource: string,
+): {
+  score: number;
+  charSimilarity: number;
+  tokenSimilarity: number;
+} {
+  if (!leftSource || !rightSource) {
+    return {
+      score: 0,
+      charSimilarity: 0,
+      tokenSimilarity: 0,
+    };
+  }
+  if (leftSource === rightSource) {
+    return {
+      score: 1,
+      charSimilarity: 1,
+      tokenSimilarity: 1,
+    };
+  }
+
+  const charSimilarity = calculateDiceCoefficient(
+    buildCharacterNgrams(leftSource),
+    buildCharacterNgrams(rightSource),
+  );
+  const tokenSimilarity = calculateTokenJaccard(leftSource, rightSource);
+
+  return {
+    score: charSimilarity * 0.75 + tokenSimilarity * 0.25,
+    charSimilarity,
+    tokenSimilarity,
+  };
+}
+
+const DUPLICATE_TEMPLATE_SIMILARITY_THRESHOLD = 0.94;
+const DUPLICATE_TEMPLATE_MIN_SIMILARITY_CHARS = 48;
+const DUPLICATE_TEMPLATE_MIN_CHAR_SIMILARITY = 0.92;
+const DUPLICATE_TEMPLATE_MIN_TOKEN_SIMILARITY = 0.75;
+
+type DuplicateTemplateMatch = {
+  order: BakeryOrder;
+  similarityScore: number;
+  matchType: "exact" | "similar";
+};
+
+function findOrdersWithDuplicateParsedTemplate(
+  orders: BakeryOrder[],
+  normalizedTemplate: string,
+): DuplicateTemplateMatch[] {
+  if (!normalizedTemplate) return [];
+
+  const similarityTemplate = normalizeTemplateForSimilarity(normalizedTemplate);
+
+  const matches = orders
+    .map<DuplicateTemplateMatch | null>((order) => {
+    const existingTemplate = normalizeDuplicateTemplateText(
+      order.whatsAppParsedData?.rawText,
+    );
+    if (!existingTemplate) return null;
+
+    if (existingTemplate === normalizedTemplate) {
+      return { order, similarityScore: 1, matchType: "exact" };
+    }
+
+    const existingSimilarityTemplate = normalizeTemplateForSimilarity(existingTemplate);
+    if (
+      similarityTemplate.length < DUPLICATE_TEMPLATE_MIN_SIMILARITY_CHARS ||
+      existingSimilarityTemplate.length < DUPLICATE_TEMPLATE_MIN_SIMILARITY_CHARS
+    ) {
+      return null;
+    }
+
+    const similarityMetrics = calculateTemplateSimilarity(
+      similarityTemplate,
+      existingSimilarityTemplate,
+    );
+
+    if (
+      similarityMetrics.score < DUPLICATE_TEMPLATE_SIMILARITY_THRESHOLD ||
+      similarityMetrics.charSimilarity < DUPLICATE_TEMPLATE_MIN_CHAR_SIMILARITY ||
+      similarityMetrics.tokenSimilarity < DUPLICATE_TEMPLATE_MIN_TOKEN_SIMILARITY
+    ) {
+      return null;
+    }
+
+    return {
+      order,
+      similarityScore: similarityMetrics.score,
+      matchType: "similar",
+    };
+  })
+  .filter((entry): entry is DuplicateTemplateMatch => Boolean(entry));
+
+  return matches.sort((left, right) => right.similarityScore - left.similarityScore);
+}
+
+function formatDuplicateWarningDate(value: string): string {
+  const normalized = normalizeDateInput(value);
+  if (!normalized) return value;
+  const parsed = new Date(`${normalized}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return normalized;
+  return new Intl.DateTimeFormat("id-ID", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(parsed);
+}
+
+function formatTemplateSimilarityLabel(
+  score: number,
+  matchType: "exact" | "similar",
+): string {
+  if (matchType === "exact") return "Sama persis (100%)";
+  return `Sangat mirip (${Math.round(score * 100)}%)`;
+}
+
 export default function BookingForm() {
   const { addOrder, orders } = useOrders();
+  const { isOwner, isAdmin, loading: isRoleLoading } = useRole();
   const { productCatalog, addOnCatalog } = useCatalogAdminState();
   const [quickPaste, setQuickPaste] = useState("");
   const [selectedOrderType, setSelectedOrderType] =
@@ -2146,6 +2334,54 @@ export default function BookingForm() {
     bookingCode: string;
     submittedAt: string;
   } | null>(null);
+  const [showSubmitConfirmation, setShowSubmitConfirmation] = useState(false);
+  const [duplicateTemplateWarning, setDuplicateTemplateWarning] =
+    useState<DuplicateTemplateWarningState | null>(null);
+  const pendingSubmitConfirmationRef =
+    useRef<BookingFormValues | null>(null);
+  const skipSubmitConfirmationRef = useRef(false);
+  const pendingDuplicateSubmissionRef = useRef<BookingFormValues | null>(null);
+  const skipDuplicateTemplateWarningRef = useRef(false);
+  const submitConfirmationPrimaryButtonRef =
+    useRef<HTMLButtonElement | null>(null);
+  const duplicateWarningDialogRef = useRef<HTMLDivElement | null>(null);
+  const duplicateWarningPrimaryButtonRef = useRef<HTMLButtonElement | null>(
+    null,
+  );
+  const shouldRequireSubmitConfirmation =
+    !isRoleLoading && (isOwner || isAdmin);
+  const canWarnDuplicateTemplate =
+    !isRoleLoading && (isOwner || isAdmin);
+
+  useEffect(() => {
+    if (!showSubmitConfirmation) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      submitConfirmationPrimaryButtonRef.current?.focus();
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, [showSubmitConfirmation]);
+
+  useEffect(() => {
+    if (!duplicateTemplateWarning) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      duplicateWarningDialogRef.current?.scrollIntoView({
+        block: "center",
+        inline: "nearest",
+      });
+      duplicateWarningPrimaryButtonRef.current?.focus();
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, [duplicateTemplateWarning]);
 
   const {
     register,
@@ -2955,9 +3191,16 @@ export default function BookingForm() {
   const deliveryFee = shouldUseShippingEngine
     ? (selectedShippingQuote?.price ?? 0)
     : 0;
+  const serviceCharge = isAdminManagedDeliveryMethod(deliveryMethod)
+    ? ADMIN_ASSISTED_SERVICE_CHARGE
+    : 0;
 
   const subtotalBeforeDiscount =
-    basePrice + addOnTotal + deliveryFee + Number(manualAdjustment || 0);
+    basePrice +
+    addOnTotal +
+    deliveryFee +
+    serviceCharge +
+    Number(manualAdjustment || 0);
   const wholesaleDiscountAmount = Math.max(
     0,
     Math.round(
@@ -3347,6 +3590,17 @@ export default function BookingForm() {
     setSubmitError("");
     setSubmitSuccess("");
     setSubmitSuccessMeta(null);
+
+    const skipSubmitConfirmation = skipSubmitConfirmationRef.current;
+    if (skipSubmitConfirmation) {
+      skipSubmitConfirmationRef.current = false;
+    }
+
+    const skipDuplicateTemplateWarning =
+      skipDuplicateTemplateWarningRef.current;
+    if (skipDuplicateTemplateWarning) {
+      skipDuplicateTemplateWarningRef.current = false;
+    }
 
     if (isCheckingShipping) {
       toast.error(
@@ -3844,6 +4098,7 @@ export default function BookingForm() {
             (option) => option.value === values.deliveryMethod,
           )?.label || values.deliveryMethod
         }`,
+        serviceCharge > 0 ? `Service Charge: ${serviceCharge}` : "",
       ]
         .filter((line) => line.trim().length > 0)
         .join("\n"),
@@ -3870,7 +4125,58 @@ export default function BookingForm() {
       getDailyBookingSequence(orders, normalizedDeliveryDate),
     );
 
+    if (!skipDuplicateTemplateWarning && canWarnDuplicateTemplate) {
+      const normalizedTemplate = normalizeDuplicateTemplateText(
+        normalizedParsedPreview?.rawText,
+      );
+      const duplicateTemplateOrders = findOrdersWithDuplicateParsedTemplate(
+        orders,
+        normalizedTemplate,
+      );
+
+      if (duplicateTemplateOrders.length > 0) {
+        const hasSimilarTemplate = duplicateTemplateOrders.some(
+          (match) => match.matchType === "similar",
+        );
+        pendingDuplicateSubmissionRef.current = values;
+        setDuplicateTemplateWarning({
+          templatePreview:
+            normalizedTemplate.length > 220
+              ? `${normalizedTemplate.slice(0, 220)}...`
+              : normalizedTemplate,
+          matches: duplicateTemplateOrders.slice(0, 6).map((entry) => ({
+            id: entry.order.id,
+            bookingLabel:
+              entry.order.resi ||
+              entry.order.bookingCode ||
+              `Order ${String(entry.order.id).slice(0, 8)}`,
+            customerName: entry.order.customerName || "Walk-in Customer",
+            deliveryDateLabel: formatDuplicateWarningDate(entry.order.deliveryDate),
+            similarityLabel: formatTemplateSimilarityLabel(
+              entry.similarityScore,
+              entry.matchType,
+            ),
+            matchType: entry.matchType,
+          })),
+        });
+        toast.warning(
+          hasSimilarTemplate
+            ? "Template parse sama persis atau sangat mirip terdeteksi. Cek booking dulu atau lanjutkan jika memang order baru."
+            : "Template parse yang sama terdeteksi. Cek booking dulu atau lanjutkan jika memang order baru.",
+        );
+        return;
+      }
+    }
+
+    if (!skipSubmitConfirmation && shouldRequireSubmitConfirmation) {
+      pendingSubmitConfirmationRef.current = values;
+      setShowSubmitConfirmation(true);
+      return;
+    }
+
     try {
+      setDuplicateTemplateWarning(null);
+      pendingDuplicateSubmissionRef.current = null;
       await addOrder(submissionPayload);
       setSubmitSuccess("Booking berhasil disimpan ke server.");
       setSubmitSuccessMeta({
@@ -3894,6 +4200,10 @@ export default function BookingForm() {
       setShippingDistanceKm(null);
       setShippingDistanceSource(undefined);
       setShippingWarning("");
+      setShowSubmitConfirmation(false);
+      pendingSubmitConfirmationRef.current = null;
+      skipSubmitConfirmationRef.current = false;
+      skipDuplicateTemplateWarningRef.current = false;
       reset();
     } catch (error) {
       const message =
@@ -3903,6 +4213,54 @@ export default function BookingForm() {
       setSubmitError(message);
       toast.error(message);
     }
+  };
+
+  const continueDuplicateTemplateSubmission = () => {
+    const pendingValues = pendingDuplicateSubmissionRef.current;
+    if (!pendingValues) {
+      setDuplicateTemplateWarning(null);
+      return;
+    }
+
+    setDuplicateTemplateWarning(null);
+    pendingDuplicateSubmissionRef.current = null;
+    skipSubmitConfirmationRef.current = true;
+    skipDuplicateTemplateWarningRef.current = true;
+    void onSubmit(pendingValues);
+  };
+
+  const confirmSubmitAfterReminder = () => {
+    const pendingValues = pendingSubmitConfirmationRef.current;
+    if (!pendingValues) {
+      setShowSubmitConfirmation(false);
+      return;
+    }
+
+    setShowSubmitConfirmation(false);
+    pendingSubmitConfirmationRef.current = null;
+    skipSubmitConfirmationRef.current = true;
+    void onSubmit(pendingValues);
+  };
+
+  const closeSubmitConfirmationReminder = () => {
+    setShowSubmitConfirmation(false);
+    pendingSubmitConfirmationRef.current = null;
+    skipSubmitConfirmationRef.current = false;
+  };
+
+  const closeDuplicateTemplateWarning = () => {
+    setDuplicateTemplateWarning(null);
+    pendingDuplicateSubmissionRef.current = null;
+    skipDuplicateTemplateWarningRef.current = false;
+  };
+
+  const openDetectedDuplicateBooking = () => {
+    const targetOrderId = duplicateTemplateWarning?.matches[0]?.id;
+    const targetUrl = targetOrderId
+      ? `/bakery/bookings/${targetOrderId}`
+      : "/bakery/bookings";
+
+    window.open(targetUrl, "_blank", "noopener,noreferrer");
   };
 
   const toggleItemAddOn = (itemIndex: number, addonId: string) => {
@@ -7599,6 +7957,12 @@ export default function BookingForm() {
                   setShippingDistanceKm(null);
                   setShippingDistanceSource(undefined);
                   setShippingWarning("");
+                  setShowSubmitConfirmation(false);
+                  pendingSubmitConfirmationRef.current = null;
+                  skipSubmitConfirmationRef.current = false;
+                  setDuplicateTemplateWarning(null);
+                  pendingDuplicateSubmissionRef.current = null;
+                  skipDuplicateTemplateWarningRef.current = false;
                 }}
                 className="border-indigo-200 text-indigo-700 hover:bg-indigo-50"
                 disabled={isSubmitting}
@@ -7639,6 +8003,7 @@ export default function BookingForm() {
             basePrice={basePrice}
             addOnTotal={addOnTotal}
             deliveryFee={deliveryFee}
+            serviceCharge={serviceCharge}
             manualAdjustment={Number(manualAdjustment || 0)}
             wholesaleDiscountPercent={Number(wholesaleDiscountPercent || 0)}
             wholesaleDiscountAmount={wholesaleDiscountAmount}
@@ -7650,6 +8015,129 @@ export default function BookingForm() {
           />
         </div>
       </div>
+
+      {showSubmitConfirmation ? (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/35 px-4 py-6">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Konfirmasi submit booking"
+            className="w-full max-w-lg rounded-2xl border border-indigo-200 bg-white p-5 shadow-2xl"
+          >
+            <p className="text-base font-semibold text-indigo-900">
+              Konfirmasi Sebelum Submit
+            </p>
+            <p className="mt-2 text-sm text-indigo-800">
+              Pastikan orderan sudah dicek dan semua data sudah benar sebelum
+              lanjut simpan booking.
+            </p>
+
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="border-gray-300"
+                onClick={closeSubmitConfirmationReminder}
+              >
+                Batal Dulu
+              </Button>
+              <Button
+                ref={submitConfirmationPrimaryButtonRef}
+                type="button"
+                className="bg-indigo-600 text-white hover:bg-indigo-700"
+                onClick={confirmSubmitAfterReminder}
+              >
+                Ya, Sudah Dicek
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {duplicateTemplateWarning ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 px-4 py-6">
+          <div
+            ref={duplicateWarningDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Peringatan Potensi Double Order"
+            className="relative w-full max-w-2xl rounded-2xl border border-amber-200 bg-white p-5 shadow-2xl"
+          >
+            <Button
+              type="button"
+              variant="ghost"
+              className="absolute right-3 top-3 h-8 w-8 text-amber-700 hover:bg-amber-100 hover:text-amber-900"
+              onClick={closeDuplicateTemplateWarning}
+              aria-label="Tutup peringatan"
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+            </Button>
+            <p className="text-base font-semibold text-amber-900">
+              Peringatan Potensi Double Order
+            </p>
+            <p className="mt-2 text-sm text-amber-800">
+              Parsing template yang sama persis atau sangat mirip sudah pernah
+              dipakai di booking lain.
+              Silakan cek dulu daftar booking untuk memastikan bukan order
+              duplikat, atau lanjutkan jika memang order baru.
+            </p>
+
+            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+                Cuplikan Template
+              </p>
+              <p className="mt-1 whitespace-pre-wrap wrap-break-word text-xs text-amber-900">
+                {duplicateTemplateWarning.templatePreview}
+              </p>
+            </div>
+
+            <div className="mt-3 max-h-44 space-y-2 overflow-y-auto rounded-lg border border-gray-200 bg-gray-50 p-3">
+              {duplicateTemplateWarning.matches.map((match) => (
+                <NextLink
+                  key={match.id}
+                  href={`/bakery/bookings/${match.id}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block rounded-md border border-gray-200 bg-white px-3 py-2 text-xs text-gray-700 hover:border-indigo-300 hover:bg-indigo-50"
+                >
+                  <p className="font-semibold text-gray-900">{match.bookingLabel}</p>
+                  <p className="mt-0.5">
+                    {match.customerName} • {match.deliveryDateLabel}
+                  </p>
+                  <p
+                    className={`mt-1 inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                      match.matchType === "exact"
+                        ? "border-rose-200 bg-rose-50 text-rose-700"
+                        : "border-amber-200 bg-amber-50 text-amber-700"
+                    }`}
+                  >
+                    {match.similarityLabel}
+                  </p>
+                </NextLink>
+              ))}
+            </div>
+
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              <Button
+                ref={duplicateWarningPrimaryButtonRef}
+                type="button"
+                variant="outline"
+                className="border-gray-300"
+                onClick={openDetectedDuplicateBooking}
+              >
+                Cek Booking Dulu
+              </Button>
+              <Button
+                type="button"
+                className="bg-amber-600 text-white hover:bg-amber-700"
+                onClick={continueDuplicateTemplateSubmission}
+              >
+                Lanjutkan Pesan Dengan Template Sama
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </form>
   );
 }

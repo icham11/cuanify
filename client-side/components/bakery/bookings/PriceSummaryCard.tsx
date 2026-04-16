@@ -5,6 +5,7 @@ interface PriceSummaryCardProps {
   basePrice: number;
   addOnTotal: number;
   deliveryFee: number;
+  serviceCharge?: number;
   manualAdjustment?: number;
   wholesaleDiscountPercent?: number;
   wholesaleDiscountAmount?: number;
@@ -31,6 +32,7 @@ export default function PriceSummaryCard({
   basePrice,
   addOnTotal,
   deliveryFee,
+  serviceCharge = 0,
   manualAdjustment = 0,
   wholesaleDiscountPercent = 0,
   wholesaleDiscountAmount = 0,
@@ -131,6 +133,12 @@ export default function PriceSummaryCard({
           <span>Ongkir</span>
           <span>{formatCurrency(deliveryFee)}</span>
         </div>
+        {serviceCharge > 0 ? (
+          <div className="flex items-center justify-between text-sm text-gray-600">
+            <span>Service Charge</span>
+            <span>{formatCurrency(serviceCharge)}</span>
+          </div>
+        ) : null}
         <div className="flex items-center justify-between text-sm text-gray-600">
           <span>Adjustment</span>
           <span>{formatCurrency(manualAdjustment)}</span>
@@ -168,8 +176,8 @@ export default function PriceSummaryCard({
           <span className="text-lg">{formatCurrency(totalPrice)}</span>
         </div>
         <p className="text-xs text-gray-500">
-          Auto-updated from product base price, add-ons, ongkir, adjustment, dan
-          discount grosir.
+          Auto-updated from product base price, add-ons, ongkir, service charge,
+          adjustment, dan discount grosir.
         </p>
       </CardContent>
     </Card>
