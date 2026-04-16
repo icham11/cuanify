@@ -5,20 +5,30 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.generateOrderImage = generateOrderImage;
 const node_fs_1 = __importDefault(require("node:fs"));
+const node_module_1 = require("node:module");
 const node_path_1 = __importDefault(require("node:path"));
-const puppeteer_1 = __importDefault(require("puppeteer"));
+const puppeteer_core_1 = __importDefault(require("puppeteer-core"));
+const requireFromHere = (0, node_module_1.createRequire)(import.meta.url);
 const FALLBACK_IMAGE_URL = "https://via.placeholder.com/1024";
 const TEMPLATE_WIDTH = 1414;
 const TEMPLATE_HEIGHT = 2000;
 const MARKED_SELECTION_MIN_PIXELS = 180;
 const COMMON_LEFT_TEXT_FIELDS = [
-    { key: "dateTime", x: 315, y: 296, w: 340, h: 90, fontSize: 30, lineHeight: 1.25 },
-    { key: "recipientName", x: 315, y: 394, w: 340, fontSize: 32 },
-    { key: "recipientPhone", x: 315, y: 476, w: 340, fontSize: 32 },
+    {
+        key: "dateTime",
+        x: 260,
+        y: 238,
+        w: 340,
+        h: 80,
+        fontSize: 30,
+        lineHeight: 1.25,
+    },
+    { key: "recipientName", x: 260, y: 315, w: 340, fontSize: 32 },
+    { key: "recipientPhone", x: 260, y: 392, w: 340, fontSize: 32 },
 ];
-const COMMON_RIGHT_COLUMN_X = 1015;
-const NOTE_TEXT_X_OFFSET = 86;
-const NOTE_TEXT_Y_OFFSET = 34;
+const COMMON_RIGHT_COLUMN_X = 965;
+const NOTE_TEXT_X_OFFSET = 115;
+const NOTE_TEXT_Y_OFFSET = 48;
 const TEMPLATE_LAYOUTS = {
     cake: {
         fileName: "2.jpg",
@@ -34,9 +44,28 @@ const TEMPLATE_LAYOUTS = {
         ],
         textFields: [
             ...COMMON_LEFT_TEXT_FIELDS,
-            { key: "rightTop", x: COMMON_RIGHT_COLUMN_X, y: 296, w: 280, fontSize: 30 },
-            { key: "rightMiddle", x: COMMON_RIGHT_COLUMN_X, y: 394, w: 280, fontSize: 30 },
-            { key: "rightBottom", x: COMMON_RIGHT_COLUMN_X, y: 476, w: 280, fontSize: 30 },
+            {
+                key: "rightTop",
+                x: COMMON_RIGHT_COLUMN_X,
+                y: 238,
+                w: 320,
+                fontSize: 30,
+            },
+            {
+                key: "rightMiddle",
+                x: COMMON_RIGHT_COLUMN_X,
+                y: 315,
+                w: 320,
+                h: 90,
+                fontSize: 30,
+            },
+            {
+                key: "rightBottom",
+                x: COMMON_RIGHT_COLUMN_X,
+                y: 392,
+                w: 320,
+                fontSize: 30,
+            },
         ],
     },
     cookies_tower: {
@@ -44,9 +73,27 @@ const TEMPLATE_LAYOUTS = {
         slots: [{ x: 220, y: 600, w: 980, h: 980 }],
         textFields: [
             ...COMMON_LEFT_TEXT_FIELDS,
-            { key: "rightTop", x: COMMON_RIGHT_COLUMN_X, y: 296, w: 280, fontSize: 30 },
-            { key: "rightMiddle", x: COMMON_RIGHT_COLUMN_X, y: 394, w: 280, fontSize: 30 },
-            { key: "rightBottom", x: COMMON_RIGHT_COLUMN_X, y: 476, w: 280, fontSize: 30 },
+            {
+                key: "rightTop",
+                x: COMMON_RIGHT_COLUMN_X,
+                y: 296,
+                w: 320,
+                fontSize: 30,
+            },
+            {
+                key: "rightMiddle",
+                x: COMMON_RIGHT_COLUMN_X,
+                y: 394,
+                w: 320,
+                fontSize: 30,
+            },
+            {
+                key: "rightBottom",
+                x: COMMON_RIGHT_COLUMN_X,
+                y: 476,
+                w: 320,
+                fontSize: 30,
+            },
         ],
     },
     cupcakes: {
@@ -62,12 +109,18 @@ const TEMPLATE_LAYOUTS = {
         ],
         textFields: [
             ...COMMON_LEFT_TEXT_FIELDS,
-            { key: "rightTop", x: COMMON_RIGHT_COLUMN_X, y: 296, w: 280, fontSize: 30 },
+            {
+                key: "rightTop",
+                x: COMMON_RIGHT_COLUMN_X,
+                y: 296,
+                w: 320,
+                fontSize: 30,
+            },
             {
                 key: "rightMiddle",
                 x: COMMON_RIGHT_COLUMN_X,
                 y: 394,
-                w: 280,
+                w: 320,
                 h: 120,
                 fontSize: 28,
                 lineHeight: 1.25,
@@ -93,7 +146,7 @@ const TEMPLATE_LAYOUTS = {
                 key: "rightMiddle",
                 x: COMMON_RIGHT_COLUMN_X,
                 y: 394,
-                w: 280,
+                w: 320,
                 h: 120,
                 fontSize: 28,
                 lineHeight: 1.25,
@@ -120,7 +173,7 @@ const TEMPLATE_LAYOUTS = {
                 key: "rightTop",
                 x: COMMON_RIGHT_COLUMN_X,
                 y: 296,
-                w: 280,
+                w: 320,
                 h: 80,
                 fontSize: 28,
                 lineHeight: 1.25,
@@ -144,9 +197,27 @@ const TEMPLATE_LAYOUTS = {
         ],
         textFields: [
             ...COMMON_LEFT_TEXT_FIELDS,
-            { key: "rightTop", x: COMMON_RIGHT_COLUMN_X, y: 296, w: 280, fontSize: 30 },
-            { key: "rightMiddle", x: COMMON_RIGHT_COLUMN_X, y: 394, w: 280, fontSize: 30 },
-            { key: "rightBottom", x: COMMON_RIGHT_COLUMN_X, y: 476, w: 280, fontSize: 30 },
+            {
+                key: "rightTop",
+                x: COMMON_RIGHT_COLUMN_X,
+                y: 296,
+                w: 320,
+                fontSize: 30,
+            },
+            {
+                key: "rightMiddle",
+                x: COMMON_RIGHT_COLUMN_X,
+                y: 394,
+                w: 320,
+                fontSize: 30,
+            },
+            {
+                key: "rightBottom",
+                x: COMMON_RIGHT_COLUMN_X,
+                y: 476,
+                w: 320,
+                fontSize: 30,
+            },
         ],
     },
     buket_standing: {
@@ -165,9 +236,27 @@ const TEMPLATE_LAYOUTS = {
         ],
         textFields: [
             ...COMMON_LEFT_TEXT_FIELDS,
-            { key: "rightTop", x: COMMON_RIGHT_COLUMN_X, y: 296, w: 280, fontSize: 30 },
-            { key: "rightMiddle", x: COMMON_RIGHT_COLUMN_X, y: 394, w: 280, fontSize: 30 },
-            { key: "rightBottom", x: COMMON_RIGHT_COLUMN_X, y: 476, w: 280, fontSize: 30 },
+            {
+                key: "rightTop",
+                x: COMMON_RIGHT_COLUMN_X,
+                y: 296,
+                w: 320,
+                fontSize: 30,
+            },
+            {
+                key: "rightMiddle",
+                x: COMMON_RIGHT_COLUMN_X,
+                y: 394,
+                w: 320,
+                fontSize: 30,
+            },
+            {
+                key: "rightBottom",
+                x: COMMON_RIGHT_COLUMN_X,
+                y: 476,
+                w: 320,
+                fontSize: 30,
+            },
         ],
     },
 };
@@ -261,9 +350,7 @@ function tokenizeMatchText(value) {
     return normalizeMatchText(value)
         .split(" ")
         .map((token) => token.trim())
-        .filter((token) => token.length > 1 &&
-        !MATCH_STOPWORDS.has(token) &&
-        !/^\d+$/.test(token));
+        .filter((token) => token.length > 1 && !MATCH_STOPWORDS.has(token) && !/^\d+$/.test(token));
 }
 function collectReferenceImages(order) {
     const normalizedReferences = [];
@@ -357,8 +444,7 @@ function scoreReferenceMatch(reference, requestedLabel) {
         }
         else {
             for (const referenceToken of referenceSet) {
-                if (referenceToken.includes(token) ||
-                    token.includes(referenceToken)) {
+                if (referenceToken.includes(token) || token.includes(referenceToken)) {
                     score += 80;
                     break;
                 }
@@ -372,7 +458,9 @@ function orderReferenceImagesForTemplate(referenceImages, requestedLabels) {
         return referenceImages;
     }
     const baseOrdered = [...referenceImages].sort((left, right) => {
-        const leftIndex = typeof left.orderIndex === "number" ? left.orderIndex : Number.MAX_SAFE_INTEGER;
+        const leftIndex = typeof left.orderIndex === "number"
+            ? left.orderIndex
+            : Number.MAX_SAFE_INTEGER;
         const rightIndex = typeof right.orderIndex === "number"
             ? right.orderIndex
             : Number.MAX_SAFE_INTEGER;
@@ -889,7 +977,10 @@ function formatTemplateTime(value) {
     return (value || "").trim().replace(/\s*wib$/i, "");
 }
 function buildDefaultTemplateFields(order) {
-    const dateLine = [formatTemplateDate(order.deliveryDate), formatTemplateTime(order.deliveryTime)]
+    const dateLine = [
+        formatTemplateDate(order.deliveryDate),
+        formatTemplateTime(order.deliveryTime),
+    ]
         .filter(Boolean)
         .join(" | ");
     return {
@@ -907,7 +998,7 @@ function withRepeatedReferences(references, targetLength) {
         return source ?? references[0];
     }).filter((reference) => Boolean(reference));
 }
-function resolveSlotNotes(order, renderableReferenceImages, slotCount) {
+function resolveSlotNotes(order, renderableReferenceImages) {
     const explicitNotes = Array.isArray(order.slotNotes)
         ? order.slotNotes.map((note) => normalizeLabel(note)).filter(Boolean)
         : [];
@@ -917,19 +1008,20 @@ function resolveSlotNotes(order, renderableReferenceImages, slotCount) {
     const sourceNotes = explicitNotes.length > 0 ? explicitNotes : referenceLabels;
     if (sourceNotes.length === 0)
         return [];
-    return Array.from({ length: slotCount }, (_, index) => sourceNotes[index % sourceNotes.length]);
+    return Array.from({ length: renderableReferenceImages.length }, (_, index) => sourceNotes[index % sourceNotes.length]);
 }
 function buildTemplateHtml(order, layout, templateDataUrl, renderableReferenceImages) {
     const effectiveTemplateFields = {
         ...buildDefaultTemplateFields(order),
         ...(order.templateFields ?? {}),
     };
+    const shouldRepeatReferenceImages = Boolean(order.allowRepeatedReferenceImages && layout.repeatSlotImages);
     const imageSources = renderableReferenceImages.length > 0
-        ? layout.repeatSlotImages
+        ? shouldRepeatReferenceImages
             ? withRepeatedReferences(renderableReferenceImages, layout.slots.length)
             : renderableReferenceImages
         : [{ url: FALLBACK_IMAGE_URL }];
-    const slotNotes = resolveSlotNotes(order, imageSources, layout.slots.length);
+    const slotNotes = resolveSlotNotes(order, imageSources);
     const slotMarkup = layout.slots
         .map((slot, index) => {
         const source = imageSources[index];
@@ -946,16 +1038,17 @@ function buildTemplateHtml(order, layout, templateDataUrl, renderableReferenceIm
             return "";
         const heightStyle = fieldConfig.h ? `height:${fieldConfig.h}px;` : "";
         const fontSize = fieldConfig.fontSize ?? 32;
-        const fontWeight = fieldConfig.fontWeight ?? 600;
-        const lineHeight = fieldConfig.lineHeight ?? 1.2;
+        const fontWeight = fieldConfig.fontWeight ?? 700;
+        const lineHeight = fieldConfig.lineHeight ?? 1.15;
         return `<div class="template-text" style="left:${fieldConfig.x}px;top:${fieldConfig.y}px;width:${fieldConfig.w}px;${heightStyle}font-size:${fontSize}px;font-weight:${fontWeight};line-height:${lineHeight};">${escapeHtml(value)}</div>`;
     })
         .filter(Boolean)
         .join("\n");
     const notesMarkup = layout.slots
         .map((slot, index) => {
+        const source = imageSources[index];
         const note = slotNotes[index];
-        if (!note)
+        if (!source?.url || !note)
             return "";
         return `<div class="slot-note" style="left:${slot.x + NOTE_TEXT_X_OFFSET}px;top:${slot.y + slot.h + NOTE_TEXT_Y_OFFSET}px;width:${Math.max(slot.w - NOTE_TEXT_X_OFFSET, 120)}px;">${escapeHtml(note)}</div>`;
     })
@@ -994,8 +1087,8 @@ function buildTemplateHtml(order, layout, templateDataUrl, renderableReferenceIm
             position: absolute;
             color: #111827;
             font-size: 24px;
-            font-weight: 500;
-            line-height: 1.2;
+            font-weight: 700;
+            line-height: 1.15;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
@@ -1106,11 +1199,32 @@ async function generateOrderImage(order) {
     const layout = TEMPLATE_LAYOUTS[templateKey];
     const templateDataUrl = await readTemplateDataUrl(layout.fileName);
     let browser = null;
+    const isProd = process.env.NODE_ENV === "production" ||
+        process.env.VERCEL_ENV === "production" ||
+        process.env.VERCEL === "1";
     try {
-        browser = await puppeteer_1.default.launch({
-            headless: true,
-            args: ["--no-sandbox", "--disable-setuid-sandbox"],
-        });
+        if (isProd) {
+            // Required for Vercel/AWS Lambda Serverless environments
+            const chromiumModule = requireFromHere("@sparticuz/chromium");
+            const chr = ("default" in chromiumModule
+                ? chromiumModule.default || chromiumModule
+                : chromiumModule);
+            const resolvedHeadless = chr.headless === "new" ? true : chr.headless;
+            browser = await puppeteer_core_1.default.launch({
+                args: chr.args,
+                defaultViewport: chr.defaultViewport,
+                executablePath: await chr.executablePath(),
+                headless: resolvedHeadless,
+            });
+        }
+        else {
+            // Load local Chromium only in dev runtime to keep serverless bundles lean.
+            const puppeteerLocal = requireFromHere("puppeteer");
+            browser = await puppeteerLocal.launch({
+                headless: true,
+                args: ["--no-sandbox", "--disable-setuid-sandbox"],
+            });
+        }
         const page = await browser.newPage();
         const renderableReferenceImages = await resolveRenderableReferenceImages(page, referenceImages);
         const useTemplateLayout = Boolean(templateDataUrl);

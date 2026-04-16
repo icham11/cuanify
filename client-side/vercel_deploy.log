@@ -1,0 +1,57 @@
+Retrieving project…
+Deploying wahid-nurhisyams-projects/crumbella-demo
+Uploading [--------------------] (0.0B/73B)
+Uploading [====================] (73.0B/73B)
+Inspect: https://vercel.com/wahid-nurhisyams-projects/crumbella-demo/6BqSJqjNmzmLjt7cABT94rQc8qBw [3s]
+Production: https://crumbella-demo-5y2osiagu-wahid-nurhisyams-projects.vercel.app [3s]
+https://crumbella-demo-5y2osiagu-wahid-nurhisyams-projects.vercel.appBuilding...
+Building...
+Building: Running build in Washington, D.C., USA (East) – iad1
+Building: Build machine configuration: 2 cores, 8 GB
+Building: Retrieving list of deployment files...
+Building: Downloading 414 deployment files...
+Building: Restored build cache from previous deployment (H4avza6XdEu3xZNRYtpTEmVZVD6k)
+Building: Running "vercel build"
+Building: Vercel CLI 51.2.1
+Building: Installing dependencies...
+Building: > client-side@0.1.0 postinstall
+Building: > prisma generate
+Building: Loaded Prisma config from prisma.config.ts.
+Building: Prisma schema loaded from prisma/schema.prisma.
+Building: ✔ Generated Prisma Client (v7.4.0) to ./node_modules/@prisma/client in 540ms
+Building: Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+Building: up to date in 3s
+Building: 261 packages are looking for funding
+Building: run `npm fund` for details
+Building: Detected Next.js version: 16.1.6
+Building: Running "npm run build:vercel"
+Building: > client-side@0.1.0 build:vercel
+Building: > if [ -f prisma/schema.prisma ]; then npx prisma generate --schema prisma/schema.prisma; elif [ -f client-side/prisma/schema.prisma ]; then npx prisma generate --schema client-side/prisma/schema.prisma && cd client-side; else echo 'Prisma schema not found' && exit 1; fi && npx next build --webpack
+Building: Loaded Prisma config from prisma.config.ts.
+Building: Prisma schema loaded from prisma/schema.prisma.
+Building: ┌─────────────────────────────────────────────────────────┐
+Building: │  Update available 7.4.0 -> 7.7.0                        │
+Building: │  Run the following to update                            │
+Building: │    npm i --save-dev prisma@latest                       │
+Building: │    npm i @prisma/client@latest                          │
+Building: └─────────────────────────────────────────────────────────┘
+Building: ✔ Generated Prisma Client (v7.4.0) to ./node_modules/@prisma/client in 555ms
+Building: Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+Building: ▲ Next.js 16.1.6 (webpack)
+Building: - Environments: .env
+Building: Creating an optimized production build ...
+Building: ✓ Compiled successfully in 19.9s
+Building: Running TypeScript ...
+Building: Failed to compile.
+Building: ./components/bakery/store.tsx:794:9
+Building: Type error: Cannot find name 'toast'.
+Building: 792 |           message,
+Building: 793 |         });
+Building: > 794 |         toast.error(`Perubahan dibatalkan karena sinkron gagal: ${message}`);
+Building: |         ^
+Building: 795 |       });
+Building: 796 |     },
+Building: 797 |     [hydrateOrdersFromServer, syncOrdersToServer],
+Building: Next.js build worker exited with code: 1 and signal: null
+Building: Error: Command "npm run build:vercel" exited with 1
+Error: Command "npm run build:vercel" exited with 1

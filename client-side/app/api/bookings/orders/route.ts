@@ -21,6 +21,10 @@ import {
   sendOrderToWhatsApp,
   type SendOrderToWhatsAppInput,
 } from "@/lib/whatsapp/sendOrderToWhatsApp";
+import {
+  detailFieldDefinitions,
+  type WhatsAppOrderType,
+} from "@/lib/bookings/whatsapp-parser";
 import { getBakeryBusinessSettings } from "@/lib/bakery/settings";
 
 // ─── Custom Error for capacity-full rejections ───────────────────────────────
@@ -664,6 +668,138 @@ function getParsedDetailsForTemplate(
   return asRecord(parsedData?.details);
 }
 
+function mapProductTypeToDetailOrderType(
+  productType: unknown,
+): WhatsAppOrderType | null {
+  const normalized = asString(productType).trim().toUpperCase();
+
+  if (normalized === "CAKE") return "cake";
+  if (normalized === "COOKIE") return "cookies";
+  if (normalized === "CUPCAKE") return "cupcakes";
+  if (normalized === "BOUQUET") return "buket";
+  if (normalized === "TOWER") return "cookies_tower";
+
+  return null;
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function getParsedDetailsForItem(
+  order: NormalizedOrder,
+  item: JsonRecord,
+): JsonRecord | null {
+  const parsedData = asRecord(order.whatsAppParsedData);
+  const detailsByOrderType = asRecord(parsedData?.detailsByOrderType);
+  const detailOrderType =
+    mapProductTypeToDetailOrderType(item.productType) ||
+    (normalizeParsedOrderTypeKey(parsedData?.orderType) as WhatsAppOrderType);
+
+  if (detailOrderType) {
+    const typedDetails = asRecord(detailsByOrderType?.[detailOrderType]);
+    if (typedDetails) return typedDetails;
+  }
+
+  return asRecord(parsedData?.details);
+}
+
+function buildCaptionItemDetailLines(
+  order: NormalizedOrder,
+  item: JsonRecord,
+): Array<{ label: string; value: string }> {
+  const detailOrderType =
+    mapProductTypeToDetailOrderType(item.productType) ||
+    (normalizeParsedOrderTypeKey(
+      asRecord(order.whatsAppParsedData)?.orderType,
+    ) as WhatsAppOrderType);
+  const fieldDefinitions = detailOrderType
+    ? detailFieldDefinitions[detailOrderType]
+    : [];
+  const parsedDetails = getParsedDetailsForItem(order, item);
+  const itemNotes = asString(item.notes);
+
+  return fieldDefinitions
+    .map((field) => {
+      let value = asString(parsedDetails?.[field.key]).trim();
+
+      if (!value && itemNotes) {
+        const match = itemNotes.match(
+          new RegExp(`${escapeRegex(field.label)}\\s*[:=-]\\s*([^\\n]+)`, "i"),
+        );
+
+        if (match?.[1]) {
+          value = match[1].trim();
+        }
+      }
+
+      return value ? { label: field.label, value } : null;
+    })
+    .filter((entry): entry is { label: string; value: string } => Boolean(entry));
+}
+
+function formatCaptionAddOns(item: JsonRecord): string {
+  const addOns = asStringArray(item.addOns);
+  if (addOns.length === 0) return "";
+
+  const quantities = asRecord(item.addOnQuantities);
+
+  return addOns
+    .map((addOn) => {
+      const quantity = asPositiveIntOrNull(quantities?.[addOn]);
+      if (!quantity || quantity <= 1) return addOn;
+      return `${quantity}x ${addOn}`;
+    })
+    .join(", ");
+}
+
+function resolveCaptionItemSubtotal(item: JsonRecord): number {
+  const lineTotal = asNumber(item.lineTotal);
+  if (lineTotal > 0) return lineTotal;
+
+  const basePrice = asNumber(item.selectedPrice) || asNumber(item.basePrice);
+  const addOnTotal = asNumber(item.addOnTotal);
+  const quantity = Math.max(0, asNumber(item.quantity) || 0);
+
+  return (basePrice + addOnTotal) * quantity;
+}
+
+function buildCaptionItems(
+  order: NormalizedOrder,
+): NonNullable<SendOrderToWhatsAppInput["captionItems"]> {
+  return order.items.map((rawItem, index) => {
+    const item = asRecord(rawItem) ?? {};
+    const productName = asString(item.productName) || `Item ${index + 1}`;
+    const unitPrice = asNumber(item.selectedPrice) || asNumber(item.basePrice);
+    const quantity = Math.max(0, asNumber(item.quantity) || 0);
+
+    return {
+      productName,
+      unitPrice,
+      quantity,
+      addOnText: formatCaptionAddOns(item),
+      subtotal: resolveCaptionItemSubtotal(item),
+      orderLabel: productName,
+      detailLines: buildCaptionItemDetailLines(order, item),
+    };
+  });
+}
+
+function resolveShippingMethodLabel(
+  order: NormalizedOrder,
+  common: JsonRecord | null,
+): string {
+  const parsedMethod = asString(common?.deliveryMethod).trim();
+  if (parsedMethod) return parsedMethod;
+
+  const shippingQuote = asRecord(order.shippingQuote);
+  const provider = asString(shippingQuote?.provider).trim();
+  const service = asString(shippingQuote?.courierServiceName).trim();
+  const label = [provider, service].filter(Boolean).join(" ").trim();
+
+  return label;
+}
+
 function buildTemplateFields(
   order: NormalizedOrder,
   templateKey: string,
@@ -794,6 +930,8 @@ function toWhatsAppPayload(order: NormalizedOrder): SendOrderToWhatsAppInput {
     itemSummary,
   ]);
   const common = getParsedCommonFields(order);
+  const shippingMethod = resolveShippingMethodLabel(order, common);
+  const fullAddress = asString(common?.fullAddress) || address;
 
   return {
     customerName: asString(order.customerName) || "Customer",
@@ -813,7 +951,14 @@ function toWhatsAppPayload(order: NormalizedOrder): SendOrderToWhatsAppInput {
       "Customer",
     recipientPhone:
       asString(common?.recipientPhone) || asString(order.customerPhone),
-    shippingMethod: asString(common?.deliveryMethod),
+    shippingMethod,
+    fullAddress,
+    deliveryFee: asNumber(order.deliveryFee),
+    manualAdjustment: asNumber(order.manualAdjustment),
+    totalPrice: asNumber(order.totalPrice),
+    downPaymentAmount: asNumber(order.downPaymentAmount),
+    remainingBalance: asNumber(order.remainingBalance),
+    captionItems: buildCaptionItems(order),
     imageUrl: imageUrls[0] || "",
     imageUrls,
     referenceImages,

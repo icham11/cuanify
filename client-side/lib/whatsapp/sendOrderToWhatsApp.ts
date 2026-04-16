@@ -3,6 +3,10 @@ import {
   type WhatsAppReferenceImage,
   type WhatsAppOrderImagePayload,
 } from "@/lib/whatsapp/generateOrderImage";
+import {
+  buildOrderRecapWhatsAppText,
+  type WhatsAppRecapItem,
+} from "@/lib/bookings/whatsapp-message-template";
 import { uploadToCloudinary } from "@/lib/whatsapp/uploadToCloudinary";
 import { sendWhatsAppImage } from "@/lib/whatsapp/sendWhatsApp";
 
@@ -12,36 +16,41 @@ export interface SendOrderToWhatsAppInput extends WhatsAppOrderImagePayload {
   imageUrl?: string;
   customerNotes?: string;
   designNotes?: string;
-}
-
-function normalizeCaptionText(value?: string): string {
-  return (value || "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function truncateCaptionText(value: string, maxLength = 240): string {
-  if (value.length <= maxLength) return value;
-  return `${value.slice(0, maxLength - 3).trimEnd()}...`;
+  fullAddress?: string;
+  deliveryFee?: number;
+  manualAdjustment?: number;
+  totalPrice?: number;
+  downPaymentAmount?: number;
+  remainingBalance?: number;
+  captionItems?: WhatsAppRecapItem[];
 }
 
 function buildProductionCaption(order: SendOrderToWhatsAppInput): string {
-  const lines = ["ORDER BARU MASUK - PRODUKSI"];
-  const customerNotes = truncateCaptionText(
-    normalizeCaptionText(order.customerNotes || order.notes),
-  );
-  const designNotes = truncateCaptionText(
-    normalizeCaptionText(order.designNotes),
-  );
+  const captionItems =
+    order.captionItems && order.captionItems.length > 0
+      ? order.captionItems
+      : [
+          {
+            productName: order.item || "-",
+            quantity: 1,
+          },
+        ];
 
-  if (customerNotes) {
-    lines.push(`Customer notes: ${customerNotes}`);
-  }
-  if (designNotes) {
-    lines.push(`Design notes: ${designNotes}`);
-  }
-
-  return lines.join("\n");
+  return buildOrderRecapWhatsAppText({
+    items: captionItems,
+    deliveryFee: order.deliveryFee,
+    manualAdjustment: order.manualAdjustment,
+    totalPrice: order.totalPrice,
+    downPaymentAmount: order.downPaymentAmount,
+    remainingBalance: order.remainingBalance,
+    deliveryDate: order.deliveryDate,
+    bookingCode: order.bookingCode,
+    deliveryTime: order.deliveryTime,
+    shippingMethod: order.shippingMethod,
+    recipientName: order.recipientName || order.customerName,
+    recipientPhone: order.recipientPhone || order.phone,
+    fullAddress: order.fullAddress || order.address,
+  });
 }
 
 function normalizeReferenceImageUrl(url?: string): string | null {

@@ -1,5 +1,9 @@
 import { analyzeBusinessData } from "@/lib/groq";
 import prisma from "@/lib/prisma";
+import {
+  parseLocalBakeryOrders,
+  summarizeLocalBakeryOrders,
+} from "@/lib/bookings/local-orders";
 export interface InventoryAlert {
   ingredientName: string;
   currentStock: number;
@@ -38,6 +42,96 @@ export interface SmartInsights {
   profitOptimizations: ProfitOptimization[];
   summary: string;
   generatedAt: string;
+}
+
+interface BakeryOperationsOverview {
+  totalOrders: number;
+  pendingAutomation: number;
+  deliveryToday: number;
+  totalRevenue: number;
+  source: string;
+}
+
+interface ProductionOperationsOverview {
+  totalBatches: number;
+  activeProducts: number;
+  totalAvailableStock: number;
+  latestProducedAt: string | null;
+}
+
+async function getBakeryOperationsOverview(
+  businessId: number,
+): Promise<BakeryOperationsOverview> {
+  const snapshot = await prisma.businessDocument.findFirst({
+    where: {
+      businessId,
+      sourceType: "bakery_orders_snapshot",
+    },
+    orderBy: { updatedAt: "desc" },
+    select: {
+      content: true,
+    },
+  });
+
+  if (snapshot?.content) {
+    const orders = parseLocalBakeryOrders(snapshot.content);
+    const summary = summarizeLocalBakeryOrders(orders);
+    return {
+      totalOrders: summary.totalOrders,
+      pendingAutomation: summary.pendingAutomation,
+      deliveryToday: summary.deliveryToday,
+      totalRevenue: summary.totalRevenue,
+      source: "server snapshot",
+    };
+  }
+
+  return {
+    totalOrders: 0,
+    pendingAutomation: 0,
+    deliveryToday: 0,
+    totalRevenue: 0,
+    source: "none",
+  };
+}
+
+async function getProductionOperationsOverview(
+  businessId: number,
+): Promise<ProductionOperationsOverview> {
+  const [batches, summary] = await Promise.all([
+    prisma.productionBatch.findMany({
+      where: { businessId },
+      select: {
+        remainingQty: true,
+        producedAt: true,
+        productId: true,
+      },
+      orderBy: { producedAt: "desc" },
+      take: 200,
+    }),
+    prisma.product.findMany({
+      where: { businessId, productType: "ReadyStock", deletedAt: null },
+      select: {
+        id: true,
+        productionBatches: {
+          where: { remainingQty: { gt: 0 } },
+          select: { remainingQty: true },
+        },
+      },
+    }),
+  ]);
+
+  const totalAvailableStock = summary.reduce(
+    (sum, product) =>
+      sum + product.productionBatches.reduce((innerSum, batch) => innerSum + Number(batch.remainingQty), 0),
+    0,
+  );
+
+  return {
+    totalBatches: batches.length,
+    activeProducts: summary.length,
+    totalAvailableStock,
+    latestProducedAt: batches[0]?.producedAt?.toISOString() ?? null,
+  };
 }
 export async function getInventoryAlerts(businessId: number): Promise<InventoryAlert[]> {
   const sevenDaysAgo = new Date();
@@ -187,8 +281,17 @@ export async function getProfitOptimization(businessId: number): Promise<ProfitO
   } catch { return []; }
 }
 export async function getSmartInsights(businessId: number): Promise<SmartInsights> {
-  const [inventoryAlerts, salesForecast, menuRecommendations, profitOptimizations] =
+  const [
+    bakeryOverview,
+    productionOverview,
+    inventoryAlerts,
+    salesForecast,
+    menuRecommendations,
+    profitOptimizations,
+  ] =
     await Promise.all([
+      getBakeryOperationsOverview(businessId),
+      getProductionOperationsOverview(businessId),
       getInventoryAlerts(businessId),
       getSalesForecast(businessId),
       getMenuRecommendations(businessId),
@@ -202,5 +305,17 @@ export async function getSmartInsights(businessId: number): Promise<SmartInsight
   if (topProduct) summary += "🏆 Terlaris: " + topProduct.productName + " (~" + topProduct.predicted7Days + " unit/minggu)\n";
   if (easyWins > 0) summary += "💡 " + easyWins + " optimasi mudah tersedia\n";
   if (menuRecommendations.length > 0) summary += "🍽️ " + menuRecommendations.length + " rekomendasi menu\n";
+  if (bakeryOverview.totalOrders > 0) {
+    summary +=
+      `🧁 Bakery: ${bakeryOverview.totalOrders} order, ` +
+      `${bakeryOverview.pendingAutomation} pending automasi, ` +
+      `${bakeryOverview.deliveryToday} kirim hari ini\n`;
+  }
+  if (productionOverview.totalBatches > 0) {
+    summary +=
+      `🏭 Production: ${productionOverview.totalBatches} batch, ` +
+      `${productionOverview.activeProducts} produk aktif, ` +
+      `stok ready ${productionOverview.totalAvailableStock} unit\n`;
+  }
   return { inventoryAlerts, salesForecast, menuRecommendations, profitOptimizations, summary, generatedAt: new Date().toISOString() };
 }

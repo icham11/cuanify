@@ -16,6 +16,11 @@
 import prisma from "@/lib/prisma";
 import { createHash } from "crypto";
 import {
+  parseLocalBakeryOrders,
+  summarizeLocalBakeryOrders,
+  type LocalBakeryOrder,
+} from "@/lib/bookings/local-orders";
+import {
   generateQueryEmbedding,
   generateEmbeddingsBatch,
 } from "./embedding";
@@ -69,6 +74,295 @@ function hashContent(content: string): string {
 
 function chunkKeyStr(c: ChunkKey): string {
   return `${c.sourceType}::${c.sourceId ?? "null"}::${c.chunkIndex}`;
+}
+
+function formatIdr(value: number): string {
+  return `Rp ${Math.round(Number(value || 0)).toLocaleString("id-ID")}`;
+}
+
+function formatRagDate(value: Date | string | null | undefined): string {
+  if (!value) return "-";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleString("id-ID", {
+    timeZone: "Asia/Jakarta",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function getBakeryOrderStatusKey(order: LocalBakeryOrder): string {
+  return (order.orderStatus || "").trim().toLowerCase();
+}
+
+async function loadBakeryOrdersSnapshot(businessId: number): Promise<{
+  orders: LocalBakeryOrder[];
+  updatedAt: Date | null;
+}> {
+  const snapshot = await prisma.businessDocument.findFirst({
+    where: {
+      businessId,
+      sourceType: "bakery_orders_snapshot",
+    },
+    orderBy: { updatedAt: "desc" },
+    select: {
+      content: true,
+      updatedAt: true,
+    },
+  });
+
+  if (!snapshot?.content) {
+    return { orders: [], updatedAt: snapshot?.updatedAt ?? null };
+  }
+
+  return {
+    orders: parseLocalBakeryOrders(snapshot.content),
+    updatedAt: snapshot.updatedAt,
+  };
+}
+
+function buildBakeryOrderChunks(
+  businessId: number,
+  orders: LocalBakeryOrder[],
+  updatedAt: Date | null,
+): DocumentChunk[] {
+  if (orders.length === 0) return [];
+
+  const summary = summarizeLocalBakeryOrders(orders);
+  const activeOrders = orders
+    .filter((order) => {
+      const status = getBakeryOrderStatusKey(order);
+      return !["completed", "delivery", "delivered", "cancelled"].includes(
+        status,
+      );
+    })
+    .slice()
+    .sort((left, right) => {
+      const leftKey = `${left.deliveryDate || ""} ${left.deliverySlot || ""} ${left.customerName || ""}`;
+      const rightKey = `${right.deliveryDate || ""} ${right.deliverySlot || ""} ${right.customerName || ""}`;
+      return leftKey.localeCompare(rightKey);
+    });
+
+  const activeLines = activeOrders.slice(0, 20).map((order) => {
+    const status = order.orderStatus || "Inquiry";
+    const productSummary = (order.items ?? [])
+      .map((item) => `${item.quantity || 0}x ${item.productName || "-"}`)
+      .join(", ");
+    const shippingLabel = order.shippingQuote?.provider
+      ? `${order.shippingQuote.provider}${order.shippingQuote.courierServiceName ? `/${order.shippingQuote.courierServiceName}` : ""}`
+      : "No shipping quote";
+    const automationFlags = order.simulations
+      ? [
+          order.simulations.productionWhatsappSent ? "prod WA" : "prod WA pending",
+          order.simulations.customerWhatsappSent ? "cust WA" : "cust WA pending",
+          order.simulations.calendarEventCreated ? "calendar" : "calendar pending",
+          order.simulations.googleSheetsSynced ? "sheets" : "sheets pending",
+        ].join(" | ")
+      : "automation pending";
+
+    return [
+      `${order.deliveryDate || "-"} ${order.deliverySlot ? `| ${order.deliverySlot}` : ""}`.trim(),
+      `Customer: ${order.customerName || "-"}`,
+      `Status: ${status}`,
+      `Item: ${productSummary || "-"}`,
+      `Resi: ${order.resi || "-"}`,
+      `Shipping: ${shippingLabel}`,
+      `Automasi: ${automationFlags}`,
+    ].join("\n");
+  });
+
+  return [
+    {
+      content: [
+        `[Bakery Orders Snapshot]`,
+        `Terakhir sinkron: ${formatRagDate(updatedAt)}`,
+        `Total order: ${summary.totalOrders}`,
+        `Inquiry: ${summary.inquiry}`,
+        `Confirmed: ${summary.confirmed}`,
+        `In production: ${summary.inProduction}`,
+        `Completed: ${summary.completed}`,
+        `Cancelled: ${summary.cancelled}`,
+        `Order dengan resi: ${summary.withResi}`,
+        `Order tanpa resi: ${summary.withoutResi}`,
+        `Order dengan shipping quote: ${summary.withShippingQuote}`,
+        `Pending automasi: ${summary.pendingAutomation}`,
+        `Delivery hari ini: ${summary.deliveryToday}`,
+        `Delivery besok: ${summary.deliveryTomorrow}`,
+        `Open order terlambat: ${summary.lateOpenOrders}`,
+        `Total revenue order: ${formatIdr(summary.totalRevenue)}`,
+      ].join("\n"),
+      sourceType: "bakery_order",
+      sourceId: businessId,
+      metadata: {
+        businessId,
+        updatedAt: updatedAt?.toISOString() || null,
+        totalOrders: summary.totalOrders,
+        pendingAutomation: summary.pendingAutomation,
+        lateOpenOrders: summary.lateOpenOrders,
+      },
+      chunkIndex: 0,
+    },
+    {
+      content: [
+        `[Bakery Orders Aktif]`,
+        ...activeLines,
+      ].join("\n\n"),
+      sourceType: "bakery_order",
+      sourceId: businessId,
+      metadata: {
+        businessId,
+        updatedAt: updatedAt?.toISOString() || null,
+        activeOrderCount: activeOrders.length,
+        sampleCount: Math.min(activeOrders.length, 20),
+      },
+      chunkIndex: 1,
+    },
+  ];
+}
+
+async function buildProductionBatchChunks(
+  businessId: number,
+): Promise<DocumentChunk[]> {
+  const batches = await prisma.productionBatch.findMany({
+    where: { businessId },
+    include: {
+      product: {
+        select: {
+          id: true,
+          name: true,
+          sellingPrice: true,
+          productType: true,
+        },
+      },
+    },
+    orderBy: { producedAt: "desc" },
+    take: 200,
+  });
+
+  if (batches.length === 0) return [];
+
+  const byProduct = new Map<
+    number,
+    {
+      name: string;
+      productType: string;
+      produced: number;
+      remaining: number;
+      cost: number;
+      batches: number;
+      latestProducedAt: Date;
+    }
+  >();
+
+  for (const batch of batches) {
+    const product = batch.product;
+    const current = byProduct.get(product.id) || {
+      name: product.name,
+      productType: product.productType,
+      produced: 0,
+      remaining: 0,
+      cost: 0,
+      batches: 0,
+      latestProducedAt: batch.producedAt,
+    };
+
+    current.produced += Number(batch.quantity);
+    current.remaining += Number(batch.remainingQty);
+    current.cost += Number(batch.quantity) * Number(batch.costPerUnit);
+    current.batches += 1;
+    if (batch.producedAt > current.latestProducedAt) {
+      current.latestProducedAt = batch.producedAt;
+    }
+    byProduct.set(product.id, current);
+  }
+
+  const totalProduced = batches.reduce(
+    (sum, batch) => sum + Number(batch.quantity),
+    0,
+  );
+  const totalRemaining = batches.reduce(
+    (sum, batch) => sum + Number(batch.remainingQty),
+    0,
+  );
+  const totalCost = batches.reduce(
+    (sum, batch) => sum + Number(batch.quantity) * Number(batch.costPerUnit),
+    0,
+  );
+  const activeBatches = batches.filter((batch) => Number(batch.remainingQty) > 0);
+
+  const topProduct = Array.from(byProduct.values()).sort(
+    (left, right) => right.remaining - left.remaining,
+  )[0];
+
+  const summaryLines = Array.from(byProduct.values())
+    .sort((left, right) => right.remaining - left.remaining)
+    .slice(0, 15)
+    .map(
+      (entry) =>
+        `  ${entry.name}: ${entry.produced} diproduksi, ${entry.remaining} sisa, ${entry.batches} batch, cost total ${formatIdr(entry.cost)}`,
+    );
+
+  const recentBatchLines = batches.slice(0, 20).map((batch) => {
+    const productCost = Number(batch.quantity) * Number(batch.costPerUnit);
+    return [
+      `${formatRagDate(batch.producedAt)} | ${batch.product.name}`,
+      `Qty: ${batch.quantity} | Sisa: ${batch.remainingQty}`,
+      `Cost/unit: ${formatIdr(Number(batch.costPerUnit))} | Total cost: ${formatIdr(productCost)}`,
+    ].join("\n");
+  });
+
+  return [
+    {
+      content: [
+        `[Produksi Ready Stock]`,
+        `Total batch produksi: ${batches.length}`,
+        `Produk berbeda: ${byProduct.size}`,
+        `Batch aktif: ${activeBatches.length}`,
+        `Total unit diproduksi: ${totalProduced}`,
+        `Total sisa stok ready stock: ${totalRemaining}`,
+        `Total nilai produksi: ${formatIdr(totalCost)}`,
+        topProduct
+          ? `Stok sisa terbesar: ${topProduct.name} (${topProduct.remaining} unit)`
+          : "",
+        ``,
+        `Top produk:`,
+        ...summaryLines,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      sourceType: "production_batch",
+      sourceId: businessId,
+      metadata: {
+        businessId,
+        batchCount: batches.length,
+        productCount: byProduct.size,
+        activeBatchCount: activeBatches.length,
+        totalProduced,
+        totalRemaining,
+        totalCost,
+        topProduct: topProduct?.name || null,
+      },
+      chunkIndex: 0,
+    },
+    {
+      content: [
+        `[Riwayat Produksi Terbaru]`,
+        `Batch terbaru (maks. 20):`,
+        ...recentBatchLines,
+      ].join("\n\n"),
+      sourceType: "production_batch",
+      sourceId: businessId,
+      metadata: {
+        businessId,
+        recentBatchCount: Math.min(batches.length, 20),
+        activeBatchCount: activeBatches.length,
+      },
+      chunkIndex: 1,
+    },
+  ];
 }
 
 // ==================== BUILD DOCUMENT CHUNKS ====================
@@ -315,7 +609,19 @@ async function buildBusinessChunks(businessId: number): Promise<DocumentChunk[]>
     });
   }
 
-  // ─── 3c. Kasbon / Piutang (Debts) ───
+  // ─── 3c. Bakery order snapshot + production queue ───
+  const bakerySnapshot = await loadBakeryOrdersSnapshot(businessId);
+  chunks.push(
+    ...buildBakeryOrderChunks(
+      businessId,
+      bakerySnapshot.orders,
+      bakerySnapshot.updatedAt,
+    ),
+  );
+
+  chunks.push(...(await buildProductionBatchChunks(businessId)));
+
+  // ─── 3d. Kasbon / Piutang (Debts) ───
   const debts = await prisma.debt.findMany({
     where: { businessId },
     include: {
@@ -1102,7 +1408,7 @@ async function fetchExistingHashes(
   >(
     `SELECT id, "sourceType", "sourceId", "chunkIndex", "contentHash"
      FROM "BusinessDocument"
-     WHERE "businessId" = $1 AND "sourceType" != 'pdf_document'
+     WHERE "businessId" = $1 AND "sourceType" NOT IN ('pdf_document', 'bakery_orders_snapshot')
      ORDER BY id`,
     businessId
   );
@@ -1142,9 +1448,9 @@ export async function indexBusinessDocuments(
     // 1. Build fresh chunks from current data
     const chunks = await buildBusinessChunks(businessId);
     if (chunks.length === 0) {
-      // No business data → wipe stale docs (but preserve uploaded PDFs)
+      // No business data → wipe stale docs (but preserve uploaded PDFs and raw bakery snapshots)
       const deleted = await prisma.$executeRawUnsafe(
-        `DELETE FROM "BusinessDocument" WHERE "businessId" = $1 AND "sourceType" != 'pdf_document'`,
+        `DELETE FROM "BusinessDocument" WHERE "businessId" = $1 AND "sourceType" NOT IN ('pdf_document', 'bakery_orders_snapshot')`,
         businessId
       );
       console.log(`[RAG] No data to index. Deleted ${deleted} stale docs.`);
@@ -1382,6 +1688,8 @@ export async function getRelevantContext(
     ingredient: "🧂 Bahan Baku",
     sale: "💰 Penjualan",
     sale_detail: "🧾 Transaksi Detail",
+    bakery_order: "🧁 Bakery Order",
+    production_batch: "🏭 Produksi Ready Stock",
     recipe: "📋 Resep",
     metric: "📊 Metrik",
     health: "🏥 Kesehatan Bisnis",
@@ -1410,7 +1718,7 @@ export async function getRelevantContext(
 export async function getIndexStatus(businessId: number): Promise<IndexStatus> {
   try {
     const rows = await prisma.$queryRawUnsafe<{ count: bigint; last_updated: Date | null }[]>(
-      `SELECT COUNT(*) as count, MAX("updatedAt") as last_updated FROM "BusinessDocument" WHERE "businessId" = $1`,
+      `SELECT COUNT(*) as count, MAX("updatedAt") as last_updated FROM "BusinessDocument" WHERE "businessId" = $1 AND "embedding" IS NOT NULL AND "sourceType" != 'bakery_orders_snapshot'`,
       businessId
     );
     const count = Number(rows[0]?.count || 0);
@@ -1434,6 +1742,3 @@ function weekKey(date: Date): string {
   d.setDate(d.getDate() - day + (day === 0 ? -6 : 1)); // Monday
   return d.toISOString().split("T")[0];
 }
-
-
-

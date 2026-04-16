@@ -1,8 +1,23 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Bot, Brain, Camera, FileText, Sparkles, PackageCheck, Truck, BellRing, CalendarClock } from "lucide-react";
+import {
+  BellRing,
+  Bot,
+  Brain,
+  Camera,
+  CalendarClock,
+  Database,
+  Factory,
+  FileText,
+  Loader2,
+  PackageCheck,
+  RefreshCw,
+  Sparkles,
+  Truck,
+} from "lucide-react";
+import { toast } from "sonner";
 import ImageAnalyzer from "@/app/(dashboard)/components/ai/ImageAnalyzer";
 import AIChatPage from "@/app/(dashboard)/components/ai/AIChatPage";
 import SmartInsightsPanel from "@/app/(dashboard)/components/ai/SmartInsightsPanel";
@@ -12,6 +27,7 @@ import {
   readLocalBakeryOrders,
   summarizeLocalBakeryOrders,
   type LocalBakerySummary,
+  type LocalBakeryOrder,
 } from "@/lib/bookings/local-orders";
 
 type AITab = "chat" | "insights" | "documents" | "image";
@@ -22,6 +38,116 @@ const tabs: { id: AITab; label: string; icon: typeof Bot; desc: string; gradient
   { id: "documents", label: "Dokumen", icon: FileText, desc: "Upload PDF ke AI", gradient: "from-amber-500 to-orange-500" },
   { id: "image", label: "Analisis Gambar", icon: Camera, desc: "Foto invoice & stok", gradient: "from-rose-500 to-pink-500" },
 ];
+
+interface BakeryOrdersApiResponse {
+  success?: boolean;
+  data?: {
+    source?: string;
+    orders?: LocalBakeryOrder[];
+    updatedAt?: string | null;
+  };
+}
+
+interface ProductionSummaryItem {
+  productId: number;
+  productName: string;
+  sellingPrice: number | string;
+  recipeCost: number | string;
+  availableStock: number;
+}
+
+interface ProductionBatchItem {
+  id: number;
+  productId: number;
+  quantity: number;
+  remainingQty: number;
+  costPerUnit: number | string;
+  producedAt: string;
+  product: {
+    id: number;
+    name: string;
+    sellingPrice: number | string;
+  };
+}
+
+interface ProductionSnapshotSummary {
+  totalBatches: number;
+  activeProducts: number;
+  totalAvailableStock: number;
+  recentBatches: number;
+  latestProducedAt: string | null;
+  topProductName: string | null;
+}
+
+interface ProductionApiResponse {
+  success?: boolean;
+  summary?: ProductionSummaryItem[];
+  data?: ProductionBatchItem[];
+}
+
+interface RagIndexResponse {
+  success?: boolean;
+  indexed?: boolean;
+  documentCount?: number;
+  lastUpdated?: string | null;
+}
+
+function formatJakartaDateTime(value: string | null | undefined): string {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return new Intl.DateTimeFormat("id-ID", {
+    timeZone: "Asia/Jakarta",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function buildEmptyProductionSummary(): ProductionSnapshotSummary {
+  return {
+    totalBatches: 0,
+    activeProducts: 0,
+    totalAvailableStock: 0,
+    recentBatches: 0,
+    latestProducedAt: null,
+    topProductName: null,
+  };
+}
+
+function summarizeProductionSnapshot(
+  summary: ProductionSummaryItem[] | undefined,
+  batches: ProductionBatchItem[] | undefined,
+): ProductionSnapshotSummary {
+  const safeSummary = Array.isArray(summary) ? summary : [];
+  const safeBatches = Array.isArray(batches) ? batches : [];
+  const totalAvailableStock = safeSummary.reduce(
+    (sum, item) => sum + Number(item.availableStock || 0),
+    0,
+  );
+  const latestProducedAt = safeBatches[0]?.producedAt ?? null;
+  const recentCutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const recentBatches = safeBatches.filter((batch) => {
+    const producedAt = new Date(batch.producedAt);
+    return !Number.isNaN(producedAt.getTime()) && producedAt.getTime() >= recentCutoff;
+  }).length;
+  const topProductName =
+    safeSummary
+      .slice()
+      .sort((a, b) => Number(b.availableStock || 0) - Number(a.availableStock || 0))[0]
+      ?.productName ?? null;
+
+  return {
+    totalBatches: safeBatches.length,
+    activeProducts: safeSummary.length,
+    totalAvailableStock,
+    recentBatches,
+    latestProducedAt,
+    topProductName,
+  };
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const containerVariants: any = {
@@ -41,29 +167,187 @@ export default function AIAnalysisPage() {
   const [bakerySummary, setBakerySummary] = useState<LocalBakerySummary>(() =>
     summarizeLocalBakeryOrders([])
   );
+  const [bakerySource, setBakerySource] = useState<string>("local-storage");
+  const [bakeryUpdatedAt, setBakeryUpdatedAt] = useState<string | null>(null);
+  const [productionSummary, setProductionSummary] = useState<ProductionSnapshotSummary>(() =>
+    buildEmptyProductionSummary()
+  );
+  const [ragStatus, setRagStatus] = useState<RagIndexResponse>({
+    success: false,
+    indexed: false,
+    documentCount: 0,
+    lastUpdated: null,
+  });
+  const [snapshotLoading, setSnapshotLoading] = useState(false);
+  const [syncingRag, setSyncingRag] = useState(false);
+  const bakerySourceLabel =
+    bakerySource === "rows"
+      ? "Server rows"
+      : bakerySource === "snapshot"
+        ? "Server snapshot"
+        : bakerySource === "snapshot-fallback"
+          ? "Server fallback"
+          : bakerySource === "local-storage"
+            ? "Local fallback"
+            : bakerySource;
 
   useEffect(() => {
     const t = setTimeout(() => setMounted(true), 0);
     return () => clearTimeout(t);
   }, []);
 
+  const refreshSnapshot = useCallback(async () => {
+    if (typeof window === "undefined") return;
+
+    setSnapshotLoading(true);
+    try {
+      const [bakeryResult, productionResult, ragResult] = await Promise.allSettled([
+        fetch("/api/bookings/orders", { cache: "no-store", credentials: "include" }),
+        fetch("/api/production?limit=50", { cache: "no-store", credentials: "include" }),
+        fetch("/api/ai/rag/index", { cache: "no-store", credentials: "include" }),
+      ]);
+
+      if (bakeryResult.status === "fulfilled") {
+        const response = bakeryResult.value;
+        const payload = (await response.json().catch(() => ({}))) as BakeryOrdersApiResponse;
+        if (response.ok && payload.success && Array.isArray(payload.data?.orders)) {
+          setBakerySummary(summarizeLocalBakeryOrders(payload.data.orders));
+          setBakerySource(payload.data?.source || "rows");
+          setBakeryUpdatedAt(payload.data?.updatedAt ?? null);
+        } else {
+          const orders = readLocalBakeryOrders();
+          setBakerySummary(summarizeLocalBakeryOrders(orders));
+          setBakerySource("local-storage");
+          setBakeryUpdatedAt(null);
+        }
+      } else {
+        const orders = readLocalBakeryOrders();
+        setBakerySummary(summarizeLocalBakeryOrders(orders));
+        setBakerySource("local-storage");
+        setBakeryUpdatedAt(null);
+      }
+
+      if (productionResult.status === "fulfilled") {
+        const response = productionResult.value;
+        const payload = (await response.json().catch(() => ({}))) as ProductionApiResponse;
+        if (response.ok && payload.success !== false) {
+          setProductionSummary(
+            summarizeProductionSnapshot(payload.summary, payload.data),
+          );
+        } else {
+          setProductionSummary(buildEmptyProductionSummary());
+        }
+      } else {
+        setProductionSummary(buildEmptyProductionSummary());
+      }
+
+      if (ragResult.status === "fulfilled") {
+        const response = ragResult.value;
+        const payload = (await response.json().catch(() => ({}))) as RagIndexResponse;
+        if (response.ok && payload.success !== false) {
+          setRagStatus({
+            success: true,
+            indexed: Boolean(payload.indexed),
+            documentCount: Number(payload.documentCount ?? 0),
+            lastUpdated: payload.lastUpdated ?? null,
+          });
+        } else {
+          setRagStatus({
+            success: false,
+            indexed: false,
+            documentCount: 0,
+            lastUpdated: null,
+          });
+        }
+      } else {
+        setRagStatus({
+          success: false,
+          indexed: false,
+          documentCount: 0,
+          lastUpdated: null,
+        });
+      }
+    } catch {
+      const orders = readLocalBakeryOrders();
+      setBakerySummary(summarizeLocalBakeryOrders(orders));
+      setBakerySource("local-storage");
+      setBakeryUpdatedAt(null);
+      setProductionSummary(buildEmptyProductionSummary());
+      setRagStatus({
+        success: false,
+        indexed: false,
+        documentCount: 0,
+        lastUpdated: null,
+      });
+    } finally {
+      setSnapshotLoading(false);
+    }
+  }, []);
+
+  const syncRagIndex = useCallback(async () => {
+    if (syncingRag) return;
+
+    setSyncingRag(true);
+    try {
+      const response = await fetch("/api/ai/rag/index", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+        credentials: "include",
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        success?: boolean;
+        message?: string;
+        error?: string;
+      };
+
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || "Gagal sinkron AI index");
+      }
+
+      toast.success(payload.message || "AI index berhasil disinkronkan");
+      await refreshSnapshot();
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Gagal sinkron AI index",
+      );
+    } finally {
+      setSyncingRag(false);
+    }
+  }, [refreshSnapshot, syncingRag]);
+
   useEffect(() => {
     if (!mounted || typeof window === "undefined") return;
 
-    const refreshSummary = () => {
-      const orders = readLocalBakeryOrders();
-      setBakerySummary(summarizeLocalBakeryOrders(orders));
+    const handleRefresh = () => {
+      void refreshSnapshot();
     };
 
-    refreshSummary();
-    window.addEventListener("storage", refreshSummary);
-    window.addEventListener(BAKERY_ORDERS_STORAGE_EVENT, refreshSummary as EventListener);
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        void refreshSnapshot();
+      }
+    };
+
+    handleRefresh();
+    window.addEventListener("storage", handleRefresh);
+    window.addEventListener(
+      BAKERY_ORDERS_STORAGE_EVENT,
+      handleRefresh as EventListener,
+    );
+    window.addEventListener("focus", handleRefresh);
+    document.addEventListener("visibilitychange", handleVisibility);
 
     return () => {
-      window.removeEventListener("storage", refreshSummary);
-      window.removeEventListener(BAKERY_ORDERS_STORAGE_EVENT, refreshSummary as EventListener);
+      window.removeEventListener("storage", handleRefresh);
+      window.removeEventListener(
+        BAKERY_ORDERS_STORAGE_EVENT,
+        handleRefresh as EventListener,
+      );
+      window.removeEventListener("focus", handleRefresh);
+      document.removeEventListener("visibilitychange", handleVisibility);
     };
-  }, [mounted]);
+  }, [mounted, refreshSnapshot]);
 
   if (!mounted) return null;
 
@@ -154,53 +438,156 @@ export default function AIAnalysisPage() {
           })}
         </motion.div>
 
-        {/* ─── Bakery Snapshot ─── */}
-        <motion.div
-          variants={itemVariants}
-          className="rounded-xl sm:rounded-2xl border border-amber-100 bg-linear-to-br from-amber-50 via-orange-50 to-rose-50 p-4 sm:p-5"
-        >
-          <div className="mb-3 flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-semibold text-amber-900">Bakery Operations Snapshot</h3>
-              <p className="text-xs text-amber-700/80">
-                Ringkasan data terbaru dari modul Bakery (booking, resi, automasi)
-              </p>
+        {/* ─── Live Data Sync ─── */}
+        <motion.div variants={itemVariants} className="grid gap-4 lg:grid-cols-3">
+          <div className="rounded-xl sm:rounded-2xl border border-amber-100 bg-linear-to-br from-amber-50 via-orange-50 to-rose-50 p-4 sm:p-5">
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-amber-900">Bakery Operations</h3>
+                <p className="text-xs text-amber-700/80">
+                  Live dari /api/bookings/orders
+                </p>
+              </div>
+              <span className="rounded-full bg-white/75 px-2.5 py-1 text-[11px] font-medium text-amber-700">
+                {snapshotLoading ? "Refreshing..." : bakerySourceLabel}
+              </span>
             </div>
-            <span className="rounded-full bg-white/70 px-2.5 py-1 text-xs font-medium text-amber-700">
-              Local live
-            </span>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-lg border border-white/70 bg-white/75 p-3">
+                <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                  <PackageCheck className="h-3.5 w-3.5" />
+                  Total Booking
+                </p>
+                <p className="mt-1 text-xl font-bold text-gray-900">{bakerySummary.totalOrders}</p>
+              </div>
+              <div className="rounded-lg border border-white/70 bg-white/75 p-3">
+                <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                  <Truck className="h-3.5 w-3.5" />
+                  Resi Aktif
+                </p>
+                <p className="mt-1 text-xl font-bold text-gray-900">
+                  {bakerySummary.withResi}/{bakerySummary.totalOrders}
+                </p>
+              </div>
+              <div className="rounded-lg border border-white/70 bg-white/75 p-3">
+                <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                  <CalendarClock className="h-3.5 w-3.5" />
+                  Kirim Hari Ini
+                </p>
+                <p className="mt-1 text-xl font-bold text-gray-900">{bakerySummary.deliveryToday}</p>
+              </div>
+              <div className="rounded-lg border border-white/70 bg-white/75 p-3">
+                <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                  <BellRing className="h-3.5 w-3.5" />
+                  Pending Automasi
+                </p>
+                <p className="mt-1 text-xl font-bold text-gray-900">{bakerySummary.pendingAutomation}</p>
+              </div>
+            </div>
+            <p className="mt-3 text-[11px] text-amber-800/80">
+              Sync terakhir: {formatJakartaDateTime(bakeryUpdatedAt)}
+            </p>
+            <p className="mt-1 text-[11px] text-amber-700/80">
+              Omzet booking: Rp {Math.round(bakerySummary.totalRevenue).toLocaleString("id-ID")}
+            </p>
           </div>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <div className="rounded-lg border border-white/70 bg-white/70 p-3">
-              <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                <PackageCheck className="h-3.5 w-3.5" />
-                Total Booking
-              </p>
-              <p className="mt-1 text-xl font-bold text-gray-900">{bakerySummary.totalOrders}</p>
+
+          <div className="rounded-xl sm:rounded-2xl border border-violet-100 bg-linear-to-br from-violet-50 via-fuchsia-50 to-indigo-50 p-4 sm:p-5">
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-violet-900">Production Queue</h3>
+                <p className="text-xs text-violet-700/80">
+                  Live dari /api/production
+                </p>
+              </div>
+              <span className="rounded-full bg-white/75 px-2.5 py-1 text-[11px] font-medium text-violet-700">
+                {snapshotLoading ? "Refreshing..." : "Server live"}
+              </span>
             </div>
-            <div className="rounded-lg border border-white/70 bg-white/70 p-3">
-              <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                <Truck className="h-3.5 w-3.5" />
-                Resi Aktif
-              </p>
-              <p className="mt-1 text-xl font-bold text-gray-900">
-                {bakerySummary.withResi}/{bakerySummary.totalOrders}
-              </p>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-lg border border-white/70 bg-white/75 p-3">
+                <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                  <Factory className="h-3.5 w-3.5" />
+                  Batch Total
+                </p>
+                <p className="mt-1 text-xl font-bold text-gray-900">{productionSummary.totalBatches}</p>
+              </div>
+              <div className="rounded-lg border border-white/70 bg-white/75 p-3">
+                <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                  <Database className="h-3.5 w-3.5" />
+                  Produk Aktif
+                </p>
+                <p className="mt-1 text-xl font-bold text-gray-900">{productionSummary.activeProducts}</p>
+              </div>
+              <div className="rounded-lg border border-white/70 bg-white/75 p-3">
+                <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                  <PackageCheck className="h-3.5 w-3.5" />
+                  Stok Ready
+                </p>
+                <p className="mt-1 text-xl font-bold text-gray-900">
+                  {productionSummary.totalAvailableStock}
+                </p>
+              </div>
+              <div className="rounded-lg border border-white/70 bg-white/75 p-3">
+                <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                  <CalendarClock className="h-3.5 w-3.5" />
+                  7 Hari
+                </p>
+                <p className="mt-1 text-xl font-bold text-gray-900">{productionSummary.recentBatches}</p>
+              </div>
             </div>
-            <div className="rounded-lg border border-white/70 bg-white/70 p-3">
-              <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                <CalendarClock className="h-3.5 w-3.5" />
-                Kirim Hari Ini
-              </p>
-              <p className="mt-1 text-xl font-bold text-gray-900">{bakerySummary.deliveryToday}</p>
+            <p className="mt-3 text-[11px] text-violet-800/80">
+              Batch terbaru: {formatJakartaDateTime(productionSummary.latestProducedAt)}
+            </p>
+            <p className="mt-1 text-[11px] text-violet-700/80">
+              Produk dengan stok terbesar: {productionSummary.topProductName || "-"}
+            </p>
+          </div>
+
+          <div className="rounded-xl sm:rounded-2xl border border-sky-100 bg-linear-to-br from-sky-50 via-indigo-50 to-cyan-50 p-4 sm:p-5">
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-sky-900">AI Sync Status</h3>
+                <p className="text-xs text-sky-700/80">
+                  RAG index untuk bakery, production, dan data bisnis lain
+                </p>
+              </div>
+              <span className="rounded-full bg-white/75 px-2.5 py-1 text-[11px] font-medium text-sky-700">
+                {ragStatus.indexed ? "Synced" : "Needs sync"}
+              </span>
             </div>
-            <div className="rounded-lg border border-white/70 bg-white/70 p-3">
-              <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                <BellRing className="h-3.5 w-3.5" />
-                Pending Automasi
-              </p>
-              <p className="mt-1 text-xl font-bold text-gray-900">{bakerySummary.pendingAutomation}</p>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-lg border border-white/70 bg-white/75 p-3">
+                <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                  <Database className="h-3.5 w-3.5" />
+                  Dokumen Vektor
+                </p>
+                <p className="mt-1 text-xl font-bold text-gray-900">{ragStatus.documentCount}</p>
+              </div>
+              <div className="rounded-lg border border-white/70 bg-white/75 p-3">
+                <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                  <CalendarClock className="h-3.5 w-3.5" />
+                  Update
+                </p>
+                <p className="mt-1 text-[11px] font-semibold text-gray-900">
+                  {formatJakartaDateTime(ragStatus.lastUpdated)}
+                </p>
+              </div>
             </div>
+            <p className="mt-3 text-[11px] text-sky-800/80">
+              Index AI sekarang ikut memasukkan bakery snapshot dan production batch terbaru.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                void syncRagIndex();
+              }}
+              disabled={syncingRag}
+              className="mt-3 inline-flex items-center gap-2 rounded-full bg-sky-600 px-3.5 py-2 text-xs font-semibold text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {syncingRag ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              {syncingRag ? "Syncing..." : "Sinkron AI"}
+            </button>
           </div>
         </motion.div>
 

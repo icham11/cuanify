@@ -214,7 +214,7 @@ model BusinessDocument {
   content     String                       @db.Text
   contentHash String?                      // SHA-256 of content — used for incremental sync
   embedding   Unsupported("vector(768)")?
-  sourceType  String                       // "product" | "ingredient" | "sale" | "sale_detail" | "recipe" | "metric" | "health" | "debt" | "debt_payment" | "inventory_batch" | "inventory_movement" | "stock_document" | "product_metrics" | "forecast" | "category" | "business"
+  sourceType  String                       // "product" | "ingredient" | "sale" | "sale_detail" | "bakery_order" | "production_batch" | "recipe" | "metric" | "health" | "debt" | "debt_payment" | "inventory_batch" | "inventory_movement" | "stock_document" | "product_metrics" | "forecast" | "category" | "business" | "bakery_orders_snapshot" (raw sync snapshot)
   sourceId    Int?
   metadata    Json?
   chunkIndex  Int                          @default(0)

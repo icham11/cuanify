@@ -16,6 +16,7 @@ import {
   type ParsedWhatsAppOrder,
   type WhatsAppOrderType,
 } from "@/lib/bookings/whatsapp-parser";
+import { buildOrderRecapWhatsAppText } from "@/lib/bookings/whatsapp-message-template";
 import type {
   BookingAutomationEvent,
   BookingAutomationOrderPayload,
@@ -26,10 +27,7 @@ import type {
   ShippingResiResponse,
   ShippingShipment,
 } from "@/lib/bookings/shipping-types";
-import {
-  BAKERY_DOWN_PAYMENT_PERCENT,
-  calculateDownPayment,
-} from "@/lib/bookings/config";
+import { calculateDownPayment } from "@/lib/bookings/config";
 import { isWithinBusinessHours } from "@/lib/bookings/operations";
 import { estimateOperationalWeightGram } from "@/lib/bookings/delivery-rules";
 import { normalizeOrderStatus } from "@/lib/bookings/order-status";
@@ -255,14 +253,132 @@ type OrdersSyncResponse = {
   };
 };
 
-function formatIdr(value: number): string {
-  return `Rp ${Math.round(Number(value || 0)).toLocaleString("id-ID")}`;
+function normalizeParsedOrderTypeKey(
+  value?: string,
+): WhatsAppOrderType | null {
+  const normalized = (value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+
+  if (normalized === "cake") return "cake";
+  if (normalized === "cookies") return "cookies";
+  if (normalized === "cupcakes") return "cupcakes";
+  if (normalized === "buket") return "buket";
+  if (normalized === "cookies_tower") return "cookies_tower";
+
+  return null;
 }
 
-function paymentStatusLabel(status: PaymentStatus): string {
-  if (status === "Paid") return "Lunas";
-  if (status === "DP Paid") return "DP Sudah Dibayar";
-  return "Belum Bayar";
+function mapProductTypeToDetailOrderType(
+  productType?: OrderItem["productType"],
+): WhatsAppOrderType | null {
+  if (productType === "CAKE") return "cake";
+  if (productType === "COOKIE") return "cookies";
+  if (productType === "CUPCAKE") return "cupcakes";
+  if (productType === "BOUQUET") return "buket";
+  if (productType === "TOWER") return "cookies_tower";
+  return null;
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function formatAddOnSummary(
+  addOns: string[],
+  addOnQuantities?: Record<string, number>,
+): string {
+  if (addOns.length === 0) return "";
+
+  return addOns
+    .map((addOn) => {
+      const quantity = Number(addOnQuantities?.[addOn] || 0);
+      if (!Number.isInteger(quantity) || quantity <= 1) return addOn;
+      return `${quantity}x ${addOn}`;
+    })
+    .join(", ");
+}
+
+function resolveItemSubtotal(item: OrderItem): number {
+  if (Number(item.lineTotal) > 0) return Number(item.lineTotal);
+  return (Number(item.basePrice || 0) + Number(item.addOnTotal || 0)) * Math.max(0, Number(item.quantity || 0));
+}
+
+function getParsedDetailsForMessage(
+  parsed: ParsedWhatsAppOrder | undefined,
+  item: OrderItem,
+): Record<string, string> {
+  const detailOrderType =
+    mapProductTypeToDetailOrderType(item.productType) ||
+    normalizeParsedOrderTypeKey(parsed?.orderType);
+
+  if (detailOrderType && parsed?.detailsByOrderType?.[detailOrderType]) {
+    return parsed.detailsByOrderType[detailOrderType] ?? {};
+  }
+
+  return parsed?.details ?? {};
+}
+
+function buildMessageDetailLines(order: BakeryOrder, item: OrderItem) {
+  const parsed = order.whatsAppParsedData;
+  const detailOrderType =
+    mapProductTypeToDetailOrderType(item.productType) ||
+    normalizeParsedOrderTypeKey(parsed?.orderType);
+  const fieldDefinitions = detailOrderType
+    ? detailFieldDefinitions[detailOrderType]
+    : [];
+  const parsedDetails = getParsedDetailsForMessage(parsed, item);
+
+  return fieldDefinitions
+    .map((field) => {
+      let value = (parsedDetails[field.key] || "").trim();
+
+      if (!value && item.notes) {
+        const match = item.notes.match(
+          new RegExp(`${escapeRegex(field.label)}\\s*[:=-]\\s*([^\\n]+)`, "i"),
+        );
+        if (match?.[1]) {
+          value = match[1].trim();
+        }
+      }
+
+      return value ? { label: field.label, value } : null;
+    })
+    .filter((entry): entry is { label: string; value: string } => Boolean(entry));
+}
+
+function resolveShippingMethodLabel(order: BakeryOrder): string {
+  const parsedMethod = order.whatsAppParsedData?.common?.deliveryMethod?.trim();
+  if (parsedMethod) return parsedMethod;
+
+  if (order.shippingQuote?.provider || order.shippingQuote?.courierServiceName) {
+    return [
+      order.shippingQuote?.provider,
+      order.shippingQuote?.courierServiceName,
+    ]
+      .filter(Boolean)
+      .join(" ");
+  }
+
+  return "-";
+}
+
+function resolveRecipientName(order: BakeryOrder): string {
+  return order.whatsAppParsedData?.common?.recipientName?.trim() || order.customerName || "-";
+}
+
+function resolveRecipientPhone(order: BakeryOrder): string {
+  return order.whatsAppParsedData?.common?.recipientPhone?.trim() || order.customerPhone || "-";
+}
+
+function resolveFullAddress(order: BakeryOrder): string {
+  return (
+    order.whatsAppParsedData?.common?.fullAddress?.trim() ||
+    order.deliveryAddresses?.[0]?.addressLine ||
+    order.customerAddress ||
+    "-"
+  );
 }
 
 function inferDeliveryMethodFromNotes(notes?: string): string | undefined {
@@ -1657,91 +1773,37 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       const order = orders.find((item) => item.id === id);
       if (!order) return "Order not found.";
 
-      const lines: string[] = ["REKAP ORDER"];
-
-      // 1. Itemized Financials
-      order.items?.forEach((item, index) => {
-        lines.push(`ITEM ${index + 1}`);
-        lines.push("");
-        lines.push(`Nama Produk: ${item.productName}`);
-        lines.push(`Harga Satuan: ${formatIdr(item.basePrice)}`);
-        lines.push(`Qty: ${item.quantity}`);
-        if (item.addOns?.length > 0) {
-          lines.push(`Add On: ${item.addOns.join(", ")}`);
-        }
-        const itemSubtotal = (item.basePrice + (item.addOnTotal || 0)) * item.quantity;
-        lines.push(`Subtotal: ${formatIdr(itemSubtotal)}`);
-        lines.push("");
-      });
-
-      // 2. Financial Summary
-      lines.push(`ONGKIR: ${formatIdr(order.deliveryFee ?? 0)}`);
-      lines.push(`ADJUSTMENT: ${formatIdr(order.manualAdjustment ?? 0)}`);
-      lines.push(`TOTAL: ${formatIdr(order.totalPrice ?? 0)}`);
       const dpAmount =
         order.downPaymentAmount ?? calculateDownPayment(order.totalPrice ?? 0);
-      lines.push(`DP: ${formatIdr(dpAmount)}`);
       const remainingBalance =
         order.paymentStatus === "Paid"
           ? 0
           : (order.remainingBalance ??
             Math.max(0, (order.totalPrice ?? 0) - dpAmount));
-      lines.push(`SISA: ${formatIdr(remainingBalance)}`);
-      lines.push("");
 
-      // 3. Logistics Overview
-      lines.push(`Tanggal Pengiriman :`);
-      lines.push(`${order.deliveryDate || "-"}`);
-      lines.push("");
-      lines.push(`KODE BOOKING : ${order.bookingCode || "PENDING"}`);
-      lines.push("");
-
-      // 4. Detailed Product Attributes
-      order.items?.forEach((item) => {
-        lines.push(`Order :`);
-        lines.push(item.productName);
-        lines.push("");
-
-        // Find relevant details for this product type
-        const orderType =
-          item.productType?.toLowerCase() as keyof typeof detailFieldDefinitions;
-        const fieldDefs = detailFieldDefinitions[orderType] || [];
-
-        fieldDefs.forEach((field) => {
-          // Priority: 1. whatsAppParsedData details, 2. Item notes (via simple regex)
-          let value = order.whatsAppParsedData?.details?.[field.key] || "";
-
-          if (!value && item.notes) {
-            const pattern = new RegExp(
-              `${field.label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*[:=-]\\s*([^\\n]+)`,
-              "i",
-            );
-            const match = item.notes.match(pattern);
-            if (match?.[1]) value = match[1].trim();
-          }
-
-          if (value) {
-            lines.push(`${field.label} : ${value}`);
-          }
-        });
-        lines.push("");
+      return buildOrderRecapWhatsAppText({
+        items: (order.items ?? []).map((item) => ({
+          productName: item.productName || "-",
+          unitPrice: item.basePrice,
+          quantity: item.quantity,
+          addOnText: formatAddOnSummary(item.addOns ?? [], item.addOnQuantities),
+          subtotal: resolveItemSubtotal(item),
+          orderLabel: item.productName || "-",
+          detailLines: buildMessageDetailLines(order, item),
+        })),
+        deliveryFee: order.deliveryFee,
+        manualAdjustment: order.manualAdjustment,
+        totalPrice: order.totalPrice,
+        downPaymentAmount: dpAmount,
+        remainingBalance,
+        deliveryDate: order.deliveryDate,
+        bookingCode: order.bookingCode || "PENDING",
+        deliveryTime: order.deliverySlot,
+        shippingMethod: resolveShippingMethodLabel(order),
+        recipientName: resolveRecipientName(order),
+        recipientPhone: resolveRecipientPhone(order),
+        fullAddress: resolveFullAddress(order),
       });
-
-      // 5. Fulfillment & Recipient Details
-      lines.push(`Jam Pengiriman: ${order.deliverySlot || "-"}`);
-      const shippingMethod = order.shippingQuote
-        ? `${order.shippingQuote.provider} ${order.shippingQuote.courierServiceName}`
-        : "-";
-      lines.push(`Metode Pengiriman : ${shippingMethod}`);
-      lines.push(`Nama penerima : ${order.customerName || "-"}`);
-      lines.push(`No. telp penerima : ${order.customerPhone || "-"}`);
-      const address =
-        order.deliveryAddresses?.[0]?.addressLine ||
-        order.customerAddress ||
-        "-";
-      lines.push(`Alamat lengkap : ${address}`);
-
-      return lines.join("\n");
     },
     [orders],
   );

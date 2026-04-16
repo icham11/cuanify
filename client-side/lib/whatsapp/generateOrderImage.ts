@@ -52,6 +52,7 @@ export interface WhatsAppOrderImagePayload {
   requestedImageLabels?: string[];
   templateFields?: WhatsAppOrderTemplateFields;
   slotNotes?: string[];
+  allowRepeatedReferenceImages?: boolean;
 }
 
 interface TemplateSlot {
@@ -1265,7 +1266,6 @@ function withRepeatedReferences(
 function resolveSlotNotes(
   order: WhatsAppOrderImagePayload,
   renderableReferenceImages: RenderableReferenceImage[],
-  slotCount: number,
 ): string[] {
   const explicitNotes = Array.isArray(order.slotNotes)
     ? order.slotNotes.map((note) => normalizeLabel(note)).filter(Boolean)
@@ -1280,7 +1280,7 @@ function resolveSlotNotes(
   if (sourceNotes.length === 0) return [];
 
   return Array.from(
-    { length: slotCount },
+    { length: renderableReferenceImages.length },
     (_, index) => sourceNotes[index % sourceNotes.length],
   );
 }
@@ -1295,13 +1295,16 @@ function buildTemplateHtml(
     ...buildDefaultTemplateFields(order),
     ...(order.templateFields ?? {}),
   };
+  const shouldRepeatReferenceImages = Boolean(
+    order.allowRepeatedReferenceImages && layout.repeatSlotImages,
+  );
   const imageSources =
     renderableReferenceImages.length > 0
-      ? layout.repeatSlotImages
+      ? shouldRepeatReferenceImages
         ? withRepeatedReferences(renderableReferenceImages, layout.slots.length)
         : renderableReferenceImages
       : [{ url: FALLBACK_IMAGE_URL }];
-  const slotNotes = resolveSlotNotes(order, imageSources, layout.slots.length);
+  const slotNotes = resolveSlotNotes(order, imageSources);
 
   const slotMarkup = layout.slots
     .map((slot, index) => {
@@ -1329,8 +1332,9 @@ function buildTemplateHtml(
 
   const notesMarkup = layout.slots
     .map((slot, index) => {
+      const source = imageSources[index];
       const note = slotNotes[index];
-      if (!note) return "";
+      if (!source?.url || !note) return "";
       return `<div class="slot-note" style="left:${slot.x + NOTE_TEXT_X_OFFSET}px;top:${slot.y + slot.h + NOTE_TEXT_Y_OFFSET}px;width:${Math.max(slot.w - NOTE_TEXT_X_OFFSET, 120)}px;">${escapeHtml(note)}</div>`;
     })
     .filter(Boolean)

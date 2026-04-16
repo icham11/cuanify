@@ -1,0 +1,198 @@
+Retrieving project…
+Deploying wahid-nurhisyams-projects/crumbella-demo
+Uploading [--------------------] (0.0B/44.5KB)
+Uploading [=======-------------] (16.0KB/44.5KB)
+Uploading [==============------] (32.0KB/44.5KB)
+Uploading [====================] (44.5KB/44.5KB)
+Inspect: https://vercel.com/wahid-nurhisyams-projects/crumbella-demo/7AL4HhMjX918DT52NTXk2qL4ujWR [4s]
+Production: https://crumbella-demo-jmagz5h6r-wahid-nurhisyams-projects.vercel.app [4s]
+https://crumbella-demo-jmagz5h6r-wahid-nurhisyams-projects.vercel.appBuilding...
+Building: Running build in Washington, D.C., USA (East) – iad1
+Building: Build machine configuration: 2 cores, 8 GB
+Building: Retrieving list of deployment files...
+Building: Downloading 416 deployment files...
+Building: Downloading 416 deployment files...
+Building: Restored build cache from previous deployment (7tQrRuHdQncAT9gYG49PfThTGLNd)
+Building: Running "vercel build"
+Building: Vercel CLI 51.2.1
+Building: Installing dependencies...
+Building: > client-side@0.1.0 postinstall
+Building: > prisma generate
+Building: Loaded Prisma config from prisma.config.ts.
+Building: Prisma schema loaded from prisma/schema.prisma.
+Building: ✔ Generated Prisma Client (v7.4.0) to ./node_modules/@prisma/client in 752ms
+Building: Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+Building: up to date in 3s
+Building: 261 packages are looking for funding
+Building: run `npm fund` for details
+Building: Detected Next.js version: 16.1.6
+Building: Running "npm run build:vercel"
+Building: > client-side@0.1.0 build:vercel
+Building: > if [ -f prisma/schema.prisma ]; then npx prisma generate --schema prisma/schema.prisma; elif [ -f client-side/prisma/schema.prisma ]; then npx prisma generate --schema client-side/prisma/schema.prisma && cd client-side; else echo 'Prisma schema not found' && exit 1; fi && npx next build --webpack
+Building: Loaded Prisma config from prisma.config.ts.
+Building: Prisma schema loaded from prisma/schema.prisma.
+Building: ┌─────────────────────────────────────────────────────────┐
+Building: │  Update available 7.4.0 -> 7.7.0                        │
+Building: │  Run the following to update                            │
+Building: │    npm i --save-dev prisma@latest                       │
+Building: │    npm i @prisma/client@latest                          │
+Building: └─────────────────────────────────────────────────────────┘
+Building: ✔ Generated Prisma Client (v7.4.0) to ./node_modules/@prisma/client in 452ms
+Building: Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+Building: ▲ Next.js 16.1.6 (webpack)
+Building: - Environments: .env
+Building: Creating an optimized production build ...
+Building: ✓ Compiled successfully in 13.9s
+Building: Running TypeScript ...
+Building: Collecting page data using 1 worker ...
+Building: Generating static pages using 1 worker (0/81) ...
+Building: Generating static pages using 1 worker (20/81)
+Building: Generating static pages using 1 worker (40/81)
+Building: Generating static pages using 1 worker (60/81)
+Building: ✓ Generating static pages using 1 worker (81/81) in 1226.3ms
+Building: Finalizing page optimization ...
+Building: Collecting build traces ...
+Building: Route (app)
+Building: ┌ ○ /
+Building: ├ ○ /_not-found
+Building: ├ ƒ /analytics
+Building: ├ ƒ /analytics/debts
+Building: ├ ƒ /analytics/forecast
+Building: ├ ƒ /analytics/growth
+Building: ├ ƒ /analytics/health
+Building: ├ ƒ /analytics/products
+Building: ├ ƒ /analytics/waste
+Building: ├ ƒ /api/admin/daily-omzet
+Building: ├ ƒ /api/admin/daily-omzet/reconciliation
+Building: ├ ƒ /api/ai/chat
+Building: ├ ƒ /api/ai/insights
+Building: ├ ƒ /api/ai/rag/documents
+Building: ├ ƒ /api/ai/rag/index
+Building: ├ ƒ /api/ai/rag/search
+Building: ├ ƒ /api/ai/rag/upload
+Building: ├ ƒ /api/ai/sessions
+Building: ├ ƒ /api/analytics/category
+Building: ├ ƒ /api/analytics/daily
+Building: ├ ƒ /api/analytics/dashboard
+Building: ├ ƒ /api/analytics/debts-stats
+Building: ├ ƒ /api/analytics/forecast
+Building: ├ ƒ /api/analytics/forecast-cached
+Building: ├ ƒ /api/analytics/growth
+Building: ├ ƒ /api/analytics/health
+Building: ├ ƒ /api/analytics/hourly
+Building: ├ ƒ /api/analytics/insight
+Building: ├ ƒ /api/analytics/insights-cached
+Building: ├ ƒ /api/analytics/last-updated
+Building: ├ ƒ /api/analytics/monthly
+Building: ├ ƒ /api/analytics/products
+Building: ├ ƒ /api/analytics/top-products
+Building: ├ ƒ /api/analytics/waste
+Building: ├ ƒ /api/analyze-image
+Building: ├ ƒ /api/auth/[...nextauth]
+Building: ├ ƒ /api/auth/login
+Building: ├ ƒ /api/auth/logout
+Building: ├ ƒ /api/auth/me
+Building: ├ ƒ /api/auth/post-login
+Building: ├ ƒ /api/auth/profile
+Building: ├ ƒ /api/auth/profile/password
+Building: ├ ƒ /api/auth/register
+Building: ├ ƒ /api/bakery/production/staff-tokens
+Building: ├ ƒ /api/bakery/settings
+Building: ├ ƒ /api/bookings/automations
+Building: ├ ƒ /api/bookings/capacity
+Building: ├ ƒ /api/bookings/capacity/test
+Building: ├ ƒ /api/bookings/catalog-config
+Building: ├ ƒ /api/bookings/google-calendar/callback
+Building: ├ ƒ /api/bookings/google-calendar/connect
+Building: ├ ƒ /api/bookings/google-calendar/disconnect
+Building: ├ ƒ /api/bookings/google-calendar/events
+Building: ├ ƒ /api/bookings/google-calendar/status
+Building: ├ ƒ /api/bookings/marketplace-email/latest
+Building: ├ ƒ /api/bookings/orders
+Building: ├ ƒ /api/bookings/parse-whatsapp
+Building: ├ ƒ /api/bookings/shipping/create-resi
+Building: ├ ƒ /api/bookings/shipping/quote
+Building: ├ ƒ /api/business-analytics
+Building: ├ ƒ /api/businesses
+Building: ├ ƒ /api/businesses/[id]
+Building: ├ ƒ /api/cashier-shift
+Building: ├ ƒ /api/cashier-shift/close
+Building: ├ ƒ /api/cashier-shift/current
+Building: ├ ƒ /api/cashier-shift/open
+Building: ├ ƒ /api/categories
+Building: ├ ƒ /api/cleanup-images
+Building: ├ ƒ /api/cron/generate-analytics
+Building: ├ ƒ /api/cron/process-scheduled-shipments
+Building: ├ ƒ /api/debts
+Building: ├ ƒ /api/debts/[id]/pay
+Building: ├ ƒ /api/debug/business/[id]
+Building: ├ ƒ /api/export/inventory
+Building: ├ ƒ /api/export/sales
+Building: ├ ƒ /api/ingredients
+Building: ├ ƒ /api/ingredients/[id]
+Building: ├ ƒ /api/ingredients/[id]/consume
+Building: ├ ƒ /api/ingredients/[id]/restock
+Building: ├ ƒ /api/mock-business
+Building: ├ ƒ /api/mock-business/create
+Building: ├ ƒ /api/mock-ingredients
+Building: ├ ƒ /api/production
+Building: ├ ƒ /api/products
+Building: ├ ƒ /api/products/[id]
+Building: ├ ƒ /api/products/[id]/recipe
+Building: ├ ƒ /api/products/generate/image
+Building: ├ ƒ /api/products/generate/name
+Building: ├ ƒ /api/products/generate/recipe-image
+Building: ├ ƒ /api/products/generate/recommend-price
+Building: ├ ƒ /api/sales
+Building: ├ ƒ /api/sales/[saleId]/confirm
+Building: ├ ƒ /api/sales/[saleId]/invoice
+Building: ├ ƒ /api/sales/midtrans-notification
+Building: ├ ƒ /api/sales/midtrans-token
+Building: ├ ƒ /api/staff
+Building: ├ ƒ /api/staff/register
+Building: ├ ƒ /bakery/bookings
+Building: ├ ƒ /bakery/bookings/[id]
+Building: ├ ƒ /bakery/bookings/new
+Building: ├ ƒ /bakery/bookings/new/review
+Building: ├ ƒ /bakery/calendar
+Building: ├ ƒ /bakery/catalog
+Building: ├ ƒ /bakery/dashboard
+Building: ├ ƒ /bakery/omzet-harian
+Building: ├ ƒ /bakery/production
+Building: ├ ƒ /bakery/reports
+Building: ├ ƒ /dashboard
+Building: ├ ƒ /dashboard/ai-analysis
+Building: ├ ƒ /dashboard/business
+Building: ├ ƒ /dashboard/business/bakery-settings
+Building: ├ ƒ /dashboard/debts
+Building: ├ ƒ /dashboard/export
+Building: ├ ƒ /dashboard/ingredients
+Building: ├ ƒ /dashboard/production
+Building: ├ ƒ /dashboard/products
+Building: ├ ƒ /dashboard/products/create
+Building: ├ ƒ /dashboard/profile
+Building: ├ ƒ /dashboard/recipes
+Building: ├ ƒ /dashboard/sales-history
+Building: ├ ƒ /dashboard/shift-history
+Building: ├ ƒ /dashboard/staff
+Building: ├ ○ /login
+Building: ├ ○ /offline
+Building: ├ ○ /onboarding
+Building: ├ ƒ /pos
+Building: ├ ○ /pos/payment-success
+Building: └ ○ /register
+Building: ƒ Proxy (Middleware)
+Building: ○  (Static)   prerendered as static content
+Building: ƒ  (Dynamic)  server-rendered on demand
+Building: Traced Next.js server files in: 71.087ms
+Building: Created all serverless functions in: 1.199s
+Building: Collected static files (public/, static/, .next/static): 25.394ms
+Building: Build Completed in /vercel/output [1m]
+Building: Deploying outputs...
+[2K[1A[2K[GProduction: https://crumbella-demo-jmagz5h6r-wahid-nurhisyams-projects.vercel.app [3m]
+Completing...
+Aliased: https://crumbella-demo.vercel.app [3m]
+
+Common next commands:
+- `vercel inspect crumbella-demo-jmagz5h6r-wahid-nurhisyams-projects.vercel.app --logs`
+- `vercel redeploy crumbella-demo-jmagz5h6r-wahid-nurhisyams-projects.vercel.app`
