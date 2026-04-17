@@ -25,7 +25,7 @@ import {
   type OrderItem,
 } from "@/components/bakery/store";
 import { toast } from "sonner";
-import { Plus, Trash2, Upload, X } from "lucide-react";
+import { Loader2, Plus, Trash2, Upload, X } from "lucide-react";
 import {
   buildWhatsAppTemplate,
   getDisplayFields,
@@ -2334,9 +2334,16 @@ export default function BookingForm() {
     bookingCode: string;
     submittedAt: string;
   } | null>(null);
+  const [isManualSubmitInFlight, setIsManualSubmitInFlight] = useState(false);
+  const [isBookingCreationInFlight, setIsBookingCreationInFlight] =
+    useState(false);
   const [showSubmitConfirmation, setShowSubmitConfirmation] = useState(false);
   const [duplicateTemplateWarning, setDuplicateTemplateWarning] =
     useState<DuplicateTemplateWarningState | null>(null);
+  const manualSubmitInFlightRef = useRef(false);
+  const submitFlowSourceRef = useRef<
+    "form" | "duplicate-warning" | "submit-confirmation"
+  >("form");
   const pendingSubmitConfirmationRef =
     useRef<BookingFormValues | null>(null);
   const skipSubmitConfirmationRef = useRef(false);
@@ -2466,6 +2473,24 @@ export default function BookingForm() {
       ],
     },
   });
+
+  const isBookingProcessing =
+    isSubmitting ||
+    isManualSubmitInFlight ||
+    isBookingCreationInFlight ||
+    isCapacityValidating;
+  const bookingProgressPercent = isCapacityValidating
+    ? 38
+    : isBookingCreationInFlight
+      ? 84
+      : isBookingProcessing
+        ? 62
+        : 0;
+  const bookingProgressLabel = isCapacityValidating
+    ? "Validasi kapasitas produksi"
+    : isBookingCreationInFlight
+      ? "Menyimpan booking dan sinkron ke sistem"
+      : "Menyiapkan data booking";
 
   const {
     fields: itemFields,
@@ -4177,6 +4202,9 @@ export default function BookingForm() {
     try {
       setDuplicateTemplateWarning(null);
       pendingDuplicateSubmissionRef.current = null;
+      const shouldRedirectToOrders =
+        submitFlowSourceRef.current === "duplicate-warning";
+      setIsBookingCreationInFlight(true);
       await addOrder(submissionPayload);
       setSubmitSuccess("Booking berhasil disimpan ke server.");
       setSubmitSuccessMeta({
@@ -4205,6 +4233,15 @@ export default function BookingForm() {
       skipSubmitConfirmationRef.current = false;
       skipDuplicateTemplateWarningRef.current = false;
       reset();
+
+      if (shouldRedirectToOrders) {
+        toast.success(
+          "Booking berhasil dibuat dan sudah masuk orders. Mengarahkan ke daftar booking...",
+        );
+        window.setTimeout(() => {
+          window.location.assign("/bakery/bookings");
+        }, 800);
+      }
     } catch (error) {
       const message =
         error instanceof Error
@@ -4212,10 +4249,14 @@ export default function BookingForm() {
           : "Gagal menyimpan booking ke server.";
       setSubmitError(message);
       toast.error(message);
+    } finally {
+      setIsBookingCreationInFlight(false);
     }
   };
 
   const continueDuplicateTemplateSubmission = () => {
+    if (manualSubmitInFlightRef.current) return;
+
     const pendingValues = pendingDuplicateSubmissionRef.current;
     if (!pendingValues) {
       setDuplicateTemplateWarning(null);
@@ -4226,10 +4267,19 @@ export default function BookingForm() {
     pendingDuplicateSubmissionRef.current = null;
     skipSubmitConfirmationRef.current = true;
     skipDuplicateTemplateWarningRef.current = true;
-    void onSubmit(pendingValues);
+    submitFlowSourceRef.current = "duplicate-warning";
+    manualSubmitInFlightRef.current = true;
+    setIsManualSubmitInFlight(true);
+    void Promise.resolve(onSubmit(pendingValues)).finally(() => {
+      manualSubmitInFlightRef.current = false;
+      setIsManualSubmitInFlight(false);
+      submitFlowSourceRef.current = "form";
+    });
   };
 
   const confirmSubmitAfterReminder = () => {
+    if (manualSubmitInFlightRef.current) return;
+
     const pendingValues = pendingSubmitConfirmationRef.current;
     if (!pendingValues) {
       setShowSubmitConfirmation(false);
@@ -4239,7 +4289,14 @@ export default function BookingForm() {
     setShowSubmitConfirmation(false);
     pendingSubmitConfirmationRef.current = null;
     skipSubmitConfirmationRef.current = true;
-    void onSubmit(pendingValues);
+    submitFlowSourceRef.current = "submit-confirmation";
+    manualSubmitInFlightRef.current = true;
+    setIsManualSubmitInFlight(true);
+    void Promise.resolve(onSubmit(pendingValues)).finally(() => {
+      manualSubmitInFlightRef.current = false;
+      setIsManualSubmitInFlight(false);
+      submitFlowSourceRef.current = "form";
+    });
   };
 
   const closeSubmitConfirmationReminder = () => {
@@ -7924,6 +7981,8 @@ export default function BookingForm() {
                 className="gap-2 bg-indigo-600 text-white hover:bg-indigo-700 focus-visible:ring-indigo-500"
                 disabled={
                   isSubmitting ||
+                  isBookingCreationInFlight ||
+                  isManualSubmitInFlight ||
                   isCapacityValidating ||
                   isCheckingShipping ||
                   isBlockedDate ||
@@ -7931,7 +7990,7 @@ export default function BookingForm() {
                   dbWillExceed
                 }
               >
-                {isSubmitting
+                {isSubmitting || isManualSubmitInFlight || isBookingCreationInFlight
                   ? "Saving Booking..."
                   : isCapacityValidating
                     ? "Validating Capacity..."
@@ -7965,7 +8024,11 @@ export default function BookingForm() {
                   skipDuplicateTemplateWarningRef.current = false;
                 }}
                 className="border-indigo-200 text-indigo-700 hover:bg-indigo-50"
-                disabled={isSubmitting}
+                disabled={
+                  isSubmitting ||
+                  isManualSubmitInFlight ||
+                  isBookingCreationInFlight
+                }
               >
                 Reset Form
               </Button>
@@ -8038,6 +8101,7 @@ export default function BookingForm() {
                 variant="outline"
                 className="border-gray-300"
                 onClick={closeSubmitConfirmationReminder}
+                disabled={isManualSubmitInFlight || isBookingCreationInFlight}
               >
                 Batal Dulu
               </Button>
@@ -8046,6 +8110,7 @@ export default function BookingForm() {
                 type="button"
                 className="bg-indigo-600 text-white hover:bg-indigo-700"
                 onClick={confirmSubmitAfterReminder}
+                disabled={isManualSubmitInFlight || isBookingCreationInFlight}
               >
                 Ya, Sudah Dicek
               </Button>
@@ -8124,6 +8189,7 @@ export default function BookingForm() {
                 variant="outline"
                 className="border-gray-300"
                 onClick={openDetectedDuplicateBooking}
+                disabled={isManualSubmitInFlight || isBookingCreationInFlight}
               >
                 Cek Booking Dulu
               </Button>
@@ -8131,9 +8197,68 @@ export default function BookingForm() {
                 type="button"
                 className="bg-amber-600 text-white hover:bg-amber-700"
                 onClick={continueDuplicateTemplateSubmission}
+                disabled={isManualSubmitInFlight || isBookingCreationInFlight}
               >
                 Lanjutkan Pesan Dengan Template Sama
               </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isBookingProcessing ? (
+        <div className="fixed inset-0 z-70 flex items-center justify-center bg-slate-950/45 px-4 py-6 backdrop-blur-sm">
+          <div className="w-full max-w-md overflow-hidden rounded-2xl border border-slate-200/70 bg-white/95 shadow-2xl">
+            <div className="relative h-1 w-full overflow-hidden bg-slate-200">
+              <div
+                className="h-full bg-linear-to-r from-indigo-500 via-cyan-500 to-emerald-500 transition-[width] duration-500 ease-out"
+                style={{ width: `${bookingProgressPercent}%` }}
+              />
+            </div>
+
+            <div className="space-y-4 p-5">
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-linear-to-br from-indigo-600 to-cyan-500 text-white shadow-lg">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold uppercase tracking-wide text-indigo-700">
+                    Processing Booking
+                  </p>
+                  <p className="text-base font-semibold text-slate-900">
+                    {bookingProgressLabel}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid gap-2 rounded-xl border border-slate-200 bg-slate-50/80 p-3 text-sm">
+                <div className="flex items-center justify-between text-slate-700">
+                  <span>Validasi kapasitas</span>
+                  <span className="font-semibold text-slate-900">
+                    {isCapacityValidating
+                      ? "Sedang diproses"
+                      : "Siap"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-slate-700">
+                  <span>Simpan booking</span>
+                  <span className="font-semibold text-slate-900">
+                    {isBookingCreationInFlight
+                      ? "Menyimpan"
+                      : isBookingProcessing
+                        ? "Menunggu"
+                        : "Siap"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-slate-700">
+                  <span>Sinkron data & trigger otomatis</span>
+                  <span className="font-semibold text-slate-900">Berjalan otomatis</span>
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-600">
+                Mohon tunggu sebentar. Jangan tutup tab agar proses booking selesai sempurna.
+              </p>
             </div>
           </div>
         </div>
