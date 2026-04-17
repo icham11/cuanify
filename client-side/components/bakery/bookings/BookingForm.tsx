@@ -3240,8 +3240,14 @@ export default function BookingForm() {
     subtotalBeforeDiscount - wholesaleDiscountAmount,
   );
   const suggestedDownPaymentAmount = calculateDownPayment(totalPrice);
+  const watchedDpPaidAmount =
+    useWatch({ control, name: "dpPaidAmount" }) ?? 0;
   const effectiveDpPaidAmount =
-    selectedPaymentStatus === "DP Paid" ? suggestedDownPaymentAmount : 0;
+    selectedPaymentStatus === "DP Paid"
+      ? watchedDpPaidAmount > 0
+        ? watchedDpPaidAmount
+        : suggestedDownPaymentAmount
+      : 0;
   const effectiveFinalPaidAmount =
     selectedPaymentStatus === "Paid" ? totalPrice : 0;
 

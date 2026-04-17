@@ -1397,4 +1397,22 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
     expect(parsed.detailsByOrderType?.cookies?.toFromNotes || "").toBe("");
     expect(autoFill.customNotes).toBe("");
   });
+
+  it("stops address collection when encountering REKAP ORDER header", () => {
+    const text = [
+      "Alamat lengkap : puri jimbaran 1 no E6/B7, ancol timur",
+      "",
+      "REKAP ORDER",
+      "ITEM 1",
+      "",
+      "Nama Produk: cake d18t10",
+    ].join("\n");
+
+    const parsed = parseWhatsAppOrderText(text, {
+      preferredOrderType: "cake",
+      sourceType: "manual",
+    });
+
+    expect(parsed.common.fullAddress).toBe("puri jimbaran 1 no E6/B7, ancol timur");
+  });
 });
