@@ -2341,6 +2341,7 @@ export default function BookingForm() {
   const [duplicateTemplateWarning, setDuplicateTemplateWarning] =
     useState<DuplicateTemplateWarningState | null>(null);
   const manualSubmitInFlightRef = useRef(false);
+  const bookingCreateInFlightRef = useRef(false);
   const submitFlowSourceRef = useRef<
     "form" | "duplicate-warning" | "submit-confirmation"
   >("form");
@@ -4199,7 +4200,15 @@ export default function BookingForm() {
       return;
     }
 
+    if (bookingCreateInFlightRef.current) {
+      toast.warning(
+        "Submit booking sebelumnya masih diproses. Tunggu sampai selesai.",
+      );
+      return;
+    }
+
     try {
+      bookingCreateInFlightRef.current = true;
       setDuplicateTemplateWarning(null);
       pendingDuplicateSubmissionRef.current = null;
       const shouldRedirectToOrders =
@@ -4250,6 +4259,7 @@ export default function BookingForm() {
       setSubmitError(message);
       toast.error(message);
     } finally {
+      bookingCreateInFlightRef.current = false;
       setIsBookingCreationInFlight(false);
     }
   };

@@ -2014,6 +2014,26 @@ export async function POST(request: NextRequest) {
           for (const order of orders) {
             upsertedOrderCount += 1;
 
+            const orderLockKey = `bakery_orders:${businessId}:${order.id}`;
+            await tx.$executeRaw`
+              SELECT pg_advisory_xact_lock(hashtext(${orderLockKey}))
+            `;
+
+            const lockedExistingRows = await tx.$queryRaw<
+              {
+                external_id: string;
+                delivery_date: string | null;
+                token_used: number;
+                order_status: string | null;
+              }[]
+            >`
+              SELECT external_id, delivery_date, token_used, order_status
+              FROM bakery_orders
+              WHERE business_id = ${businessId}
+                AND external_id = ${order.id}
+              FOR UPDATE
+            `;
+
             // ── Token capacity: calculate tokens for this order ──
             const orderItems = (order.items || []).map((item) => ({
               category: typeof item.category === "string" ? item.category : "",
@@ -2056,7 +2076,8 @@ export async function POST(request: NextRequest) {
             }
 
             // ── Handle token changes for existing orders ──
-            const existingOrder = existingOrderMap.get(order.id);
+            const existingOrder =
+              lockedExistingRows[0] ?? existingOrderMap.get(order.id);
             const isActiveStatus = !INACTIVE_STATUSES.includes(
               order.orderStatus || "",
             );
@@ -2327,6 +2348,13 @@ export async function POST(request: NextRequest) {
             if (isNewOrder && isActiveStatus) {
               createdOrdersForWhatsApp.push(toWhatsAppPayload(order));
             }
+
+            existingOrderMap.set(order.id, {
+              external_id: order.id,
+              delivery_date: order.deliveryDate || null,
+              token_used: finalTokenUsed,
+              order_status: order.orderStatus || null,
+            });
           }
 
           // Hard reconcile token ledger to guarantee DB consistency.
