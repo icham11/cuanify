@@ -4,7 +4,7 @@ import {
   type WhatsAppOrderImagePayload,
 } from "@/lib/whatsapp/generateOrderImage";
 import {
-  buildOrderRecapWhatsAppText,
+  buildOrderDeliveryDetailsWhatsAppText,
   type WhatsAppRecapItem,
 } from "@/lib/bookings/whatsapp-message-template";
 import { uploadToCloudinary } from "@/lib/whatsapp/uploadToCloudinary";
@@ -36,13 +36,8 @@ function buildProductionCaption(order: SendOrderToWhatsAppInput): string {
           },
         ];
 
-  return buildOrderRecapWhatsAppText({
+  return buildOrderDeliveryDetailsWhatsAppText({
     items: captionItems,
-    deliveryFee: order.deliveryFee,
-    manualAdjustment: order.manualAdjustment,
-    totalPrice: order.totalPrice,
-    downPaymentAmount: order.downPaymentAmount,
-    remainingBalance: order.remainingBalance,
     deliveryDate: order.deliveryDate,
     bookingCode: order.bookingCode,
     deliveryTime: order.deliveryTime,

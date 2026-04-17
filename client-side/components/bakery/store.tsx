@@ -384,6 +384,10 @@ function resolveFullAddress(order: BakeryOrder): string {
   );
 }
 
+function resolvePreferredBookingCode(order: BakeryOrder): string {
+  return order.whatsAppParsedData?.common?.bookingCode?.trim() || order.bookingCode || "PENDING";
+}
+
 function inferDeliveryMethodFromNotes(notes?: string): string | undefined {
   const match = notes?.match(/delivery\s*method\s*:\s*([^\n]+)/i);
   const raw = (match?.[1] || "").trim().toLowerCase();
@@ -1801,7 +1805,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         downPaymentAmount: dpAmount,
         remainingBalance,
         deliveryDate: order.deliveryDate,
-        bookingCode: order.bookingCode || "PENDING",
+        bookingCode: resolvePreferredBookingCode(order),
         deliveryTime: order.deliverySlot,
         shippingMethod: resolveShippingMethodLabel(order),
         recipientName: resolveRecipientName(order),
