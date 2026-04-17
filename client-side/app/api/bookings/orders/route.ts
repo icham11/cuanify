@@ -800,6 +800,13 @@ function resolveShippingMethodLabel(
   return label;
 }
 
+function resolvePreferredBookingCode(
+  order: NormalizedOrder,
+  common: JsonRecord | null,
+): string {
+  return asString(common?.bookingCode).trim() || asString(order.bookingCode);
+}
+
 function buildTemplateFields(
   order: NormalizedOrder,
   templateKey: string,
@@ -932,6 +939,7 @@ function toWhatsAppPayload(order: NormalizedOrder): SendOrderToWhatsAppInput {
   const common = getParsedCommonFields(order);
   const shippingMethod = resolveShippingMethodLabel(order, common);
   const fullAddress = asString(common?.fullAddress) || address;
+  const bookingCode = resolvePreferredBookingCode(order, common);
 
   return {
     customerName: asString(order.customerName) || "Customer",
@@ -941,7 +949,7 @@ function toWhatsAppPayload(order: NormalizedOrder): SendOrderToWhatsAppInput {
     item: itemSummary || asString(order.product),
     notes: asString(order.notes),
     address,
-    bookingCode: asString(order.bookingCode),
+    bookingCode,
     orderType,
     templateKey,
     productTags,

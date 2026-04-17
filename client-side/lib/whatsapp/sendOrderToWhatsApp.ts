@@ -4,7 +4,7 @@ import {
   type WhatsAppOrderImagePayload,
 } from "@/lib/whatsapp/generateOrderImage";
 import {
-  buildOrderRecapWhatsAppText,
+  buildOrderDeliveryDetailsWhatsAppText,
   type WhatsAppRecapItem,
 } from "@/lib/bookings/whatsapp-message-template";
 import { uploadToCloudinary } from "@/lib/whatsapp/uploadToCloudinary";
@@ -36,13 +36,8 @@ function buildProductionCaption(order: SendOrderToWhatsAppInput): string {
           },
         ];
 
-  return buildOrderRecapWhatsAppText({
+  return buildOrderDeliveryDetailsWhatsAppText({
     items: captionItems,
-    deliveryFee: order.deliveryFee,
-    manualAdjustment: order.manualAdjustment,
-    totalPrice: order.totalPrice,
-    downPaymentAmount: order.downPaymentAmount,
-    remainingBalance: order.remainingBalance,
     deliveryDate: order.deliveryDate,
     bookingCode: order.bookingCode,
     deliveryTime: order.deliveryTime,
@@ -95,26 +90,37 @@ function normalizeStructuredReferenceImages(
     : [];
 
   const normalized: WhatsAppReferenceImage[] = [];
-  const seen = new Set<string>();
+  const byUrl = new Map<string, WhatsAppReferenceImage>();
 
   for (const reference of references) {
     const normalizedUrl = normalizeReferenceImageUrl(reference?.url);
     if (!normalizedUrl) continue;
 
     const label = reference.label?.trim() || undefined;
-    const key = `${normalizedUrl}::${label || ""}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
+    const orderIndex =
+      typeof reference.orderIndex === "number" &&
+      Number.isFinite(reference.orderIndex)
+        ? reference.orderIndex
+        : undefined;
+    const existing = byUrl.get(normalizedUrl);
 
-    normalized.push({
-      url: normalizedUrl,
-      label,
-      orderIndex:
-        typeof reference.orderIndex === "number" &&
-        Number.isFinite(reference.orderIndex)
-          ? reference.orderIndex
-          : undefined,
-    });
+    if (!existing) {
+      const nextReference = {
+        url: normalizedUrl,
+        label,
+        orderIndex,
+      };
+      byUrl.set(normalizedUrl, nextReference);
+      normalized.push(nextReference);
+      continue;
+    }
+
+    if (!existing.label && label) {
+      existing.label = label;
+    }
+    if (existing.orderIndex === undefined && orderIndex !== undefined) {
+      existing.orderIndex = orderIndex;
+    }
   }
 
   return normalized;

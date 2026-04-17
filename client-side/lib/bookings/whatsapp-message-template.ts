@@ -101,34 +101,20 @@ function compactEmptyLines(lines: string[]): string[] {
   return compacted;
 }
 
-export function buildOrderRecapWhatsAppText(
-  input: WhatsAppRecapInput,
-): string {
-  const lines: string[] = ["REKAP ORDER"];
-
-  input.items.forEach((item, index) => {
-    lines.push(`ITEM ${index + 1}`);
-    lines.push("");
-    lines.push(`Nama Produk: ${normalizeInlineValue(item.productName || "-")}`);
-    lines.push(`Harga Satuan: ${formatMoney(item.unitPrice)}`);
-    lines.push(`Qty: ${Math.max(0, Number(item.quantity || 0))}`);
-
-    const addOnText = normalizeInlineValue(item.addOnText || "");
-    if (addOnText) {
-      lines.push(`Add On: ${addOnText}`);
-    }
-
-    lines.push(`Subtotal: ${formatMoney(item.subtotal)}`);
-    lines.push("");
-  });
-
-  lines.push(`ONGKIR: ${formatMoney(input.deliveryFee)}`);
-  lines.push(`SERVICE CHARGE: ${formatMoney(input.serviceCharge)}`);
-  lines.push(`ADJUSTMENT: ${formatMoney(input.manualAdjustment)}`);
-  lines.push(`TOTAL: ${formatMoney(input.totalPrice)}`);
-  lines.push(`DP: ${formatMoney(input.downPaymentAmount)}`);
-  lines.push(`SISA: ${formatMoney(input.remainingBalance)}`);
-  lines.push("");
+function appendOrderDeliveryDetailLines(
+  lines: string[],
+  input: Pick<
+    WhatsAppRecapInput,
+    | "items"
+    | "deliveryDate"
+    | "bookingCode"
+    | "deliveryTime"
+    | "shippingMethod"
+    | "recipientName"
+    | "recipientPhone"
+    | "fullAddress"
+  >,
+) {
   lines.push("Tanggal Pengiriman :");
   lines.push(formatWhatsAppDeliveryDate(input.deliveryDate));
   lines.push("");
@@ -158,6 +144,55 @@ export function buildOrderRecapWhatsAppText(
     `No. telp penerima : ${normalizeInlineValue(input.recipientPhone || "-")}`,
   );
   pushLabeledValue(lines, "Alamat lengkap", input.fullAddress || "-");
+}
 
+export function buildOrderRecapWhatsAppText(
+  input: WhatsAppRecapInput,
+): string {
+  const lines: string[] = ["REKAP ORDER"];
+
+  input.items.forEach((item, index) => {
+    lines.push(`ITEM ${index + 1}`);
+    lines.push("");
+    lines.push(`Nama Produk: ${normalizeInlineValue(item.productName || "-")}`);
+    lines.push(`Harga Satuan: ${formatMoney(item.unitPrice)}`);
+    lines.push(`Qty: ${Math.max(0, Number(item.quantity || 0))}`);
+
+    const addOnText = normalizeInlineValue(item.addOnText || "");
+    if (addOnText) {
+      lines.push(`Add On: ${addOnText}`);
+    }
+
+    lines.push(`Subtotal: ${formatMoney(item.subtotal)}`);
+    lines.push("");
+  });
+
+  lines.push(`ONGKIR: ${formatMoney(input.deliveryFee)}`);
+  lines.push(`SERVICE CHARGE: ${formatMoney(input.serviceCharge)}`);
+  lines.push(`ADJUSTMENT: ${formatMoney(input.manualAdjustment)}`);
+  lines.push(`TOTAL: ${formatMoney(input.totalPrice)}`);
+  lines.push(`DP: ${formatMoney(input.downPaymentAmount)}`);
+  lines.push(`SISA: ${formatMoney(input.remainingBalance)}`);
+  lines.push("");
+  appendOrderDeliveryDetailLines(lines, input);
+
+  return compactEmptyLines(lines).join("\n");
+}
+
+export function buildOrderDeliveryDetailsWhatsAppText(
+  input: Pick<
+    WhatsAppRecapInput,
+    | "items"
+    | "deliveryDate"
+    | "bookingCode"
+    | "deliveryTime"
+    | "shippingMethod"
+    | "recipientName"
+    | "recipientPhone"
+    | "fullAddress"
+  >,
+): string {
+  const lines: string[] = [];
+  appendOrderDeliveryDetailLines(lines, input);
   return compactEmptyLines(lines).join("\n");
 }
