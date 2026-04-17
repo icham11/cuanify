@@ -90,26 +90,37 @@ function normalizeStructuredReferenceImages(
     : [];
 
   const normalized: WhatsAppReferenceImage[] = [];
-  const seen = new Set<string>();
+  const byUrl = new Map<string, WhatsAppReferenceImage>();
 
   for (const reference of references) {
     const normalizedUrl = normalizeReferenceImageUrl(reference?.url);
     if (!normalizedUrl) continue;
 
     const label = reference.label?.trim() || undefined;
-    const key = `${normalizedUrl}::${label || ""}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
+    const orderIndex =
+      typeof reference.orderIndex === "number" &&
+      Number.isFinite(reference.orderIndex)
+        ? reference.orderIndex
+        : undefined;
+    const existing = byUrl.get(normalizedUrl);
 
-    normalized.push({
-      url: normalizedUrl,
-      label,
-      orderIndex:
-        typeof reference.orderIndex === "number" &&
-        Number.isFinite(reference.orderIndex)
-          ? reference.orderIndex
-          : undefined,
-    });
+    if (!existing) {
+      const nextReference = {
+        url: normalizedUrl,
+        label,
+        orderIndex,
+      };
+      byUrl.set(normalizedUrl, nextReference);
+      normalized.push(nextReference);
+      continue;
+    }
+
+    if (!existing.label && label) {
+      existing.label = label;
+    }
+    if (existing.orderIndex === undefined && orderIndex !== undefined) {
+      existing.orderIndex = orderIndex;
+    }
   }
 
   return normalized;
