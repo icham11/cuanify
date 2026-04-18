@@ -257,9 +257,7 @@ type OrdersSyncResponse = {
   };
 };
 
-function normalizeParsedOrderTypeKey(
-  value?: string,
-): WhatsAppOrderType | null {
+function normalizeParsedOrderTypeKey(value?: string): WhatsAppOrderType | null {
   const normalized = (value || "")
     .trim()
     .toLowerCase()
@@ -306,7 +304,10 @@ function formatAddOnSummary(
 
 function resolveItemSubtotal(item: OrderItem): number {
   if (Number(item.lineTotal) > 0) return Number(item.lineTotal);
-  return (Number(item.basePrice || 0) + Number(item.addOnTotal || 0)) * Math.max(0, Number(item.quantity || 0));
+  return (
+    (Number(item.basePrice || 0) + Number(item.addOnTotal || 0)) *
+    Math.max(0, Number(item.quantity || 0))
+  );
 }
 
 function getParsedDetailsForMessage(
@@ -349,14 +350,19 @@ function buildMessageDetailLines(order: BakeryOrder, item: OrderItem) {
 
       return value ? { label: field.label, value } : null;
     })
-    .filter((entry): entry is { label: string; value: string } => Boolean(entry));
+    .filter((entry): entry is { label: string; value: string } =>
+      Boolean(entry),
+    );
 }
 
 function resolveShippingMethodLabel(order: BakeryOrder): string {
   const parsedMethod = order.whatsAppParsedData?.common?.deliveryMethod?.trim();
   if (parsedMethod) return parsedMethod;
 
-  if (order.shippingQuote?.provider || order.shippingQuote?.courierServiceName) {
+  if (
+    order.shippingQuote?.provider ||
+    order.shippingQuote?.courierServiceName
+  ) {
     return [
       order.shippingQuote?.provider,
       order.shippingQuote?.courierServiceName,
@@ -369,11 +375,19 @@ function resolveShippingMethodLabel(order: BakeryOrder): string {
 }
 
 function resolveRecipientName(order: BakeryOrder): string {
-  return order.whatsAppParsedData?.common?.recipientName?.trim() || order.customerName || "-";
+  return (
+    order.whatsAppParsedData?.common?.recipientName?.trim() ||
+    order.customerName ||
+    "-"
+  );
 }
 
 function resolveRecipientPhone(order: BakeryOrder): string {
-  return order.whatsAppParsedData?.common?.recipientPhone?.trim() || order.customerPhone || "-";
+  return (
+    order.whatsAppParsedData?.common?.recipientPhone?.trim() ||
+    order.customerPhone ||
+    "-"
+  );
 }
 
 function resolveFullAddress(order: BakeryOrder): string {
@@ -386,7 +400,11 @@ function resolveFullAddress(order: BakeryOrder): string {
 }
 
 function resolvePreferredBookingCode(order: BakeryOrder): string {
-  return order.whatsAppParsedData?.common?.bookingCode?.trim() || order.bookingCode || "PENDING";
+  return (
+    order.whatsAppParsedData?.common?.bookingCode?.trim() ||
+    order.bookingCode ||
+    "PENDING"
+  );
 }
 
 function inferDeliveryMethodFromNotes(notes?: string): string | undefined {
@@ -1309,7 +1327,10 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         finalPaidAmount: normalizedFinalPaid,
         totalPaidAmount: normalizedTotalPaid,
         downPaymentAmount: normalizedDpPaid,
-        remainingBalance: Math.max(0, normalizedTotalPrice - normalizedTotalPaid),
+        remainingBalance: Math.max(
+          0,
+          normalizedTotalPrice - normalizedTotalPaid,
+        ),
         paymentTransactions: [
           ...(normalizedDpPaid > 0
             ? [
@@ -1803,7 +1824,10 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
           productName: item.productName || "-",
           unitPrice: item.basePrice,
           quantity: item.quantity,
-          addOnText: formatAddOnSummary(item.addOns ?? [], item.addOnQuantities),
+          addOnText: formatAddOnSummary(
+            item.addOns ?? [],
+            item.addOnQuantities,
+          ),
           subtotal: resolveItemSubtotal(item),
           orderLabel: item.productName || "-",
           detailLines: buildMessageDetailLines(order, item),

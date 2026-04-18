@@ -130,7 +130,10 @@ const commonFieldDefinitions: FieldDefinition[] = [
   },
 ];
 
-export const detailFieldDefinitions: Record<WhatsAppOrderType, FieldDefinition[]> = {
+export const detailFieldDefinitions: Record<
+  WhatsAppOrderType,
+  FieldDefinition[]
+> = {
   cake: [
     {
       key: "cakeName",
@@ -480,59 +483,6 @@ function getInlineValueAfterLabel(line: string, alias: string): string {
   return "";
 }
 
-function looksLikeLabeledLine(value: string): boolean {
-  const normalized = normalizeLabel(value);
-  if (!normalized) return false;
-  if (normalized.startsWith("jenis pesanan")) return true;
-  if (/^[a-z0-9\s]{2,60}\s*[:=-]\s*/i.test(value.trim())) return true;
-
-  return allFieldDefinitions.some((field) =>
-    field.aliases.some((alias) => normalized.startsWith(normalizeLabel(alias))),
-  );
-}
-
-function collectBlockValue(
-  lines: string[],
-  startIndex: number,
-  firstLineValue: string,
-): string {
-  const parts: string[] = [];
-  if (firstLineValue) {
-    parts.push(firstLineValue);
-  }
-
-  for (let index = startIndex + 1; index < lines.length; index += 1) {
-    const line = lines[index]?.trim() ?? "";
-    if (!line) continue;
-    if (looksLikeLabeledLine(line)) break;
-    parts.push(line);
-  }
-
-  return joinCollectedBlockParts(parts);
-}
-
-function buildKeyValueLookup(lines: string[]): Map<string, string> {
-  const lookup = new Map<string, string>();
-
-  lines.forEach((line, index) => {
-    const match = line.match(/^(.{2,80}?)\s*[:=-]\s*(.*)$/);
-    if (!match) return;
-
-    const rawKey = match[1] ?? "";
-    const rawValue = match[2] ?? "";
-    const key = normalizeLabel(rawKey);
-    if (!key) return;
-
-    const value = collectBlockValue(lines, index, cleanupValue(rawValue));
-
-    if (!lookup.has(key) || value) {
-      lookup.set(key, value);
-    }
-  });
-
-  return lookup;
-}
-
 const recapItemFieldDefinitions: FieldDefinition[] = [
   {
     key: "category",
@@ -641,6 +591,68 @@ function isRecapTotalsLine(line: string): boolean {
     field.aliases.some((alias) => normalized.startsWith(normalizeLabel(alias))),
   );
 }
+
+function looksLikeLabeledLine(value: string): boolean {
+  const normalized = normalizeLabel(value);
+  if (!normalized) return false;
+
+  // Explicit Section Headers
+  if (normalized === "rekap order") return true;
+  if (parseRecapItemHeader(value) !== null) return true;
+  if (isRecapTotalsLine(value)) return true;
+
+  if (normalized.startsWith("jenis pesanan")) return true;
+  if (/^[a-z0-9\s]{2,60}\s*[:=-]\s*/i.test(value.trim())) return true;
+
+  return [...allFieldDefinitions, ...recapItemFieldDefinitions].some((field) =>
+    field.aliases.some((alias) => normalized.startsWith(normalizeLabel(alias))),
+  );
+}
+
+function collectBlockValue(
+  lines: string[],
+  startIndex: number,
+  firstLineValue: string,
+): string {
+  const parts: string[] = [];
+  if (firstLineValue) {
+    parts.push(firstLineValue);
+  }
+
+  for (let index = startIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index]?.trim() ?? "";
+    if (!line) continue;
+    if (looksLikeLabeledLine(line)) break;
+    parts.push(line);
+  }
+
+  return joinCollectedBlockParts(parts);
+}
+
+function buildKeyValueLookup(lines: string[]): Map<string, string> {
+  const lookup = new Map<string, string>();
+
+  lines.forEach((line, index) => {
+    const match = line.match(/^(.{2,80}?)\s*[:=-]\s*(.*)$/);
+    if (!match) return;
+
+    const rawKey = match[1] ?? "";
+    const rawValue = match[2] ?? "";
+    const key = normalizeLabel(rawKey);
+    if (!key) return;
+
+    const value = collectBlockValue(lines, index, cleanupValue(rawValue));
+
+    if (!lookup.has(key) || value) {
+      lookup.set(key, value);
+    }
+  });
+
+  return lookup;
+}
+
+// No content here, moved above.
+
 
 function normalizeRecapCategory(value: string): string {
   const normalized = normalizeLabel(value);
@@ -2035,7 +2047,9 @@ function detectCakeFlavorOptionByText(
 
   for (let index = contextualCandidates.length - 1; index >= 0; index -= 1) {
     const candidate = contextualCandidates[index]
-      .split(/(?:,|\b(?:cupcakes?|dozen|lusin|indv|individual|individu(?:al)?)\b)/i)[0]
+      .split(
+        /(?:,|\b(?:cupcakes?|dozen|lusin|indv|individual|individu(?:al)?)\b)/i,
+      )[0]
       .trim();
     const detected = detectFlavorOptionByText(options, candidate);
     if (detected) return detected;

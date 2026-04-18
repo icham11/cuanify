@@ -2150,7 +2150,10 @@ function buildCharacterNgrams(value: string, size = 4): Set<string> {
   return ngrams;
 }
 
-function calculateDiceCoefficient(left: Set<string>, right: Set<string>): number {
+function calculateDiceCoefficient(
+  left: Set<string>,
+  right: Set<string>,
+): number {
   if (!left.size || !right.size) return 0;
 
   let intersection = 0;
@@ -2161,8 +2164,13 @@ function calculateDiceCoefficient(left: Set<string>, right: Set<string>): number
   return (2 * intersection) / (left.size + right.size);
 }
 
-function calculateTokenJaccard(leftSource: string, rightSource: string): number {
-  const left = new Set(leftSource.split(" ").filter((token) => token.length > 0));
+function calculateTokenJaccard(
+  leftSource: string,
+  rightSource: string,
+): number {
+  const left = new Set(
+    leftSource.split(" ").filter((token) => token.length > 0),
+  );
   const right = new Set(
     rightSource.split(" ").filter((token) => token.length > 0),
   );
@@ -2233,45 +2241,51 @@ function findOrdersWithDuplicateParsedTemplate(
 
   const matches = orders
     .map<DuplicateTemplateMatch | null>((order) => {
-    const existingTemplate = normalizeDuplicateTemplateText(
-      order.whatsAppParsedData?.rawText,
-    );
-    if (!existingTemplate) return null;
+      const existingTemplate = normalizeDuplicateTemplateText(
+        order.whatsAppParsedData?.rawText,
+      );
+      if (!existingTemplate) return null;
 
-    if (existingTemplate === normalizedTemplate) {
-      return { order, similarityScore: 1, matchType: "exact" };
-    }
+      if (existingTemplate === normalizedTemplate) {
+        return { order, similarityScore: 1, matchType: "exact" };
+      }
 
-    const existingSimilarityTemplate = normalizeTemplateForSimilarity(existingTemplate);
-    if (
-      similarityTemplate.length < DUPLICATE_TEMPLATE_MIN_SIMILARITY_CHARS ||
-      existingSimilarityTemplate.length < DUPLICATE_TEMPLATE_MIN_SIMILARITY_CHARS
-    ) {
-      return null;
-    }
+      const existingSimilarityTemplate =
+        normalizeTemplateForSimilarity(existingTemplate);
+      if (
+        similarityTemplate.length < DUPLICATE_TEMPLATE_MIN_SIMILARITY_CHARS ||
+        existingSimilarityTemplate.length <
+          DUPLICATE_TEMPLATE_MIN_SIMILARITY_CHARS
+      ) {
+        return null;
+      }
 
-    const similarityMetrics = calculateTemplateSimilarity(
-      similarityTemplate,
-      existingSimilarityTemplate,
-    );
+      const similarityMetrics = calculateTemplateSimilarity(
+        similarityTemplate,
+        existingSimilarityTemplate,
+      );
 
-    if (
-      similarityMetrics.score < DUPLICATE_TEMPLATE_SIMILARITY_THRESHOLD ||
-      similarityMetrics.charSimilarity < DUPLICATE_TEMPLATE_MIN_CHAR_SIMILARITY ||
-      similarityMetrics.tokenSimilarity < DUPLICATE_TEMPLATE_MIN_TOKEN_SIMILARITY
-    ) {
-      return null;
-    }
+      if (
+        similarityMetrics.score < DUPLICATE_TEMPLATE_SIMILARITY_THRESHOLD ||
+        similarityMetrics.charSimilarity <
+          DUPLICATE_TEMPLATE_MIN_CHAR_SIMILARITY ||
+        similarityMetrics.tokenSimilarity <
+          DUPLICATE_TEMPLATE_MIN_TOKEN_SIMILARITY
+      ) {
+        return null;
+      }
 
-    return {
-      order,
-      similarityScore: similarityMetrics.score,
-      matchType: "similar",
-    };
-  })
-  .filter((entry): entry is DuplicateTemplateMatch => Boolean(entry));
+      return {
+        order,
+        similarityScore: similarityMetrics.score,
+        matchType: "similar",
+      };
+    })
+    .filter((entry): entry is DuplicateTemplateMatch => Boolean(entry));
 
-  return matches.sort((left, right) => right.similarityScore - left.similarityScore);
+  return matches.sort(
+    (left, right) => right.similarityScore - left.similarityScore,
+  );
 }
 
 function formatDuplicateWarningDate(value: string): string {
@@ -2345,21 +2359,20 @@ export default function BookingForm() {
   const submitFlowSourceRef = useRef<
     "form" | "duplicate-warning" | "submit-confirmation"
   >("form");
-  const pendingSubmitConfirmationRef =
-    useRef<BookingFormValues | null>(null);
+  const pendingSubmitConfirmationRef = useRef<BookingFormValues | null>(null);
   const skipSubmitConfirmationRef = useRef(false);
   const pendingDuplicateSubmissionRef = useRef<BookingFormValues | null>(null);
   const skipDuplicateTemplateWarningRef = useRef(false);
-  const submitConfirmationPrimaryButtonRef =
-    useRef<HTMLButtonElement | null>(null);
+  const submitConfirmationPrimaryButtonRef = useRef<HTMLButtonElement | null>(
+    null,
+  );
   const duplicateWarningDialogRef = useRef<HTMLDivElement | null>(null);
   const duplicateWarningPrimaryButtonRef = useRef<HTMLButtonElement | null>(
     null,
   );
   const shouldRequireSubmitConfirmation =
     !isRoleLoading && (isOwner || isAdmin);
-  const canWarnDuplicateTemplate =
-    !isRoleLoading && (isOwner || isAdmin);
+  const canWarnDuplicateTemplate = !isRoleLoading && (isOwner || isAdmin);
 
   useEffect(() => {
     if (!showSubmitConfirmation) return;
@@ -4177,7 +4190,9 @@ export default function BookingForm() {
               entry.order.bookingCode ||
               `Order ${String(entry.order.id).slice(0, 8)}`,
             customerName: entry.order.customerName || "Walk-in Customer",
-            deliveryDateLabel: formatDuplicateWarningDate(entry.order.deliveryDate),
+            deliveryDateLabel: formatDuplicateWarningDate(
+              entry.order.deliveryDate,
+            ),
             similarityLabel: formatTemplateSimilarityLabel(
               entry.similarityScore,
               entry.matchType,
@@ -7967,7 +7982,9 @@ export default function BookingForm() {
             </div>
 
             <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 px-4 py-3 text-sm text-indigo-800">
-              <p className="font-semibold">Pembayaran otomatis dari pilihan status:</p>
+              <p className="font-semibold">
+                Pembayaran otomatis dari pilihan status:
+              </p>
               <p className="mt-1">
                 {selectedPaymentStatus === "Paid"
                   ? "Jika pilih Lunas, sistem otomatis set pembayaran 100% dari total pesanan."
@@ -8000,7 +8017,9 @@ export default function BookingForm() {
                   dbWillExceed
                 }
               >
-                {isSubmitting || isManualSubmitInFlight || isBookingCreationInFlight
+                {isSubmitting ||
+                isManualSubmitInFlight ||
+                isBookingCreationInFlight
                   ? "Saving Booking..."
                   : isCapacityValidating
                     ? "Validating Capacity..."
@@ -8152,9 +8171,9 @@ export default function BookingForm() {
             </p>
             <p className="mt-2 text-sm text-amber-800">
               Parsing template yang sama persis atau sangat mirip sudah pernah
-              dipakai di booking lain.
-              Silakan cek dulu daftar booking untuk memastikan bukan order
-              duplikat, atau lanjutkan jika memang order baru.
+              dipakai di booking lain. Silakan cek dulu daftar booking untuk
+              memastikan bukan order duplikat, atau lanjutkan jika memang order
+              baru.
             </p>
 
             <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
@@ -8175,7 +8194,9 @@ export default function BookingForm() {
                   rel="noreferrer"
                   className="block rounded-md border border-gray-200 bg-white px-3 py-2 text-xs text-gray-700 hover:border-indigo-300 hover:bg-indigo-50"
                 >
-                  <p className="font-semibold text-gray-900">{match.bookingLabel}</p>
+                  <p className="font-semibold text-gray-900">
+                    {match.bookingLabel}
+                  </p>
                   <p className="mt-0.5">
                     {match.customerName} • {match.deliveryDateLabel}
                   </p>
@@ -8245,9 +8266,7 @@ export default function BookingForm() {
                 <div className="flex items-center justify-between text-slate-700">
                   <span>Validasi kapasitas</span>
                   <span className="font-semibold text-slate-900">
-                    {isCapacityValidating
-                      ? "Sedang diproses"
-                      : "Siap"}
+                    {isCapacityValidating ? "Sedang diproses" : "Siap"}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-slate-700">
@@ -8262,12 +8281,15 @@ export default function BookingForm() {
                 </div>
                 <div className="flex items-center justify-between text-slate-700">
                   <span>Sinkron data & trigger otomatis</span>
-                  <span className="font-semibold text-slate-900">Berjalan otomatis</span>
+                  <span className="font-semibold text-slate-900">
+                    Berjalan otomatis
+                  </span>
                 </div>
               </div>
 
               <p className="text-xs text-slate-600">
-                Mohon tunggu sebentar. Jangan tutup tab agar proses booking selesai sempurna.
+                Mohon tunggu sebentar. Jangan tutup tab agar proses booking
+                selesai sempurna.
               </p>
             </div>
           </div>
