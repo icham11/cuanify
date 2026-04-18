@@ -5,7 +5,11 @@ import { requireAuth } from "@/lib/auth/session";
 import { createShippingResi } from "@/lib/bookings/shipping-service";
 import { estimateOperationalWeightGram } from "@/lib/bookings/delivery-rules";
 import { normalizeDateInput } from "@/lib/helpers/date-normalization";
-import { getJakartaTodayIsoDate, isDueForScheduledShipment } from "@/lib/bookings/shipping-schedule";
+import {
+  getJakartaTodayIsoDate,
+  inferScheduledProviderFromQuote,
+  isDueForScheduledShipment,
+} from "@/lib/bookings/shipping-schedule";
 import type {
   ShippingQuote,
   ShippingQuoteItemInput,
@@ -25,7 +29,7 @@ const SHIPPING_PROVIDER_VALUES = [
 
 const shippingQuoteSchema = z.object({
   id: z.string().default(""),
-  provider: z.enum(SHIPPING_PROVIDER_VALUES),
+  provider: z.enum(SHIPPING_PROVIDER_VALUES).optional(),
   courierCode: z.string().min(1),
   courierServiceCode: z.string().min(1),
   courierServiceName: z.string().min(1),
@@ -176,7 +180,15 @@ function parseShippingQuote(value: unknown): ShippingQuote | null {
   const raw = parseJsonField(value);
   const parsed = shippingQuoteSchema.safeParse(raw);
   if (!parsed.success) return null;
-  return parsed.data;
+
+  const provider =
+    parsed.data.provider || inferScheduledProviderFromQuote(parsed.data);
+  if (!provider) return null;
+
+  return {
+    ...parsed.data,
+    provider,
+  };
 }
 
 function parseDueDate(value: string | null): string {
@@ -418,7 +430,28 @@ async function handleCronRequest(req: NextRequest) {
             AND shipment IS NULL
             AND shipping_quote IS NOT NULL
             AND COALESCE(LOWER(order_status), '') NOT IN ('delivered', 'cancelled')
-            AND UPPER(COALESCE(shipping_quote->>'provider', '')) IN ('GOJEK', 'GRAB', 'PAXEL')
+            AND (
+              UPPER(COALESCE(shipping_quote->>'provider', '')) IN ('GOJEK', 'GRAB', 'PAXEL')
+              OR LOWER(COALESCE(shipping_quote->>'courierCode', '')) LIKE '%gojek%'
+              OR LOWER(COALESCE(shipping_quote->>'courierCode', '')) LIKE '%gosend%'
+              OR LOWER(COALESCE(shipping_quote->>'courierCode', '')) LIKE '%gocar%'
+              OR LOWER(COALESCE(shipping_quote->>'courierCode', '')) LIKE '%grab%'
+              OR LOWER(COALESCE(shipping_quote->>'courierCode', '')) LIKE '%paxel%'
+              OR LOWER(COALESCE(shipping_quote->>'courierCode', '')) LIKE '%pxl%'
+              OR LOWER(COALESCE(shipping_quote->>'courierServiceCode', '')) LIKE '%gojek%'
+              OR LOWER(COALESCE(shipping_quote->>'courierServiceCode', '')) LIKE '%gosend%'
+              OR LOWER(COALESCE(shipping_quote->>'courierServiceCode', '')) LIKE '%gocar%'
+              OR LOWER(COALESCE(shipping_quote->>'courierServiceCode', '')) LIKE '%grab%'
+              OR LOWER(COALESCE(shipping_quote->>'courierServiceCode', '')) LIKE '%paxel%'
+              OR LOWER(COALESCE(shipping_quote->>'courierServiceCode', '')) LIKE '%pxl%'
+              OR LOWER(COALESCE(shipping_quote->>'courierServiceName', '')) LIKE '%gojek%'
+              OR LOWER(COALESCE(shipping_quote->>'courierServiceName', '')) LIKE '%gosend%'
+              OR LOWER(COALESCE(shipping_quote->>'courierServiceName', '')) LIKE '%go car%'
+              OR LOWER(COALESCE(shipping_quote->>'courierServiceName', '')) LIKE '%gocar%'
+              OR LOWER(COALESCE(shipping_quote->>'courierServiceName', '')) LIKE '%grab%'
+              OR LOWER(COALESCE(shipping_quote->>'courierServiceName', '')) LIKE '%paxel%'
+              OR LOWER(COALESCE(shipping_quote->>'courierServiceName', '')) LIKE '%pxl%'
+            )
           ORDER BY updated_at ASC
           LIMIT 250
         `
@@ -442,7 +475,28 @@ async function handleCronRequest(req: NextRequest) {
           WHERE shipment IS NULL
             AND shipping_quote IS NOT NULL
             AND COALESCE(LOWER(order_status), '') NOT IN ('delivered', 'cancelled')
-            AND UPPER(COALESCE(shipping_quote->>'provider', '')) IN ('GOJEK', 'GRAB', 'PAXEL')
+            AND (
+              UPPER(COALESCE(shipping_quote->>'provider', '')) IN ('GOJEK', 'GRAB', 'PAXEL')
+              OR LOWER(COALESCE(shipping_quote->>'courierCode', '')) LIKE '%gojek%'
+              OR LOWER(COALESCE(shipping_quote->>'courierCode', '')) LIKE '%gosend%'
+              OR LOWER(COALESCE(shipping_quote->>'courierCode', '')) LIKE '%gocar%'
+              OR LOWER(COALESCE(shipping_quote->>'courierCode', '')) LIKE '%grab%'
+              OR LOWER(COALESCE(shipping_quote->>'courierCode', '')) LIKE '%paxel%'
+              OR LOWER(COALESCE(shipping_quote->>'courierCode', '')) LIKE '%pxl%'
+              OR LOWER(COALESCE(shipping_quote->>'courierServiceCode', '')) LIKE '%gojek%'
+              OR LOWER(COALESCE(shipping_quote->>'courierServiceCode', '')) LIKE '%gosend%'
+              OR LOWER(COALESCE(shipping_quote->>'courierServiceCode', '')) LIKE '%gocar%'
+              OR LOWER(COALESCE(shipping_quote->>'courierServiceCode', '')) LIKE '%grab%'
+              OR LOWER(COALESCE(shipping_quote->>'courierServiceCode', '')) LIKE '%paxel%'
+              OR LOWER(COALESCE(shipping_quote->>'courierServiceCode', '')) LIKE '%pxl%'
+              OR LOWER(COALESCE(shipping_quote->>'courierServiceName', '')) LIKE '%gojek%'
+              OR LOWER(COALESCE(shipping_quote->>'courierServiceName', '')) LIKE '%gosend%'
+              OR LOWER(COALESCE(shipping_quote->>'courierServiceName', '')) LIKE '%go car%'
+              OR LOWER(COALESCE(shipping_quote->>'courierServiceName', '')) LIKE '%gocar%'
+              OR LOWER(COALESCE(shipping_quote->>'courierServiceName', '')) LIKE '%grab%'
+              OR LOWER(COALESCE(shipping_quote->>'courierServiceName', '')) LIKE '%paxel%'
+              OR LOWER(COALESCE(shipping_quote->>'courierServiceName', '')) LIKE '%pxl%'
+            )
           ORDER BY updated_at ASC
           LIMIT 500
         `;

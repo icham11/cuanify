@@ -3,9 +3,11 @@ import { z } from "zod";
 import { requireAuth, AuthError } from "@/lib/auth/session";
 import prisma from "@/lib/prisma";
 import { createShippingResi } from "@/lib/bookings/shipping-service";
+import { inferScheduledProviderFromQuote } from "@/lib/bookings/shipping-schedule";
 import type {
   ShippingResiRequest,
   ShippingShipment,
+  ShippingQuote,
 } from "@/lib/bookings/shipping-types";
 
 export const runtime = "nodejs";
@@ -21,7 +23,7 @@ const SHIPPING_PROVIDER_VALUES = [
 
 const shippingQuoteSchema = z.object({
   id: z.string().default(""),
-  provider: z.enum(SHIPPING_PROVIDER_VALUES),
+  provider: z.enum(SHIPPING_PROVIDER_VALUES).optional(),
   courierCode: z.string().min(1),
   courierServiceCode: z.string().min(1),
   courierServiceName: z.string().min(1),
@@ -29,6 +31,9 @@ const shippingQuoteSchema = z.object({
   eta: z.string().default("-"),
   distanceKm: z.number().min(0).default(0),
   source: z.enum(["biteship", "fallback"]).default("biteship"),
+  destinationPostalCode: z.string().optional(),
+  destinationLatitude: z.number().optional(),
+  destinationLongitude: z.number().optional(),
 });
 
 const createResiSchema = z.object({
@@ -124,6 +129,31 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const selectedQuoteProvider =
+      parsed.data.selectedQuote.provider ||
+      inferScheduledProviderFromQuote(parsed.data.selectedQuote);
+
+    if (!selectedQuoteProvider) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "selectedQuote.provider tidak dikenali. Pastikan quote berasal dari GOJEK/GRAB/PAXEL/JNE/JNT yang valid.",
+        },
+        { status: 400 },
+      );
+    }
+
+    const normalizedSelectedQuote: ShippingQuote = {
+      ...parsed.data.selectedQuote,
+      provider: selectedQuoteProvider,
+    };
+
+    const normalizedPayload: ShippingResiRequest = {
+      ...parsed.data,
+      selectedQuote: normalizedSelectedQuote,
+    };
+
     const existingShipment = await findExistingShipment({
       businessId,
       orderId: parsed.data.orderId,
@@ -140,7 +170,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const result = await createShippingResi(parsed.data);
+    const result = await createShippingResi(normalizedPayload);
     const status = result.success ? 200 : 400;
     return NextResponse.json(result, { status });
   } catch (error: unknown) {

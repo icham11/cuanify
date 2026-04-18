@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
@@ -19,6 +19,22 @@ import { BookOpen } from "lucide-react";
 
 type CourierFilter = "" | "grab-gojek" | "paxel";
 type OrderSourceFilter = "" | "customer" | "admin";
+
+function addDaysToIsoDate(isoDate: string, days: number): string {
+  const matched = isoDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!matched) return isoDate;
+
+  const year = Number(matched[1]);
+  const month = Number(matched[2]);
+  const day = Number(matched[3]);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+    return isoDate;
+  }
+
+  const value = new Date(Date.UTC(year, month - 1, day));
+  value.setUTCDate(value.getUTCDate() + days);
+  return value.toISOString().slice(0, 10);
+}
 
 function inferDeliveryMethodFromText(rawValue?: string): string | undefined {
   const raw = (rawValue || "").trim().toLowerCase();
@@ -79,10 +95,6 @@ function resolveOrderSource(order: {
 
 export default function BookingListPage() {
   const { orders } = useOrders();
-  const today = new Date().toISOString().slice(0, 10);
-  const tomorrowDate = new Date();
-  tomorrowDate.setDate(tomorrowDate.getDate() + 1);
-  const tomorrow = tomorrowDate.toISOString().slice(0, 10);
 
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -95,14 +107,38 @@ export default function BookingListPage() {
   >("delivery-asc");
   const [currentPage, setCurrentPage] = useState(1);
   const [dismissedReminderKey, setDismissedReminderKey] = useState("");
+  const [todayJakarta, setTodayJakarta] = useState(() =>
+    getJakartaTodayIsoDate(),
+  );
+  const today = todayJakarta;
+  const tomorrow = useMemo(() => addDaysToIsoDate(todayJakarta, 1), [todayJakarta]);
   const PAGE_SIZE = 10;
 
+  useEffect(() => {
+    const syncTodayJakarta = () => {
+      setTodayJakarta((previous) => {
+        const current = getJakartaTodayIsoDate();
+        return previous === current ? previous : current;
+      });
+    };
+
+    syncTodayJakarta();
+    const intervalId = window.setInterval(syncTodayJakarta, 60_000);
+    window.addEventListener("focus", syncTodayJakarta);
+    document.addEventListener("visibilitychange", syncTodayJakarta);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", syncTodayJakarta);
+      document.removeEventListener("visibilitychange", syncTodayJakarta);
+    };
+  }, []);
+
   const dueScheduledShipmentsToday = useMemo(() => {
-    const todayJakarta = getJakartaTodayIsoDate();
     return orders.filter((order) =>
       isTodayScheduledReminderOrder(order, todayJakarta),
     );
-  }, [orders]);
+  }, [orders, todayJakarta]);
   const reminderKey = useMemo(
     () => dueScheduledShipmentsToday.map((order) => order.id).join("|"),
     [dueScheduledShipmentsToday],
@@ -278,8 +314,11 @@ export default function BookingListPage() {
   return (
     <div className="space-y-6 pb-10">
       {showDeliveryReminder && dueScheduledShipmentsToday.length > 0 && (
-        <div className="fixed right-4 top-4 z-50 w-[min(92vw,430px)] rounded-xl border border-amber-300 bg-amber-50 p-4 shadow-xl">
-          <div className="flex items-start justify-between gap-3">
+        <div
+          className="fixed inset-x-3 z-50 rounded-xl border border-amber-300 bg-amber-50 p-3 shadow-xl sm:p-4 md:inset-x-auto md:right-4 md:w-[min(92vw,430px)]"
+          style={{ top: "max(0.75rem, env(safe-area-inset-top))" }}
+        >
+          <div className="flex items-start justify-between gap-2 sm:gap-3">
             <div>
               <p className="text-sm font-semibold text-amber-900">
                 Reminder Pengiriman Hari Ini
@@ -296,12 +335,12 @@ export default function BookingListPage() {
             <button
               type="button"
               onClick={() => setDismissedReminderKey(reminderKey)}
-              className="rounded-md border border-amber-300 bg-white px-2 py-1 text-[11px] font-semibold text-amber-800 hover:bg-amber-100"
+              className="shrink-0 rounded-md border border-amber-300 bg-white px-2 py-1 text-[11px] font-semibold text-amber-800 hover:bg-amber-100"
             >
               Tutup
             </button>
           </div>
-          <div className="mt-3 max-h-56 space-y-2 overflow-y-auto pr-1">
+          <div className="mt-3 max-h-[42vh] space-y-2 overflow-y-auto pr-1 sm:max-h-56">
             {dueScheduledShipmentsToday.map((order) => (
               <Link
                 key={order.id}
@@ -311,9 +350,11 @@ export default function BookingListPage() {
                 <p className="font-semibold">
                   {order.resi || order.bookingCode || `Order ${order.id}`}
                 </p>
-                <p className="mt-0.5 text-[11px] text-amber-800">
+                <p className="mt-0.5 wrap-break-word text-[11px] leading-snug text-amber-800">
                   {order.customerName} • {order.deliverySlot || "-"} •{" "}
-                  {order.shippingQuote?.provider || "Kurir"}
+                  {resolveShippingProvider(order) ||
+                    order.shippingQuote?.provider ||
+                    "Kurir"}
                 </p>
               </Link>
             ))}

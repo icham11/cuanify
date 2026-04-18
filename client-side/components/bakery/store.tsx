@@ -36,6 +36,7 @@ import {
 import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 import {
   getJakartaTodayIsoDate,
+  inferScheduledProviderFromQuote,
   isDueForScheduledShipment,
   isGrabOrGojekOrder,
   isScheduledShipmentOrder,
@@ -1076,6 +1077,15 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
 
         if (!items.length) return;
 
+        const selectedQuoteProvider = inferScheduledProviderFromQuote(
+          order.shippingQuote,
+        );
+        if (!selectedQuoteProvider) return;
+        const selectedQuote: ShippingQuote = {
+          ...order.shippingQuote,
+          provider: selectedQuoteProvider,
+        };
+
         try {
           const shippingReferenceId =
             order.shippingReferenceId ||
@@ -1126,7 +1136,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
               destinationLongitude,
               deliveryDate: order.deliveryDate,
               deliveryTime: order.deliverySlot,
-              selectedQuote: order.shippingQuote,
+              selectedQuote,
               items,
               totalValue: Math.max(1000, Math.round(order.totalPrice || 0)),
             }),

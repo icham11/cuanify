@@ -44,6 +44,7 @@ import {
 } from "@/lib/bookings/order-status";
 import {
   getJakartaTodayIsoDate,
+  inferScheduledProviderFromQuote,
   isGrabOrGojekOrder,
   isScheduledShipmentOrder,
 } from "@/lib/bookings/shipping-schedule";
@@ -553,6 +554,17 @@ export default function OrderDetailPage() {
       )
         ? Number(order.shippingQuote?.destinationLongitude)
         : undefined;
+      const selectedQuoteProvider = inferScheduledProviderFromQuote(
+        order.shippingQuote,
+      );
+      if (!selectedQuoteProvider) {
+        toast.error("Provider kurir tidak dikenali. Pilih ulang quote kurir.");
+        return;
+      }
+      const selectedQuote = {
+        ...order.shippingQuote,
+        provider: selectedQuoteProvider,
+      };
 
       const response = await fetch("/api/bookings/shipping/create-resi", {
         method: "POST",
@@ -572,7 +584,7 @@ export default function OrderDetailPage() {
           destinationLongitude,
           deliveryDate: order.deliveryDate,
           deliveryTime: order.deliverySlot,
-          selectedQuote: order.shippingQuote,
+          selectedQuote,
           items,
           totalValue: Math.max(1000, Math.round(order.totalPrice || 0)),
         }),

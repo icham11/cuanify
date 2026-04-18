@@ -3,6 +3,9 @@ import type { ShippingProvider } from "@/lib/bookings/shipping-types";
 
 type ShippingQuoteLike = {
   provider?: string | null;
+  courierCode?: string | null;
+  courierServiceCode?: string | null;
+  courierServiceName?: string | null;
 };
 
 type ShippingScheduleOrderLike = {
@@ -20,6 +23,40 @@ const SCHEDULED_SHIPPING_PROVIDERS: ShippingProvider[] = [
   "PAXEL",
 ];
 
+const GOJEK_PROVIDER_KEYWORDS = [
+  "gojek",
+  "gosend",
+  "go send",
+  "gocar",
+  "go car",
+];
+
+const GRAB_PROVIDER_KEYWORDS = ["grab"];
+
+const PAXEL_PROVIDER_KEYWORDS = ["paxel", "pxl"];
+
+function includesAnyKeyword(value: string, keywords: string[]): boolean {
+  return keywords.some((keyword) => value.includes(keyword));
+}
+
+function inferProviderFromText(value: string): ShippingProvider | null {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return null;
+
+  // Check Paxel first to avoid ambiguous short-code overlaps.
+  if (includesAnyKeyword(normalized, PAXEL_PROVIDER_KEYWORDS)) {
+    return "PAXEL";
+  }
+  if (includesAnyKeyword(normalized, GRAB_PROVIDER_KEYWORDS)) {
+    return "GRAB";
+  }
+  if (includesAnyKeyword(normalized, GOJEK_PROVIDER_KEYWORDS)) {
+    return "GOJEK";
+  }
+
+  return null;
+}
+
 function inferDeliveryMethodFromNotes(notes?: string | null): string | undefined {
   const match = notes?.match(/delivery\s*method\s*:\s*([^\n]+)/i);
   const raw = (match?.[1] || "").trim().toLowerCase();
@@ -30,6 +67,13 @@ function inferDeliveryMethodFromNotes(notes?: string | null): string | undefined
   }
   if (raw.includes("gocar") || raw.includes("go car")) {
     return "ASSISTED_GOCAR";
+  }
+  if (
+    raw.includes("same day") ||
+    raw.includes("same-day") ||
+    raw.includes("sameday")
+  ) {
+    return "ASSISTED_SAME_DAY";
   }
   if (raw.includes("grab")) return "ASSISTED_GRAB";
   if (raw.includes("paxel")) return "ASSISTED_PAXEL";
@@ -106,12 +150,32 @@ export function isScheduledShipmentProvider(provider?: string | null): boolean {
   );
 }
 
+export function inferScheduledProviderFromQuote(
+  quote?: ShippingQuoteLike | null,
+): ShippingProvider | null {
+  const quoteProvider = (quote?.provider || "").toUpperCase();
+  if (isScheduledShipmentProvider(quoteProvider)) {
+    return quoteProvider as ShippingProvider;
+  }
+
+  return inferProviderFromText(
+    [
+      quote?.provider,
+      quote?.courierCode,
+      quote?.courierServiceCode,
+      quote?.courierServiceName,
+    ]
+      .filter((part) => Boolean(String(part || "").trim()))
+      .join(" "),
+  );
+}
+
 export function resolveShippingProvider(
   order: ShippingScheduleOrderLike,
 ): ShippingProvider | null {
-  const quoteProvider = (order.shippingQuote?.provider || "").toUpperCase();
-  if (isScheduledShipmentProvider(quoteProvider)) {
-    return quoteProvider as ShippingProvider;
+  const quoteProvider = inferScheduledProviderFromQuote(order.shippingQuote);
+  if (quoteProvider) {
+    return quoteProvider;
   }
 
   return resolveProviderFromDeliveryMethod(
@@ -132,7 +196,12 @@ export function isGrabOrGojekOrder(order: ShippingScheduleOrderLike): boolean {
 
 function isDeliveredOrCancelled(status?: string | null): boolean {
   const normalized = (status || "").trim().toLowerCase();
-  return normalized === "delivered" || normalized === "cancelled";
+  return (
+    normalized === "delivered" ||
+    normalized === "cancelled" ||
+    normalized === "completed" ||
+    normalized === "complete"
+  );
 }
 
 export function isDueForScheduledShipment(
@@ -140,7 +209,8 @@ export function isDueForScheduledShipment(
   todayIsoDate: string,
 ): boolean {
   if (!isScheduledShipmentOrder(order)) return false;
-  if (!order.shippingQuote?.provider) return false;
+  if (!order.shippingQuote) return false;
+  if (!inferScheduledProviderFromQuote(order.shippingQuote)) return false;
   if (order.shipment) return false;
   if (isDeliveredOrCancelled(order.orderStatus)) return false;
 
