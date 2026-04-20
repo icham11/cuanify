@@ -40,6 +40,7 @@ import {
   getCalendarStatus,
   type CalendarStatus,
 } from "@/lib/calendar/getCalendarStatus";
+import { normalizeDateInput } from "@/lib/helpers/date-normalization";
 import { useCalendarCapacity } from "@/hooks/useCalendarCapacity";
 import { useBakerySettings } from "@/hooks/useBakerySettings";
 import CalendarCell from "@/components/calendar/CalendarCell";
@@ -93,9 +94,24 @@ function safeToDateKey(value: Date) {
   }
 }
 
+function normalizeCalendarDeliveryDate(deliveryDate?: string) {
+  const raw = (deliveryDate ?? "").trim();
+  if (!raw) return "";
+
+  const normalized = normalizeDateInput(raw);
+  if (normalized) return normalized;
+
+  const isoPrefix = raw.match(/^(\d{4}-\d{2}-\d{2})/)?.[1];
+  if (!isoPrefix) return "";
+
+  return normalizeDateInput(isoPrefix) ?? "";
+}
+
 function parseOrderDateTime(deliveryDate?: string, deliverySlot?: string) {
-  if (!deliveryDate || !deliveryDate.includes("-")) return null;
-  const [year, month, day] = deliveryDate.split("-").map(Number);
+  const normalizedDate = normalizeCalendarDeliveryDate(deliveryDate);
+  if (!normalizedDate) return null;
+
+  const [year, month, day] = normalizedDate.split("-").map(Number);
   if (![year, month, day].every((part) => Number.isFinite(part))) return null;
   const [hours, minutes] = (deliverySlot ?? "09:00").split(":").map(Number);
   const parsed = new Date(
@@ -473,9 +489,12 @@ export default function BakeryCalendarPage() {
   const ordersByDate = useMemo(() => {
     const result = new Map<string, BakeryOrder[]>();
     filteredInternalOrders.forEach((order) => {
-      const dateOrders = result.get(order.deliveryDate) ?? [];
+      const normalizedDate = normalizeCalendarDeliveryDate(order.deliveryDate);
+      if (!normalizedDate) return;
+
+      const dateOrders = result.get(normalizedDate) ?? [];
       dateOrders.push(order);
-      result.set(order.deliveryDate, dateOrders);
+      result.set(normalizedDate, dateOrders);
     });
     return result;
   }, [filteredInternalOrders]);
@@ -487,7 +506,10 @@ export default function BakeryCalendarPage() {
   const selectedDateOrdersAll = useMemo(() => {
     if (!selectedDateKey) return [];
     return orders
-      .filter((order) => order.deliveryDate === selectedDateKey)
+      .filter(
+        (order) =>
+          normalizeCalendarDeliveryDate(order.deliveryDate) === selectedDateKey,
+      )
       .slice()
       .sort((a, b) => a.deliverySlot.localeCompare(b.deliverySlot));
   }, [orders, selectedDateKey]);
@@ -495,7 +517,7 @@ export default function BakeryCalendarPage() {
   // ─── Stats ──────────────────────────────────────────────────────────────────
   const todayKey = toDateKey(new Date());
   const internalTodayCount = orders.filter(
-    (order) => order.deliveryDate === todayKey,
+    (order) => normalizeCalendarDeliveryDate(order.deliveryDate) === todayKey,
   ).length;
   const needsSyncCount = orders.filter(
     (order) => !order.simulations?.calendarEventCreated,
@@ -516,8 +538,9 @@ export default function BakeryCalendarPage() {
     const maxDate = safeToDateKey(new Date(timeMax));
     if (!minDate || !maxDate) return null;
     return orders.filter((order) => {
-      if (order.deliveryDate < minDate || order.deliveryDate > maxDate)
-        return false;
+      const normalizedDate = normalizeCalendarDeliveryDate(order.deliveryDate);
+      if (!normalizedDate) return false;
+      if (normalizedDate < minDate || normalizedDate > maxDate) return false;
       if (["Cancelled", "Delivered", "Completed"].includes(order.orderStatus))
         return false;
       return !bookingIdsOnGoogle.has(order.id);

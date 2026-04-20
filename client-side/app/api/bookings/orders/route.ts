@@ -1829,20 +1829,6 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const unauthorizedDelete = existingOrders
-        .map((order) => order.id)
-        .filter((id) => !incomingById.has(id));
-      if (unauthorizedDelete.length > 0) {
-        return NextResponse.json(
-          {
-            error:
-              "Role Staff tidak diizinkan menghapus booking/order melalui endpoint ini.",
-            details: unauthorizedDelete.map((id) => `delete denied: ${id}`),
-          },
-          { status: 403 },
-        );
-      }
-
       const staffUpdatableStatuses = new Set([
         "In Production",
         "Ready",
@@ -1957,7 +1943,7 @@ export async function POST(request: NextRequest) {
 
       const transactionSummary = await prisma.$transaction(
         async (tx) => {
-          let deletedOrderCount = 0;
+          const deletedOrderCount = 0;
           let upsertedOrderCount = 0;
           let insertedItemCount = 0;
           let insertedAddressCount = 0;
@@ -1976,40 +1962,13 @@ export async function POST(request: NextRequest) {
           WHERE business_id = ${businessId}
         `;
 
-          const existingIds = new Set(
-            existingRows.map((row) => row.external_id),
-          );
           const existingOrderMap = new Map(
             existingRows.map((row) => [row.external_id, row]),
           );
-          const incomingIds = new Set(orders.map((order) => order.id));
 
-          // ── Release tokens for deleted orders ──
-          for (const externalId of existingIds) {
-            if (incomingIds.has(externalId)) continue;
-            const oldOrder = existingOrderMap.get(externalId);
-            if (oldOrder && oldOrder.delivery_date && oldOrder.token_used > 0) {
-              await releaseToken(
-                businessId,
-                oldOrder.delivery_date,
-                oldOrder.token_used,
-                tx,
-              );
-            }
-            await tx.$executeRaw`
-            DELETE FROM bakery_order_items
-            WHERE business_id = ${businessId} AND order_external_id = ${externalId}
-          `;
-            await tx.$executeRaw`
-            DELETE FROM bakery_order_addresses
-            WHERE business_id = ${businessId} AND order_external_id = ${externalId}
-          `;
-            await tx.$executeRaw`
-            DELETE FROM bakery_orders
-            WHERE business_id = ${businessId} AND external_id = ${externalId}
-          `;
-            deletedOrderCount += 1;
-          }
+          // Keep existing rows that are missing from incoming payload.
+          // Clients can send stale/partial snapshots across tabs/devices; hard
+          // delete here can drop valid orders created/edited by other users.
 
           for (const order of orders) {
             upsertedOrderCount += 1;
