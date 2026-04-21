@@ -10,6 +10,7 @@ export type ShippingDistanceSource =
 export interface ShippingQuoteItemInput {
   name: string;
   quantity: number;
+  // Total weight for this row (all quantity), in grams.
   weightGram: number;
   value: number;
 }

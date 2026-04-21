@@ -73,12 +73,11 @@ import {
   parseSafeDate,
 } from "@/lib/helpers/date-normalization";
 import {
-  ADMIN_ASSISTED_SERVICE_CHARGE,
   DELIVERY_METHOD_OPTIONS,
   estimateOperationalWeightGram,
   getGrabCarOnlyReasons,
   isGrabCarOnlyItem,
-  isAdminManagedDeliveryMethod,
+  resolveAdminServiceCharge,
   type DeliveryMethod,
   usesShippingEngine,
 } from "@/lib/bookings/delivery-rules";
@@ -3230,9 +3229,7 @@ export default function BookingForm() {
   const deliveryFee = shouldUseShippingEngine
     ? (selectedShippingQuote?.price ?? 0)
     : 0;
-  const serviceCharge = isAdminManagedDeliveryMethod(deliveryMethod)
-    ? ADMIN_ASSISTED_SERVICE_CHARGE
-    : 0;
+  const serviceCharge = resolveAdminServiceCharge(deliveryMethod);
 
   const subtotalBeforeDiscount =
     basePrice +

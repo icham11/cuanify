@@ -353,6 +353,29 @@ function asNumber(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function normalizeItemQuantity(value: unknown): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 1;
+  return Math.max(1, Math.round(parsed));
+}
+
+function normalizeTotalItemWeightGram(value: unknown): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 100;
+  return Math.max(100, Math.round(parsed));
+}
+
+function toBiteshipUnitWeightGram(item: {
+  quantity: unknown;
+  weightGram: unknown;
+}): number {
+  const quantity = normalizeItemQuantity(item.quantity);
+  const totalWeightGram = normalizeTotalItemWeightGram(item.weightGram);
+
+  // Internal payload stores total row weight, while Biteship expects unit weight.
+  return Math.max(1, Math.round(totalWeightGram / quantity));
+}
+
 function cleanSpaces(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
@@ -1089,16 +1112,19 @@ async function getBiteshipRates(args: {
             sanitizePostalCode(origin.postalCode) || undefined,
           destination_postal_code: args.destination.postalCode,
         }),
-    items: args.items.map((item) => ({
-      name: item.name || "Order Item",
-      description: "Bakery item",
-      value: Math.max(1000, Number(item.value) || 1000),
-      quantity: Math.max(1, Number(item.quantity) || 1),
-      weight: Math.max(100, Number(item.weightGram) || 100),
-      length: 20,
-      width: 20,
-      height: 10,
-    })),
+    items: args.items.map((item) => {
+      const quantity = normalizeItemQuantity(item.quantity);
+      return {
+        name: item.name || "Order Item",
+        description: "Bakery item",
+        value: Math.max(1000, Number(item.value) || 1000),
+        quantity,
+        weight: toBiteshipUnitWeightGram(item),
+        length: 20,
+        width: 20,
+        height: 10,
+      };
+    }),
   };
 
   const courierAttempts = [
@@ -1522,17 +1548,20 @@ export async function createShippingResi(
       order_note: `Booking ${referenceId}`,
       courier_company: payload.selectedQuote.courierCode,
       courier_type: payload.selectedQuote.courierServiceCode,
-      items: payload.items.map((item) => ({
-        name: item.name || "Order Item",
-        description: `Booking ${referenceId}`,
-        category: "food_and_drink",
-        value: Math.max(1000, Number(item.value) || 1000),
-        quantity: Math.max(1, Number(item.quantity) || 1),
-        weight: Math.max(100, Number(item.weightGram) || 100),
-        length: 20,
-        width: 20,
-        height: 10,
-      })),
+      items: payload.items.map((item) => {
+        const quantity = normalizeItemQuantity(item.quantity);
+        return {
+          name: item.name || "Order Item",
+          description: `Booking ${referenceId}`,
+          category: "food_and_drink",
+          value: Math.max(1000, Number(item.value) || 1000),
+          quantity,
+          weight: toBiteshipUnitWeightGram(item),
+          length: 20,
+          width: 20,
+          height: 10,
+        };
+      }),
     }),
     cache: "no-store",
   });

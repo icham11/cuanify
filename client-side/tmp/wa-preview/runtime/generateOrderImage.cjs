@@ -354,7 +354,7 @@ function tokenizeMatchText(value) {
 }
 function collectReferenceImages(order) {
     const normalizedReferences = [];
-    const seen = new Set();
+    const byUrl = new Map();
     const structuredReferences = Array.isArray(order.referenceImages)
         ? order.referenceImages
         : [];
@@ -362,29 +362,39 @@ function collectReferenceImages(order) {
         const normalizedUrl = normalizeReferenceImageUrl(reference?.url);
         if (!normalizedUrl)
             continue;
-        const key = `${normalizedUrl}::${normalizeLabel(reference.label)}`;
-        if (seen.has(key))
+        const label = normalizeLabel(reference.label) || undefined;
+        const orderIndex = Number.isFinite(reference.orderIndex) &&
+            typeof reference.orderIndex === "number"
+            ? reference.orderIndex
+            : undefined;
+        const existing = byUrl.get(normalizedUrl);
+        if (!existing) {
+            const nextReference = {
+                url: normalizedUrl,
+                label,
+                orderIndex,
+            };
+            byUrl.set(normalizedUrl, nextReference);
+            normalizedReferences.push(nextReference);
             continue;
-        seen.add(key);
-        normalizedReferences.push({
-            url: normalizedUrl,
-            label: normalizeLabel(reference.label) || undefined,
-            orderIndex: Number.isFinite(reference.orderIndex) &&
-                typeof reference.orderIndex === "number"
-                ? reference.orderIndex
-                : undefined,
-        });
+        }
+        if (!existing.label && label) {
+            existing.label = label;
+        }
+        if (existing.orderIndex === undefined && orderIndex !== undefined) {
+            existing.orderIndex = orderIndex;
+        }
     }
     const fallbackCandidates = [order.imageUrl ?? "", ...(order.imageUrls ?? [])];
     const fallbackReferences = fallbackCandidates
         .map((value) => normalizeReferenceImageUrl(value))
         .filter((value) => Boolean(value));
     for (const url of fallbackReferences) {
-        const key = `${url}::`;
-        if (seen.has(key))
+        if (byUrl.has(url))
             continue;
-        seen.add(key);
-        normalizedReferences.push({ url });
+        const nextReference = { url };
+        byUrl.set(url, nextReference);
+        normalizedReferences.push(nextReference);
     }
     return normalizedReferences;
 }
@@ -943,24 +953,34 @@ async function extractMarkedSelectionCrops(page, sourceDataUrl) {
     }
 }
 async function resolveRenderableReferenceImages(page, referenceImages) {
-    if (referenceImages.length !== 1) {
-        return referenceImages.map((reference) => ({
-            url: reference.url,
+    const dedupedReferences = [];
+    const seenSources = new Set();
+    for (const reference of referenceImages) {
+        const sourceDataUrl = await fetchImageAsDataUrl(reference.url);
+        const resolvedUrl = sourceDataUrl || reference.url;
+        const sourceKey = sourceDataUrl || reference.url;
+        if (!sourceKey || seenSources.has(sourceKey))
+            continue;
+        seenSources.add(sourceKey);
+        dedupedReferences.push({
+            url: resolvedUrl,
             label: reference.label,
-        }));
+        });
     }
-    const [singleReference] = referenceImages;
+    if (dedupedReferences.length !== 1) {
+        return dedupedReferences;
+    }
+    const [singleReference] = dedupedReferences;
     if (!singleReference)
         return [];
-    const sourceDataUrl = await fetchImageAsDataUrl(singleReference.url);
-    if (!sourceDataUrl) {
+    if (!singleReference.url) {
         return [{ url: singleReference.url, label: singleReference.label }];
     }
-    const extractedCrops = await extractMarkedSelectionCrops(page, sourceDataUrl);
+    const extractedCrops = await extractMarkedSelectionCrops(page, singleReference.url);
     if (extractedCrops.length > 0) {
         return extractedCrops.map((cropUrl) => ({ url: cropUrl }));
     }
-    return [{ url: sourceDataUrl, label: singleReference.label }];
+    return [{ url: singleReference.url, label: singleReference.label }];
 }
 function formatTemplateDate(value) {
     const trimmed = (value || "").trim();

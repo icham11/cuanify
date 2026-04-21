@@ -16,6 +16,14 @@ export interface DeliveryMethodOption {
 
 export const ADMIN_ASSISTED_SERVICE_CHARGE = 10_000;
 
+const SERVICE_CHARGE_DELIVERY_METHODS = new Set<DeliveryMethod>([
+  "ASSISTED_GOSEND",
+  "ASSISTED_GRAB",
+  "ASSISTED_GOCAR",
+  "ASSISTED_PAXEL",
+  "ASSISTED_SAME_DAY",
+]);
+
 export interface DeliveryRuleItem {
   category?: string;
   subcategory?: string;
@@ -101,10 +109,17 @@ export function isAdminManagedDeliveryMethod(
   return normalized.startsWith("ASSISTED_") || normalized === "REGULAR_JNE_JNT";
 }
 
+export function isServiceChargeDeliveryMethod(
+  method: DeliveryMethod | string | null | undefined,
+): boolean {
+  const normalized = normalizeDeliveryMethodValue(method);
+  return SERVICE_CHARGE_DELIVERY_METHODS.has(normalized as DeliveryMethod);
+}
+
 export function resolveAdminServiceCharge(
   method: DeliveryMethod | string | null | undefined,
 ): number {
-  return isAdminManagedDeliveryMethod(method)
+  return isServiceChargeDeliveryMethod(method)
     ? ADMIN_ASSISTED_SERVICE_CHARGE
     : 0;
 }
