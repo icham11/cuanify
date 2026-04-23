@@ -19,6 +19,8 @@ declare const expect: (value: unknown) => {
 import {
   buildParsedDetectedItems,
   buildBookingAutoFillFromParsed,
+  formatParsedWhatsAppForNotes,
+  getDisplayFields,
   parseWhatsAppOrderText,
 } from "../whatsapp-parser";
 
@@ -1036,6 +1038,51 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
     expect(autoFill.dpPaidAmount).toBe(345000);
     expect(autoFill.finalPaidAmount).toBe(345000);
     expect(autoFill.manualAdjustment).toBe(0);
+  });
+
+  it("reads service charge from recap totals and shows it in preview", () => {
+    const text = [
+      "REKAP ORDER",
+      "Tanggal Pengiriman: 18/04/2026",
+      "Jam Pengiriman: 10:00",
+      "Metode Pengiriman: JNE/J&T",
+      "",
+      "ITEM 1",
+      "Kategori: Cake",
+      "Nama Produk: Custom Cake",
+      "Qty: 1",
+      "Size/Varian: 16 cm",
+      "Harga Satuan: 450000",
+      "Subtotal: 450000",
+      "",
+      "Subtotal Produk: 690000",
+      "Ongkir: 25000",
+      "Service Charge: 10000",
+      "Adjustment: 0",
+      "Total: 725000",
+      "DP: 362500",
+      "Sisa: 362500",
+      "",
+      "Nama penerima: Sansan",
+      "No. telp penerima: 08174922926",
+      "Alamat lengkap: Tangerang",
+    ].join("\n");
+
+    const parsed = parseWhatsAppOrderText(text, {
+      preferredOrderType: "unknown",
+      sourceType: "manual",
+    });
+    const displayFields = getDisplayFields(parsed);
+    const preview = formatParsedWhatsAppForNotes(parsed);
+
+    expect(parsed.orderRecap?.totals.serviceCharge).toBe(10000);
+    expect(
+      displayFields.some(
+        (field) =>
+          field.label === "Service Charge" && field.value === "Rp 10.000",
+      ),
+    ).toBe(true);
+    expect(preview.includes("Service Charge: Rp 10.000")).toBe(true);
   });
 
   it("keeps separate recap items even when category is the same", () => {

@@ -337,6 +337,7 @@ Subtotal: 240000
 
 Subtotal Produk: 690000
 Ongkir: 0
+Service Charge: 0
 Adjustment: 0
 Total: 690000
 DP: 345000
@@ -348,7 +349,8 @@ Catatan:
 - parser sekarang akan baca `ITEM 1`, `ITEM 2`, dan seterusnya sebagai item terpisah
 - `Subtotal` item akan dipakai sebagai override harga item di form booking
 - kalau admin mengubah produk, varian, atau qty setelah parse, override harga recap akan otomatis direset supaya tidak salah
-- `Ongkir`, `DP`, dan `Sisa` dibaca sebagai referensi recap dan ditampilkan di preview parser
+- `Ongkir`, `Service Charge`, `DP`, dan `Sisa` dibaca sebagai referensi recap dan ditampilkan di preview parser
+- untuk `JNE/J&T`, `Service Charge` biasanya dipakai untuk biaya admin pengiriman reguler, jadi total recap bisa lebih tinggi dari ongkir saja
 - untuk 2 item kategori sama dengan design berbeda, format recap ini tetap aman karena tiap `ITEM` dipertahankan terpisah
 
 ## Tips untuk Admin
