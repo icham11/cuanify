@@ -6,6 +6,7 @@ import {
   BarChart3,
   Bot,
   CalendarDays,
+  Coins,
   Boxes,
   Package,
   Building2,
@@ -124,6 +125,14 @@ export default function SidebarNav() {
                 label="Calendar"
                 active={isActive("/bakery/calendar")}
               />
+              {isAdmin && (
+                <SidebarLink
+                  href="/bakery/omzet-harian"
+                  icon={Coins}
+                  label="Omzet Harian"
+                  active={isActive("/bakery/omzet-harian")}
+                />
+              )}
             </>
           )}
           <SidebarLink
@@ -162,7 +171,6 @@ export default function SidebarNav() {
             icon={Bot}
             label="AI Center"
             active={isActive("/dashboard/ai-analysis")}
-            accent
           />
         </div>
       )}

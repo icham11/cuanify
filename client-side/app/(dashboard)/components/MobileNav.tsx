@@ -213,6 +213,15 @@ export default function MobileNav({
                         active={isActive("/bakery/calendar")}
                         onClick={() => setIsDrawerOpen(false)}
                       />
+                      {isAdmin && (
+                        <NavLink
+                          href="/bakery/omzet-harian"
+                          icon={History}
+                          label="Omzet Harian"
+                          active={isActive("/bakery/omzet-harian")}
+                          onClick={() => setIsDrawerOpen(false)}
+                        />
+                      )}
                     </>
                   )}
                   <NavLink
@@ -270,7 +279,6 @@ export default function MobileNav({
                     label="AI Center"
                     active={isActive("/dashboard/ai-analysis")}
                     onClick={() => setIsDrawerOpen(false)}
-                    accent
                   />
                 </>
               )}

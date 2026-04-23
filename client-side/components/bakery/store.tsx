@@ -24,6 +24,7 @@ import type {
 } from "@/lib/bookings/automation-types";
 import type {
   ShippingQuote,
+  ShippingQuoteResponse,
   ShippingResiResponse,
   ShippingShipment,
 } from "@/lib/bookings/shipping-types";
@@ -245,6 +246,13 @@ const ORDERS_SYNC_ENDPOINT = NORMALIZED_BOOKINGS_API_BASE
 const INITIAL_SNAPSHOT = JSON.stringify(initialOrders);
 const SERVER_SYNC_POLL_INTERVAL_MS = 15000;
 const LOCAL_WRITE_STALE_GUARD_MS = 2500;
+const SHIPMENT_RETRY_BACKOFF_MS = 5 * 60 * 1000;
+const SHIPMENT_WARNING_COOLDOWN_MS = 10 * 60 * 1000;
+const AUTO_REQUOTE_ERROR_KEYWORDS = [
+  "courier price is not found",
+  "check your origin and destination location",
+  "courier price not found",
+];
 let hasHydrated = false;
 
 type OrdersSyncResponse = {
@@ -256,6 +264,43 @@ type OrdersSyncResponse = {
     itemCount?: number;
   };
 };
+
+function shouldAutoRefreshQuote(errorMessage: string): boolean {
+  const normalized = errorMessage.trim().toLowerCase();
+  if (!normalized) return false;
+
+  return AUTO_REQUOTE_ERROR_KEYWORDS.some((keyword) =>
+    normalized.includes(keyword),
+  );
+}
+
+function pickRetryQuoteForProvider(
+  quotes: ShippingQuote[],
+  currentQuote: ShippingQuote,
+): ShippingQuote | null {
+  const providerQuotes = quotes
+    .filter((quote) => quote.provider === currentQuote.provider)
+    .sort((left, right) => left.price - right.price);
+
+  if (providerQuotes.length === 0) {
+    return null;
+  }
+
+  const exactServiceQuote = providerQuotes.find(
+    (quote) =>
+      quote.courierCode === currentQuote.courierCode &&
+      quote.courierServiceCode === currentQuote.courierServiceCode,
+  );
+  if (exactServiceQuote) {
+    return exactServiceQuote;
+  }
+
+  const sameCourierQuote = providerQuotes.find(
+    (quote) => quote.courierCode === currentQuote.courierCode,
+  );
+
+  return sameCourierQuote || providerQuotes[0] || null;
+}
 
 function normalizeParsedOrderTypeKey(value?: string): WhatsAppOrderType | null {
   const normalized = (value || "")
@@ -736,6 +781,10 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
   const lastLocalWriteAtRef = useRef(0);
   const scheduledShipmentRunInFlightRef = useRef(false);
   const processingShipmentIdsRef = useRef<Set<string>>(new Set());
+  const shipmentRetryBackoffUntilRef = useRef<Map<string, number>>(new Map());
+  const shipmentWarningStateRef = useRef<
+    Map<string, { message: string; at: number }>
+  >(new Map());
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1069,6 +1118,10 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       if (typeof window === "undefined") return;
       if (processingShipmentIdsRef.current.has(orderId)) return;
 
+      const nowMs = Date.now();
+      const retryAt = shipmentRetryBackoffUntilRef.current.get(orderId) || 0;
+      if (retryAt > nowMs) return;
+
       processingShipmentIdsRef.current.add(orderId);
       try {
         const currentSnapshot =
@@ -1124,49 +1177,163 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
             persistOrders(updatedOrders);
           }
 
-          const destinationLatitude = Number.isFinite(
-            order.shippingQuote?.destinationLatitude,
-          )
-            ? Number(order.shippingQuote?.destinationLatitude)
-            : undefined;
-          const destinationLongitude = Number.isFinite(
-            order.shippingQuote?.destinationLongitude,
-          )
-            ? Number(order.shippingQuote?.destinationLongitude)
-            : undefined;
+          const fallbackPostalCode =
+            order.shippingQuote?.destinationPostalCode ||
+            primaryAddress.match(/\b\d{5}\b/)?.[0];
 
-          const response = await fetch("/api/bookings/shipping/create-resi", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              orderId: order.id,
-              bookingCode: order.bookingCode || order.id,
-              referenceId: shippingReferenceId,
-              customerName: order.customerName,
-              customerPhone: order.customerPhone,
-              destinationAddress: primaryAddress,
+          const submitCreateResi = async (
+            quote: ShippingQuote,
+          ): Promise<ShippingResiResponse> => {
+            const destinationLatitude = Number.isFinite(quote.destinationLatitude)
+              ? Number(quote.destinationLatitude)
+              : undefined;
+            const destinationLongitude = Number.isFinite(
+              quote.destinationLongitude,
+            )
+              ? Number(quote.destinationLongitude)
+              : undefined;
+
+            const response = await fetch("/api/bookings/shipping/create-resi", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                orderId: order.id,
+                bookingCode: order.bookingCode || order.id,
+                referenceId: shippingReferenceId,
+                customerName: order.customerName,
+                customerPhone: order.customerPhone,
+                destinationAddress: primaryAddress,
+                destinationPostalCode:
+                  quote.destinationPostalCode || fallbackPostalCode,
+                destinationLatitude,
+                destinationLongitude,
+                deliveryDate: order.deliveryDate,
+                deliveryTime: order.deliverySlot,
+                selectedQuote: quote,
+                items,
+                totalValue: Math.max(1000, Math.round(order.totalPrice || 0)),
+              }),
+            });
+
+            const payload = (await response
+              .json()
+              .catch(() => ({}))) as ShippingResiResponse;
+
+            if (!response.ok || !payload.success || !payload.shipment) {
+              throw new Error(payload.error || "Gagal membuat resi otomatis.");
+            }
+
+            return payload;
+          };
+
+          const refreshQuoteForRetry = async (
+            currentQuote: ShippingQuote,
+          ): Promise<ShippingQuote> => {
+            const quoteResponse = await fetch("/api/bookings/shipping/quote", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                destinationAddress: primaryAddress,
+                destinationPostalCode: fallbackPostalCode,
+                destinationLatitude: Number.isFinite(
+                  currentQuote.destinationLatitude,
+                )
+                  ? Number(currentQuote.destinationLatitude)
+                  : undefined,
+                destinationLongitude: Number.isFinite(
+                  currentQuote.destinationLongitude,
+                )
+                  ? Number(currentQuote.destinationLongitude)
+                  : undefined,
+                items,
+                totalValue: Math.max(1000, Math.round(order.totalPrice || 0)),
+              }),
+            });
+
+            const quotePayload = (await quoteResponse
+              .json()
+              .catch(() => ({}))) as ShippingQuoteResponse;
+
+            if (
+              !quoteResponse.ok ||
+              !quotePayload.success ||
+              !quotePayload.quotes?.length
+            ) {
+              throw new Error(
+                quotePayload.error ||
+                  "Gagal memperbarui quote kurir untuk retry otomatis.",
+              );
+            }
+
+            const refreshedQuotes = quotePayload.quotes.map((quote) => ({
+              ...quote,
               destinationPostalCode:
-                order.shippingQuote?.destinationPostalCode ||
-                primaryAddress.match(/\b\d{5}\b/)?.[0],
-              destinationLatitude,
-              destinationLongitude,
-              deliveryDate: order.deliveryDate,
-              deliveryTime: order.deliverySlot,
-              selectedQuote,
-              items,
-              totalValue: Math.max(1000, Math.round(order.totalPrice || 0)),
-            }),
-          });
+                quote.destinationPostalCode ||
+                quotePayload.destinationPostalCode ||
+                fallbackPostalCode,
+              destinationLatitude: Number.isFinite(quote.destinationLatitude)
+                ? quote.destinationLatitude
+                : quotePayload.destinationLatitude,
+              destinationLongitude: Number.isFinite(quote.destinationLongitude)
+                ? quote.destinationLongitude
+                : quotePayload.destinationLongitude,
+              distanceSource:
+                quote.distanceSource || quotePayload.distanceSource,
+              warning: quote.warning || quotePayload.warning,
+            }));
 
-          const payload = (await response
-            .json()
-            .catch(() => ({}))) as ShippingResiResponse;
+            const refreshedQuote = pickRetryQuoteForProvider(
+              refreshedQuotes,
+              currentQuote,
+            );
+            if (!refreshedQuote) {
+              throw new Error(
+                `Auto re-quote tidak menemukan layanan ${currentQuote.provider} untuk rute ini.`,
+              );
+            }
 
-          if (!response.ok || !payload.success || !payload.shipment) {
-            throw new Error(payload.error || "Gagal membuat resi otomatis.");
+            const latestSnapshot =
+              window.localStorage.getItem(STORAGE_KEY) ?? INITIAL_SNAPSHOT;
+            const latestOrders = parseSnapshot(latestSnapshot);
+            const ordersWithRefreshedQuote = latestOrders.map((entry) =>
+              entry.id === orderId
+                ? {
+                    ...entry,
+                    shippingQuote: refreshedQuote,
+                  }
+                : entry,
+            );
+            persistOrders(ordersWithRefreshedQuote);
+
+            return refreshedQuote;
+          };
+
+          let payload: ShippingResiResponse;
+          try {
+            payload = await submitCreateResi(selectedQuote);
+          } catch (firstError: unknown) {
+            const firstMessage =
+              firstError instanceof Error
+                ? firstError.message
+                : "Gagal membuat resi otomatis.";
+
+            if (!shouldAutoRefreshQuote(firstMessage)) {
+              throw firstError;
+            }
+
+            const refreshedQuote = await refreshQuoteForRetry(selectedQuote);
+            payload = await submitCreateResi(refreshedQuote);
           }
+
+          if (!payload.shipment) {
+            throw new Error("Gagal membuat resi otomatis.");
+          }
+
+          const createdShipment = payload.shipment;
 
           const latestSnapshot =
             window.localStorage.getItem(STORAGE_KEY) ?? INITIAL_SNAPSHOT;
@@ -1176,28 +1343,47 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
             return {
               ...entry,
               resi:
-                payload.shipment?.trackingNumber ||
+                createdShipment.trackingNumber ||
                 entry.resi ||
                 entry.bookingCode,
-              shipment: payload.shipment,
+              shipment: createdShipment,
             };
           });
 
           persistOrders(nextOrders);
+          shipmentRetryBackoffUntilRef.current.delete(orderId);
+          shipmentWarningStateRef.current.delete(orderId);
           if (payload.warning) {
             toast.warning(payload.warning);
           }
-          toast.success(
-            `Resi otomatis dibuat: ${payload.shipment.trackingNumber}`,
-          );
+          toast.success(`Resi otomatis dibuat: ${createdShipment.trackingNumber}`);
         } catch (error: unknown) {
           const message =
             error instanceof Error
               ? error.message
               : "Resi otomatis belum bisa dibuat.";
-          toast.warning(
-            `Booking tersimpan, tapi resi belum otomatis: ${message}`,
+
+          const now = Date.now();
+          shipmentRetryBackoffUntilRef.current.set(
+            orderId,
+            now + SHIPMENT_RETRY_BACKOFF_MS,
           );
+
+          const previousWarning = shipmentWarningStateRef.current.get(orderId);
+          const shouldShowWarning =
+            !previousWarning ||
+            previousWarning.message !== message ||
+            now - previousWarning.at >= SHIPMENT_WARNING_COOLDOWN_MS;
+
+          if (shouldShowWarning) {
+            shipmentWarningStateRef.current.set(orderId, {
+              message,
+              at: now,
+            });
+            toast.warning(
+              `Booking tersimpan, tapi resi belum otomatis: ${message}`,
+            );
+          }
         }
       } finally {
         processingShipmentIdsRef.current.delete(orderId);
@@ -1801,6 +1987,8 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         };
       });
       persistOrders(nextOrders);
+      shipmentRetryBackoffUntilRef.current.delete(id);
+      shipmentWarningStateRef.current.delete(id);
       toast.success(`Resi tersimpan: ${shipment.trackingNumber}`);
     },
     [orders, persistOrders],
