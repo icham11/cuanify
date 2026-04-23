@@ -3,6 +3,11 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { requireAuth, AuthError } from "@/lib/auth/session";
 import prisma from "@/lib/prisma";
+import {
+  buildEffectiveProductCatalog,
+  normalizeCatalogAdminState,
+} from "@/lib/bookings/catalog-state";
+import { syncBakeryCatalogToDashboardProducts } from "@/lib/bookings/product-sync";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -133,7 +138,13 @@ export async function PUT(request: NextRequest) {
           (${businessId}, ${content}, ${contentHash}, 'bakery_catalog_config', ${metadataJson}::jsonb, 0, NOW(), NOW())`;
     }
 
-    return NextResponse.json({ success: true }, { status: 200 });
+    const normalizedState = normalizeCatalogAdminState(payload);
+    const productSync = await syncBakeryCatalogToDashboardProducts({
+      businessId,
+      productCatalog: buildEffectiveProductCatalog(normalizedState),
+    });
+
+    return NextResponse.json({ success: true, productSync }, { status: 200 });
   } catch (error: unknown) {
     if (error instanceof AuthError) {
       return NextResponse.json({ error: error.message }, { status: 401 });

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireAuth, isAuthError } from "@/lib/auth/session";
+import { getBakeryDailyAnalytics, hasBakeryOrders } from "@/lib/bookings/bakery-analytics";
 
 /**
  * GET /api/analytics/forecast-cached
@@ -159,15 +160,24 @@ export async function GET() {
     const MIN_DATA_DAYS = 7;
     const since30d = new Date(today);
     since30d.setUTCDate(since30d.getUTCDate() - 30);
-    const revenueMetrics = await prisma.businessMetrics.findMany({
-      where: {
-        businessId,
-        date: { gte: since30d, lt: today },
-        totalRevenue: { gt: 0 },
-      },
-      select: { date: true },
-    });
-    const nonZeroRevenueDays = revenueMetrics.length;
+    const useBakery = await hasBakeryOrders(businessId);
+    let nonZeroRevenueDays = 0;
+
+    if (useBakery) {
+      const bakery = await getBakeryDailyAnalytics(businessId, since30d, today);
+      nonZeroRevenueDays = bakery.data.filter((point) => point.revenue > 0).length;
+    } else {
+      const revenueMetrics = await prisma.businessMetrics.findMany({
+        where: {
+          businessId,
+          date: { gte: since30d, lt: today },
+          totalRevenue: { gt: 0 },
+        },
+        select: { date: true },
+      });
+      nonZeroRevenueDays = revenueMetrics.length;
+    }
+
     const hasSufficientData = nonZeroRevenueDays >= MIN_DATA_DAYS;
 
     // ─── Metadata ───────────────────────────────────────────────────────

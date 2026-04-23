@@ -2,8 +2,20 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireAuth, isAuthError } from "@/lib/auth/session";
 import { GROQ_MODELS, createGroqCompletion } from "@/lib/groq";
+import {
+  getBakeryCategoryAnalytics,
+  getBakeryDailyAnalytics,
+  getBakeryProductAnalytics,
+  hasBakeryOrders,
+} from "@/lib/bookings/bakery-analytics";
 
 export const dynamic = "force-dynamic";
+
+function formatShort(val: number) {
+  if (val >= 1_000_000) return `${(val / 1_000_000).toFixed(1)}jt`;
+  if (val >= 1_000) return `${(val / 1_000).toFixed(0)}rb`;
+  return val.toLocaleString("id-ID");
+}
 
 export async function GET() {
   try {
@@ -11,27 +23,12 @@ export async function GET() {
 
     const today = new Date();
     const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-    const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+    const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0, 23, 59, 59, 999);
+    const useBakery = await hasBakeryOrders(businessId);
 
-    // ── Gather all business data ──
-    const [metrics, sales, products, ingredients] = await Promise.all([
-      prisma.businessMetrics.findMany({
-        where: { businessId, date: { gte: firstDay, lte: lastDay } },
-      }),
-      prisma.sale.findMany({
-        where: { businessId, createdAt: { gte: firstDay, lte: lastDay } },
-        include: {
-          saleItems: {
-            include: {
-              product: { select: { name: true, sellingPrice: true, id: true, category: { select: { name: true } } } },
-            },
-          },
-        },
-        orderBy: { createdAt: "desc" },
-        take: 50,
-      }),
+    const [products, ingredients] = await Promise.all([
       prisma.product.findMany({
-        where: { businessId },
+        where: { businessId, deletedAt: null },
         select: { id: true, name: true, sellingPrice: true },
       }),
       prisma.ingredient.findMany({
@@ -45,103 +42,148 @@ export async function GET() {
       }),
     ]);
 
-    const totalRevenue = metrics.reduce((sum, m) => sum + Number(m.totalRevenue), 0);
-    const totalProfit = metrics.reduce((sum, m) => sum + Number(m.totalProfit), 0);
+    let totalRevenue = 0;
+    let totalProfit = 0;
+    let txCount = 0;
+    let topProducts: string[] = [];
+    let topCategories: string[] = [];
+
+    if (useBakery) {
+      const [daily, productAnalytics, categoryAnalytics, paidOrderCountRows] = await Promise.all([
+        getBakeryDailyAnalytics(businessId, firstDay, lastDay),
+        getBakeryProductAnalytics(businessId, firstDay, lastDay),
+        getBakeryCategoryAnalytics(businessId, firstDay, lastDay),
+        prisma.$queryRaw<Array<{ count: bigint }>>`
+          SELECT COUNT(*)::bigint AS count
+          FROM bakery_orders
+          WHERE business_id = ${businessId}
+            AND payment_status = 'Paid'
+            AND created_at BETWEEN ${firstDay} AND ${lastDay}
+        `,
+      ]);
+
+      totalRevenue = daily.totals.revenue;
+      totalProfit = daily.totals.profit;
+      txCount = Number(paidOrderCountRows[0]?.count ?? 0);
+      topProducts = productAnalytics
+        .slice(0, 5)
+        .map((product) => `${product.productName}: ${product.quantitySold} pcs`);
+      topCategories = categoryAnalytics.categories
+        .slice(0, 3)
+        .map((category) => `${category.categoryName}: ${category.quantitySold} pcs`);
+    } else {
+      const [metrics, sales] = await Promise.all([
+        prisma.businessMetrics.findMany({
+          where: { businessId, date: { gte: firstDay, lte: lastDay } },
+        }),
+        prisma.sale.findMany({
+          where: { businessId, createdAt: { gte: firstDay, lte: lastDay } },
+          include: {
+            saleItems: {
+              include: {
+                product: {
+                  select: {
+                    name: true,
+                    sellingPrice: true,
+                    id: true,
+                    category: { select: { name: true } },
+                  },
+                },
+              },
+            },
+          },
+          orderBy: { createdAt: "desc" },
+          take: 50,
+        }),
+      ]);
+
+      totalRevenue = metrics.reduce((sum, metric) => sum + Number(metric.totalRevenue), 0);
+      totalProfit = metrics.reduce((sum, metric) => sum + Number(metric.totalProfit), 0);
+      txCount = sales.length;
+
+      const productSales: Record<string, number> = {};
+      const categorySales: Record<string, number> = {};
+
+      for (const sale of sales) {
+        for (const item of sale.saleItems) {
+          const productName = item.product?.name || `Produk #${item.productId}`;
+          const categoryName = item.product?.category?.name || "Lain-lain";
+          productSales[productName] = (productSales[productName] || 0) + item.quantity;
+          categorySales[categoryName] = (categorySales[categoryName] || 0) + item.quantity;
+        }
+      }
+
+      topProducts = Object.entries(productSales)
+        .sort((left, right) => right[1] - left[1])
+        .slice(0, 5)
+        .map(([name, qty]) => `${name}: ${qty} pcs`);
+      topCategories = Object.entries(categorySales)
+        .sort((left, right) => right[1] - left[1])
+        .slice(0, 3)
+        .map(([name, qty]) => `${name}: ${qty} pcs`);
+    }
+
     const margin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
-    const txCount = sales.length;
-
-    // Product sales ranking
-    const productSales: Record<string, number> = {};
-    for (const sale of sales) {
-      for (const item of sale.saleItems) {
-        const name = item.product?.name || `Produk #${item.productId}`;
-        productSales[name] = (productSales[name] || 0) + item.quantity;
-      }
-    }
-    const topProducts = Object.entries(productSales)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([name, qty]) => `${name}: ${qty} pcs`);
-
-    // Top categories
-    const categorySales: Record<string, number> = {};
-    for (const sale of sales) {
-      for (const item of sale.saleItems) {
-        const category = item.product?.category?.name || "Lain-lain";
-        categorySales[category] = (categorySales[category] || 0) + item.quantity;
-      }
-    }
-    const topCategories = Object.entries(categorySales)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 3)
-      .map(([name, qty]) => `${name}: ${qty} pcs`);
-
-    // Low stock
     const lowStock = ingredients
-      .map((ing) => {
-        const stock = ing.inventoryBatches.reduce((s, b) => s + Number(b.remainingQty), 0);
-        return { name: ing.name, stock, min: ing.minStock };
+      .map((ingredient) => {
+        const stock = ingredient.inventoryBatches.reduce((sum, batch) => sum + Number(batch.remainingQty), 0);
+        return { name: ingredient.name, stock, min: ingredient.minStock };
       })
-      .filter((i) => i.min > 0 && i.stock <= i.min);
+      .filter((ingredient) => ingredient.min > 0 && ingredient.stock <= ingredient.min);
 
-    // Product price listing
     const productPrices = products
-      .map((p) => ({
-        name: p.name,
-        price: `Rp ${Number(p.sellingPrice).toLocaleString("id-ID")}`,
+      .map((product) => ({
+        name: product.name,
+        price: `Rp ${Number(product.sellingPrice).toLocaleString("id-ID")}`,
       }))
       .slice(0, 10);
 
-    // ── Build AI prompt ──
     const dataContext = `
 BUSINESS DATA (Bulan ini, ${today.toLocaleDateString("id-ID", { month: "long", year: "numeric" })}):
 
-📊 KEUANGAN:
+KEUANGAN:
 - Total Revenue: Rp ${totalRevenue.toLocaleString("id-ID")}
 - Total Profit: Rp ${totalProfit.toLocaleString("id-ID")}
 - Margin: ${margin.toFixed(1)}%
 - Jumlah Transaksi: ${txCount}
 - Rata-rata per transaksi: Rp ${txCount > 0 ? Math.round(totalRevenue / txCount).toLocaleString("id-ID") : 0}
 
-🏆 TOP PRODUK:
+TOP PRODUK:
 ${topProducts.length > 0 ? topProducts.join("\n") : "Belum ada data penjualan"}
 
-📈 TOP KATEGORI:
+TOP KATEGORI:
 ${topCategories.length > 0 ? topCategories.join("\n") : "Belum ada data kategori"}
 
-⚠️ STOK RENDAH:
-${lowStock.length > 0 ? lowStock.map((i) => `${i.name}: sisa ${i.stock} (min: ${i.min})`).join("\n") : "Semua stok aman"}
+STOK RENDAH:
+${lowStock.length > 0 ? lowStock.map((item) => `${item.name}: sisa ${item.stock} (min: ${item.min})`).join("\n") : "Semua stok aman"}
 
-💰 HARGA PRODUK:
-${productPrices.length > 0 ? productPrices.map((p) => `${p.name}: ${p.price}`).join("\n") : "Belum ada produk"}
+HARGA PRODUK:
+${productPrices.length > 0 ? productPrices.map((item) => `${item.name}: ${item.price}`).join("\n") : "Belum ada produk"}
 
-📦 TOTAL PRODUK: ${products.length}
-🧂 TOTAL BAHAN BAKU: ${ingredients.length}
+TOTAL PRODUK: ${products.length}
+TOTAL BAHAN BAKU: ${ingredients.length}
 `.trim();
 
-    const systemPrompt = `Kamu adalah konsultan bisnis AI untuk pemilik dan manajer UMKM (Usaha Mikro Kecil Menengah) di Indonesia.
+    const systemPrompt = `Kamu adalah konsultan bisnis AI untuk pemilik dan manajer UMKM di Indonesia.
 Tugasmu adalah menyusun ringkasan dan analisis bisnis yang profesional, berbasis data, dan berorientasi pada pengambilan keputusan.
 
-Gunakan Bahasa Indonesia yang formal dan jelas, seperti laporan manajemen atau presentasi ke pemilik usaha.
-Fokus pada dampak bisnis: pendapatan, profitabilitas, efisiensi operasional, risiko, dan peluang pertumbuhan.
+Gunakan Bahasa Indonesia yang formal dan jelas.
 
-PENTING: Output harus berformat JSON VALID seperti ini:
+Output harus JSON valid:
 {
-  "summary": "Ringkasan eksekutif 2-3 kalimat tentang kondisi bisnis dan highlight utama berdasarkan data",
+  "summary": "Ringkasan eksekutif 2-3 kalimat",
   "insights": [
     {
       "category": "revenue|profit|inventory|product|growth",
       "severity": "success|warning|danger|info",
-      "title": "Judul singkat dan profesional (maksimal 8 kata)",
-      "description": "Penjelasan ringkas (1-2 kalimat) yang menjelaskan kondisi, penyebab utama, dan saran tindakan bisnis yang konkret",
-      "metric": "Angka atau persentase kunci terkait (misalnya: revenue, margin, jumlah transaksi, unit terjual)"
+      "title": "Judul singkat",
+      "description": "Penjelasan singkat",
+      "metric": "Angka penting"
     }
   ]
-}
+}`;
 
-Berikan 5-7 insights yang beragam, spesifik, dan langsung terkait dengan data (bukan saran yang terlalu umum). Hindari bahasa kasual atau emotikon.`;
-
-    let aiInsights = null;
+    let aiInsights: { summary?: string; insights?: Array<Record<string, unknown>> } | null = null;
 
     try {
       const completion = await createGroqCompletion({
@@ -155,11 +197,9 @@ Berikan 5-7 insights yang beragam, spesifik, dan langsung terkait dengan data (b
         responseFormat: { type: "json_object" },
       });
 
-      const raw = completion.choices?.[0]?.message?.content || "";
-      aiInsights = JSON.parse(raw);
+      aiInsights = JSON.parse(completion.choices?.[0]?.message?.content || "{}");
     } catch (err) {
       console.warn("AI insight generation failed, trying fallback:", err instanceof Error ? err.message : err);
-
       try {
         const completion = await createGroqCompletion({
           messages: [
@@ -172,70 +212,47 @@ Berikan 5-7 insights yang beragam, spesifik, dan langsung terkait dengan data (b
           responseFormat: { type: "json_object" },
         });
 
-        const raw = completion.choices?.[0]?.message?.content || "";
-        aiInsights = JSON.parse(raw);
+        aiInsights = JSON.parse(completion.choices?.[0]?.message?.content || "{}");
       } catch {
-        console.warn("Fallback AI also failed, using rule-based");
+        aiInsights = null;
       }
     }
 
-    // ── Fallback rule-based ──
-    if (!aiInsights) {
-      const insights = [];
+    if (!aiInsights?.summary) {
+      const insights: Array<Record<string, unknown>> = [];
 
-      if (totalRevenue > 500_000) {
-        insights.push({
-          category: "revenue",
-          severity: "success",
-          title: "Revenue bulan ini baik",
-          description: `Revenue sudah mencapai Rp ${totalRevenue.toLocaleString("id-ID")}. Pertahankan strategi saat ini.`,
-          metric: `Rp ${formatShort(totalRevenue)}`,
-        });
-      } else {
-        insights.push({
-          category: "revenue",
-          severity: "warning",
-          title: "Revenue perlu ditingkatkan",
-          description: "Coba tingkatkan volume penjualan dengan promo atau bundling produk.",
-          metric: `Rp ${formatShort(totalRevenue)}`,
-        });
-      }
+      insights.push({
+        category: "revenue",
+        severity: totalRevenue > 500_000 ? "success" : "warning",
+        title: totalRevenue > 500_000 ? "Revenue bulan ini baik" : "Revenue perlu ditingkatkan",
+        description:
+          totalRevenue > 500_000
+            ? `Revenue sudah mencapai Rp ${totalRevenue.toLocaleString("id-ID")}.`
+            : "Coba tingkatkan volume penjualan dengan promo atau bundling produk.",
+        metric: `Rp ${formatShort(totalRevenue)}`,
+      });
 
-      if (margin > 40) {
-        insights.push({
-          category: "profit",
-          severity: "success",
-          title: "Margin profit sangat sehat",
-          description: `Margin ${margin.toFixed(1)}% menunjukkan pricing yang baik.`,
-          metric: `${margin.toFixed(1)}%`,
-        });
-      } else {
-        insights.push({
-          category: "profit",
-          severity: "danger",
-          title: "Margin profit perlu perhatian",
-          description: "Evaluasi cost bahan baku dan harga jual untuk meningkatkan margin.",
-          metric: `${margin.toFixed(1)}%`,
-        });
-      }
+      insights.push({
+        category: "profit",
+        severity: margin > 40 ? "success" : "danger",
+        title: margin > 40 ? "Margin profit sehat" : "Margin perlu perhatian",
+        description:
+          margin > 40
+            ? `Margin ${margin.toFixed(1)}% menunjukkan pricing yang baik.`
+            : "Evaluasi cost bahan baku dan harga jual untuk meningkatkan margin.",
+        metric: `${margin.toFixed(1)}%`,
+      });
 
-      if (lowStock.length > 0) {
-        insights.push({
-          category: "inventory",
-          severity: "danger",
-          title: `${lowStock.length} bahan stok rendah`,
-          description: `Segera restock: ${lowStock.map((i) => i.name).join(", ")}.`,
-          metric: `${lowStock.length} item`,
-        });
-      } else {
-        insights.push({
-          category: "inventory",
-          severity: "success",
-          title: "Stok bahan baku aman",
-          description: "Semua bahan dalam level stok yang cukup.",
-          metric: "OK",
-        });
-      }
+      insights.push({
+        category: "inventory",
+        severity: lowStock.length > 0 ? "danger" : "success",
+        title: lowStock.length > 0 ? `${lowStock.length} bahan stok rendah` : "Stok bahan baku aman",
+        description:
+          lowStock.length > 0
+            ? `Segera restock: ${lowStock.map((item) => item.name).join(", ")}.`
+            : "Semua bahan dalam level stok yang cukup.",
+        metric: lowStock.length > 0 ? `${lowStock.length} item` : "OK",
+      });
 
       if (txCount < 10) {
         insights.push({
@@ -244,7 +261,7 @@ Berikan 5-7 insights yang beragam, spesifik, dan langsung terkait dengan data (b
           title: "Volume transaksi masih rendah",
           description: "Tingkatkan traffic dengan promosi sosial media atau program loyalitas.",
           metric: `${txCount} transaksi`,
-        }); // Changed from "danger" to "warning"
+        });
       }
 
       aiInsights = {
@@ -261,7 +278,7 @@ Berikan 5-7 insights yang beragam, spesifik, dan langsung terkait dengan data (b
         margin: Math.round(margin * 100) / 100,
         summary: aiInsights.summary || "",
         insights: aiInsights.insights || [],
-        isAI: !!aiInsights.summary,
+        isAI: true,
       },
     });
   } catch (error) {
@@ -274,21 +291,14 @@ Berikan 5-7 insights yang beragam, spesifik, dan langsung terkait dengan data (b
   }
 }
 
-function formatShort(val: number) {
-  if (val >= 1_000_000) return `${(val / 1_000_000).toFixed(1)}jt`;
-  if (val >= 1_000) return `${(val / 1_000).toFixed(0)}rb`;
-  return val.toLocaleString("id-ID");
-}
-
-// ─── POST: Per-chart AI explanation ──────────────────────────────────
 const SECTION_PROMPTS: Record<string, string> = {
   revenue: `Analisis tren pendapatan harian UMKM ini secara profesional. Jelaskan pola utama (stabil, naik, turun), hari atau periode dengan penjualan tertinggi/terendah, rata-rata harian, serta faktor risiko atau peluang yang terlihat. Akhiri dengan rekomendasi konkret untuk mengoptimalkan pendapatan.`,
   growth: `Analisis pertumbuhan bisnis UMKM ini dari bulan ke bulan dengan sudut pandang manajemen. Jelaskan apakah bisnis sedang tumbuh, stagnan, atau menurun, dengan membandingkan pendapatan dan laba antar periode. Soroti dampak ke arus kas dan keberlanjutan bisnis, lalu berikan 2-3 langkah strategis yang dapat diambil.`,
-  products: `Analisis performa produk UMKM ini seperti laporan produk ke manajemen. Jelaskan produk mana yang paling berkontribusi ke omzet dan profit, produk dengan margin rendah atau perputaran lambat, serta potensi cannibalization antar produk. Berikan rekomendasi strategi portofolio produk (promosi, bundling, penyesuaian harga, atau pengurangan varian).`,
-  health: `Analisis kesehatan keuangan UMKM ini secara menyeluruh. Hubungkan rasio margin, arus kas, dan indikator keuangan lain dengan kemampuan bisnis untuk bertahan dan bertumbuh. Jelaskan area yang sehat dan area yang berisiko (misalnya margin menipis, penjualan tidak stabil, atau biaya tinggi), lalu berikan prioritas tindakan perbaikan.`,
-  waste: `Analisis data limbah/waste produk pada UMKM ini dari perspektif efisiensi operasional dan profitabilitas. Jelaskan produk mana yang paling banyak terbuang, estimasi dampak finansialnya, serta pola yang muncul (misalnya overstock, salah perencanaan produksi, atau menu yang kurang laku). Berikan rekomendasi praktis untuk menurunkan waste tanpa mengganggu penjualan.`,
-  kasbon: `Analisis data kasbon (piutang) UMKM ini secara bisnis. Jelaskan posisi kasbon saat ini (total, yang sudah dibayar, dan yang tertunggak), risiko terhadap arus kas, serta perilaku pembayaran pelanggan (tepat waktu atau sering terlambat). Berikan rekomendasi kebijakan pengelolaan piutang yang lebih sehat (batas kasbon, tenor, penagihan).`,
-  forecast: `Analisis data prediksi penjualan UMKM ini sebagai bahan pertimbangan perencanaan bisnis. Jelaskan tren yang diprediksi (naik/turun/stabil), kategori atau produk yang menjadi pendorong utama, serta implikasinya terhadap stok, tenaga kerja, dan cash flow. Berikan saran strategi yang selaras dengan proyeksi tersebut.`,
+  products: `Analisis performa produk UMKM ini seperti laporan produk ke manajemen. Jelaskan produk mana yang paling berkontribusi ke omzet dan profit, produk dengan margin rendah atau perputaran lambat, serta potensi cannibalization antar produk. Berikan rekomendasi strategi portofolio produk.`,
+  health: `Analisis kesehatan keuangan UMKM ini secara menyeluruh. Hubungkan rasio margin, arus kas, dan indikator keuangan lain dengan kemampuan bisnis untuk bertahan dan bertumbuh.`,
+  waste: `Analisis data limbah/waste produk pada UMKM ini dari perspektif efisiensi operasional dan profitabilitas.`,
+  kasbon: `Analisis data kasbon (piutang) UMKM ini secara bisnis.`,
+  forecast: `Analisis data prediksi penjualan UMKM ini sebagai bahan pertimbangan perencanaan bisnis.`,
 };
 
 export async function POST(req: Request) {
@@ -306,15 +316,13 @@ export async function POST(req: Request) {
 
     const prompt = `${sectionPrompt}
 
-  Berikut data yang perlu dianalisis (anggap sebagai bahan laporan singkat untuk pemilik/manajer bisnis):
-  ${dataStr}
+Berikut data yang perlu dianalisis:
+${dataStr}
 
-  PENTING:
-  - Jawab SELURUHNYA dalam Bahasa Indonesia dengan gaya profesional (bukan bahasa kasual)
-  - Gunakan format yang ringkas (maksimal 3-4 paragraf) dan terstruktur (kondisi utama, analisis, lalu rekomendasi)
-  - Sertakan angka-angka penting (Rp, %, unit) yang mendukung analisis
-  - Akhiri dengan 2-3 saran tindakan yang konkret dan dapat langsung dipertimbangkan oleh pemilik bisnis
-  - Gunakan format Rp untuk mata uang (contoh: Rp 500.000)`;
+- Jawab dalam Bahasa Indonesia
+- Maksimal 3-4 paragraf
+- Sertakan angka penting
+- Akhiri dengan 2-3 saran tindakan konkret`;
 
     const completion = await createGroqCompletion({
       messages: [

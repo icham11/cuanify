@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireAuth, isAuthError } from "@/lib/auth/session";
+import { getBakeryGrowthAnalytics, hasBakeryOrders } from "@/lib/bookings/bakery-analytics";
 
 export async function GET(request: Request) {
   try {
@@ -9,6 +10,13 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const year = Number(url.searchParams.get("year")) || new Date().getFullYear();
     const month = Number(url.searchParams.get("month")) || new Date().getMonth() + 1;
+
+    const useBakery = await hasBakeryOrders(businessId);
+
+    if (useBakery) {
+      const data = await getBakeryGrowthAnalytics(businessId, year, month);
+      return NextResponse.json({ success: true, data });
+    }
 
     // Current month
     const currentStart = new Date(year, month - 1, 1);

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, AuthError } from "@/lib/auth/session";
+import { loadEffectiveBookingCatalog } from "@/lib/bookings/catalog-config-server";
 import { analyzeBusinessData } from "@/lib/groq";
 import {
   generateOrderImage,
@@ -330,7 +331,8 @@ function getErrorMessage(error: unknown): string {
 
 export async function POST(request: NextRequest) {
   try {
-    await requireAuth();
+    const auth = await requireAuth();
+    const bookingCatalog = await loadEffectiveBookingCatalog(auth.businessId);
 
     const contentType = request.headers.get("content-type") || "";
 
@@ -481,7 +483,7 @@ export async function POST(request: NextRequest) {
       sourceType,
     });
 
-    const autoFill = buildBookingAutoFillFromParsed(parsed);
+    const autoFill = buildBookingAutoFillFromParsed(parsed, bookingCatalog);
     const parsedWithImage = {
       ...parsed,
       imageUrl: uploadedImageUrls[0],

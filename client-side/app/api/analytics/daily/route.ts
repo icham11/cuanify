@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireAuth, isAuthError } from "@/lib/auth/session";
+import { getBakeryDailyAnalytics, hasBakeryOrders } from "@/lib/bookings/bakery-analytics";
 
 /**
  * GET /api/analytics/daily?from=ISO&to=ISO
@@ -22,6 +23,13 @@ export async function GET(request: NextRequest) {
 
     // Clamp toDate to end of day
     toDate.setHours(23, 59, 59, 999);
+
+    const useBakery = await hasBakeryOrders(businessId);
+
+    if (useBakery) {
+      const bakery = await getBakeryDailyAnalytics(businessId, fromDate, toDate);
+      return NextResponse.json({ success: true, data: bakery.data, totals: bakery.totals });
+    }
 
     const metrics = await prisma.businessMetrics.findMany({
       where: {

@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import {
   requireAuth,
   requireRole,
@@ -10,12 +10,17 @@ import { buildDailyOmzetSnapshot } from "@/lib/admin/daily-omzet";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const auth = await requireAuth();
-    requireRole(auth, "Admin");
+    requireRole(auth, "Owner", "Admin");
+    const date = new URL(request.url).searchParams.get("date") ?? undefined;
 
-    const snapshot = await buildDailyOmzetSnapshot(auth.businessId);
+    const snapshot = await buildDailyOmzetSnapshot(
+      auth.businessId,
+      new Date(),
+      date,
+    );
 
     return NextResponse.json({
       success: true,
@@ -28,7 +33,7 @@ export async function GET() {
 
     if (isForbiddenError(error)) {
       return NextResponse.json(
-        { error: "Akses ditolak. Halaman ini khusus Admin." },
+        { error: "Akses ditolak. Halaman ini khusus Owner/Admin." },
         { status: 403 },
       );
     }

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ChevronLeft,
   ChevronDown,
@@ -201,7 +201,9 @@ function NewIngredientEditRow({
 
 export default function CreateProductsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { business, loading: bizLoading } = useBusiness();
+  const prefilledName = (searchParams.get("name") ?? "").trim();
 
   const [mode, setMode] = useState<Mode>("idle");
   const [photoModalOpen, setPhotoModalOpen] = useState(false);
@@ -213,6 +215,11 @@ export default function CreateProductsPage() {
       .then(setIngredientOptions)
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!prefilledName) return;
+    setMode("manual");
+  }, [prefilledName]);
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -274,7 +281,6 @@ export default function CreateProductsPage() {
 
       return [...prev, ...toAdd];
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [newIngredients, mode]);
 
   // ── Bulk submit (from photo-generated drafts) ──────────────────────────
@@ -746,6 +752,13 @@ export default function CreateProductsPage() {
             <h2 className="text-lg font-bold text-slate-700">Produk Baru</h2>
           </div>
           <ProductForm
+            initialDraft={
+              prefilledName
+                ? {
+                    name: prefilledName,
+                  }
+                : undefined
+            }
             onSuccess={() => {
               setSuccess(true);
               setTimeout(() => router.push("/dashboard/products"), 1400);

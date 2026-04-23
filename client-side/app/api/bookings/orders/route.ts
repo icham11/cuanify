@@ -21,6 +21,7 @@ import {
   sendOrderToWhatsApp,
   type SendOrderToWhatsAppInput,
 } from "@/lib/whatsapp/sendOrderToWhatsApp";
+import { syncBakeryOrderInventory } from "@/lib/bookings/inventory-sync";
 import {
   detailFieldDefinitions,
   type WhatsAppOrderType,
@@ -1947,6 +1948,7 @@ export async function POST(request: NextRequest) {
           let upsertedOrderCount = 0;
           let insertedItemCount = 0;
           let insertedAddressCount = 0;
+          const inventoryWarnings = new Set<string>();
           const createdOrdersForWhatsApp: SendOrderToWhatsAppInput[] = [];
 
           const existingRows = await tx.$queryRaw<
@@ -2303,6 +2305,28 @@ export async function POST(request: NextRequest) {
               insertedAddressCount += 1;
             }
 
+            const inventorySync = await syncBakeryOrderInventory(tx, {
+              businessId,
+              orderId: order.id,
+              orderStatus: order.orderStatus || "",
+              items: order.items.map((item) => ({
+                category: typeof item.category === "string" ? item.category : "",
+                subcategory:
+                  typeof item.subcategory === "string" ? item.subcategory : "",
+                productName:
+                  typeof item.productName === "string" ? item.productName : "",
+                size: typeof item.size === "string" ? item.size : "",
+                quantity:
+                  typeof item.quantity === "number" ? item.quantity : 0,
+              })),
+            });
+
+            inventorySync.unresolvedProducts.forEach((name) => {
+              inventoryWarnings.add(
+                `Inventory sync skipped for "${name}" on order ${order.id}`,
+              );
+            });
+
             const isNewOrder = !existingOrder;
             if (isNewOrder && isActiveStatus) {
               createdOrdersForWhatsApp.push(toWhatsAppPayload(order));
@@ -2381,6 +2405,7 @@ export async function POST(request: NextRequest) {
             upsertedOrderCount,
             insertedItemCount,
             insertedAddressCount,
+            inventoryWarnings: Array.from(inventoryWarnings),
             createdOrdersForWhatsApp,
           };
         },

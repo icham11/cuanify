@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireAuth, AuthError } from "@/lib/auth/session";
+import { getBusinessOverviewSummary } from "@/lib/bookings/business-overview";
 
 export const runtime = "nodejs";
 
@@ -19,49 +20,20 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 
     const business = await prisma.business.findFirst({
       where: { id: businessId, userId },
-      include: {
-        _count: {
-          select: {
-            products: true,
-            ingredients: true,
-            categories: true,
-            sales: true,
-          },
-        },
-      },
     });
 
     if (!business) {
       return NextResponse.json({ error: "Business not found" }, { status: 404 });
     }
 
-    // Revenue + metrics
-    // marginAvg is derived directly from all-time totals — NOT from BusinessMetrics.marginAvg,
-    // which only stores the value for a single day and would show the wrong figure.
-    const [revenueAgg, paidSalesCount] = await Promise.all([
-      prisma.sale.aggregate({
-        where: { businessId, paymentStatus: "Paid" },
-        _sum: { totalRevenue: true, totalCost: true },
-      }),
-      prisma.sale.count({ where: { businessId, paymentStatus: "Paid" } }),
-    ]);
-
-    const totalRevenue = Number(revenueAgg._sum.totalRevenue ?? 0);
-    const totalCost = Number(revenueAgg._sum.totalCost ?? 0);
-    const totalProfit = totalRevenue - totalCost;
-    const marginAvg = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : null;
+    const overview = await getBusinessOverviewSummary(businessId);
 
     return NextResponse.json({
       success: true,
       data: {
         ...business,
-        stats: {
-          totalRevenue,
-          totalCost,
-          totalProfit,
-          paidSalesCount,
-          marginAvg,
-        },
+        _count: overview.counts,
+        stats: overview.stats,
       },
     });
   } catch (error) {

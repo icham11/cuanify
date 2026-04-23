@@ -1,6 +1,8 @@
 import {
-  ensureCatalogSelection,
-  getUnitPriceBySelection,
+  BOOKING_PRODUCT_CATALOG,
+  ensureCatalogSelectionFromCatalog,
+  getUnitPriceBySelectionFromCatalog,
+  type PricelistCategory,
 } from "@/lib/bookings/pricelist";
 
 export type PricingProductType =
@@ -464,28 +466,30 @@ function validateCookieSelectedPrice(
 function inferCatalogUnitPrice(
   item: PricingOrderItemInput,
   productType: PricingProductType,
+  catalog: PricelistCategory[] = BOOKING_PRODUCT_CATALOG,
 ): number {
   const category = item.category || categoryFromProductType(productType);
   if (!category) return 0;
 
-  const normalized = ensureCatalogSelection({
+  const normalized = ensureCatalogSelectionFromCatalog(catalog, {
     category,
     subcategory: item.subcategory,
     productName: item.productName,
     size: item.size,
   });
 
-  return asMoney(getUnitPriceBySelection(normalized));
+  return asMoney(getUnitPriceBySelectionFromCatalog(catalog, normalized));
 }
 
 function getCookieUnitPriceCandidates(
   item: PricingOrderItemInput,
   quantity: number,
+  catalog?: PricelistCategory[],
 ): number[] {
   const selectedPrice = asMoney(item.selectedPrice);
   const cookiePrice = asMoney(item.cookiePrice);
   const basePrice = asMoney(item.basePrice);
-  const catalogPrice = inferCatalogUnitPrice(item, "COOKIE");
+  const catalogPrice = inferCatalogUnitPrice(item, "COOKIE", catalog);
   const lineTotal = asMoney(item.lineTotal);
   const baseAsUnit =
     basePrice > COOKIE_MAX_REASONABLE_UNIT_PRICE && quantity > 0
@@ -516,6 +520,7 @@ function getCookieExplicitUnitPriceCandidates(
 function resolveCookieUnitPrice(
   item: PricingOrderItemInput,
   quantity: number,
+  catalog?: PricelistCategory[],
 ): number {
   const rule = detectCookieRule(item);
   const selectedPrice = asMoney(item.selectedPrice);
@@ -524,7 +529,7 @@ function resolveCookieUnitPrice(
     validateCookieSelectedPrice(selectedPrice, rule);
   }
 
-  const candidates = getCookieUnitPriceCandidates(item, quantity);
+  const candidates = getCookieUnitPriceCandidates(item, quantity, catalog);
   if (!rule) {
     return firstPositive(...candidates);
   }
@@ -703,11 +708,12 @@ function validateBouquetQuantity(
 function resolveCupcakeBasePrice(
   item: PricingOrderItemInput,
   packType: CupcakePackType | null,
+  catalog?: PricelistCategory[],
 ): number {
   const quantity = Math.max(1, asPositiveInt(item.quantity));
   const selectedPrice = asMoney(item.selectedPrice);
   const rawBasePrice = asMoney(item.basePrice);
-  const catalogUnitPrice = inferCatalogUnitPrice(item, "CUPCAKE");
+  const catalogUnitPrice = inferCatalogUnitPrice(item, "CUPCAKE", catalog);
   const catalogLinePrice =
     catalogUnitPrice > 0 ? asMoney(catalogUnitPrice * quantity) : 0;
 
@@ -765,10 +771,13 @@ function resolveTowerCookiePrice(item: PricingOrderItemInput): number {
   return 0;
 }
 
-export function calculateCookie(item: PricingOrderItemInput): number {
+export function calculateCookie(
+  item: PricingOrderItemInput,
+  catalog?: PricelistCategory[],
+): number {
   const quantity = asPositiveInt(item.quantity);
 
-  const unitPrice = resolveCookieUnitPrice(item, quantity);
+  const unitPrice = resolveCookieUnitPrice(item, quantity, catalog);
   if (unitPrice <= 0) return getFallbackItemTotal(item);
 
   const designCount = asPositiveInt(item.designCount);
@@ -806,7 +815,10 @@ export function calculateBouquet(item: PricingOrderItemInput): number {
   return asMoney(cookiePrice * quantity + bouquetCost);
 }
 
-export function calculateCake(item: PricingOrderItemInput): number {
+export function calculateCake(
+  item: PricingOrderItemInput,
+  catalog?: PricelistCategory[],
+): number {
   const matrixPrice = resolveCakeMatrixPrice(item);
   const selectedPrice = asMoney(item.selectedPrice);
 
@@ -823,14 +835,17 @@ export function calculateCake(item: PricingOrderItemInput): number {
   return firstPositive(
     selectedPrice,
     asMoney(item.basePrice),
-    inferCatalogUnitPrice(item, "CAKE"),
+    inferCatalogUnitPrice(item, "CAKE", catalog),
     asMoney(item.lineTotal),
   );
 }
 
-export function calculateCupcake(item: PricingOrderItemInput): number {
+export function calculateCupcake(
+  item: PricingOrderItemInput,
+  catalog?: PricelistCategory[],
+): number {
   const packType = detectCupcakePackType(item);
-  const basePrice = resolveCupcakeBasePrice(item, packType);
+  const basePrice = resolveCupcakeBasePrice(item, packType, catalog);
   if (basePrice <= 0) return getFallbackItemTotal(item);
 
   let cookieTopperPrice = firstPositive(
@@ -858,19 +873,22 @@ export function calculateTower(item: PricingOrderItemInput): number {
   return asMoney(cookiePrice * TOWER_COOKIE_QTY + TOWER_PACKAGING_COST);
 }
 
-export function calculateItemPrice(item: PricingOrderItemInput): number {
+export function calculateItemPrice(
+  item: PricingOrderItemInput,
+  catalog?: PricelistCategory[],
+): number {
   const productType = detectProductType(item);
   if (!productType) return getFallbackItemTotal(item);
 
   switch (productType) {
     case "COOKIE":
-      return calculateCookie(item);
+      return calculateCookie(item, catalog);
     case "BOUQUET":
       return calculateBouquet(item);
     case "CAKE":
-      return calculateCake(item);
+      return calculateCake(item, catalog);
     case "CUPCAKE":
-      return calculateCupcake(item);
+      return calculateCupcake(item, catalog);
     case "TOWER":
       return calculateTower(item);
     default:
@@ -880,11 +898,12 @@ export function calculateItemPrice(item: PricingOrderItemInput): number {
 
 export function calculateItemPriceSafe(
   item: PricingOrderItemInput,
+  catalog?: PricelistCategory[],
 ): ItemPricingSafeResult {
   const productType = detectProductType(item);
 
   try {
-    const total = calculateItemPrice(item);
+    const total = calculateItemPrice(item, catalog);
     return {
       itemId: item.id,
       productType,
@@ -905,10 +924,13 @@ export function calculateItemPriceSafe(
   }
 }
 
-export function calculateOrderPrice(items: PricingOrderItemInput[]): number {
+export function calculateOrderPrice(
+  items: PricingOrderItemInput[],
+  catalog?: PricelistCategory[],
+): number {
   validateCustomCookieMinimumOrder(items);
   return asMoney(
-    items.reduce((sum, item) => sum + calculateItemPrice(item), 0),
+    items.reduce((sum, item) => sum + calculateItemPrice(item, catalog), 0),
   );
 }
 
@@ -917,6 +939,7 @@ export function calculateOrderPriceSafe(input: {
   fallbackTotal?: number;
   deliveryFee?: number;
   manualAdjustment?: number;
+  catalog?: PricelistCategory[];
 }): OrderPricingSafeResult {
   try {
     validateCustomCookieMinimumOrder(input.items ?? []);
@@ -934,7 +957,7 @@ export function calculateOrderPriceSafe(input: {
   }
 
   const itemResults = (input.items ?? []).map((item) =>
-    calculateItemPriceSafe(item),
+    calculateItemPriceSafe(item, input.catalog),
   );
   const warnings = itemResults.flatMap((result) => result.warnings);
 

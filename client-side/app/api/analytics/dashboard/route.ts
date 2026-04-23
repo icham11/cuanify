@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireAuth, isAuthError } from "@/lib/auth/session";
+import {
+  getBakeryCategoryAnalytics,
+  getBakeryDailyAnalytics,
+  getBakeryProductAnalytics,
+  hasBakeryOrders,
+} from "@/lib/bookings/bakery-analytics";
 
 export async function GET(request: Request) {
   try {
@@ -24,9 +30,69 @@ export async function GET(request: Request) {
       endDate.setHours(23, 59, 59, 999);
     }
 
+    const useBakery = await hasBakeryOrders(businessId);
+
     // =========================
-    // SALES DATA (RANGE)
+    // LOW STOCK INGREDIENTS
     // =========================
+    const ingredients = await prisma.ingredient.findMany({
+      where: { businessId },
+      include: {
+        inventoryBatches: {
+          where: { remainingQty: { gt: 0 } },
+          select: { remainingQty: true },
+        },
+      },
+    });
+
+    const lowStockIngredients = ingredients
+      .map((ingredient) => {
+        const currentStock = ingredient.inventoryBatches.reduce((sum, batch) => sum + Number(batch.remainingQty), 0);
+
+        return {
+          id: ingredient.id,
+          name: ingredient.name,
+          currentStock,
+          minStock: ingredient.minStock,
+        };
+      })
+      .filter((item) => item.currentStock <= item.minStock);
+
+    if (useBakery) {
+      const paidOrderCountRows = await prisma.$queryRaw<Array<{ count: bigint }>>`
+        SELECT COUNT(*)::bigint AS count
+        FROM bakery_orders
+        WHERE business_id = ${businessId}
+          AND payment_status = 'Paid'
+          AND created_at BETWEEN ${startDate} AND ${endDate}
+      `;
+      const [daily, products, categories] = await Promise.all([
+        getBakeryDailyAnalytics(businessId, startDate, endDate),
+        getBakeryProductAnalytics(businessId, startDate, endDate),
+        getBakeryCategoryAnalytics(businessId, startDate, endDate),
+      ]);
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          totalRevenue: daily.totals.revenue,
+          totalProfit: daily.totals.profit,
+          avgMargin:
+            daily.totals.revenue > 0
+              ? Math.round((daily.totals.profit / daily.totals.revenue) * 10000) / 100
+              : 0,
+          transactionCount: Number(paidOrderCountRows[0]?.count ?? 0),
+          topProducts: products.slice(0, 5).map((product) => ({
+            product: { id: product.productId, name: product.productName },
+            quantitySold: product.quantitySold,
+          })),
+          topCategories: categories.categories.slice(0, 5),
+          lowStockIngredients,
+        },
+        paymentBreakdown: [],
+      });
+    }
+
     const sales = await prisma.sale.findMany({
       where: {
         businessId,
@@ -38,17 +104,11 @@ export async function GET(request: Request) {
     });
 
     const totalRevenue = sales.reduce((sum, s) => sum + Number(s.totalRevenue), 0);
-
     const totalCost = sales.reduce((sum, s) => sum + Number(s.totalCost), 0);
-
     const totalProfit = totalRevenue - totalCost;
     const avgMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
-
     const transactionCount = sales.length;
 
-    // =========================
-    // TOP SELLING PRODUCTS (RANGE)
-    // =========================
     const topProductsRaw = await prisma.saleItem.groupBy({
       by: ["productId"],
       where: {
@@ -85,35 +145,6 @@ export async function GET(request: Request) {
       }),
     );
 
-    // =========================
-    // LOW STOCK INGREDIENTS
-    // =========================
-    const ingredients = await prisma.ingredient.findMany({
-      where: { businessId },
-      include: {
-        inventoryBatches: {
-          where: { remainingQty: { gt: 0 } },
-          select: { remainingQty: true },
-        },
-      },
-    });
-
-    const lowStockIngredients = ingredients
-      .map((ingredient) => {
-        const currentStock = ingredient.inventoryBatches.reduce((sum, batch) => sum + Number(batch.remainingQty), 0);
-
-        return {
-          id: ingredient.id,
-          name: ingredient.name,
-          currentStock,
-          minStock: ingredient.minStock,
-        };
-      })
-      .filter((item) => item.currentStock <= item.minStock);
-
-    // =========================
-    // PAYMENT METHOD BREAKDOWN
-    // =========================
     const paymentGrouped = await prisma.sale.groupBy({
       by: ["paymentMethod"],
       where: {

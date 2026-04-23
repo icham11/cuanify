@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireAuth, isAuthError } from "@/lib/auth/session";
+import { getBakeryHealthSeries, hasBakeryOrders } from "@/lib/bookings/bakery-analytics";
 
 /**
  * GET /api/analytics/health?days=30
@@ -13,6 +14,14 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const days = Number(searchParams.get("days") ?? 30);
+
+    const useBakery = await hasBakeryOrders(businessId);
+
+    if (useBakery) {
+      const series = await getBakeryHealthSeries(businessId, days);
+      const latest = series.length > 0 ? series[series.length - 1] : null;
+      return NextResponse.json({ success: true, data: series, latest });
+    }
 
     const since = new Date();
     since.setDate(since.getDate() - days);

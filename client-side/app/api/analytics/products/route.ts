@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireAuth, isAuthError } from "@/lib/auth/session";
+import { getBakeryProductAnalytics, hasBakeryOrders } from "@/lib/bookings/bakery-analytics";
 
 export async function GET(req: NextRequest) {
   try {
@@ -17,6 +18,37 @@ export async function GET(req: NextRequest) {
     // If 'from' is not provided, use a very old date to fetch all data
     const fromDate = from ? new Date(from) : new Date("2000-01-01");
     const toDate = new Date(to);
+
+    const useBakery = await hasBakeryOrders(businessId);
+
+    if (useBakery) {
+      const products = await getBakeryProductAnalytics(businessId, fromDate, toDate);
+      const summary = products.reduce(
+        (acc, p) => {
+          acc.totalRevenue += p.revenue;
+          acc.totalCost += p.cost;
+          acc.totalProfit += p.profit;
+          acc.totalQuantity += p.quantitySold;
+          return acc;
+        },
+        {
+          totalRevenue: 0,
+          totalCost: 0,
+          totalProfit: 0,
+          totalQuantity: 0,
+        },
+      );
+
+      return NextResponse.json({
+        meta: { from, to },
+        summary,
+        products,
+        top: {
+          byRevenue: [...products].sort((a, b) => b.revenue - a.revenue).slice(0, 5),
+          byQuantity: [...products].sort((a, b) => b.quantitySold - a.quantitySold).slice(0, 5),
+        },
+      });
+    }
 
     type ProductAnalyticsRow = {
       productId: string;

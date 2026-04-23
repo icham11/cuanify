@@ -16,8 +16,14 @@ import {
   mapeToAccuracy,
   toDateString,
   type DailySalesEntry,
-  type VolatilityInfo,
 } from "@/lib/forecasting/utils";
+import {
+  getBakeryDailyAnalytics,
+  getBakeryForecastInputs,
+  getBakeryHealthSeries,
+  getBakeryProductAnalytics,
+  hasBakeryOrders,
+} from "@/lib/bookings/bakery-analytics";
 
 /**
  * POST /api/cron/generate-analytics
@@ -60,17 +66,23 @@ async function evaluateForecastAccuracy(businessId: number) {
       orderBy: { date: "asc" },
     });
 
-    // Get actual revenue from BusinessMetrics for those dates
-    const actualMetrics = await prisma.businessMetrics.findMany({
-      where: {
-        businessId,
-        date: { gte: since30d, lt: now },
-      },
-    });
-
     const actualByDate = new Map<string, number>();
-    for (const m of actualMetrics) {
-      actualByDate.set(toDateString(m.date), Number(m.totalRevenue));
+    if (await hasBakeryOrders(businessId)) {
+      const bakery = await getBakeryDailyAnalytics(businessId, since30d, now);
+      for (const point of bakery.data) {
+        actualByDate.set(point.date, point.revenue);
+      }
+    } else {
+      const actualMetrics = await prisma.businessMetrics.findMany({
+        where: {
+          businessId,
+          date: { gte: since30d, lt: now },
+        },
+      });
+
+      for (const m of actualMetrics) {
+        actualByDate.set(toDateString(m.date), Number(m.totalRevenue));
+      }
     }
 
     // Match forecasts with actuals
@@ -147,6 +159,7 @@ async function generateForecastForBusiness(businessId: number) {
   const now = new Date();
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+  const useBakery = await hasBakeryOrders(businessId);
 
   // ─── Cleanup: Delete old forecasts (before today) ──────────────────────
   await Promise.all([
@@ -160,15 +173,28 @@ async function generateForecastForBusiness(businessId: number) {
 
   // ─── Step 1: Determine Adaptive Lookback Window ────────────────────────
   // Query to find earliest sale date for this business
-  const earliestSale = await prisma.sale.findFirst({
-    where: { businessId, paymentStatus: "Paid" },
-    orderBy: { createdAt: "asc" },
-    select: { createdAt: true },
-  });
+  const earliestSale = useBakery
+    ? (
+        await prisma.$queryRaw<Array<{ created_at: Date }>>`
+          SELECT created_at
+          FROM bakery_orders
+          WHERE business_id = ${businessId}
+            AND payment_status = 'Paid'
+          ORDER BY created_at ASC
+          LIMIT 1
+        `
+      )[0]
+    : await prisma.sale.findFirst({
+        where: { businessId, paymentStatus: "Paid" },
+        orderBy: { createdAt: "asc" },
+        select: { createdAt: true },
+      });
 
   let lookbackDays = 30; // Default fallback
   if (earliestSale) {
-    const daysSinceFirst = Math.floor((now.getTime() - earliestSale.createdAt.getTime()) / (1000 * 60 * 60 * 24));
+    const firstDate =
+      "created_at" in earliestSale ? earliestSale.created_at : earliestSale.createdAt;
+    const daysSinceFirst = Math.floor((now.getTime() - firstDate.getTime()) / (1000 * 60 * 60 * 24));
     lookbackDays = calculateAdaptiveLookback(daysSinceFirst);
   }
 
@@ -181,55 +207,66 @@ async function generateForecastForBusiness(businessId: number) {
   console.log(`[FORECAST] Business ${businessId}: Using ${lookbackDays}-day adaptive lookback`);
 
   // ─── Step 2: Fetch Product Sales Data with Prices ──────────────────────
-  type DailyQtyRow = {
-    productId: number;
-    date: string;
-    qty: number;
-    avgPrice: number;
-  };
-  const rawRows = await prisma.$queryRaw<DailyQtyRow[]>`
-    SELECT
-      si."productId"::int AS "productId",
-      DATE(s."createdAt") AS "date",
-      SUM(si.quantity)::int AS qty,
-      AVG(si."priceAtSale")::numeric AS "avgPrice"
-    FROM "SaleItem" si
-    JOIN "Sale" s ON s.id = si."saleId"
-    WHERE s."businessId" = ${businessId}
-      AND s."paymentStatus" = 'Paid'
-      AND s."createdAt" >= ${since}
-    GROUP BY si."productId", DATE(s."createdAt")
-    ORDER BY si."productId", DATE(s."createdAt")
-  `;
-
-  // Group by product
   const byProduct = new Map<number, { entries: DailySalesEntry[]; historicalPrices: number[] }>();
-  for (const row of rawRows) {
-    const pid = Number(row.productId);
-    if (!byProduct.has(pid)) {
-      byProduct.set(pid, { entries: [], historicalPrices: [] });
+  const productPriceMap = new Map<number, { sellingPrice: number; recipeCost: number }>();
+  if (useBakery) {
+    const forecastInputs = await getBakeryForecastInputs(businessId, since, now);
+    for (const series of forecastInputs.productSeries) {
+      byProduct.set(series.productId, {
+        entries: series.entries,
+        historicalPrices: series.historicalPrices,
+      });
     }
-    const dateStr =
-      typeof row.date === "string" ? row.date.split("T")[0] : new Date(row.date).toISOString().split("T")[0];
-    byProduct.get(pid)!.entries.push({ date: dateStr, qty: Number(row.qty) });
-    byProduct.get(pid)!.historicalPrices.push(Number(row.avgPrice));
+    forecastInputs.productPriceMap.forEach((value, key) => {
+      productPriceMap.set(key, value);
+    });
+  } else {
+    type DailyQtyRow = {
+      productId: number;
+      date: string;
+      qty: number;
+      avgPrice: number;
+    };
+    const rawRows = await prisma.$queryRaw<DailyQtyRow[]>`
+      SELECT
+        si."productId"::int AS "productId",
+        DATE(s."createdAt") AS "date",
+        SUM(si.quantity)::int AS qty,
+        AVG(si."priceAtSale")::numeric AS "avgPrice"
+      FROM "SaleItem" si
+      JOIN "Sale" s ON s.id = si."saleId"
+      WHERE s."businessId" = ${businessId}
+        AND s."paymentStatus" = 'Paid'
+        AND s."createdAt" >= ${since}
+      GROUP BY si."productId", DATE(s."createdAt")
+      ORDER BY si."productId", DATE(s."createdAt")
+    `;
+
+    for (const row of rawRows) {
+      const pid = Number(row.productId);
+      if (!byProduct.has(pid)) {
+        byProduct.set(pid, { entries: [], historicalPrices: [] });
+      }
+      const dateStr =
+        typeof row.date === "string" ? row.date.split("T")[0] : new Date(row.date).toISOString().split("T")[0];
+      byProduct.get(pid)!.entries.push({ date: dateStr, qty: Number(row.qty) });
+      byProduct.get(pid)!.historicalPrices.push(Number(row.avgPrice));
+    }
+
+    const products = await prisma.product.findMany({
+      where: { businessId, deletedAt: null, isActive: true },
+      select: { id: true, sellingPrice: true, recipeCost: true },
+    });
+
+    for (const p of products) {
+      productPriceMap.set(p.id, {
+        sellingPrice: Number(p.sellingPrice),
+        recipeCost: Number(p.recipeCost),
+      });
+    }
   }
 
   console.log(`[FORECAST] Business ${businessId}: ${byProduct.size} products with sales data`);
-
-  // ─── Step 3: Get Current Product Prices ────────────────────────────────
-  const products = await prisma.product.findMany({
-    where: { businessId, deletedAt: null, isActive: true },
-    select: { id: true, sellingPrice: true, recipeCost: true },
-  });
-
-  const productPriceMap = new Map<number, { sellingPrice: number; recipeCost: number }>();
-  for (const p of products) {
-    productPriceMap.set(p.id, {
-      sellingPrice: Number(p.sellingPrice),
-      recipeCost: Number(p.recipeCost),
-    });
-  }
 
   // ─── Step 4: Generate Product-Level Forecasts ──────────────────────────
   const productForecastMap = new Map<
@@ -451,14 +488,22 @@ async function generateForecastForBusiness(businessId: number) {
   // ─── Fallback: Use Historical Average if No Product Forecasts ──────────
   if (dailyAggregates.length === 0 || dailyAggregates.every((d) => d.predictedRevenue === 0)) {
     console.log(`[FORECAST] Business ${businessId}: Using historical average fallback`);
-    const bizMetrics = await prisma.businessMetrics.findMany({
-      where: { businessId, date: { gte: since } },
-      orderBy: { date: "asc" },
-    });
+    const bakeryFallback = useBakery ? await getBakeryDailyAnalytics(businessId, since, now) : null;
+    const bizMetrics = useBakery
+      ? []
+      : await prisma.businessMetrics.findMany({
+          where: { businessId, date: { gte: since } },
+          orderBy: { date: "asc" },
+        });
 
-    if (bizMetrics.length >= 7) {
-      const avgRevenue = bizMetrics.reduce((s, m) => s + Number(m.totalRevenue), 0) / bizMetrics.length;
-      const avgProfit = bizMetrics.reduce((s, m) => s + Number(m.totalProfit), 0) / bizMetrics.length;
+    const rowCount = useBakery ? bakeryFallback?.data.length ?? 0 : bizMetrics.length;
+    if (rowCount >= 7) {
+      const avgRevenue = useBakery
+        ? (bakeryFallback?.totals.revenue ?? 0) / Math.max(1, bakeryFallback?.data.length ?? 1)
+        : bizMetrics.reduce((s, m) => s + Number(m.totalRevenue), 0) / bizMetrics.length;
+      const avgProfit = useBakery
+        ? (bakeryFallback?.totals.profit ?? 0) / Math.max(1, bakeryFallback?.data.length ?? 1)
+        : bizMetrics.reduce((s, m) => s + Number(m.totalProfit), 0) / bizMetrics.length;
 
       for (let i = 0; i < forecastDates.length; i++) {
         dailyAggregates[i] = {
@@ -478,15 +523,6 @@ async function generateForecastForBusiness(businessId: number) {
       `[FORECAST] Business ${businessId}: Saving ${dailyAggregates.length} days, ` +
         `first day revenue = Rp ${dailyAggregates[0]?.predictedRevenue.toLocaleString()}`,
     );
-
-    // Build metadata for business forecast
-    const businessMetadata = {
-      lookbackDays,
-      productsForecasted: productForecastMap.size,
-      priceChangesDetected: priceChangeNotes.length > 0,
-      priceChangeNotes: priceChangeNotes.slice(0, 5), // Limit to first 5
-      generatedAt: now.toISOString(),
-    };
 
     await Promise.all(
       dailyAggregates.map((agg, i) => {
@@ -530,6 +566,36 @@ async function generateHealthScoreForBusiness(businessId: number) {
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const since30d = new Date(today);
   since30d.setDate(since30d.getDate() - 30);
+  const useBakery = await hasBakeryOrders(businessId);
+
+  if (useBakery) {
+    const series = await getBakeryHealthSeries(businessId, 30);
+    const latest = series.length > 0 ? series[series.length - 1] : null;
+    if (!latest) return;
+
+    await prisma.businessHealthScores.upsert({
+      where: { businessId_date: { businessId, date: today } },
+      update: {
+        revenueScore: latest.revenueScore,
+        profitScore: latest.profitScore,
+        wasteScore: latest.wasteScore,
+        stabilityScore: latest.stabilityScore,
+        overallScore: latest.overallScore,
+        classification: latest.classification,
+      },
+      create: {
+        businessId,
+        date: today,
+        revenueScore: latest.revenueScore,
+        profitScore: latest.profitScore,
+        wasteScore: latest.wasteScore,
+        stabilityScore: latest.stabilityScore,
+        overallScore: latest.overallScore,
+        classification: latest.classification,
+      },
+    });
+    return;
+  }
 
   // ─── 1. Get Business Metrics for last 30 days ───
   const metrics = await prisma.businessMetrics.findMany({
@@ -645,6 +711,17 @@ const INSIGHT_SECTIONS: {
     prompt:
       "Berikan 1-2 kalimat ringkas dan profesional tentang tren pendapatan harian bisnis ini. Soroti pola utama (naik, turun, atau stabil) serta implikasinya terhadap kinerja penjualan.",
     gather: async (bid) => {
+      if (await hasBakeryOrders(bid)) {
+        const now = new Date();
+        const from = new Date(now);
+        from.setDate(from.getDate() - 29);
+        from.setHours(0, 0, 0, 0);
+        const bakery = await getBakeryDailyAnalytics(bid, from, now);
+        const total = bakery.totals.revenue;
+        const dayCount = bakery.data.length;
+        const avg = dayCount > 0 ? Math.round(total / dayCount) : 0;
+        return `Pendapatan ${dayCount} hari terakhir: Rp ${total.toLocaleString("id-ID")}, rata-rata harian Rp ${avg.toLocaleString("id-ID")}.`;
+      }
       // Match EXACTLY what frontend /api/analytics/daily returns:
       // Use UTC boundaries to match database DATE type (stored as midnight UTC)
       const now = new Date();
@@ -680,6 +757,20 @@ const INSIGHT_SECTIONS: {
     prompt:
       "Berikan 1-2 kalimat ringkas tentang pertumbuhan bisnis bulan ini dibandingkan bulan lalu, dengan menyoroti arah pertumbuhan (positif, stagnan, atau negatif) dan dampaknya ke keberlanjutan bisnis.",
     gather: async (bid) => {
+      if (await hasBakeryOrders(bid)) {
+        const now = new Date();
+        const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+        const [cur, prev] = await Promise.all([
+          getBakeryDailyAnalytics(bid, thisMonth, now),
+          getBakeryDailyAnalytics(bid, lastMonth, lastMonthEnd),
+        ]);
+        const curRev = cur.totals.revenue;
+        const prevRev = prev.totals.revenue;
+        const growth = prevRev > 0 ? (((curRev - prevRev) / prevRev) * 100).toFixed(1) : "N/A";
+        return `Pendapatan bulan ini: Rp ${curRev.toLocaleString("id-ID")}, bulan lalu: Rp ${prevRev.toLocaleString("id-ID")}, pertumbuhan: ${growth}%.`;
+      }
       const now = new Date();
       const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
       const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
@@ -702,6 +793,16 @@ const INSIGHT_SECTIONS: {
     prompt:
       "Berikan 1-2 kalimat ringkas dan bernada bisnis tentang performa produk: produk mana yang paling berkontribusi ke omzet dan profit, serta pesan singkat yang dapat dibaca manajemen.",
     gather: async (bid) => {
+      if (await hasBakeryOrders(bid)) {
+        const since = new Date();
+        since.setDate(since.getDate() - 30);
+        const rows = await getBakeryProductAnalytics(bid, since, new Date());
+        if (rows.length === 0) return "Belum ada data penjualan produk 30 hari terakhir.";
+        return `Top produk: ${rows
+          .slice(0, 5)
+          .map((r) => `${r.productName} (${r.quantitySold} pcs, Rp ${Math.round(r.revenue).toLocaleString("id-ID")})`)
+          .join(", ")}.`;
+      }
       const since = new Date();
       since.setDate(since.getDate() - 30);
       const rows = await prisma.$queryRaw<{ name: string; qty: number; revenue: number }[]>`
@@ -734,6 +835,23 @@ const INSIGHT_SECTIONS: {
     prompt:
       "Berikan 1-2 kalimat ringkas dan profesional tentang tingkat limbah/waste bisnis ini terhadap pendapatan, serta apakah levelnya masih wajar atau sudah menggerus profit.",
     gather: async (bid) => {
+      if (await hasBakeryOrders(bid)) {
+        const since = new Date();
+        since.setDate(since.getDate() - 30);
+        const wasteMoves = await prisma.$queryRaw<{ totalWaste: number }[]>`
+          SELECT COALESCE(SUM(ABS(im.quantity) * im."costPerUnit"), 0)::numeric AS "totalWaste"
+          FROM "InventoryMovement" im
+          JOIN "StockDocument" sd ON sd.id = im."stockDocumentId"
+          WHERE sd."businessId" = ${bid}
+            AND sd.type = 'Waste'
+            AND im."createdAt" >= ${since}
+        `;
+        const waste = Number(wasteMoves[0]?.totalWaste ?? 0);
+        const bakery = await getBakeryDailyAnalytics(bid, since, new Date());
+        const rev = bakery.totals.revenue;
+        const pct = rev > 0 ? ((waste / rev) * 100).toFixed(1) : "0";
+        return `Biaya limbah 30 hari: Rp ${waste.toLocaleString("id-ID")} (${pct}% dari pendapatan Rp ${rev.toLocaleString("id-ID")}).`;
+      }
       const since = new Date();
       since.setDate(since.getDate() - 30);
       const wasteMoves = await prisma.$queryRaw<{ totalWaste: number }[]>`
@@ -784,17 +902,24 @@ const INSIGHT_SECTIONS: {
       // Get last 7 days actual data for comparison
       const since7d = new Date(now);
       since7d.setDate(since7d.getDate() - 7);
-      const recentMetrics = await prisma.businessMetrics.findMany({
-        where: { businessId: bid, date: { gte: since7d } },
-        orderBy: { date: "asc" },
-      });
+      const bakeryActuals = (await hasBakeryOrders(bid))
+        ? await getBakeryDailyAnalytics(bid, since7d, now)
+        : null;
+      const recentMetrics = bakeryActuals
+        ? null
+        : await prisma.businessMetrics.findMany({
+            where: { businessId: bid, date: { gte: since7d } },
+            orderBy: { date: "asc" },
+          });
 
-      const actualAvg =
-        recentMetrics.length > 0
+      const actualAvg = bakeryActuals
+        ? Math.round(bakeryActuals.totals.revenue / Math.max(1, bakeryActuals.data.length))
+        : recentMetrics && recentMetrics.length > 0
           ? Math.round(recentMetrics.reduce((s, m) => s + Number(m.totalRevenue), 0) / recentMetrics.length)
           : 0;
-      const actualProfitAvg =
-        recentMetrics.length > 0
+      const actualProfitAvg = bakeryActuals
+        ? Math.round(bakeryActuals.totals.profit / Math.max(1, bakeryActuals.data.length))
+        : recentMetrics && recentMetrics.length > 0
           ? Math.round(recentMetrics.reduce((s, m) => s + Number(m.totalProfit), 0) / recentMetrics.length)
           : 0;
 

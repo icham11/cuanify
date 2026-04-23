@@ -225,6 +225,11 @@ export default function IngredientsPage() {
       </div>
 
       {/* FILTER, SORT, PAGINATION CONTROLS */}
+      <div className="rounded-2xl border border-indigo-100 bg-indigo-50/80 px-4 py-3 text-sm text-indigo-800">
+        Stok ingredient di halaman ini akan ikut berkurang otomatis saat booking
+        bakery yang sudah tersinkron ke product recipe masuk ke alur order aktif.
+      </div>
+
       <div className="flex flex-wrap gap-2 items-center justify-between mb-2 px-1">
         <div className="flex gap-2 items-center">
           <input

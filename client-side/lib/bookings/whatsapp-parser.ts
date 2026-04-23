@@ -1,9 +1,11 @@
 import {
   BOOKING_ADD_ON_CATALOG,
-  ensureCatalogSelection,
-  getDefaultCatalogSelectionForCategory,
-  suggestCatalogSelection,
+  BOOKING_PRODUCT_CATALOG,
+  ensureCatalogSelectionFromCatalog,
+  getDefaultCatalogSelectionFromCatalog,
+  suggestCatalogSelectionFromCatalog,
   type CatalogAddOn,
+  type PricelistCategory,
 } from "@/lib/bookings/pricelist";
 import {
   getFlavorOptionsByCategory,
@@ -20,6 +22,11 @@ export type WhatsAppOrderType =
 export type WhatsAppOrderTypeOrUnknown = WhatsAppOrderType | "unknown";
 
 export type WhatsAppSourceType = "text" | "manual" | "image" | "email";
+
+export interface BookingParserCatalogContext {
+  productCatalog?: PricelistCategory[];
+  addOnCatalog?: Record<string, CatalogAddOn[]>;
+}
 
 const ORDER_TYPE_SEQUENCE: WhatsAppOrderType[] = [
   "cake",
@@ -1875,6 +1882,7 @@ function detectCategoryAddOnsFromText(args: {
   category: string;
   value: string;
   allowCustomAddOns?: boolean;
+  addOnCatalog?: Record<string, CatalogAddOn[]>;
 }): {
   addOns: string[];
   addOnQuantities?: Record<string, number>;
@@ -1884,7 +1892,10 @@ function detectCategoryAddOnsFromText(args: {
   const text = args.value.trim();
   if (!text) return { addOns: [] };
 
-  const addOnCatalog = BOOKING_ADD_ON_CATALOG[args.category] ?? [];
+  const addOnCatalog =
+    args.addOnCatalog?.[args.category] ??
+    BOOKING_ADD_ON_CATALOG[args.category] ??
+    [];
   const addOns = new Set<string>();
   const addOnQuantities: Record<string, number> = {};
   const addOnPriceOverrides: Record<string, number> = {};
@@ -2613,22 +2624,31 @@ function getCategoryByOrderType(orderType: WhatsAppOrderType): string {
   }
 }
 
-function chooseCatalogSelection(parsed: ParsedWhatsAppOrder): {
+function chooseCatalogSelection(
+  parsed: ParsedWhatsAppOrder,
+  catalogContext?: BookingParserCatalogContext,
+): {
   category: string;
   subcategory: string;
   productName: string;
   size: string;
 } {
   const category = getCategoryByOrderType(parsed.orderType);
-  const fallback = getDefaultCatalogSelectionForCategory(category);
+  const productCatalog =
+    catalogContext?.productCatalog ?? BOOKING_PRODUCT_CATALOG;
+  const fallback = getDefaultCatalogSelectionFromCatalog(
+    productCatalog,
+    category,
+  );
   const searchSource = [parsed.common.order, ...Object.values(parsed.details)]
     .filter(Boolean)
     .join(" ");
-  const suggested = suggestCatalogSelection(
+  const suggested = suggestCatalogSelectionFromCatalog(
+    productCatalog,
     category,
     expandCatalogSearchSource(category, searchSource),
   );
-  return ensureCatalogSelection({
+  return ensureCatalogSelectionFromCatalog(productCatalog, {
     category: suggested.category || fallback.category,
     subcategory: suggested.subcategory || fallback.subcategory,
     productName: suggested.productName || fallback.productName,
@@ -2639,19 +2659,26 @@ function chooseCatalogSelection(parsed: ParsedWhatsAppOrder): {
 function chooseCatalogSelectionByText(
   category: string,
   searchSource: string,
+  catalogContext?: BookingParserCatalogContext,
 ): {
   category: string;
   subcategory: string;
   productName: string;
   size: string;
 } {
-  const fallback = getDefaultCatalogSelectionForCategory(category);
-  const suggested = suggestCatalogSelection(
+  const productCatalog =
+    catalogContext?.productCatalog ?? BOOKING_PRODUCT_CATALOG;
+  const fallback = getDefaultCatalogSelectionFromCatalog(
+    productCatalog,
+    category,
+  );
+  const suggested = suggestCatalogSelectionFromCatalog(
+    productCatalog,
     category,
     expandCatalogSearchSource(category, searchSource),
   );
 
-  return ensureCatalogSelection({
+  return ensureCatalogSelectionFromCatalog(productCatalog, {
     category: suggested.category || fallback.category,
     subcategory: suggested.subcategory || fallback.subcategory,
     productName: suggested.productName || fallback.productName,
@@ -3011,8 +3038,13 @@ function createAutoFillItemFromCategory(args: {
   cookiePrice?: number;
   addOnSource?: string;
   cookieDesignCount?: number;
+  catalogContext?: BookingParserCatalogContext;
 }): BookingAutoFillItem {
-  let catalog = chooseCatalogSelectionByText(args.category, args.searchSource);
+  let catalog = chooseCatalogSelectionByText(
+    args.category,
+    args.searchSource,
+    args.catalogContext,
+  );
 
   if (catalog.category === "Cake") {
     const forcedSize = extractSingleCakeSizeCode(
@@ -3023,12 +3055,15 @@ function createAutoFillItemFromCategory(args: {
         `${args.searchSource || ""} ${args.notes || ""}`,
       );
       const isDummy = source.includes("dummy");
-      catalog = ensureCatalogSelection({
-        category: "Cake",
-        subcategory: "One Tier Cake",
-        productName: isDummy ? "Dummy Cake" : "Real Cake",
-        size: forcedSize,
-      });
+      catalog = ensureCatalogSelectionFromCatalog(
+        args.catalogContext?.productCatalog ?? BOOKING_PRODUCT_CATALOG,
+        {
+          category: "Cake",
+          subcategory: "One Tier Cake",
+          productName: isDummy ? "Dummy Cake" : "Real Cake",
+          size: forcedSize,
+        },
+      );
     }
   }
 
@@ -3071,6 +3106,7 @@ function createAutoFillItemFromCategory(args: {
     category: catalog.category,
     value: addOnSource,
     allowCustomAddOns: hasExplicitAddOnSource,
+    addOnCatalog: args.catalogContext?.addOnCatalog,
   });
   const cakeAddOns =
     catalog.category === "Cake"
@@ -3224,6 +3260,7 @@ function mergeAutoFillItems(
 
 function buildRecapAutoFillItems(
   parsed: ParsedWhatsAppOrder,
+  catalogContext?: BookingParserCatalogContext,
 ): BookingAutoFillItem[] {
   const recapItems = parsed.orderRecap?.items ?? [];
 
@@ -3276,6 +3313,7 @@ function buildRecapAutoFillItems(
       notes,
       addOnSource: item.addOn,
       cookieDesignCount,
+      catalogContext,
     });
 
     return [
@@ -3306,6 +3344,7 @@ function buildMixedSupplementAutoFillItems(
   itemNotes: string,
   options?: {
     forceSeasonalEventMode?: boolean;
+    catalogContext?: BookingParserCatalogContext;
   },
 ): BookingAutoFillItem[] {
   const orderText = parsed.common.order || "";
@@ -3361,6 +3400,7 @@ function buildMixedSupplementAutoFillItems(
         notes,
         cookiePrice,
         cookieDesignCount,
+        catalogContext: options?.catalogContext,
       }),
     );
   };
@@ -3540,8 +3580,9 @@ function isSeasonalEventPacketTemplate(parsed: ParsedWhatsAppOrder): boolean {
 function buildDefaultAutoFillItems(
   parsed: ParsedWhatsAppOrder,
   itemNotes: string,
+  catalogContext?: BookingParserCatalogContext,
 ): BookingFormAutoFill["items"] {
-  const catalog = chooseCatalogSelection(parsed);
+  const catalog = chooseCatalogSelection(parsed, catalogContext);
   const quantity = chooseQuantity(parsed);
   const difficultySource = [
     parsed.common.order,
@@ -3617,6 +3658,7 @@ function buildDefaultAutoFillItems(
 function buildCupcakeAutoFillItems(
   parsed: ParsedWhatsAppOrder,
   itemNotes: string,
+  catalogContext?: BookingParserCatalogContext,
 ): BookingFormAutoFill["items"] {
   const quantityInfo = resolveCupcakeQuantityBreakdown(parsed);
   const flavorSource = [
@@ -3659,6 +3701,7 @@ function buildCupcakeAutoFillItems(
     const catalog = chooseCatalogSelectionByText(
       "Cupcakes",
       "cupcakes 1 dozen lusin 12 pcs",
+      catalogContext,
     );
     items.push({
       category: catalog.category,
@@ -3682,6 +3725,7 @@ function buildCupcakeAutoFillItems(
     const catalog = chooseCatalogSelectionByText(
       "Cupcakes",
       "cupcakes individual indv per pcs",
+      catalogContext,
     );
     items.push({
       category: catalog.category,
@@ -3705,7 +3749,7 @@ function buildCupcakeAutoFillItems(
     return items;
   }
 
-  return buildDefaultAutoFillItems(parsed, itemNotes);
+  return buildDefaultAutoFillItems(parsed, itemNotes, catalogContext);
 }
 
 export function buildWhatsAppTemplate(orderType: WhatsAppOrderType): string {
@@ -3958,9 +4002,10 @@ export function formatParsedWhatsAppForNotes(
 
 export function buildBookingAutoFillFromParsed(
   parsed: ParsedWhatsAppOrder,
+  catalogContext?: BookingParserCatalogContext,
 ): BookingFormAutoFill {
   const itemNotes = buildItemNotesForOrderType(parsed, parsed.orderType);
-  const recapAutoFillItems = buildRecapAutoFillItems(parsed);
+  const recapAutoFillItems = buildRecapAutoFillItems(parsed, catalogContext);
   const recapTotals = parsed.orderRecap?.totals;
 
   const autoFillItems =
@@ -3971,6 +4016,7 @@ export function buildBookingAutoFillFromParsed(
             const seasonalEventAutoFillItems =
               buildMixedSupplementAutoFillItems(parsed, itemNotes, {
                 forceSeasonalEventMode: true,
+                catalogContext,
               });
             if (seasonalEventAutoFillItems.length > 0) {
               return mergeAutoFillItems(seasonalEventAutoFillItems);
@@ -3979,11 +4025,12 @@ export function buildBookingAutoFillFromParsed(
 
           const primaryAutoFillItems =
             parsed.orderType === "cupcakes"
-              ? buildCupcakeAutoFillItems(parsed, itemNotes)
-              : buildDefaultAutoFillItems(parsed, itemNotes);
+              ? buildCupcakeAutoFillItems(parsed, itemNotes, catalogContext)
+              : buildDefaultAutoFillItems(parsed, itemNotes, catalogContext);
           const mixedSupplementItems = buildMixedSupplementAutoFillItems(
             parsed,
             itemNotes,
+            { catalogContext },
           );
           return mergeAutoFillItems([
             ...primaryAutoFillItems,

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import {
   Bar,
@@ -192,13 +193,21 @@ export default function ReportsPage() {
         description="Analytics for revenue and order health across time."
         icon={PieChartIcon}
         actions={
-          <Button
-            className="gap-2 bg-indigo-600 text-white hover:bg-indigo-700 focus-visible:ring-indigo-500"
-            onClick={exportCsv}
-          >
-            <Download size={16} />
-            Export CSV
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href="/bakery/omzet-harian"
+              className="inline-flex h-10 items-center justify-center rounded-xl border border-[#dbe2ea] px-4 text-sm font-semibold text-[#243b5a] transition hover:bg-[#fff4ed]"
+            >
+              Buka halaman omzet harian
+            </Link>
+            <Button
+              className="gap-2 bg-indigo-600 text-white hover:bg-indigo-700 focus-visible:ring-indigo-500"
+              onClick={exportCsv}
+            >
+              <Download size={16} />
+              Export CSV
+            </Button>
+          </div>
         }
       />
 

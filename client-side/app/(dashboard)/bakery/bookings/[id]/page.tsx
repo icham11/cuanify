@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
@@ -11,7 +12,13 @@ import OrderTimeline from "@/components/bakery/shared/OrderTimeline";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { FileText, Printer } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  FileText,
+  Printer,
+  RefreshCcw,
+} from "lucide-react";
 import { useOrders } from "@/components/bakery/store";
 import { useParams } from "next/navigation";
 import { formatCurrency } from "@/components/orders/formatters";
@@ -60,6 +67,19 @@ type ServerOrderPayload = {
   paymentStatus?: string;
   totalPaidAmount?: number;
   remainingBalance?: number;
+};
+
+type InventorySyncPayload = {
+  orderId: string;
+  orderStatus?: string;
+  deductions: Array<{
+    ingredientId: number;
+    ingredientName: string;
+    ingredientUnit: string;
+    quantity: number;
+  }>;
+  unresolvedProducts: string[];
+  updatedAt?: string;
 };
 
 type TokenDifficulty =
@@ -180,6 +200,11 @@ export default function OrderDetailPage() {
   const [paymentSaveSyncState, setPaymentSaveSyncState] =
     useState<SaveSyncState>("idle");
   const [paymentSaveSyncMessage, setPaymentSaveSyncMessage] = useState("");
+  const [inventorySync, setInventorySync] = useState<InventorySyncPayload | null>(
+    null,
+  );
+  const [inventorySyncLoading, setInventorySyncLoading] = useState(false);
+  const [inventorySyncError, setInventorySyncError] = useState("");
 
   const order = useMemo(
     () => orders.find((item) => item.id === orderId),
@@ -301,6 +326,102 @@ export default function OrderDetailPage() {
     setPaymentSaveSyncState("idle");
     setPaymentSaveSyncMessage("");
   }, [order?.id]);
+
+  useEffect(() => {
+    if (!orderId) return;
+
+    let cancelled = false;
+
+    const loadInventorySync = async () => {
+      setInventorySyncLoading(true);
+      setInventorySyncError("");
+
+      try {
+        const response = await fetch(
+          `/api/bookings/orders/${encodeURIComponent(orderId)}/inventory-sync`,
+          {
+            method: "GET",
+            credentials: "include",
+            cache: "no-store",
+          },
+        );
+
+        const payload = (await response.json()) as {
+          success?: boolean;
+          data?: InventorySyncPayload | null;
+          error?: string;
+        };
+
+        if (!response.ok || !payload.success) {
+          throw new Error(payload.error || "Gagal memuat status inventory");
+        }
+
+        if (!cancelled) {
+          setInventorySync(payload.data ?? null);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setInventorySyncError(
+            error instanceof Error
+              ? error.message
+              : "Gagal memuat status inventory",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setInventorySyncLoading(false);
+        }
+      }
+    };
+
+    void loadInventorySync();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [orderId, order?.orderStatus, order?.items, order?.paymentStatus]);
+
+  const inventorySyncLabel = useMemo(() => {
+    if (inventorySyncLoading) {
+      return {
+        text: "Mengecek sinkronisasi bahan...",
+        className: "border-sky-200 bg-sky-50 text-sky-700",
+      };
+    }
+
+    if (inventorySyncError) {
+      return {
+        text: "Status inventory belum bisa dicek",
+        className: "border-amber-200 bg-amber-50 text-amber-700",
+      };
+    }
+
+    if (!inventorySync) {
+      return {
+        text: "Belum ada catatan sinkronisasi inventory",
+        className: "border-gray-200 bg-gray-50 text-gray-600",
+      };
+    }
+
+    if ((inventorySync.unresolvedProducts?.length ?? 0) > 0) {
+      return {
+        text: "Sebagian item belum nyambung ke recipe inventory",
+        className: "border-amber-200 bg-amber-50 text-amber-700",
+      };
+    }
+
+    if ((inventorySync.deductions?.length ?? 0) > 0) {
+      return {
+        text: "Inventory sudah sinkron dan bahan sudah terpotong",
+        className: "border-emerald-200 bg-emerald-50 text-emerald-700",
+      };
+    }
+
+    return {
+      text: "Order ini belum memotong inventory",
+      className: "border-gray-200 bg-gray-50 text-gray-600",
+    };
+  }, [inventorySync, inventorySyncError, inventorySyncLoading]);
 
   const verifyPaymentSavedToServer = async (params: {
     orderId: string;
@@ -958,6 +1079,106 @@ export default function OrderDetailPage() {
                   ))}
                 </div>
               </div>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-xl shadow-sm">
+            <CardHeader className="p-6 pb-2">
+              <CardTitle>Inventory Sync</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 px-6 pb-6 pt-0 text-sm text-gray-700">
+              <div
+                className={`rounded-xl border px-3 py-2 text-sm font-semibold ${inventorySyncLabel.className}`}
+              >
+                <div className="flex items-center gap-2">
+                  {inventorySyncLoading ? (
+                    <RefreshCcw className="h-4 w-4 animate-spin" />
+                  ) : inventorySyncError ||
+                    (inventorySync?.unresolvedProducts?.length ?? 0) > 0 ? (
+                    <AlertTriangle className="h-4 w-4" />
+                  ) : (
+                    <CheckCircle2 className="h-4 w-4" />
+                  )}
+                  <span>{inventorySyncLabel.text}</span>
+                </div>
+              </div>
+
+              {inventorySync?.updatedAt ? (
+                <p className="text-xs text-gray-500">
+                  Sinkron terakhir{" "}
+                  {new Date(inventorySync.updatedAt).toLocaleString("id-ID")}
+                </p>
+              ) : null}
+
+              {inventorySync?.deductions?.length ? (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    Bahan yang terpotong untuk order ini
+                  </p>
+                  <div className="space-y-2">
+                    {inventorySync.deductions.map((entry) => (
+                      <div
+                        key={`${entry.ingredientId}-${entry.ingredientName}`}
+                        className="flex items-center justify-between rounded-lg border border-emerald-100 bg-emerald-50/60 px-3 py-2"
+                      >
+                        <span className="font-medium text-gray-800">
+                          {entry.ingredientName}
+                        </span>
+                        <span className="text-sm font-semibold text-emerald-700">
+                          -{entry.quantity} {entry.ingredientUnit}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {inventorySync?.unresolvedProducts?.length ? (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    Item yang belum punya mapping recipe
+                  </p>
+                  <div className="space-y-2">
+                    {inventorySync.unresolvedProducts.map((name) => (
+                      <div
+                        key={name}
+                        className="rounded-lg border border-amber-100 bg-amber-50/70 px-3 py-2 text-amber-800"
+                      >
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                          <span>{name}</span>
+                          <Link
+                            href={`/dashboard/products?search=${encodeURIComponent(name)}`}
+                            className="inline-flex h-9 items-center justify-center rounded-lg border border-amber-200 bg-white px-3 text-xs font-semibold text-amber-800 transition hover:bg-amber-100"
+                          >
+                            Buka product terkait
+                          </Link>
+                          <Link
+                            href={`/dashboard/products/create?name=${encodeURIComponent(name)}`}
+                            className="inline-flex h-9 items-center justify-center rounded-lg border border-indigo-200 bg-white px-3 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-50"
+                          >
+                            Buat product baru
+                          </Link>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-amber-700">
+                    Lengkapi recipe di dashboard product untuk item ini supaya
+                    stok bahan bisa ikut berkurang otomatis.
+                  </p>
+                </div>
+              ) : null}
+
+              {!inventorySyncLoading &&
+              !inventorySyncError &&
+              inventorySync &&
+              (inventorySync.deductions?.length ?? 0) === 0 &&
+              (inventorySync.unresolvedProducts?.length ?? 0) === 0 ? (
+                <p className="text-xs text-gray-500">
+                  Biasanya ini terjadi kalau order masih status awal seperti
+                  inquiry/quoted, jadi inventory belum dipotong.
+                </p>
+              ) : null}
             </CardContent>
           </Card>
 

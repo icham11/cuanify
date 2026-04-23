@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireAuth, AuthError } from "@/lib/auth/session";
+import { getBusinessOverviewSummary } from "@/lib/bookings/business-overview";
 
 export const runtime = "nodejs";
 
@@ -26,15 +27,9 @@ export async function GET() {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
-    // Gather user stats
-    const [businessCount, totalProducts, totalSales, totalRevenue] = await Promise.all([
+    const [businessCount, overview] = await Promise.all([
       prisma.business.count({ where: { userId } }),
-      prisma.product.count({ where: { businessId } }),
-      prisma.sale.count({ where: { businessId, paymentStatus: "Paid" } }),
-      prisma.sale.aggregate({
-        where: { businessId, paymentStatus: "Paid" },
-        _sum: { totalRevenue: true },
-      }),
+      businessId ? getBusinessOverviewSummary(businessId) : null,
     ]);
 
     return NextResponse.json({
@@ -43,9 +38,9 @@ export async function GET() {
         ...user,
         stats: {
           businessCount,
-          totalProducts,
-          totalSales,
-          totalRevenue: Number(totalRevenue._sum.totalRevenue ?? 0),
+          totalProducts: overview?.counts.products ?? 0,
+          totalSales: overview?.counts.sales ?? 0,
+          totalRevenue: overview?.stats.totalRevenue ?? 0,
         },
       },
     });

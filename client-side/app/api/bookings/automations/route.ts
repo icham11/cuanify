@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAuth, AuthError } from "@/lib/auth/session";
 import { runBookingAutomations } from "@/lib/bookings/automation-service";
+import { loadEffectiveBookingCatalog } from "@/lib/bookings/catalog-config-server";
 import { calculateOrderPriceSafe } from "@/lib/bookings/pricing-service";
 import type {
   BookingAutomationEvent,
@@ -114,11 +115,15 @@ export async function POST(request: NextRequest) {
     const eventType = parsed.data.eventType as BookingAutomationEvent;
     const order = parsed.data.order as BookingAutomationOrderPayload;
 
+    const { productCatalog } = await loadEffectiveBookingCatalog(
+      auth.businessId,
+    );
     const pricing = calculateOrderPriceSafe({
       items: order.items,
       fallbackTotal: order.totalPrice,
       deliveryFee: order.deliveryFee,
       manualAdjustment: order.manualAdjustment,
+      catalog: productCatalog,
     });
     const hasStructuredPricingSignals = order.items.some((item) => {
       return (

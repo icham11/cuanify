@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireAuth, isAuthError } from "@/lib/auth/session";
+import { getBakeryHourlyAnalytics, hasBakeryOrders } from "@/lib/bookings/bakery-analytics";
 
 /**
  * GET /api/analytics/hourly
@@ -10,6 +11,13 @@ import { requireAuth, isAuthError } from "@/lib/auth/session";
 export async function GET() {
   try {
     const { businessId } = await requireAuth();
+
+    const useBakery = await hasBakeryOrders(businessId);
+
+    if (useBakery) {
+      const result = await getBakeryHourlyAnalytics(businessId);
+      return NextResponse.json({ success: true, data: result.data, totals: result.totals });
+    }
 
     const now = new Date();
     const since = new Date(now.getTime() - 24 * 60 * 60 * 1000);

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireAuth, isAuthError } from "@/lib/auth/session";
+import { getBakeryDailyAnalytics, hasBakeryOrders } from "@/lib/bookings/bakery-analytics";
 
 export async function GET(request: Request) {
   try {
@@ -11,7 +12,21 @@ export async function GET(request: Request) {
     const month = Number(url.searchParams.get("month")) || new Date().getMonth() + 1;
 
     const startDate = new Date(year, month - 1, 1);
-    const endDate = new Date(year, month, 0);
+    const endDate = new Date(year, month, 0, 23, 59, 59, 999);
+
+    const useBakery = await hasBakeryOrders(businessId);
+
+    if (useBakery) {
+      const bakery = await getBakeryDailyAnalytics(businessId, startDate, endDate);
+      return NextResponse.json({
+        success: true,
+        data: bakery.data.map((point) => ({
+          date: point.date,
+          revenue: point.revenue,
+          profit: point.profit,
+        })),
+      });
+    }
 
     const metrics = await prisma.businessMetrics.findMany({
       where: {

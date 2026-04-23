@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireAuth, isAuthError } from "@/lib/auth/session";
+import { getBakeryCategoryAnalytics, hasBakeryOrders } from "@/lib/bookings/bakery-analytics";
 
 /**
  * GET /api/analytics/category?from=ISO&to=ISO
@@ -24,6 +25,17 @@ export async function GET(request: NextRequest) {
           return d;
         })();
     const toDate = toParam ? new Date(toParam) : now;
+
+    const useBakery = await hasBakeryOrders(businessId);
+
+    if (useBakery) {
+      const result = await getBakeryCategoryAnalytics(businessId, fromDate, toDate);
+      return NextResponse.json({
+        success: true,
+        categories: result.categories,
+        summary: result.summary,
+      });
+    }
 
     type CategoryRow = {
       categoryId: number | null;

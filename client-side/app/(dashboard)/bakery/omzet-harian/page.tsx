@@ -73,6 +73,13 @@ function getJakartaDateKey(now: Date = new Date()): string {
   }).format(now);
 }
 
+function toDateInputValue(date: Date) {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function formatTimeWib(dateIso: string): string {
   return new Intl.DateTimeFormat("id-ID", {
     timeZone: BUSINESS_TIME_ZONE,
@@ -91,13 +98,15 @@ function formatPaymentStatusLabel(status: PaymentStatus): string {
 }
 
 export default function AdminDailyOmzetPage() {
-  const { loading: roleLoading, isAdmin } = useRole();
+  const { loading: roleLoading, isAdmin, isOwner } = useRole();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [data, setData] = useState<DailyOmzetData | null>(null);
   const [currentSalesPage, setCurrentSalesPage] = useState(1);
+  const [selectedDate, setSelectedDate] = useState(() => toDateInputValue(new Date()));
   const dateKeyRef = useRef<string>(getJakartaDateKey());
+  const canViewDailyOmzet = isAdmin || isOwner;
 
   const fetchDailyOmzet = useCallback(async (silent = false) => {
     if (silent) {
@@ -107,11 +116,14 @@ export default function AdminDailyOmzetPage() {
     }
 
     try {
-      const response = await fetch("/api/admin/daily-omzet", {
+      const response = await fetch(
+        `/api/admin/daily-omzet?date=${encodeURIComponent(selectedDate)}`,
+        {
         method: "GET",
         credentials: "include",
         cache: "no-store",
-      });
+        },
+      );
 
       const payload = (await response.json()) as {
         success?: boolean;
@@ -125,7 +137,7 @@ export default function AdminDailyOmzetPage() {
 
       setData(payload.data);
       setError("");
-      dateKeyRef.current = getJakartaDateKey();
+      dateKeyRef.current = selectedDate;
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Gagal memuat data omzet harian",
@@ -134,10 +146,10 @@ export default function AdminDailyOmzetPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [selectedDate]);
 
   useEffect(() => {
-    if (roleLoading || !isAdmin) {
+    if (roleLoading || !canViewDailyOmzet) {
       if (!roleLoading) {
         setLoading(false);
       }
@@ -145,24 +157,24 @@ export default function AdminDailyOmzetPage() {
     }
 
     void fetchDailyOmzet(false);
-  }, [fetchDailyOmzet, roleLoading, isAdmin]);
+  }, [canViewDailyOmzet, fetchDailyOmzet, roleLoading]);
 
   useEffect(() => {
-    if (roleLoading || !isAdmin) return;
+    if (roleLoading || !canViewDailyOmzet) return;
 
     const timer = window.setInterval(() => {
       const currentDateKey = getJakartaDateKey();
-      if (currentDateKey !== dateKeyRef.current) {
-        dateKeyRef.current = currentDateKey;
+      if (selectedDate === currentDateKey || currentDateKey !== dateKeyRef.current) {
+        dateKeyRef.current = selectedDate;
+        void fetchDailyOmzet(true);
       }
-      void fetchDailyOmzet(true);
     }, 60_000);
 
     return () => window.clearInterval(timer);
-  }, [fetchDailyOmzet, roleLoading, isAdmin]);
+  }, [canViewDailyOmzet, fetchDailyOmzet, roleLoading, selectedDate]);
 
   useEffect(() => {
-    if (roleLoading || !isAdmin) return;
+    if (roleLoading || !canViewDailyOmzet) return;
 
     const handleFocus = () => {
       void fetchDailyOmzet(true);
@@ -181,21 +193,28 @@ export default function AdminDailyOmzetPage() {
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [fetchDailyOmzet, roleLoading, isAdmin]);
+  }, [canViewDailyOmzet, fetchDailyOmzet, roleLoading]);
 
   const summaryCards = useMemo(() => {
     if (!data) return [];
 
-    const paidBookingCount = data.sales.filter(
-      (sale) => sale.totalPaidAmount > 0,
+    const paidBookingCount = data.sales.filter((sale) => sale.totalPaidAmount > 0)
+      .length;
+    const fullyPaidBookingCount = data.sales.filter(
+      (sale) => sale.totalPaidAmount > 0 && sale.remainingBalance <= 0,
     ).length;
-    const dpBookingCount = Math.max(0, paidBookingCount - data.summary.fullyPaidBookingCountCreatedToday);
+    const dpReceiptCount = data.payments.filter(
+      (payment) => payment.paymentType === "DP" && payment.amount > 0,
+    ).length;
+    const finalReceiptCount = data.payments.filter(
+      (payment) => payment.paymentType === "Final" && payment.amount > 0,
+    ).length;
 
     return [
       {
         title: "Uang Masuk Hari Ini",
         value: formatCurrency(data.summary.totalPaymentsReceived),
-        hint: `${paidBookingCount} booking sudah bayar (DP atau Lunas)`,
+        hint: `${paidBookingCount} booking menerima pembayaran di tanggal ini`,
         icon: ReceiptText,
       },
       {
@@ -211,9 +230,9 @@ export default function AdminDailyOmzetPage() {
         icon: CalendarClock,
       },
       {
-        title: "Jumlah Booking Lunas",
-        value: `${data.summary.fullyPaidBookingCountCreatedToday} booking`,
-        hint: `${dpBookingCount} booking DP, ${data.summary.fullyPaidBookingCountCreatedToday} booking lunas`,
+        title: "Booking Lunas di Tanggal Ini",
+        value: `${fullyPaidBookingCount} booking`,
+        hint: `${dpReceiptCount} transaksi DP, ${finalReceiptCount} transaksi pelunasan`,
         icon: Coins,
       },
     ];
@@ -256,12 +275,12 @@ export default function AdminDailyOmzetPage() {
     );
   }
 
-  if (!isAdmin) {
+  if (!canViewDailyOmzet) {
     return (
       <div className="space-y-6 pb-10">
         <GradientPageHeader
           title="Omzet Harian"
-          description="Halaman ini khusus untuk role Admin."
+          description="Halaman ini khusus untuk role Owner dan Admin."
           icon={BarChart3}
         />
         <Card className="rounded-xl shadow-sm">
@@ -281,17 +300,28 @@ export default function AdminDailyOmzetPage() {
           description="Ringkasan booking hari ini"
           icon={BarChart3}
           actions={
-            <button
-              type="button"
-              onClick={() => void fetchDailyOmzet(true)}
-              className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-60"
-              disabled={refreshing}
-            >
-              <RefreshCcw
-                className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`}
-              />
-              {refreshing ? "Menyegarkan..." : "Refresh"}
-            </button>
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-gray-400">
+                Tanggal
+                <input
+                  type="date"
+                  value={selectedDate}
+                  onChange={(event) => setSelectedDate(event.target.value)}
+                  className="h-10 rounded-xl border border-[#dbe2ea] bg-white px-3 text-sm font-medium text-gray-900 shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#334e68]"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => void fetchDailyOmzet(true)}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-60"
+                disabled={refreshing}
+              >
+                <RefreshCcw
+                  className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`}
+                />
+                {refreshing ? "Menyegarkan..." : "Refresh"}
+              </button>
+            </div>
           }
         />
         <Card className="rounded-xl border border-amber-200 shadow-sm">
@@ -312,15 +342,26 @@ export default function AdminDailyOmzetPage() {
         }
         icon={BarChart3}
         actions={
-          <button
-            type="button"
-            onClick={() => void fetchDailyOmzet(true)}
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-60"
-            disabled={refreshing}
-          >
-            <RefreshCcw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-            {refreshing ? "Menyegarkan..." : "Refresh"}
-          </button>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-gray-400">
+              Tanggal
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(event) => setSelectedDate(event.target.value)}
+                className="h-10 rounded-xl border border-[#dbe2ea] bg-white px-3 text-sm font-medium text-gray-900 shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#334e68]"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => void fetchDailyOmzet(true)}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-60"
+              disabled={refreshing}
+            >
+              <RefreshCcw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+              {refreshing ? "Menyegarkan..." : "Refresh"}
+            </button>
+          </div>
         }
       />
 
@@ -354,15 +395,15 @@ export default function AdminDailyOmzetPage() {
 
       <Card className="rounded-xl shadow-sm">
         <CardContent className="px-6 py-4 text-sm text-gray-600">
-          Cara baca halaman ini: booking yang dibuat hari ini dan sudah dibayar (DP atau Lunas) langsung dihitung sebagai uang masuk hari ini sesuai nominal yang dibayarkan.
+          Cara baca halaman ini: booking pada tanggal terpilih yang sudah dibayar (DP atau Lunas) langsung dihitung sebagai uang masuk sesuai nominal yang dibayarkan.
         </CardContent>
       </Card>
 
       <Card className="rounded-xl shadow-sm">
         <CardHeader className="p-6 pb-2">
-          <CardTitle>Daftar Booking Hari Ini</CardTitle>
+          <CardTitle>Daftar Booking Dibayar Pada Tanggal Ini</CardTitle>
           <p className="text-xs text-gray-500">
-            Klik kode booking untuk buka detail lalu ubah status bayar ke Lunas.
+            Booking yang menerima DP 50% atau pelunasan di tanggal terpilih akan muncul di sini.
           </p>
         </CardHeader>
         <CardContent className="px-6 pb-6 pt-0">
@@ -376,7 +417,7 @@ export default function AdminDailyOmzetPage() {
                     <th className="py-2 pr-4">Customer</th>
                     <th className="py-2 pr-4">Status Bayar</th>
                     <th className="py-2 text-right">Total Pesanan</th>
-                    <th className="py-2 text-right">Sudah Dibayar</th>
+                    <th className="py-2 text-right">Dibayar Hari Ini</th>
                     <th className="py-2 text-right">Sisa</th>
                   </tr>
                 </thead>
@@ -449,7 +490,7 @@ export default function AdminDailyOmzetPage() {
             </div>
           ) : (
             <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/70 px-4 py-6 text-center text-sm text-gray-500">
-              Belum ada booking hari ini.
+              Belum ada pembayaran booking pada tanggal ini.
             </div>
           )}
         </CardContent>

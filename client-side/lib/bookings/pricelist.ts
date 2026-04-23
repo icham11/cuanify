@@ -783,8 +783,11 @@ function includesKeyword(normalizedText: string, keyword: string): boolean {
   return compactText.includes(compactProbe);
 }
 
-function getCategory(category: string): PricelistCategory | undefined {
-  return BOOKING_PRODUCT_CATALOG.find((entry) => entry.category === category);
+function getCategory(
+  category: string,
+  catalog: PricelistCategory[] = BOOKING_PRODUCT_CATALOG,
+): PricelistCategory | undefined {
+  return catalog.find((entry) => entry.category === category);
 }
 
 function getSubcategory(
@@ -908,15 +911,24 @@ function scoreKeywordList(
 }
 
 export function getDefaultCatalogSelection(): CatalogSelection {
-  return getDefaultCatalogSelectionForCategory(
-    BOOKING_PRODUCT_CATALOG[0]?.category ?? "Cake",
-  );
+  return getDefaultCatalogSelectionFromCatalog(BOOKING_PRODUCT_CATALOG);
 }
 
 export function getDefaultCatalogSelectionForCategory(
   category: string,
 ): CatalogSelection {
-  const categoryData = getCategory(category) ?? BOOKING_PRODUCT_CATALOG[0];
+  return getDefaultCatalogSelectionFromCatalog(
+    BOOKING_PRODUCT_CATALOG,
+    category,
+  );
+}
+
+export function getDefaultCatalogSelectionFromCatalog(
+  catalog: PricelistCategory[],
+  category?: string,
+): CatalogSelection {
+  const categoryData =
+    getCategory(category ?? "", catalog) ?? catalog[0] ?? BOOKING_PRODUCT_CATALOG[0];
   const subcategoryData = categoryData?.subcategories[0];
   const productData = subcategoryData?.products[0];
 
@@ -932,8 +944,9 @@ export function getProductVariants(
   category: string,
   subcategory: string,
   productName: string,
+  catalog: PricelistCategory[] = BOOKING_PRODUCT_CATALOG,
 ): PricelistVariant[] {
-  const categoryData = getCategory(category);
+  const categoryData = getCategory(category, catalog);
   if (!categoryData) return [];
   const subcategoryData = getSubcategory(categoryData, subcategory);
   if (!subcategoryData) return [];
@@ -942,10 +955,18 @@ export function getProductVariants(
 }
 
 export function getUnitPriceBySelection(selection: CatalogSelection): number {
+  return getUnitPriceBySelectionFromCatalog(BOOKING_PRODUCT_CATALOG, selection);
+}
+
+export function getUnitPriceBySelectionFromCatalog(
+  catalog: PricelistCategory[],
+  selection: CatalogSelection,
+): number {
   const variants = getProductVariants(
     selection.category,
     selection.subcategory,
     selection.productName,
+    catalog,
   );
   const chosen = findVariantBySelection(variants, selection.size);
   if (chosen) return chosen.price;
@@ -955,11 +976,20 @@ export function getUnitPriceBySelection(selection: CatalogSelection): number {
 export function ensureCatalogSelection(
   partial: Partial<CatalogSelection>,
 ): CatalogSelection {
-  const fallback = getDefaultCatalogSelectionForCategory(
+  return ensureCatalogSelectionFromCatalog(BOOKING_PRODUCT_CATALOG, partial);
+}
+
+export function ensureCatalogSelectionFromCatalog(
+  catalog: PricelistCategory[],
+  partial: Partial<CatalogSelection>,
+): CatalogSelection {
+  const fallback = getDefaultCatalogSelectionFromCatalog(
+    catalog,
     partial.category ?? "Cake",
   );
   const categoryData =
-    getCategory(partial.category ?? "") ?? getCategory(fallback.category);
+    getCategory(partial.category ?? "", catalog) ??
+    getCategory(fallback.category, catalog);
 
   if (!categoryData) return fallback;
 
@@ -989,14 +1019,26 @@ export function suggestCatalogSelection(
   category: string,
   rawText: string,
 ): CatalogSelection {
-  const categoryData = getCategory(category);
+  return suggestCatalogSelectionFromCatalog(
+    BOOKING_PRODUCT_CATALOG,
+    category,
+    rawText,
+  );
+}
+
+export function suggestCatalogSelectionFromCatalog(
+  catalog: PricelistCategory[],
+  category: string,
+  rawText: string,
+): CatalogSelection {
+  const categoryData = getCategory(category, catalog);
   if (!categoryData) {
-    return getDefaultCatalogSelection();
+    return getDefaultCatalogSelectionFromCatalog(catalog);
   }
 
   const normalizedText = normalize(rawText);
   if (!normalizedText) {
-    return getDefaultCatalogSelectionForCategory(category);
+    return getDefaultCatalogSelectionFromCatalog(catalog, category);
   }
 
   let best:
@@ -1034,7 +1076,7 @@ export function suggestCatalogSelection(
   });
 
   if (!best || best.score <= 0) {
-    return getDefaultCatalogSelectionForCategory(category);
+    return getDefaultCatalogSelectionFromCatalog(catalog, category);
   }
 
   const variantByLabel = best.product.variants.find((entry) =>
@@ -1047,7 +1089,7 @@ export function suggestCatalogSelection(
     );
   });
 
-  return ensureCatalogSelection({
+  return ensureCatalogSelectionFromCatalog(catalog, {
     category: categoryData.category,
     subcategory: best.subcategory.name,
     productName: best.product.name,
