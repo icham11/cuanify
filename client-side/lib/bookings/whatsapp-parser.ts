@@ -334,6 +334,7 @@ export interface ParsedWhatsAppOrderRecapItem {
 export interface ParsedWhatsAppOrderRecapTotals {
   subtotalProducts?: number;
   shippingFee?: number;
+  serviceCharge?: number;
   adjustment?: number;
   total?: number;
   downPayment?: number;
@@ -543,6 +544,11 @@ const recapTotalFieldDefinitions: Array<
     key: "shippingFee",
     label: "Ongkir",
     aliases: ["ongkir", "delivery fee", "shipping fee"],
+  },
+  {
+    key: "serviceCharge",
+    label: "Service Charge",
+    aliases: ["service charge", "biaya layanan", "admin fee"],
   },
   {
     key: "adjustment",
@@ -3907,6 +3913,11 @@ export function formatParsedWhatsAppForNotes(
         `Ongkir: ${formatCurrencyNote(parsed.orderRecap.totals.shippingFee)}`,
       );
     }
+    if (parsed.orderRecap.totals.serviceCharge) {
+      lines.push(
+        `Service Charge: ${formatCurrencyNote(parsed.orderRecap.totals.serviceCharge)}`,
+      );
+    }
     if (parsed.orderRecap.totals.adjustment) {
       lines.push(
         `Adjustment: ${formatCurrencyNote(parsed.orderRecap.totals.adjustment)}`,
@@ -4141,6 +4152,12 @@ export function getDisplayFields(
     rows.push({
       label: "Ongkir",
       value: formatCurrencyNote(parsed.orderRecap.totals.shippingFee),
+    });
+  }
+  if (parsed.orderRecap?.totals.serviceCharge) {
+    rows.push({
+      label: "Service Charge",
+      value: formatCurrencyNote(parsed.orderRecap.totals.serviceCharge),
     });
   }
   if (parsed.orderRecap?.totals.adjustment) {
