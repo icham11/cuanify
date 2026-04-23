@@ -8,12 +8,14 @@ import {
 } from "@/lib/auth/session";
 import { z } from "zod";
 import { recomputeRecipeCost } from "@/lib/computeRecipeCost";
+import {
+  acquireProductWriteLock,
+  findProductNameConflicts,
+  normalizeProductName,
+} from "@/lib/products/uniqueness";
+import { recipeItemSchema } from "@/lib/validations/product";
 
 export const runtime = "nodejs";
-
-// ---------- PATCH /api/products/[id] — update selling price only ----------
-
-import { recipeItemSchema } from "@/lib/validations/product";
 
 const patchSchema = z.object({
   name: z.string().min(1).max(200).optional(),
@@ -45,15 +47,6 @@ export async function PATCH(
       );
     }
 
-    // Ownership check — also blocks patching soft-deleted products
-    const existing = await prisma.product.findFirst({
-      where: { id, businessId, deletedAt: null },
-      include: { recipes: true },
-    });
-    if (!existing) {
-      return NextResponse.json({ error: "Product not found" }, { status: 404 });
-    }
-
     const body = await request.json();
     const parsed = patchSchema.safeParse(body);
     if (!parsed.success) {
@@ -72,67 +65,85 @@ export async function PATCH(
       );
     }
 
-    let categoryId = parsed.data.categoryId;
-    if (!categoryId && parsed.data.categoryName) {
-      // Find or create category by name (case-insensitive)
-      let category = await prisma.category.findFirst({
-        where: {
-          businessId,
-          name: { equals: parsed.data.categoryName, mode: "insensitive" },
-        },
+    await prisma.$transaction(async (tx) => {
+      await acquireProductWriteLock(tx, businessId);
+
+      const existing = await tx.product.findFirst({
+        where: { id, businessId, deletedAt: null },
+        select: { id: true, name: true },
       });
-      if (!category) {
-        category = await prisma.category.create({
-          data: { businessId, name: parsed.data.categoryName },
-        });
+      if (!existing) {
+        throw new Error("Product not found");
       }
-      categoryId = category.id;
-    }
 
-    // Prepare update data
-    const updateData: Record<string, unknown> = {};
-    if (parsed.data.name !== undefined) updateData.name = parsed.data.name;
-    if (categoryId !== undefined) updateData.categoryId = categoryId;
-    if (parsed.data.sellingPrice !== undefined)
-      updateData.sellingPrice = parsed.data.sellingPrice;
-    if (parsed.data.productType !== undefined)
-      updateData.productType = parsed.data.productType;
-    if (parsed.data.createdAt !== undefined)
-      updateData.createdAt = new Date(parsed.data.createdAt);
+      let categoryId = parsed.data.categoryId;
+      if (!categoryId && parsed.data.categoryName) {
+        let category = await tx.category.findFirst({
+          where: {
+            businessId,
+            name: { equals: parsed.data.categoryName, mode: "insensitive" },
+          },
+        });
+        if (!category) {
+          category = await tx.category.create({
+            data: { businessId, name: parsed.data.categoryName },
+          });
+        }
+        categoryId = category.id;
+      }
 
-    // Update product main fields
-    const updatedProduct = await prisma.product.update({
-      where: { id },
-      data: updateData,
-      include: {
-        category: { select: { id: true, name: true } },
-        recipes: { include: { ingredient: true } },
-      },
+      const nextName =
+        parsed.data.name !== undefined
+          ? normalizeProductName(parsed.data.name)
+          : normalizeProductName(existing.name);
+
+      const duplicateNames = await findProductNameConflicts({
+        tx,
+        businessId,
+        names: [nextName],
+        excludeProductId: id,
+      });
+      if (duplicateNames.length > 0) {
+        throw new Error(`Product "${nextName}" already exists.`);
+      }
+
+      const updateData: Record<string, unknown> = {};
+      if (parsed.data.name !== undefined) updateData.name = nextName;
+      if (categoryId !== undefined) updateData.categoryId = categoryId;
+      if (parsed.data.sellingPrice !== undefined)
+        updateData.sellingPrice = parsed.data.sellingPrice;
+      if (parsed.data.productType !== undefined)
+        updateData.productType = parsed.data.productType;
+      if (parsed.data.createdAt !== undefined)
+        updateData.createdAt = new Date(parsed.data.createdAt);
+
+      await tx.product.update({
+        where: { id },
+        data: updateData,
+      });
+
+      if (parsed.data.recipe) {
+        await tx.recipe.deleteMany({ where: { productId: id } });
+        if (parsed.data.recipe.length > 0) {
+          await tx.recipe.createMany({
+            data: parsed.data.recipe.map((r) => ({
+              productId: id,
+              ingredientId: r.ingredientId,
+              quantity: r.quantity,
+            })),
+          });
+        }
+      }
     });
 
-    // Update recipe if provided (replace all)
     if (parsed.data.recipe) {
-      // Delete old recipes
-      await prisma.recipe.deleteMany({ where: { productId: id } });
-      // Insert new recipes
-      if (parsed.data.recipe.length > 0) {
-        await prisma.recipe.createMany({
-          data: parsed.data.recipe.map((r) => ({
-            productId: id,
-            ingredientId: r.ingredientId,
-            quantity: r.quantity,
-          })),
-        });
-      }
-      // Recompute recipeCost after recipe update
       try {
         await recomputeRecipeCost(id);
       } catch {
-        // non-critical — cost will be stale until next recompute
+        // Non-critical: cost will be refreshed next recompute.
       }
     }
 
-    // Refetch updated product with relations
     const result = await prisma.product.findUnique({
       where: { id },
       include: {
@@ -149,6 +160,12 @@ export async function PATCH(
     if (error instanceof ForbiddenError) {
       return NextResponse.json({ error: error.message }, { status: 403 });
     }
+    if (error instanceof Error && error.message === "Product not found") {
+      return NextResponse.json({ error: error.message }, { status: 404 });
+    }
+    if (error instanceof Error && error.message.includes("already exists")) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
     console.error("PATCH /api/products/[id] error:", error);
     return NextResponse.json(
       { error: "Failed to update product" },
@@ -156,8 +173,6 @@ export async function PATCH(
     );
   }
 }
-
-// ---------- DELETE /api/products/[id] — delete product + cascades recipes ----------
 
 export async function DELETE(
   _request: NextRequest,
@@ -174,7 +189,6 @@ export async function DELETE(
       );
     }
 
-    // Ownership check
     const existing = await prisma.product.findFirst({
       where: { id, businessId },
       select: { id: true },
@@ -183,7 +197,6 @@ export async function DELETE(
       return NextResponse.json({ error: "Product not found" }, { status: 404 });
     }
 
-    // Soft-delete: keeps SaleItem / ProductMetrics / ProductForecast intact
     await prisma.product.update({
       where: { id },
       data: { deletedAt: new Date() },

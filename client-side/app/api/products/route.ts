@@ -4,6 +4,12 @@ import prisma from "@/lib/prisma";
 import { requireAuth, isAuthError } from "@/lib/auth/session";
 import { createProductSchema, bulkCreateProductsSchema } from "@/lib/validations/product";
 import { recomputeRecipeCost } from "@/lib/computeRecipeCost";
+import {
+  acquireProductWriteLock,
+  collectDuplicateProductNames,
+  findProductNameConflicts,
+  normalizeProductName,
+} from "@/lib/products/uniqueness";
 
 export const runtime = "nodejs";
 
@@ -50,23 +56,6 @@ async function validateIngredients(
     const missing = unique.filter((id) => !foundSet.has(id));
     throw new Error(`Ingredient IDs not found in this business: ${missing.join(", ")}`);
   }
-}
-
-/** Check for duplicate product names within the business. */
-async function checkDuplicateProducts(
-  tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0],
-  businessId: number,
-  names: string[],
-): Promise<string[]> {
-  const existing = await tx.product.findMany({
-    where: {
-      businessId,
-      name: { in: names, mode: "insensitive" },
-      deletedAt: null,
-    },
-    select: { name: true },
-  });
-  return existing.map((p) => p.name);
 }
 
 // ---------- GET ----------
@@ -336,10 +325,25 @@ export async function POST(request: NextRequest) {
       // Run creates inside a transaction (no refetch inside — avoids timeout)
       const createdIds = await prisma.$transaction(
         async (tx) => {
-          const productNames = parsed.data.products.map((p) => p.name);
+          await acquireProductWriteLock(tx, businessId);
+
+          const productNames = parsed.data.products.map((p) =>
+            normalizeProductName(p.name),
+          );
+
+          const requestDuplicates = collectDuplicateProductNames(productNames);
+          if (requestDuplicates.length > 0) {
+            throw new Error(
+              `Request contains duplicate product names: ${requestDuplicates.join(", ")}.`,
+            );
+          }
 
           // Duplicate check
-          const duplicates = await checkDuplicateProducts(tx, businessId, productNames);
+          const duplicates = await findProductNameConflicts({
+            tx,
+            businessId,
+            names: productNames,
+          });
           if (duplicates.length > 0) {
             throw new Error(`Products already exist: ${duplicates.join(", ")}. Remove duplicates or rename them.`);
           }
@@ -352,12 +356,13 @@ export async function POST(request: NextRequest) {
 
           for (const item of parsed.data.products) {
             const categoryId = await resolveCategory(tx, businessId, item.categoryName);
+            const normalizedName = normalizeProductName(item.name);
 
             const product = await tx.product.create({
               data: {
                 businessId,
                 categoryId,
-                name: item.name,
+                name: normalizedName,
                 sellingPrice: item.sellingPrice,
                 productType: item.productType ?? "PreOrder",
               },
@@ -414,10 +419,18 @@ export async function POST(request: NextRequest) {
     // Run creates inside a transaction (refetch outside to avoid timeout)
     const createdId = await prisma.$transaction(
       async (tx) => {
+        await acquireProductWriteLock(tx, businessId);
+
+        const normalizedName = normalizeProductName(name);
+
         // Duplicate check
-        const duplicates = await checkDuplicateProducts(tx, businessId, [name]);
+        const duplicates = await findProductNameConflicts({
+          tx,
+          businessId,
+          names: [normalizedName],
+        });
         if (duplicates.length > 0) {
-          throw new Error(`Product "${name}" already exists.`);
+          throw new Error(`Product "${normalizedName}" already exists.`);
         }
 
         // Validate ingredients
@@ -432,7 +445,7 @@ export async function POST(request: NextRequest) {
           data: {
             businessId,
             categoryId,
-            name,
+            name: normalizedName,
             sellingPrice,
             productType: productType ?? "PreOrder",
           },
@@ -477,7 +490,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Transaction errors from duplicate / validation checks
-    if (error instanceof Error && error.message.includes("already exist")) {
+    if (
+      error instanceof Error &&
+      (error.message.includes("already exist") ||
+        error.message.includes("duplicate product names"))
+    ) {
       return NextResponse.json({ error: error.message }, { status: 409 });
     }
     if (error instanceof Error && error.message.includes("not found")) {

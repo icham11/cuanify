@@ -19,7 +19,19 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     }
 
     const business = await prisma.business.findFirst({
-      where: { id: businessId, userId },
+      where: {
+        id: businessId,
+        OR: [
+          { userId },
+          {
+            members: {
+              some: {
+                userId,
+              },
+            },
+          },
+        ],
+      },
     });
 
     if (!business) {

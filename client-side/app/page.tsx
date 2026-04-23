@@ -80,8 +80,10 @@ export default function LandingPage() {
       return;
     }
 
-    setIsChecking(false);
-    requestAnimationFrame(() => setIsReady(true));
+    requestAnimationFrame(() => {
+      setIsChecking(false);
+      setIsReady(true);
+    });
   }, []);
 
   if (isChecking) {

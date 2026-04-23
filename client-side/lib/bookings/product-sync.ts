@@ -1,5 +1,13 @@
 import prisma from "@/lib/prisma";
+import { recomputeRecipeCost } from "@/lib/computeRecipeCost";
 import type { PricelistCategory } from "@/lib/bookings/pricelist";
+import {
+  acquireProductWriteLock,
+  collectDuplicateProductNames,
+  deduplicateProductsForBusiness,
+  normalizeProductName,
+  normalizeProductNameKey,
+} from "@/lib/products/uniqueness";
 
 interface FlattenedCatalogProduct {
   name: string;
@@ -38,18 +46,20 @@ export function flattenCatalogProductsForDashboard(
     category.subcategories.forEach((subcategory) => {
       subcategory.products.forEach((product) => {
         product.variants.forEach((variant) => {
-          const name = buildDashboardProductName({
-            productName: product.name,
-            variantLabel: variant.label,
-            variantCount: product.variants.length,
-          });
-          const key = `${subcategory.name.toLowerCase()}||${name.toLowerCase()}`;
+          const name = normalizeProductName(
+            buildDashboardProductName({
+              productName: product.name,
+              variantLabel: variant.label,
+              variantCount: product.variants.length,
+            }),
+          );
+          const key = `${normalizeProductNameKey(subcategory.name)}||${normalizeProductNameKey(name)}`;
           if (seen.has(key)) return;
           seen.add(key);
 
           rows.push({
             name,
-            subcategory: subcategory.name,
+            subcategory: normalizeProductName(subcategory.name),
             sellingPrice: normalizeMoney(variant.price),
           });
         });
@@ -65,12 +75,31 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
   productCatalog: PricelistCategory[];
 }) {
   const products = flattenCatalogProductsForDashboard(args.productCatalog);
+  const duplicateCatalogNames = collectDuplicateProductNames(
+    products.map((product) => product.name),
+  );
+  if (duplicateCatalogNames.length > 0) {
+    throw new Error(
+      `Bakery catalog contains duplicate product names: ${duplicateCatalogNames.join(", ")}.`,
+    );
+  }
+
   const categoryNames = Array.from(
-    new Set(products.map((product) => product.subcategory.trim()).filter(Boolean)),
+    new Set(
+      products
+        .map((product) => normalizeProductName(product.subcategory))
+        .filter(Boolean),
+    ),
   );
 
   const result = await prisma.$transaction(
     async (tx) => {
+      await acquireProductWriteLock(tx, args.businessId);
+      const dedupe = await deduplicateProductsForBusiness({
+        tx,
+        businessId: args.businessId,
+      });
+
       const existingCategories = await tx.category.findMany({
         where: {
           businessId: args.businessId,
@@ -81,14 +110,12 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
 
       const categoryIds = new Map<string, number>();
       existingCategories.forEach((category) => {
-        categoryIds.set(category.name.toLowerCase(), category.id);
+        categoryIds.set(normalizeProductNameKey(category.name), category.id);
       });
 
       for (const subcategory of categoryNames) {
-        const existingId = categoryIds.get(subcategory.toLowerCase());
-        if (existingId) {
-          continue;
-        }
+        const existingId = categoryIds.get(normalizeProductNameKey(subcategory));
+        if (existingId) continue;
 
         const created = await tx.category.create({
           data: {
@@ -97,7 +124,7 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
           },
           select: { id: true },
         });
-        categoryIds.set(subcategory.toLowerCase(), created.id);
+        categoryIds.set(normalizeProductNameKey(subcategory), created.id);
       }
 
       const existingProducts = await tx.product.findMany({
@@ -109,28 +136,19 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
             select: { id: true, name: true },
           },
         },
+        orderBy: [{ deletedAt: "asc" }, { createdAt: "asc" }, { id: "asc" }],
       });
 
-      const compositeKey = (name: string, subcategory: string) =>
-        `${subcategory.trim().toLowerCase()}||${name.trim().toLowerCase()}`;
-      const nameKey = (name: string) => name.trim().toLowerCase();
-
-      const existingByComposite = new Map<
+      const existingByName = new Map<
         string,
         (typeof existingProducts)[number]
       >();
-      const existingByName = new Map<
-        string,
-        Array<(typeof existingProducts)[number]>
-      >();
 
       existingProducts.forEach((product) => {
-        const categoryName = product.category?.name ?? "";
-        existingByComposite.set(compositeKey(product.name, categoryName), product);
-
-        const bucket = existingByName.get(nameKey(product.name)) ?? [];
-        bucket.push(product);
-        existingByName.set(nameKey(product.name), bucket);
+        const key = normalizeProductNameKey(product.name);
+        if (!existingByName.has(key)) {
+          existingByName.set(key, product);
+        }
       });
 
       let createdCount = 0;
@@ -138,21 +156,17 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
       let reactivatedCount = 0;
 
       for (const product of products) {
-        const subcategoryKey = product.subcategory.trim().toLowerCase();
+        const normalizedName = normalizeProductName(product.name);
+        const subcategoryKey = normalizeProductNameKey(product.subcategory);
         const resolvedCategoryId = categoryIds.get(subcategoryKey) ?? null;
-        const nextCompositeKey = compositeKey(product.name, product.subcategory);
-        const existingComposite = existingByComposite.get(nextCompositeKey);
-        const sameNameCandidates = existingByName.get(nameKey(product.name)) ?? [];
-        const fallbackByName =
-          sameNameCandidates.length === 1 ? sameNameCandidates[0] : undefined;
-        const matched = existingComposite ?? fallbackByName;
+        const matched = existingByName.get(normalizeProductNameKey(normalizedName));
 
         if (matched) {
           await tx.product.update({
             where: { id: matched.id },
             data: {
               categoryId: resolvedCategoryId,
-              name: product.name,
+              name: normalizedName,
               sellingPrice: product.sellingPrice,
               productType: "PreOrder",
               isActive: true,
@@ -164,20 +178,31 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
           if (matched.deletedAt) {
             reactivatedCount += 1;
           }
+
+          existingByName.set(normalizeProductNameKey(normalizedName), {
+            ...matched,
+            name: normalizedName,
+            categoryId: resolvedCategoryId,
+            deletedAt: null,
+          });
           continue;
         }
 
-        await tx.product.create({
+        const created = await tx.product.create({
           data: {
             businessId: args.businessId,
             categoryId: resolvedCategoryId,
-            name: product.name,
+            name: normalizedName,
             sellingPrice: product.sellingPrice,
             recipeCost: 0,
             productType: "PreOrder",
           },
         });
 
+        existingByName.set(normalizeProductNameKey(normalizedName), {
+          ...created,
+          category: null,
+        });
         createdCount += 1;
       }
 
@@ -187,10 +212,19 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
         updatedCount,
         reactivatedCount,
         subcategoryCount: categoryNames.length,
+        deduplicatedGroups: dedupe.groupsMerged,
+        deduplicatedProducts: dedupe.removedProducts,
+        touchedProductIds: dedupe.touchedProductIds,
       };
     },
     { timeout: 30000 },
   );
+
+  if (result.touchedProductIds.length > 0) {
+    await Promise.all(
+      result.touchedProductIds.map((id) => recomputeRecipeCost(id).catch(() => {})),
+    );
+  }
 
   return result;
 }

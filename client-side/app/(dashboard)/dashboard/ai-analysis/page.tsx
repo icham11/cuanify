@@ -24,7 +24,6 @@ import SmartInsightsPanel from "@/app/(dashboard)/components/ai/SmartInsightsPan
 import DocumentUploader from "@/app/(dashboard)/components/ai/DocumentUploader";
 import {
   BAKERY_ORDERS_STORAGE_EVENT,
-  readLocalBakeryOrders,
   summarizeLocalBakeryOrders,
   type LocalBakerySummary,
   type LocalBakeryOrder,
@@ -167,7 +166,7 @@ export default function AIAnalysisPage() {
   const [bakerySummary, setBakerySummary] = useState<LocalBakerySummary>(() =>
     summarizeLocalBakeryOrders([])
   );
-  const [bakerySource, setBakerySource] = useState<string>("local-storage");
+  const [bakerySource, setBakerySource] = useState<string>("rows");
   const [bakeryUpdatedAt, setBakeryUpdatedAt] = useState<string | null>(null);
   const [productionSummary, setProductionSummary] = useState<ProductionSnapshotSummary>(() =>
     buildEmptyProductionSummary()
@@ -187,8 +186,8 @@ export default function AIAnalysisPage() {
         ? "Server snapshot"
         : bakerySource === "snapshot-fallback"
           ? "Server fallback"
-          : bakerySource === "local-storage"
-            ? "Local fallback"
+          : bakerySource === "unavailable"
+            ? "Server unavailable"
             : bakerySource;
 
   useEffect(() => {
@@ -215,15 +214,13 @@ export default function AIAnalysisPage() {
           setBakerySource(payload.data?.source || "rows");
           setBakeryUpdatedAt(payload.data?.updatedAt ?? null);
         } else {
-          const orders = readLocalBakeryOrders();
-          setBakerySummary(summarizeLocalBakeryOrders(orders));
-          setBakerySource("local-storage");
+          setBakerySummary(summarizeLocalBakeryOrders([]));
+          setBakerySource("unavailable");
           setBakeryUpdatedAt(null);
         }
       } else {
-        const orders = readLocalBakeryOrders();
-        setBakerySummary(summarizeLocalBakeryOrders(orders));
-        setBakerySource("local-storage");
+        setBakerySummary(summarizeLocalBakeryOrders([]));
+        setBakerySource("unavailable");
         setBakeryUpdatedAt(null);
       }
 
@@ -268,9 +265,8 @@ export default function AIAnalysisPage() {
         });
       }
     } catch {
-      const orders = readLocalBakeryOrders();
-      setBakerySummary(summarizeLocalBakeryOrders(orders));
-      setBakerySource("local-storage");
+      setBakerySummary(summarizeLocalBakeryOrders([]));
+      setBakerySource("unavailable");
       setBakeryUpdatedAt(null);
       setProductionSummary(buildEmptyProductionSummary());
       setRagStatus({

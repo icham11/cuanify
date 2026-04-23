@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { requireAuth, isAuthError } from "@/lib/auth/session";
 import { closeShiftSchema } from "@/lib/validations/cashier-shift";
@@ -38,8 +39,12 @@ export async function POST(request: Request) {
         }
 
         // 2. Aggregate sales during this shift by payment method
+        const paidSalesFilter: Prisma.SaleWhereInput = {
+          cashierShiftId: shift.id,
+          paymentStatus: "Paid",
+        };
         const salesInShift = await tx.sale.findMany({
-          where: { cashierShiftId: shift.id, paymentStatus: "Paid" } as any,
+          where: paidSalesFilter,
           select: {
             paymentMethod: true,
             totalRevenue: true,
@@ -48,7 +53,7 @@ export async function POST(request: Request) {
 
         // Also count pending (Midtrans) sales
         const allSalesCount = await tx.sale.count({
-          where: { cashierShiftId: shift.id } as any,
+          where: { cashierShiftId: shift.id },
         });
 
         let cashTotal = 0;

@@ -17,7 +17,6 @@ import {
   Table,
   BarChart3,
 } from "lucide-react";
-import { readLocalBakeryOrders } from "@/lib/bookings/local-orders";
 
 type ExportFormat = "csv" | "xlsx";
 type ExportType = "sales" | "stock" | "movements" | "inventory-all" | "bakery-bookings";
@@ -66,8 +65,8 @@ const EXPORT_OPTIONS: ExportOption[] = [
   },
   {
     id: "bakery-bookings",
-    title: "Bakery Bookings (Local)",
-    description: "Order bakery + ongkir, resi, automasi, parser WA dari snapshot terbaru",
+    title: "Bakery Bookings",
+    description: "Order bakery live dari server yang sama dengan bookings, calendar, dan production",
     icon: Boxes,
     color: "amber",
     endpoint: "",
@@ -132,6 +131,115 @@ function downloadBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(downloadUrl);
 }
 
+interface BakeryExportOrderItem {
+  quantity?: number;
+  productName?: string;
+  size?: string;
+}
+
+interface BakeryExportAddress {
+  label?: string;
+  addressLine?: string;
+  area?: string;
+}
+
+interface BakeryExportOrder {
+  id: string;
+  bookingCode?: string;
+  resi?: string;
+  customerName?: string;
+  customerPhone?: string;
+  deliveryDate?: string;
+  deliverySlot?: string;
+  orderStatus?: string;
+  paymentStatus?: string;
+  items?: BakeryExportOrderItem[];
+  deliveryAddresses?: BakeryExportAddress[];
+  basePrice?: number;
+  addOnTotal?: number;
+  deliveryFee?: number;
+  manualAdjustment?: number;
+  totalPrice?: number;
+  downPaymentAmount?: number;
+  remainingBalance?: number;
+  shippingQuote?: {
+    provider?: string;
+    courierServiceName?: string;
+    price?: number;
+    eta?: string;
+    distanceKm?: number;
+  } | null;
+  shipment?: {
+    trackingNumber?: string;
+    status?: string;
+    externalOrderId?: string;
+  } | null;
+  simulations?: {
+    productionWhatsappSent?: boolean;
+    customerWhatsappSent?: boolean;
+    calendarEventCreated?: boolean;
+    googleSheetsSynced?: boolean;
+  } | null;
+}
+
+interface BakeryOrdersApiResponse {
+  success?: boolean;
+  error?: string;
+  data?: {
+    orders?: BakeryExportOrder[];
+  };
+}
+
+function buildBakeryExportRows(orders: BakeryExportOrder[]) {
+  return orders.map((order) => {
+    const items = (order.items ?? [])
+      .map(
+        (item) =>
+          `${Math.max(1, Number(item.quantity) || 1)}x ${item.productName || "-"} (${item.size || "-"})`,
+      )
+      .join(" | ");
+    const addresses = (order.deliveryAddresses ?? [])
+      .map(
+        (address) =>
+          `${address.label || "-"}: ${address.addressLine || "-"} (${address.area || "-"})`,
+      )
+      .join(" | ");
+
+    return {
+      orderId: order.id,
+      bookingCode: order.bookingCode || "",
+      resi: order.resi || "",
+      customerName: order.customerName || "",
+      customerPhone: order.customerPhone || "",
+      deliveryDate: order.deliveryDate || "",
+      deliverySlot: order.deliverySlot || "",
+      orderStatus: order.orderStatus || "",
+      paymentStatus: order.paymentStatus || "",
+      items,
+      deliveryAddresses: addresses,
+      basePrice: Number(order.basePrice || 0),
+      addOnTotal: Number(order.addOnTotal || 0),
+      deliveryFee: Number(order.deliveryFee || 0),
+      manualAdjustment: Number(order.manualAdjustment || 0),
+      totalPrice: Number(order.totalPrice || 0),
+      downPaymentAmount: Number(order.downPaymentAmount || 0),
+      remainingBalance: Number(order.remainingBalance || 0),
+      shippingProvider: order.shippingQuote?.provider || "",
+      shippingService: order.shippingQuote?.courierServiceName || "",
+      shippingPrice: Number(order.shippingQuote?.price || 0),
+      shippingEta: order.shippingQuote?.eta || "",
+      shippingDistanceKm: Number(order.shippingQuote?.distanceKm || 0),
+      trackingNumber: order.shipment?.trackingNumber || "",
+      shipmentStatus: order.shipment?.status || "",
+      shipmentOrderId: order.shipment?.externalOrderId || "",
+      automationProductionWa: order.simulations?.productionWhatsappSent ? "yes" : "no",
+      automationCustomerWa: order.simulations?.customerWhatsappSent ? "yes" : "no",
+      automationCalendar: order.simulations?.calendarEventCreated ? "yes" : "no",
+      automationSheets: order.simulations?.googleSheetsSynced ? "yes" : "no",
+    };
+  });
+}
+
 export default function ExportPage() {
   const [selected, setSelected] = useState<ExportType>("sales");
   const [format, setFormat] = useState<ExportFormat>("xlsx");
@@ -148,7 +256,18 @@ export default function ExportPage() {
 
     try {
       if (selected === "bakery-bookings") {
-        const orders = readLocalBakeryOrders();
+        const response = await fetch("/api/bookings/orders", {
+          cache: "no-store",
+          credentials: "include",
+        });
+        const payload =
+          (await response.json().catch(() => ({}))) as BakeryOrdersApiResponse;
+
+        if (!response.ok || !payload.success || !Array.isArray(payload.data?.orders)) {
+          throw new Error(payload.error || "Gagal memuat data bakery dari server");
+        }
+
+        const orders = payload.data.orders;
         const filteredOrders = orders.filter((order) => {
           if (startDate && order.deliveryDate && order.deliveryDate < startDate) return false;
           if (endDate && order.deliveryDate && order.deliveryDate > endDate) return false;
@@ -160,46 +279,7 @@ export default function ExportPage() {
           return;
         }
 
-        const rows = filteredOrders.map((order) => {
-          const items = (order.items ?? [])
-            .map((item) => `${Math.max(1, Number(item.quantity) || 1)}x ${item.productName || "-"} (${item.size || "-"})`)
-            .join(" | ");
-          const addresses = (order.deliveryAddresses ?? [])
-            .map((address) => `${address.label || "-"}: ${address.addressLine || "-"} (${address.area || "-"})`)
-            .join(" | ");
-          return {
-            orderId: order.id,
-            bookingCode: order.bookingCode || "",
-            resi: order.resi || "",
-            customerName: order.customerName || "",
-            customerPhone: order.customerPhone || "",
-            deliveryDate: order.deliveryDate || "",
-            deliverySlot: order.deliverySlot || "",
-            orderStatus: order.orderStatus || "",
-            paymentStatus: order.paymentStatus || "",
-            items,
-            deliveryAddresses: addresses,
-            basePrice: Number(order.basePrice || 0),
-            addOnTotal: Number(order.addOnTotal || 0),
-            deliveryFee: Number(order.deliveryFee || 0),
-            manualAdjustment: Number(order.manualAdjustment || 0),
-            totalPrice: Number(order.totalPrice || 0),
-            downPaymentAmount: Number(order.downPaymentAmount || 0),
-            remainingBalance: Number(order.remainingBalance || 0),
-            shippingProvider: order.shippingQuote?.provider || "",
-            shippingService: order.shippingQuote?.courierServiceName || "",
-            shippingPrice: Number(order.shippingQuote?.price || 0),
-            shippingEta: order.shippingQuote?.eta || "",
-            shippingDistanceKm: Number(order.shippingQuote?.distanceKm || 0),
-            trackingNumber: order.shipment?.trackingNumber || "",
-            shipmentStatus: order.shipment?.status || "",
-            shipmentOrderId: order.shipment?.externalOrderId || "",
-            automationProductionWa: order.simulations?.productionWhatsappSent ? "yes" : "no",
-            automationCustomerWa: order.simulations?.customerWhatsappSent ? "yes" : "no",
-            automationCalendar: order.simulations?.calendarEventCreated ? "yes" : "no",
-            automationSheets: order.simulations?.googleSheetsSynced ? "yes" : "no",
-          };
-        });
+        const rows = buildBakeryExportRows(filteredOrders);
 
         const dateLabel =
           startDate && endDate

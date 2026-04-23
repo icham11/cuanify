@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { requireAuth, isAuthError } from "@/lib/auth/session";
 
@@ -26,13 +27,17 @@ export async function GET() {
     }
 
     // Get running totals from sales during this shift
+    const paidSalesFilter: Prisma.SaleWhereInput = {
+      cashierShiftId: shift.id,
+      paymentStatus: "Paid",
+    };
     const salesInShift = await prisma.sale.findMany({
-      where: { cashierShiftId: shift.id, paymentStatus: "Paid" } as any,
+      where: paidSalesFilter,
       select: { paymentMethod: true, totalRevenue: true },
     });
 
     const totalCount = await prisma.sale.count({
-      where: { cashierShiftId: shift.id } as any,
+      where: { cashierShiftId: shift.id },
     });
 
     let cashTotal = 0;
