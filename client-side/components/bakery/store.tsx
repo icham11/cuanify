@@ -33,6 +33,7 @@ import { isWithinBusinessHours } from "@/lib/bookings/operations";
 import {
   estimateOperationalWeightGram,
   parseServiceChargeFromNotes,
+  resolveShippingParcelCount,
 } from "@/lib/bookings/delivery-rules";
 import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 import {
@@ -1138,7 +1139,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
 
         const items = (order.items ?? []).map((item) => ({
           name: `${item.productName} (${item.size})`,
-          quantity: Math.max(1, Number(item.quantity) || 1),
+          quantity: resolveShippingParcelCount(item),
           weightGram: estimateOperationalWeightGram(item),
           value: Math.max(
             1000,

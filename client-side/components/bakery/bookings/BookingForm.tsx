@@ -77,7 +77,9 @@ import {
   estimateOperationalWeightGram,
   getGrabCarOnlyReasons,
   isGrabCarOnlyItem,
+  isBouquetItem,
   resolveAdminServiceCharge,
+  resolveShippingParcelCount,
   type DeliveryMethod,
   usesShippingEngine,
 } from "@/lib/bookings/delivery-rules";
@@ -2847,7 +2849,7 @@ export default function BookingForm() {
   const isCarRideHailingMethod =
     deliveryMethod === "ASSISTED_GOCAR" || deliveryMethod === "ASSISTED_GRAB";
   const hasBouquetItems = useMemo(
-    () => watchedItems.some((item) => (item.category || "") === "Buket"),
+    () => watchedItems.some((item) => isBouquetItem(item)),
     [watchedItems],
   );
 
@@ -3462,7 +3464,7 @@ export default function BookingForm() {
 
       return {
         name: `${item.productName} (${item.size})`,
-        quantity: Math.max(1, Number(item.quantity) || 1),
+        quantity: resolveShippingParcelCount(item),
         weightGram: estimateOperationalWeightGram(item),
         value: Math.max(1000, Math.round(itemBasePrice)),
       };

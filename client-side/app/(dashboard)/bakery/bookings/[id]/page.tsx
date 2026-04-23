@@ -38,6 +38,7 @@ import {
   estimateOperationalWeightGram,
   parseServiceChargeFromNotes,
   resolveAdminServiceCharge,
+  resolveShippingParcelCount,
 } from "@/lib/bookings/delivery-rules";
 import {
   BOOKING_STATUS_OPTIONS,
@@ -552,7 +553,7 @@ export default function OrderDetailPage() {
     try {
       const items = (order.items ?? []).map((item) => ({
         name: `${item.productName} (${item.size})`,
-        quantity: Math.max(1, Number(item.quantity) || 1),
+        quantity: resolveShippingParcelCount(item),
         weightGram: estimateOperationalWeightGram(item),
         value: Math.max(
           1000,

@@ -46,7 +46,11 @@ const PRODUCT_WEIGHT_RULES: Array<{ probe: string; weightGram: number }> = [
   { probe: "lotus box", weightGram: 1000 },
   { probe: "sharing box", weightGram: 167 },
   { probe: "hand bouquet", weightGram: 3000 },
+  { probe: "handbq", weightGram: 3000 },
+  { probe: "hbq", weightGram: 3000 },
   { probe: "standing bouquet", weightGram: 7000 },
+  { probe: "standingbq", weightGram: 7000 },
+  { probe: "sbq", weightGram: 7000 },
   { probe: "diy pack", weightGram: 1000 },
 ];
 
@@ -152,6 +156,18 @@ function getItemSource(item: DeliveryRuleItem): string {
   );
 }
 
+export function isBouquetItem(item: DeliveryRuleItem): boolean {
+  const source = getItemSource(item);
+
+  if ((item.category || "").toLowerCase() === "buket") return true;
+  return (
+    source.includes("bouquet") ||
+    source.includes("buket") ||
+    source.includes("hbq") ||
+    source.includes("sbq")
+  );
+}
+
 function getQuantity(item: DeliveryRuleItem): number {
   const parsed = Number(item.quantity);
   if (!Number.isFinite(parsed)) return 1;
@@ -160,7 +176,7 @@ function getQuantity(item: DeliveryRuleItem): number {
 
 function resolveOperationalUnits(item: DeliveryRuleItem): number {
   const quantity = getQuantity(item);
-  if ((item.category || "") !== "Buket") return quantity;
+  if (!isBouquetItem(item)) return quantity;
 
   // Bouquet qty in form often means cookie fill count (7-20), not number of bundles.
   if (
@@ -187,6 +203,10 @@ export function estimateOperationalWeightGram(item: DeliveryRuleItem): number {
   return Math.max(100, Math.round(unitWeight * resolveOperationalUnits(item)));
 }
 
+export function resolveShippingParcelCount(item: DeliveryRuleItem): number {
+  return resolveOperationalUnits(item);
+}
+
 export function isGrabCarOnlyItem(item: DeliveryRuleItem): boolean {
   const source = getItemSource(item);
   const category = (item.category || "").toLowerCase();
@@ -194,8 +214,8 @@ export function isGrabCarOnlyItem(item: DeliveryRuleItem): boolean {
   if (category === "cake") return true;
   if (category === "cupcakes") return true;
 
-  if (category === "buket") {
-    return source.includes("standing");
+  if (isBouquetItem(item)) {
+    return source.includes("standing") || source.includes("sbq");
   }
 
   return false;
@@ -218,7 +238,7 @@ export function getGrabCarOnlyReasons(items: DeliveryRuleItem[]): string[] {
       return;
     }
 
-    if (category === "buket" && source.includes("standing")) {
+    if ((category === "buket" || source.includes("bouquet")) && (source.includes("standing") || source.includes("sbq"))) {
       reasons.add("Standing Bouquet");
     }
   });

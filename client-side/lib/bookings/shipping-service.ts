@@ -1120,9 +1120,6 @@ async function getBiteshipRates(args: {
         value: Math.max(1000, Number(item.value) || 1000),
         quantity,
         weight: toBiteshipUnitWeightGram(item),
-        length: 20,
-        width: 20,
-        height: 10,
       };
     }),
   };
@@ -1557,9 +1554,6 @@ export async function createShippingResi(
           value: Math.max(1000, Number(item.value) || 1000),
           quantity,
           weight: toBiteshipUnitWeightGram(item),
-          length: 20,
-          width: 20,
-          height: 10,
         };
       }),
     }),
