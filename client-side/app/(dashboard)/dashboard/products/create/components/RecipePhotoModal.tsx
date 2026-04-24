@@ -86,7 +86,7 @@ export default function RecipePhotoModal({ productName, onClose, onSuccess }: Pr
         </div>
 
         {/* Header */}
-        <div className="flex items-start justify-between px-6 py-4 border-b border-gray-100 bg-linear-to-r from-indigo-50 to-violet-50 shrink-0">
+        <div className="flex items-start justify-between px-6 py-4 border-b border-gray-100 bg-linear-to-r from-indigo-50 to-indigo-50 shrink-0">
           <div>
             <h2 className="text-lg font-extrabold text-indigo-700">Generate Resep dari Foto</h2>
             <p className="text-xs text-gray-500 mt-0.5">

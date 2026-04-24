@@ -501,7 +501,7 @@ export default function CreateProductsPage() {
           {/* Option 1: Generate from photo */}
           <button
             onClick={() => setPhotoModalOpen(true)}
-            className="w-full flex items-center gap-3 sm:gap-5 p-4 sm:p-6 bg-linear-to-r from-indigo-50 via-white to-violet-50 rounded-2xl border-2 border-indigo-200 hover:border-indigo-400 shadow hover:shadow-md transition text-left group"
+            className="w-full flex items-center gap-3 sm:gap-5 p-4 sm:p-6 bg-linear-to-r from-indigo-50 via-white to-indigo-50 rounded-2xl border-2 border-indigo-200 hover:border-indigo-400 shadow hover:shadow-md transition text-left group"
           >
             <span className="flex items-center justify-center w-12 h-12 sm:w-14 sm:h-14 shrink-0 rounded-2xl bg-indigo-100 text-indigo-600 group-hover:bg-indigo-200 transition">
               <ImageIcon size={24} />

@@ -206,7 +206,7 @@ export default function IngredientsPage() {
   return (
     <div className="space-y-10">
       {/* HEADER */}
-      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 bg-linear-to-r from-indigo-500 via-violet-500 to-indigo-400 rounded-2xl p-4 sm:p-6 shadow-lg">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 bg-linear-to-r from-indigo-500 via-indigo-500 to-indigo-400 rounded-2xl p-4 sm:p-6 shadow-lg">
         <div>
           <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-white flex items-center gap-2 sm:gap-3">
             <PackageOpen className="w-5 h-5 sm:w-7 sm:h-7 shrink-0" />
@@ -374,7 +374,7 @@ export default function IngredientsPage() {
                     setSelectedIngredient(ingredient);
                     setIsHistoryOpen(true);
                   }}
-                  className="flex items-center gap-1 text-violet-600 hover:bg-violet-50 px-2 py-1.5 rounded-lg text-xs font-semibold transition"
+                  className="flex items-center gap-1 text-indigo-600 hover:bg-indigo-50 px-2 py-1.5 rounded-lg text-xs font-semibold transition"
                 >
                   <Boxes size={13} /> Persediaan
                 </button>
@@ -405,7 +405,7 @@ export default function IngredientsPage() {
       {/* ═══ DESKTOP TABLE ═══ */}
       <div className="hidden md:block bg-white rounded-3xl shadow-xl overflow-x-auto custom-scroll">
         <table className="w-full min-w-150 text-base">
-          <thead className="bg-linear-to-r from-indigo-50 to-violet-50 text-indigo-800 text-xs uppercase tracking-wider">
+          <thead className="bg-linear-to-r from-indigo-50 to-indigo-50 text-indigo-800 text-xs uppercase tracking-wider">
             <tr>
               <th className="pl-5 pr-2 py-4 w-10">
                 <input
@@ -495,7 +495,7 @@ export default function IngredientsPage() {
                         setSelectedIngredient(ingredient);
                         setIsHistoryOpen(true);
                       }}
-                      className="text-violet-600 hover:text-violet-900 hover:bg-violet-50 p-1.5 rounded-lg transition"
+                      className="text-indigo-600 hover:text-indigo-900 hover:bg-indigo-50 p-1.5 rounded-lg transition"
                       title="Persediaan"
                     >
                       <Boxes size={16} />
@@ -1058,10 +1058,10 @@ function BatchHistoryModal({ ingredient, onClose, onSuccess }: BatchHistoryModal
             </div>
 
             {/* Header */}
-            <div className="flex items-start justify-between px-5 pt-3 pb-4 border-b border-gray-100 bg-linear-to-r from-violet-50 to-indigo-50 shrink-0">
+            <div className="flex items-start justify-between px-5 pt-3 pb-4 border-b border-gray-100 bg-linear-to-r from-indigo-50 to-indigo-50 shrink-0">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-violet-100 flex items-center justify-center shrink-0">
-                  <Boxes size={20} className="text-violet-600" />
+                <div className="w-10 h-10 rounded-2xl bg-indigo-100 flex items-center justify-center shrink-0">
+                  <Boxes size={20} className="text-indigo-600" />
                 </div>
                 <div>
                   <h2 className="text-base font-extrabold text-slate-800 leading-tight">{ingredient.name}</h2>
@@ -1113,7 +1113,7 @@ function BatchHistoryModal({ ingredient, onClose, onSuccess }: BatchHistoryModal
 
               {batchLoading ? (
                 <div className="flex justify-center py-10">
-                  <Loader2 size={24} className="text-violet-400 animate-spin" />
+                  <Loader2 size={24} className="text-indigo-400 animate-spin" />
                 </div>
               ) : batches.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-10 gap-3 text-center">
@@ -1136,7 +1136,7 @@ function BatchHistoryModal({ ingredient, onClose, onSuccess }: BatchHistoryModal
                       <div key={batch.id} className="rounded-2xl border border-gray-100 bg-gray-50 p-4 shadow-sm">
                         <div className="flex items-center justify-between mb-3">
                           <div className="flex items-center gap-2">
-                            <span className="w-7 h-7 rounded-xl bg-violet-100 flex items-center justify-center text-violet-700 text-xs font-extrabold shrink-0">
+                            <span className="w-7 h-7 rounded-xl bg-indigo-100 flex items-center justify-center text-indigo-700 text-xs font-extrabold shrink-0">
                               {idx + 1}
                             </span>
                             <span className="text-xs font-bold text-slate-700">
@@ -1612,7 +1612,7 @@ function ModalWrapper({ children, onClose, title }: ModalWrapperProps) {
         </div>
         {/* Header (only shown when title is provided) */}
         {title && (
-          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-linear-to-r from-indigo-50 to-violet-50 shrink-0">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-linear-to-r from-indigo-50 to-indigo-50 shrink-0">
             <div className="font-bold text-base text-indigo-700">{title}</div>
             <button
               onClick={onClose}

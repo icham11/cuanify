@@ -80,7 +80,7 @@ function InsightModal({
         className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden"
       >
         {/* Header */}
-        <div className="bg-linear-to-r from-indigo-500 via-violet-500 to-purple-500 px-5 py-4 flex items-center justify-between">
+        <div className="bg-linear-to-r from-indigo-500 via-indigo-500 to-indigo-500 px-5 py-4 flex items-center justify-between">
           <h2 className="text-white font-bold text-lg">Ringkasan Hari Ini</h2>
           <button
             onClick={onClose}
@@ -628,7 +628,7 @@ export default function BusinessPage() {
       >
         <div>
           <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-900 flex items-center gap-3">
-            <div className="p-2 sm:p-2.5 bg-linear-to-br from-indigo-500 to-purple-500 rounded-xl text-white">
+            <div className="p-2 sm:p-2.5 bg-linear-to-br from-indigo-500 to-indigo-500 rounded-xl text-white">
               <Building2 className="w-5 h-5 sm:w-7 sm:h-7" />
             </div>
             Business
@@ -646,7 +646,7 @@ export default function BusinessPage() {
         </button>
       </motion.div>
       {/* Greeting Banner */}
-      <div className="bg-linear-to-r from-indigo-500 via-violet-500 to-indigo-400 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 shadow-xl">
+      <div className="bg-linear-to-r from-indigo-500 via-indigo-500 to-indigo-400 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 shadow-xl">
         <h1 className="text-lg sm:text-2xl md:text-3xl font-bold text-white flex items-center gap-3">
           <Smile className="text-yellow-300 shrink-0" size={24} />
           Selamat {greeting}, Semangat untuk mengelola bisnis Anda hari ini!
@@ -661,7 +661,7 @@ export default function BusinessPage() {
           className="relative overflow-hidden bg-white rounded-2xl shadow-lg border border-gray-100"
         >
           {/* Decorative gradient bar */}
-          <div className="h-2 bg-linear-to-r from-indigo-500 via-purple-500 to-pink-500" />
+          <div className="h-2 bg-linear-to-r from-indigo-500 via-indigo-500 to-pink-500" />
 
           <div className="p-6 sm:p-8">
             {/* Business badge */}
@@ -841,7 +841,7 @@ export default function BusinessPage() {
                   icon={ShoppingCart}
                   label="Transaksi Lunas"
                   value={String(stats.paidSalesCount)}
-                  color="purple"
+                  color="indigo"
                 />
                 <StatTile
                   icon={Percent}
@@ -880,7 +880,7 @@ export default function BusinessPage() {
           </div>
           <button
             onClick={() => setShowNewForm(!showNewForm)}
-            className="flex items-center gap-2 px-4 py-2.5 bg-linear-to-r from-indigo-500 to-purple-500 text-white rounded-xl text-sm font-semibold hover:from-indigo-600 hover:to-purple-600 transition shadow-md shadow-indigo-100 active:scale-[0.98] cursor-pointer"
+            className="flex items-center gap-2 px-4 py-2.5 bg-linear-to-r from-indigo-500 to-indigo-500 text-white rounded-xl text-sm font-semibold hover:from-indigo-600 hover:to-indigo-600 transition shadow-md shadow-indigo-100 active:scale-[0.98] cursor-pointer"
           >
             <Plus className="w-4 h-4" /> Tambah Bisnis
           </button>
@@ -939,7 +939,7 @@ export default function BusinessPage() {
                 <div
                   className={`w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm ${
                     String(biz.id) === String(business?.id)
-                      ? "bg-linear-to-br from-indigo-500 to-purple-500"
+                      ? "bg-linear-to-br from-indigo-500 to-indigo-500"
                       : "bg-gray-300"
                   }`}
                 >
@@ -1005,13 +1005,13 @@ function StatTile({
   const colorMap: Record<string, string> = {
     emerald: "from-emerald-50 to-emerald-100/50 border-emerald-100 text-emerald-700",
     blue: "from-blue-50 to-blue-100/50 border-blue-100 text-blue-700",
-    purple: "from-purple-50 to-purple-100/50 border-purple-100 text-purple-700",
+    indigo: "from-indigo-50 to-indigo-100/50 border-indigo-100 text-indigo-700",
     amber: "from-amber-50 to-amber-100/50 border-amber-100 text-amber-700",
   };
   const iconColorMap: Record<string, string> = {
     emerald: "bg-emerald-100 text-emerald-600",
     blue: "bg-blue-100 text-blue-600",
-    purple: "bg-purple-100 text-purple-600",
+    indigo: "bg-indigo-100 text-indigo-600",
     amber: "bg-amber-100 text-amber-600",
   };
 

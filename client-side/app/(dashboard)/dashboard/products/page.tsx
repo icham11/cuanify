@@ -120,7 +120,7 @@ function RecipeModal({
           <div className="w-10 h-1 bg-gray-200 rounded-full" />
         </div>
         {/* Header */}
-        <div className="flex items-start justify-between px-6 py-4 sm:py-5 border-b border-gray-100 bg-linear-to-r from-indigo-50 to-violet-50">
+        <div className="flex items-start justify-between px-6 py-4 sm:py-5 border-b border-gray-100 bg-linear-to-r from-indigo-50 to-indigo-50">
           <div>
             <div className="flex items-center gap-2">
               <ChefHat size={18} className="text-indigo-500" />
@@ -129,7 +129,7 @@ function RecipeModal({
               </h2>
             </div>
             {product.category && (
-              <span className="inline-flex items-center gap-1 mt-1 bg-violet-100 text-violet-700 text-xs font-semibold px-2.5 py-0.5 rounded-full">
+              <span className="inline-flex items-center gap-1 mt-1 bg-indigo-100 text-indigo-700 text-xs font-semibold px-2.5 py-0.5 rounded-full">
                 <Tag size={10} />
                 Sub Category: {product.category.name}
               </span>
@@ -284,7 +284,7 @@ function EditPriceModal({
           <div className="w-10 h-1 bg-gray-200 rounded-full" />
         </div>
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 sm:py-5 border-b border-gray-100 bg-linear-to-r from-indigo-50 to-violet-50">
+        <div className="flex items-center justify-between px-6 py-4 sm:py-5 border-b border-gray-100 bg-linear-to-r from-indigo-50 to-indigo-50">
           <div>
             <h2 className="text-base font-extrabold text-indigo-700">
               Edit Harga Jual
@@ -713,7 +713,7 @@ export default function ProductsPage() {
     <>
       <div className="space-y-8">
         {/* HEADER */}
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 bg-linear-to-r from-indigo-500 via-violet-500 to-indigo-400 rounded-2xl p-4 sm:p-6 shadow-lg">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 bg-linear-to-r from-indigo-500 via-indigo-500 to-indigo-400 rounded-2xl p-4 sm:p-6 shadow-lg">
           <div>
             <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-white flex items-center gap-2 sm:gap-3">
               <ShoppingBag className="w-5 h-5 sm:w-7 sm:h-7 shrink-0" />
@@ -755,9 +755,9 @@ export default function ProductsPage() {
         {/* STATS ROW */}
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
           {/* Rata-rata Harga — top row on mobile (full width), middle on desktop */}
-          <div className="col-span-2 sm:col-span-1 sm:order-2 bg-white/80 backdrop-blur border border-violet-100 rounded-xl sm:rounded-2xl p-4 sm:p-6 shadow-sm hover:shadow-md hover:border-violet-200 transition">
+          <div className="col-span-2 sm:col-span-1 sm:order-2 bg-white/80 backdrop-blur border border-indigo-100 rounded-xl sm:rounded-2xl p-4 sm:p-6 shadow-sm hover:shadow-md hover:border-indigo-200 transition">
             <div className="flex items-center gap-1.5 mb-1">
-              <Tag size={14} className="text-violet-400 shrink-0" />
+              <Tag size={14} className="text-indigo-400 shrink-0" />
               <p className="text-xs sm:text-sm text-gray-500">
                 Rata-rata Harga
               </p>
@@ -981,7 +981,7 @@ export default function ProductsPage() {
             {/* ═══ DESKTOP TABLE ═══ */}
             <div className="hidden md:block bg-white rounded-3xl shadow-xl overflow-x-auto">
               <table className="w-full min-w-160 text-base">
-                <thead className="bg-linear-to-r from-indigo-50 to-violet-50 text-indigo-800 text-xs uppercase tracking-wider">
+                <thead className="bg-linear-to-r from-indigo-50 to-indigo-50 text-indigo-800 text-xs uppercase tracking-wider">
                   <tr>
                     <th className="pl-5 pr-2 py-4 w-10">Product</th>
                     <th className="px-4 py-4 text-left font-bold cursor-pointer select-none">

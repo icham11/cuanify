@@ -34,7 +34,7 @@ export default function RecipeModal({
     >
       <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex items-start justify-between px-6 py-5 border-b border-gray-100 bg-linear-to-r from-indigo-50 to-violet-50">
+        <div className="flex items-start justify-between px-6 py-5 border-b border-gray-100 bg-linear-to-r from-indigo-50 to-indigo-50">
           <div>
             <div className="flex items-center gap-2">
               <ChefHat size={18} className="text-indigo-500" />
@@ -43,7 +43,7 @@ export default function RecipeModal({
               </h2>
             </div>
             {product.category && (
-              <span className="inline-flex items-center gap-1 mt-1 bg-violet-100 text-violet-700 text-xs font-semibold px-2.5 py-0.5 rounded-full">
+              <span className="inline-flex items-center gap-1 mt-1 bg-indigo-100 text-indigo-700 text-xs font-semibold px-2.5 py-0.5 rounded-full">
                 <Tag size={10} />
                 {product.category.name}
               </span>

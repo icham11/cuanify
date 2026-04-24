@@ -381,13 +381,13 @@ export default function ProductForm({ initialDraft, onSuccess }: Props) {
                   ? "Tambahkan bahan ke resep terlebih dahulu"
                   : "Sarankan harga jual berdasarkan total biaya resep"
               }
-              className="flex items-center justify-center gap-1.5 w-full sm:w-auto px-4 py-2.5 bg-violet-600 text-white text-xs font-semibold rounded-xl hover:bg-violet-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center justify-center gap-1.5 w-full sm:w-auto px-4 py-2.5 bg-indigo-600 text-white text-xs font-semibold rounded-xl hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {aiPriceLoading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
               Sarankan Harga
             </button>
           </div>
-          {priceHint && <p className="text-xs text-violet-600 mt-1">{priceHint}</p>}
+          {priceHint && <p className="text-xs text-indigo-600 mt-1">{priceHint}</p>}
           {sellingPrice > 0 && recipeCost > 0 && (
             <>
               <p className="text-xs text-gray-400">
@@ -465,7 +465,7 @@ export default function ProductForm({ initialDraft, onSuccess }: Props) {
 
       {/* ── Recipe section ─ */}
       <div className="bg-white rounded-2xl shadow border border-gray-100">
-        <div className="flex justify-between items-center px-6 py-4 border-b border-gray-100 bg-linear-to-r from-indigo-50 to-violet-50 rounded-t-2xl">
+        <div className="flex justify-between items-center px-6 py-4 border-b border-gray-100 bg-linear-to-r from-indigo-50 to-indigo-50 rounded-t-2xl">
           <div>
             <h3 className="font-bold text-indigo-700">Resep / Bahan</h3>
             {recipeCost > 0 && (

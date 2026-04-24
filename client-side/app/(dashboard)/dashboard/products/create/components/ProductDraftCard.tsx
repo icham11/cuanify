@@ -113,7 +113,7 @@ export default function ProductDraftCard({
               </div>
             )}
             <div className="flex items-center gap-2 mt-1 flex-wrap">
-              <span className="inline-flex items-center gap-1 bg-violet-100 text-violet-700 text-xs font-medium px-2 py-0.5 rounded-full">
+              <span className="inline-flex items-center gap-1 bg-indigo-100 text-indigo-700 text-xs font-medium px-2 py-0.5 rounded-full">
                 <Tag size={10} />
                 {draft.categoryName || "Uncategorised"}
               </span>
