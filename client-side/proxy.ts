@@ -94,10 +94,17 @@ const ADMIN_ALLOWED_API_RULES: Array<{
   { prefix: "/api/sales", methods: ["GET"] },
 ];
 
+const MOBILE_USER_AGENT_PATTERN = /Android|iPhone|iPad|iPod|Mobile/i;
+
 type AppRole = "Owner" | "Admin" | "Cashier" | "Staff";
 
 function normalizeRole(value: unknown): AppRole | null {
-  if (value === "Owner" || value === "Admin" || value === "Cashier" || value === "Staff") {
+  if (
+    value === "Owner" ||
+    value === "Admin" ||
+    value === "Cashier" ||
+    value === "Staff"
+  ) {
     return value;
   }
   return null;
@@ -113,6 +120,13 @@ function isPublicPage(pathname: string) {
 
 function isApiPath(pathname: string) {
   return pathname.startsWith("/api");
+}
+
+function isMobileRequest(request: NextRequest) {
+  const userAgent = request.headers.get("user-agent") || "";
+  const secChUaMobile = request.headers.get("sec-ch-ua-mobile");
+
+  return secChUaMobile === "?1" || MOBILE_USER_AGENT_PATTERN.test(userAgent);
 }
 
 function isStaffAllowedPage(pathname: string) {
@@ -145,7 +159,10 @@ function isAdminAllowedApi(pathname: string, method: string) {
   });
 }
 
-function resolveRoleFromClaims(jwtToken: string | undefined, nextAuthToken: unknown): AppRole | null {
+function resolveRoleFromClaims(
+  jwtToken: string | undefined,
+  nextAuthToken: unknown,
+): AppRole | null {
   if (jwtToken) {
     const decoded = verifyToken(jwtToken);
     if (decoded && typeof decoded === "object" && "role" in decoded) {
@@ -154,8 +171,14 @@ function resolveRoleFromClaims(jwtToken: string | undefined, nextAuthToken: unkn
     }
   }
 
-  if (nextAuthToken && typeof nextAuthToken === "object" && "role" in nextAuthToken) {
-    const nextAuthRole = normalizeRole((nextAuthToken as { role?: unknown }).role);
+  if (
+    nextAuthToken &&
+    typeof nextAuthToken === "object" &&
+    "role" in nextAuthToken
+  ) {
+    const nextAuthRole = normalizeRole(
+      (nextAuthToken as { role?: unknown }).role,
+    );
     if (nextAuthRole) return nextAuthRole;
   }
 
@@ -184,7 +207,10 @@ export async function proxy(request: NextRequest) {
 
   // ── Check Authentication ──
   const jwtToken = request.cookies.get("token")?.value;
-  const nextAuthToken = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
+  const nextAuthToken = await getToken({
+    req: request,
+    secret: process.env.NEXTAUTH_SECRET,
+  });
 
   const isAuthenticated = !!jwtToken || !!nextAuthToken;
 
@@ -271,4 +297,3 @@ export const config = {
     "/((?!_next/static|_next/image|favicon.ico).*)",
   ],
 };
-

@@ -12,10 +12,16 @@ import { motion, AnimatePresence } from "framer-motion";
  * - Shows install prompt (beforeinstallprompt)
  */
 export default function PWAProvider() {
+  const buildVersion = process.env.NEXT_PUBLIC_BUILD_VERSION || "local";
+  const SW_VERSION = `umkm-v3-${buildVersion}`;
+  const SW_VERSION_STORAGE_KEY = "crumbella-sw-version";
   const [isOffline, setIsOffline] = useState(false);
   const [showOfflineBanner, setShowOfflineBanner] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<Event | null>(null);
   const [showInstall, setShowInstall] = useState(false);
+  const isMobileBrowser =
+    typeof navigator !== "undefined" &&
+    /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
 
   const handleOffline = useCallback(() => {
     setIsOffline(true);
@@ -31,6 +37,41 @@ export default function PWAProvider() {
     // ─── Register Service Worker ───
     const isDev = process.env.NODE_ENV !== "production";
 
+    if (isMobileBrowser) {
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker
+          .getRegistrations()
+          .then((registrations) =>
+            Promise.all(
+              registrations.map((registration) => registration.unregister()),
+            ),
+          )
+          .catch((err) => {
+            console.warn(
+              "[PWA] Failed to unregister service workers on mobile:",
+              err,
+            );
+          });
+
+        if ("caches" in window) {
+          caches
+            .keys()
+            .then((keys) =>
+              Promise.all(
+                keys
+                  .filter((key) => key.startsWith("umkm-"))
+                  .map((key) => caches.delete(key)),
+              ),
+            )
+            .catch((err) => {
+              console.warn("[PWA] Failed to clear SW caches on mobile:", err);
+            });
+        }
+      }
+
+      return;
+    }
+
     if (isDev && "serviceWorker" in navigator) {
       navigator.serviceWorker
         .getRegistrations()
@@ -40,7 +81,10 @@ export default function PWAProvider() {
           ),
         )
         .catch((err) => {
-          console.warn("[PWA] Failed to unregister service workers in dev:", err);
+          console.warn(
+            "[PWA] Failed to unregister service workers in dev:",
+            err,
+          );
         });
 
       if ("caches" in window) {
@@ -60,14 +104,48 @@ export default function PWAProvider() {
     }
 
     if ("serviceWorker" in navigator && !isDev) {
-      navigator.serviceWorker
-        .register("/sw.js")
-        .then((reg) => {
-          console.log("[PWA] Service Worker registered:", reg.scope);
-        })
-        .catch((err) => {
-          console.warn("[PWA] Service Worker registration failed:", err);
-        });
+      const refreshServiceWorker = async () => {
+        const savedVersion = window.localStorage.getItem(
+          SW_VERSION_STORAGE_KEY,
+        );
+
+        if (savedVersion !== SW_VERSION) {
+          try {
+            const registrations =
+              await navigator.serviceWorker.getRegistrations();
+            await Promise.all(
+              registrations.map((registration) => registration.unregister()),
+            );
+
+            if ("caches" in window) {
+              const keys = await caches.keys();
+              await Promise.all(
+                keys
+                  .filter((key) => key.startsWith("umkm-"))
+                  .map((key) => caches.delete(key)),
+              );
+            }
+
+            window.localStorage.setItem(SW_VERSION_STORAGE_KEY, SW_VERSION);
+            window.location.reload();
+            return;
+          } catch (err) {
+            console.warn("[PWA] Failed to refresh stale service worker:", err);
+          }
+        }
+
+        navigator.serviceWorker
+          .register("/sw.js")
+          .then((reg) => {
+            console.log("[PWA] Service Worker registered:", reg.scope);
+            void reg.update();
+          })
+          .catch((err) => {
+            console.warn("[PWA] Service Worker registration failed:", err);
+          });
+      };
+
+      void refreshServiceWorker();
     }
 
     // Check initial state via rAF (avoids sync setState-in-effect lint rule)
@@ -91,7 +169,7 @@ export default function PWAProvider() {
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("beforeinstallprompt", handleInstallEvt);
     };
-  }, [handleOffline, handleOnline]);
+  }, [handleOffline, handleOnline, SW_VERSION, isMobileBrowser]);
 
   async function handleInstallClick() {
     if (!installPrompt) return;
@@ -115,15 +193,15 @@ export default function PWAProvider() {
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: -60, opacity: 0 }}
             className={`fixed top-0 left-0 right-0 z-9999 px-4 py-2.5 text-center text-sm font-medium flex items-center justify-center gap-2 ${
-              isOffline
-                ? "bg-amber-500 text-white"
-                : "bg-green-500 text-white"
+              isOffline ? "bg-amber-500 text-white" : "bg-green-500 text-white"
             }`}
           >
             {isOffline ? (
               <>
                 <WifiOff className="w-4 h-4" />
-                <span>Anda sedang offline — beberapa fitur mungkin terbatas</span>
+                <span>
+                  Anda sedang offline — beberapa fitur mungkin terbatas
+                </span>
               </>
             ) : (
               <>
@@ -155,9 +233,12 @@ export default function PWAProvider() {
                 <Download className="w-5 h-5 text-indigo-600" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="font-semibold text-gray-900 text-sm">Install Crumbella</p>
+                <p className="font-semibold text-gray-900 text-sm">
+                  Install Crumbella
+                </p>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  Install aplikasi di perangkat Anda untuk akses cepat dan pengalaman yang lebih baik
+                  Install aplikasi di perangkat Anda untuk akses cepat dan
+                  pengalaman yang lebih baik
                 </p>
                 <div className="flex gap-2 mt-3">
                   <button

@@ -8,7 +8,8 @@
  *  - Offline fallback page for navigations
  */
 
-const CACHE_VERSION = "umkm-v2";
+// Bump this when shipped client code changes to invalidate stale mobile caches.
+const CACHE_VERSION = "umkm-v3";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const DYNAMIC_CACHE = `${CACHE_VERSION}-dynamic`;
 const API_CACHE = `${CACHE_VERSION}-api`;
@@ -171,4 +172,3 @@ async function networkFirstWithCache(request, cacheName, maxAgeSeconds) {
     );
   }
 }
-

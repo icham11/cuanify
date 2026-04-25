@@ -26,6 +26,15 @@ bun dev
 
 Open [https://crumbella-demo.vercel.app](https://crumbella-demo.vercel.app) with your browser to see the result.
 
+### Access from HP on local network
+
+`npm run dev` sekarang listen ke semua interface (`0.0.0.0:3000`), jadi bisa diakses dari device lain dalam Wi-Fi yang sama.
+
+1. Cari IP laptop (macOS): `ipconfig getifaddr en0` (Wi-Fi) atau `ipconfig getifaddr en1`.
+2. Jalankan app: `npm run dev`.
+3. Buka di HP: `http://<IP_LAPTOP>:3000`.
+4. Jika masih gagal, pastikan macOS Firewall mengizinkan incoming connection untuk Node.js.
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.

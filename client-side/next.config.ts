@@ -1,8 +1,18 @@
 import type { NextConfig } from "next";
 
+const publicBuildVersion =
+  process.env.NEXT_PUBLIC_BUILD_VERSION ||
+  process.env.VERCEL_GIT_COMMIT_SHA ||
+  process.env.VERCEL_GIT_COMMIT_REF ||
+  "local";
+
 const nextConfig: NextConfig = {
   turbopack: {
     root: process.cwd(),
+  },
+
+  env: {
+    NEXT_PUBLIC_BUILD_VERSION: publicBuildVersion,
   },
 
   serverExternalPackages: ["@sparticuz/chromium", "puppeteer-core"],
