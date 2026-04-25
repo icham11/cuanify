@@ -114,7 +114,9 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
       });
 
       for (const subcategory of categoryNames) {
-        const existingId = categoryIds.get(normalizeProductNameKey(subcategory));
+        const existingId = categoryIds.get(
+          normalizeProductNameKey(subcategory),
+        );
         if (existingId) continue;
 
         const created = await tx.category.create({
@@ -154,12 +156,22 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
       let createdCount = 0;
       let updatedCount = 0;
       let reactivatedCount = 0;
+      const productsToCreate: Array<{
+        businessId: number;
+        categoryId: number | null;
+        name: string;
+        sellingPrice: number;
+        recipeCost: number;
+        productType: "PreOrder";
+      }> = [];
 
       for (const product of products) {
         const normalizedName = normalizeProductName(product.name);
         const subcategoryKey = normalizeProductNameKey(product.subcategory);
         const resolvedCategoryId = categoryIds.get(subcategoryKey) ?? null;
-        const matched = existingByName.get(normalizeProductNameKey(normalizedName));
+        const matched = existingByName.get(
+          normalizeProductNameKey(normalizedName),
+        );
 
         if (matched) {
           await tx.product.update({
@@ -188,22 +200,21 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
           continue;
         }
 
-        const created = await tx.product.create({
-          data: {
-            businessId: args.businessId,
-            categoryId: resolvedCategoryId,
-            name: normalizedName,
-            sellingPrice: product.sellingPrice,
-            recipeCost: 0,
-            productType: "PreOrder",
-          },
-        });
-
-        existingByName.set(normalizeProductNameKey(normalizedName), {
-          ...created,
-          category: null,
+        productsToCreate.push({
+          businessId: args.businessId,
+          categoryId: resolvedCategoryId,
+          name: normalizedName,
+          sellingPrice: product.sellingPrice,
+          recipeCost: 0,
+          productType: "PreOrder",
         });
         createdCount += 1;
+      }
+
+      if (productsToCreate.length > 0) {
+        await tx.product.createMany({
+          data: productsToCreate,
+        });
       }
 
       return {
@@ -217,12 +228,14 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
         touchedProductIds: dedupe.touchedProductIds,
       };
     },
-    { timeout: 30000 },
+    { timeout: 120000 },
   );
 
   if (result.touchedProductIds.length > 0) {
     await Promise.all(
-      result.touchedProductIds.map((id) => recomputeRecipeCost(id).catch(() => {})),
+      result.touchedProductIds.map((id) =>
+        recomputeRecipeCost(id).catch(() => {}),
+      ),
     );
   }
 

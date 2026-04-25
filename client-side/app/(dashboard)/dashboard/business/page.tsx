@@ -69,7 +69,10 @@ function InsightModal({
 }) {
   const [tab, setTab] = useState<"insights" | "alerts">("insights");
   const totalAlertCount =
-    alerts.expired.length + alerts.expiring3.length + alerts.expiring7.length + alerts.lowStock.length;
+    alerts.expired.length +
+    alerts.expiring3.length +
+    alerts.expiring7.length +
+    alerts.lowStock.length;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -133,7 +136,8 @@ function InsightModal({
               ) : (
                 insights.map((insight, idx) => {
                   const colorMap = {
-                    positive: "bg-emerald-50 border-emerald-200 text-emerald-700",
+                    positive:
+                      "bg-emerald-50 border-emerald-200 text-emerald-700",
                     warning: "bg-amber-50 border-amber-200 text-amber-700",
                     danger: "bg-red-50 border-red-200 text-red-700",
                     info: "bg-blue-50 border-blue-200 text-blue-700",
@@ -149,7 +153,9 @@ function InsightModal({
                       <div className="shrink-0 mt-0.5">{insight.icon}</div>
                       <div>
                         <p className="font-semibold text-sm">{insight.title}</p>
-                        <p className="text-xs opacity-80 mt-0.5">{insight.description}</p>
+                        <p className="text-xs opacity-80 mt-0.5">
+                          {insight.description}
+                        </p>
                       </div>
                     </motion.div>
                   );
@@ -163,8 +169,12 @@ function InsightModal({
               {totalAlertCount === 0 ? (
                 <div className="text-center py-8">
                   <ShieldCheck className="w-10 h-10 mx-auto mb-2 text-emerald-400" />
-                  <p className="text-emerald-600 font-semibold">Semua stok aman!</p>
-                  <p className="text-sm text-gray-400 mt-1">Tidak ada peringatan saat ini</p>
+                  <p className="text-emerald-600 font-semibold">
+                    Semua stok aman!
+                  </p>
+                  <p className="text-sm text-gray-400 mt-1">
+                    Tidak ada peringatan saat ini
+                  </p>
                 </div>
               ) : (
                 <>
@@ -176,7 +186,10 @@ function InsightModal({
                       </p>
                       <ul className="space-y-1">
                         {alerts.expired.map((item, idx) => (
-                          <li key={`exp-${idx}`} className="text-sm text-red-600 flex items-center gap-2">
+                          <li
+                            key={`exp-${idx}`}
+                            className="text-sm text-red-600 flex items-center gap-2"
+                          >
                             <span className="w-1 h-1 rounded-full bg-red-400 shrink-0" />
                             {item.name}
                             {item.expirationDate && (
@@ -197,7 +210,10 @@ function InsightModal({
                       </p>
                       <ul className="space-y-1">
                         {alerts.expiring3.map((item, idx) => (
-                          <li key={`exp3-${idx}`} className="text-sm text-orange-600 flex items-center gap-2">
+                          <li
+                            key={`exp3-${idx}`}
+                            className="text-sm text-orange-600 flex items-center gap-2"
+                          >
                             <span className="w-1 h-1 rounded-full bg-orange-400 shrink-0" />
                             {item.name}
                             {item.expirationDate && (
@@ -218,7 +234,10 @@ function InsightModal({
                       </p>
                       <ul className="space-y-1">
                         {alerts.expiring7.map((item, idx) => (
-                          <li key={`exp7-${idx}`} className="text-sm text-amber-600 flex items-center gap-2">
+                          <li
+                            key={`exp7-${idx}`}
+                            className="text-sm text-amber-600 flex items-center gap-2"
+                          >
                             <span className="w-1 h-1 rounded-full bg-amber-400 shrink-0" />
                             {item.name}
                             {item.expirationDate && (
@@ -239,11 +258,15 @@ function InsightModal({
                       </p>
                       <ul className="space-y-1">
                         {alerts.lowStock.map((item, idx) => (
-                          <li key={`ls-${idx}`} className="text-sm text-pink-600 flex items-center gap-2">
+                          <li
+                            key={`ls-${idx}`}
+                            className="text-sm text-pink-600 flex items-center gap-2"
+                          >
                             <span className="w-1 h-1 rounded-full bg-pink-400 shrink-0" />
                             {item.name}
                             <span className="text-xs text-pink-400 ml-auto shrink-0">
-                              {item.currentStock ?? "-"} / {item.minStock ?? "-"}
+                              {item.currentStock ?? "-"} /{" "}
+                              {item.minStock ?? "-"}
                             </span>
                           </li>
                         ))}
@@ -351,10 +374,27 @@ export default function BusinessPage() {
   const [creating, setCreating] = useState(false);
 
   const fetchBusiness = useCallback(async () => {
-    if (!business?.id) return;
     try {
       setLoading(true);
-      const res = await apiFetch(`/api/businesses/${business.id}`);
+      let targetBusinessId = business?.id;
+
+      if (!targetBusinessId) {
+        const listRes = await apiFetch("/api/businesses");
+        const firstBusiness = listRes?.data?.[0];
+
+        if (firstBusiness?.id) {
+          targetBusinessId = firstBusiness.id;
+        }
+      }
+
+      if (!targetBusinessId) {
+        setData(null);
+        setNameVal("");
+        setLocationVal("");
+        return;
+      }
+
+      const res = await apiFetch(`/api/businesses/${targetBusinessId}`);
       if (res.success) {
         setData(res.data);
         setNameVal(res.data.name);
@@ -401,7 +441,8 @@ export default function BusinessPage() {
           if (!batch.expirationDate) return;
 
           const expDate = new Date(batch.expirationDate);
-          const diffDays = (expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24);
+          const diffDays =
+            (expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24);
 
           if (diffDays < 0)
             expired.push({
@@ -438,12 +479,17 @@ export default function BusinessPage() {
         });
       }
 
-      if (expired.length === 0 && expiring3.length === 0 && expiring7.length === 0) {
+      if (
+        expired.length === 0 &&
+        expiring3.length === 0 &&
+        expiring7.length === 0
+      ) {
         positiveInsights.push({
           type: "positive",
           icon: <CheckCircle2 className="w-5 h-5 text-emerald-600" />,
           title: "Tidak ada bahan kadaluarsa",
-          description: "Semua bahan baku fresh dan siap dipakai. Great job mengelola inventory!",
+          description:
+            "Semua bahan baku fresh dan siap dipakai. Great job mengelola inventory!",
         });
       }
 
@@ -461,7 +507,10 @@ export default function BusinessPage() {
   }, []);
 
   const totalAlertCount =
-    alerts.expired.length + alerts.expiring3.length + alerts.expiring7.length + alerts.lowStock.length;
+    alerts.expired.length +
+    alerts.expiring3.length +
+    alerts.expiring7.length +
+    alerts.lowStock.length;
   const alertPulse = totalAlertCount > 0 ? "animate-pulse" : "";
 
   useEffect(() => {
@@ -493,14 +542,16 @@ export default function BusinessPage() {
         type: "positive",
         icon: <Award className="w-5 h-5 text-emerald-600" />,
         title: `Margin rata-rata ${s.marginAvg.toFixed(1)}% — Sehat!`,
-        description: "Margin di atas 30% menandakan bisnis Anda dalam kondisi sehat.",
+        description:
+          "Margin di atas 30% menandakan bisnis Anda dalam kondisi sehat.",
       });
     } else if (s.marginAvg != null && s.marginAvg > 0 && s.marginAvg <= 30) {
       newInsights.push({
         type: "warning",
         icon: <TrendingUp className="w-5 h-5 text-amber-600" />,
         title: `Margin rata-rata ${s.marginAvg.toFixed(1)}%`,
-        description: "Margin masih bisa ditingkatkan. Pertimbangkan review harga jual atau efisiensi bahan baku.",
+        description:
+          "Margin masih bisa ditingkatkan. Pertimbangkan review harga jual atau efisiensi bahan baku.",
       });
     }
 
@@ -520,14 +571,17 @@ export default function BusinessPage() {
         type: "positive",
         icon: <DollarSign className="w-5 h-5 text-emerald-600" />,
         title: `Profit bersih ${formatRupiah(s.totalProfit)}`,
-        description: "Bisnis Anda menghasilkan keuntungan. Pertimbangkan untuk reinvestasi ke pengembangan produk.",
+        description:
+          "Bisnis Anda menghasilkan keuntungan. Pertimbangkan untuk reinvestasi ke pengembangan produk.",
       });
     }
 
     // Merge with inventory insights (already set from fetchInventoryAlerts)
     setInsights((prev) => {
       // Keep inventory-related insights (ShieldCheck, CheckCircle2), merge with business ones
-      const inventoryInsights = prev.filter((i) => i.title.includes("bahan baku") || i.title.includes("kadaluarsa"));
+      const inventoryInsights = prev.filter(
+        (i) => i.title.includes("bahan baku") || i.title.includes("kadaluarsa"),
+      );
       return [...newInsights, ...inventoryInsights];
     });
   }, [data]);
@@ -536,13 +590,16 @@ export default function BusinessPage() {
     if (!data) return;
     setSaving(true);
     try {
-      const body = field === "name" ? { name: nameVal } : { location: locationVal };
+      const body =
+        field === "name" ? { name: nameVal } : { location: locationVal };
       const res = await apiFetch(`/api/businesses/${data.id}`, {
         method: "PATCH",
         body: JSON.stringify(body),
       });
       if (res.success) {
-        toast.success(`${field === "name" ? "Nama" : "Lokasi"} bisnis berhasil diperbarui`);
+        toast.success(
+          `${field === "name" ? "Nama" : "Lokasi"} bisnis berhasil diperbarui`,
+        );
         setEditingName(false);
         setEditingLocation(false);
         await fetchBusiness();
@@ -633,7 +690,9 @@ export default function BusinessPage() {
             </div>
             Business
           </h1>
-          <p className="text-gray-500 mt-1 text-sm">Kelola informasi dan performa bisnis Anda</p>
+          <p className="text-gray-500 mt-1 text-sm">
+            Kelola informasi dan performa bisnis Anda
+          </p>
         </div>
         <button
           onClick={() => {
@@ -684,7 +743,9 @@ export default function BusinessPage() {
                         onChange={(e) => setNameVal(e.target.value)}
                         className="flex-1 px-3 py-2 border border-indigo-200 rounded-lg text-lg font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-300"
                         autoFocus
-                        onKeyDown={(e) => e.key === "Enter" && handleSave("name")}
+                        onKeyDown={(e) =>
+                          e.key === "Enter" && handleSave("name")
+                        }
                       />
                       <button
                         onClick={() => handleSave("name")}
@@ -705,7 +766,9 @@ export default function BusinessPage() {
                     </div>
                   ) : (
                     <div className="flex items-center gap-2 flex-1 group">
-                      <h2 className="text-xl sm:text-2xl font-bold text-gray-900">{data.name}</h2>
+                      <h2 className="text-xl sm:text-2xl font-bold text-gray-900">
+                        {data.name}
+                      </h2>
                       <button
                         onClick={() => setEditingName(true)}
                         className="opacity-0 group-hover:opacity-100 p-1.5 text-gray-400 hover:text-indigo-500 hover:bg-indigo-50 rounded-lg transition-all cursor-pointer"
@@ -725,7 +788,9 @@ export default function BusinessPage() {
                         placeholder="Masukkan lokasi bisnis..."
                         className="flex-1 px-3 py-2 border border-pink-200 rounded-lg text-gray-700 focus:outline-none focus:ring-2 focus:ring-pink-300"
                         autoFocus
-                        onKeyDown={(e) => e.key === "Enter" && handleSave("location")}
+                        onKeyDown={(e) =>
+                          e.key === "Enter" && handleSave("location")
+                        }
                       />
                       <button
                         onClick={() => handleSave("location")}
@@ -746,7 +811,9 @@ export default function BusinessPage() {
                     </div>
                   ) : (
                     <div className="flex items-center gap-2 flex-1 group">
-                      <span className="text-gray-600">{data.location || "Belum diatur"}</span>
+                      <span className="text-gray-600">
+                        {data.location || "Belum diatur"}
+                      </span>
                       <button
                         onClick={() => setEditingLocation(true)}
                         className="opacity-0 group-hover:opacity-100 p-1.5 text-gray-400 hover:text-pink-500 hover:bg-pink-50 rounded-lg transition-all cursor-pointer"
@@ -781,7 +848,9 @@ export default function BusinessPage() {
                       )}
                     </p>
                     <p className="text-xs text-emerald-600 mt-0.5 truncate">
-                      {insights.length > 0 ? insights[0].title : "Lihat ringkasan bisnis"}
+                      {insights.length > 0
+                        ? insights[0].title
+                        : "Lihat ringkasan bisnis"}
                     </p>
                   </div>
                 </div>
@@ -797,7 +866,9 @@ export default function BusinessPage() {
                 >
                   <span
                     className={`rounded-full p-2.5 shadow-sm shrink-0 ${
-                      totalAlertCount > 0 ? `bg-amber-100 ${alertPulse}` : "bg-emerald-100"
+                      totalAlertCount > 0
+                        ? `bg-amber-100 ${alertPulse}`
+                        : "bg-emerald-100"
                     }`}
                   >
                     {totalAlertCount > 0 ? (
@@ -809,7 +880,9 @@ export default function BusinessPage() {
                   <div className="min-w-0">
                     <p
                       className={`font-semibold text-sm flex items-center gap-1.5 ${
-                        totalAlertCount > 0 ? "text-amber-700" : "text-emerald-700"
+                        totalAlertCount > 0
+                          ? "text-amber-700"
+                          : "text-emerald-700"
                       }`}
                     >
                       {totalAlertCount > 0 ? "Peringatan Stok" : "Stok Aman"}
@@ -819,8 +892,12 @@ export default function BusinessPage() {
                         </span>
                       )}
                     </p>
-                    <p className={`text-xs mt-0.5 ${totalAlertCount > 0 ? "text-amber-600" : "text-emerald-600"}`}>
-                      {totalAlertCount > 0 ? `${totalAlertCount} item perlu dicek` : "Semua bahan baku aman"}
+                    <p
+                      className={`text-xs mt-0.5 ${totalAlertCount > 0 ? "text-amber-600" : "text-emerald-600"}`}
+                    >
+                      {totalAlertCount > 0
+                        ? `${totalAlertCount} item perlu dicek`
+                        : "Semua bahan baku aman"}
                     </p>
                   </div>
                 </div>
@@ -836,7 +913,12 @@ export default function BusinessPage() {
                   value={formatRupiah(stats.totalRevenue)}
                   color="emerald"
                 />
-                <StatTile icon={TrendingUp} label="Total Profit" value={formatRupiah(stats.totalProfit)} color="blue" />
+                <StatTile
+                  icon={TrendingUp}
+                  label="Total Profit"
+                  value={formatRupiah(stats.totalProfit)}
+                  color="blue"
+                />
                 <StatTile
                   icon={ShoppingCart}
                   label="Transaksi Lunas"
@@ -846,7 +928,11 @@ export default function BusinessPage() {
                 <StatTile
                   icon={Percent}
                   label="Margin Rata-rata"
-                  value={stats.marginAvg != null ? `${stats.marginAvg.toFixed(1)}%` : "—"}
+                  value={
+                    stats.marginAvg != null
+                      ? `${stats.marginAvg.toFixed(1)}%`
+                      : "—"
+                  }
                   color="amber"
                 />
               </div>
@@ -855,16 +941,38 @@ export default function BusinessPage() {
             {/* Operational Stats */}
             {counts && (
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <MiniStat icon={Package} label="Produk" value={counts.products} />
-                <MiniStat icon={Boxes} label="Bahan" value={counts.ingredients} />
-                <MiniStat icon={BarChart3} label="Kategori" value={counts.categories} />
-                <MiniStat icon={ShoppingCart} label="Total Penjualan" value={counts.sales} />
+                <MiniStat
+                  icon={Package}
+                  label="Produk"
+                  value={counts.products}
+                />
+                <MiniStat
+                  icon={Boxes}
+                  label="Bahan"
+                  value={counts.ingredients}
+                />
+                <MiniStat
+                  icon={BarChart3}
+                  label="Kategori"
+                  value={counts.categories}
+                />
+                <MiniStat
+                  icon={ShoppingCart}
+                  label="Total Penjualan"
+                  value={counts.sales}
+                />
               </div>
             )}
           </div>
         </motion.div>
       )}
-      {isAlertOpen && <InsightModal alerts={alerts} insights={insights} onClose={() => setIsAlertOpen(false)} />}
+      {isAlertOpen && (
+        <InsightModal
+          alerts={alerts}
+          insights={insights}
+          onClose={() => setIsAlertOpen(false)}
+        />
+      )}
 
       {/* All Businesses List */}
       <motion.div
@@ -876,7 +984,9 @@ export default function BusinessPage() {
         <div className="p-6 flex items-center justify-between border-b border-gray-100">
           <div>
             <h3 className="text-lg font-bold text-gray-900">Daftar Bisnis</h3>
-            <p className="text-sm text-gray-500">{allBusinesses.length} bisnis terdaftar</p>
+            <p className="text-sm text-gray-500">
+              {allBusinesses.length} bisnis terdaftar
+            </p>
           </div>
           <button
             onClick={() => setShowNewForm(!showNewForm)}
@@ -915,7 +1025,11 @@ export default function BusinessPage() {
                     disabled={creating || !newName.trim()}
                     className="px-6 py-2.5 bg-indigo-500 text-white rounded-xl text-sm font-semibold hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition"
                   >
-                    {creating ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : "Simpan"}
+                    {creating ? (
+                      <Loader2 className="w-4 h-4 animate-spin mx-auto" />
+                    ) : (
+                      "Simpan"
+                    )}
                   </button>
                 </div>
               </div>
@@ -954,33 +1068,36 @@ export default function BusinessPage() {
                       </span>
                     )}
                   </div>
-                  <p className="text-xs text-gray-400">{biz.location || "Tidak ada lokasi"}</p>
+                  <p className="text-xs text-gray-400">
+                    {biz.location || "Tidak ada lokasi"}
+                  </p>
                 </div>
               </div>
-              {allBusinesses.length > 1 && String(biz.id) !== String(business?.id) && (
-                <div className="flex items-center gap-1.5">
-                  <button
-                    onClick={() => handleSwitch(biz.id, biz.name)}
-                    disabled={switching === biz.id}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition cursor-pointer disabled:opacity-50"
-                    title="Beralih ke bisnis ini"
-                  >
-                    {switching === biz.id ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <ArrowRightLeft className="w-3.5 h-3.5" />
-                    )}
-                    Switch
-                  </button>
-                  <button
-                    onClick={() => handleDelete(biz.id, biz.name)}
-                    className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition cursor-pointer"
-                    title="Hapus bisnis"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              )}
+              {allBusinesses.length > 1 &&
+                String(biz.id) !== String(business?.id) && (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => handleSwitch(biz.id, biz.name)}
+                      disabled={switching === biz.id}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition cursor-pointer disabled:opacity-50"
+                      title="Beralih ke bisnis ini"
+                    >
+                      {switching === biz.id ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <ArrowRightLeft className="w-3.5 h-3.5" />
+                      )}
+                      Switch
+                    </button>
+                    <button
+                      onClick={() => handleDelete(biz.id, biz.name)}
+                      className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition cursor-pointer"
+                      title="Hapus bisnis"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
             </motion.div>
           ))}
         </div>
@@ -1003,7 +1120,8 @@ function StatTile({
   color: string;
 }) {
   const colorMap: Record<string, string> = {
-    emerald: "from-emerald-50 to-emerald-100/50 border-emerald-100 text-emerald-700",
+    emerald:
+      "from-emerald-50 to-emerald-100/50 border-emerald-100 text-emerald-700",
     blue: "from-blue-50 to-blue-100/50 border-blue-100 text-blue-700",
     indigo: "from-indigo-50 to-indigo-100/50 border-indigo-100 text-indigo-700",
     amber: "from-amber-50 to-amber-100/50 border-amber-100 text-amber-700",
@@ -1017,11 +1135,15 @@ function StatTile({
 
   return (
     <div className={`p-4 rounded-xl bg-linear-to-br border ${colorMap[color]}`}>
-      <div className={`w-8 h-8 rounded-lg flex items-center justify-center mb-2 ${iconColorMap[color]}`}>
+      <div
+        className={`w-8 h-8 rounded-lg flex items-center justify-center mb-2 ${iconColorMap[color]}`}
+      >
         <Icon className="w-4 h-4" />
       </div>
       <p className="text-[10px] sm:text-xs text-gray-500 mb-0.5">{label}</p>
-      <p className="text-sm sm:text-base md:text-lg font-bold break-all leading-tight">{value}</p>
+      <p className="text-sm sm:text-base md:text-lg font-bold break-all leading-tight">
+        {value}
+      </p>
     </div>
   );
 }
