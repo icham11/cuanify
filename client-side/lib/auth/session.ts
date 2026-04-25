@@ -1,9 +1,9 @@
 import { cookies, headers } from "next/headers"
-import { getToken } from "next-auth/jwt"
+import { getServerSession } from "next-auth"
+import { authOptions } from "@/lib/auth"
 import { verifyToken } from "@/lib/auth/jwt"
 import prisma from "@/lib/prisma"
 import type { UserRole } from "@prisma/client"
-
 export class AuthError extends Error {}
 export class ForbiddenError extends Error {}
 
@@ -62,37 +62,18 @@ async function resolveUserIdFromCustomJwt(
   return undefined
 }
 
-async function resolveUserIdFromNextAuthJwt(
-  cookieStore: Awaited<ReturnType<typeof cookies>>,
-  headerList: Awaited<ReturnType<typeof headers>>,
-): Promise<number | undefined> {
-  // Build a lightweight req shape accepted by next-auth getToken()
-  const req = {
-    headers: headerList,
-    cookies: cookieStore,
-  } as unknown as NonNullable<Parameters<typeof getToken>[0]["req"]>
+async function resolveUserIdFromNextAuthJwt(): Promise<number | undefined> {
+  const session = await getServerSession(authOptions)
 
-  const token = await getToken({
-    req,
-    secret: process.env.NEXTAUTH_SECRET,
-  })
-
-  if (!token) return undefined
-
-  // Prefer explicit numeric identifiers if present
-  const directId =
-    normalizeNumericId((token as Record<string, unknown>).id) ??
-    normalizeNumericId((token as Record<string, unknown>).userId) ??
-    normalizeNumericId(token.sub)
-
-  if (directId) {
-    return directId
+  if (session?.user?.id) {
+    const directId = normalizeNumericId(session.user.id)
+    if (directId) return directId
   }
 
   // OAuth JWT usually has email + provider `sub`; map email to Prisma user
-  if (typeof token.email === "string" && token.email.trim() !== "") {
+  if (typeof session?.user?.email === "string" && session.user.email.trim() !== "") {
     const dbUser = await prisma.user.findUnique({
-      where: { email: token.email },
+      where: { email: session.user.email },
       select: { id: true },
     })
     return dbUser?.id
@@ -106,7 +87,7 @@ export async function requireAuth(): Promise<AuthResult> {
   const headerList = await headers()
 
   // 1) Try NextAuth JWT cookie/header first (Google OAuth flow)
-  let userId = await resolveUserIdFromNextAuthJwt(cookieStore, headerList)
+  let userId = await resolveUserIdFromNextAuthJwt()
 
   // 2) Fallback to app JWT auth flow (email/password + API clients)
   if (!userId) {
