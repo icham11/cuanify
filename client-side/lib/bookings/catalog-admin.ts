@@ -2,26 +2,35 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  EMPTY_CATALOG_ADMIN_STATE,
-  buildEffectiveAddOnCatalog,
-  buildEffectiveProductCatalog,
-  makeAddOnKey,
-  makeProductKey,
-  makeVariantKey,
-  normalizeCatalogAdminState,
-  type CatalogAdminState,
-  type CustomAddOnEntry,
-  type CustomProductEntry,
-} from "@/lib/bookings/catalog-state";
+  BOOKING_ADD_ON_CATALOG,
+  BOOKING_PRODUCT_CATALOG,
+  type CatalogAddOn,
+  type PricelistCategory,
+} from "@/lib/bookings/pricelist";
 
-export {
-  makeAddOnKey,
-  makeProductKey,
-  makeVariantKey,
-  type CatalogAdminState,
-  type CustomAddOnEntry,
-  type CustomProductEntry,
-};
+export interface CustomProductEntry {
+  category: string;
+  subcategory: string;
+  productName: string;
+  variantLabel: string;
+  price: number;
+}
+
+export interface CustomAddOnEntry {
+  category: string;
+  id: string;
+  label: string;
+  price: number;
+}
+
+export interface CatalogAdminState {
+  productVariantPriceOverrides: Record<string, number>;
+  addOnPriceOverrides: Record<string, number>;
+  inactiveProducts: string[];
+  inactiveAddOns: string[];
+  customProducts: CustomProductEntry[];
+  customAddOns: CustomAddOnEntry[];
+}
 
 export type CatalogSyncStatus = "idle" | "syncing" | "synced" | "error";
 
@@ -31,14 +40,43 @@ const CATALOG_CONFIG_API = "/api/bookings/catalog-config";
 const SERVER_REVALIDATE_INTERVAL_MS = 10000;
 const SERVER_REVALIDATE_STALE_GUARD_MS = 3000;
 
-const EMPTY_STATE = EMPTY_CATALOG_ADMIN_STATE;
+const EMPTY_STATE: CatalogAdminState = {
+  productVariantPriceOverrides: {},
+  addOnPriceOverrides: {},
+  inactiveProducts: [],
+  inactiveAddOns: [],
+  customProducts: [],
+  customAddOns: [],
+};
+
+function normalizeMoney(value: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.max(0, Math.round(parsed));
+}
 
 function readStateFromStorage(): CatalogAdminState {
   if (typeof window === "undefined") return EMPTY_STATE;
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return EMPTY_STATE;
-    return normalizeCatalogAdminState(JSON.parse(raw));
+    const parsed = JSON.parse(raw) as CatalogAdminState;
+    return {
+      productVariantPriceOverrides: parsed.productVariantPriceOverrides ?? {},
+      addOnPriceOverrides: parsed.addOnPriceOverrides ?? {},
+      inactiveProducts: Array.isArray(parsed.inactiveProducts)
+        ? parsed.inactiveProducts
+        : [],
+      inactiveAddOns: Array.isArray(parsed.inactiveAddOns)
+        ? parsed.inactiveAddOns
+        : [],
+      customProducts: Array.isArray(parsed.customProducts)
+        ? parsed.customProducts
+        : [],
+      customAddOns: Array.isArray(parsed.customAddOns)
+        ? parsed.customAddOns
+        : [],
+    };
   } catch {
     return EMPTY_STATE;
   }
@@ -89,6 +127,170 @@ async function saveStateToServer(next: CatalogAdminState) {
   if (!response.ok) {
     throw new Error("Failed to save catalog config to server.");
   }
+}
+
+export function makeProductKey(
+  category: string,
+  subcategory: string,
+  productName: string,
+): string {
+  return [category, subcategory, productName].join("||");
+}
+
+export function makeVariantKey(
+  category: string,
+  subcategory: string,
+  productName: string,
+  variantLabel: string,
+): string {
+  return [category, subcategory, productName, variantLabel].join("||");
+}
+
+export function makeAddOnKey(category: string, addOnId: string): string {
+  return [category, addOnId].join("||");
+}
+
+function cloneCatalog(base: PricelistCategory[]): PricelistCategory[] {
+  return base.map((category) => ({
+    ...category,
+    subcategories: category.subcategories.map((subcategory) => ({
+      ...subcategory,
+      products: subcategory.products.map((product) => ({
+        ...product,
+        variants: product.variants.map((variant) => ({ ...variant })),
+      })),
+    })),
+  }));
+}
+
+function buildEffectiveProductCatalog(
+  state: CatalogAdminState,
+): PricelistCategory[] {
+  const next = cloneCatalog(BOOKING_PRODUCT_CATALOG);
+
+  state.customProducts.forEach((entry) => {
+    const category = next.find((item) => item.category === entry.category);
+    if (!category) return;
+
+    const subcategory =
+      category.subcategories.find((item) => item.name === entry.subcategory) ??
+      category.subcategories[0];
+    if (!subcategory) return;
+
+    const targetProduct = subcategory.products.find(
+      (item) => item.name === entry.productName,
+    );
+
+    if (targetProduct) {
+      const hasVariant = targetProduct.variants.some(
+        (variant) => variant.label === entry.variantLabel,
+      );
+      if (!hasVariant) {
+        targetProduct.variants.push({
+          label: entry.variantLabel,
+          price: normalizeMoney(entry.price),
+        });
+      }
+      return;
+    }
+
+    subcategory.products.push({
+      name: entry.productName,
+      variants: [
+        {
+          label: entry.variantLabel,
+          price: normalizeMoney(entry.price),
+        },
+      ],
+      defaultVariant: entry.variantLabel,
+      keywords: [],
+    });
+  });
+
+  next.forEach((category) => {
+    category.subcategories.forEach((subcategory) => {
+      subcategory.products = subcategory.products
+        .filter((product) => {
+          const productKey = makeProductKey(
+            category.category,
+            subcategory.name,
+            product.name,
+          );
+          return !state.inactiveProducts.includes(productKey);
+        })
+        .map((product) => {
+          const variants = product.variants.map((variant) => {
+            const key = makeVariantKey(
+              category.category,
+              subcategory.name,
+              product.name,
+              variant.label,
+            );
+            const override = state.productVariantPriceOverrides[key];
+            return {
+              ...variant,
+              price:
+                override !== undefined
+                  ? normalizeMoney(override)
+                  : variant.price,
+            };
+          });
+
+          return {
+            ...product,
+            variants,
+            defaultVariant:
+              variants.find((item) => item.label === product.defaultVariant)
+                ?.label ??
+              variants[0]?.label ??
+              "Standard",
+          };
+        });
+    });
+  });
+
+  return next;
+}
+
+function buildEffectiveAddOnCatalog(
+  state: CatalogAdminState,
+): Record<string, CatalogAddOn[]> {
+  const next: Record<string, CatalogAddOn[]> = Object.fromEntries(
+    Object.entries(BOOKING_ADD_ON_CATALOG).map(([category, list]) => [
+      category,
+      list.map((item) => ({ ...item })),
+    ]),
+  );
+
+  state.customAddOns.forEach((entry) => {
+    const list = next[entry.category] ?? [];
+    const exists = list.some((item) => item.id === entry.id);
+    if (exists) return;
+    list.push({
+      id: entry.id,
+      label: entry.label,
+      price: normalizeMoney(entry.price),
+    });
+    next[entry.category] = list;
+  });
+
+  Object.entries(next).forEach(([category, list]) => {
+    next[category] = list
+      .filter(
+        (item) =>
+          !state.inactiveAddOns.includes(makeAddOnKey(category, item.id)),
+      )
+      .map((item) => {
+        const key = makeAddOnKey(category, item.id);
+        const override = state.addOnPriceOverrides[key];
+        return {
+          ...item,
+          price: override !== undefined ? normalizeMoney(override) : item.price,
+        };
+      });
+  });
+
+  return next;
 }
 
 export function useCatalogAdminState() {

@@ -373,6 +373,15 @@ async function main() {
 
   console.log("\n🧹 Cleaning up previous seed data...");
 
+  const seededPurchaseDocs = await prisma.stockDocument.findMany({
+    where: {
+      businessId: BIZ,
+      type: "Purchase",
+      notes: { contains: SEED_TAG },
+    },
+    select: { createdAt: true },
+  });
+
   // Delete seeded debts first (referential integrity)
   const { count: delDebts } = await prisma.debt.deleteMany({
     where: {
@@ -400,13 +409,12 @@ async function main() {
   });
   console.log(`   StockDocuments deleted: ${delDocs}`);
 
-  // Delete seed-created inventory batches (keep those not from our seed)
+  // Delete inventory batches created by previous seed runs.
+  // We identify them by matching the receivedAt timestamp of seeded Purchase docs.
   const { count: delBatches } = await prisma.inventoryBatch.deleteMany({
     where: {
       ingredient: { businessId: BIZ },
-      // Delete batches created after a certain date that are from our seed
-      createdAt: { gte: new Date("2020-01-01") },
-      // We'll recreate all batches
+      receivedAt: { in: seededPurchaseDocs.map((doc) => doc.createdAt) },
     },
   });
   console.log(`   InventoryBatches deleted: ${delBatches}`);

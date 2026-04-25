@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { requireAuth, AuthError } from "@/lib/auth/session";
 import prisma from "@/lib/prisma";
 import {
@@ -44,6 +45,25 @@ function normalizeError(error: unknown): string {
   } catch {
     return String(error);
   }
+}
+
+function isExpiredTransactionError(error: unknown): boolean {
+  if (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === "P2028"
+  ) {
+    return true;
+  }
+
+  if (error instanceof Error) {
+    const message = error.message.toLowerCase();
+    return (
+      message.includes("expired transaction") ||
+      message.includes("transaction api error")
+    );
+  }
+
+  return false;
 }
 
 export async function GET() {
@@ -148,6 +168,15 @@ export async function PUT(request: NextRequest) {
   } catch (error: unknown) {
     if (error instanceof AuthError) {
       return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+    if (isExpiredTransactionError(error)) {
+      return NextResponse.json(
+        {
+          error:
+            "Sinkronisasi catalog masih diproses dan database sedang sibuk. Coba lagi beberapa detik lagi.",
+        },
+        { status: 503 },
+      );
     }
 
     return NextResponse.json(

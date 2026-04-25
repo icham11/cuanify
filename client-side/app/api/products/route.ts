@@ -15,6 +15,45 @@ export const runtime = "nodejs";
 
 // ---------- helpers ----------
 
+function parsePositiveInteger(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return parsed;
+}
+
+const PRODUCT_TX_MAX_WAIT_MS = parsePositiveInteger(
+  process.env.PRODUCT_TX_MAX_WAIT_MS,
+  10_000,
+);
+const PRODUCT_BULK_TX_TIMEOUT_MS = parsePositiveInteger(
+  process.env.PRODUCT_BULK_TX_TIMEOUT_MS,
+  90_000,
+);
+const PRODUCT_SINGLE_TX_TIMEOUT_MS = parsePositiveInteger(
+  process.env.PRODUCT_SINGLE_TX_TIMEOUT_MS,
+  30_000,
+);
+
+function isExpiredTransactionError(error: unknown): boolean {
+  if (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === "P2028"
+  ) {
+    return true;
+  }
+
+  if (error instanceof Error) {
+    const message = error.message.toLowerCase();
+    return (
+      message.includes("expired transaction") ||
+      message.includes("transaction api error")
+    );
+  }
+
+  return false;
+}
+
 /** Find-or-create a category within the business (case-insensitive). */
 async function resolveCategory(
   tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0],
@@ -383,7 +422,10 @@ export async function POST(request: NextRequest) {
 
           return ids;
         },
-        { timeout: 30000 },
+        {
+          maxWait: PRODUCT_TX_MAX_WAIT_MS,
+          timeout: PRODUCT_BULK_TX_TIMEOUT_MS,
+        },
       );
 
       // Refetch with relations OUTSIDE the transaction
@@ -464,7 +506,10 @@ export async function POST(request: NextRequest) {
 
         return product.id;
       },
-      { timeout: 15000 },
+      {
+        maxWait: PRODUCT_TX_MAX_WAIT_MS,
+        timeout: PRODUCT_SINGLE_TX_TIMEOUT_MS,
+      },
     );
 
     // Refetch with relations OUTSIDE the transaction
@@ -496,6 +541,15 @@ export async function POST(request: NextRequest) {
         error.message.includes("duplicate product names"))
     ) {
       return NextResponse.json({ error: error.message }, { status: 409 });
+    }
+    if (isExpiredTransactionError(error)) {
+      return NextResponse.json(
+        {
+          error:
+            "Database sedang sibuk memproses sinkronisasi produk. Coba lagi beberapa detik lagi.",
+        },
+        { status: 503 },
+      );
     }
     if (error instanceof Error && error.message.includes("not found")) {
       return NextResponse.json({ error: error.message }, { status: 400 });

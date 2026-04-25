@@ -15,6 +15,28 @@ interface FlattenedCatalogProduct {
   sellingPrice: number;
 }
 
+type ProductSyncDedupResult = {
+  groupsMerged: number;
+  removedProducts: number;
+  touchedProductIds: number[];
+};
+
+function parsePositiveInteger(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return parsed;
+}
+
+const PRODUCT_SYNC_TX_TIMEOUT_MS = parsePositiveInteger(
+  process.env.PRODUCT_SYNC_TX_TIMEOUT_MS,
+  90_000,
+);
+const PRODUCT_SYNC_TX_MAX_WAIT_MS = parsePositiveInteger(
+  process.env.PRODUCT_SYNC_TX_MAX_WAIT_MS,
+  10_000,
+);
+
 function normalizeMoney(value: number): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return 0;
@@ -70,6 +92,90 @@ export function flattenCatalogProductsForDashboard(
   return rows;
 }
 
+async function hasDuplicateProducts(
+  tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0],
+  businessId: number,
+): Promise<boolean> {
+  const rows = await tx.$queryRaw<Array<{ normalizedName: string }>>`
+    SELECT LOWER(REGEXP_REPLACE(BTRIM(p.name), E'\\s+', ' ', 'g')) AS "normalizedName"
+    FROM "Product" p
+    WHERE p."businessId" = ${businessId}
+      AND p."deletedAt" IS NULL
+    GROUP BY LOWER(REGEXP_REPLACE(BTRIM(p.name), E'\\s+', ' ', 'g'))
+    HAVING COUNT(*) > 1
+    LIMIT 1
+  `;
+
+  return rows.length > 0;
+}
+
+async function deduplicateProductsIfNeeded(args: {
+  tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+  businessId: number;
+}): Promise<ProductSyncDedupResult> {
+  const shouldDeduplicate = await hasDuplicateProducts(args.tx, args.businessId);
+  if (!shouldDeduplicate) {
+    return {
+      groupsMerged: 0,
+      removedProducts: 0,
+      touchedProductIds: [],
+    };
+  }
+
+  return deduplicateProductsForBusiness({
+    tx: args.tx,
+    businessId: args.businessId,
+  });
+}
+
+async function resolveCategoryIds(args: {
+  tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+  businessId: number;
+  categoryNames: string[];
+}): Promise<Map<string, number>> {
+  const { tx, businessId, categoryNames } = args;
+
+  const existingCategories = await tx.category.findMany({
+    where: {
+      businessId,
+    },
+    select: { id: true, name: true },
+  });
+
+  const categoryIds = new Map<string, number>();
+  existingCategories.forEach((category) => {
+    categoryIds.set(normalizeProductNameKey(category.name), category.id);
+  });
+
+  const missingCategoryCreates: Array<{ businessId: number; name: string }> = [];
+  for (const categoryName of categoryNames) {
+    const key = normalizeProductNameKey(categoryName);
+    if (!key || categoryIds.has(key)) continue;
+    missingCategoryCreates.push({ businessId, name: categoryName });
+    categoryIds.set(key, -1);
+  }
+
+  if (missingCategoryCreates.length > 0) {
+    await tx.category.createMany({
+      data: missingCategoryCreates,
+    });
+
+    const refreshedCategories = await tx.category.findMany({
+      where: {
+        businessId,
+      },
+      select: { id: true, name: true },
+    });
+
+    categoryIds.clear();
+    refreshedCategories.forEach((category) => {
+      categoryIds.set(normalizeProductNameKey(category.name), category.id);
+    });
+  }
+
+  return categoryIds;
+}
+
 export async function syncBakeryCatalogToDashboardProducts(args: {
   businessId: number;
   productCatalog: PricelistCategory[];
@@ -84,57 +190,43 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
     );
   }
 
-  const categoryNames = Array.from(
-    new Set(
-      products
-        .map((product) => normalizeProductName(product.subcategory))
-        .filter(Boolean),
-    ),
-  );
+  const categoryNamesByKey = new Map<string, string>();
+  products.forEach((product) => {
+    const categoryName = normalizeProductName(product.subcategory);
+    const key = normalizeProductNameKey(categoryName);
+    if (!key || categoryNamesByKey.has(key)) return;
+    categoryNamesByKey.set(key, categoryName);
+  });
+
+  const categoryNames = [...categoryNamesByKey.values()];
 
   const result = await prisma.$transaction(
     async (tx) => {
       await acquireProductWriteLock(tx, args.businessId);
-      const dedupe = await deduplicateProductsForBusiness({
+
+      const dedupe = await deduplicateProductsIfNeeded({
         tx,
         businessId: args.businessId,
       });
 
-      const existingCategories = await tx.category.findMany({
-        where: {
-          businessId: args.businessId,
-          name: { in: categoryNames },
-        },
-        select: { id: true, name: true },
+      const categoryIds = await resolveCategoryIds({
+        tx,
+        businessId: args.businessId,
+        categoryNames,
       });
-
-      const categoryIds = new Map<string, number>();
-      existingCategories.forEach((category) => {
-        categoryIds.set(normalizeProductNameKey(category.name), category.id);
-      });
-
-      for (const subcategory of categoryNames) {
-        const existingId = categoryIds.get(normalizeProductNameKey(subcategory));
-        if (existingId) continue;
-
-        const created = await tx.category.create({
-          data: {
-            businessId: args.businessId,
-            name: subcategory,
-          },
-          select: { id: true },
-        });
-        categoryIds.set(normalizeProductNameKey(subcategory), created.id);
-      }
 
       const existingProducts = await tx.product.findMany({
         where: {
           businessId: args.businessId,
         },
-        include: {
-          category: {
-            select: { id: true, name: true },
-          },
+        select: {
+          id: true,
+          name: true,
+          categoryId: true,
+          sellingPrice: true,
+          productType: true,
+          isActive: true,
+          deletedAt: true,
         },
         orderBy: [{ deletedAt: "asc" }, { createdAt: "asc" }, { id: "asc" }],
       });
@@ -154,6 +246,14 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
       let createdCount = 0;
       let updatedCount = 0;
       let reactivatedCount = 0;
+      const productsToCreate: Array<{
+        businessId: number;
+        categoryId: number | null;
+        name: string;
+        sellingPrice: number;
+        recipeCost: number;
+        productType: "PreOrder";
+      }> = [];
 
       for (const product of products) {
         const normalizedName = normalizeProductName(product.name);
@@ -162,48 +262,61 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
         const matched = existingByName.get(normalizeProductNameKey(normalizedName));
 
         if (matched) {
-          await tx.product.update({
-            where: { id: matched.id },
-            data: {
-              categoryId: resolvedCategoryId,
-              name: normalizedName,
-              sellingPrice: product.sellingPrice,
-              productType: "PreOrder",
-              isActive: true,
-              deletedAt: null,
-            },
-          });
+          const needsUpdate =
+            matched.categoryId !== resolvedCategoryId ||
+            normalizeProductName(matched.name) !== normalizedName ||
+            Number(matched.sellingPrice) !== product.sellingPrice ||
+            matched.productType !== "PreOrder" ||
+            matched.isActive !== true ||
+            matched.deletedAt !== null;
 
-          updatedCount += 1;
-          if (matched.deletedAt) {
-            reactivatedCount += 1;
+          if (needsUpdate) {
+            await tx.product.update({
+              where: { id: matched.id },
+              data: {
+                categoryId: resolvedCategoryId,
+                name: normalizedName,
+                sellingPrice: product.sellingPrice,
+                productType: "PreOrder",
+                isActive: true,
+                deletedAt: null,
+              },
+            });
+
+            updatedCount += 1;
+            if (matched.deletedAt) {
+              reactivatedCount += 1;
+            }
           }
 
           existingByName.set(normalizeProductNameKey(normalizedName), {
             ...matched,
             name: normalizedName,
             categoryId: resolvedCategoryId,
+            sellingPrice: product.sellingPrice,
+            productType: "PreOrder",
+            isActive: true,
             deletedAt: null,
           });
           continue;
         }
 
-        const created = await tx.product.create({
-          data: {
-            businessId: args.businessId,
-            categoryId: resolvedCategoryId,
-            name: normalizedName,
-            sellingPrice: product.sellingPrice,
-            recipeCost: 0,
-            productType: "PreOrder",
-          },
+        productsToCreate.push({
+          businessId: args.businessId,
+          categoryId: resolvedCategoryId,
+          name: normalizedName,
+          sellingPrice: product.sellingPrice,
+          recipeCost: 0,
+          productType: "PreOrder",
+        });
+      }
+
+      if (productsToCreate.length > 0) {
+        const created = await tx.product.createMany({
+          data: productsToCreate,
         });
 
-        existingByName.set(normalizeProductNameKey(normalizedName), {
-          ...created,
-          category: null,
-        });
-        createdCount += 1;
+        createdCount += created.count;
       }
 
       return {
@@ -217,7 +330,10 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
         touchedProductIds: dedupe.touchedProductIds,
       };
     },
-    { timeout: 30000 },
+    {
+      maxWait: PRODUCT_SYNC_TX_MAX_WAIT_MS,
+      timeout: PRODUCT_SYNC_TX_TIMEOUT_MS,
+    },
   );
 
   if (result.touchedProductIds.length > 0) {

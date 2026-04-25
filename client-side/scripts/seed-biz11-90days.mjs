@@ -36,7 +36,7 @@ const prisma = new PrismaClient({ adapter });
 
 const BIZ = 16;
 const SEED_TAG = "[SEED90]"; // internal cleanup marker only
-const TXN_PREFIX = "TXN";
+const TXN_PREFIX = "SEED90-TXN";
 const DAYS = 90;
 
 // Calculate dates - 90 days ending yesterday
@@ -304,12 +304,44 @@ async function main() {
 
   console.log("\n🧹 Cleaning up previous seed data...");
 
-  await prisma.debt.deleteMany({ where: { businessId: BIZ } });
-  await prisma.sale.deleteMany({ where: { businessId: BIZ, transactionNumber: { startsWith: TXN_PREFIX } } });
-  await prisma.stockDocument.deleteMany({ where: { businessId: BIZ } });
-  await prisma.inventoryBatch.deleteMany({
-    where: { ingredient: { businessId: BIZ }, createdAt: { gte: new Date("2020-01-01") } },
+  const seededPurchaseDocs = await prisma.stockDocument.findMany({
+    where: {
+      businessId: BIZ,
+      type: "Purchase",
+      notes: { contains: SEED_TAG },
+    },
+    select: { createdAt: true },
   });
+
+  await prisma.debt.deleteMany({
+    where: {
+      businessId: BIZ,
+      notes: { contains: SEED_TAG },
+    },
+  });
+
+  await prisma.sale.deleteMany({
+    where: {
+      businessId: BIZ,
+      transactionNumber: { startsWith: TXN_PREFIX },
+    },
+  });
+
+  await prisma.stockDocument.deleteMany({
+    where: {
+      businessId: BIZ,
+      notes: { contains: SEED_TAG },
+    },
+  });
+
+  if (seededPurchaseDocs.length > 0) {
+    await prisma.inventoryBatch.deleteMany({
+      where: {
+        ingredient: { businessId: BIZ },
+        receivedAt: { in: seededPurchaseDocs.map((doc) => doc.createdAt) },
+      },
+    });
+  }
   console.log("   ✓ Cleanup complete");
 
   /* ─── Initialize FIFO Tracker ────────────────────────────────────── */
@@ -341,7 +373,7 @@ async function main() {
     data: {
       businessId: BIZ,
       type: "Purchase",
-      notes: `Initial inventory setup`,
+      notes: `${SEED_TAG} Initial inventory setup`,
       createdAt: initialPurchaseDate,
       updatedAt: initialPurchaseDate,
     },
@@ -430,7 +462,7 @@ async function main() {
         data: {
           businessId: BIZ,
           type: "Waste",
-          notes: `${wasteEvent.reason}`,
+          notes: `${SEED_TAG} ${wasteEvent.reason}`,
           createdAt: wasteDate,
           updatedAt: wasteDate,
         },
@@ -482,7 +514,7 @@ async function main() {
         data: {
           businessId: BIZ,
           type: "Sale",
-          notes: `Sale`,
+          notes: `${SEED_TAG} Sale`,
           createdAt: saleDate,
           updatedAt: saleDate,
         },
@@ -584,7 +616,7 @@ async function main() {
             paidAmount: 0,
             status: "Unpaid",
             dueDate,
-            notes: `Kasbon`,
+            notes: `${SEED_TAG} Kasbon`,
             createdAt: saleDate,
             updatedAt: saleDate,
           },
