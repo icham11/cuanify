@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
 import { verifyToken } from "@/lib/auth/jwt"
+import { ensureOwnerDefaultProducts } from "@/lib/bookings/owner-product-bootstrap"
 
 function getUserIdFromJwt(req: NextRequest): number | undefined {
   const token = req.cookies.get("token")?.value
@@ -107,6 +108,12 @@ export async function POST(req: NextRequest) {
         userId,
       },
     })
+
+    try {
+      await ensureOwnerDefaultProducts({ businessId: business.id, force: true })
+    } catch (bootstrapError) {
+      console.error("POST /api/businesses owner product bootstrap error:", bootstrapError)
+    }
 
     return NextResponse.json({ success: true, data: business }, { status: 201 })
   } catch (e) {

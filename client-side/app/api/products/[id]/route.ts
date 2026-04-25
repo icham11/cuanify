@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import {
   requireAuth,
@@ -16,6 +17,13 @@ import {
 import { recipeItemSchema } from "@/lib/validations/product";
 
 export const runtime = "nodejs";
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === "P2002"
+  );
+}
 
 const patchSchema = z.object({
   name: z.string().min(1).max(200).optional(),
@@ -165,6 +173,15 @@ export async function PATCH(
     }
     if (error instanceof Error && error.message.includes("already exists")) {
       return NextResponse.json({ error: error.message }, { status: 409 });
+    }
+    if (isUniqueConstraintError(error)) {
+      return NextResponse.json(
+        {
+          error:
+            "Nama produk sudah dipakai oleh produk lain. Gunakan nama yang berbeda.",
+        },
+        { status: 409 },
+      );
     }
     console.error("PATCH /api/products/[id] error:", error);
     return NextResponse.json(

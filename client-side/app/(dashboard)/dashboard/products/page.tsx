@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -17,8 +17,6 @@ import {
   ChevronUp,
   ChevronDown,
   TrendingUp,
-  ArrowUp,
-  ArrowDown,
 } from "lucide-react";
 import {
   getProducts,
@@ -45,9 +43,17 @@ const SUBCATEGORY_PRODUCT_MAP = new Map(
     ),
   ),
 );
+const REMOVED_BAKERY_SUBCATEGORIES = new Set([
+  ["Best", "Seller", "Kids", "Edition"].join(" "),
+  ["Best", "Seller", "Signature"].join(" "),
+]);
 
 function getProductGroupName(product: Product): string {
   const subcategory = product.category?.name ?? "";
+  return getProductGroupFromSubcategoryName(subcategory);
+}
+
+function getProductGroupFromSubcategoryName(subcategory: string): string {
   return SUBCATEGORY_PRODUCT_MAP.get(subcategory) ?? "Custom";
 }
 
@@ -558,6 +564,7 @@ export default function ProductsPage() {
   }, []);
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
+  const [productGroupFilter, setProductGroupFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<number | null>(null);
   const [sortBy, setSortBy] = useState<SortByField>("createdAt");
   const [sortOrder, setSortOrder] = useState<SortOrderType>("desc");
@@ -579,6 +586,33 @@ export default function ProductsPage() {
   const [editModal, setEditModal] = useState<Product | null>(null);
   const [deleteModal, setDeleteModal] = useState<Product | null>(null);
   const [recipeModal, setRecipeModal] = useState<Product | null>(null);
+  const visibleCategories = useMemo(
+    () =>
+      categories.filter(
+        (category) => !REMOVED_BAKERY_SUBCATEGORIES.has(category.name),
+      ),
+    [categories],
+  );
+  const productGroupOptions = useMemo(() => {
+    const groups = new Set(
+      visibleCategories.map((category) =>
+        getProductGroupFromSubcategoryName(category.name),
+      ),
+    );
+    return Array.from(groups).sort((a, b) => a.localeCompare(b));
+  }, [visibleCategories]);
+  const filteredSubcategoryOptions = useMemo(() => {
+    if (!productGroupFilter) return visibleCategories;
+    return visibleCategories.filter(
+      (category) =>
+        getProductGroupFromSubcategoryName(category.name) === productGroupFilter,
+    );
+  }, [productGroupFilter, visibleCategories]);
+  const selectedProductGroupCategoryIds = useMemo(
+    () => filteredSubcategoryOptions.map((category) => category.id),
+    [filteredSubcategoryOptions],
+  );
+  const selectedProductGroupCategoryKey = selectedProductGroupCategoryIds.join(",");
 
   useEffect(() => {
     const searchFromUrl = searchParams.get("search") ?? "";
@@ -606,6 +640,11 @@ export default function ProductsPage() {
           categoryOverride === undefined
             ? (categoryFilter ?? undefined)
             : (categoryOverride ?? undefined),
+        categoryIds:
+          categoryOverride === undefined && !categoryFilter && productGroupFilter
+            ? selectedProductGroupCategoryIds
+            : undefined,
+        excludeCategoryNames: Array.from(REMOVED_BAKERY_SUBCATEGORIES),
         sortBy,
         sortOrder,
         page: pageOverride ?? page,
@@ -642,6 +681,7 @@ export default function ProductsPage() {
     setSyncCatalogMessage(null);
     try {
       const result = await syncBakeryCatalogProducts();
+      setProductGroupFilter("");
       setCategoryFilter(null);
       setPage(1);
       await refreshCategories();
@@ -663,7 +703,16 @@ export default function ProductsPage() {
   useEffect(() => {
     fetchProducts(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, categoryFilter, sortBy, sortOrder]);
+  }, [search, categoryFilter, productGroupFilter, selectedProductGroupCategoryKey, sortBy, sortOrder]);
+
+  useEffect(() => {
+    if (!categoryFilter) return;
+    if (filteredSubcategoryOptions.some((category) => category.id === categoryFilter)) {
+      return;
+    }
+    setCategoryFilter(null);
+    setPage(1);
+  }, [categoryFilter, filteredSubcategoryOptions]);
 
   useEffect(() => {
     if (searchInput === search) return;
@@ -741,7 +790,7 @@ export default function ProductsPage() {
               className="flex items-center justify-center gap-2 px-4 sm:px-5 py-2.5 bg-indigo-950/20 text-white font-semibold rounded-xl shadow hover:bg-indigo-950/30 transition text-sm sm:text-base"
             >
               <Plus size={20} />
-              Buka Catalog
+              Add Product
             </button>
           </div>
         </div>
@@ -798,6 +847,57 @@ export default function ProductsPage() {
           </div>
         </div>
 
+        <div className="rounded-2xl border border-indigo-100 bg-white p-4 shadow-sm">
+          <div className="grid gap-3 md:grid-cols-[minmax(180px,1fr)_200px_220px] md:items-center">
+            <input
+              type="text"
+              placeholder="Cari nama item..."
+              className="h-10 rounded-xl border border-indigo-200 bg-white px-3 text-sm text-slate-700 placeholder:text-slate-400 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-300"
+              value={searchInput}
+              onChange={(e) => {
+                setSearchInput(e.target.value);
+              }}
+            />
+            {productGroupOptions.length > 0 && (
+              <select
+                className="h-10 rounded-xl border border-indigo-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-300"
+                value={productGroupFilter}
+                onChange={(e) => {
+                  setProductGroupFilter(e.target.value);
+                  setCategoryFilter(null);
+                  setPage(1);
+                }}
+              >
+                <option value="">Semua Product</option>
+                {productGroupOptions.map((group) => (
+                  <option key={group} value={group}>
+                    {group}
+                  </option>
+                ))}
+              </select>
+            )}
+            {filteredSubcategoryOptions.length > 0 && (
+              <select
+                className="h-10 rounded-xl border border-indigo-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-300"
+                value={categoryFilter ?? ""}
+                onChange={(e) => {
+                  setCategoryFilter(
+                    e.target.value === "" ? null : Number(e.target.value),
+                  );
+                  setPage(1);
+                }}
+              >
+                <option value="">Semua Sub Category</option>
+                {filteredSubcategoryOptions.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+        </div>
+
         {/* TABLE */}
         {loading && products.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-24 bg-white rounded-3xl shadow">
@@ -820,101 +920,31 @@ export default function ProductsPage() {
         ) : products.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-24 text-gray-400 bg-white rounded-3xl shadow">
             <ChefHat size={56} className="mb-4 text-indigo-200" />
-            <p className="text-lg font-semibold">Belum ada produk.</p>
-            <p className="text-sm mt-1">
-              Klik{" "}
-              <button
-                onClick={() => router.push("/dashboard/products/create")}
-                className="text-indigo-600 font-semibold hover:underline"
-              >
-                Tambah Produk
-              </button>{" "}
-              untuk mulai.
-            </p>
+            {search || productGroupFilter || categoryFilter ? (
+              <>
+                <p className="text-lg font-semibold">Produk tidak ditemukan.</p>
+                <p className="text-sm mt-1">
+                  Coba ubah kata pencarian atau pilihan filter.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-lg font-semibold">Belum ada produk.</p>
+                <p className="text-sm mt-1">
+                  Klik{" "}
+                  <button
+                    onClick={() => router.push("/dashboard/products/create")}
+                    className="text-indigo-600 font-semibold hover:underline"
+                  >
+                    Tambah Produk
+                  </button>{" "}
+                  untuk mulai.
+                </p>
+              </>
+            )}
           </div>
         ) : (
           <>
-            <div className="rounded-2xl border border-indigo-100 bg-white p-4 shadow-sm">
-              <div className="grid gap-3 md:grid-cols-[minmax(180px,1fr)_180px_220px_160px_auto] md:items-center">
-                <input
-                  type="text"
-                  placeholder="Cari nama item..."
-                  className="h-10 rounded-xl border border-indigo-200 bg-white px-3 text-sm text-slate-700 placeholder:text-slate-400 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-300"
-                  value={searchInput}
-                  onChange={(e) => {
-                    setSearchInput(e.target.value);
-                  }}
-                />
-                {categories.length > 0 && (
-                  <select
-                    className="h-10 rounded-xl border border-indigo-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-300"
-                    value={categoryFilter ?? ""}
-                    onChange={(e) => {
-                      setCategoryFilter(
-                        e.target.value === "" ? null : Number(e.target.value),
-                      );
-                      setPage(1);
-                    }}
-                  >
-                    <option value="">Semua Sub Category</option>
-                    {categories.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
-                )}
-                <select
-                  className="h-10 rounded-xl border border-indigo-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-300"
-                  value={sortBy}
-                  onChange={(e) => {
-                    setSortBy(e.target.value as SortByField);
-                    setPage(1);
-                  }}
-                >
-                  <option value="createdAt">Urutkan: Terbaru</option>
-                  <option value="name">Urutkan: Nama Item</option>
-                  <option value="sellingPrice">Urutkan: Harga</option>
-                </select>
-                <button
-                  className="flex h-10 items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-white px-3 text-sm font-semibold text-slate-700 transition hover:bg-indigo-50"
-                  onClick={() => {
-                    setSortOrder(
-                      (d: SortOrderType): SortOrderType =>
-                        d === "asc" ? "desc" : "asc",
-                    );
-                    setPage(1);
-                  }}
-                  title="Urutan"
-                >
-                  {sortOrder === "asc" ? (
-                    <ArrowUp size={14} />
-                  ) : (
-                    <ArrowDown size={14} />
-                  )}
-                  {sortOrder === "asc" ? "Naik" : "Turun"}
-                </button>
-                {loading && products.length > 0 && (
-                  <div className="flex h-10 items-center justify-center gap-2 rounded-xl bg-indigo-50 px-3 text-xs font-semibold text-indigo-600">
-                    <Loader2 size={14} className="animate-spin" />
-                    Memuat
-                  </div>
-                )}
-                {(searchInput || search || categoryFilter) && (
-                  <button
-                    className="h-10 rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm font-semibold text-gray-600 transition hover:bg-gray-100"
-                    onClick={() => {
-                      setSearchInput("");
-                      setSearch("");
-                      setCategoryFilter(null);
-                      setPage(1);
-                    }}
-                  >
-                    Reset
-                  </button>
-                )}
-              </div>
-            </div>
             {/* ═══ MOBILE CARD VIEW ═══ */}
             <div className="md:hidden space-y-3">
               {products.map((product) => {
@@ -1102,12 +1132,14 @@ export default function ProductsPage() {
       {editModal && (
         <EditProductModal
           product={editModal}
-          categories={categories}
+          categories={visibleCategories}
           onClose={() => setEditModal(null)}
           onSaved={(updated) => {
             setProducts((prev) =>
               prev.map((p) => (p.id === updated.id ? updated : p)),
             );
+            refreshCategories();
+            fetchProducts(page);
             setEditModal(null);
           }}
         />

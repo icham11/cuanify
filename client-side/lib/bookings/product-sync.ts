@@ -179,6 +179,7 @@ async function resolveCategoryIds(args: {
 export async function syncBakeryCatalogToDashboardProducts(args: {
   businessId: number;
   productCatalog: PricelistCategory[];
+  deduplicateExistingProducts?: boolean;
 }) {
   const products = flattenCatalogProductsForDashboard(args.productCatalog);
   const duplicateCatalogNames = collectDuplicateProductNames(
@@ -204,41 +205,22 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
     async (tx) => {
       await acquireProductWriteLock(tx, args.businessId);
 
-      const dedupe = await deduplicateProductsIfNeeded({
-        tx,
-        businessId: args.businessId,
-      });
+      const dedupe = args.deduplicateExistingProducts === false
+        ? {
+            groupsMerged: 0,
+            removedProducts: 0,
+            touchedProductIds: [],
+          }
+        : await deduplicateProductsIfNeeded({
+            tx,
+            businessId: args.businessId,
+          });
 
       const categoryIds = await resolveCategoryIds({
         tx,
         businessId: args.businessId,
         categoryNames,
       });
-
-<<<<<<< HEAD
-=======
-      const categoryIds = new Map<string, number>();
-      existingCategories.forEach((category) => {
-        categoryIds.set(normalizeProductNameKey(category.name), category.id);
-      });
-
-      for (const subcategory of categoryNames) {
-        const existingId = categoryIds.get(
-          normalizeProductNameKey(subcategory),
-        );
-        if (existingId) continue;
-
-        const created = await tx.category.create({
-          data: {
-            businessId: args.businessId,
-            name: subcategory,
-          },
-          select: { id: true },
-        });
-        categoryIds.set(normalizeProductNameKey(subcategory), created.id);
-      }
-
->>>>>>> 322af8727a95f3f88814d212462c77c554fd3bf0
       const existingProducts = await tx.product.findMany({
         where: {
           businessId: args.businessId,
@@ -262,7 +244,8 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
 
       existingProducts.forEach((product) => {
         const key = normalizeProductNameKey(product.name);
-        if (!existingByName.has(key)) {
+        const current = existingByName.get(key);
+        if (!current || (current.deletedAt && !product.deletedAt)) {
           existingByName.set(key, product);
         }
       });
@@ -315,15 +298,6 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
             }
           }
 
-          existingByName.set(normalizeProductNameKey(normalizedName), {
-            ...matched,
-            name: normalizedName,
-            categoryId: resolvedCategoryId,
-            sellingPrice: product.sellingPrice,
-            productType: "PreOrder",
-            isActive: true,
-            deletedAt: null,
-          });
           continue;
         }
 
@@ -335,24 +309,13 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
           recipeCost: 0,
           productType: "PreOrder",
         });
-<<<<<<< HEAD
       }
 
       if (productsToCreate.length > 0) {
         const created = await tx.product.createMany({
           data: productsToCreate,
         });
-
         createdCount += created.count;
-=======
-        createdCount += 1;
->>>>>>> 322af8727a95f3f88814d212462c77c554fd3bf0
-      }
-
-      if (productsToCreate.length > 0) {
-        await tx.product.createMany({
-          data: productsToCreate,
-        });
       }
 
       return {
@@ -366,14 +329,10 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
         touchedProductIds: dedupe.touchedProductIds,
       };
     },
-<<<<<<< HEAD
     {
       maxWait: PRODUCT_SYNC_TX_MAX_WAIT_MS,
       timeout: PRODUCT_SYNC_TX_TIMEOUT_MS,
     },
-=======
-    { timeout: 120000 },
->>>>>>> 322af8727a95f3f88814d212462c77c554fd3bf0
   );
 
   if (result.touchedProductIds.length > 0) {

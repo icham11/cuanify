@@ -10,6 +10,7 @@ import {
   findProductNameConflicts,
   normalizeProductName,
 } from "@/lib/products/uniqueness";
+import { ensureOwnerDefaultProducts } from "@/lib/bookings/owner-product-bootstrap";
 
 export const runtime = "nodejs";
 
@@ -105,6 +106,8 @@ async function validateIngredients(
  * Query params:
  *   ?search=kopi
  *   &categoryId=1
+ *   &categoryIds=1,2,3
+ *   &excludeCategoryNames=Archived,Hidden
  *   &sortBy=name|sellingPrice|createdAt   (default: createdAt)
  *   &sortOrder=asc|desc                   (default: desc)
  *   &withRecipe=true                      (default: true)
@@ -113,12 +116,36 @@ async function validateIngredients(
  */
 export async function GET(request: NextRequest) {
   try {
-    const { businessId } = await requireAuth();
+    const auth = await requireAuth();
+    const { businessId } = auth;
+
+    if (auth.role === "Owner") {
+      try {
+        await ensureOwnerDefaultProducts({ businessId });
+      } catch (bootstrapError) {
+        console.error("GET /api/products owner product bootstrap error:", bootstrapError);
+      }
+    }
 
     const url = new URL(request.url);
     const search = url.searchParams.get("search") || "";
     const categoryId = url.searchParams.get("categoryId");
+    const categoryIds = (url.searchParams.get("categoryIds") || "")
+      .split(",")
+      .map((value) => Number(value.trim()))
+      .filter((value) => Number.isInteger(value) && value > 0);
+    const excludeCategoryNames = (
+      url.searchParams.get("excludeCategoryNames") || ""
+    )
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
     const withRecipe = url.searchParams.get("withRecipe") !== "false"; // default true
+    const categoryFilterIds = categoryIds.length
+      ? Array.from(new Set(categoryIds))
+      : categoryId
+        ? [Number(categoryId)]
+        : [];
 
     // Sort params — DB-sortable fields (margin handled via raw SQL)
     const sortByRaw = url.searchParams.get("sortBy") ?? "createdAt";
@@ -139,13 +166,43 @@ export async function GET(request: NextRequest) {
       businessId,
       deletedAt: null as null,
       ...(search ? { name: { contains: search, mode: "insensitive" as const } } : {}),
-      ...(categoryId ? { categoryId: Number(categoryId) } : {}),
+      ...(categoryFilterIds.length === 1
+        ? { categoryId: categoryFilterIds[0] }
+        : categoryFilterIds.length > 1
+          ? { categoryId: { in: categoryFilterIds } }
+          : {}),
+      ...(excludeCategoryNames.length
+        ? {
+            OR: [
+              { categoryId: null },
+              {
+                category: {
+                  is: { name: { notIn: excludeCategoryNames } },
+                },
+              },
+            ],
+          }
+        : {}),
     };
 
     // Build raw WHERE fragments (reused for stats + margin sort query)
     const whereParts: Prisma.Sql[] = [Prisma.sql`"businessId" = ${businessId}`, Prisma.sql`"deletedAt" IS NULL`];
     if (search) whereParts.push(Prisma.sql`name ILIKE ${"%" + search + "%"}`);
-    if (categoryId) whereParts.push(Prisma.sql`"categoryId" = ${Number(categoryId)}`);
+    if (categoryFilterIds.length === 1) {
+      whereParts.push(Prisma.sql`"categoryId" = ${categoryFilterIds[0]}`);
+    } else if (categoryFilterIds.length > 1) {
+      whereParts.push(Prisma.sql`"categoryId" IN (${Prisma.join(categoryFilterIds)})`);
+    }
+    if (excludeCategoryNames.length > 0) {
+      whereParts.push(Prisma.sql`(
+        "categoryId" IS NULL OR "categoryId" NOT IN (
+          SELECT id
+          FROM "Category"
+          WHERE "businessId" = ${businessId}
+            AND name IN (${Prisma.join(excludeCategoryNames)})
+        )
+      )`);
+    }
     const whereRaw = Prisma.join(whereParts, " AND ");
 
     const total = await prisma.product.count({ where });

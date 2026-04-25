@@ -14,6 +14,8 @@ export type PaginationMeta = {
 export type GetProductsParams = {
   search?: string;
   categoryId?: number;
+  categoryIds?: number[];
+  excludeCategoryNames?: string[];
   sortBy?: "name" | "sellingPrice" | "createdAt" | "recipeCost" | "margin";
   sortOrder?: "asc" | "desc";
   withRecipe?: boolean;
@@ -28,6 +30,13 @@ export async function getProducts(
   if (params?.search) url.searchParams.set("search", params.search);
   if (params?.categoryId)
     url.searchParams.set("categoryId", String(params.categoryId));
+  if (params?.categoryIds?.length)
+    url.searchParams.set("categoryIds", params.categoryIds.join(","));
+  if (params?.excludeCategoryNames?.length)
+    url.searchParams.set(
+      "excludeCategoryNames",
+      params.excludeCategoryNames.join(","),
+    );
   if (params?.sortBy) url.searchParams.set("sortBy", params.sortBy);
   if (params?.sortOrder) url.searchParams.set("sortOrder", params.sortOrder);
   if (params?.withRecipe === false) url.searchParams.set("withRecipe", "false");

@@ -271,66 +271,6 @@ export const BOOKING_PRODUCT_CATALOG: PricelistCategory[] = [
           },
         ],
       },
-      {
-        name: "Best Seller Kids Edition",
-        keywords: ["kids", "best seller"],
-        products: [
-          fixedProduct("Little Rabbit", 540000, {
-            keywords: ["little rabbit", "rabbit"],
-            variantLabel: "D18 cm (3 Layers)",
-          }),
-          fixedProduct("Minecraft", 810000, {
-            keywords: ["minecraft"],
-            variantLabel: "D16 cm (3 Layers)",
-          }),
-          fixedProduct("Animal Jungle", 700000, {
-            keywords: ["animal jungle", "jungle"],
-            variantLabel: "D18 cm (3 Layers)",
-          }),
-          fixedProduct("Kids Signature", 830000, {
-            keywords: ["kids signature", "kids edition"],
-            variantLabel: "D16 cm (3 Layers)",
-          }),
-          fixedProduct("Jurassic World", 640000, {
-            keywords: ["jurassic"],
-            variantLabel: "D14 cm (3 Layers)",
-          }),
-          fixedProduct("Unicorn", 950000, {
-            keywords: ["unicorn"],
-            variantLabel: "D16 cm (4 Layers)",
-          }),
-          fixedProduct("Boss Baby", 650000, {
-            keywords: ["boss baby"],
-            variantLabel: "D16 cm (3 Layers)",
-          }),
-          fixedProduct("Sanrio", 610000, {
-            keywords: ["sanrio"],
-            variantLabel: "D18 cm (3 Layers)",
-          }),
-        ],
-      },
-      {
-        name: "Best Seller Signature",
-        keywords: ["best seller", "signature"],
-        products: [
-          fixedProduct("Flowery Charicature", 890000, {
-            keywords: ["flowery", "charicature", "character flower"],
-            variantLabel: "D18 cm (3 Layers)",
-          }),
-          fixedProduct("Elegant Flower", 920000, {
-            keywords: ["elegant flower"],
-            variantLabel: "D16 cm (3 Layers)",
-          }),
-          fixedProduct("Sport Charicature", 790000, {
-            keywords: ["sport", "charicature"],
-            variantLabel: "D18 cm (3 Layers)",
-          }),
-          fixedProduct("Simple Roses", 650000, {
-            keywords: ["simple roses", "roses"],
-            variantLabel: "D18 cm (4 Layers)",
-          }),
-        ],
-      },
     ],
   },
   {

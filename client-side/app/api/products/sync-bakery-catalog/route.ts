@@ -6,7 +6,7 @@ import {
   requireAuth,
   requireRole,
 } from "@/lib/auth/session";
-import { loadEffectiveBookingCatalog } from "@/lib/bookings/catalog-config-server";
+import { BOOKING_PRODUCT_CATALOG } from "@/lib/bookings/pricelist";
 import { syncBakeryCatalogToDashboardProducts } from "@/lib/bookings/product-sync";
 
 export const runtime = "nodejs";
@@ -31,17 +31,22 @@ function isExpiredTransactionError(error: unknown): boolean {
   return false;
 }
 
+function isUniqueConstraintError(error: unknown): boolean {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === "P2002"
+  );
+}
+
 export async function POST() {
   try {
     const auth = await requireAuth();
     requireRole(auth, "Owner");
 
-    const { productCatalog } = await loadEffectiveBookingCatalog(
-      auth.businessId,
-    );
     const result = await syncBakeryCatalogToDashboardProducts({
       businessId: auth.businessId,
-      productCatalog,
+      productCatalog: BOOKING_PRODUCT_CATALOG,
+      deduplicateExistingProducts: false,
     });
 
     return NextResponse.json({ success: true, data: result }, { status: 200 });
@@ -59,6 +64,15 @@ export async function POST() {
             "Sinkronisasi catalog masih diproses dan database sedang sibuk. Coba lagi beberapa detik lagi.",
         },
         { status: 503 },
+      );
+    }
+    if (isUniqueConstraintError(error)) {
+      return NextResponse.json(
+        {
+          error:
+            "Ada nama produk duplikat di daftar produk. Ubah atau hapus salah satu produk yang namanya sama, lalu coba sync lagi.",
+        },
+        { status: 409 },
       );
     }
 
