@@ -131,7 +131,16 @@ export async function requireAuth(): Promise<AuthResult> {
   }
 
   if (!userId) {
-    throw new AuthError("Unauthorized")
+    // Check if any auth cookies exist at all to provide better error
+    const hasNextAuth = cookieStore.get("next-auth.session-token") || cookieStore.get("__Secure-next-auth.session-token")
+    const hasCustom = cookieStore.get("token")
+    
+    let reason = "Sesi tidak ditemukan."
+    if (!hasNextAuth && !hasCustom) reason = "Anda belum login atau cookie diblokir browser."
+    else if (hasNextAuth && !userId) reason = "Sesi Google ditemukan tapi gagal divalidasi (Secret mismatch?)."
+    else if (hasCustom && !userId) reason = "Token login ditemukan tapi gagal divalidasi (JWT Secret mismatch?)."
+
+    throw new AuthError(`Unauthorized: ${reason}`)
   }
 
   // 4️⃣ Resolve active business — respect cookie preference for multi-business switch
@@ -187,7 +196,7 @@ export async function requireAuth(): Promise<AuthResult> {
   }
 
   if (!business) {
-    throw new AuthError("Business not found for this user")
+    throw new AuthError(`Business not found for user ID: ${userId}. Pastikan Anda sudah membuat bisnis di halaman Onboarding.`)
   }
 
   // Owner of the business
