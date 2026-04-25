@@ -1,9 +1,11 @@
 import { cookies, headers } from "next/headers"
 import { getServerSession } from "next-auth"
+import { getToken } from "next-auth/jwt"
 import { authOptions } from "@/lib/auth"
 import { verifyToken } from "@/lib/auth/jwt"
 import prisma from "@/lib/prisma"
 import type { UserRole } from "@prisma/client"
+
 export class AuthError extends Error {}
 export class ForbiddenError extends Error {}
 
@@ -63,20 +65,54 @@ async function resolveUserIdFromCustomJwt(
 }
 
 async function resolveUserIdFromNextAuthJwt(): Promise<number | undefined> {
-  const session = await getServerSession(authOptions)
+  try {
+    // 1. Try official getServerSession (App Router recommended way)
+    const session = await getServerSession(authOptions)
+    if (session?.user?.id) {
+      const directId = normalizeNumericId(session.user.id)
+      if (directId) return directId
+    }
 
-  if (session?.user?.id) {
-    const directId = normalizeNumericId(session.user.id)
-    if (directId) return directId
-  }
-
-  // OAuth JWT usually has email + provider `sub`; map email to Prisma user
-  if (typeof session?.user?.email === "string" && session.user.email.trim() !== "") {
-    const dbUser = await prisma.user.findUnique({
-      where: { email: session.user.email },
-      select: { id: true },
+    // 2. Fallback to getToken with a properly formatted mock request (more reliable in some Vercel Edge cases)
+    const cookieStore = await cookies()
+    const headerList = await headers()
+    
+    const token = await getToken({
+      req: {
+        headers: Object.fromEntries(headerList.entries()),
+        cookies: Object.fromEntries(cookieStore.getAll().map(c => [c.name, c.value]))
+      } as any,
+      secret: process.env.NEXTAUTH_SECRET,
+      secureCookie: process.env.NODE_ENV === "production" || process.env.NEXTAUTH_URL?.startsWith("https")
     })
-    return dbUser?.id
+
+    if (token) {
+      const directId =
+        normalizeNumericId((token as Record<string, unknown>).id) ??
+        normalizeNumericId((token as Record<string, unknown>).userId) ??
+        normalizeNumericId(token.sub)
+
+      if (directId) return directId
+
+      if (typeof token.email === "string" && token.email.trim() !== "") {
+        const dbUser = await prisma.user.findUnique({
+          where: { email: token.email },
+          select: { id: true },
+        })
+        if (dbUser) return dbUser.id
+      }
+    }
+
+    // 3. Last resort fallback for session email
+    if (session?.user?.email) {
+      const dbUser = await prisma.user.findUnique({
+        where: { email: session.user.email },
+        select: { id: true },
+      })
+      if (dbUser) return dbUser.id
+    }
+  } catch (error) {
+    console.error("[Auth] resolveUserIdFromNextAuthJwt error:", error)
   }
 
   return undefined

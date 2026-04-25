@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { signIn } from "next-auth/react";
+import { signIn, getSession } from "next-auth/react";
 import { Eye, EyeOff } from "lucide-react";
 
 // Helper to read cookie value
@@ -23,13 +23,36 @@ export default function LoginPage() {
 
   // Redirect if already authenticated — role-aware
   useEffect(() => {
-    if (typeof window !== "undefined") {
+    async function checkAuth() {
+      // 1. Check custom JWT cookie
       const token = getCookie("token");
-      if (token) {
-        // Hard redirect via post-login route — handles role detection server-side
+      
+      // 2. Check NextAuth session on client side
+      const session = await getSession();
+
+      if (token || session) {
+        // Anti-loop protection: if we've redirected more than 3 times in 10 seconds, stop.
+        const now = Date.now();
+        const lastRedirect = Number(sessionStorage.getItem("last_auth_redirect") || 0);
+        const redirectCount = Number(sessionStorage.getItem("auth_redirect_count") || 0);
+
+        if (now - lastRedirect < 10000 && redirectCount > 3) {
+          console.warn("Auth loop detected. Stopping automatic redirect.");
+          setError("Terdeteksi masalah login (loop). Silakan hapus cache browser Anda.");
+          return;
+        }
+
+        sessionStorage.setItem("last_auth_redirect", String(now));
+        sessionStorage.setItem("auth_redirect_count", String(redirectCount + 1));
+
         window.location.replace("/api/auth/post-login");
+      } else {
+        // Reset count if we are finally showing the login page
+        sessionStorage.removeItem("auth_redirect_count");
       }
     }
+    
+    checkAuth();
   }, []);
 
   const handleEmailLogin = async () => {

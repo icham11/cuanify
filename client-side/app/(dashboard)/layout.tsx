@@ -27,6 +27,7 @@ export default async function DashboardLayout({
   const jwtDecoded = token ? verifyToken(token) : null;
 
   if (!session && !jwtDecoded) {
+    console.warn("[DashboardLayout] No session found, redirecting to /login");
     redirect("/login");
   }
 
