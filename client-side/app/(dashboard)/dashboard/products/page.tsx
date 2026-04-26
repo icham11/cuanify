@@ -380,7 +380,7 @@ function DeleteConfirmModal({
 }: {
   product: Product;
   onClose: () => void;
-  onDeleted: () => void;
+  onDeleted: () => void | Promise<void>;
 }) {
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -391,7 +391,7 @@ function DeleteConfirmModal({
     setError(null);
     try {
       await deleteProduct(product.id);
-      onDeleted();
+      await onDeleted();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal menghapus produk");
       setDeleting(false);
@@ -1149,9 +1149,11 @@ export default function ProductsPage() {
         <DeleteConfirmModal
           product={deleteModal}
           onClose={() => setDeleteModal(null)}
-          onDeleted={() => {
+          onDeleted={async () => {
+            const nextPage =
+              products.length <= 1 && page > 1 ? page - 1 : page;
             setDeleteModal(null);
-            fetchProducts(page);
+            await fetchProducts(nextPage);
           }}
         />
       )}

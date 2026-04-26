@@ -13,8 +13,18 @@ import { ensureOwnerDefaultProducts } from "@/lib/bookings/owner-product-bootstr
  *   - Staff   → /bakery/production
  *   - No business → /onboarding
  */
+function getRedirectOrigin(request: NextRequest): string {
+  const url = request.nextUrl.clone();
+
+  if (url.hostname === "0.0.0.0" || url.hostname === "::") {
+    url.hostname = "localhost";
+  }
+
+  return url.origin;
+}
+
 export async function GET(request: NextRequest) {
-  const baseUrl = request.nextUrl.origin;
+  const baseUrl = getRedirectOrigin(request);
 
   try {
     const auth = await requireAuth();

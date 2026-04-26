@@ -13,7 +13,7 @@ function parsePositiveInteger(value: string | undefined, fallback: number): numb
   return parsed;
 }
 
-// Default 0 = ensure all hardcoded catalog products exist for every owner.
+// Default 0 = bootstrap only businesses that have never had products.
 const OWNER_AUTO_BOOTSTRAP_MIN_PRODUCTS = parsePositiveInteger(
   process.env.OWNER_AUTO_BOOTSTRAP_MIN_PRODUCTS,
   0,
@@ -22,7 +22,7 @@ const OWNER_AUTO_BOOTSTRAP_MIN_PRODUCTS = parsePositiveInteger(
 export type OwnerProductBootstrapResult = {
   skipped: boolean;
   existingProducts: number;
-  reason?: "existing-products-threshold";
+  reason?: "existing-products-threshold" | "existing-product-history";
   syncResult?: Awaited<ReturnType<typeof syncBakeryCatalogToDashboardProducts>>;
 };
 
@@ -55,12 +55,26 @@ export async function ensureOwnerDefaultProducts(args: {
   businessId: number;
   force?: boolean;
 }): Promise<OwnerProductBootstrapResult> {
+  const productHistoryCount = await prisma.product.count({
+    where: {
+      businessId: args.businessId,
+    },
+  });
+
   const existingProducts = await prisma.product.count({
     where: {
       businessId: args.businessId,
       deletedAt: null,
     },
   });
+
+  if (!args.force && OWNER_AUTO_BOOTSTRAP_MIN_PRODUCTS === 0 && productHistoryCount > 0) {
+    return {
+      skipped: true,
+      existingProducts,
+      reason: "existing-product-history",
+    };
+  }
 
   if (
     !args.force &&
