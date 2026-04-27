@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider        = "prisma-client-js"
   previewFeatures = ["postgresqlExtensions"]
@@ -9,10 +6,638 @@ generator client {
 datasource db {
   provider   = "postgresql"
   extensions = [vector]
-  
 }
 
-// ==================== ENUMS ====================
+model User {
+  id           Int              @id @default(autoincrement())
+  name         String
+  email        String           @unique
+  password     String
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  businesses   Business[]
+  memberships  BusinessMember[]
+  closedShifts CashierShift[]   @relation("ShiftClosedBy")
+  openedShifts CashierShift[]   @relation("ShiftOpenedBy")
+}
+
+model Business {
+  id                   Int                    @id @default(autoincrement())
+  name                 String
+  userId               Int
+  location             String?
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+  analyticsInsights    AnalyticsInsight[]
+  user                 User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  documents            BusinessDocument[]
+  businessForecasts    BusinessForecast[]
+  businessHealthScores BusinessHealthScores[]
+  members              BusinessMember[]
+  businessMetrics      BusinessMetrics[]
+  cashierShifts        CashierShift[]
+  categories           Category[]
+  chatMessages         ChatMessage[]
+  chatSessions         ChatSession[]
+  debts                Debt[]
+  forecastAccuracy     ForecastAccuracy?
+  ingredients          Ingredient[]
+  products             Product[]
+  productionBatches    ProductionBatch[]
+  marketplaceSales     MarketplaceSale[]
+  bakery_orders        bakery_orders[]
+  production_capacity  production_capacity[]
+  production_tasks     production_tasks[]
+  sales                Sale[]
+  stockDocuments       StockDocument[]
+
+  @@index([userId, createdAt])
+}
+
+model BusinessMember {
+  id         Int      @id @default(autoincrement())
+  businessId Int
+  userId     Int
+  role       UserRole @default(Cashier)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, userId])
+  @@index([userId])
+  @@index([businessId, role])
+}
+
+model CashierShift {
+  id                    Int         @id @default(autoincrement())
+  businessId            Int
+  userId                Int
+  closedByUserId        Int?
+  status                ShiftStatus @default(Open)
+  openingCash           Decimal     @db.Decimal(14, 2)
+  expectedCash          Decimal?    @db.Decimal(14, 2)
+  actualCash            Decimal?    @db.Decimal(14, 2)
+  discrepancy           Decimal?    @db.Decimal(14, 2)
+  cashSalesTotal        Decimal?    @db.Decimal(14, 2)
+  qrisSalesTotal        Decimal?    @db.Decimal(14, 2)
+  transferSalesTotal    Decimal?    @db.Decimal(14, 2)
+  digitalSalesTotal     Decimal?    @db.Decimal(14, 2)
+  kasbonTotal           Decimal?    @db.Decimal(14, 2)
+  totalRevenue          Decimal?    @db.Decimal(14, 2)
+  transactionCount      Int?
+  notes                 String?
+  openedAt              DateTime    @default(now())
+  closedAt              DateTime?
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
+  marketplaceSalesTotal Decimal?    @db.Decimal(14, 2)
+  business              Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  closedBy              User?       @relation("ShiftClosedBy", fields: [closedByUserId], references: [id])
+  openedBy              User        @relation("ShiftOpenedBy", fields: [userId], references: [id])
+  sales                 Sale[]
+
+  @@index([businessId, status])
+  @@index([businessId, openedAt(sort: Desc)])
+  @@index([userId])
+}
+
+model Debt {
+  id            Int           @id @default(autoincrement())
+  businessId    Int
+  saleId        Int           @unique
+  customerName  String
+  customerPhone String?
+  totalAmount   Decimal       @db.Decimal(12, 2)
+  paidAmount    Decimal       @default(0) @db.Decimal(12, 2)
+  status        DebtStatus    @default(Unpaid)
+  notes         String?
+  dueDate       DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  business      Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  sale          Sale          @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  payments      DebtPayment[]
+
+  @@index([businessId, status])
+  @@index([businessId, customerName])
+  @@index([businessId, createdAt(sort: Desc)])
+}
+
+model DebtPayment {
+  id        Int      @id @default(autoincrement())
+  debtId    Int
+  amount    Decimal  @db.Decimal(12, 2)
+  notes     String?
+  createdAt DateTime @default(now())
+  debt      Debt     @relation(fields: [debtId], references: [id], onDelete: Cascade)
+
+  @@index([debtId, createdAt])
+}
+
+model BusinessDocument {
+  id          Int                    @id @default(autoincrement())
+  businessId  Int
+  content     String
+  embedding   Unsupported("vector")?
+  sourceType  String
+  sourceId    Int?
+  metadata    Json?
+  chunkIndex  Int                    @default(0)
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
+  contentHash String?
+  business    Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, sourceType])
+  @@index([businessId])
+  @@index([sourceType])
+  @@index([businessId, contentHash])
+}
+
+model ChatSession {
+  id         Int           @id @default(autoincrement())
+  businessId Int
+  title      String        @default("New Chat")
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+  messages   ChatMessage[]
+  business   Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, updatedAt(sort: Desc)])
+}
+
+model ChatMessage {
+  id          Int          @id @default(autoincrement())
+  businessId  Int
+  sessionId   Int?
+  role        String
+  content     String
+  contextType String?
+  metadata    Json?
+  createdAt   DateTime     @default(now())
+  business    Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  session     ChatSession? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, sessionId, createdAt])
+  @@index([sessionId, createdAt])
+}
+
+model Category {
+  id         Int       @id @default(autoincrement())
+  businessId Int
+  name       String
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  business   Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  products   Product[]
+
+  @@index([businessId])
+}
+
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model Product {
+  id                Int               @id @default(autoincrement())
+  businessId        Int
+  categoryId        Int?
+  name              String
+  sellingPrice      Decimal           @db.Decimal(12, 2)
+  isActive          Boolean           @default(true)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  recipeCost        Decimal           @default(0) @db.Decimal(12, 2)
+  deletedAt         DateTime?
+  productType       ProductType       @default(PreOrder)
+  cogs              Decimal?          @db.Decimal(15, 2)
+  business          Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  category          Category?         @relation(fields: [categoryId], references: [id])
+  productForecasts  ProductForecast[]
+  productMetrics    ProductMetrics[]
+  productionBatches ProductionBatch[]
+  recipes           Recipe[]
+  saleItems         SaleItem[]
+
+  @@index([businessId, isActive])
+  @@index([businessId, deletedAt])
+  @@index([businessId, categoryId])
+  @@index([categoryId])
+}
+
+model ProductionBatch {
+  id              Int            @id @default(autoincrement())
+  productId       Int
+  businessId      Int
+  quantity        Int
+  remainingQty    Int
+  costPerUnit     Decimal        @db.Decimal(12, 2)
+  stockDocumentId Int?
+  producedAt      DateTime       @default(now())
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  business        Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  product         Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  stockDocument   StockDocument? @relation(fields: [stockDocumentId], references: [id])
+
+  @@index([productId, remainingQty])
+  @@index([businessId, producedAt(sort: Desc)])
+}
+
+model Ingredient {
+  id                 Int                 @id @default(autoincrement())
+  businessId         Int
+  name               String
+  unit               String
+  minStock           Int                 @default(0)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  business           Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  inventoryBatches   InventoryBatch[]
+  inventoryMovements InventoryMovement[]
+  recipes            Recipe[]
+
+  @@index([businessId, createdAt(sort: Desc)])
+}
+
+model Recipe {
+  id           Int        @id @default(autoincrement())
+  productId    Int
+  ingredientId Int
+  quantity     Decimal    @db.Decimal(10, 3)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  ingredient   Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  product      Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, ingredientId])
+  @@index([productId])
+  @@index([ingredientId])
+}
+
+model StockDocument {
+  id                 Int                 @id @default(autoincrement())
+  businessId         Int
+  type               StockDocumentType
+  notes              String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  inventoryMovements InventoryMovement[]
+  productionBatches  ProductionBatch[]
+  sales              Sale[]
+  business           Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, type])
+}
+
+model InventoryMovement {
+  id                     Int                   @id @default(autoincrement())
+  ingredientId           Int?
+  stockDocumentId        Int
+  quantity               Decimal               @db.Decimal(10, 3)
+  costPerUnit            Decimal               @db.Decimal(12, 2)
+  type                   InventoryMovementType
+  createdAt              DateTime              @default(now())
+  /// Preserved when the ingredient is later deleted
+  ingredientNameSnapshot String?
+  ingredientUnitSnapshot String?
+  ingredient             Ingredient?           @relation(fields: [ingredientId], references: [id])
+  stockDocument          StockDocument         @relation(fields: [stockDocumentId], references: [id], onDelete: Cascade)
+
+  @@index([ingredientId, type])
+  @@index([stockDocumentId])
+  @@index([ingredientId, createdAt])
+}
+
+model InventoryBatch {
+  id             Int        @id @default(autoincrement())
+  ingredientId   Int
+  remainingQty   Decimal    @db.Decimal(10, 3)
+  costPerUnit    Decimal    @db.Decimal(12, 2)
+  receivedAt     DateTime   @default(now())
+  expirationDate DateTime?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  ingredient     Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+
+  @@index([ingredientId, receivedAt])
+  @@index([ingredientId, remainingQty])
+}
+
+model Sale {
+  id                Int            @id @default(autoincrement())
+  businessId        Int
+  stockDocumentId   Int?
+  transactionNumber String         @unique
+  totalRevenue      Decimal        @db.Decimal(12, 2)
+  totalCost         Decimal        @db.Decimal(12, 2)
+  paymentMethod     PaymentMethod
+  paymentStatus     PaymentStatus  @default(Pending)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  customerName      String?
+  customerEmail     String?
+  customerPhone     String?
+  invoiceId         String?
+  invoiceUrl        String?
+  invoiceStatus     String?
+  cashierShiftId    Int?
+  debt              Debt?
+  business          Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  cashierShift      CashierShift?  @relation(fields: [cashierShiftId], references: [id])
+  stockDocument     StockDocument? @relation(fields: [stockDocumentId], references: [id])
+  saleItems         SaleItem[]
+
+  @@index([businessId, createdAt(sort: Desc)])
+  @@index([businessId, paymentStatus])
+  @@index([businessId, paymentMethod])
+  @@index([cashierShiftId])
+}
+
+model SaleItem {
+  id          Int      @id @default(autoincrement())
+  saleId      Int
+  productId   Int
+  quantity    Int
+  priceAtSale Decimal  @db.Decimal(12, 2)
+  costAtSale  Decimal  @db.Decimal(12, 2)
+  createdAt   DateTime @default(now())
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sale        Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  @@index([saleId])
+  @@index([productId])
+}
+
+model BusinessMetrics {
+  id           Int      @id @default(autoincrement())
+  businessId   Int
+  date         DateTime @db.Date
+  totalRevenue Decimal  @db.Decimal(14, 2)
+  totalCost    Decimal  @db.Decimal(14, 2)
+  totalProfit  Decimal  @db.Decimal(14, 2)
+  marginAvg    Float
+  growthRate   Float
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  business     Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, date])
+  @@index([businessId, date(sort: Desc)])
+}
+
+model ProductMetrics {
+  id           Int      @id @default(autoincrement())
+  productId    Int
+  date         DateTime @db.Date
+  quantitySold Int
+  revenue      Decimal  @db.Decimal(14, 2)
+  cost         Decimal  @db.Decimal(14, 2)
+  profit       Decimal  @db.Decimal(14, 2)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, date])
+  @@index([productId, date(sort: Desc)])
+}
+
+model ProductForecast {
+  id                    Int      @id @default(autoincrement())
+  productId             Int
+  date                  DateTime @db.Date
+  predictedQty          Int
+  recommendedProduction String?
+  confidenceScore       Decimal  @db.Decimal(5, 2)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  lowerBound            Int      @default(0)
+  upperBound            Int      @default(0)
+  metadata              Json?
+  product               Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, date])
+  @@index([productId, date(sort: Desc)])
+}
+
+model BusinessForecast {
+  id               Int      @id @default(autoincrement())
+  businessId       Int
+  date             DateTime @db.Date
+  predictedRevenue Decimal  @db.Decimal(14, 2)
+  lowerBound       Decimal  @db.Decimal(14, 2)
+  upperBound       Decimal  @db.Decimal(14, 2)
+  confidenceScore  Decimal  @db.Decimal(5, 2)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  predictedProfit  Decimal  @default(0) @db.Decimal(14, 2)
+  metadata         Json?
+  business         Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, date])
+  @@index([businessId, date(sort: Desc)])
+}
+
+model ForecastAccuracy {
+  id              Int      @id @default(autoincrement())
+  businessId      Int      @unique
+  accuracy7d      Decimal? @db.Decimal(5, 2)
+  accuracy30d     Decimal? @db.Decimal(5, 2)
+  mape7d          Decimal? @db.Decimal(5, 2)
+  mape30d         Decimal? @db.Decimal(5, 2)
+  sampleSize7d    Int      @default(0)
+  sampleSize30d   Int      @default(0)
+  lastEvaluatedAt DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @default(now()) @updatedAt
+  business        Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+}
+
+model AnalyticsInsight {
+  id          Int      @id @default(autoincrement())
+  businessId  Int
+  section     String
+  insight     String
+  generatedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  business    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, section])
+  @@index([businessId])
+}
+
+model BusinessHealthScores {
+  id             Int      @id @default(autoincrement())
+  businessId     Int
+  date           DateTime @db.Date
+  revenueScore   Float
+  profitScore    Float
+  wasteScore     Float
+  stabilityScore Float
+  overallScore   Float
+  classification String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  business       Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, date])
+  @@index([businessId, date(sort: Desc)])
+}
+
+model WebhookEvent {
+  id           Int       @id @default(autoincrement())
+  eventId      String    @unique
+  source       String
+  status       String    @default("processing")
+  payload      Json?
+  processedAt  DateTime?
+  errorMessage String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([source])
+  @@index([createdAt])
+  @@index([status, createdAt])
+}
+
+// ==================== MARKETPLACE SALES (Tokped/Shopee) ====================
+
+model MarketplaceSale {
+  id          Int      @id @default(autoincrement())
+  businessId  Int
+  marketplace String // "Tokopedia" | "Shopee"
+  orderId     String? // ID Pesanan dari marketplace
+  totalAmount Decimal  @db.Decimal(14, 2)
+  itemName    String? // Nama barang (opsional)
+  saleDate    DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([saleDate])
+}
+
+model bakery_order_addresses {
+  id                BigInt   @id @default(autoincrement())
+  business_id       Int
+  order_external_id String
+  address_index     Int
+  payload           Json
+  created_at        DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([business_id, order_external_id, address_index], map: "idx_bakery_order_addresses_lookup")
+}
+
+model bakery_order_items {
+  id                BigInt   @id @default(autoincrement())
+  business_id       Int
+  order_external_id String
+  item_index        Int
+  payload           Json
+  created_at        DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([business_id, order_external_id, item_index], map: "idx_bakery_order_items_lookup")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model bakery_orders {
+  id                     BigInt    @id @default(autoincrement())
+  business_id            Int
+  external_id            String
+  booking_code           String?
+  resi                   String?
+  customer_name          String?
+  customer_phone         String?
+  customer_address       String?
+  delivery_date          String?
+  delivery_slot          String?
+  notes                  String?
+  base_price             Decimal   @default(0) @db.Decimal(14, 2)
+  add_on_total           Decimal   @default(0) @db.Decimal(14, 2)
+  delivery_fee           Decimal   @default(0) @db.Decimal(14, 2)
+  manual_adjustment      Decimal   @default(0) @db.Decimal(14, 2)
+  dp_paid_amount         Decimal   @default(0) @db.Decimal(14, 2)
+  final_paid_amount      Decimal   @default(0) @db.Decimal(14, 2)
+  total_paid_amount      Decimal   @default(0) @db.Decimal(14, 2)
+  down_payment_amount    Decimal   @default(0) @db.Decimal(14, 2)
+  remaining_balance      Decimal   @default(0) @db.Decimal(14, 2)
+  product                String?
+  total_price            Decimal   @default(0) @db.Decimal(14, 2)
+  payment_status         String?
+  order_status           String?
+  shipping_quote         Json?
+  shipment               Json?
+  simulations            Json?
+  whatsapp_parsed_data   Json?
+  status_history         Json?
+  automation_logs        Json?
+  payment_transactions   Json?
+  created_at             DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime  @default(now()) @db.Timestamptz(6)
+  difficulty             String?
+  token_used             Int       @default(0)
+  assigned_staff_user_id Int?
+  assigned_staff_name    String?
+  production_assigned_at DateTime? @db.Timestamptz(6)
+  deleted_at             DateTime? @db.Timestamptz(6)
+  insurance_fee          Decimal   @default(0) @db.Decimal(14, 2)
+  sales_channel          String    @default("direct")
+  order_uuid             String?   @db.Uuid
+  business               Business? @relation(fields: [businessId], references: [id])
+  businessId             Int?
+
+  @@unique([business_id, external_id])
+  @@index([business_id, updated_at(sort: Desc)], map: "idx_bakery_orders_business_updated")
+}
+
+model bakery_staff_monthly_token_resets {
+  id                 BigInt   @id @default(autoincrement())
+  business_id        Int
+  staff_user_id      Int
+  month_key          String
+  baseline_token     Int      @default(0)
+  reset_at           DateTime @default(now()) @db.Timestamptz(6)
+  updated_by_user_id Int
+  created_at         DateTime @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([business_id, staff_user_id, month_key], map: "bakery_staff_monthly_token_re_business_id_staff_user_id_mon_key")
+  @@index([business_id, month_key, staff_user_id], map: "idx_bakery_staff_monthly_token_resets_lookup")
+}
+
+model production_capacity {
+  id          BigInt    @id @default(autoincrement())
+  business_id Int
+  date        DateTime  @db.Date
+  max_token   Int       @default(600)
+  used_token  Int       @default(0)
+  created_at  DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime  @default(now()) @db.Timestamptz(6)
+  business    Business? @relation(fields: [businessId], references: [id])
+  businessId  Int?
+
+  @@unique([business_id, date])
+  @@index([business_id, date], map: "idx_production_capacity_biz_date")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model production_tasks {
+  id           String    @id @db.Uuid
+  order_id     String    @db.Uuid
+  stage        String
+  staff_id     String?   @db.Uuid
+  token_amount Decimal   @db.Decimal(10, 2)
+  created_at   DateTime  @default(now()) @db.Timestamp(6)
+  business     Business? @relation(fields: [businessId], references: [id])
+  businessId   Int?
+
+  @@unique([order_id, stage])
+  @@unique([order_id, stage], map: "production_tasks_order_stage_unique")
+  @@index([order_id], map: "idx_production_tasks_order_id")
+}
 
 enum PaymentMethod {
   Digital
@@ -47,9 +672,9 @@ enum ProductType {
 
 enum UserRole {
   Owner
-  Admin
   Cashier
   Staff
+  Admin
 }
 
 enum DebtStatus {
@@ -61,577 +686,4 @@ enum DebtStatus {
 enum ShiftStatus {
   Open
   Closed
-}
-
-// ==================== CORE LAYER ====================
-
-model User {
-  id        Int        @id @default(autoincrement())
-  name      String
-  email     String     @unique
-  password  String
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
-
-  businesses Business[]
-  memberships BusinessMember[]
-  openedShifts  CashierShift[] @relation("ShiftOpenedBy")
-  closedShifts  CashierShift[] @relation("ShiftClosedBy")
-}
-
-model Business {
-  id        Int      @id @default(autoincrement())
-  name      String
-  userId    Int
-  location  String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  user                 User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  members              BusinessMember[]
-  categories           Category[]
-  products             Product[]
-  ingredients          Ingredient[]
-  sales                Sale[]
-  stockDocuments       StockDocument[]
-  businessMetrics      BusinessMetrics[]
-  businessHealthScores BusinessHealthScores[]
-  businessForecasts    BusinessForecast[]
-  forecastAccuracy     ForecastAccuracy?
-  analyticsInsights    AnalyticsInsight[]
-  chatMessages         ChatMessage[]
-  chatSessions         ChatSession[]
-  documents            BusinessDocument[]
-  debts                Debt[]
-  cashierShifts        CashierShift[]
-  productionBatches    ProductionBatch[]
-
-  // requireAuth: findFirst where userId, orderBy createdAt
-  // GET /api/businesses: findMany where userId
-  @@index([userId, createdAt])
-}
-
-// ==================== RBAC LAYER ====================
-
-model BusinessMember {
-  id         Int      @id @default(autoincrement())
-  businessId Int
-  userId     Int
-  role       UserRole @default(Cashier)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([businessId, userId])
-  @@index([userId])
-  @@index([businessId, role])
-}
-
-// ==================== CASHIER SHIFT / TUTUP KASIR ====================
-
-model CashierShift {
-  id               Int         @id @default(autoincrement())
-  businessId       Int
-  userId           Int         // who opened the shift
-  closedByUserId   Int?        // who closed the shift (could differ)
-  status           ShiftStatus @default(Open)
-
-  // Cash reconciliation
-  openingCash      Decimal     @db.Decimal(14, 2) // Modal awal
-  expectedCash     Decimal?    @db.Decimal(14, 2) // openingCash + cash sales (calculated on close)
-  actualCash       Decimal?    @db.Decimal(14, 2) // What cashier actually counted
-  discrepancy      Decimal?    @db.Decimal(14, 2) // actualCash - expectedCash
-
-  // Totals by payment method (filled on close)
-  cashSalesTotal     Decimal?  @db.Decimal(14, 2)
-  qrisSalesTotal     Decimal?  @db.Decimal(14, 2)
-  transferSalesTotal Decimal?  @db.Decimal(14, 2)
-  digitalSalesTotal  Decimal?  @db.Decimal(14, 2)
-  kasbonTotal        Decimal?  @db.Decimal(14, 2)
-  // Marketplace (Tokped/Shopee) — uang belum cair, tidak masuk expectedCash kasir
-  marketplaceSalesTotal Decimal? @db.Decimal(14, 2)
-  totalRevenue       Decimal?  @db.Decimal(14, 2)
-  transactionCount   Int?
-
-  notes     String?
-  openedAt  DateTime  @default(now())
-  closedAt  DateTime?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  openedBy User     @relation("ShiftOpenedBy", fields: [userId], references: [id])
-  closedBy User?    @relation("ShiftClosedBy", fields: [closedByUserId], references: [id])
-  sales    Sale[]
-
-  // Only one open shift per business
-  @@index([businessId, status])
-  @@index([businessId, openedAt(sort: Desc)])
-  @@index([userId])
-}
-
-// ==================== KASBON / PIUTANG LAYER ====================
-
-model Debt {
-  id             Int        @id @default(autoincrement())
-  businessId     Int
-  saleId         Int        @unique
-  customerName   String
-  customerPhone  String?
-  totalAmount    Decimal    @db.Decimal(12, 2)
-  paidAmount     Decimal    @default(0) @db.Decimal(12, 2)
-  status         DebtStatus @default(Unpaid)
-  notes          String?
-  dueDate        DateTime?
-  createdAt      DateTime   @default(now())
-  updatedAt      DateTime   @updatedAt
-
-  business Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  sale     Sale           @relation(fields: [saleId], references: [id], onDelete: Cascade)
-  payments DebtPayment[]
-
-  @@index([businessId, status])
-  @@index([businessId, customerName])
-  @@index([businessId, createdAt(sort: Desc)])
-}
-
-model DebtPayment {
-  id        Int      @id @default(autoincrement())
-  debtId    Int
-  amount    Decimal  @db.Decimal(12, 2)
-  notes     String?
-  createdAt DateTime @default(now())
-
-  debt Debt @relation(fields: [debtId], references: [id], onDelete: Cascade)
-
-  @@index([debtId, createdAt])
-}
-
-// ==================== RAG VECTOR LAYER ====================
-
-model BusinessDocument {
-  id          Int                          @id @default(autoincrement())
-  businessId  Int
-  content     String                       @db.Text
-  contentHash String?                      // SHA-256 of content — used for incremental sync
-  embedding   Unsupported("vector(768)")?
-  sourceType  String                       // "product" | "ingredient" | "sale" | "sale_detail" | "bakery_order" | "production_batch" | "recipe" | "metric" | "health" | "debt" | "debt_payment" | "inventory_batch" | "inventory_movement" | "stock_document" | "product_metrics" | "forecast" | "category" | "business" | "bakery_orders_snapshot" (raw sync snapshot)
-  sourceId    Int?
-  metadata    Json?
-  chunkIndex  Int                          @default(0)
-  createdAt   DateTime                     @default(now())
-  updatedAt   DateTime                     @updatedAt
-
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-
-  // Incremental sync uses content hash comparison in application code
-  // (unique constraint not used due to NULL sourceId issues with pgvector)
-  @@index([businessId, sourceType])
-  @@index([businessId])
-  @@index([sourceType])
-  @@index([businessId, contentHash])
-}
-
-// ==================== AI CHAT LAYER ====================
-
-model ChatSession {
-  id         Int      @id @default(autoincrement())
-  businessId Int
-  title      String   @default("New Chat")
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  business Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  messages ChatMessage[]
-
-  // getChatSessions: findMany where businessId, orderBy updatedAt DESC
-  @@index([businessId, updatedAt(sort: Desc)])
-}
-
-model ChatMessage {
-  id            Int      @id @default(autoincrement())
-  businessId    Int
-  sessionId     Int?
-  role          String   // "user" | "assistant" | "system"
-  content       String
-  contextType   String?  // "sales" | "inventory" | "product" | "general"
-  metadata      Json?    // extra context data
-  createdAt     DateTime @default(now())
-
-  business Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  session  ChatSession? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-
-  // getChatHistory: where businessId+sessionId, orderBy createdAt
-  @@index([businessId, sessionId, createdAt])
-  @@index([sessionId, createdAt])
-}
-
-// ==================== PRODUCT LAYER ====================
-
-model Category {
-  id         Int      @id @default(autoincrement())
-  businessId Int
-  name       String
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  products Product[]
-
-  // GET /api/categories: findMany where businessId
-  // resolveCategory: case-insensitive lookup within business
-  @@index([businessId])
-}
-
-model Product {
-  id           Int         @id @default(autoincrement())
-  businessId   Int
-  categoryId   Int?
-  name         String
-  sellingPrice Decimal     @db.Decimal(12, 2)
-  recipeCost   Decimal     @default(0) @db.Decimal(12, 2)
-  productType  ProductType @default(PreOrder)
-  isActive     Boolean     @default(true)
-  deletedAt    DateTime?
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-
-  business         Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  category         Category?         @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  recipes          Recipe[]
-  saleItems        SaleItem[]
-  productMetrics   ProductMetrics[]
-  productForecasts ProductForecast[]
-  productionBatches ProductionBatch[]
-
-  @@index([businessId, isActive])
-  @@index([businessId, deletedAt])
-  @@index([businessId, categoryId])
-  @@index([categoryId])
-}
-
-// ==================== PRODUCTION LAYER ====================
-
-model ProductionBatch {
-  id              Int      @id @default(autoincrement())
-  productId       Int
-  businessId      Int
-  quantity         Int      // total produced
-  remainingQty     Int      // unsold quantity (FIFO deduction on sale)
-  costPerUnit      Decimal  @db.Decimal(12, 2) // ingredient cost per unit at production time
-  stockDocumentId  Int?
-  producedAt       DateTime @default(now())
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-
-  product        Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
-  business       Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  stockDocument  StockDocument? @relation(fields: [stockDocumentId], references: [id])
-
-  @@index([productId, remainingQty])
-  @@index([businessId, producedAt(sort: Desc)])
-}
-
-// ==================== INVENTORY LAYER ====================
-
-model Ingredient {
-  id        Int      @id @default(autoincrement())
-  businessId Int
-  name      String
-  unit      String
-  minStock  Int      @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  business           Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  recipes            Recipe[]
-  inventoryMovements InventoryMovement[]
-  inventoryBatches   InventoryBatch[]
-
-  // GET /api/ingredients: findMany where businessId, orderBy createdAt
-  // AI: findMany where businessId (inventory alerts)
-  @@index([businessId, createdAt(sort: Desc)])
-}
-
-model Recipe {
-  id           Int      @id @default(autoincrement())
-  productId    Int
-  ingredientId Int
-  quantity     Decimal  @db.Decimal(10, 3)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  product    Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
-  ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
-
-  @@unique([productId, ingredientId])
-  // calculateProductCost, deductInventory: findMany where productId
-  @@index([productId])
-  @@index([ingredientId])
-}
-
-model StockDocument {
-  id         Int               @id @default(autoincrement())
-  businessId Int
-  type       StockDocumentType
-  notes      String?
-  createdAt  DateTime          @default(now())
-  updatedAt  DateTime          @updatedAt
-
-  business           Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  inventoryMovements InventoryMovement[]
-  sales              Sale[]
-  productionBatches  ProductionBatch[]
-
-  @@index([businessId, type])
-}
-
-model InventoryMovement {
-  id              Int                   @id @default(autoincrement())
-  ingredientId    Int?
-  stockDocumentId Int
-  quantity        Decimal               @db.Decimal(10, 3)
-  costPerUnit     Decimal               @db.Decimal(12, 2)
-  type            InventoryMovementType
-  /// Preserved when the ingredient is later deleted
-  ingredientNameSnapshot String?
-  ingredientUnitSnapshot String?
-  createdAt       DateTime              @default(now())
-
-  ingredient    Ingredient?   @relation(fields: [ingredientId], references: [id], onDelete: SetNull)
-  stockDocument StockDocument @relation(fields: [stockDocumentId], references: [id], onDelete: Cascade)
-
-  // deductInventory: create with ingredientId + stockDocumentId
-  // waste analytics: aggregate by ingredientId + type
-  @@index([ingredientId, type])
-  @@index([stockDocumentId])
-  @@index([ingredientId, createdAt])
-}
-
-model InventoryBatch {
-  id             Int       @id @default(autoincrement())
-  ingredientId   Int
-  remainingQty   Decimal   @db.Decimal(10, 3)
-  costPerUnit    Decimal   @db.Decimal(12, 2)
-  receivedAt     DateTime  @default(now())
-  expirationDate DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-
-  ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
-
-  // FIFO engine: findMany where ingredientId + remainingQty > 0, orderBy receivedAt ASC
-  // This is the most performance-critical query (runs inside sale transactions)
-  @@index([ingredientId, receivedAt])
-  @@index([ingredientId, remainingQty])
-}
-
-// ==================== SALES LAYER ====================
-
-model Sale {
-  id                Int           @id @default(autoincrement())
-  businessId        Int
-  stockDocumentId   Int?
-  cashierShiftId    Int?
-  transactionNumber String        @unique
-  totalRevenue      Decimal       @db.Decimal(12, 2)
-  totalCost         Decimal       @db.Decimal(12, 2)
-  paymentMethod     PaymentMethod
-  paymentStatus     PaymentStatus @default(Pending)
-  customerName      String?
-  customerEmail     String?
-  customerPhone     String?
-  invoiceId         String?
-  invoiceUrl        String?
-  invoiceStatus     String?
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
-
-  business      Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  stockDocument StockDocument? @relation(fields: [stockDocumentId], references: [id], onDelete: SetNull)
-  cashierShift  CashierShift?  @relation(fields: [cashierShiftId], references: [id], onDelete: SetNull)
-  saleItems     SaleItem[]
-  debt          Debt?
-
-  // GET /api/sales: findMany where businessId, orderBy createdAt DESC (+ date range)
-  @@index([businessId, createdAt(sort: Desc)])
-  // Profile/Business stats: count/aggregate where businessId + paymentStatus
-  @@index([businessId, paymentStatus])
-  // Midtrans webhook: findUnique where transactionNumber (already @unique, but compound helps)
-  // Sales history filter: businessId + paymentMethod
-  @@index([businessId, paymentMethod])
-  // Shift settlement: find all sales in a shift
-  @@index([cashierShiftId])
-}
-
-model SaleItem {
-  id          Int      @id @default(autoincrement())
-  saleId      Int
-  productId   Int
-  quantity    Int
-  priceAtSale Decimal  @db.Decimal(12, 2)
-  costAtSale  Decimal  @db.Decimal(12, 2)
-  createdAt   DateTime @default(now())
-
-  sale    Sale    @relation(fields: [saleId], references: [id], onDelete: Cascade)
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
-
-  // Include in sale queries: where saleId (join)
-  @@index([saleId])
-  // AI forecast, product analytics: where sale.businessId via productId
-  @@index([productId])
-}
-
-// ==================== ANALYTICS LAYER ====================
-
-model BusinessMetrics {
-  id           Int      @id @default(autoincrement())
-  businessId   Int
-  date         DateTime @db.Date
-  totalRevenue Decimal  @db.Decimal(14, 2)
-  totalCost    Decimal  @db.Decimal(14, 2)
-  totalProfit  Decimal  @db.Decimal(14, 2)
-  marginAvg    Float
-  growthRate   Float
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-
-  @@unique([businessId, date])
-  // Analytics insight: findMany where businessId + date range, orderBy date DESC
-  @@index([businessId, date(sort: Desc)])
-}
-
-model ProductMetrics {
-  id           Int      @id @default(autoincrement())
-  productId    Int
-  date         DateTime @db.Date
-  quantitySold Int
-  revenue      Decimal  @db.Decimal(14, 2)
-  cost         Decimal  @db.Decimal(14, 2)
-  profit       Decimal  @db.Decimal(14, 2)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
-
-  @@unique([productId, date])
-  // Top products analytics: aggregate by productId + date range
-  @@index([productId, date(sort: Desc)])
-}
-
-model ProductForecast {
-  id                    Int      @id @default(autoincrement())
-  productId             Int
-  date                  DateTime @db.Date
-  predictedQty          Int
-  lowerBound            Int      @default(0)
-  upperBound            Int      @default(0)
-  recommendedProduction String?
-  confidenceScore       Decimal  @db.Decimal(5, 2)
-  // Refactored forecast improvements
-  metadata              Json?    // Volatility level, buffer %, seasonality multiplier
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
-
-  @@unique([productId, date])
-  @@index([productId, date(sort: Desc)])
-}
-
-model BusinessForecast {
-  id               Int      @id @default(autoincrement())
-  businessId       Int
-  date             DateTime @db.Date
-  predictedRevenue Decimal  @db.Decimal(14, 2)
-  predictedProfit  Decimal  @db.Decimal(14, 2) @default(0)
-  lowerBound       Decimal  @db.Decimal(14, 2)
-  upperBound       Decimal  @db.Decimal(14, 2)
-  confidenceScore  Decimal  @db.Decimal(5, 2)
-  // Refactored forecast improvements
-  metadata         Json?    // Price change notes, seasonality info
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-
-  @@unique([businessId, date])
-  @@index([businessId, date(sort: Desc)])
-}
-
-// Tracks rolling forecast accuracy (MAPE) for each business
-model ForecastAccuracy {
-  id                Int      @id @default(autoincrement())
-  businessId        Int      @unique
-  accuracy7d        Decimal? @db.Decimal(5, 2) // Rolling 7-day accuracy (100 - MAPE)
-  accuracy30d       Decimal? @db.Decimal(5, 2) // Rolling 30-day accuracy
-  mape7d            Decimal? @db.Decimal(5, 2) // Mean Absolute Percentage Error 7d
-  mape30d           Decimal? @db.Decimal(5, 2) // Mean Absolute Percentage Error 30d
-  sampleSize7d      Int      @default(0)       // Number of data points for 7d calc
-  sampleSize30d     Int      @default(0)       // Number of data points for 30d calc
-  lastEvaluatedAt   DateTime @default(now())
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-
-  @@index([businessId])
-}
-
-model AnalyticsInsight {
-  id          Int      @id @default(autoincrement())
-  businessId  Int
-  section     String   // revenue, growth, products, health, waste, kasbon
-  insight     String   @db.Text
-  generatedAt DateTime @default(now())
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-
-  @@unique([businessId, section])
-  @@index([businessId])
-}
-
-model BusinessHealthScores {
-  id             Int      @id @default(autoincrement())
-  businessId     Int
-  date           DateTime @db.Date
-  revenueScore   Float
-  profitScore    Float
-  wasteScore     Float
-  stabilityScore Float
-  overallScore   Float
-  classification String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-
-  @@unique([businessId, date])
-  // Health score trend: orderBy date DESC
-  @@index([businessId, date(sort: Desc)])
-}
-
-// ==================== WEBHOOK IDEMPOTENCY ====================
-
-model WebhookEvent {
-  id              Int      @id @default(autoincrement())
-  eventId         String   @unique            // Unique key: e.g. "midtrans:{order_id}:{status}"
-  source          String                       // "midtrans" | "xendit" | etc.
-  status          String   @default("processing") // "processing" | "completed" | "failed"
-  payload         Json?                        // Raw webhook payload for debugging
-  processedAt     DateTime?
-  errorMessage    String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  @@index([source])
-  @@index([createdAt])
-  // cleanupOldWebhookEvents: deleteMany where status IN (...) + createdAt < cutoff
-  @@index([status, createdAt])
 }
