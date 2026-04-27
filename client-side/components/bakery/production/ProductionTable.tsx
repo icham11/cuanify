@@ -141,7 +141,7 @@ function statusBadgeClass(status: string): string {
 export default function ProductionTable() {
   const router = useRouter();
   const { business, businesses, switchBusiness } = useBusiness();
-  const { orders, updateOrderStatus, assignOrderToStaff } = useOrders();
+  const { orders, updateOrderStatus, assignOrderToStaff, assignProductionStageStaff } = useOrders();
   const { isOwner, isAdmin, isStaff, role, userName } = useRole();
   const isPrivilegedManager = isOwner || isAdmin;
   const { settings: bakerySettings } = useBakerySettings();
@@ -795,6 +795,14 @@ export default function ProductionTable() {
     });
   };
 
+  const handleClaimStage = (orderId: string, stage: "listing" | "filling" | "finishing") => {
+    if (!viewer?.userId) return;
+    assignProductionStageStaff(orderId, stage, {
+      userId: viewer.userId,
+      name: viewer.name || userName || "Staff",
+    });
+  };
+
   const handleOpenTransferModal = (orderId: string) => {
     const order = orders.find((entry) => entry.id === orderId);
     if (!order) return;
@@ -1001,30 +1009,49 @@ export default function ProductionTable() {
         </div>
 
         <div className="flex shrink-0 flex-col items-end gap-1.5">
-          <div className="flex items-center gap-2">
-            {staffName ? (
-              <span className="rounded-full bg-green-100 px-2.5 py-1 text-xs font-medium text-green-700">
-                {staffName}
-              </span>
-            ) : (
-              <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-500">
-                Unassigned
-              </span>
-            )}
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {(["listing", "filling", "finishing"] as const).map((stage) => {
+              const stageData = order.productionStages?.find((s) => s.stage === stage);
+              const isClaimed = !!stageData?.staffId;
+              
+              let assignedName = "Unassigned";
+              if (isClaimed) {
+                const member = teamMembers.find((m) => m.userId === stageData.staffId);
+                assignedName = member?.name || "Staff";
+                if (stageData.staffId === viewer?.userId) {
+                  assignedName = viewer?.name || userName || "Staff";
+                }
+              }
 
-            {canStaffClaim && (
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  handleClaimByStaff(order.id);
-                }}
-                disabled={claimDisabled}
-                className="rounded-full bg-blue-500 px-3 py-1 text-xs font-medium text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Ambil
-              </button>
-            )}
+              const stageLabel = stage === "listing" ? "List" : stage === "filling" ? "Filling" : "Finishing";
+              const tokenPercent = stage === "finishing" ? "50%" : "25%";
+
+              return (
+                <div key={stage} className="flex items-center gap-1">
+                  {isClaimed ? (
+                    <span className="rounded-full bg-green-100 px-2.5 py-1 text-[11px] font-medium text-green-700 whitespace-nowrap">
+                      {stageLabel}: {assignedName}
+                    </span>
+                  ) : canStaffClaim ? (
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handleClaimStage(order.id, stage);
+                      }}
+                      disabled={claimDisabled}
+                      className="rounded-full bg-blue-500 px-2.5 py-1 text-[11px] font-medium text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50 whitespace-nowrap"
+                    >
+                      Ambil {stageLabel} ({tokenPercent})
+                    </button>
+                  ) : (
+                    <span className="rounded-full bg-gray-100 px-2.5 py-1 text-[11px] font-medium text-gray-500 whitespace-nowrap">
+                      {stageLabel} ({tokenPercent})
+                    </span>
+                  )}
+                </div>
+              );
+            })}
 
             {canOwnerAssignOrTransfer && (
               <button
