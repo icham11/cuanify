@@ -7,7 +7,6 @@ interface PriceSummaryCardProps {
   deliveryFee: number;
   insuranceFee?: number;
   serviceCharge?: number;
-  insuranceFee?: number;
   manualAdjustment?: number;
   wholesaleDiscountPercent?: number;
   wholesaleDiscountAmount?: number;
@@ -36,7 +35,6 @@ export default function PriceSummaryCard({
   deliveryFee,
   insuranceFee = 0,
   serviceCharge = 0,
-  insuranceFee = 0,
   manualAdjustment = 0,
   wholesaleDiscountPercent = 0,
   wholesaleDiscountAmount = 0,
@@ -138,8 +136,8 @@ export default function PriceSummaryCard({
           <span>{formatCurrency(deliveryFee)}</span>
         </div>
         {insuranceFee > 0 ? (
-          <div className="flex items-center justify-between text-sm text-gray-600">
-            <span>Asuransi pengiriman</span>
+          <div className="flex items-center justify-between text-sm text-amber-700">
+            <span>Asuransi Pengiriman</span>
             <span>{formatCurrency(insuranceFee)}</span>
           </div>
         ) : null}
@@ -147,12 +145,6 @@ export default function PriceSummaryCard({
           <div className="flex items-center justify-between text-sm text-gray-600">
             <span>Service Charge</span>
             <span>{formatCurrency(serviceCharge)}</span>
-          </div>
-        ) : null}
-        {insuranceFee > 0 ? (
-          <div className="flex items-center justify-between text-sm text-amber-700">
-            <span>Asuransi Pengiriman</span>
-            <span>{formatCurrency(insuranceFee)}</span>
           </div>
         ) : null}
         <div className="flex items-center justify-between text-sm text-gray-600">

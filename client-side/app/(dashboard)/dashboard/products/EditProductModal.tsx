@@ -1,20 +1,272 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import type { EditProductModalProps } from "@/types/product";
 import type { DraftRecipeRow } from "@/types/product";
-// _clientId is present in ProductDraft, but we use it in DraftRecipeRow for UI keys
-type DraftRecipeRowWithClientId = DraftRecipeRow & { _clientId: string };
 import IngredientSelectorRow from "../products/create/components/IngredientSelectorRow";
 import { getIngredientOptions } from "@/lib/api/products";
 import type { IngredientOption } from "@/lib/api/products";
+import type { CatalogAdminState, CustomProductEntry } from "@/lib/bookings/catalog-admin";
+import { BOOKING_PRODUCT_CATALOG } from "@/lib/bookings/pricelist";
 import { Plus, X, Loader2, CheckCircle2, AlertTriangle } from "lucide-react";
 
+// _clientId is present in ProductDraft, but we use it in DraftRecipeRow for UI keys
+type DraftRecipeRowWithClientId = DraftRecipeRow & { _clientId: string };
+
+const EMPTY_CATALOG_STATE: CatalogAdminState = {
+  productVariantPriceOverrides: {},
+  addOnPriceOverrides: {},
+  inactiveProducts: [],
+  inactiveAddOns: [],
+  customProducts: [],
+  customAddOns: [],
+};
+
+function normalizeCatalogState(input: unknown): CatalogAdminState {
+  if (!input || typeof input !== "object") return EMPTY_CATALOG_STATE;
+  const record = input as Partial<CatalogAdminState>;
+
+  const customProducts = Array.isArray(record.customProducts)
+    ? record.customProducts
+        .filter(
+          (entry): entry is CustomProductEntry =>
+            Boolean(entry) &&
+            typeof entry === "object" &&
+            typeof (entry as CustomProductEntry).category === "string" &&
+            typeof (entry as CustomProductEntry).subcategory === "string" &&
+            typeof (entry as CustomProductEntry).productName === "string" &&
+            typeof (entry as CustomProductEntry).variantLabel === "string",
+        )
+        .map((entry) => ({
+          category: entry.category,
+          subcategory: entry.subcategory,
+          productName: entry.productName,
+          variantLabel: entry.variantLabel,
+          price: Math.max(0, Math.round(Number(entry.price || 0))),
+        }))
+    : [];
+
+  const customAddOns = Array.isArray(record.customAddOns)
+    ? record.customAddOns.filter(
+        (entry): entry is CatalogAdminState["customAddOns"][number] =>
+          Boolean(entry) &&
+          typeof entry === "object" &&
+          typeof entry.category === "string" &&
+          typeof entry.id === "string" &&
+          typeof entry.label === "string",
+      )
+    : [];
+
+  return {
+    productVariantPriceOverrides: record.productVariantPriceOverrides ?? {},
+    addOnPriceOverrides: record.addOnPriceOverrides ?? {},
+    inactiveProducts: Array.isArray(record.inactiveProducts)
+      ? record.inactiveProducts
+      : [],
+    inactiveAddOns: Array.isArray(record.inactiveAddOns)
+      ? record.inactiveAddOns
+      : [],
+    customProducts,
+    customAddOns,
+  };
+}
+
+function upsertCustomProduct(
+  state: CatalogAdminState,
+  entry: CustomProductEntry,
+): CatalogAdminState {
+  const normalized = {
+    category: entry.category.trim(),
+    subcategory: entry.subcategory.trim(),
+    productName: entry.productName.trim(),
+    variantLabel: entry.variantLabel.trim(),
+    price: Math.max(0, Math.round(Number(entry.price || 0))),
+  };
+
+  if (
+    !normalized.category ||
+    !normalized.subcategory ||
+    !normalized.productName ||
+    !normalized.variantLabel
+  ) {
+    return state;
+  }
+
+  const existingIndex = state.customProducts.findIndex(
+    (item) =>
+      item.category.toLowerCase() === normalized.category.toLowerCase() &&
+      item.subcategory.toLowerCase() === normalized.subcategory.toLowerCase() &&
+      item.productName.toLowerCase() === normalized.productName.toLowerCase() &&
+      item.variantLabel.toLowerCase() === normalized.variantLabel.toLowerCase(),
+  );
+
+  if (existingIndex < 0) {
+    return {
+      ...state,
+      customProducts: [...state.customProducts, normalized],
+    };
+  }
+
+  const nextCustomProducts = [...state.customProducts];
+  nextCustomProducts[existingIndex] = normalized;
+  return {
+    ...state,
+    customProducts: nextCustomProducts,
+  };
+}
+
+function removeCustomProduct(
+  state: CatalogAdminState,
+  entry: CustomProductEntry,
+): CatalogAdminState {
+  const nextCustomProducts = state.customProducts.filter(
+    (item) =>
+      !(
+        item.category.toLowerCase() === entry.category.trim().toLowerCase() &&
+        item.subcategory.toLowerCase() === entry.subcategory.trim().toLowerCase() &&
+        item.productName.toLowerCase() === entry.productName.trim().toLowerCase() &&
+        item.variantLabel.toLowerCase() === entry.variantLabel.trim().toLowerCase()
+      ),
+  );
+  if (nextCustomProducts.length === state.customProducts.length) return state;
+  return { ...state, customProducts: nextCustomProducts };
+}
+
+async function syncToBookingCatalog(
+  entry: CustomProductEntry,
+  previousEntry?: CustomProductEntry,
+): Promise<void> {
+  const getResponse = await fetch("/api/bookings/catalog-config", {
+    method: "GET",
+    cache: "no-store",
+  });
+  const getPayload = (await getResponse.json().catch(() => ({}))) as {
+    success?: boolean;
+    data?: unknown;
+  };
+
+  let nextState = normalizeCatalogState(getPayload.data);
+
+  if (previousEntry) {
+    nextState = removeCustomProduct(nextState, previousEntry);
+  }
+
+  nextState = upsertCustomProduct(nextState, entry);
+
+  const putResponse = await fetch("/api/bookings/catalog-config", {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(nextState),
+  });
+
+  if (!putResponse.ok) {
+    const payload = (await putResponse.json().catch(() => ({}))) as {
+      error?: string;
+    };
+    throw new Error(payload.error || "Gagal sinkron produk ke catalog booking.");
+  }
+}
+
+function buildDashboardProductName(args: {
+  productName: string;
+  variantLabel: string;
+  appendVariant: boolean;
+}): string {
+  const trimmedName = args.productName.trim();
+  const trimmedVariant = args.variantLabel.trim();
+  if (!trimmedName) return "";
+  if (!args.appendVariant) return trimmedName;
+  if (!trimmedVariant) return trimmedName;
+  if (["standard", "start from"].includes(trimmedVariant.toLowerCase())) {
+    return trimmedName;
+  }
+  return `${trimmedName} - ${trimmedVariant}`;
+}
+
+function resolveProductCategoryBySubcategory(subcategory: string): string {
+  const normalized = subcategory.trim().toLowerCase();
+  if (!normalized) return "";
+  const match = BOOKING_PRODUCT_CATALOG.find((entry) =>
+    entry.subcategories.some((sub) => sub.name.trim().toLowerCase() === normalized),
+  );
+  return match?.category ?? "";
+}
+
+function inferBookingFieldsFromDashboardName(args: {
+  dashboardName: string;
+  subcategoryName: string;
+}): {
+  itemName: string;
+  variantLabel: string;
+  appendVariantToDashboardName: boolean;
+} {
+  const dashboardName = args.dashboardName.trim();
+  const subcategoryName = args.subcategoryName.trim().toLowerCase();
+
+  if (subcategoryName) {
+    for (const category of BOOKING_PRODUCT_CATALOG) {
+      const subcategory = category.subcategories.find(
+        (entry) => entry.name.trim().toLowerCase() === subcategoryName,
+      );
+      if (!subcategory) continue;
+
+      for (const product of subcategory.products) {
+        const variantCount = product.variants.length;
+        for (const variant of product.variants) {
+          const candidate =
+            variantCount === 1 && ["standard", "start from"].includes(variant.label.trim().toLowerCase())
+              ? product.name
+              : `${product.name} - ${variant.label}`;
+          if (candidate.trim().toLowerCase() === dashboardName.toLowerCase()) {
+            return {
+              itemName: product.name,
+              variantLabel: variant.label,
+              appendVariantToDashboardName:
+                !(variantCount === 1 && ["standard", "start from"].includes(variant.label.trim().toLowerCase())),
+            };
+          }
+        }
+      }
+    }
+  }
+
+  const parts = dashboardName.split(" - ").map((part) => part.trim()).filter(Boolean);
+  if (parts.length >= 2) {
+    return {
+      itemName: parts.slice(0, -1).join(" - "),
+      variantLabel: parts[parts.length - 1],
+      appendVariantToDashboardName: true,
+    };
+  }
+
+  return {
+    itemName: dashboardName,
+    variantLabel: "Standard",
+    appendVariantToDashboardName: false,
+  };
+}
+
 export default function EditProductModal({ product, categories, onClose, onSaved }: EditProductModalProps) {
-  const [name, setName] = useState<string>(product.name);
-  const [categoryId, setCategoryId] = useState<number>(product.categoryId ?? categories[0]?.id ?? 0);
+  const initialSubcategory = product.category?.name ?? "";
+  const initialProductCategory = resolveProductCategoryBySubcategory(initialSubcategory);
+  const initialBookingFields = inferBookingFieldsFromDashboardName({
+    dashboardName: product.name,
+    subcategoryName: initialSubcategory,
+  });
+
+  // Default to current product mapping so quick edits (e.g. margin only) don't require re-filling fields.
+  const [productCategory, setProductCategory] = useState<string>(initialProductCategory);
+  const [bookingSubcategory, setBookingSubcategory] = useState<string>(initialSubcategory);
+  const [itemName, setItemName] = useState<string>(initialBookingFields.itemName);
+  const [bookingVariantLabel, setBookingVariantLabel] = useState<string>(initialBookingFields.variantLabel);
+  const [appendVariantToDashboardName, setAppendVariantToDashboardName] = useState<boolean>(
+    initialBookingFields.appendVariantToDashboardName,
+  );
+
   const [sellingPrice, setSellingPrice] = useState<number>(Number(product.sellingPrice));
   const [directCogs, setDirectCogs] = useState<number>(Number(product.cogs || 0));
-  const [productType, setProductType] = useState<"ReadyStock" | "PreOrder">(product.productType ?? "PreOrder");
+  const [productType] = useState<"ReadyStock" | "PreOrder">(product.productType ?? "PreOrder");
   const [recipe, setRecipe] = useState<DraftRecipeRowWithClientId[]>(() =>
     product.recipes.map((r, idx) => ({
       ingredientId: r.ingredient.id,
@@ -28,8 +280,25 @@ export default function EditProductModal({ product, categories, onClose, onSaved
   );
   const [ingredientOptions, setIngredientOptions] = useState<IngredientOption[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [catalogSyncWarning, setCatalogSyncWarning] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+
+  const productCategoryOptions = useMemo(
+    () => BOOKING_PRODUCT_CATALOG.map((entry) => entry.category),
+    [],
+  );
+
+  const subcategoryOptions = useMemo(() => {
+    const category = BOOKING_PRODUCT_CATALOG.find(
+      (entry) => entry.category === productCategory,
+    );
+    const fromCatalog = category?.subcategories.map((entry) => entry.name) ?? [];
+    const fromDashboard = categories.map((entry) => entry.name);
+    return productCategory
+      ? fromCatalog
+      : Array.from(new Set([...fromCatalog, ...fromDashboard]));
+  }, [productCategory, categories]);
 
   useEffect(() => {
     getIngredientOptions()
@@ -37,70 +306,37 @@ export default function EditProductModal({ product, categories, onClose, onSaved
       .catch(() => {});
   }, []);
 
+  useEffect(() => {
+    if (!productCategory.trim()) return;
+    if (subcategoryOptions.length === 0) return;
+    if (subcategoryOptions.includes(bookingSubcategory)) return;
+    setBookingSubcategory(subcategoryOptions[0]);
+  }, [subcategoryOptions, bookingSubcategory, productCategory]);
+
+  const dashboardProductName = useMemo(
+    () =>
+      buildDashboardProductName({
+        productName: itemName,
+        variantLabel: bookingVariantLabel,
+        appendVariant: appendVariantToDashboardName,
+      }),
+    [itemName, bookingVariantLabel, appendVariantToDashboardName],
+  );
+
   const margin = sellingPrice > 0 ? Math.round(((sellingPrice - directCogs) / sellingPrice) * 100) : 0;
 
   const validate = () => {
-    if (!name.trim()) return "Nama produk wajib diisi.";
-    if (!categoryId) return "Kategori wajib diisi.";
+    if (!productCategory.trim()) return "Product wajib dipilih.";
+    if (!bookingSubcategory.trim()) return "Sub category booking wajib diisi.";
+    if (!itemName.trim()) return "Nama item wajib diisi.";
+    if (!bookingVariantLabel.trim()) return "Variant/size booking wajib diisi.";
+    if (!dashboardProductName.trim()) return "Nama produk dashboard belum valid.";
     if (!sellingPrice || sellingPrice <= 0) return "Harga jual harus lebih dari 0.";
     if (!directCogs || directCogs <= 0) return "COGS/HPP wajib diisi dan harus lebih dari 0.";
     const filledRecipe = recipe.filter((r) => r.ingredientName.trim() || r.ingredientId > 0);
     const hasInvalid = filledRecipe.some((r) => !r.ingredientName.trim() || r.quantity <= 0);
     if (filledRecipe.length > 0 && hasInvalid) return "Setiap bahan membutuhkan nama dan jumlah yang valid.";
     return null;
-  };
-
-  const handleSave = async () => {
-    setSubmitted(true);
-    const err = validate();
-    if (err) {
-      setError(err);
-      return;
-    }
-    setSaving(true);
-    setError(null);
-    try {
-      // PATCH any new ingredients with extra info (optional, for AI/expansion)
-      // (removed: initialStock, expirationDate, as not present in DraftRecipeRow)
-      // Build recipe payload
-      const recipePayload = recipe
-        .filter((r) => r.ingredientId > 0 && r.ingredientName.trim())
-        .map((r) => ({
-          ingredientId: Number(r.ingredientId),
-          quantity: Number(r.quantity),
-        }));
-
-      const res = await fetch(`/api/products/${product.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          name,
-          categoryId: Number(categoryId),
-          sellingPrice: Number(sellingPrice),
-          cogs: Number(directCogs),
-          productType,
-          recipe: recipePayload,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        // Show field-level details if available
-        const details = data.details;
-        if (details && typeof details === "object") {
-          const msgs = Object.entries(details)
-            .map(([field, errs]) => `${field}: ${(errs as string[]).join(", ")}`)
-            .join("; ");
-          throw new Error(msgs || data.error || "Gagal update produk");
-        }
-        throw new Error(data.error ?? "Gagal update produk");
-      }
-      onSaved(data.data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Gagal update produk");
-    } finally {
-      setSaving(false);
-    }
   };
 
   const updateRow = (index: number, updated: DraftRecipeRowWithClientId) =>
@@ -120,63 +356,232 @@ export default function EditProductModal({ product, categories, onClose, onSaved
       },
     ]);
 
+  const handleSave = async () => {
+    setSubmitted(true);
+    setCatalogSyncWarning(null);
+
+    const err = validate();
+    if (err) {
+      setError(err);
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+
+    try {
+      const recipePayload = recipe
+        .filter((r) => r.ingredientId > 0 && r.ingredientName.trim())
+        .map((r) => ({
+          ingredientId: Number(r.ingredientId),
+          quantity: Number(r.quantity),
+        }));
+
+      const res = await fetch(`/api/products/${product.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          name: dashboardProductName,
+          categoryName: bookingSubcategory.trim(),
+          sellingPrice: Number(sellingPrice),
+          cogs: Number(directCogs),
+          productType,
+          recipe: recipePayload,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        const details = data.details;
+        if (details && typeof details === "object") {
+          const msgs = Object.entries(details)
+            .map(([field, errs]) => `${field}: ${(errs as string[]).join(", ")}`)
+            .join("; ");
+          throw new Error(msgs || data.error || "Gagal update produk");
+        }
+        throw new Error(data.error ?? "Gagal update produk");
+      }
+
+      try {
+        await syncToBookingCatalog(
+          {
+            category: productCategory.trim(),
+            subcategory: bookingSubcategory.trim(),
+            productName: itemName.trim(),
+            variantLabel: bookingVariantLabel.trim(),
+            price: Number(sellingPrice),
+          },
+          {
+            category: initialProductCategory.trim(),
+            subcategory: initialSubcategory.trim(),
+            productName: initialBookingFields.itemName.trim(),
+            variantLabel: initialBookingFields.variantLabel.trim(),
+            price: Number(product.sellingPrice || 0),
+          },
+        );
+      } catch (syncError) {
+        const message =
+          syncError instanceof Error
+            ? syncError.message
+            : "Produk dashboard berhasil diupdate, tapi sinkron ke booking catalog gagal.";
+        setCatalogSyncWarning(`${message} Klik Simpan lagi untuk retry sync.`);
+        return;
+      }
+
+      onSaved(data.data);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Gagal update produk");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (typeof document === "undefined") return null;
+
   return createPortal(
     <div
       className="fixed inset-0 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4"
       style={{ zIndex: 200 }}
     >
-      <div className="bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl w-full sm:max-w-2xl max-h-[85dvh] flex flex-col overflow-hidden">
-        {/* Drag handle (mobile only) */}
+      <div className="bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl w-full sm:max-w-3xl max-h-[90dvh] flex flex-col overflow-hidden">
         <div className="flex justify-center pt-3 pb-1 sm:hidden shrink-0">
           <div className="w-10 h-1 bg-gray-200 rounded-full" />
         </div>
+
         <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-5 border-b border-gray-100 bg-linear-to-r from-yellow-50 to-indigo-50 shrink-0">
           <h2 className="text-base sm:text-lg font-extrabold text-yellow-700">Edit Produk</h2>
           <button onClick={onClose} className="p-1.5 rounded-full hover:bg-gray-100 text-gray-400 transition">
             <X size={18} />
           </button>
         </div>
+
         <form
-          className="flex-1 overflow-y-auto px-4 sm:px-6 py-4"
+          className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 space-y-5"
           onSubmit={(e) => {
             e.preventDefault();
-            handleSave();
+            void handleSave();
           }}
         >
           {error && (
-            <div className="mb-4 flex items-center gap-2 bg-red-50 text-red-600 rounded-xl p-3 text-xs">
-              <AlertTriangle size={14} className="shrink-0" />
-              {error}
+            <div className="flex items-start gap-2 bg-red-50 text-red-600 rounded-xl p-3 text-xs">
+              <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+              <span>{error}</span>
             </div>
           )}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            <div>
-              <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Nama Produk</label>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="w-full border border-indigo-200 rounded-xl px-4 py-2.5 text-base font-semibold text-slate-700 bg-white focus:ring-2 focus:ring-indigo-400 outline-none"
-                required
-              />
+
+          {catalogSyncWarning && (
+            <div className="flex items-start gap-2 bg-amber-50 text-amber-700 rounded-xl p-3 text-xs">
+              <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+              <span>{catalogSyncWarning}</span>
             </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Kategori</label>
-              <select
-                value={categoryId}
-                onChange={(e) => setCategoryId(Number(e.target.value))}
-                className="w-full border border-indigo-200 rounded-xl px-4 py-2.5 text-base font-semibold text-slate-700 bg-white focus:ring-2 focus:ring-indigo-400 outline-none"
-                required
-              >
-                <option value="">Pilih kategori</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
+          )}
+
+          <div className="rounded-2xl border border-indigo-100 bg-indigo-50/40 p-4 sm:p-5 space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Product</label>
+                <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                  <input
+                    type="text"
+                    value={productCategory}
+                    onChange={(e) => setProductCategory(e.target.value)}
+                    placeholder="cth. Cookies"
+                    className="w-full border border-indigo-200 rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-700 bg-white focus:ring-2 focus:ring-indigo-400 outline-none"
+                  />
+                  <select
+                    className="h-[42px] rounded-xl border border-indigo-200 bg-white px-3 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-indigo-400"
+                    value={productCategoryOptions.includes(productCategory) ? productCategory : ""}
+                    onChange={(e) => setProductCategory(e.target.value)}
+                  >
+                    <option value="">Pilih</option>
+                    {productCategoryOptions.map((category) => (
+                      <option key={category} value={category}>
+                        {category}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Sub Category</label>
+                <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                  <input
+                    type="text"
+                    value={bookingSubcategory}
+                    onChange={(e) => setBookingSubcategory(e.target.value)}
+                    placeholder="cth. Event Cookies"
+                    className="w-full border border-indigo-200 rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-700 bg-white focus:ring-2 focus:ring-indigo-400 outline-none"
+                  />
+                  {subcategoryOptions.length > 0 ? (
+                    <select
+                      className="h-[42px] rounded-xl border border-indigo-200 bg-white px-3 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-indigo-400"
+                      value={subcategoryOptions.includes(bookingSubcategory) ? bookingSubcategory : ""}
+                      onChange={(e) => setBookingSubcategory(e.target.value)}
+                    >
+                    <option value="" disabled>
+                      Pilih
+                    </option>
+                      {subcategoryOptions.map((subcategory) => (
+                        <option key={subcategory} value={subcategory}>
+                          {subcategory}
+                        </option>
+                      ))}
+                    </select>
+                  ) : null}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Nama Item</label>
+                <input
+                  type="text"
+                  value={itemName}
+                  onChange={(e) => setItemName(e.target.value)}
+                  placeholder="cth. Lotus Box"
+                  className="w-full border border-indigo-200 rounded-xl px-4 py-2.5 text-base font-semibold text-slate-700 bg-white focus:ring-2 focus:ring-indigo-400 outline-none"
+                  required
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold text-gray-600 uppercase">Variant / Size</label>
+                  <button
+                    type="button"
+                    onClick={() => setBookingVariantLabel("Standard")}
+                    className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800"
+                  >
+                    Set Standard
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  value={bookingVariantLabel}
+                  onChange={(e) => setBookingVariantLabel(e.target.value)}
+                  placeholder="cth. Standard"
+                  className="w-full border border-indigo-200 rounded-xl px-4 py-2.5 text-base font-semibold text-slate-700 bg-white focus:ring-2 focus:ring-indigo-400 outline-none"
+                  required
+                />
+              </div>
             </div>
+
+            <div className="rounded-xl border border-indigo-100 bg-white p-3">
+              <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={appendVariantToDashboardName}
+                  onChange={(e) => setAppendVariantToDashboardName(e.target.checked)}
+                />
+                Tambahkan suffix variant di nama dashboard
+              </label>
+              <p className="mt-2 text-[11px] text-slate-500 uppercase tracking-wide">Nama produk dashboard</p>
+              <p className="text-sm font-bold text-slate-800 break-words">{dashboardProductName || "-"}</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Harga Jual (Rp)</label>
               <input
@@ -188,32 +593,29 @@ export default function EditProductModal({ product, categories, onClose, onSaved
                 required
               />
               <div className="text-xs text-gray-400 mt-1">
-                COGS/HPP:{" "}
+                COGS/HPP: {" "}
                 {directCogs > 0
                   ? new Intl.NumberFormat("id-ID", {
                       style: "currency",
                       currency: "IDR",
                       minimumFractionDigits: 0,
                     }).format(directCogs)
-                  : "—"}
-                {margin !== null && (
-                  <>
-                    {" — "}
-                    <span
-                      className={
-                        margin >= 50
-                          ? "text-green-600 font-semibold"
-                          : margin >= 20
-                            ? "text-yellow-600 font-semibold"
-                            : "text-red-600 font-semibold"
-                      }
-                    >
-                      {margin}% margin
-                    </span>
-                  </>
-                )}
+                  : "-"}
+                {" — "}
+                <span
+                  className={
+                    margin >= 50
+                      ? "text-green-600 font-semibold"
+                      : margin >= 20
+                        ? "text-yellow-600 font-semibold"
+                        : "text-red-600 font-semibold"
+                  }
+                >
+                  {margin}% margin
+                </span>
               </div>
             </div>
+
             <div>
               <label className="block text-xs font-bold text-gray-600 uppercase mb-1">COGS / HPP (Rp)</label>
               <input
@@ -226,38 +628,7 @@ export default function EditProductModal({ product, categories, onClose, onSaved
             </div>
           </div>
 
-          {/* Product Type */}
-          {false && <div className="mb-4">
-            <label className="block text-xs font-bold text-gray-600 uppercase mb-2">Tipe Produk</label>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setProductType("PreOrder")}
-                className={`flex-1 py-2.5 px-3 rounded-xl border-2 text-xs font-semibold transition-all ${
-                  productType === "PreOrder"
-                    ? "border-indigo-500 bg-indigo-50 text-indigo-700"
-                    : "border-gray-200 bg-white text-gray-500 hover:border-gray-300"
-                }`}
-              >
-                🍳 Made to Order
-                <div className="text-[9px] font-normal mt-0.5 text-gray-400">Bahan dikurangi saat dijual</div>
-              </button>
-              <button
-                type="button"
-                onClick={() => setProductType("ReadyStock")}
-                className={`flex-1 py-2.5 px-3 rounded-xl border-2 text-xs font-semibold transition-all ${
-                  productType === "ReadyStock"
-                    ? "border-emerald-500 bg-emerald-50 text-emerald-700"
-                    : "border-gray-200 bg-white text-gray-500 hover:border-gray-300"
-                }`}
-              >
-                📦 Ready Stock
-                <div className="text-[9px] font-normal mt-0.5 text-gray-400">Bahan dikurangi saat produksi</div>
-              </button>
-            </div>
-          </div>}
-
-          <div className="mb-4">
+          <div>
             <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Resep Produk Opsional</label>
             <div className="space-y-2">
               {recipe.map((row, idx) => (
@@ -283,6 +654,7 @@ export default function EditProductModal({ product, categories, onClose, onSaved
             </div>
           </div>
         </form>
+
         <div className="flex gap-3 px-4 sm:px-6 py-4 border-t border-gray-100 shrink-0">
           <button
             onClick={onClose}
@@ -292,7 +664,7 @@ export default function EditProductModal({ product, categories, onClose, onSaved
             Batal
           </button>
           <button
-            onClick={handleSave}
+            onClick={() => void handleSave()}
             disabled={saving}
             className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-yellow-500 text-white font-bold text-sm rounded-xl hover:bg-yellow-600 transition disabled:opacity-50"
             type="submit"
@@ -306,4 +678,3 @@ export default function EditProductModal({ product, categories, onClose, onSaved
     document.body,
   );
 }
-

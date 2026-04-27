@@ -13,7 +13,6 @@ import {
   X,
   History,
   Bot,
-  Boxes,
   Building2,
   User,
   FileText,
@@ -293,13 +292,6 @@ export default function MobileNav({
                     icon={Package}
                     label="Products"
                     active={isActive("/dashboard/products")}
-                    onClick={() => setIsDrawerOpen(false)}
-                  />
-                  <NavLink
-                    href="/dashboard/ingredients"
-                    icon={Boxes}
-                    label="Ingredients"
-                    active={isActive("/dashboard/ingredients")}
                     onClick={() => setIsDrawerOpen(false)}
                   />
                 </>

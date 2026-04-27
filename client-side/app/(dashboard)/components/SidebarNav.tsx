@@ -7,7 +7,6 @@ import {
   Bot,
   CalendarDays,
   Coins,
-  Boxes,
   Package,
   Building2,
   User,
@@ -186,12 +185,6 @@ export default function SidebarNav() {
             icon={Package}
             label="Products"
             active={isActive("/dashboard/products")}
-          />
-          <SidebarLink
-            href="/dashboard/ingredients"
-            icon={Boxes}
-            label="Ingredients"
-            active={isActive("/dashboard/ingredients")}
           />
         </div>
       )}

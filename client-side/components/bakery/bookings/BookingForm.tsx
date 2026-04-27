@@ -3236,7 +3236,7 @@ export default function BookingForm() {
         selectedShippingQuote?.price ??
         0)
     : 0;
-  const insuranceFee = shouldUseShippingEngine
+  const insuranceFeeFromShipping = shouldUseShippingEngine
     ? (selectedShippingQuote?.insuranceFee ?? 0)
     : 0;
   const serviceCharge = resolveAdminServiceCharge(deliveryMethod);
@@ -3244,7 +3244,11 @@ export default function BookingForm() {
   const isJneJnt = deliveryMethod === "REGULAR_JNE_JNT" || selectedShippingQuote?.provider === "JNE" || selectedShippingQuote?.provider === "JNT";
   const itemsSubtotal = basePrice + addOnTotal;
   const requiresInsurance = isJneJnt && itemsSubtotal > 2000000;
-  const insuranceFee = requiresInsurance ? Math.round(itemsSubtotal * 0.003) + 5000 : 0;
+  const insuranceFeeByRule = requiresInsurance
+    ? Math.round(itemsSubtotal * 0.003) + 5000
+    : 0;
+  // Business rule: khusus JNE/JNT jika nominal pembelian > 2 juta wajib pakai rumus 0.3% x subtotal item + 5000.
+  const insuranceFee = isJneJnt ? insuranceFeeByRule : insuranceFeeFromShipping;
 
   const subtotalBeforeDiscount =
     basePrice +
@@ -3252,7 +3256,6 @@ export default function BookingForm() {
     deliveryFee +
     insuranceFee +
     serviceCharge +
-    insuranceFee +
     Number(manualAdjustment || 0);
   const wholesaleDiscountAmount = Math.max(
     0,
@@ -4152,7 +4155,7 @@ export default function BookingForm() {
           )?.label || values.deliveryMethod
         }`,
         serviceCharge > 0 ? `Service Charge: ${serviceCharge}` : "",
-        insuranceFee > 0 ? `Insurance Fee (JNE/JNT): ${insuranceFee}` : "",
+        insuranceFee > 0 ? `Insurance Fee: ${insuranceFee}` : "",
       ]
         .filter((line) => line.trim().length > 0)
         .join("\n"),
@@ -8129,7 +8132,6 @@ export default function BookingForm() {
             deliveryFee={deliveryFee}
             insuranceFee={insuranceFee}
             serviceCharge={serviceCharge}
-            insuranceFee={insuranceFee}
             manualAdjustment={Number(manualAdjustment || 0)}
             wholesaleDiscountPercent={Number(wholesaleDiscountPercent || 0)}
             wholesaleDiscountAmount={wholesaleDiscountAmount}

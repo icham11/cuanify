@@ -957,6 +957,11 @@ export default function ProductsPage() {
             <div className="md:hidden space-y-3">
               {products.map((product) => {
                 const sp = Number(product.sellingPrice);
+                const cogs = Number(product.cogs ?? 0);
+                const margin =
+                  sp > 0 && cogs > 0
+                    ? Math.round(((sp - cogs) / sp) * 100)
+                    : null;
                 const productGroup = getProductGroupName(product);
                 return (
                   <div
@@ -1005,11 +1010,25 @@ export default function ProductsPage() {
                       </div>
                     </div>
 
-                    <div className="text-xs">
-                      <span className="text-gray-400 block">Harga</span>
-                      <span className="font-bold text-indigo-700 text-sm">
-                        {formatCurrency(sp)}
-                      </span>
+                    <div className="grid grid-cols-3 gap-3 text-xs">
+                      <div>
+                        <span className="text-gray-400 block">Harga Jual</span>
+                        <span className="font-bold text-indigo-700 text-sm">
+                          {formatCurrency(sp)}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-gray-400 block">COGS / HPP</span>
+                        <span className="font-semibold text-slate-700 text-sm">
+                          {cogs > 0 ? formatCurrency(cogs) : "—"}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-gray-400 block">Margin</span>
+                        <span className="font-semibold text-sm">
+                          {margin !== null ? <MarginBadge margin={margin} /> : "—"}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 );
@@ -1018,7 +1037,7 @@ export default function ProductsPage() {
 
             {/* ═══ DESKTOP TABLE ═══ */}
             <div className="hidden md:block bg-white rounded-3xl shadow-xl overflow-x-auto">
-              <table className="w-full min-w-160 text-base">
+              <table className="w-full min-w-190 text-base">
                 <thead className="bg-linear-to-r from-indigo-50 to-indigo-50 text-indigo-800 text-xs uppercase tracking-wider">
                   <tr>
                     <th className="pl-5 pr-2 py-4 w-10">Product</th>
@@ -1033,15 +1052,22 @@ export default function ProductsPage() {
                       onClick={() => handleSortClick("sellingPrice")}
                     >
                       <span className="inline-flex items-center justify-end w-full">
-                        Harga <SortIcon col="sellingPrice" />
+                        Harga Jual <SortIcon col="sellingPrice" />
                       </span>
                     </th>
+                    <th className="px-6 py-4 text-right font-bold">COGS / HPP</th>
+                    <th className="px-6 py-4 text-right font-bold">Margin</th>
                     <th className="px-6 py-4 text-center font-bold">Aksi</th>
                   </tr>
                 </thead>
                 <tbody>
                   {products.map((product) => {
                     const sp = Number(product.sellingPrice);
+                    const cogs = Number(product.cogs ?? 0);
+                    const margin =
+                      sp > 0 && cogs > 0
+                        ? Math.round(((sp - cogs) / sp) * 100)
+                        : null;
                     const productGroup = getProductGroupName(product);
                     return (
                       <tr
@@ -1073,6 +1099,12 @@ export default function ProductsPage() {
                               className="opacity-0 group-hover:opacity-80 transition text-green-600 group-hover:text-green-900 shrink-0"
                             />
                           </button>
+                        </td>
+                        <td className="px-6 py-4 text-right font-semibold text-slate-700">
+                          {cogs > 0 ? formatCurrency(cogs) : "—"}
+                        </td>
+                        <td className="px-6 py-4 text-right font-semibold">
+                          {margin !== null ? <MarginBadge margin={margin} /> : "—"}
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex items-center justify-center gap-1">
