@@ -21,6 +21,12 @@ export async function recomputeRecipeCost(productId: number): Promise<void> {
     },
   });
 
+  if (recipes.length === 0) {
+    // Do not overwrite recipeCost to 0 if there are no recipes, 
+    // as it might be using a manualCogs value.
+    return;
+  }
+
   const recipeCost = recipes.reduce((sum, r) => {
     const allBatches = r.ingredient.inventoryBatches;
     const activeBatches = allBatches.filter((b) => Number(b.remainingQty) > 0);

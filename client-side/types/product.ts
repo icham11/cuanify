@@ -81,5 +81,6 @@ export type CreateProductInput = {
   categoryName: string;
   sellingPrice: number;
   productType?: "ReadyStock" | "PreOrder";
-  recipe: RecipeItemInput[];
+  recipe?: RecipeItemInput[];
+  manualCogs?: number;
 };

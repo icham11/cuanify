@@ -87,6 +87,7 @@ export const createProductSchema = z.object({
   sellingPrice: z.number().positive("Selling price must be positive"),
   productType: z.enum(["ReadyStock", "PreOrder"]).optional().default("PreOrder"),
   recipe: z.array(recipeItemSchema).optional().default([]),
+  manualCogs: z.number().min(0).optional(),
 });
 
 export const bulkCreateProductsSchema = z.object({

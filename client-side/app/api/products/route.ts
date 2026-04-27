@@ -461,10 +461,11 @@ export async function POST(request: NextRequest) {
                 name: normalizedName,
                 sellingPrice: item.sellingPrice,
                 productType: item.productType ?? "PreOrder",
+                recipeCost: (!item.recipe || item.recipe.length === 0) && item.manualCogs ? item.manualCogs : 0,
               },
             });
 
-            if (item.recipe.length > 0) {
+            if (item.recipe && item.recipe.length > 0) {
               await tx.recipe.createMany({
                 data: item.recipe.map((r) => ({
                   productId: product.id,
@@ -513,7 +514,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { name, categoryName, sellingPrice, recipe, productType } = parsed.data;
+    const { name, categoryName, sellingPrice, recipe, productType, manualCogs } = parsed.data;
 
     // Run creates inside a transaction (refetch outside to avoid timeout)
     const createdId = await prisma.$transaction(
@@ -547,11 +548,12 @@ export async function POST(request: NextRequest) {
             name: normalizedName,
             sellingPrice,
             productType: productType ?? "PreOrder",
+            recipeCost: (!recipe || recipe.length === 0) && manualCogs ? manualCogs : 0,
           },
         });
 
         // Create recipe entries
-        if (recipe.length > 0) {
+        if (recipe && recipe.length > 0) {
           await tx.recipe.createMany({
             data: recipe.map((r) => ({
               productId: product.id,

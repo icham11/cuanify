@@ -36,6 +36,7 @@ const patchSchema = z.object({
   productType: z.enum(["ReadyStock", "PreOrder"]).optional(),
   createdAt: z.string().datetime().optional(),
   recipe: z.array(recipeItemSchema).optional(),
+  manualCogs: z.number().min(0).optional(),
 });
 
 export async function PATCH(
@@ -124,6 +125,9 @@ export async function PATCH(
         updateData.productType = parsed.data.productType;
       if (parsed.data.createdAt !== undefined)
         updateData.createdAt = new Date(parsed.data.createdAt);
+      if (parsed.data.recipe && parsed.data.recipe.length === 0 && parsed.data.manualCogs !== undefined) {
+        updateData.recipeCost = parsed.data.manualCogs;
+      }
 
       await tx.product.update({
         where: { id },

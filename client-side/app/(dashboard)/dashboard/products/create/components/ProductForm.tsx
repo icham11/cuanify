@@ -52,6 +52,8 @@ export default function ProductForm({ initialDraft, onSuccess }: Props) {
   const [categoryName, setCategoryName] = useState(initialDraft?.categoryName ?? "");
   const [sellingPrice, setSellingPrice] = useState<number>(initialDraft?.sellingPrice ?? 0);
   const [productType, setProductType] = useState<"ReadyStock" | "PreOrder">("PreOrder");
+  const [cogsMode, setCogsMode] = useState<"auto" | "manual">("auto");
+  const [manualCogs, setManualCogs] = useState<number>(0);
   const [recipe, setRecipe] = useState<DraftRecipeRow[]>(
     initialDraft?.recipe?.length ? initialDraft.recipe : [emptyRow(0)],
   );
@@ -80,7 +82,8 @@ export default function ProductForm({ initialDraft, onSuccess }: Props) {
   const [priceHint, setPriceHint] = useState<string | null>(null);
 
   // ── computed: recipe cost ───────────────────────────────────────────────
-  const recipeCost = useMemo(() => recipe.reduce((s, r) => s + r.quantity * (r.costPerUnit ?? 0), 0), [recipe]);
+  const computedRecipeCost = useMemo(() => recipe.reduce((s, r) => s + r.quantity * (r.costPerUnit ?? 0), 0), [recipe]);
+  const recipeCost = cogsMode === "manual" ? manualCogs : computedRecipeCost;
 
   const margin = sellingPrice > 0 ? Math.round(((sellingPrice - recipeCost) / sellingPrice) * 100) : 0;
 
@@ -118,6 +121,7 @@ export default function ProductForm({ initialDraft, onSuccess }: Props) {
               }),
             ),
           );
+          setCogsMode("auto"); // AI generated recipes should use auto mode
         }
         // Refresh ingredient options (new ones may have been created)
         getIngredientOptions()
@@ -201,10 +205,14 @@ export default function ProductForm({ initialDraft, onSuccess }: Props) {
     if (!name.trim()) return "Nama produk wajib diisi.";
     if (!categoryName.trim()) return "Kategori wajib diisi.";
     if (!sellingPrice || sellingPrice <= 0) return "Harga jual harus lebih dari 0.";
-    const hasInvalid = recipe.some((r) => !r.ingredientName.trim() || r.quantity <= 0);
-    if (recipe.length > 0 && hasInvalid) return "Setiap bahan membutuhkan nama dan jumlah yang valid.";
-    if (recipe.some(rowNeedsUnit)) return "Beberapa bahan baru belum memiliki satuan.";
-    if (recipe.some(rowNeedsCost)) return "Beberapa bahan baru belum memiliki biaya per satuan.";
+    if (cogsMode === "auto") {
+      const hasInvalid = recipe.some((r) => !r.ingredientName.trim() || r.quantity <= 0);
+      if (recipe.length > 0 && hasInvalid) return "Setiap bahan membutuhkan nama dan jumlah yang valid.";
+      if (recipe.some(rowNeedsUnit)) return "Beberapa bahan baru belum memiliki satuan.";
+      if (recipe.some(rowNeedsCost)) return "Beberapa bahan baru belum memiliki biaya per satuan.";
+    } else {
+      if (manualCogs < 0) return "HPP / Modal tidak boleh negatif.";
+    }
     return null;
   };
 
@@ -236,7 +244,7 @@ export default function ProductForm({ initialDraft, onSuccess }: Props) {
       }
 
       // Build recipe payload — skip rows with empty or negative (new-but-unresolved) ids
-      const recipePayload = recipe
+      const recipePayload = cogsMode === "manual" ? [] : recipe
         .filter((r) => r.ingredientId > 0 && r.ingredientName.trim())
         .map((r) => ({ ingredientId: r.ingredientId, quantity: r.quantity }));
 
@@ -246,6 +254,7 @@ export default function ProductForm({ initialDraft, onSuccess }: Props) {
         sellingPrice,
         productType,
         recipe: recipePayload,
+        manualCogs: cogsMode === "manual" ? manualCogs : undefined,
       });
 
       setSuccess(true);
@@ -482,10 +491,62 @@ export default function ProductForm({ initialDraft, onSuccess }: Props) {
           </button>
         </div>
 
-        {/* Hint */}
-        <p className="px-4 py-2.5 bg-indigo-50/60 border-b border-indigo-100/60 text-xs text-indigo-600">
-          Pilih dari daftar atau ketik nama baru untuk membuat bahan sekaligus.
-        </p>
+        {/* Cogs Mode Toggle */}
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+          <div>
+            <p className="text-sm font-bold text-gray-700">Metode HPP (Modal)</p>
+            <p className="text-xs text-gray-400">Pilih cara menghitung harga modal produk ini.</p>
+          </div>
+          <div className="flex bg-gray-100 p-1 rounded-xl">
+            <button
+              type="button"
+              onClick={() => setCogsMode("auto")}
+              className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition ${
+                cogsMode === "auto" ? "bg-white text-indigo-700 shadow" : "text-gray-500 hover:text-gray-700"
+              }`}
+            >
+              Resep Otomatis
+            </button>
+            <button
+              type="button"
+              onClick={() => setCogsMode("manual")}
+              className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition ${
+                cogsMode === "manual" ? "bg-white text-indigo-700 shadow" : "text-gray-500 hover:text-gray-700"
+              }`}
+            >
+              Input Manual
+            </button>
+          </div>
+        </div>
+
+        {cogsMode === "manual" ? (
+          <div className="px-6 py-6 bg-amber-50/50">
+            <label className="block text-sm font-bold text-gray-700 mb-2">HPP / Modal (Rp)</label>
+            <input
+              type="number"
+              min={0}
+              value={manualCogs}
+              onChange={(e) => {
+                setManualCogs(Number(e.target.value));
+                setPriceHint(null);
+              }}
+              placeholder="0"
+              className="w-full sm:w-1/2 border border-amber-200 rounded-xl px-4 py-2.5 text-base text-slate-700 bg-white focus:ring-2 focus:ring-amber-400 outline-none"
+            />
+            <p className="text-xs text-amber-600 mt-2 flex items-start gap-1">
+              <AlertTriangle size={14} className="shrink-0" />
+              <span>
+                Dengan mode manual, AI tidak bisa memprediksi stok bahan baku untuk produk ini.
+                Bahan baku tidak akan berkurang otomatis saat terjual.
+              </span>
+            </p>
+          </div>
+        ) : (
+          <>
+            {/* Hint */}
+            <p className="px-4 py-2.5 bg-indigo-50/60 border-b border-indigo-100/60 text-xs text-indigo-600">
+              Pilih dari daftar atau ketik nama baru untuk membuat bahan sekaligus.
+            </p>
 
         {/* Column headers */}
         <div className="hidden sm:grid grid-cols-12 gap-2 px-3 py-2 text-xs font-bold text-gray-400 uppercase tracking-wide bg-gray-50/60 border-b border-gray-100">
@@ -523,6 +584,8 @@ export default function ProductForm({ initialDraft, onSuccess }: Props) {
             Tambah Bahan
           </button>
         </div>
+          </>
+        )}
       </div>
 
       {/* ── Submit ─ */}
