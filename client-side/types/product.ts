@@ -83,5 +83,6 @@ export type CreateProductInput = {
   sellingPrice: number;
   cogs: number;
   productType?: "ReadyStock" | "PreOrder";
-  recipe: RecipeItemInput[];
+  recipe?: RecipeItemInput[];
+  manualCogs?: number;
 };

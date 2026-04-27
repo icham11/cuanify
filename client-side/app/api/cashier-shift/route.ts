@@ -56,6 +56,7 @@ export async function GET(request: NextRequest) {
         transferSalesTotal: s.transferSalesTotal ? Number(s.transferSalesTotal) : 0,
         digitalSalesTotal: s.digitalSalesTotal ? Number(s.digitalSalesTotal) : 0,
         kasbonTotal: s.kasbonTotal ? Number(s.kasbonTotal) : 0,
+        marketplaceSalesTotal: s.marketplaceSalesTotal ? Number(s.marketplaceSalesTotal) : 0,
         totalRevenue: s.totalRevenue ? Number(s.totalRevenue) : 0,
         transactionCount: s.transactionCount || 0,
         notes: s.notes,

@@ -20,6 +20,7 @@ enum PaymentMethod {
   Transfer
   Cash
   Kasbon
+  Marketplace
 }
 
 enum PaymentStatus {
@@ -155,6 +156,8 @@ model CashierShift {
   transferSalesTotal Decimal?  @db.Decimal(14, 2)
   digitalSalesTotal  Decimal?  @db.Decimal(14, 2)
   kasbonTotal        Decimal?  @db.Decimal(14, 2)
+  // Marketplace (Tokped/Shopee) — uang belum cair, tidak masuk expectedCash kasir
+  marketplaceSalesTotal Decimal? @db.Decimal(14, 2)
   totalRevenue       Decimal?  @db.Decimal(14, 2)
   transactionCount   Int?
 

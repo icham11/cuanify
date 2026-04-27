@@ -88,6 +88,7 @@ export const createProductSchema = z.object({
   cogs: z.number().positive("COGS must be greater than 0"),
   productType: z.enum(["ReadyStock", "PreOrder"]).optional().default("PreOrder"),
   recipe: z.array(recipeItemSchema).optional().default([]),
+  manualCogs: z.number().min(0).optional(),
 });
 
 export const bulkCreateProductsSchema = z.object({

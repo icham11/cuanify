@@ -508,7 +508,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { name, categoryName, sellingPrice, recipe, productType, cogs } = parsed.data;
+    const {
+      name,
+      categoryName,
+      sellingPrice,
+      recipe,
+      productType,
+      cogs,
+      manualCogs,
+    } = parsed.data;
 
     // Run creates inside a transaction (refetch outside to avoid timeout)
     const createdId = await prisma.$transaction(
@@ -543,6 +551,8 @@ export async function POST(request: NextRequest) {
             sellingPrice,
             cogs: normalizeDirectCogs(cogs),
             productType: productType ?? "PreOrder",
+            recipeCost:
+              recipe.length === 0 && manualCogs !== undefined ? manualCogs : 0,
           },
         });
 

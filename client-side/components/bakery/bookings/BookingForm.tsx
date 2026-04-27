@@ -3241,12 +3241,18 @@ export default function BookingForm() {
     : 0;
   const serviceCharge = resolveAdminServiceCharge(deliveryMethod);
 
+  const isJneJnt = deliveryMethod === "REGULAR_JNE_JNT" || selectedShippingQuote?.provider === "JNE" || selectedShippingQuote?.provider === "JNT";
+  const itemsSubtotal = basePrice + addOnTotal;
+  const requiresInsurance = isJneJnt && itemsSubtotal > 2000000;
+  const insuranceFee = requiresInsurance ? Math.round(itemsSubtotal * 0.003) + 5000 : 0;
+
   const subtotalBeforeDiscount =
     basePrice +
     addOnTotal +
     deliveryFee +
     insuranceFee +
     serviceCharge +
+    insuranceFee +
     Number(manualAdjustment || 0);
   const wholesaleDiscountAmount = Math.max(
     0,
@@ -4146,6 +4152,7 @@ export default function BookingForm() {
           )?.label || values.deliveryMethod
         }`,
         serviceCharge > 0 ? `Service Charge: ${serviceCharge}` : "",
+        insuranceFee > 0 ? `Insurance Fee (JNE/JNT): ${insuranceFee}` : "",
       ]
         .filter((line) => line.trim().length > 0)
         .join("\n"),
@@ -8122,6 +8129,7 @@ export default function BookingForm() {
             deliveryFee={deliveryFee}
             insuranceFee={insuranceFee}
             serviceCharge={serviceCharge}
+            insuranceFee={insuranceFee}
             manualAdjustment={Number(manualAdjustment || 0)}
             wholesaleDiscountPercent={Number(wholesaleDiscountPercent || 0)}
             wholesaleDiscountAmount={wholesaleDiscountAmount}
