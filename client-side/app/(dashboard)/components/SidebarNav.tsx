@@ -15,6 +15,7 @@ import {
   ClipboardList,
   Factory,
   Settings2,
+  ShoppingBag,
 } from "lucide-react";
 import { useRole } from "@/context/RoleContext";
 
@@ -139,6 +140,12 @@ export default function SidebarNav() {
             icon={Factory}
             label="Production"
             active={isActive("/bakery/production")}
+          />
+          <SidebarLink
+            href="/bakery/marketplace"
+            icon={ShoppingBag}
+            label="Marketplace"
+            active={isActive("/bakery/marketplace")}
           />
           {isOwner && (
             <>
