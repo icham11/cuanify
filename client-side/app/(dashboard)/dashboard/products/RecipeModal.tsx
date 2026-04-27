@@ -19,11 +19,11 @@ export default function RecipeModal({
   onClose: () => void;
 }) {
   const overlayRef = useRef<HTMLDivElement>(null);
-  const recipeCost = Number(product.recipeCost);
+  const cogs = Number(product.cogs);
   const sellingPrice = Number(product.sellingPrice);
   const margin =
     sellingPrice > 0
-      ? Math.round(((sellingPrice - recipeCost) / sellingPrice) * 100)
+      ? Math.round(((sellingPrice - cogs) / sellingPrice) * 100)
       : 0;
 
   return (
@@ -69,10 +69,10 @@ export default function RecipeModal({
           </div>
           <div className="px-4 py-3">
             <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wide">
-              Recipe Cost
+              COGS
             </p>
             <p className="text-sm font-extrabold text-slate-700 mt-0.5">
-              {recipeCost > 0 ? formatCurrency(recipeCost) : "—"}
+              {cogs > 0 ? formatCurrency(cogs) : "—"}
             </p>
           </div>
           <div className="px-4 py-3">
@@ -133,13 +133,13 @@ export default function RecipeModal({
                 );
               })}
 
-              {recipeCost > 0 && (
+              {cogs > 0 && (
                 <div className="flex justify-between items-center pt-2 border-t border-gray-100 px-3">
                   <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">
-                    Total Biaya Resep
+                    Total COGS/HPP
                   </span>
                   <span className="text-sm font-extrabold text-indigo-700">
-                    {formatCurrency(recipeCost)}
+                    {formatCurrency(cogs)}
                   </span>
                 </div>
               )}

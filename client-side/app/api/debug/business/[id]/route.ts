@@ -55,7 +55,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     // Active products with prices
     const products = await prisma.product.findMany({
       where: { businessId, deletedAt: null, isActive: true },
-      select: { id: true, name: true, sellingPrice: true, recipeCost: true },
+      select: { id: true, name: true, sellingPrice: true, cogs: true },
     });
 
     return NextResponse.json({
@@ -69,7 +69,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       activeProducts: products.map((p) => ({
         ...p,
         sellingPrice: Number(p.sellingPrice),
-        recipeCost: Number(p.recipeCost),
+        cogs: Number(p.cogs),
       })),
     });
   } catch (error) {

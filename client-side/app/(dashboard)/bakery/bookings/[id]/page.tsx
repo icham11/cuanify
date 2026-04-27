@@ -59,6 +59,7 @@ import {
 } from "@/lib/bookings/shipping-schedule";
 import { normalizeDateInput } from "@/lib/helpers/date-normalization";
 import { getSmartCourierLabel } from "@/lib/bookings/shipping-service";
+import { distributeProductionTokens } from "@/lib/bookings/production-stages";
 
 type SaveSyncState = "idle" | "saving" | "saved" | "failed";
 
@@ -184,6 +185,7 @@ export default function OrderDetailPage() {
     syncOrderCalendar,
     getCustomerMessagePreview,
     setOrderShipment,
+    assignProductionStageStaff,
   } = useOrders();
   const params = useParams();
   const { isOwner, isAdmin } = useRole();
@@ -205,11 +207,30 @@ export default function OrderDetailPage() {
   );
   const [inventorySyncLoading, setInventorySyncLoading] = useState(false);
   const [inventorySyncError, setInventorySyncError] = useState("");
+  const [staffOptions, setStaffOptions] = useState<Array<{ userId: number; name: string }>>([]);
 
   const order = useMemo(
     () => orders.find((item) => item.id === orderId),
     [orders, orderId],
   );
+
+  useEffect(() => {
+    if (!isOwner && !isAdmin) return;
+    fetch("/api/staff", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((payload) => {
+        const members = Array.isArray(payload?.data?.members) ? payload.data.members : [];
+        setStaffOptions(
+          members
+            .map((member: { userId?: number; name?: string; user?: { name?: string; email?: string } }) => ({
+              userId: Number(member.userId),
+              name: member.name || member.user?.name || member.user?.email || `Staff ${member.userId}`,
+            }))
+            .filter((member: { userId: number }) => Number.isInteger(member.userId) && member.userId > 0),
+        );
+      })
+      .catch(() => setStaffOptions([]));
+  }, [isOwner, isAdmin]);
   const normalizedOrderStatus = normalizeOrderStatus(order?.orderStatus);
   const normalizedPaymentStatus =
     order?.paymentStatus === "Pending"
@@ -309,6 +330,10 @@ export default function OrderDetailPage() {
       return sum + tokenPerUnit * Math.max(0, Number(item.quantity) || 0);
     }, 0);
   }, [order]);
+  const fallbackProductionStages = useMemo(
+    () => distributeProductionTokens({ totalTokens: totalWorkloadTokens }),
+    [totalWorkloadTokens],
+  );
   const messagePreview = order ? getCustomerMessagePreview(order.id) : "";
   const calendarSyncStatus = order?.simulations?.calendarEventCreated
     ? "Synced"
@@ -1079,6 +1104,48 @@ export default function OrderDetailPage() {
                   ))}
                 </div>
               </div>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-xl shadow-sm">
+            <CardHeader className="p-6 pb-2">
+              <CardTitle>Production Tasks</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 px-6 pb-6 pt-0 text-sm text-gray-700">
+              {(["listing", "filling", "finishing"] as const).map((stage) => {
+                const existing = (order.productionStages ?? []).find((entry) => entry.stage === stage);
+                const fallback = fallbackProductionStages.find((entry) => entry.stage === stage);
+                const percentage = existing?.percentage ?? fallback?.percentage ?? (stage === "finishing" ? 50 : 25);
+                const tokenAmount = existing?.tokenAmount ?? fallback?.tokenAmount ?? 0;
+                return (
+                  <div
+                    key={stage}
+                    className="grid gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-3 sm:grid-cols-[1fr_120px_220px] sm:items-center"
+                  >
+                    <div>
+                      <p className="font-semibold capitalize text-gray-800">{stage}</p>
+                      <p className="text-xs text-gray-500">{percentage}% production share</p>
+                    </div>
+                    <div className="font-semibold text-sky-700">{tokenAmount} token</div>
+                    <Select
+                      value={existing?.staffId ? String(existing.staffId) : ""}
+                      onChange={(event) => {
+                        const userId = Number(event.target.value);
+                        const staff = staffOptions.find((member) => member.userId === userId) ?? null;
+                        assignProductionStageStaff(order.id, stage, staff);
+                      }}
+                      disabled={!isOwner && !isAdmin}
+                    >
+                      <option value="">Unassigned</option>
+                      {staffOptions.map((member) => (
+                        <option key={member.userId} value={member.userId}>
+                          {member.name}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                );
+              })}
             </CardContent>
           </Card>
 

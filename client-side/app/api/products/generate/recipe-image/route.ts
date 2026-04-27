@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import prisma from "@/lib/prisma";
 import { requireAuth, isAuthError } from "@/lib/auth/session";
 import { uploadRecipeImage } from "@/lib/imagekit";
 import { generateRecipeByImage } from "@/lib/ai/product-generation";
-import { resolveIngredients } from "@/lib/helpers/resolve-ingredients";
 
 export const runtime = "nodejs";
 
@@ -24,8 +22,8 @@ function getErrorMessage(error: unknown): string {
 /**
  * POST /api/products/generate/recipe-image
  *
- * Generate a recipe from an image (recipe card, ingredient photo, finished dish).
- * Auto-resolves ingredients (find existing or create new).
+ * Recipe extraction is kept for compatibility but does not create ingredients
+ * while direct product COGS/HPP is the active cost source.
  *
  * Input: FormData with `file` (image, max 10MB) + optional `productName` (string)
  *
@@ -58,7 +56,7 @@ function getErrorMessage(error: unknown): string {
  */
 export async function POST(request: NextRequest) {
   try {
-    const { businessId } = await requireAuth();
+    await requireAuth();
 
     const formData = await request.formData();
     const file = formData.get("file") as File;
@@ -95,35 +93,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Fetch existing ingredients (with cost data) for AI context
-    const rawIngredients = await prisma.ingredient.findMany({
-      where: { businessId },
-      select: {
-        id: true,
-        name: true,
-        unit: true,
-        inventoryBatches: {
-          where: { remainingQty: { gt: 0 } },
-          orderBy: { receivedAt: "desc" as const },
-          select: { costPerUnit: true, remainingQty: true },
-        },
-      },
-      orderBy: { name: "asc" },
-    });
-
-    const ingredients = rawIngredients.map((ing) => {
-      const batches = ing.inventoryBatches;
-      const totalQty = batches.reduce((s, b) => s + Number(b.remainingQty), 0);
-      const totalCost = batches.reduce((s, b) => s + Number(b.remainingQty) * Number(b.costPerUnit), 0);
-      const costPerUnit = totalQty > 0 ? totalCost / totalQty : batches[0] ? Number(batches[0].costPerUnit) : null;
-      return { id: ing.id, name: ing.name, unit: ing.unit, costPerUnit };
-    });
-
     // AI validation + extraction
     const result = await generateRecipeByImage({
       imageUrl: aiImageUrl,
       productName: productName || undefined,
-      existingIngredients: ingredients,
+      existingIngredients: [],
     });
 
     if (!result.isValid) {
@@ -138,34 +112,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Build a temporary AIGeneratedProduct shape to reuse resolveIngredients
-    const tempProduct = {
-      name: productName || "temp",
-      categoryName: "temp",
-      sellingPrice: 0,
-      recipe: result.recipe,
-    };
-
-    const { resolved, newIngredientsCreated } = await resolveIngredients(businessId, [tempProduct]);
-    const resolvedRecipe = resolved[0].recipe;
-
-    // Ready-to-use recipe for POST /api/products
-    const readyRecipe = resolvedRecipe.map((r) => ({
-      ingredientId: r.ingredientId,
-      quantity: r.quantity,
-    }));
-
     return NextResponse.json({
       success: true,
       isValid: true,
       data: {
-        recipe: resolvedRecipe,
-        readyRecipe,
+        recipe: [],
+        readyRecipe: [],
         summary: {
-          total: resolvedRecipe.length,
-          existingIngredients: resolvedRecipe.filter((r) => !r.isNew).length,
-          newIngredients: resolvedRecipe.filter((r) => r.isNew).length,
-          newIngredientsCreated,
+          total: 0,
+          existingIngredients: 0,
+          newIngredients: 0,
+          newIngredientsCreated: [],
         },
       },
       meta: {
@@ -173,7 +130,7 @@ export async function POST(request: NextRequest) {
         uploadMode: uploadedImageUrl ? "imagekit" : "inline",
         uploadWarning,
         expiresIn: uploadedImageUrl ? "2 minutes" : null,
-        note: "Ingredients have been auto-resolved. Use readyRecipe in your POST /api/products payload.",
+        note: "Recipe image parsing is disabled while direct COGS/HPP is active.",
       },
     });
   } catch (error: unknown) {

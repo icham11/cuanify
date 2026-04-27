@@ -3,7 +3,6 @@ import prisma from "@/lib/prisma";
 import { requireAuth, isAuthError } from "@/lib/auth/session";
 import { uploadProductImage } from "@/lib/imagekit";
 import { generateProductsByImage } from "@/lib/ai/product-generation";
-import { resolveIngredients } from "@/lib/helpers/resolve-ingredients";
 
 export const runtime = "nodejs";
 
@@ -25,7 +24,7 @@ function getErrorMessage(error: unknown): string {
  * POST /api/products/generate/image
  *
  * Generate multiple products from an image (menu, price list, product display).
- * Auto-resolves ingredients (find existing or create new).
+ * Ingredients are intentionally not resolved/created; COGS is direct input.
  *
  * Input: FormData with `file` (image, max 10MB, JPEG/PNG/WebP)
  *
@@ -101,22 +100,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Fetch existing ingredients, categories, and product names for AI context + duplicate check
-    const [rawIngredients, categories, existingProductsRaw] = await Promise.all([
-      prisma.ingredient.findMany({
-        where: { businessId },
-        select: {
-          id: true,
-          name: true,
-          unit: true,
-          inventoryBatches: {
-            where: { remainingQty: { gt: 0 } },
-            orderBy: { receivedAt: "desc" as const },
-            select: { costPerUnit: true, remainingQty: true },
-          },
-        },
-        orderBy: { name: "asc" },
-      }),
+    // Fetch categories and product names for AI context + duplicate check.
+    const [categories, existingProductsRaw] = await Promise.all([
       prisma.category.findMany({
         where: { businessId },
         select: { id: true, name: true },
@@ -128,21 +113,13 @@ export async function POST(request: NextRequest) {
       }),
     ]);
 
-    const ingredients = rawIngredients.map((ing) => {
-      const batches = ing.inventoryBatches;
-      const totalQty = batches.reduce((s, b) => s + Number(b.remainingQty), 0);
-      const totalCost = batches.reduce((s, b) => s + Number(b.remainingQty) * Number(b.costPerUnit), 0);
-      const costPerUnit = totalQty > 0 ? totalCost / totalQty : batches[0] ? Number(batches[0].costPerUnit) : null;
-      return { id: ing.id, name: ing.name, unit: ing.unit, costPerUnit };
-    });
-
     const existingProductNames = existingProductsRaw.map((p) => p.name);
     const existingNamesSet = new Set(existingProductNames.map((n) => n.toLowerCase()));
 
     // AI validation + extraction — passing existing product names so AI skips them
     const result = await generateProductsByImage({
       imageUrl: aiImageUrl,
-      existingIngredients: ingredients,
+      existingIngredients: [],
       existingCategories: categories,
       existingProductNames,
     });
@@ -175,35 +152,35 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Auto-resolve ingredients: find existing or create new ones
-    const { resolved, newIngredientsCreated } = await resolveIngredients(businessId, newProducts);
+    const directProducts = newProducts.map((product) => ({
+      ...product,
+      recipe: [],
+    }));
 
     // Transform to POST /api/products ready format
-    const readyProducts = resolved.map((p) => ({
+    const readyProducts = directProducts.map((p) => ({
       name: p.name,
       categoryName: p.categoryName,
       sellingPrice: p.sellingPrice,
+      cogs: p.cogs,
       productType: p.productType ?? "PreOrder",
-      recipe: p.recipe.map((r) => ({
-        ingredientId: r.ingredientId,
-        quantity: r.quantity,
-      })),
+      recipe: [],
     }));
 
     return NextResponse.json({
       success: true,
       isValid: true,
-      data: resolved,
+      data: directProducts,
       readyToCreate: { products: readyProducts },
       meta: {
-        productsFound: resolved.length,
-        newIngredientsCreated,
+        productsFound: directProducts.length,
+        newIngredientsCreated: [],
         skippedDuplicates: result.products.length - newProducts.length,
         imageUrl: uploadedImageUrl,
         uploadMode: uploadedImageUrl ? "imagekit" : "inline",
         uploadWarning,
         expiresIn: uploadedImageUrl ? "2 minutes" : null,
-        note: "Ingredients have been auto-resolved. Use readyToCreate payload to POST /api/products directly.",
+        note: "COGS/HPP memakai nominal langsung. Ingredients tidak dibuat otomatis.",
       },
     });
   } catch (error: unknown) {

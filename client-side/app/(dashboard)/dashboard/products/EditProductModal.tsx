@@ -13,6 +13,7 @@ export default function EditProductModal({ product, categories, onClose, onSaved
   const [name, setName] = useState<string>(product.name);
   const [categoryId, setCategoryId] = useState<number>(product.categoryId ?? categories[0]?.id ?? 0);
   const [sellingPrice, setSellingPrice] = useState<number>(Number(product.sellingPrice));
+  const [directCogs, setDirectCogs] = useState<number>(Number(product.cogs || 0));
   const [productType, setProductType] = useState<"ReadyStock" | "PreOrder">(product.productType ?? "PreOrder");
   const [recipe, setRecipe] = useState<DraftRecipeRowWithClientId[]>(() =>
     product.recipes.map((r, idx) => ({
@@ -36,15 +37,16 @@ export default function EditProductModal({ product, categories, onClose, onSaved
       .catch(() => {});
   }, []);
 
-  const recipeCost = recipe.reduce((s, r) => s + r.quantity * (r.costPerUnit ?? 0), 0);
-  const margin = sellingPrice > 0 ? Math.round(((sellingPrice - recipeCost) / sellingPrice) * 100) : 0;
+  const margin = sellingPrice > 0 ? Math.round(((sellingPrice - directCogs) / sellingPrice) * 100) : 0;
 
   const validate = () => {
     if (!name.trim()) return "Nama produk wajib diisi.";
     if (!categoryId) return "Kategori wajib diisi.";
     if (!sellingPrice || sellingPrice <= 0) return "Harga jual harus lebih dari 0.";
-    const hasInvalid = recipe.some((r) => !r.ingredientName.trim() || r.quantity <= 0);
-    if (recipe.length > 0 && hasInvalid) return "Setiap bahan membutuhkan nama dan jumlah yang valid.";
+    if (!directCogs || directCogs <= 0) return "COGS/HPP wajib diisi dan harus lebih dari 0.";
+    const filledRecipe = recipe.filter((r) => r.ingredientName.trim() || r.ingredientId > 0);
+    const hasInvalid = filledRecipe.some((r) => !r.ingredientName.trim() || r.quantity <= 0);
+    if (filledRecipe.length > 0 && hasInvalid) return "Setiap bahan membutuhkan nama dan jumlah yang valid.";
     return null;
   };
 
@@ -76,6 +78,7 @@ export default function EditProductModal({ product, categories, onClose, onSaved
           name,
           categoryId: Number(categoryId),
           sellingPrice: Number(sellingPrice),
+          cogs: Number(directCogs),
           productType,
           recipe: recipePayload,
         }),
@@ -185,13 +188,13 @@ export default function EditProductModal({ product, categories, onClose, onSaved
                 required
               />
               <div className="text-xs text-gray-400 mt-1">
-                Biaya resep:{" "}
-                {recipeCost > 0
+                COGS/HPP:{" "}
+                {directCogs > 0
                   ? new Intl.NumberFormat("id-ID", {
                       style: "currency",
                       currency: "IDR",
                       minimumFractionDigits: 0,
-                    }).format(recipeCost)
+                    }).format(directCogs)
                   : "—"}
                 {margin !== null && (
                   <>
@@ -211,10 +214,20 @@ export default function EditProductModal({ product, categories, onClose, onSaved
                 )}
               </div>
             </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-600 uppercase mb-1">COGS / HPP (Rp)</label>
+              <input
+                type="number"
+                min={1}
+                value={directCogs}
+                onChange={(e) => setDirectCogs(Math.max(0, Number(e.target.value) || 0))}
+                className="w-full border border-indigo-200 rounded-xl px-4 py-2.5 text-base font-semibold text-slate-700 bg-white focus:ring-2 focus:ring-indigo-400 outline-none"
+              />
+            </div>
           </div>
 
           {/* Product Type */}
-          <div className="mb-4">
+          {false && <div className="mb-4">
             <label className="block text-xs font-bold text-gray-600 uppercase mb-2">Tipe Produk</label>
             <div className="flex gap-2">
               <button
@@ -242,10 +255,10 @@ export default function EditProductModal({ product, categories, onClose, onSaved
                 <div className="text-[9px] font-normal mt-0.5 text-gray-400">Bahan dikurangi saat produksi</div>
               </button>
             </div>
-          </div>
+          </div>}
 
           <div className="mb-4">
-            <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Resep Produk</label>
+            <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Resep Produk Opsional</label>
             <div className="space-y-2">
               {recipe.map((row, idx) => (
                 <IngredientSelectorRow
@@ -293,3 +306,4 @@ export default function EditProductModal({ product, categories, onClose, onSaved
     document.body,
   );
 }
+

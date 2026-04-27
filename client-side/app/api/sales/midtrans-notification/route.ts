@@ -8,7 +8,6 @@ import {
   deductInventory,
   updateBusinessMetrics,
   updateProductMetrics,
-  recomputeRecipeCost,
 } from "@/lib/services/saleHelpers";
 import { deductProductionBatch } from "@/lib/inventory/production-engine";
 import {
@@ -26,10 +25,10 @@ export const runtime = "nodejs";
  * Protected by idempotency guard — safe against duplicate/retry deliveries.
  *
  * When payment is confirmed ("Paid"), this handler:
- *   1. Calculates FIFO-based cost per item
- *   2. Creates StockDocument + deducts inventory with full InventoryMovement trail
+ *   1. Calculates direct product COGS per item
+ *   2. Creates StockDocument audit trail
  *   3. Updates BusinessMetrics + ProductMetrics (margin_avg)
- *   4. Recomputes recipeCost on sold products
+ *   4. Recomputes cogs on sold products
  */
 export async function POST(request: NextRequest) {
   try {
@@ -176,12 +175,6 @@ export async function POST(request: NextRequest) {
                 detail.priceAtSale * detail.quantity,
                 detail.costAtSale * detail.quantity,
               );
-            }
-
-            // 5f. Recompute recipeCost on sold products
-            const soldProductIds = [...new Set(sale.saleItems.map((i) => i.productId))];
-            for (const pid of soldProductIds) {
-              await recomputeRecipeCost(tx, pid);
             }
 
             log.info("Payment successful — inventory deducted, metrics updated", { orderId: order_id });

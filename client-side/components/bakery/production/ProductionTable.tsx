@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, RotateCcw, Search, Sparkles, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import StatusDropdown from "@/components/bakery/production/StatusDropdown";
-import { useOrders } from "@/components/bakery/store";
+import { useOrders, type BakeryOrder } from "@/components/bakery/store";
 import { useBusiness } from "@/context/BusinessContext";
 import { useRole } from "@/context/RoleContext";
 import { summarizeProductionTokensByItems } from "@/lib/bookings/operations";
@@ -66,6 +66,33 @@ function isStaffDailyTokenAssignmentBlocked(params: {
 
   // Keep big-ticket orders claimable as first assignment of the day.
   return currentToken > 0;
+}
+
+function getOrderStaffTokenAssignments(order: BakeryOrder): Array<{
+  staffUserId: number;
+  staffName: string;
+  token: number;
+}> {
+  const stageAssignments = (order.productionStages ?? [])
+    .filter((stage) => stage.staffId && stage.tokenAmount > 0)
+    .map((stage) => ({
+      staffUserId: Number(stage.staffId),
+      staffName:
+        order.assignedStaffName ||
+        `${stage.stage.charAt(0).toUpperCase()}${stage.stage.slice(1)} staff`,
+      token: Math.max(0, Math.round(Number(stage.tokenAmount) || 0)),
+    }));
+
+  if (stageAssignments.length > 0) return stageAssignments;
+  if (!order.assignedStaffUserId) return [];
+
+  return [
+    {
+      staffUserId: order.assignedStaffUserId,
+      staffName: order.assignedStaffName || `Staff #${order.assignedStaffUserId}`,
+      token: summarizeProductionTokensByItems(order.items ?? []),
+    },
+  ];
 }
 
 function monthKeyOf(date: Date): string {
@@ -390,21 +417,22 @@ export default function ProductionTable() {
     }
 
     for (const order of orders) {
-      if (!order.assignedStaffUserId) continue;
-      if (!byUserId.has(order.assignedStaffUserId)) {
-        const fallbackName =
-          order.assignedStaffName?.trim() ||
-          teamMembers.find(
-            (member) => member.userId === order.assignedStaffUserId,
-          )?.name ||
-          `Staff #${order.assignedStaffUserId}`;
+      for (const assignment of getOrderStaffTokenAssignments(order)) {
+        if (!byUserId.has(assignment.staffUserId)) {
+          const fallbackName =
+            teamMembers.find(
+              (member) => member.userId === assignment.staffUserId,
+            )?.name ||
+            assignment.staffName ||
+            `Staff #${assignment.staffUserId}`;
 
-        byUserId.set(order.assignedStaffUserId, {
-          userId: order.assignedStaffUserId,
+          byUserId.set(assignment.staffUserId, {
+            userId: assignment.staffUserId,
           name: fallbackName,
           role: "Staff",
           businessId: viewer?.businessId ?? 0,
         });
+      }
       }
     }
 
@@ -428,18 +456,18 @@ export default function ProductionTable() {
     const usage = new Map<string, number>();
 
     for (const order of orders) {
-      const staffUserId = order.assignedStaffUserId ?? null;
       const deliveryDate = (order.deliveryDate || "").trim();
-      if (!staffUserId || !deliveryDate) continue;
+      if (!deliveryDate) continue;
 
       const status = normalizeOrderStatus(order.orderStatus);
       if (["Delivery", "Completed", "Cancelled"].includes(status)) {
         continue;
       }
 
-      const token = summarizeProductionTokensByItems(order.items ?? []);
-      const key = `${staffUserId}:${deliveryDate}`;
-      usage.set(key, (usage.get(key) ?? 0) + token);
+      for (const assignment of getOrderStaffTokenAssignments(order)) {
+        const key = `${assignment.staffUserId}:${deliveryDate}`;
+        usage.set(key, (usage.get(key) ?? 0) + assignment.token);
+      }
     }
 
     return usage;
@@ -470,31 +498,30 @@ export default function ProductionTable() {
     const applyMonthlyBaseline = filterMonth !== "all" && filterYear !== "all";
 
     for (const order of orders) {
-      const staffUserId = order.assignedStaffUserId ?? null;
-      if (!staffUserId) continue;
       if (!matchesDateFilter(order.deliveryDate)) continue;
 
-      const token = summarizeProductionTokensByItems(order.items ?? []);
       const status = normalizeOrderStatus(order.orderStatus);
-      const current = statsMap.get(staffUserId) ?? {
-        userId: staffUserId,
-        name: order.assignedStaffName || `Staff #${staffUserId}`,
-        assignedActive: 0,
-        doneRaw: 0,
-        inProgress: 0,
-      };
+      for (const assignment of getOrderStaffTokenAssignments(order)) {
+        const current = statsMap.get(assignment.staffUserId) ?? {
+          userId: assignment.staffUserId,
+          name: assignment.staffName || `Staff #${assignment.staffUserId}`,
+          assignedActive: 0,
+          doneRaw: 0,
+          inProgress: 0,
+        };
 
-      if (!["Delivery", "Completed", "Cancelled"].includes(status)) {
-        current.assignedActive += token;
+        if (!["Delivery", "Completed", "Cancelled"].includes(status)) {
+          current.assignedActive += assignment.token;
+        }
+
+        if (["Ready", "Delivery", "Completed"].includes(status)) {
+          current.doneRaw += assignment.token;
+        } else if (status === "In Production") {
+          current.inProgress += assignment.token;
+        }
+
+        statsMap.set(assignment.staffUserId, current);
       }
-
-      if (["Ready", "Delivery", "Completed"].includes(status)) {
-        current.doneRaw += token;
-      } else if (status === "In Production") {
-        current.inProgress += token;
-      }
-
-      statsMap.set(staffUserId, current);
     }
 
     return Array.from(statsMap.values())

@@ -46,13 +46,13 @@ async function main() {
   // Check product prices
   const products = await prisma.product.findMany({
     where: { businessId: 11, deletedAt: null, isActive: true },
-    select: { id: true, name: true, sellingPrice: true, recipeCost: true }
+    select: { id: true, name: true, sellingPrice: true, cogs: true }
   });
   console.log('Active products:');
   console.table(products.map(p => ({
     ...p,
     sellingPrice: Number(p.sellingPrice),
-    recipeCost: Number(p.recipeCost)
+    cogs: Number(p.cogs)
   })));
 }
 

@@ -85,6 +85,7 @@ export const createProductSchema = z.object({
   name: z.string().min(1, "Product name is required").max(200),
   categoryName: z.string().min(1, "Category is required").max(100),
   sellingPrice: z.number().positive("Selling price must be positive"),
+  cogs: z.number().positive("COGS must be greater than 0"),
   productType: z.enum(["ReadyStock", "PreOrder"]).optional().default("PreOrder"),
   recipe: z.array(recipeItemSchema).optional().default([]),
 });
@@ -119,7 +120,7 @@ export interface ProductWithRecipe {
   isActive: boolean;
   categoryId: number | null;
   category: { id: number; name: string } | null;
-  recipeCost: number; // computed: sum(quantity * costPerUnit)
+  cogs: number; // direct currency-based product COGS
   recipes: {
     id: number;
     quantity: number;
@@ -154,7 +155,7 @@ export interface AIGeneratedProduct {
   categoryName: string;
   sellingPrice: number;
   productType?: "ReadyStock" | "PreOrder";
-  recipeCost?: number; // computed: sum(quantity * costPerUnit)
+  cogs?: number; // direct currency-based product COGS
   recipe: {
     ingredientId?: number; // existing ingredient
     ingredientName: string; // for display / new ingredient creation
@@ -168,7 +169,7 @@ export interface AIGeneratedProduct {
 
 /** Schema for recommend-price endpoint */
 export const recommendPriceSchema = z.object({
-  recipeCost: z.number().min(0, "Recipe cost must be non-negative"),
+  cogs: z.number().positive("COGS must be greater than 0"),
   categoryName: z.string().optional(),
   productName: z.string().optional(),
 });

@@ -27,6 +27,12 @@ enum PaymentStatus {
   Paid
 }
 
+enum SalesChannel {
+  direct
+  tokopedia
+  shopee
+}
+
 enum StockDocumentType {
   Purchase
   Sale
@@ -288,7 +294,7 @@ model Product {
   categoryId   Int?
   name         String
   sellingPrice Decimal     @db.Decimal(12, 2)
-  recipeCost   Decimal     @default(0) @db.Decimal(12, 2)
+  cogs         Decimal     @db.Decimal(15, 2)
   productType  ProductType @default(PreOrder)
   isActive     Boolean     @default(true)
   deletedAt    DateTime?
@@ -443,6 +449,7 @@ model Sale {
   invoiceId         String?
   invoiceUrl        String?
   invoiceStatus     String?
+  sales_channel     SalesChannel  @default(direct)
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 
@@ -459,6 +466,7 @@ model Sale {
   // Midtrans webhook: findUnique where transactionNumber (already @unique, but compound helps)
   // Sales history filter: businessId + paymentMethod
   @@index([businessId, paymentMethod])
+  @@index([businessId, sales_channel])
   // Shift settlement: find all sales in a shift
   @@index([cashierShiftId])
 }

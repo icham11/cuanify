@@ -16,7 +16,7 @@ export type GetProductsParams = {
   categoryId?: number;
   categoryIds?: number[];
   excludeCategoryNames?: string[];
-  sortBy?: "name" | "sellingPrice" | "createdAt" | "recipeCost" | "margin";
+  sortBy?: "name" | "sellingPrice" | "createdAt" | "cogs" | "margin";
   sortOrder?: "asc" | "desc";
   withRecipe?: boolean;
   page?: number;
@@ -142,7 +142,7 @@ export async function generateRecipeFromImage(
 
 /** POST /api/products/generate/recommend-price — get AI price recommendation */
 export async function recommendPrice(params: {
-  recipeCost: number;
+  cogs: number;
   categoryName?: string;
   productName?: string;
 }) {
@@ -159,7 +159,7 @@ export async function recommendPrice(params: {
     recommendedPrice: number;
     margin: number;
     reasoning: string;
-    recipeCost: number;
+    cogs: number;
   };
 }
 

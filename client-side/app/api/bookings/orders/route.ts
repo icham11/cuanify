@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import crypto from "crypto";
+import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { AuthError, ForbiddenError, requireAuth } from "@/lib/auth/session";
 import { evaluateProductionTokenCapacity } from "@/lib/bookings/operations";
@@ -27,6 +29,12 @@ import {
   type WhatsAppOrderType,
 } from "@/lib/bookings/whatsapp-parser";
 import { getBakeryBusinessSettings } from "@/lib/bakery/settings";
+import { calculateShippingInsuranceFee } from "@/lib/bookings/shipping-insurance";
+import {
+  distributeProductionTokens,
+  type ProductionStageAssignment,
+  type ProductionStage,
+} from "@/lib/bookings/production-stages";
 
 // ─── Custom Error for capacity-full rejections ───────────────────────────────
 
@@ -115,6 +123,8 @@ interface NormalizedOrder {
   remainingBalance: number;
   product: string;
   totalPrice: number;
+  insuranceFee: number;
+  sales_channel: string;
   paymentStatus: string;
   orderStatus: string;
   assignedStaffUserId: number | null;
@@ -127,11 +137,13 @@ interface NormalizedOrder {
   statusHistory: JsonRecord[];
   automationLogs: JsonRecord[];
   paymentTransactions: JsonRecord[];
+  productionStages: ProductionStageAssignment[];
   items: JsonRecord[];
   deliveryAddresses: JsonRecord[];
 }
 
 interface DbOrderRow {
+  order_uuid: string | null;
   external_id: string;
   booking_code: string | null;
   resi: string | null;
@@ -152,6 +164,8 @@ interface DbOrderRow {
   remaining_balance: unknown;
   product: string | null;
   total_price: unknown;
+  insurance_fee: unknown;
+  sales_channel: string | null;
   payment_status: string | null;
   order_status: string | null;
   assigned_staff_user_id: number | null;
@@ -178,6 +192,13 @@ interface DbAddressRow {
   order_external_id: string;
   address_index: number;
   payload: unknown;
+}
+
+interface DbProductionStageRow {
+  order_id: string;
+  stage: ProductionStage;
+  staff_id: string | null;
+  token_amount: unknown;
 }
 
 interface ExistingAssignmentState {
@@ -221,6 +242,7 @@ const normalizedOrderSchema = z.object({
   remainingBalance: z.number().finite().min(0, "remainingBalance must be >= 0"),
   product: z.string(),
   totalPrice: z.number().finite().min(0, "totalPrice must be >= 0"),
+  sales_channel: z.enum(["direct", "tokopedia", "shopee"]),
   paymentStatus: z.string().trim().min(1, "paymentStatus is required"),
   orderStatus: z.string().trim().min(1, "orderStatus is required"),
   assignedStaffUserId: z.number().int().positive().nullable(),
@@ -233,11 +255,20 @@ const normalizedOrderSchema = z.object({
   statusHistory: z.array(z.record(z.string(), z.unknown())),
   automationLogs: z.array(z.record(z.string(), z.unknown())),
   paymentTransactions: z.array(z.record(z.string(), z.unknown())),
+  productionStages: z.array(
+    z.object({
+      stage: z.enum(["listing", "filling", "finishing"]),
+      staffId: z.number().int().positive().nullable(),
+      tokenAmount: z.number().finite().min(0),
+      percentage: z.number().finite().min(0).max(100),
+    }),
+  ),
   items: z.array(z.record(z.string(), z.unknown())),
   deliveryAddresses: z.array(z.record(z.string(), z.unknown())),
 });
 
-type ParsedOrder = z.infer<typeof normalizedOrderSchema>;
+type ParsedOrderInput = z.infer<typeof normalizedOrderSchema>;
+type ParsedOrder = ParsedOrderInput & { insuranceFee: number };
 
 function formatValidationIssues(error: z.ZodError): string[] {
   return error.issues.map((issue) => {
@@ -276,6 +307,97 @@ function asPositiveIntOrNull(value: unknown): number | null {
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed <= 0) return null;
   return parsed;
+}
+
+function normalizeSalesChannel(value: unknown): "direct" | "tokopedia" | "shopee" {
+  const normalized = asString(value).trim().toLowerCase();
+  if (normalized === "tokopedia" || normalized === "shopee") return normalized;
+  return "direct";
+}
+
+function normalizeIncomingSalesChannel(value: unknown): string {
+  return asString(value).trim().toLowerCase();
+}
+
+function resolveInsuranceProvider(args: {
+  shippingQuote: unknown;
+  shipment: unknown;
+}): string {
+  const shippingQuote = asRecord(args.shippingQuote);
+  const shipment = asRecord(args.shipment);
+
+  const candidates = [
+    shippingQuote?.provider,
+    shippingQuote?.courierCode,
+    shippingQuote?.courier,
+    shipment?.provider,
+    shipment?.courierCode,
+    shipment?.courier,
+  ];
+
+  for (const candidate of candidates) {
+    const value = asString(candidate).trim();
+    if (value) return value;
+  }
+
+  return "";
+}
+
+function computeInsuranceFee(args: {
+  shippingQuote: unknown;
+  shipment: unknown;
+  totalPrice: unknown;
+}): number {
+  return calculateShippingInsuranceFee({
+    provider: resolveInsuranceProvider({
+      shippingQuote: args.shippingQuote,
+      shipment: args.shipment,
+    }),
+    transactionValue: Math.max(0, asNumber(args.totalPrice)),
+  });
+}
+
+function deterministicUuid(input: string): string {
+  const hash = crypto.createHash("md5").update(input).digest("hex");
+  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-${hash.slice(12, 16)}-${hash.slice(16, 20)}-${hash.slice(20, 32)}`;
+}
+
+function orderTaskUuid(businessId: number, orderId: string): string {
+  return deterministicUuid(`order:${businessId}:${orderId}`);
+}
+
+function productionTaskUuid(orderUuid: string, stage: ProductionStage): string {
+  return deterministicUuid(`production-task:${orderUuid}:${stage}`);
+}
+
+function staffUuid(staffUserId: number | null): string | null {
+  return staffUserId ? deterministicUuid(`staff:${staffUserId}`) : null;
+}
+
+function buildStaffIdByUuid(staffUserIds: number[]): Map<string, number> {
+  return new Map(staffUserIds.map((id) => [deterministicUuid(`staff:${id}`), id]));
+}
+
+function normalizeProductionStages(value: unknown): ProductionStageAssignment[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((entry) => {
+      const record = asRecord(entry);
+      if (!record) return null;
+      const stage = asString(record.stage).toLowerCase();
+      if (stage !== "listing" && stage !== "filling" && stage !== "finishing") {
+        return null;
+      }
+
+      return {
+        stage,
+        staffId: asPositiveIntOrNull(record.staffId ?? record.staff_id),
+        tokenAmount: asNumber(record.tokenAmount ?? record.token_amount),
+        percentage: asNumber(record.percentage),
+      };
+    })
+    .filter((entry): entry is ProductionStageAssignment => Boolean(entry));
 }
 
 function toIsoOrNull(value: unknown): string | null {
@@ -1276,6 +1398,13 @@ function normalizeOrder(raw: unknown, index: number): NormalizedOrder | null {
   const rawDeliveryDate = asString(record.deliveryDate);
   const normalizedDeliveryDate =
     normalizeDateInput(rawDeliveryDate) ?? rawDeliveryDate.trim();
+  const sales_channel = normalizeIncomingSalesChannel(record.sales_channel);
+  const totalPrice = asNumber(record.totalPrice);
+  const insuranceFee = computeInsuranceFee({
+    shippingQuote: record.shippingQuote ?? null,
+    shipment: record.shipment ?? null,
+    totalPrice,
+  });
 
   return {
     id,
@@ -1297,7 +1426,9 @@ function normalizeOrder(raw: unknown, index: number): NormalizedOrder | null {
     downPaymentAmount: asNumber(record.downPaymentAmount),
     remainingBalance: asNumber(record.remainingBalance),
     product: asString(record.product),
-    totalPrice: asNumber(record.totalPrice),
+    totalPrice,
+    insuranceFee,
+    sales_channel,
     paymentStatus: asString(record.paymentStatus),
     orderStatus: asString(record.orderStatus),
     assignedStaffUserId: asPositiveIntOrNull(record.assignedStaffUserId),
@@ -1310,6 +1441,7 @@ function normalizeOrder(raw: unknown, index: number): NormalizedOrder | null {
     statusHistory: asArrayOfRecords(record.statusHistory),
     automationLogs: asArrayOfRecords(record.automationLogs),
     paymentTransactions: asArrayOfRecords(record.paymentTransactions),
+    productionStages: normalizeProductionStages(record.productionStages),
     items: asArrayOfRecords(record.items),
     deliveryAddresses: asArrayOfRecords(record.deliveryAddresses),
   };
@@ -1340,6 +1472,9 @@ async function ensureBakeryTables() {
       remaining_balance NUMERIC(14,2) NOT NULL DEFAULT 0,
       product TEXT,
       total_price NUMERIC(14,2) NOT NULL DEFAULT 0,
+      insurance_fee NUMERIC(14,2) NOT NULL DEFAULT 0,
+      sales_channel TEXT NOT NULL DEFAULT 'direct',
+      deleted_at TIMESTAMPTZ,
       payment_status TEXT,
       order_status TEXT,
       shipping_quote JSONB,
@@ -1418,6 +1553,87 @@ async function ensureBakeryTables() {
     ADD COLUMN IF NOT EXISTS production_assigned_at TIMESTAMPTZ;
   `);
 
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE bakery_orders
+    ADD COLUMN IF NOT EXISTS insurance_fee NUMERIC(14,2) NOT NULL DEFAULT 0;
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE bakery_orders
+    ADD COLUMN IF NOT EXISTS sales_channel TEXT NOT NULL DEFAULT 'direct';
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE bakery_orders
+    ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    UPDATE bakery_orders
+    SET sales_channel = 'direct'
+    WHERE sales_channel IS NULL
+      OR sales_channel NOT IN ('direct', 'tokopedia', 'shopee');
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'bakery_orders_sales_channel_check'
+      ) THEN
+        ALTER TABLE bakery_orders
+          ADD CONSTRAINT bakery_orders_sales_channel_check
+          CHECK (sales_channel IN ('direct', 'tokopedia', 'shopee'));
+      END IF;
+    END
+    $$;
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE bakery_orders
+    ADD COLUMN IF NOT EXISTS order_uuid UUID;
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS production_tasks (
+      id UUID PRIMARY KEY,
+      order_id UUID NOT NULL,
+      stage TEXT NOT NULL CHECK (stage IN ('listing', 'filling', 'finishing')),
+      staff_id UUID,
+      token_amount DECIMAL(10,2) NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      UNIQUE (order_id, stage)
+    );
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS idx_production_tasks_order_id
+    ON production_tasks (order_id);
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    DELETE FROM production_tasks a
+    USING production_tasks b
+    WHERE a.order_id = b.order_id
+      AND a.stage = b.stage
+      AND a.ctid < b.ctid;
+
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'production_tasks_order_stage_unique'
+      ) THEN
+        ALTER TABLE production_tasks
+        ADD CONSTRAINT production_tasks_order_stage_unique
+        UNIQUE (order_id, stage);
+      END IF;
+    END $$;
+  `);
+
   // ── Ensure production_capacity table exists ──
   await ensureCapacityTable();
 }
@@ -1432,6 +1648,7 @@ export async function GET() {
 
       const orderRows = await prisma.$queryRaw<DbOrderRow[]>`
         SELECT
+          order_uuid,
           external_id,
           booking_code,
           resi,
@@ -1452,6 +1669,8 @@ export async function GET() {
           remaining_balance,
           product,
           total_price,
+          insurance_fee,
+          sales_channel,
           payment_status,
           order_status,
           assigned_staff_user_id,
@@ -1486,6 +1705,28 @@ export async function GET() {
           ORDER BY order_external_id ASC, address_index ASC
         `;
 
+        const staffMembers = await prisma.businessMember.findMany({
+          where: { businessId },
+          select: { userId: true },
+        });
+        const staffIdByUuid = buildStaffIdByUuid(staffMembers.map((member) => member.userId));
+        const orderExternalByUuid = new Map(
+          orderRows.map((row) => [
+            row.order_uuid ?? orderTaskUuid(businessId, row.external_id),
+            row.external_id,
+          ]),
+        );
+        const orderUuids = [...orderExternalByUuid.keys()];
+        const stageRows =
+          orderUuids.length > 0
+            ? await prisma.$queryRaw<DbProductionStageRow[]>`
+                SELECT order_id::text AS order_id, stage, staff_id::text AS staff_id, token_amount
+                FROM production_tasks
+                WHERE order_id::text IN (${Prisma.join(orderUuids)})
+                ORDER BY order_id ASC, stage ASC
+              `
+            : [];
+
         const itemsMap = new Map<string, JsonRecord[]>();
         for (const row of itemRows) {
           const current = itemsMap.get(row.order_external_id) ?? [];
@@ -1500,6 +1741,20 @@ export async function GET() {
           const payload = asRecord(parseJsonField(row.payload));
           if (payload) current.push(payload);
           addressesMap.set(row.order_external_id, current);
+        }
+
+        const stagesMap = new Map<string, ProductionStageAssignment[]>();
+        for (const row of stageRows) {
+          const externalId = orderExternalByUuid.get(row.order_id);
+          if (!externalId) continue;
+          const current = stagesMap.get(externalId) ?? [];
+          current.push({
+            stage: row.stage,
+            staffId: row.staff_id ? staffIdByUuid.get(row.staff_id) ?? null : null,
+            tokenAmount: asNumber(row.token_amount),
+            percentage: row.stage === "finishing" ? 50 : 25,
+          });
+          stagesMap.set(externalId, current);
         }
 
         const orders = orderRows.map((row) => ({
@@ -1526,6 +1781,8 @@ export async function GET() {
           remainingBalance: asNumber(row.remaining_balance),
           product: row.product ?? "",
           totalPrice: asNumber(row.total_price),
+          insuranceFee: asNumber(row.insurance_fee),
+          sales_channel: normalizeSalesChannel(row.sales_channel),
           paymentStatus: row.payment_status ?? "Pending",
           orderStatus: row.order_status ?? "Inquiry",
           assignedStaffUserId: asPositiveIntOrNull(row.assigned_staff_user_id),
@@ -1538,6 +1795,7 @@ export async function GET() {
           statusHistory: parseJsonField(row.status_history) ?? [],
           automationLogs: parseJsonField(row.automation_logs) ?? [],
           paymentTransactions: parseJsonField(row.payment_transactions) ?? [],
+          productionStages: stagesMap.get(row.external_id) ?? [],
           items: itemsMap.get(row.external_id) ?? [],
           deliveryAddresses: addressesMap.get(row.external_id) ?? [],
         }));
@@ -1649,22 +1907,31 @@ export async function POST(request: NextRequest) {
 
     const dateNormalizationIssues: string[] = [];
     let orders: ParsedOrder[] = parsedOrders.data.map((order) => {
-      if (!order.deliveryDate) return order;
+      const withComputedInsurance: ParsedOrder = {
+        ...order,
+        insuranceFee: computeInsuranceFee({
+          shippingQuote: order.shippingQuote,
+          shipment: order.shipment,
+          totalPrice: order.totalPrice,
+        }),
+      };
+
+      if (!order.deliveryDate) return withComputedInsurance;
 
       const normalizedDeliveryDate = normalizeDateInput(order.deliveryDate);
       if (!normalizedDeliveryDate) {
         dateNormalizationIssues.push(
           `order ${order.id}: deliveryDate '${order.deliveryDate}' is invalid. Use YYYY-MM-DD.`,
         );
-        return order;
+        return withComputedInsurance;
       }
 
       if (normalizedDeliveryDate === order.deliveryDate) {
-        return order;
+        return withComputedInsurance;
       }
 
       return {
-        ...order,
+        ...withComputedInsurance,
         deliveryDate: normalizedDeliveryDate,
       };
     });
@@ -1700,6 +1967,7 @@ export async function POST(request: NextRequest) {
     if (isStaffRequest) {
       const existingRows = await prisma.$queryRaw<DbOrderRow[]>`
         SELECT
+          order_uuid,
           external_id,
           booking_code,
           resi,
@@ -1720,6 +1988,8 @@ export async function POST(request: NextRequest) {
           remaining_balance,
           product,
           total_price,
+          insurance_fee,
+          sales_channel,
           payment_status,
           order_status,
           assigned_staff_user_id,
@@ -1793,6 +2063,8 @@ export async function POST(request: NextRequest) {
         remainingBalance: asNumber(row.remaining_balance),
         product: row.product ?? "",
         totalPrice: asNumber(row.total_price),
+        insuranceFee: asNumber(row.insurance_fee),
+        sales_channel: normalizeSalesChannel(row.sales_channel),
         paymentStatus: row.payment_status ?? "Pending",
         orderStatus: row.order_status ?? "Inquiry",
         assignedStaffUserId: asPositiveIntOrNull(row.assigned_staff_user_id),
@@ -1807,6 +2079,7 @@ export async function POST(request: NextRequest) {
         paymentTransactions: asArrayOfRecords(
           parseJsonField(row.payment_transactions),
         ),
+        productionStages: [],
         items: itemsMap.get(row.external_id) ?? [],
         deliveryAddresses: addressesMap.get(row.external_id) ?? [],
       }));
@@ -1911,6 +2184,15 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    orders = orders.map((order) => ({
+      ...order,
+      insuranceFee: computeInsuranceFee({
+        shippingQuote: order.shippingQuote,
+        shipment: order.shipment,
+        totalPrice: order.totalPrice,
+      }),
+    }));
+
     validateProjectedStaffDailyTokenLimit({
       orders,
       existingAssignments: existingAssignmentRows,
@@ -1974,6 +2256,7 @@ export async function POST(request: NextRequest) {
 
           for (const order of orders) {
             upsertedOrderCount += 1;
+            const orderUuid = orderTaskUuid(businessId, order.id);
 
             const orderLockKey = `bakery_orders:${businessId}:${order.id}`;
             await tx.$executeRaw`
@@ -2023,6 +2306,21 @@ export async function POST(request: NextRequest) {
                   : undefined,
             }));
             const tokenForOrder = calculateOrderTokenFromItems(orderItems);
+            const staffByStage = Object.fromEntries(
+              order.productionStages.map((stage) => [
+                stage.stage,
+                stage.staffId ?? order.assignedStaffUserId ?? null,
+              ]),
+            ) as Partial<Record<ProductionStage, number | null>>;
+            const productionStages = distributeProductionTokens({
+              totalTokens: tokenForOrder,
+              staffByStage,
+            });
+            const insuranceFee = computeInsuranceFee({
+              shippingQuote: order.shippingQuote,
+              shipment: order.shipment,
+              totalPrice: order.totalPrice,
+            });
 
             // Determine difficulty label based on token per item ratio
             let difficulty: string | null = null;
@@ -2144,6 +2442,7 @@ export async function POST(request: NextRequest) {
             await tx.$executeRaw`
             INSERT INTO bakery_orders (
               business_id,
+              order_uuid,
               external_id,
               booking_code,
               resi,
@@ -2164,6 +2463,8 @@ export async function POST(request: NextRequest) {
               remaining_balance,
               product,
               total_price,
+              insurance_fee,
+              sales_channel,
               payment_status,
               order_status,
               assigned_staff_user_id,
@@ -2181,6 +2482,7 @@ export async function POST(request: NextRequest) {
               updated_at
             ) VALUES (
               ${businessId},
+              ${orderUuid}::uuid,
               ${order.id},
               ${order.bookingCode || null},
               ${order.resi || null},
@@ -2201,6 +2503,8 @@ export async function POST(request: NextRequest) {
               ${order.remainingBalance},
               ${order.product || null},
               ${order.totalPrice},
+              ${insuranceFee},
+              ${order.sales_channel},
               ${order.paymentStatus || null},
               ${order.orderStatus || null},
               ${order.assignedStaffUserId},
@@ -2220,6 +2524,7 @@ export async function POST(request: NextRequest) {
             ON CONFLICT (business_id, external_id)
             DO UPDATE SET
               booking_code = EXCLUDED.booking_code,
+              order_uuid = EXCLUDED.order_uuid,
               resi = EXCLUDED.resi,
               customer_name = EXCLUDED.customer_name,
               customer_phone = EXCLUDED.customer_phone,
@@ -2238,6 +2543,8 @@ export async function POST(request: NextRequest) {
               remaining_balance = EXCLUDED.remaining_balance,
               product = EXCLUDED.product,
               total_price = EXCLUDED.total_price,
+              insurance_fee = EXCLUDED.insurance_fee,
+              sales_channel = EXCLUDED.sales_channel,
               payment_status = EXCLUDED.payment_status,
               order_status = EXCLUDED.order_status,
               assigned_staff_user_id = EXCLUDED.assigned_staff_user_id,
@@ -2254,6 +2561,35 @@ export async function POST(request: NextRequest) {
               token_used = EXCLUDED.token_used,
               updated_at = NOW()
           `;
+
+            await tx.$executeRaw`
+              DELETE FROM production_tasks
+              WHERE order_id = ${orderUuid}::uuid
+            `;
+
+            for (const stage of productionStages) {
+              await tx.$executeRaw`
+                INSERT INTO production_tasks (
+                  id,
+                  order_id,
+                  stage,
+                  staff_id,
+                  token_amount,
+                  created_at
+                ) VALUES (
+                  ${productionTaskUuid(orderUuid, stage.stage)}::uuid,
+                  ${orderUuid}::uuid,
+                  ${stage.stage},
+                  ${staffUuid(stage.staffId)}::uuid,
+                  ${stage.tokenAmount},
+                  NOW()
+                )
+                ON CONFLICT (order_id, stage)
+                DO UPDATE SET
+                  staff_id = EXCLUDED.staff_id,
+                  token_amount = EXCLUDED.token_amount
+              `;
+            }
 
             await tx.$executeRaw`
             DELETE FROM bakery_order_items
@@ -2349,7 +2685,8 @@ export async function POST(request: NextRequest) {
               FROM bakery_orders
               WHERE business_id = ${businessId}
                 AND delivery_date IS NOT NULL
-                AND order_status NOT IN (${INACTIVE_STATUSES[0]}, ${INACTIVE_STATUSES[1]}, ${INACTIVE_STATUSES[2]})
+                AND deleted_at IS NULL
+                AND order_status NOT IN (${INACTIVE_STATUSES[0]}, ${INACTIVE_STATUSES[1]}, ${INACTIVE_STATUSES[2]}, ${INACTIVE_STATUSES[3]})
               GROUP BY delivery_date::date
             )
             INSERT INTO production_capacity (
@@ -2387,8 +2724,9 @@ export async function POST(request: NextRequest) {
                 FROM bakery_orders bo
                 WHERE bo.business_id = pc.business_id
                   AND bo.delivery_date IS NOT NULL
+                  AND bo.deleted_at IS NULL
                   AND bo.delivery_date::date = pc.date
-                  AND bo.order_status NOT IN (${INACTIVE_STATUSES[0]}, ${INACTIVE_STATUSES[1]}, ${INACTIVE_STATUSES[2]})
+                  AND bo.order_status NOT IN (${INACTIVE_STATUSES[0]}, ${INACTIVE_STATUSES[1]}, ${INACTIVE_STATUSES[2]}, ${INACTIVE_STATUSES[3]})
                   AND bo.token_used > 0
               )
           `;
@@ -2605,3 +2943,4 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+

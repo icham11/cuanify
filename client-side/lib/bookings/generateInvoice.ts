@@ -123,6 +123,7 @@ export interface InvoiceData {
   lineItems: InvoiceLineItem[];
   itemsSubtotal: number;
   deliveryFee: number;
+  insuranceFee: number;
   serviceCharge: number;
   manualAdjustment: number;
   subtotal: number;
@@ -195,11 +196,12 @@ export function buildInvoiceData(order: BakeryOrder): InvoiceData {
   // Hitung subtotal item, lalu tambahkan ongkir dan adjustment agar sinkron dengan total order.
   const itemsSubtotal = lineItems.reduce((sum, item) => sum + item.total, 0);
   const deliveryFee = Math.max(0, Math.round(Number(order.deliveryFee || 0)));
+  const insuranceFee = Math.max(0, Math.round(Number(order.insuranceFee || order.shippingQuote?.insuranceFee || 0)));
   const serviceCharge = parseServiceChargeFromNotes(order.notes);
   const manualAdjustment = Math.round(Number(order.manualAdjustment || 0));
   const subtotal = Math.max(
     0,
-    itemsSubtotal + deliveryFee + serviceCharge + manualAdjustment,
+    itemsSubtotal + deliveryFee + insuranceFee + serviceCharge + manualAdjustment,
   );
 
   // Prioritaskan total final order yang tersimpan dari booking agar sinkron
@@ -224,6 +226,7 @@ export function buildInvoiceData(order: BakeryOrder): InvoiceData {
     lineItems,
     itemsSubtotal,
     deliveryFee,
+    insuranceFee,
     serviceCharge,
     manualAdjustment,
     subtotal,

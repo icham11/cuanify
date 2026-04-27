@@ -54,10 +54,25 @@ export async function GET() {
         getBakeryProductAnalytics(businessId, firstDay, lastDay),
         getBakeryCategoryAnalytics(businessId, firstDay, lastDay),
         prisma.$queryRaw<Array<{ count: bigint }>>`
+          WITH latest_orders AS (
+            SELECT *
+            FROM (
+              SELECT
+                bo.*,
+                ROW_NUMBER() OVER (
+                  PARTITION BY bo.business_id, bo.external_id
+                  ORDER BY bo.updated_at DESC, bo.id DESC
+                ) AS rn
+              FROM bakery_orders bo
+              WHERE bo.business_id = ${businessId}
+            ) ranked_orders
+            WHERE ranked_orders.rn = 1
+          )
           SELECT COUNT(*)::bigint AS count
-          FROM bakery_orders
+          FROM latest_orders
           WHERE business_id = ${businessId}
-            AND payment_status = 'Paid'
+            AND LOWER(COALESCE(order_status, '')) = 'completed'
+            AND deleted_at IS NULL
             AND created_at BETWEEN ${firstDay} AND ${lastDay}
         `,
       ]);

@@ -169,13 +169,27 @@ function buildEffectiveProductCatalog(
   const next = cloneCatalog(BOOKING_PRODUCT_CATALOG);
 
   state.customProducts.forEach((entry) => {
-    const category = next.find((item) => item.category === entry.category);
-    if (!category) return;
+    let category = next.find((item) => item.category === entry.category);
+    if (!category) {
+      category = {
+        category: entry.category,
+        keywords: [],
+        subcategories: [],
+      };
+      next.push(category);
+    }
 
-    const subcategory =
-      category.subcategories.find((item) => item.name === entry.subcategory) ??
-      category.subcategories[0];
-    if (!subcategory) return;
+    let subcategory = category.subcategories.find(
+      (item) => item.name === entry.subcategory,
+    );
+    if (!subcategory) {
+      subcategory = {
+        name: entry.subcategory,
+        keywords: [],
+        products: [],
+      };
+      category.subcategories.push(subcategory);
+    }
 
     const targetProduct = subcategory.products.find(
       (item) => item.name === entry.productName,

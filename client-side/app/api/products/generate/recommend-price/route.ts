@@ -9,10 +9,10 @@ export const runtime = "nodejs";
 /**
  * POST /api/products/generate/recommend-price
  *
- * Generate a recommended selling price based on recipe cost.
+ * Generate a recommended selling price based on COGS.
  *
  * Input (JSON):
- *   { "recipeCost": 12000, "categoryName": "Minuman", "productName": "Es Kopi" }
+ *   { "cogs": 12000, "categoryName": "Minuman", "productName": "Es Kopi" }
  *   categoryName and productName are optional.
  *
  * Success (200):
@@ -21,12 +21,11 @@ export const runtime = "nodejs";
  *     "data": {
  *       "recommendedPrice": 25000, "margin": 52,
  *       "reasoning": "Standard UMKM beverage markup...",
- *       "recipeCost": 12000
+ *       "cogs": 12000
  *     }
  *   }
  *
- * When recipeCost is 0:
- *   { "success": true, "data": { "recommendedPrice": 0, "margin": 0, "reasoning": "Recipe cost is zero..." } }
+ * COGS must be greater than 0.
  *
  * Errors:
  *   400 — { "error": "Validation failed", "details": { ... } }
@@ -46,12 +45,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { recipeCost, categoryName, productName } = parsed.data;
+    const { cogs, categoryName, productName } = parsed.data;
 
-    // Guard: no ingredients means no meaningful recommendation
-    if (recipeCost === 0) {
+    // Guard: direct COGS must be known before recommendation.
+    if (cogs === 0) {
       return NextResponse.json(
-        { error: "Add ingredients to the recipe before requesting a price recommendation." },
+        { error: "Isi COGS/HPP produk terlebih dahulu sebelum meminta rekomendasi harga." },
         { status: 400 },
       );
     }
@@ -67,7 +66,7 @@ export async function POST(request: NextRequest) {
       select: {
         name: true,
         sellingPrice: true,
-        recipeCost: true,
+        cogs: true,
         category: { select: { name: true } },
       },
       orderBy: { createdAt: "desc" },
@@ -83,7 +82,7 @@ export async function POST(request: NextRequest) {
             select: {
               name: true,
               sellingPrice: true,
-              recipeCost: true,
+              cogs: true,
               category: { select: { name: true } },
             },
             orderBy: { createdAt: "desc" },
@@ -124,7 +123,7 @@ export async function POST(request: NextRequest) {
         ? contextProducts
             .map((p) => {
               const sp = Number(p.sellingPrice);
-              const rc = Number(p.recipeCost);
+              const rc = Number(p.cogs);
               const m = sp > 0 && rc >= 0 ? Math.round(((sp - rc) / sp) * 100) : null;
               return `- ${p.name} (${p.category?.name ?? "Uncategorized"}): Rp ${sp.toLocaleString("id-ID")}${
                 m !== null ? `, margin ${m}%` : ""
@@ -143,7 +142,7 @@ export async function POST(request: NextRequest) {
 ## Product to price
 - Name: ${productName || "Unknown"}
 - Category: ${categoryName || "Unknown"}
-- Recipe cost: Rp ${recipeCost.toLocaleString("id-ID")}
+- COGS: Rp ${cogs.toLocaleString("id-ID")}
 - Name signals: ${nameSignal} (detected from product name keywords)
 
 ## This business's existing products (pricing benchmarks)
@@ -174,7 +173,7 @@ ${businessStats}
    - If this product is a common/competitive type (kopi, nasi goreng, mie ayam): price at or slightly below the category average to drive trial.
    - If this product is unique or specialty: price toward the top of the range to maximise margin.
 
-6. **Hard constraint**: recommended price must be ≥ recipe cost (Rp ${recipeCost.toLocaleString("id-ID")}).
+6. **Hard constraint**: recommended price must be ≥ COGS (Rp ${cogs.toLocaleString("id-ID")}).
 
 Respond with ONLY this JSON (no markdown):
 {
@@ -183,7 +182,7 @@ Respond with ONLY this JSON (no markdown):
   "reasoning": "Satu kalimat taktis dalam Bahasa Indonesia yang menjelaskan keputusan utama harga ini."
 }
 
-"margin" = ((recommendedPrice - recipeCost) / recommendedPrice) * 100.
+"margin" = ((recommendedPrice - cogs) / recommendedPrice) * 100.
 "reasoning" MUST be in Indonesian (Bahasa Indonesia) and explain the key tactic used.`;
 
     const completion = await createGroqCompletion({
@@ -206,27 +205,27 @@ Respond with ONLY this JSON (no markdown):
       const result = JSON.parse(raw);
       const recommendedPrice = Number(result.recommendedPrice);
       // Ensure the price is never below cost
-      const safePrice = recommendedPrice >= recipeCost ? recommendedPrice : Math.ceil((recipeCost * 2) / 1000) * 1000;
-      const safeMargin = safePrice > 0 ? Math.round(((safePrice - recipeCost) / safePrice) * 100) : 50;
+      const safePrice = recommendedPrice >= cogs ? recommendedPrice : Math.ceil((cogs * 2) / 1000) * 1000;
+      const safeMargin = safePrice > 0 ? Math.round(((safePrice - cogs) / safePrice) * 100) : 50;
       return NextResponse.json({
         success: true,
         data: {
           recommendedPrice: safePrice,
           margin: Number(result.margin) || safeMargin,
           reasoning: String(result.reasoning || "Standard UMKM markup applied."),
-          recipeCost,
+          cogs,
         },
       });
     } catch {
       // Fallback: simple 2x markup with rounding
-      const fallbackPrice = Math.ceil((recipeCost * 2) / 1000) * 1000;
+      const fallbackPrice = Math.ceil((cogs * 2) / 1000) * 1000;
       return NextResponse.json({
         success: true,
         data: {
           recommendedPrice: fallbackPrice,
-          margin: Math.round(((fallbackPrice - recipeCost) / fallbackPrice) * 100),
+          margin: Math.round(((fallbackPrice - cogs) / fallbackPrice) * 100),
           reasoning: "Standard 2x markup with rounding (AI parse failed).",
-          recipeCost,
+          cogs,
         },
       });
     }

@@ -88,7 +88,7 @@ Rules:
 - For NEW ingredients (no ingredientId), include:
   - "estimatedStockQty" — a realistic initial stock quantity a small business would typically have on hand, in the same unit.
   - "estimatedShelfLifeDays" — typical shelf life in days for this ingredient (e.g. fresh chicken: 3, eggs: 21, milk: 7, flour: 180, cooking oil: 365, dried spices: 730). Be realistic.
-- "sellingPrice" should be a realistic retail price in IDR, typically 2-3x the total recipe cost.
+- "sellingPrice" should be a realistic retail price in IDR, typically 2-3x the total COGS.
 - "quantity" is how much of the ingredient is needed to make ONE unit of the product.
 - The recipe should be realistic and complete.`;
 
@@ -227,6 +227,7 @@ Rules:
           name: String(p.name || ""),
           categoryName: String(p.categoryName || ""),
           sellingPrice: Number(p.sellingPrice || 0),
+          cogs: Number(p.cogs || Math.max(1, Math.round(Number(p.sellingPrice || 0) * 0.45))),
           productType: p.productType === "ReadyStock" ? "ReadyStock" : "PreOrder",
           recipe: Array.isArray(p.recipe)
             ? p.recipe.map((r: RawAIRecipeItem) => ({
@@ -375,6 +376,7 @@ interface RawAIProductResponse {
   name?: string;
   categoryName?: string;
   sellingPrice?: number;
+  cogs?: number;
   productType?: string;
   recipe?: RawAIRecipeItem[];
 }
@@ -400,6 +402,7 @@ function parseAIProductResponse(raw: string): AIGeneratedProduct {
       name: String(parsed.name),
       categoryName: String(parsed.categoryName),
       sellingPrice: Number(parsed.sellingPrice),
+      cogs: Number(parsed.cogs || Math.max(1, Math.round(Number(parsed.sellingPrice || 0) * 0.45))),
       productType: parsed.productType === "ReadyStock" ? "ReadyStock" : "PreOrder",
       recipe: Array.isArray(parsed.recipe)
         ? parsed.recipe.map((r: RawAIRecipeItem) => ({
@@ -416,8 +419,6 @@ function parseAIProductResponse(raw: string): AIGeneratedProduct {
           }))
         : [],
     };
-
-    product.recipeCost = product.recipe.reduce((sum, r) => sum + r.quantity * (r.costPerUnit ?? 0), 0);
 
     return product;
   } catch (error) {

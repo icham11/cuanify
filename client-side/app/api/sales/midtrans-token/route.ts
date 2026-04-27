@@ -111,6 +111,7 @@ export async function POST(request: NextRequest) {
       items: body.items,
       paymentMethod: body.paymentMethod,
       paymentStatus: "Pending", // Always Pending for Midtrans
+      sales_channel: body.sales_channel,
     });
 
     if (!parsed.success) {
@@ -120,7 +121,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { items, paymentMethod } = parsed.data;
+    const { items, paymentMethod, sales_channel } = parsed.data;
     const { customerName, customerEmail, customerPhone } = body;
 
     if (!ONLINE_PAYMENT_METHODS.has(paymentMethod as "QRIS" | "Transfer" | "Digital")) {
@@ -220,6 +221,7 @@ export async function POST(request: NextRequest) {
             totalCost: 0, // Will calculate after payment success
             paymentMethod,
             paymentStatus: "Pending",
+            sales_channel,
             customerName,
             customerEmail,
             customerPhone,

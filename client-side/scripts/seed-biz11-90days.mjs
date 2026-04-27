@@ -543,7 +543,7 @@ async function main() {
       for (const product of selectedProducts) {
         const quantity = randomInt(1, 3);
         const priceAtSale = Number(product.sellingPrice);
-        const costAtSale = Number(product.recipeCost);
+        const costAtSale = Number(product.cogs);
 
         saleItemsData.push({
           productId: product.id,

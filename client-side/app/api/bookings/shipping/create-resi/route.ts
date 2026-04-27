@@ -4,6 +4,7 @@ import { requireAuth, AuthError } from "@/lib/auth/session";
 import prisma from "@/lib/prisma";
 import { createShippingResi } from "@/lib/bookings/shipping-service";
 import { inferScheduledProviderFromQuote } from "@/lib/bookings/shipping-schedule";
+import { calculateShippingInsuranceFee } from "@/lib/bookings/shipping-insurance";
 import type {
   ShippingResiRequest,
   ShippingShipment,
@@ -28,6 +29,7 @@ const shippingQuoteSchema = z.object({
   courierServiceCode: z.string().min(1),
   courierServiceName: z.string().min(1),
   price: z.number().min(0),
+  priceWithoutInsurance: z.number().min(0).optional(),
   eta: z.string().default("-"),
   distanceKm: z.number().min(0).default(0),
   source: z.enum(["biteship", "fallback"]).default("biteship"),
@@ -144,9 +146,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const priceWithoutInsurance = Math.max(
+      0,
+      Number(
+        parsed.data.selectedQuote.priceWithoutInsurance ??
+          parsed.data.selectedQuote.price,
+      ) || 0,
+    );
+    const insuranceFee = calculateShippingInsuranceFee({
+      provider: selectedQuoteProvider,
+      transactionValue: parsed.data.totalValue,
+    });
+
     const normalizedSelectedQuote: ShippingQuote = {
       ...parsed.data.selectedQuote,
       provider: selectedQuoteProvider,
+      priceWithoutInsurance,
+      insuranceFee,
+      price: priceWithoutInsurance + insuranceFee,
     };
 
     const normalizedPayload: ShippingResiRequest = {
