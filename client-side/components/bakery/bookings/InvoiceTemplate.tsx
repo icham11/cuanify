@@ -65,6 +65,14 @@ function buildInvoiceHtml(data: InvoiceData): string {
         </tr>`
       : "";
 
+  const insuranceFeeRow =
+    data.insuranceFee > 0
+      ? `<tr class="summary-row">
+          <td class="summary-label">Asuransi Pengiriman</td>
+          <td class="summary-value">${formatInvoiceCurrency(data.insuranceFee)}</td>
+        </tr>`
+      : "";
+
   const serviceChargeRow =
     data.serviceCharge > 0
       ? `<tr class="summary-row">
@@ -482,6 +490,7 @@ function buildInvoiceHtml(data: InvoiceData): string {
           <td class="summary-value">${formatInvoiceCurrency(data.itemsSubtotal)}</td>
         </tr>
         ${deliveryFeeRow}
+        ${insuranceFeeRow}
         ${serviceChargeRow}
         ${adjustmentRow}
         <tr class="summary-row">

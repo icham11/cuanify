@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
         id: true,
         name: true,
         sellingPrice: true,
-        recipeCost: true,
+        cogs: true,
         productionBatches: {
           where: { remainingQty: { gt: 0 } },
           select: { remainingQty: true },
@@ -59,7 +59,7 @@ export async function GET(request: NextRequest) {
       productId: p.id,
       productName: p.name,
       sellingPrice: p.sellingPrice,
-      recipeCost: p.recipeCost,
+      cogs: p.cogs,
       availableStock: p.productionBatches.reduce((s, b) => s + b.remainingQty, 0),
     }));
 

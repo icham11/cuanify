@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { requireAuth, isAuthError } from "@/lib/auth/session";
 import { createProductSchema, bulkCreateProductsSchema } from "@/lib/validations/product";
-import { recomputeRecipeCost } from "@/lib/computeRecipeCost";
+import { normalizeDirectCogs } from "@/lib/cogs/config";
 import {
   acquireProductWriteLock,
   collectDuplicateProductNames,
@@ -151,7 +151,7 @@ export async function GET(request: NextRequest) {
     const sortByRaw = url.searchParams.get("sortBy") ?? "createdAt";
     const sortOrder = (url.searchParams.get("sortOrder") ?? "desc") as "asc" | "desc";
     const isMarginSort = sortByRaw === "margin";
-    const allowedSortFields = ["name", "sellingPrice", "recipeCost", "createdAt"] as const;
+    const allowedSortFields = ["name", "sellingPrice", "cogs", "createdAt"] as const;
     type SortField = (typeof allowedSortFields)[number];
     const sortBy: SortField = (allowedSortFields as readonly string[]).includes(sortByRaw)
       ? (sortByRaw as SortField)
@@ -209,15 +209,15 @@ export async function GET(request: NextRequest) {
     const totalPages = Math.ceil(total / limit) || 1;
 
     // Global stats — computed over ALL matching products, not just the current page
-    // avgMargin: excludes products with no recipe (recipeCost=0) and clamps outliers to [-200, 100]
+    // avgMargin: excludes products with no recipe (cogs=0) and clamps outliers to [-200, 100]
     // so a single mis-entered product with -1000% margin doesn't destroy the stat.
     const statsRows = await prisma.$queryRaw<{ avg_price: string | null; avg_margin: string | null }[]>`
       SELECT
         AVG("sellingPrice")::text                                                     AS avg_price,
         AVG(
-          CASE WHEN "sellingPrice" > 0 AND "recipeCost" > 0
+          CASE WHEN "sellingPrice" > 0 AND "cogs" > 0
                THEN GREATEST(-200, LEAST(100,
-                    ("sellingPrice" - "recipeCost") / "sellingPrice" * 100))
+                    ("sellingPrice" - "cogs") / "sellingPrice" * 100))
                ELSE NULL
           END
         )::text                                                                       AS avg_margin
@@ -264,7 +264,7 @@ export async function GET(request: NextRequest) {
         WHERE ${whereRaw}
         ORDER BY
           CASE WHEN "sellingPrice" = 0 THEN NULL
-               ELSE ("sellingPrice" - "recipeCost") / "sellingPrice"
+               ELSE ("sellingPrice" - "cogs") / "sellingPrice"
           END ${sortDir}
         LIMIT ${limit} OFFSET ${skip}
       `;
@@ -302,7 +302,8 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    // Enrich with costPerUnit and recipeCost for the wireframe
+    // Enrich recipe rows for backward-compatible API shape. Active COGS is always
+    // the direct currency value stored on the product.
     const enriched = products.map((product) => {
       const recipesWithCost = product.recipes.map((r) => {
         const allBatches = r.ingredient.inventoryBatches;
@@ -330,14 +331,10 @@ export async function GET(request: NextRequest) {
         };
       });
 
-      const recipeCost = recipesWithCost.reduce((sum, r) => {
-        return sum + Number(r.quantity) * (r.ingredient.costPerUnit ?? 0);
-      }, 0);
-
       return {
         ...product,
         recipes: recipesWithCost,
-        recipeCost: Math.round(recipeCost),
+        cogs: Number(product.cogs),
         availableStock: product.productType === "ReadyStock"
           ? product.productionBatches.reduce((s, b) => s + b.remainingQty, 0)
           : undefined,
@@ -460,12 +457,12 @@ export async function POST(request: NextRequest) {
                 categoryId,
                 name: normalizedName,
                 sellingPrice: item.sellingPrice,
+                cogs: normalizeDirectCogs(item.cogs),
                 productType: item.productType ?? "PreOrder",
-                recipeCost: (!item.recipe || item.recipe.length === 0) && item.manualCogs ? item.manualCogs : 0,
               },
             });
 
-            if (item.recipe && item.recipe.length > 0) {
+            if (item.recipe.length > 0) {
               await tx.recipe.createMany({
                 data: item.recipe.map((r) => ({
                   productId: product.id,
@@ -499,9 +496,6 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      // Recompute stored recipeCost for each new product
-      await Promise.all(createdIds.map((id) => recomputeRecipeCost(id).catch(() => {})));
-
       return NextResponse.json({ success: true, data: result }, { status: 201 });
     }
 
@@ -514,7 +508,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { name, categoryName, sellingPrice, recipe, productType, manualCogs } = parsed.data;
+    const {
+      name,
+      categoryName,
+      sellingPrice,
+      recipe,
+      productType,
+      cogs,
+      manualCogs,
+    } = parsed.data;
 
     // Run creates inside a transaction (refetch outside to avoid timeout)
     const createdId = await prisma.$transaction(
@@ -547,13 +549,15 @@ export async function POST(request: NextRequest) {
             categoryId,
             name: normalizedName,
             sellingPrice,
+            cogs: normalizeDirectCogs(cogs),
             productType: productType ?? "PreOrder",
-            recipeCost: (!recipe || recipe.length === 0) && manualCogs ? manualCogs : 0,
+            recipeCost:
+              recipe.length === 0 && manualCogs !== undefined ? manualCogs : 0,
           },
         });
 
         // Create recipe entries
-        if (recipe && recipe.length > 0) {
+        if (recipe.length > 0) {
           await tx.recipe.createMany({
             data: recipe.map((r) => ({
               productId: product.id,
@@ -583,9 +587,6 @@ export async function POST(request: NextRequest) {
         },
       },
     });
-
-    // Recompute stored recipeCost
-    await recomputeRecipeCost(createdId).catch(() => {});
 
     return NextResponse.json({ success: true, data: result }, { status: 201 });
   } catch (error: unknown) {

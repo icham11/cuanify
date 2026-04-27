@@ -1,261 +1,308 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Sparkles, Camera, Plus, Loader2, ChevronDown, CheckCircle2, AlertTriangle } from "lucide-react";
 import {
-  generateProductByName,
-  recommendPrice,
-  getIngredientOptions,
-  getCategoryOptions,
+  AlertTriangle,
+  CheckCircle2,
+  ChevronDown,
+  Loader2,
+  Sparkles,
+} from "lucide-react";
+import {
   createProduct,
-  deleteIngredient,
-  patchIngredient,
-  type IngredientOption,
+  generateProductByName,
+  getCategoryOptions,
+  recommendPrice,
 } from "@/lib/api/products";
 import type { DraftRecipeRow } from "@/types/product";
-import IngredientSelectorRow from "./IngredientSelectorRow";
-import RecipePhotoModal from "./RecipePhotoModal";
+import type { CatalogAdminState, CustomProductEntry } from "@/lib/bookings/catalog-admin";
 
-const emptyRow = (index: number): DraftRecipeRow => ({
-  ingredientId: -(index + 1),
-  ingredientName: "",
-  unit: "",
-  quantity: 1,
-  costPerUnit: null,
-  isNew: true, // blank rows are "new" — give full edit access
-});
-
-const formatCurrency = (v: number) =>
+const formatCurrency = (value: number) =>
   new Intl.NumberFormat("id-ID", {
     style: "currency",
     currency: "IDR",
     minimumFractionDigits: 0,
-  }).format(v);
+  }).format(value);
 
 interface Props {
-  /** Pre-populated data from "Generate from name" on the drafts list */
   initialDraft?: {
     name?: string;
     categoryName?: string;
     sellingPrice?: number;
+    cogs?: number;
     recipe?: DraftRecipeRow[];
   };
   onSuccess?: () => void;
 }
 
-export default function ProductForm({ initialDraft, onSuccess }: Props) {
-  const router = useRouter();
+const EMPTY_CATALOG_STATE: CatalogAdminState = {
+  productVariantPriceOverrides: {},
+  addOnPriceOverrides: {},
+  inactiveProducts: [],
+  inactiveAddOns: [],
+  customProducts: [],
+  customAddOns: [],
+};
 
-  // ── form state ─────────────────────────────────────────────────────────
-  const [name, setName] = useState(initialDraft?.name ?? "");
-  const [categoryName, setCategoryName] = useState(initialDraft?.categoryName ?? "");
-  const [sellingPrice, setSellingPrice] = useState<number>(initialDraft?.sellingPrice ?? 0);
-  const [productType, setProductType] = useState<"ReadyStock" | "PreOrder">("PreOrder");
-  const [cogsMode, setCogsMode] = useState<"auto" | "manual">("auto");
-  const [manualCogs, setManualCogs] = useState<number>(0);
-  const [recipe, setRecipe] = useState<DraftRecipeRow[]>(
-    initialDraft?.recipe?.length ? initialDraft.recipe : [emptyRow(0)],
+function normalizeCatalogState(input: unknown): CatalogAdminState {
+  if (!input || typeof input !== "object") return EMPTY_CATALOG_STATE;
+  const record = input as Partial<CatalogAdminState>;
+
+  const customProducts = Array.isArray(record.customProducts)
+    ? record.customProducts
+        .filter(
+          (entry): entry is CustomProductEntry =>
+            Boolean(entry) &&
+            typeof entry === "object" &&
+            typeof (entry as CustomProductEntry).category === "string" &&
+            typeof (entry as CustomProductEntry).subcategory === "string" &&
+            typeof (entry as CustomProductEntry).productName === "string" &&
+            typeof (entry as CustomProductEntry).variantLabel === "string",
+        )
+        .map((entry) => ({
+          category: entry.category,
+          subcategory: entry.subcategory,
+          productName: entry.productName,
+          variantLabel: entry.variantLabel,
+          price: Math.max(0, Math.round(Number(entry.price || 0))),
+        }))
+    : [];
+
+  const customAddOns = Array.isArray(record.customAddOns)
+    ? record.customAddOns.filter(
+        (entry): entry is CatalogAdminState["customAddOns"][number] =>
+          Boolean(entry) &&
+          typeof entry === "object" &&
+          typeof entry.category === "string" &&
+          typeof entry.id === "string" &&
+          typeof entry.label === "string",
+      )
+    : [];
+
+  return {
+    productVariantPriceOverrides: record.productVariantPriceOverrides ?? {},
+    addOnPriceOverrides: record.addOnPriceOverrides ?? {},
+    inactiveProducts: Array.isArray(record.inactiveProducts)
+      ? record.inactiveProducts
+      : [],
+    inactiveAddOns: Array.isArray(record.inactiveAddOns)
+      ? record.inactiveAddOns
+      : [],
+    customProducts,
+    customAddOns,
+  };
+}
+
+function upsertCustomProduct(
+  state: CatalogAdminState,
+  entry: CustomProductEntry,
+): CatalogAdminState {
+  const normalized = {
+    category: entry.category.trim(),
+    subcategory: entry.subcategory.trim(),
+    productName: entry.productName.trim(),
+    variantLabel: entry.variantLabel.trim(),
+    price: Math.max(0, Math.round(Number(entry.price || 0))),
+  };
+
+  if (
+    !normalized.category ||
+    !normalized.subcategory ||
+    !normalized.productName ||
+    !normalized.variantLabel
+  ) {
+    return state;
+  }
+
+  const existingIndex = state.customProducts.findIndex(
+    (item) =>
+      item.category.toLowerCase() === normalized.category.toLowerCase() &&
+      item.subcategory.toLowerCase() === normalized.subcategory.toLowerCase() &&
+      item.productName.toLowerCase() === normalized.productName.toLowerCase() &&
+      item.variantLabel.toLowerCase() === normalized.variantLabel.toLowerCase(),
   );
 
-  // ── option lists ────────────────────────────────────────────────────────
-  const [ingredientOptions, setIngredientOptions] = useState<IngredientOption[]>([]);
-  const [categoryOptions, setCategoryOptions] = useState<{ id: number; name: string }[]>([]);
+  if (existingIndex < 0) {
+    return {
+      ...state,
+      customProducts: [...state.customProducts, normalized],
+    };
+  }
+
+  const nextCustomProducts = [...state.customProducts];
+  nextCustomProducts[existingIndex] = normalized;
+  return {
+    ...state,
+    customProducts: nextCustomProducts,
+  };
+}
+
+async function syncToBookingCatalog(entry: CustomProductEntry): Promise<void> {
+  const getResponse = await fetch("/api/bookings/catalog-config", {
+    method: "GET",
+    cache: "no-store",
+  });
+  const getPayload = (await getResponse.json().catch(() => ({}))) as {
+    success?: boolean;
+    data?: unknown;
+  };
+
+  const currentState = normalizeCatalogState(getPayload.data);
+  const nextState = upsertCustomProduct(currentState, entry);
+
+  const putResponse = await fetch("/api/bookings/catalog-config", {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(nextState),
+  });
+
+  if (!putResponse.ok) {
+    const payload = (await putResponse.json().catch(() => ({}))) as {
+      error?: string;
+    };
+    throw new Error(payload.error || "Gagal sinkron produk ke catalog booking.");
+  }
+}
+
+export default function ProductForm({ initialDraft, onSuccess }: Props) {
+  const router = useRouter();
+  const [name, setName] = useState(initialDraft?.name ?? "");
+  const [categoryName, setCategoryName] = useState(
+    initialDraft?.categoryName ?? "",
+  );
+  const [sellingPrice, setSellingPrice] = useState<number>(
+    initialDraft?.sellingPrice ?? 0,
+  );
+  const [directCogs, setDirectCogs] = useState<number>(
+    initialDraft?.cogs ?? 0,
+  );
+  const [productType, setProductType] = useState<"ReadyStock" | "PreOrder">(
+    "PreOrder",
+  );
+  const [categoryOptions, setCategoryOptions] = useState<
+    { id: number; name: string }[]
+  >([]);
   const [categoryOpen, setCategoryOpen] = useState(false);
-
-  useEffect(() => {
-    getIngredientOptions()
-      .then(setIngredientOptions)
-      .catch(() => {});
-    getCategoryOptions()
-      .then(setCategoryOptions)
-      .catch(() => {});
-  }, []);
-
-  // ── loading / feedback states ───────────────────────────────────────────
   const [aiNameLoading, setAiNameLoading] = useState(false);
   const [aiPriceLoading, setAiPriceLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
-  const [recipePhotoOpen, setRecipePhotoOpen] = useState(false);
   const [priceHint, setPriceHint] = useState<string | null>(null);
+  const [bookingSubcategory, setBookingSubcategory] = useState("General");
+  const [bookingVariantLabel, setBookingVariantLabel] = useState("Standard");
+  const [catalogSyncWarning, setCatalogSyncWarning] = useState<string | null>(
+    null,
+  );
 
-  // ── computed: recipe cost ───────────────────────────────────────────────
-  const computedRecipeCost = useMemo(() => recipe.reduce((s, r) => s + r.quantity * (r.costPerUnit ?? 0), 0), [recipe]);
-  const recipeCost = cogsMode === "manual" ? manualCogs : computedRecipeCost;
+  const margin = useMemo(() => {
+    if (sellingPrice <= 0 || directCogs <= 0) return 0;
+    return Math.round(((sellingPrice - directCogs) / sellingPrice) * 100);
+  }, [sellingPrice, directCogs]);
 
-  const margin = sellingPrice > 0 ? Math.round(((sellingPrice - recipeCost) / sellingPrice) * 100) : 0;
+  useEffect(() => {
+    getCategoryOptions()
+      .then(setCategoryOptions)
+      .catch(() => {});
+  }, []);
 
-  // ── AI: generate from name ──────────────────────────────────────────────
+  const validate = () => {
+    if (!name.trim()) return "Nama produk wajib diisi.";
+    if (!categoryName.trim()) return "Kategori wajib diisi.";
+    if (!bookingSubcategory.trim()) return "Sub category booking wajib diisi.";
+    if (!bookingVariantLabel.trim()) return "Variant/size booking wajib diisi.";
+    if (sellingPrice <= 0) return "Harga jual harus lebih dari 0.";
+    if (directCogs <= 0) return "COGS/HPP wajib diisi dan harus lebih dari 0.";
+    return null;
+  };
+
   const handleGenerateFromName = async () => {
     if (!name.trim()) return;
     setAiNameLoading(true);
     setError(null);
     try {
       const result = await generateProductByName(name.trim());
-      if (result.data) {
-        const d = result.data;
-        if (d.categoryName) setCategoryName(d.categoryName);
-        if (d.sellingPrice) setSellingPrice(d.sellingPrice);
-        if (d.productType) setProductType(d.productType === "ReadyStock" ? "ReadyStock" : "PreOrder");
-        if (d.recipe?.length) {
-          setRecipe(
-            d.recipe.map(
-              (r: {
-                ingredientId: number;
-                ingredientName: string;
-                unit: string;
-                quantity: number;
-                costPerUnit: number | null;
-                isNew?: boolean;
-                expirationDate?: string;
-              }) => ({
-                ingredientId: r.ingredientId,
-                ingredientName: r.ingredientName,
-                unit: r.unit,
-                quantity: r.quantity,
-                costPerUnit: r.costPerUnit,
-                isNew: r.isNew ?? false,
-                ...(r.expirationDate ? { expirationDate: r.expirationDate } : {}),
-              }),
-            ),
-          );
-          setCogsMode("auto"); // AI generated recipes should use auto mode
-        }
-        // Refresh ingredient options (new ones may have been created)
-        getIngredientOptions()
-          .then(setIngredientOptions)
-          .catch(() => {});
+      const data = result.data;
+      if (!data) return;
+      if (data.categoryName) setCategoryName(data.categoryName);
+      if (data.sellingPrice) setSellingPrice(Number(data.sellingPrice));
+      if (typeof data.cogs === "number") setDirectCogs(data.cogs);
+      if (data.productType) {
+        setProductType(data.productType === "ReadyStock" ? "ReadyStock" : "PreOrder");
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Gagal generate produk dengan AI");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Gagal generate produk dengan AI",
+      );
     } finally {
       setAiNameLoading(false);
     }
   };
 
-  // ── AI: recommend price ─────────────────────────────────────────────────
   const handleRecommendPrice = async () => {
     setAiPriceLoading(true);
     setError(null);
     setPriceHint(null);
     try {
       const result = await recommendPrice({
-        recipeCost,
+        cogs: directCogs,
         categoryName: categoryName || undefined,
         productName: name || undefined,
       });
       setSellingPrice(result.recommendedPrice);
       setPriceHint(`${result.reasoning} (margin ~${result.margin.toFixed(0)}%)`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Gagal mendapatkan rekomendasi harga");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Gagal mendapatkan rekomendasi harga",
+      );
     } finally {
       setAiPriceLoading(false);
     }
   };
 
-  // ── Recipe helpers ──────────────────────────────────────────────────────
-  const updateRow = useCallback(
-    (index: number, updated: DraftRecipeRow) => setRecipe((prev) => prev.map((r, i) => (i === index ? updated : r))),
-    [],
-  );
-
-  const removeRow = useCallback(
-    async (index: number) => {
-      const row = recipe[index];
-      // If the row was AI-created (isNew + positive DB id), delete from DB
-      if (row?.isNew && row.ingredientId > 0) {
-        try {
-          await deleteIngredient(row.ingredientId);
-          // Refresh options since ingredient was deleted
-          getIngredientOptions()
-            .then(setIngredientOptions)
-            .catch(() => {});
-        } catch {
-          // Non-critical — still remove from form even if API delete fails
-        }
-      }
-      setRecipe((prev) => prev.filter((_, i) => i !== index));
-    },
-    [recipe],
-  );
-
-  const addRow = () => setRecipe((prev) => [...prev, emptyRow(prev.length)]);
-
-  const handleRecipeFromPhoto = (rows: DraftRecipeRow[]) => {
-    setRecipe(rows);
-    setRecipePhotoOpen(false);
-    // Re-fetch ingredients in case new ones were created
-    getIngredientOptions()
-      .then(setIngredientOptions)
-      .catch(() => {});
-  };
-
-  // ── Validation ──────────────────────────────────────────────────────────
-  const [submitted, setSubmitted] = useState(false);
-
-  /** Returns true if the row is a new ingredient that still needs unit/cost filled in. */
-  const rowNeedsUnit = (r: DraftRecipeRow) =>
-    (r.isNew === true || r.ingredientId < 0) && !!r.ingredientName?.trim() && !r.unit?.trim();
-  const rowNeedsCost = (r: DraftRecipeRow) =>
-    (r.isNew === true || r.ingredientId < 0) && !!r.ingredientName?.trim() && r.costPerUnit == null;
-
-  const validate = () => {
-    if (!name.trim()) return "Nama produk wajib diisi.";
-    if (!categoryName.trim()) return "Kategori wajib diisi.";
-    if (!sellingPrice || sellingPrice <= 0) return "Harga jual harus lebih dari 0.";
-    if (cogsMode === "auto") {
-      const hasInvalid = recipe.some((r) => !r.ingredientName.trim() || r.quantity <= 0);
-      if (recipe.length > 0 && hasInvalid) return "Setiap bahan membutuhkan nama dan jumlah yang valid.";
-      if (recipe.some(rowNeedsUnit)) return "Beberapa bahan baru belum memiliki satuan.";
-      if (recipe.some(rowNeedsCost)) return "Beberapa bahan baru belum memiliki biaya per satuan.";
-    } else {
-      if (manualCogs < 0) return "HPP / Modal tidak boleh negatif.";
-    }
-    return null;
-  };
-
-  // ── Submit ──────────────────────────────────────────────────────────────
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitted(true);
-    const err = validate();
-    if (err) {
-      setError(err);
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const validationError = validate();
+    if (validationError) {
+      setError(validationError);
       return;
     }
+
     setSubmitting(true);
     setError(null);
+    setCatalogSyncWarning(null);
     try {
-      // PATCH any AI-created new ingredients that have optional stock/expiry set
-      const newWithExtras = recipe.filter(
-        (r) => r.isNew && r.ingredientId > 0 && (r.initialStock !== undefined || r.expirationDate),
-      );
-      if (newWithExtras.length > 0) {
-        await Promise.allSettled(
-          newWithExtras.map((r) =>
-            patchIngredient(r.ingredientId, {
-              ...(r.initialStock !== undefined ? { initialStock: r.initialStock } : {}),
-              ...(r.expirationDate ? { expirationDate: r.expirationDate } : {}),
-            }),
-          ),
-        );
-      }
-
-      // Build recipe payload — skip rows with empty or negative (new-but-unresolved) ids
-      const recipePayload = cogsMode === "manual" ? [] : recipe
-        .filter((r) => r.ingredientId > 0 && r.ingredientName.trim())
-        .map((r) => ({ ingredientId: r.ingredientId, quantity: r.quantity }));
-
       await createProduct({
         name: name.trim(),
         categoryName: categoryName.trim(),
         sellingPrice,
+        cogs: directCogs,
         productType,
-        recipe: recipePayload,
-        manualCogs: cogsMode === "manual" ? manualCogs : undefined,
+        recipe: [],
       });
+
+      try {
+        await syncToBookingCatalog({
+          category: categoryName.trim(),
+          subcategory: bookingSubcategory.trim(),
+          productName: name.trim(),
+          variantLabel: bookingVariantLabel.trim(),
+          price: sellingPrice,
+        });
+      } catch (syncError) {
+        setCatalogSyncWarning(
+          syncError instanceof Error
+            ? syncError.message
+            : "Produk tersimpan, tapi sinkron ke booking catalog gagal.",
+        );
+      }
 
       setSuccess(true);
       if (onSuccess) {
@@ -272,74 +319,80 @@ export default function ProductForm({ initialDraft, onSuccess }: Props) {
 
   if (success) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 gap-4 text-green-600">
+      <div className="flex flex-col items-center justify-center gap-4 py-16 text-green-600">
         <CheckCircle2 size={56} />
         <p className="text-xl font-bold">Produk tersimpan!</p>
-        <p className="text-sm text-gray-500">Mengalihkan ke daftar produk…</p>
+        <p className="text-sm text-gray-500">Mengalihkan ke daftar produk...</p>
       </div>
     );
   }
 
-  // ── Render ──────────────────────────────────────────────────────────────
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
-      {/* Error banner */}
       {error && (
-        <div className="flex items-start gap-2 bg-red-50 text-red-600 rounded-xl p-4 text-sm">
+        <div className="flex items-start gap-2 rounded-xl bg-red-50 p-4 text-sm text-red-600">
           <AlertTriangle size={16} className="mt-0.5 shrink-0" />
           <span>{error}</span>
         </div>
       )}
+      {catalogSyncWarning && (
+        <div className="flex items-start gap-2 rounded-xl bg-amber-50 p-4 text-sm text-amber-700">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+          <span>{catalogSyncWarning}</span>
+        </div>
+      )}
 
-      {/* ── Product name ─ */}
-      <div className="bg-white rounded-2xl shadow border border-gray-100 p-6 space-y-2">
+      <div className="space-y-2 rounded-2xl border border-gray-100 bg-white p-6 shadow">
         <label className="text-sm font-bold text-gray-700">Nama Produk</label>
         <div className="flex gap-2">
           <input
             type="text"
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(event) => setName(event.target.value)}
             placeholder="cth. Es Kopi Susu"
-            className="flex-1 border border-indigo-200 rounded-xl px-4 py-2.5 text-base text-slate-700 bg-white focus:ring-2 focus:ring-indigo-400 outline-none"
+            className="flex-1 rounded-xl border border-indigo-200 bg-white px-4 py-2.5 text-base text-slate-700 outline-none focus:ring-2 focus:ring-indigo-400"
           />
           <button
             type="button"
             onClick={handleGenerateFromName}
             disabled={!name.trim() || aiNameLoading}
-            title="Isi otomatis kategori, harga & resep berdasarkan nama produk"
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+            title="Isi otomatis kategori, harga, dan COGS berdasarkan nama produk"
+            className="flex items-center gap-2 whitespace-nowrap rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {aiNameLoading ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+            {aiNameLoading ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : (
+              <Sparkles size={16} />
+            )}
             <span className="hidden sm:inline">Isi Otomatis</span>
           </button>
         </div>
         <p className="text-xs text-gray-400">
-          Klik &quot;Isi Otomatis&quot; untuk mengisi kategori, harga, dan resep secara otomatis.
+          COGS/HPP diisi langsung sebagai nominal produk. Tidak perlu membuat
+          data bahan untuk menghitung modal.
         </p>
       </div>
 
-      {/* ── Category + Selling Price ─ */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {/* Category */}
-        <div className="bg-white rounded-2xl shadow border border-gray-100 p-5 space-y-2 relative">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="relative space-y-2 rounded-2xl border border-gray-100 bg-white p-5 shadow">
           <label className="text-sm font-bold text-gray-700">Kategori</label>
           <div className="flex gap-2">
             <input
               value={categoryName}
-              onChange={(e) => {
-                setCategoryName(e.target.value);
+              onChange={(event) => {
+                setCategoryName(event.target.value);
                 setCategoryOpen(true);
               }}
               onFocus={() => setCategoryOpen(true)}
               onBlur={() => setTimeout(() => setCategoryOpen(false), 150)}
               placeholder="cth. Minuman"
-              className="flex-1 border border-indigo-200 rounded-xl px-4 py-2.5 text-sm text-gray-900 font-medium focus:ring-2 focus:ring-indigo-400 outline-none"
+              className="flex-1 rounded-xl border border-indigo-200 px-4 py-2.5 text-sm font-medium text-gray-900 outline-none focus:ring-2 focus:ring-indigo-400"
             />
             <button
               type="button"
-              onMouseDown={(e) => {
-                e.preventDefault();
-                setCategoryOpen((v) => !v);
+              onMouseDown={(event) => {
+                event.preventDefault();
+                setCategoryOpen((value) => !value);
               }}
               className="px-3 text-gray-500 hover:text-indigo-600"
             >
@@ -347,272 +400,196 @@ export default function ProductForm({ initialDraft, onSuccess }: Props) {
             </button>
           </div>
           {categoryOpen && categoryOptions.length > 0 && (
-            <ul className="absolute z-30 mt-1 bg-white border border-indigo-100 rounded-xl shadow-xl max-h-36 overflow-y-auto text-sm w-[calc(100%-2rem)]">
+            <ul className="absolute z-30 mt-1 max-h-36 w-[calc(100%-2rem)] overflow-y-auto rounded-xl border border-indigo-100 bg-white text-sm shadow-xl">
               {categoryOptions
-                .filter((c) => c.name.toLowerCase().includes(categoryName.toLowerCase()))
-                .map((c) => (
+                .filter((category) =>
+                  category.name
+                    .toLowerCase()
+                    .includes(categoryName.toLowerCase()),
+                )
+                .map((category) => (
                   <li
-                    key={c.id}
+                    key={category.id}
                     onMouseDown={() => {
-                      setCategoryName(c.name);
+                      setCategoryName(category.name);
                       setCategoryOpen(false);
                     }}
-                    className="px-4 py-2 text-gray-800 font-medium hover:bg-indigo-50 cursor-pointer"
+                    className="cursor-pointer px-4 py-2 font-medium text-gray-800 hover:bg-indigo-50"
                   >
-                    {c.name}
+                    {category.name}
                   </li>
                 ))}
             </ul>
           )}
         </div>
 
-        {/* Selling price */}
-        <div className="bg-white rounded-2xl shadow border border-gray-100 p-5 space-y-2">
-          <label className="text-sm font-bold text-gray-700">Harga Jual (Rp)</label>
+        <div className="space-y-2 rounded-2xl border border-gray-100 bg-white p-5 shadow">
+          <label className="text-sm font-bold text-gray-700">
+            Harga Jual (Rp)
+          </label>
           <div className="flex flex-wrap gap-2">
             <input
               type="number"
               min={0}
               value={sellingPrice}
-              onChange={(e) => {
-                setSellingPrice(Number(e.target.value));
+              onChange={(event) => {
+                setSellingPrice(Number(event.target.value));
                 setPriceHint(null);
               }}
               placeholder="0"
-              className="flex-1 min-w-0 border border-indigo-200 rounded-xl px-4 py-2.5 text-sm text-slate-700 bg-white focus:ring-2 focus:ring-indigo-400 outline-none"
+              className="min-w-0 flex-1 rounded-xl border border-indigo-200 bg-white px-4 py-2.5 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-indigo-400"
             />
             <button
               type="button"
               onClick={handleRecommendPrice}
-              disabled={aiPriceLoading || recipeCost === 0}
+              disabled={aiPriceLoading || directCogs <= 0}
               title={
-                recipeCost === 0
-                  ? "Tambahkan bahan ke resep terlebih dahulu"
-                  : "Sarankan harga jual berdasarkan total biaya resep"
+                directCogs <= 0
+                  ? "Isi COGS/HPP terlebih dahulu"
+                  : "Sarankan harga jual berdasarkan COGS/HPP"
               }
-              className="flex items-center justify-center gap-1.5 w-full sm:w-auto px-4 py-2.5 bg-indigo-600 text-white text-xs font-semibold rounded-xl hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
             >
-              {aiPriceLoading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+              {aiPriceLoading ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <Sparkles size={14} />
+              )}
               Sarankan Harga
             </button>
           </div>
-          {priceHint && <p className="text-xs text-indigo-600 mt-1">{priceHint}</p>}
-          {sellingPrice > 0 && recipeCost > 0 && (
-            <>
-              <p className="text-xs text-gray-400">
-                Biaya: {formatCurrency(recipeCost)} — Margin:{" "}
-                <span
-                  className={
-                    margin < 0
-                      ? "text-red-700 font-semibold"
-                      : margin >= 50
-                        ? "text-green-600 font-semibold"
-                        : margin >= 20
-                          ? "text-yellow-600 font-semibold"
-                          : "text-red-600 font-semibold"
-                  }
-                >
-                  {margin}%
-                </span>
-              </p>
-              {margin < -100 && (
-                <div className="flex items-start gap-1.5 bg-orange-50 text-orange-700 rounded-lg px-3 py-2 mt-1 text-xs font-semibold">
-                  <AlertTriangle size={13} className="mt-0.5 shrink-0" />
-                  Margin sangat negatif (&lt;−100%). Cek ulang satuan atau biaya bahan — kemungkinan ada kesalahan
-                  input.
-                </div>
-              )}
-              {margin >= -100 && margin < 0 && (
-                <div className="flex items-start gap-1.5 bg-red-50 text-red-700 rounded-lg px-3 py-2 mt-1 text-xs font-semibold">
-                  <AlertTriangle size={13} className="mt-0.5 shrink-0" />
-                  Biaya resep melebihi harga jual — produk ini akan dijual rugi.
-                </div>
-              )}
-            </>
-          )}
+          {priceHint && <p className="mt-1 text-xs text-indigo-600">{priceHint}</p>}
         </div>
 
-        {/* Product Type selector */}
-        <div className="bg-white rounded-2xl shadow border border-gray-100 p-5 space-y-3">
+        <div className="space-y-2 rounded-2xl border border-gray-100 bg-white p-5 shadow">
+          <label className="text-sm font-bold text-gray-700">
+            COGS / HPP Produk (Rp)
+          </label>
+          <input
+            type="number"
+            min={1}
+            value={directCogs}
+            onChange={(event) =>
+              setDirectCogs(Math.max(0, Number(event.target.value) || 0))
+            }
+            placeholder="0"
+            className="w-full rounded-xl border border-indigo-200 bg-white px-4 py-2.5 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-indigo-400"
+          />
+          <p className="text-xs text-gray-400">
+            Masukkan nominal modal langsung per produk, sesuai database atau
+            perhitungan internal Anda.
+          </p>
+        </div>
+
+        <div className="space-y-3 rounded-2xl border border-gray-100 bg-white p-5 shadow">
           <label className="text-sm font-bold text-gray-700">Tipe Produk</label>
           <div className="flex gap-3">
             <button
               type="button"
               onClick={() => setProductType("PreOrder")}
-              className={`flex-1 py-3 px-4 rounded-xl border-2 text-sm font-semibold transition-all ${
+              className={`flex-1 rounded-xl border-2 px-4 py-3 text-sm font-semibold transition-all ${
                 productType === "PreOrder"
                   ? "border-indigo-500 bg-indigo-50 text-indigo-700"
                   : "border-gray-200 bg-white text-gray-500 hover:border-gray-300"
               }`}
             >
-              <div className="text-lg mb-1">🍳</div>
               <div>Made to Order</div>
-              <div className="text-[10px] font-normal mt-1 text-gray-400">Bahan dikurangi saat dijual</div>
+              <div className="mt-1 text-[10px] font-normal text-gray-400">
+                Dibuat saat order masuk
+              </div>
             </button>
             <button
               type="button"
               onClick={() => setProductType("ReadyStock")}
-              className={`flex-1 py-3 px-4 rounded-xl border-2 text-sm font-semibold transition-all ${
+              className={`flex-1 rounded-xl border-2 px-4 py-3 text-sm font-semibold transition-all ${
                 productType === "ReadyStock"
                   ? "border-emerald-500 bg-emerald-50 text-emerald-700"
                   : "border-gray-200 bg-white text-gray-500 hover:border-gray-300"
               }`}
             >
-              <div className="text-lg mb-1">📦</div>
               <div>Ready Stock</div>
-              <div className="text-[10px] font-normal mt-1 text-gray-400">Bahan dikurangi saat produksi</div>
+              <div className="mt-1 text-[10px] font-normal text-gray-400">
+                Stok dibuat lewat produksi
+              </div>
             </button>
           </div>
-          {productType === "ReadyStock" && (
-            <p className="text-xs text-emerald-600 bg-emerald-50 rounded-lg px-3 py-2">
-              💡 Produk Ready Stock membutuhkan proses produksi terlebih dahulu di menu <strong>Produksi</strong>{" "}
-              sebelum bisa dijual di POS.
-            </p>
-          )}
+        </div>
+
+        <div className="space-y-3 rounded-2xl border border-gray-100 bg-white p-5 shadow sm:col-span-2">
+          <label className="text-sm font-bold text-gray-700">
+            Sinkron untuk Booking Catalog
+          </label>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="space-y-1">
+              <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Sub Category
+              </label>
+              <input
+                type="text"
+                value={bookingSubcategory}
+                onChange={(event) => setBookingSubcategory(event.target.value)}
+                placeholder="cth. Signature Drinks"
+                className="w-full rounded-xl border border-indigo-200 bg-white px-4 py-2.5 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-indigo-400"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Variant / Size
+              </label>
+              <input
+                type="text"
+                value={bookingVariantLabel}
+                onChange={(event) => setBookingVariantLabel(event.target.value)}
+                placeholder="cth. Standard"
+                className="w-full rounded-xl border border-indigo-200 bg-white px-4 py-2.5 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-indigo-400"
+              />
+            </div>
+          </div>
+          <p className="text-xs text-gray-500">
+            Setelah simpan produk, item juga otomatis ditambahkan ke Booking
+            Catalog dengan mapping:
+            {" "}
+            <span className="font-semibold">Kategori</span> = nilai field Kategori,
+            {" "}
+            <span className="font-semibold">Sub Category</span> = field ini,
+            {" "}
+            <span className="font-semibold">Nama Produk</span> = field Nama Produk,
+            {" "}
+            <span className="font-semibold">Variant/Size</span> = field ini.
+          </p>
         </div>
       </div>
 
-      {/* ── Recipe section ─ */}
-      <div className="bg-white rounded-2xl shadow border border-gray-100">
-        <div className="flex justify-between items-center px-6 py-4 border-b border-gray-100 bg-linear-to-r from-indigo-50 to-indigo-50 rounded-t-2xl">
-          <div>
-            <h3 className="font-bold text-indigo-700">Resep / Bahan</h3>
-            {recipeCost > 0 && (
-              <p className="text-xs text-gray-500 mt-0.5">Total biaya: {formatCurrency(recipeCost)}</p>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={() => setRecipePhotoOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-2 border border-indigo-300 text-indigo-600 text-xs font-semibold rounded-xl hover:bg-indigo-50 transition"
-          >
-            <Camera size={14} />
-            Dari Foto
-          </button>
+      {sellingPrice > 0 && directCogs > 0 && (
+        <div
+          className={`rounded-2xl border px-5 py-4 text-sm ${
+            margin < 0
+              ? "border-red-200 bg-red-50 text-red-700"
+              : "border-emerald-200 bg-emerald-50 text-emerald-700"
+          }`}
+        >
+          COGS/HPP: {formatCurrency(directCogs)}. Margin estimasi:{" "}
+          <span className="font-bold">{margin}%</span>
+          {margin < 0 ? ". COGS lebih besar dari harga jual." : "."}
         </div>
+      )}
 
-        {/* Cogs Mode Toggle */}
-        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-          <div>
-            <p className="text-sm font-bold text-gray-700">Metode HPP (Modal)</p>
-            <p className="text-xs text-gray-400">Pilih cara menghitung harga modal produk ini.</p>
-          </div>
-          <div className="flex bg-gray-100 p-1 rounded-xl">
-            <button
-              type="button"
-              onClick={() => setCogsMode("auto")}
-              className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition ${
-                cogsMode === "auto" ? "bg-white text-indigo-700 shadow" : "text-gray-500 hover:text-gray-700"
-              }`}
-            >
-              Resep Otomatis
-            </button>
-            <button
-              type="button"
-              onClick={() => setCogsMode("manual")}
-              className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition ${
-                cogsMode === "manual" ? "bg-white text-indigo-700 shadow" : "text-gray-500 hover:text-gray-700"
-              }`}
-            >
-              Input Manual
-            </button>
-          </div>
-        </div>
-
-        {cogsMode === "manual" ? (
-          <div className="px-6 py-6 bg-amber-50/50">
-            <label className="block text-sm font-bold text-gray-700 mb-2">HPP / Modal (Rp)</label>
-            <input
-              type="number"
-              min={0}
-              value={manualCogs}
-              onChange={(e) => {
-                setManualCogs(Number(e.target.value));
-                setPriceHint(null);
-              }}
-              placeholder="0"
-              className="w-full sm:w-1/2 border border-amber-200 rounded-xl px-4 py-2.5 text-base text-slate-700 bg-white focus:ring-2 focus:ring-amber-400 outline-none"
-            />
-            <p className="text-xs text-amber-600 mt-2 flex items-start gap-1">
-              <AlertTriangle size={14} className="shrink-0" />
-              <span>
-                Dengan mode manual, AI tidak bisa memprediksi stok bahan baku untuk produk ini.
-                Bahan baku tidak akan berkurang otomatis saat terjual.
-              </span>
-            </p>
-          </div>
-        ) : (
-          <>
-            {/* Hint */}
-            <p className="px-4 py-2.5 bg-indigo-50/60 border-b border-indigo-100/60 text-xs text-indigo-600">
-              Pilih dari daftar atau ketik nama baru untuk membuat bahan sekaligus.
-            </p>
-
-        {/* Column headers */}
-        <div className="hidden sm:grid grid-cols-12 gap-2 px-3 py-2 text-xs font-bold text-gray-400 uppercase tracking-wide bg-gray-50/60 border-b border-gray-100">
-          <div className="col-span-4">Bahan</div>
-          <div className="col-span-2">Qty</div>
-          <div className="col-span-2">Satuan</div>
-          <div className="col-span-2">Biaya / satuan</div>
-        </div>
-
-        <div className="divide-y divide-gray-50 px-3 py-2 space-y-1">
-          {recipe.map((row, i) => (
-            <IngredientSelectorRow
-              key={`${row.ingredientId}-${i}`}
-              row={row}
-              index={i}
-              ingredientOptions={ingredientOptions}
-              usedIngredientIds={
-                new Set(recipe.filter((r, j) => j !== i && r.ingredientId > 0).map((r) => r.ingredientId))
-              }
-              unitError={submitted && rowNeedsUnit(row)}
-              costError={submitted && rowNeedsCost(row)}
-              onChange={(updated) => updateRow(i, updated)}
-              onRemove={() => removeRow(i)}
-            />
-          ))}
-        </div>
-
-        <div className="px-6 pb-5 pt-3">
-          <button
-            type="button"
-            onClick={addRow}
-            className="flex items-center gap-2 text-indigo-600 text-sm font-semibold hover:text-indigo-800 transition"
-          >
-            <Plus size={16} />
-            Tambah Bahan
-          </button>
-        </div>
-          </>
-        )}
-      </div>
-
-      {/* ── Submit ─ */}
       <div className="flex justify-stretch sm:justify-end">
         <button
           type="submit"
           disabled={submitting}
-          className="flex items-center justify-center gap-2 w-full sm:w-auto px-8 py-3 bg-indigo-600 text-white font-bold text-base rounded-xl hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-8 py-3 text-base font-bold text-white shadow-lg transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
         >
           {submitting ? (
             <>
               <Loader2 size={18} className="animate-spin" />
-              Menyimpan…
+              Menyimpan...
             </>
           ) : (
             "Konfirmasi & Simpan"
           )}
         </button>
       </div>
-
-      {recipePhotoOpen && (
-        <RecipePhotoModal
-          productName={name || undefined}
-          onClose={() => setRecipePhotoOpen(false)}
-          onSuccess={handleRecipeFromPhoto}
-        />
-      )}
     </form>
   );
 }

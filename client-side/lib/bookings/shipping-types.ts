@@ -33,6 +33,8 @@ export interface ShippingQuote {
   courierServiceCode: string;
   courierServiceName: string;
   price: number;
+  priceWithoutInsurance?: number;
+  insuranceFee?: number;
   eta: string;
   distanceKm: number;
   source: ShippingDataSource;

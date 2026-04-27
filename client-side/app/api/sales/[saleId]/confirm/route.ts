@@ -6,7 +6,6 @@ import {
   deductInventory,
   updateBusinessMetrics,
   updateProductMetrics,
-  recomputeRecipeCost,
 } from "@/lib/services/saleHelpers";
 
 export const runtime = "nodejs";
@@ -131,11 +130,6 @@ export async function POST(
           );
         }
 
-        // 6. Recompute recipeCost on sold products
-        const soldProductIds = [...new Set(sale.saleItems.map((i) => i.productId))];
-        for (const pid of soldProductIds) {
-          await recomputeRecipeCost(tx, pid);
-        }
       },
       { timeout: 30000 },
     );

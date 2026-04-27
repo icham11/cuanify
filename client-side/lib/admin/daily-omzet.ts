@@ -214,6 +214,7 @@ export async function buildDailyOmzetSnapshot(
         updated_at
       FROM bakery_orders
       WHERE business_id = ${businessId}
+        AND COALESCE(sales_channel, 'direct') = 'direct'
         AND (
           (created_at >= ${startUtc} AND created_at < ${endUtc})
           OR (updated_at >= ${startUtc} AND updated_at < ${endUtc})

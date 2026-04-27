@@ -8,13 +8,13 @@ import {
   ForbiddenError,
 } from "@/lib/auth/session";
 import { z } from "zod";
-import { recomputeRecipeCost } from "@/lib/computeRecipeCost";
 import {
   acquireProductWriteLock,
   findProductNameConflicts,
   normalizeProductName,
 } from "@/lib/products/uniqueness";
 import { recipeItemSchema } from "@/lib/validations/product";
+import { normalizeDirectCogs } from "@/lib/cogs/config";
 
 export const runtime = "nodejs";
 
@@ -33,6 +33,7 @@ const patchSchema = z.object({
     .number()
     .positive("Selling price must be positive")
     .optional(),
+  cogs: z.coerce.number().positive("COGS must be greater than 0").optional(),
   productType: z.enum(["ReadyStock", "PreOrder"]).optional(),
   createdAt: z.string().datetime().optional(),
   recipe: z.array(recipeItemSchema).optional(),
@@ -121,6 +122,8 @@ export async function PATCH(
       if (categoryId !== undefined) updateData.categoryId = categoryId;
       if (parsed.data.sellingPrice !== undefined)
         updateData.sellingPrice = parsed.data.sellingPrice;
+      if (parsed.data.cogs !== undefined)
+        updateData.cogs = normalizeDirectCogs(parsed.data.cogs);
       if (parsed.data.productType !== undefined)
         updateData.productType = parsed.data.productType;
       if (parsed.data.createdAt !== undefined)
@@ -147,14 +150,6 @@ export async function PATCH(
         }
       }
     });
-
-    if (parsed.data.recipe) {
-      try {
-        await recomputeRecipeCost(id);
-      } catch {
-        // Non-critical: cost will be refreshed next recompute.
-      }
-    }
 
     const result = await prisma.product.findUnique({
       where: { id },

@@ -28,6 +28,7 @@ import {
 import type { Product, ProductCategory } from "@/types/product";
 import EditProductModal from "./EditProductModal";
 import { BOOKING_PRODUCT_CATALOG } from "@/lib/bookings/pricelist";
+import UnifiedAddProductModal from "@/components/products/UnifiedAddProductModal";
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat("id-ID", {
@@ -105,11 +106,11 @@ function RecipeModal({
   onClose: () => void;
 }) {
   const overlayRef = useRef<HTMLDivElement>(null);
-  const recipeCost = Number(product.recipeCost);
+  const cogs = Number(product.cogs);
   const sellingPrice = Number(product.sellingPrice);
   const margin =
-    sellingPrice > 0 && recipeCost > 0
-      ? Math.round(((sellingPrice - recipeCost) / sellingPrice) * 100)
+    sellingPrice > 0 && cogs > 0
+      ? Math.round(((sellingPrice - cogs) / sellingPrice) * 100)
       : null;
 
   if (typeof document === "undefined") return null;
@@ -161,10 +162,10 @@ function RecipeModal({
           </div>
           <div className="px-2 py-2.5 sm:px-4 sm:py-3">
             <p className="text-[9px] sm:text-[10px] text-gray-400 font-bold uppercase tracking-wide">
-              Biaya Resep
+              COGS/HPP
             </p>
             <p className="text-xs sm:text-sm font-extrabold text-slate-700 mt-0.5">
-              {recipeCost > 0 ? formatCurrency(recipeCost) : "—"}
+              {cogs > 0 ? formatCurrency(cogs) : "—"}
             </p>
           </div>
           <div className="px-2 py-2.5 sm:px-4 sm:py-3">
@@ -217,13 +218,13 @@ function RecipeModal({
               })}
 
               {/* Total */}
-              {recipeCost > 0 && (
+              {cogs > 0 && (
                 <div className="flex justify-between items-center pt-2 pb-4 sm:pb-2 border-t border-gray-100 px-3">
                   <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">
-                    Total Biaya Resep
+                    Total COGS/HPP
                   </span>
                   <span className="text-sm font-extrabold text-indigo-700">
-                    {formatCurrency(recipeCost)}
+                    {formatCurrency(cogs)}
                   </span>
                 </div>
               )}
@@ -253,10 +254,10 @@ function EditPriceModal({
   const [error, setError] = useState<string | null>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
 
-  const recipeCost = Number(product.recipeCost);
+  const cogs = Number(product.cogs);
   const margin =
-    price > 0 && recipeCost > 0
-      ? Math.round(((price - recipeCost) / price) * 100)
+    price > 0 && cogs > 0
+      ? Math.round(((price - cogs) / price) * 100)
       : null;
 
   const handleSave = async () => {
@@ -331,9 +332,9 @@ function EditPriceModal({
               onKeyDown={(e) => e.key === "Enter" && handleSave()}
               className="mt-1.5 w-full border border-indigo-200 rounded-xl px-4 py-2.5 text-base font-semibold text-slate-700 bg-white focus:ring-2 focus:ring-indigo-400 outline-none"
             />
-            {recipeCost > 0 && (
+            {cogs > 0 && (
               <p className="text-xs text-gray-400 mt-1.5">
-                Biaya resep: {formatCurrency(recipeCost)}
+                COGS/HPP: {formatCurrency(cogs)}
                 {margin !== null && (
                   <>
                     {" — "}
@@ -586,6 +587,7 @@ export default function ProductsPage() {
   const [editModal, setEditModal] = useState<Product | null>(null);
   const [deleteModal, setDeleteModal] = useState<Product | null>(null);
   const [recipeModal, setRecipeModal] = useState<Product | null>(null);
+  const [addProductModalOpen, setAddProductModalOpen] = useState(false);
   const visibleCategories = useMemo(
     () =>
       categories.filter(
@@ -624,6 +626,12 @@ export default function ProductsPage() {
   }, [searchParams]);
   const latestRequestRef = useRef(0);
   const router = useRouter();
+
+  useEffect(() => {
+    if (searchParams.get("addProduct") !== "1") return;
+    setAddProductModalOpen(true);
+    router.replace("/dashboard/products", { scroll: false });
+  }, [searchParams, router]);
 
   const fetchProducts = async (
     pageOverride?: number,
@@ -786,7 +794,7 @@ export default function ProductsPage() {
               Sync Bakery Catalog
             </button>
             <button
-              onClick={() => router.push("/bakery/catalog")}
+              onClick={() => setAddProductModalOpen(true)}
               className="flex items-center justify-center gap-2 px-4 sm:px-5 py-2.5 bg-indigo-950/20 text-white font-semibold rounded-xl shadow hover:bg-indigo-950/30 transition text-sm sm:text-base"
             >
               <Plus size={20} />
@@ -933,7 +941,7 @@ export default function ProductsPage() {
                 <p className="text-sm mt-1">
                   Klik{" "}
                   <button
-                    onClick={() => router.push("/dashboard/products/create")}
+                    onClick={() => setAddProductModalOpen(true)}
                     className="text-indigo-600 font-semibold hover:underline"
                   >
                     Tambah Produk
@@ -1167,6 +1175,15 @@ export default function ProductsPage() {
           onConfirm={handleBulkDelete}
         />
       )}
+
+      <UnifiedAddProductModal
+        open={addProductModalOpen}
+        onClose={() => setAddProductModalOpen(false)}
+        onSaved={() => {
+          fetchProducts(page);
+          refreshCategories();
+        }}
+      />
     </>
   );
 }

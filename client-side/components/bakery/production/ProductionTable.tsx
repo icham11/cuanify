@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, RotateCcw, Search, Sparkles, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import StatusDropdown from "@/components/bakery/production/StatusDropdown";
-import { useOrders } from "@/components/bakery/store";
+import { useOrders, type BakeryOrder } from "@/components/bakery/store";
 import { useBusiness } from "@/context/BusinessContext";
 import { useRole } from "@/context/RoleContext";
 import { summarizeProductionTokensByItems } from "@/lib/bookings/operations";
@@ -68,6 +68,33 @@ function isStaffDailyTokenAssignmentBlocked(params: {
   return currentToken > 0;
 }
 
+function getOrderStaffTokenAssignments(order: BakeryOrder): Array<{
+  staffUserId: number;
+  staffName: string;
+  token: number;
+}> {
+  const stageAssignments = (order.productionStages ?? [])
+    .filter((stage) => stage.staffId && stage.tokenAmount > 0)
+    .map((stage) => ({
+      staffUserId: Number(stage.staffId),
+      staffName:
+        order.assignedStaffName ||
+        `${stage.stage.charAt(0).toUpperCase()}${stage.stage.slice(1)} staff`,
+      token: Math.max(0, Math.round(Number(stage.tokenAmount) || 0)),
+    }));
+
+  if (stageAssignments.length > 0) return stageAssignments;
+  if (!order.assignedStaffUserId) return [];
+
+  return [
+    {
+      staffUserId: order.assignedStaffUserId,
+      staffName: order.assignedStaffName || `Staff #${order.assignedStaffUserId}`,
+      token: summarizeProductionTokensByItems(order.items ?? []),
+    },
+  ];
+}
+
 function monthKeyOf(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -114,7 +141,7 @@ function statusBadgeClass(status: string): string {
 export default function ProductionTable() {
   const router = useRouter();
   const { business, businesses, switchBusiness } = useBusiness();
-  const { orders, updateOrderStatus, assignOrderToStaff, claimOrderStep } = useOrders();
+  const { orders, updateOrderStatus, assignOrderToStaff } = useOrders();
   const { isOwner, isAdmin, isStaff, role, userName } = useRole();
   const isPrivilegedManager = isOwner || isAdmin;
   const { settings: bakerySettings } = useBakerySettings();
@@ -390,26 +417,22 @@ export default function ProductionTable() {
     }
 
     for (const order of orders) {
-      const participants = (order.claimedSteps && order.claimedSteps.length > 0)
-        ? order.claimedSteps.map(c => ({ id: c.staffUserId, name: c.staffName }))
-        : (order.assignedStaffUserId ? [{ id: order.assignedStaffUserId, name: order.assignedStaffName }] : []);
-
-      for (const p of participants) {
-        if (!byUserId.has(p.id)) {
+      for (const assignment of getOrderStaffTokenAssignments(order)) {
+        if (!byUserId.has(assignment.staffUserId)) {
           const fallbackName =
-            p.name?.trim() ||
             teamMembers.find(
-              (member) => member.userId === p.id,
+              (member) => member.userId === assignment.staffUserId,
             )?.name ||
-            `Staff #${p.id}`;
+            assignment.staffName ||
+            `Staff #${assignment.staffUserId}`;
 
-          byUserId.set(p.id, {
-            userId: p.id,
-            name: fallbackName,
-            role: "Staff",
-            businessId: viewer?.businessId ?? 0,
-          });
-        }
+          byUserId.set(assignment.staffUserId, {
+            userId: assignment.staffUserId,
+          name: fallbackName,
+          role: "Staff",
+          businessId: viewer?.businessId ?? 0,
+        });
+      }
       }
     }
 
@@ -441,14 +464,9 @@ export default function ProductionTable() {
         continue;
       }
 
-      const totalToken = summarizeProductionTokensByItems(order.items ?? []);
-      const awards = (order.claimedSteps && order.claimedSteps.length > 0)
-        ? order.claimedSteps.map(c => ({ id: c.staffUserId, t: c.tokenAwarded }))
-        : (order.assignedStaffUserId ? [{ id: order.assignedStaffUserId, t: totalToken }] : []);
-
-      for (const award of awards) {
-        const key = `${award.id}:${deliveryDate}`;
-        usage.set(key, (usage.get(key) ?? 0) + award.t);
+      for (const assignment of getOrderStaffTokenAssignments(order)) {
+        const key = `${assignment.staffUserId}:${deliveryDate}`;
+        usage.set(key, (usage.get(key) ?? 0) + assignment.token);
       }
     }
 
@@ -483,33 +501,26 @@ export default function ProductionTable() {
       if (!matchesDateFilter(order.deliveryDate)) continue;
 
       const status = normalizeOrderStatus(order.orderStatus);
-      const totalToken = summarizeProductionTokensByItems(order.items ?? []);
-
-      const awards = (order.claimedSteps && order.claimedSteps.length > 0)
-        ? order.claimedSteps.map(c => ({ id: c.staffUserId, name: c.staffName, t: c.tokenAwarded }))
-        : (order.assignedStaffUserId ? [{ id: order.assignedStaffUserId, name: order.assignedStaffName || `Staff #${order.assignedStaffUserId}`, t: totalToken }] : []);
-
-      for (const award of awards) {
-        const staffUserId = award.id;
-        const current = statsMap.get(staffUserId) ?? {
-          userId: staffUserId,
-          name: award.name,
+      for (const assignment of getOrderStaffTokenAssignments(order)) {
+        const current = statsMap.get(assignment.staffUserId) ?? {
+          userId: assignment.staffUserId,
+          name: assignment.staffName || `Staff #${assignment.staffUserId}`,
           assignedActive: 0,
           doneRaw: 0,
           inProgress: 0,
         };
 
         if (!["Delivery", "Completed", "Cancelled"].includes(status)) {
-          current.assignedActive += award.t;
+          current.assignedActive += assignment.token;
         }
 
         if (["Ready", "Delivery", "Completed"].includes(status)) {
-          current.doneRaw += award.t;
+          current.doneRaw += assignment.token;
         } else if (status === "In Production") {
-          current.inProgress += award.t;
+          current.inProgress += assignment.token;
         }
 
-        statsMap.set(staffUserId, current);
+        statsMap.set(assignment.staffUserId, current);
       }
     }
 
@@ -580,15 +591,12 @@ export default function ProductionTable() {
       }
 
       if (quickFilter === "mine") {
-        if (!viewer?.userId) return false;
-        const isAssigned = order.assignedStaffUserId === viewer.userId;
-        const isClaimed = order.claimedSteps?.some(c => c.staffUserId === viewer.userId);
-        if (!isAssigned && !isClaimed) return false;
+        if (!viewer?.userId || order.assignedStaffUserId !== viewer.userId)
+          return false;
       }
 
       if (quickFilter === "unassigned") {
-        const hasClaimed = (order.claimedSteps && order.claimedSteps.length > 0);
-        if (order.assignedStaffUserId || hasClaimed) return false;
+        if (order.assignedStaffUserId) return false;
       }
 
       if (quickFilter === "heavy") {
@@ -779,17 +787,12 @@ export default function ProductionTable() {
     ]);
   };
 
-  const handleClaimByStaff = (orderId: string, step: "List" | "Filling" | "Finishing", tokenAwarded: number) => {
+  const handleClaimByStaff = (orderId: string) => {
     if (!viewer?.userId) return;
-    claimOrderStep(
-      orderId,
-      step,
-      {
-        userId: viewer.userId,
-        name: viewer.name || userName || "Staff",
-      },
-      tokenAwarded
-    );
+    assignOrderToStaff(orderId, {
+      userId: viewer.userId,
+      name: viewer.name || userName || "Staff",
+    });
   };
 
   const handleOpenTransferModal = (orderId: string) => {
@@ -916,37 +919,28 @@ export default function ProductionTable() {
     const staffName = order.assignedStaffName?.trim();
     const orderDateKey = (order.deliveryDate || "").trim();
 
+    const isUnassigned = !order.assignedStaffUserId;
     const isStaffViewer = isStaff || viewer?.role === "Staff";
+    const assignedToMe =
+      Boolean(viewer?.userId) && order.assignedStaffUserId === viewer?.userId;
+    const claimedByOther =
+      Boolean(order.assignedStaffUserId) &&
+      viewer?.userId !== order.assignedStaffUserId;
+    const canStaffClaim =
+      isStaffViewer && isUnassigned && Boolean(viewer?.userId);
     const currentStaffDailyToken =
       viewer?.userId && orderDateKey
         ? (staffDailyTokenByDate.get(`${viewer.userId}:${orderDateKey}`) ?? 0)
         : 0;
-
-    const tokenList = Math.max(1, Math.round(orderToken * 0.25));
-    const tokenFilling = Math.max(1, Math.round(orderToken * 0.25));
-    const tokenFinishing = Math.max(1, Math.round(orderToken * 0.50));
-
-    const claimList = order.claimedSteps?.find(c => c.step === "List");
-    const claimFilling = order.claimedSteps?.find(c => c.step === "Filling");
-    const claimFinishing = order.claimedSteps?.find(c => c.step === "Finishing");
-
-    const effectiveClaimList = claimList || (order.assignedStaffUserId ? { staffName: order.assignedStaffName, staffUserId: order.assignedStaffUserId } : null);
-    const effectiveClaimFilling = claimFilling || (order.assignedStaffUserId ? { staffName: order.assignedStaffName, staffUserId: order.assignedStaffUserId } : null);
-    const effectiveClaimFinishing = claimFinishing || (order.assignedStaffUserId ? { staffName: order.assignedStaffName, staffUserId: order.assignedStaffUserId } : null);
-    const isUnassigned = !effectiveClaimList && !effectiveClaimFilling && !effectiveClaimFinishing;
-    const assignedToMe = Boolean(viewer?.userId) && (
-      order.assignedStaffUserId === viewer?.userId || 
-      (order.claimedSteps && order.claimedSteps.some(c => c.staffUserId === viewer?.userId))
-    );
-
     const projectedStaffDailyToken = currentStaffDailyToken + orderToken;
     const exceedsStaffDailyLimit =
-      isStaffViewer && isUnassigned &&
+      canStaffClaim &&
       isStaffDailyTokenAssignmentBlocked({
         currentToken: currentStaffDailyToken,
         incomingToken: orderToken,
         limit: staffDailyTokenLimit,
       });
+    const claimDisabled = claimedByOther || exceedsStaffDailyLimit;
 
     const canOwnerAssignOrTransfer = isPrivilegedManager;
     const ownerActionCandidates = canOwnerAssignOrTransfer
@@ -1007,49 +1001,30 @@ export default function ProductionTable() {
         </div>
 
         <div className="flex shrink-0 flex-col items-end gap-1.5">
-          <div className="flex flex-col items-end gap-1">
-            {[
-              { step: "List" as const, tokenAmt: tokenList, claim: effectiveClaimList },
-              { step: "Filling" as const, tokenAmt: tokenFilling, claim: effectiveClaimFilling },
-              { step: "Finishing" as const, tokenAmt: tokenFinishing, claim: effectiveClaimFinishing }
-            ].map(({ step, tokenAmt, claim }) => {
-              if (claim) {
-                return (
-                  <span key={step} className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-700">
-                    {step}: {claim.staffName}
-                  </span>
-                );
-              }
-              if (isStaffViewer) {
-                const limitExceeded = isStaffDailyTokenAssignmentBlocked({
-                  currentToken: currentStaffDailyToken,
-                  incomingToken: tokenAmt,
-                  limit: staffDailyTokenLimit,
-                });
-                return (
-                  <button
-                    key={step}
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      handleClaimByStaff(order.id, step, tokenAmt);
-                    }}
-                    disabled={limitExceeded}
-                    className="rounded-full bg-blue-500 px-2 py-0.5 text-[10px] font-medium text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    Ambil {step}
-                  </button>
-                );
-              }
-              return (
-                <span key={step} className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-500">
-                  {step} Unassigned
-                </span>
-              );
-            })}
-          </div>
+          <div className="flex items-center gap-2">
+            {staffName ? (
+              <span className="rounded-full bg-green-100 px-2.5 py-1 text-xs font-medium text-green-700">
+                {staffName}
+              </span>
+            ) : (
+              <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-500">
+                Unassigned
+              </span>
+            )}
 
-          <div className="flex items-center gap-2 mt-1">
+            {canStaffClaim && (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleClaimByStaff(order.id);
+                }}
+                disabled={claimDisabled}
+                className="rounded-full bg-blue-500 px-3 py-1 text-xs font-medium text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Ambil
+              </button>
+            )}
 
             {canOwnerAssignOrTransfer && (
               <button

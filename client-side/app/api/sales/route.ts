@@ -2,15 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireAuth, isAuthError } from "@/lib/auth/session";
 import { createSaleSchema } from "@/lib/validations/sale";
-import { PaymentMethod } from "@prisma/client";
+import { PaymentMethod, SalesChannel } from "@prisma/client";
 import { createXenditInvoice } from "@/lib/xendit/invoices";
 import {
   generateTransactionNumber,
   updateBusinessMetrics,
   updateProductMetrics,
-  recomputeRecipeCost,
 } from "@/lib/services/saleHelpers";
-import { deductFIFO, simulateFIFOCost } from "@/lib/inventory/engine";
 import { deductProductionBatch, getReadyStockAvailable } from "@/lib/inventory/production-engine";
 
 export const runtime = "nodejs";
@@ -66,6 +64,11 @@ export async function GET(request: NextRequest) {
     const startDate = url.searchParams.get("startDate");
     const endDate = url.searchParams.get("endDate");
     const paymentMethod = url.searchParams.get("paymentMethod");
+    const sales_channel = url.searchParams.get("sales_channel");
+    const effectiveSalesChannel =
+      sales_channel === "tokopedia" || sales_channel === "shopee"
+        ? sales_channel
+        : "direct";
 
     const where = {
       businessId,
@@ -78,6 +81,7 @@ export async function GET(request: NextRequest) {
           }
         : {}),
       ...(paymentMethod ? { paymentMethod: paymentMethod as PaymentMethod } : {}),
+      sales_channel: effectiveSalesChannel as SalesChannel,
     };
 
     const sales = await prisma.sale.findMany({
@@ -190,7 +194,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { items, paymentMethod, paymentStatus, customerName, customerEmail, customerPhone } = parsed.data;
+    const { items, paymentMethod, paymentStatus, sales_channel, customerName, customerEmail, customerPhone } = parsed.data;
 
     // Look up active cashier shift (soft guard — don't block if shift feature not used yet)
     let activeShift: { id: number } | null = null;
@@ -209,7 +213,7 @@ export async function POST(request: NextRequest) {
         const productIds = [...new Set(items.map((i) => i.productId))];
         const products = await tx.product.findMany({
           where: { id: { in: productIds }, businessId },
-          select: { id: true, sellingPrice: true, productType: true },
+          select: { id: true, sellingPrice: true, cogs: true, productType: true },
         });
 
         if (products.length !== productIds.length) {
@@ -219,9 +223,10 @@ export async function POST(request: NextRequest) {
         }
 
         const productPriceMap = new Map(products.map((p) => [p.id, Number(p.sellingPrice)]));
+        const productCogsMap = new Map(products.map((p) => [p.id, Number(p.cogs)]));
         const productTypeMap = new Map(products.map((p) => [p.id, p.productType]));
 
-        // 2. Check availability for all items (ReadyStock → production batches, PreOrder → ingredients)
+        // 2. Check availability for stock-controlled products.
         for (const item of items) {
           const pType = productTypeMap.get(item.productId);
 
@@ -234,37 +239,10 @@ export async function POST(request: NextRequest) {
                 `Stok produksi "${prod?.id}" tidak cukup. Tersedia: ${available}, dibutuhkan: ${item.quantity}. Produksi dulu!`
               );
             }
-          } else {
-            // PreOrder: check ingredient stock (current behavior)
-            const recipes = await tx.recipe.findMany({
-              where: { productId: item.productId },
-              include: {
-                ingredient: {
-                  select: {
-                    id: true,
-                    name: true,
-                    inventoryBatches: {
-                      where: { remainingQty: { gt: 0 } },
-                      select: { remainingQty: true },
-                    },
-                  },
-                },
-              },
-            });
-
-            for (const recipe of recipes) {
-              const requiredQty = Number(recipe.quantity) * item.quantity;
-              const availableQty = recipe.ingredient.inventoryBatches.reduce(
-                (sum, b) => sum + Number(b.remainingQty), 0
-              );
-              if (availableQty < requiredQty) {
-                throw new Error(`Insufficient stock for ingredient: ${recipe.ingredient.name}`);
-              }
-            }
           }
         }
 
-        // 3. Calculate costs — ReadyStock uses production batch cost, PreOrder uses ingredient FIFO
+        // 3. Calculate costs from the direct product COGS field for every product type.
         let totalRevenue = 0;
         let totalCost = 0;
 
@@ -275,57 +253,16 @@ export async function POST(request: NextRequest) {
           costAtSale: number;
         }[] = [];
 
-        // Collect PreOrder ingredient deductions
-        const allDeductions: {
-          ingredientId: number;
-          breakdown: { batchId: number; quantity: number; costPerUnit: number }[];
-        }[] = [];
-
         // Collect ReadyStock products that need production batch deduction
         const readyStockDeductions: { productId: number; quantity: number }[] = [];
 
         for (const item of items) {
           const price = productPriceMap.get(item.productId)!;
           const pType = productTypeMap.get(item.productId);
-          let itemCost = 0;
+          const itemCost = (productCogsMap.get(item.productId) ?? 0) * item.quantity;
 
           if (pType === "ReadyStock") {
-            // ReadyStock: cost comes from production batch (deducted later in step 6.5)
-            // Pre-calculate cost using FIFO from production batches
-            const batches = await tx.productionBatch.findMany({
-              where: { productId: item.productId, remainingQty: { gt: 0 } },
-              orderBy: { producedAt: "asc" },
-            });
-
-            let remaining = item.quantity;
-            for (const batch of batches) {
-              if (remaining <= 0) break;
-              const take = Math.min(batch.remainingQty, remaining);
-              itemCost += take * Number(batch.costPerUnit);
-              remaining -= take;
-            }
-
             readyStockDeductions.push({ productId: item.productId, quantity: item.quantity });
-          } else {
-            // PreOrder: cost from ingredient FIFO (current behavior)
-            const recipes = await tx.recipe.findMany({
-              where: { productId: item.productId },
-              select: { ingredientId: true, quantity: true },
-            });
-
-            for (const recipe of recipes) {
-              const requiredQty = Number(recipe.quantity) * item.quantity;
-              if (requiredQty <= 0) continue;
-
-              const { totalCost: ingredientCost, breakdown } = await simulateFIFOCost(
-                tx,
-                recipe.ingredientId,
-                requiredQty,
-              );
-
-              itemCost += ingredientCost;
-              allDeductions.push({ ingredientId: recipe.ingredientId, breakdown });
-            }
           }
 
           totalRevenue += price * item.quantity;
@@ -359,6 +296,7 @@ export async function POST(request: NextRequest) {
             totalCost,
             paymentMethod,
             paymentStatus,
+            sales_channel,
             customerName,
             customerEmail,
             customerPhone,
@@ -373,19 +311,11 @@ export async function POST(request: NextRequest) {
           })),
         });
 
-        // 6.5. Deduct inventory — PreOrder: ingredient FIFO, ReadyStock: production batches
-        for (const deduction of allDeductions) {
-          await deductFIFO(tx, deduction.ingredientId, deduction.breakdown, stockDocument.id);
-        }
+        // 6.5. Deduct stock for ReadyStock products.
         for (const rsd of readyStockDeductions) {
           await deductProductionBatch(tx, rsd.productId, rsd.quantity);
         }
-
-        // 7. Recompute recipeCost on each sold product (keeps margin data fresh)
-        const soldProductIds = [...new Set(items.map((i) => i.productId))];
-        for (const pid of soldProductIds) {
-          await recomputeRecipeCost(tx, pid);
-        }
+        // Direct COGS is product-owned; ingredient recalculation is intentionally disabled.
 
         // 7.5. If Kasbon, create Debt record
         if (paymentMethod === "Kasbon") {
@@ -520,3 +450,5 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+

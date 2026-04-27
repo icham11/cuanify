@@ -208,9 +208,9 @@ model Product {
   recipeCost        Decimal           @default(0) @db.Decimal(12, 2)
   deletedAt         DateTime?
   productType       ProductType       @default(PreOrder)
-  cogs              Decimal?          @db.Decimal(15, 2)
+  cogs              Decimal           @db.Decimal(15, 2)
   business          Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  category          Category?         @relation(fields: [categoryId], references: [id])
+  category          Category?         @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   productForecasts  ProductForecast[]
   productMetrics    ProductMetrics[]
   productionBatches ProductionBatch[]
@@ -339,6 +339,7 @@ model Sale {
   invoiceId         String?
   invoiceUrl        String?
   invoiceStatus     String?
+  sales_channel     SalesChannel   @default(direct)
   cashierShiftId    Int?
   debt              Debt?
   business          Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
@@ -349,6 +350,7 @@ model Sale {
   @@index([businessId, createdAt(sort: Desc)])
   @@index([businessId, paymentStatus])
   @@index([businessId, paymentMethod])
+  @@index([businessId, sales_channel])
   @@index([cashierShiftId])
 }
 
@@ -651,6 +653,12 @@ enum PaymentMethod {
 enum PaymentStatus {
   Pending
   Paid
+}
+
+enum SalesChannel {
+  direct
+  tokopedia
+  shopee
 }
 
 enum StockDocumentType {

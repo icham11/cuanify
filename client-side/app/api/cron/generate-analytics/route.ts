@@ -176,10 +176,25 @@ async function generateForecastForBusiness(businessId: number) {
   const earliestSale = useBakery
     ? (
         await prisma.$queryRaw<Array<{ created_at: Date }>>`
+          WITH latest_orders AS (
+            SELECT *
+            FROM (
+              SELECT
+                bo.*,
+                ROW_NUMBER() OVER (
+                  PARTITION BY bo.business_id, bo.external_id
+                  ORDER BY bo.updated_at DESC, bo.id DESC
+                ) AS rn
+              FROM bakery_orders bo
+              WHERE bo.business_id = ${businessId}
+            ) ranked_orders
+            WHERE ranked_orders.rn = 1
+          )
           SELECT created_at
-          FROM bakery_orders
+          FROM latest_orders
           WHERE business_id = ${businessId}
-            AND payment_status = 'Paid'
+            AND LOWER(COALESCE(order_status, '')) = 'completed'
+            AND deleted_at IS NULL
           ORDER BY created_at ASC
           LIMIT 1
         `
@@ -208,7 +223,7 @@ async function generateForecastForBusiness(businessId: number) {
 
   // ─── Step 2: Fetch Product Sales Data with Prices ──────────────────────
   const byProduct = new Map<number, { entries: DailySalesEntry[]; historicalPrices: number[] }>();
-  const productPriceMap = new Map<number, { sellingPrice: number; recipeCost: number }>();
+  const productPriceMap = new Map<number, { sellingPrice: number; cogs: number }>();
   if (useBakery) {
     const forecastInputs = await getBakeryForecastInputs(businessId, since, now);
     for (const series of forecastInputs.productSeries) {
@@ -255,13 +270,13 @@ async function generateForecastForBusiness(businessId: number) {
 
     const products = await prisma.product.findMany({
       where: { businessId, deletedAt: null, isActive: true },
-      select: { id: true, sellingPrice: true, recipeCost: true },
+      select: { id: true, sellingPrice: true, cogs: true },
     });
 
     for (const p of products) {
       productPriceMap.set(p.id, {
         sellingPrice: Number(p.sellingPrice),
-        recipeCost: Number(p.recipeCost),
+        cogs: Number(p.cogs),
       });
     }
   }
@@ -471,7 +486,7 @@ async function generateForecastForBusiness(businessId: number) {
       if (!prices) continue;
 
       totalRevenue += dayForecast.qty * prices.sellingPrice;
-      totalCost += dayForecast.qty * prices.recipeCost;
+      totalCost += dayForecast.qty * prices.cogs;
       totalLowerRevenue += dayForecast.lower * prices.sellingPrice;
       totalUpperRevenue += dayForecast.upper * prices.sellingPrice;
     }

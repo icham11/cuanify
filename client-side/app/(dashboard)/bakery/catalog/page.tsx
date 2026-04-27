@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { formatCurrency } from "@/components/orders/formatters";
+import UnifiedAddProductModal from "@/components/products/UnifiedAddProductModal";
 import {
   makeAddOnKey,
   makeProductKey,
@@ -92,6 +93,7 @@ export default function BakeryCatalogPage() {
     price: 0,
   });
   const [activeModal, setActiveModal] = useState<CatalogModalType>(null);
+  const [unifiedAddProductOpen, setUnifiedAddProductOpen] = useState(false);
   const modalRef = useRef<HTMLDivElement>(null);
   const isProductModal = activeModal === "product";
 
@@ -312,7 +314,7 @@ export default function BakeryCatalogPage() {
               type="button"
               variant="outline"
               className="gap-2 border-[#ffd9b8] bg-white text-[#173a7a] shadow-sm hover:bg-[#fff4ed]"
-              onClick={openProductModal}
+              onClick={() => setUnifiedAddProductOpen(true)}
             >
               <PackagePlus size={16} />
               Tambah Product
@@ -1055,6 +1057,14 @@ export default function BakeryCatalogPage() {
           </div>
         </div>
       ) : null}
+
+      <UnifiedAddProductModal
+        open={unifiedAddProductOpen}
+        onClose={() => setUnifiedAddProductOpen(false)}
+        onSaved={() => {
+          toast.success("Produk tersimpan dan disinkronkan ke booking catalog.");
+        }}
+      />
     </div>
   );
 }

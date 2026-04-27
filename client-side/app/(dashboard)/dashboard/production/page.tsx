@@ -22,7 +22,7 @@ interface ReadyStockProduct {
   productId: number;
   productName: string;
   sellingPrice: string | number;
-  recipeCost: string | number;
+  cogs: string | number;
   availableStock: number;
 }
 
@@ -214,7 +214,7 @@ export default function ProductionPage() {
                     </div>
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-xs text-gray-400 truncate">
-                        Biaya resep: {formatRupiah(Number(p.recipeCost))}
+                        COGS/HPP: {formatRupiah(Number(p.cogs))}
                       </span>
                       <button
                         onClick={() => {
@@ -445,16 +445,16 @@ function ProduceModal({
           </div>
           <div className="flex flex-col items-center py-3 px-2 gap-0.5">
             <Coins size={13} className="text-emerald-400 mb-0.5" />
-            <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wide text-center">Biaya Resep</p>
+            <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wide text-center">COGS/HPP</p>
             <p className="text-sm font-extrabold text-emerald-700 truncate max-w-full px-1 text-center">
-              {formatRupiah(Number(product.recipeCost))}
+              {formatRupiah(Number(product.cogs))}
             </p>
           </div>
           <div className="flex flex-col items-center py-3 px-2 gap-0.5">
             <Coins size={13} className="text-violet-400 mb-0.5" />
             <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wide text-center">Est. Biaya</p>
             <p className="text-sm font-extrabold text-violet-700 truncate max-w-full px-1 text-center">
-              {formatRupiah(Number(product.recipeCost) * qty)}
+              {formatRupiah(Number(product.cogs) * qty)}
             </p>
           </div>
         </div>

@@ -47,7 +47,7 @@ interface Product {
   availableStock?: number; // for ReadyStock products
   category?: { id: number; name: string } | null;
   recipes?: RecipeIngredient[];
-  recipeCost?: number | string;
+  cogs?: number | string;
 }
 
 interface CartItem {

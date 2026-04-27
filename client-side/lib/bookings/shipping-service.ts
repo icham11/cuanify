@@ -8,6 +8,7 @@ import type {
   ShippingResiResponse,
   ShippingShipment,
 } from "@/lib/bookings/shipping-types";
+import { applyShippingInsuranceToQuote } from "@/lib/bookings/shipping-insurance";
 
 interface GeoPoint {
   latitude: number;
@@ -1094,6 +1095,7 @@ function uniqueByKey<T>(items: T[], getKey: (item: T) => string): T[] {
 async function getBiteshipRates(args: {
   destination: RateDestination;
   items: ShippingQuoteRequest["items"];
+  totalValue: number;
 }): Promise<ShippingQuote[]> {
   const apiKey = process.env.BITESHIP_API_KEY || "";
   if (!apiKey) return [];
@@ -1224,17 +1226,22 @@ async function getBiteshipRates(args: {
     );
 
     if (uniqueMapped.length > 0) {
-      return uniqueMapped.map((entry) => ({
-        id: `biteship-${entry.courierCode}-${entry.courierServiceCode}-${entry.price}`,
-        provider: entry.provider,
-        courierCode: entry.courierCode,
-        courierServiceCode: entry.courierServiceCode,
-        courierServiceName: entry.courierServiceName,
-        price: entry.price,
-        eta: entry.eta,
-        distanceKm: 0,
-        source: "biteship" as const,
-      }));
+      return uniqueMapped.map((entry) =>
+        applyShippingInsuranceToQuote(
+          {
+            id: `biteship-${entry.courierCode}-${entry.courierServiceCode}-${entry.price}`,
+            provider: entry.provider,
+            courierCode: entry.courierCode,
+            courierServiceCode: entry.courierServiceCode,
+            courierServiceName: entry.courierServiceName,
+            price: entry.price,
+            eta: entry.eta,
+            distanceKm: 0,
+            source: "biteship" as const,
+          },
+          args.totalValue,
+        ),
+      );
     }
   }
 
@@ -1363,6 +1370,7 @@ export async function getShippingQuote(
           longitude: destinationPoint.longitude,
         },
         items: payload.items,
+        totalValue: payload.totalValue,
       })
         .then((quotes) => {
           collectedQuotes.push(...quotes);
@@ -1385,6 +1393,7 @@ export async function getShippingQuote(
           postalCode: destinationPostalCode,
         },
         items: payload.items,
+        totalValue: payload.totalValue,
       })
         .then((quotes) => {
           collectedQuotes.push(...quotes);

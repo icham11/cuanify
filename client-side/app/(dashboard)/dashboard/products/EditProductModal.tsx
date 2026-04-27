@@ -13,6 +13,7 @@ export default function EditProductModal({ product, categories, onClose, onSaved
   const [name, setName] = useState<string>(product.name);
   const [categoryId, setCategoryId] = useState<number>(product.categoryId ?? categories[0]?.id ?? 0);
   const [sellingPrice, setSellingPrice] = useState<number>(Number(product.sellingPrice));
+  const [directCogs, setDirectCogs] = useState<number>(Number(product.cogs || 0));
   const [productType, setProductType] = useState<"ReadyStock" | "PreOrder">(product.productType ?? "PreOrder");
   const [recipe, setRecipe] = useState<DraftRecipeRowWithClientId[]>(() =>
     product.recipes.map((r, idx) => ({
@@ -25,12 +26,6 @@ export default function EditProductModal({ product, categories, onClose, onSaved
       _clientId: `edit-${r.ingredient.id}-${idx}`,
     })),
   );
-  const [cogsMode, setCogsMode] = useState<"auto" | "manual">(
-    product.recipes.length === 0 && product.recipeCost > 0 ? "manual" : "auto"
-  );
-  const [manualCogs, setManualCogs] = useState<number>(
-    product.recipes.length === 0 ? Number(product.recipeCost) : 0
-  );
   const [ingredientOptions, setIngredientOptions] = useState<IngredientOption[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -42,20 +37,16 @@ export default function EditProductModal({ product, categories, onClose, onSaved
       .catch(() => {});
   }, []);
 
-  const computedRecipeCost = recipe.reduce((s, r) => s + r.quantity * (r.costPerUnit ?? 0), 0);
-  const recipeCost = cogsMode === "manual" ? manualCogs : computedRecipeCost;
-  const margin = sellingPrice > 0 ? Math.round(((sellingPrice - recipeCost) / sellingPrice) * 100) : 0;
+  const margin = sellingPrice > 0 ? Math.round(((sellingPrice - directCogs) / sellingPrice) * 100) : 0;
 
   const validate = () => {
     if (!name.trim()) return "Nama produk wajib diisi.";
     if (!categoryId) return "Kategori wajib diisi.";
     if (!sellingPrice || sellingPrice <= 0) return "Harga jual harus lebih dari 0.";
-    if (cogsMode === "auto") {
-      const hasInvalid = recipe.some((r) => !r.ingredientName.trim() || r.quantity <= 0);
-      if (recipe.length > 0 && hasInvalid) return "Setiap bahan membutuhkan nama dan jumlah yang valid.";
-    } else {
-      if (manualCogs < 0) return "HPP / Modal tidak boleh negatif.";
-    }
+    if (!directCogs || directCogs <= 0) return "COGS/HPP wajib diisi dan harus lebih dari 0.";
+    const filledRecipe = recipe.filter((r) => r.ingredientName.trim() || r.ingredientId > 0);
+    const hasInvalid = filledRecipe.some((r) => !r.ingredientName.trim() || r.quantity <= 0);
+    if (filledRecipe.length > 0 && hasInvalid) return "Setiap bahan membutuhkan nama dan jumlah yang valid.";
     return null;
   };
 
@@ -72,7 +63,7 @@ export default function EditProductModal({ product, categories, onClose, onSaved
       // PATCH any new ingredients with extra info (optional, for AI/expansion)
       // (removed: initialStock, expirationDate, as not present in DraftRecipeRow)
       // Build recipe payload
-      const recipePayload = cogsMode === "manual" ? [] : recipe
+      const recipePayload = recipe
         .filter((r) => r.ingredientId > 0 && r.ingredientName.trim())
         .map((r) => ({
           ingredientId: Number(r.ingredientId),
@@ -87,9 +78,9 @@ export default function EditProductModal({ product, categories, onClose, onSaved
           name,
           categoryId: Number(categoryId),
           sellingPrice: Number(sellingPrice),
+          cogs: Number(directCogs),
           productType,
           recipe: recipePayload,
-          manualCogs: cogsMode === "manual" ? manualCogs : undefined,
         }),
       });
       const data = await res.json();
@@ -197,13 +188,13 @@ export default function EditProductModal({ product, categories, onClose, onSaved
                 required
               />
               <div className="text-xs text-gray-400 mt-1">
-                Biaya resep:{" "}
-                {recipeCost > 0
+                COGS/HPP:{" "}
+                {directCogs > 0
                   ? new Intl.NumberFormat("id-ID", {
                       style: "currency",
                       currency: "IDR",
                       minimumFractionDigits: 0,
-                    }).format(recipeCost)
+                    }).format(directCogs)
                   : "—"}
                 {margin !== null && (
                   <>
@@ -223,10 +214,20 @@ export default function EditProductModal({ product, categories, onClose, onSaved
                 )}
               </div>
             </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-600 uppercase mb-1">COGS / HPP (Rp)</label>
+              <input
+                type="number"
+                min={1}
+                value={directCogs}
+                onChange={(e) => setDirectCogs(Math.max(0, Number(e.target.value) || 0))}
+                className="w-full border border-indigo-200 rounded-xl px-4 py-2.5 text-base font-semibold text-slate-700 bg-white focus:ring-2 focus:ring-indigo-400 outline-none"
+              />
+            </div>
           </div>
 
           {/* Product Type */}
-          <div className="mb-4">
+          {false && <div className="mb-4">
             <label className="block text-xs font-bold text-gray-600 uppercase mb-2">Tipe Produk</label>
             <div className="flex gap-2">
               <button
@@ -254,74 +255,32 @@ export default function EditProductModal({ product, categories, onClose, onSaved
                 <div className="text-[9px] font-normal mt-0.5 text-gray-400">Bahan dikurangi saat produksi</div>
               </button>
             </div>
-          </div>
+          </div>}
 
-          <div className="mb-4 bg-gray-50 p-4 rounded-xl border border-gray-100">
-            <div className="flex items-center justify-between mb-3">
-              <label className="block text-xs font-bold text-gray-600 uppercase">Metode HPP (Modal)</label>
-              <div className="flex bg-gray-200 p-1 rounded-lg">
-                <button
-                  type="button"
-                  onClick={() => setCogsMode("auto")}
-                  className={`px-3 py-1 text-[10px] font-semibold rounded-md transition ${
-                    cogsMode === "auto" ? "bg-white text-indigo-700 shadow" : "text-gray-500 hover:text-gray-700"
-                  }`}
-                >
-                  Resep Otomatis
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCogsMode("manual")}
-                  className={`px-3 py-1 text-[10px] font-semibold rounded-md transition ${
-                    cogsMode === "manual" ? "bg-white text-indigo-700 shadow" : "text-gray-500 hover:text-gray-700"
-                  }`}
-                >
-                  Input Manual
-                </button>
-              </div>
-            </div>
-
-            {cogsMode === "manual" ? (
-              <div className="bg-amber-50/50 p-3 rounded-lg border border-amber-200">
-                <label className="block text-xs font-bold text-gray-700 mb-1">HPP / Modal (Rp)</label>
-                <input
-                  type="number"
-                  min={0}
-                  value={manualCogs}
-                  onChange={(e) => setManualCogs(Number(e.target.value))}
-                  className="w-full border border-amber-200 rounded-lg px-3 py-2 text-sm text-slate-700 bg-white focus:ring-2 focus:ring-amber-400 outline-none"
+          <div className="mb-4">
+            <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Resep Produk Opsional</label>
+            <div className="space-y-2">
+              {recipe.map((row, idx) => (
+                <IngredientSelectorRow
+                  key={row._clientId || row.ingredientId || idx}
+                  row={row}
+                  index={idx}
+                  ingredientOptions={ingredientOptions}
+                  usedIngredientIds={new Set(recipe.filter((_, i) => i !== idx).map((r) => r.ingredientId))}
+                  onChange={(updated) => updateRow(idx, updated as DraftRecipeRowWithClientId)}
+                  onRemove={() => removeRow(idx)}
+                  unitError={submitted && (!row.unit || !row.unit.trim())}
+                  costError={submitted && row.costPerUnit == null}
                 />
-                <p className="text-[10px] text-amber-600 mt-1.5 flex items-start gap-1">
-                  <AlertTriangle size={12} className="shrink-0 mt-0.5" />
-                  <span>
-                    Bahan baku tidak akan berkurang otomatis karena tidak ada resep yang diatur.
-                  </span>
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {recipe.map((row, idx) => (
-                  <IngredientSelectorRow
-                    key={row._clientId || row.ingredientId || idx}
-                    row={row}
-                    index={idx}
-                    ingredientOptions={ingredientOptions}
-                    usedIngredientIds={new Set(recipe.filter((_, i) => i !== idx).map((r) => r.ingredientId))}
-                    onChange={(updated) => updateRow(idx, updated as DraftRecipeRowWithClientId)}
-                    onRemove={() => removeRow(idx)}
-                    unitError={submitted && (!row.unit || !row.unit.trim())}
-                    costError={submitted && row.costPerUnit == null}
-                  />
-                ))}
-                <button
-                  type="button"
-                  onClick={addRow}
-                  className="mt-2 px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 font-semibold text-xs hover:bg-indigo-100 transition"
-                >
-                  <Plus size={14} className="inline mr-1" /> Tambah Bahan
-                </button>
-              </div>
-            )}
+              ))}
+              <button
+                type="button"
+                onClick={addRow}
+                className="mt-2 px-4 py-2 rounded-xl bg-indigo-50 text-indigo-700 font-semibold text-sm hover:bg-indigo-100 transition"
+              >
+                <Plus size={16} className="inline mr-1" /> Tambah Bahan
+              </button>
+            </div>
           </div>
         </form>
         <div className="flex gap-3 px-4 sm:px-6 py-4 border-t border-gray-100 shrink-0">
@@ -347,3 +306,4 @@ export default function EditProductModal({ product, categories, onClose, onSaved
     document.body,
   );
 }
+

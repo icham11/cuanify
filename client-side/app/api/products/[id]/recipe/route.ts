@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireAuth, isAuthError } from "@/lib/auth/session";
 import { recipeItemSchema } from "@/lib/validations/product";
-import { recomputeRecipeCost } from "@/lib/computeRecipeCost";
 
 export const runtime = "nodejs";
 
@@ -106,9 +105,6 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
         quantity,
       },
     });
-
-    // Recompute stored recipeCost for the product
-    await recomputeRecipeCost(productId).catch(() => {});
 
     return NextResponse.json({ success: true, data: recipe }, { status: 201 });
   } catch (error) {

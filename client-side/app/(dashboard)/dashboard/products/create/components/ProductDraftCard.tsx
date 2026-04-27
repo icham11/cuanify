@@ -1,21 +1,22 @@
 "use client";
 
-import { useCallback, useState } from "react";
-import { ChefHat, Sparkles, Trash2, ChevronDown, ChevronUp, Edit3, Tag, Plus } from "lucide-react";
-import type { ProductDraft, DraftRecipeRow } from "@/types/product";
-import type { IngredientOption } from "@/lib/api/products";
-import { deleteIngredient, createIngredient } from "@/lib/api/products";
-import IngredientSelectorRow from "./IngredientSelectorRow";
+import { useState } from "react";
+import {
+  ChevronDown,
+  ChevronUp,
+  Edit3,
+  Sparkles,
+  Tag,
+  Trash2,
+} from "lucide-react";
+import type { ProductDraft } from "@/types/product";
 import ConfirmDeleteModal from "./ConfirmDeleteModal";
 
 interface Props {
   draft: ProductDraft;
   index: number;
-  ingredientOptions: IngredientOption[];
   onChange: (updated: ProductDraft) => void;
   onRemove: () => void;
-  /** Called whenever a manually-typed new ingredient is confirmed and saved to DB */
-  onIngredientCreated?: (option: IngredientOption) => void;
 }
 
 const formatCurrency = (value: number) =>
@@ -28,50 +29,18 @@ const formatCurrency = (value: number) =>
 export default function ProductDraftCard({
   draft,
   index,
-  ingredientOptions,
   onChange,
   onRemove,
-  onIngredientCreated,
 }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
   const [pendingDelete, setPendingDelete] = useState(false);
 
-  const recipeCost = draft.recipe.reduce((sum, r) => sum + r.quantity * (r.costPerUnit ?? 0), 0);
-
+  const cogs = Number(draft.cogs || 0);
   const margin =
-    draft.sellingPrice > 0 ? Math.round(((draft.sellingPrice - recipeCost) / draft.sellingPrice) * 100) : 0;
-
-  const updateRow = (rowIndex: number, updated: DraftRecipeRow) =>
-    onChange({ ...draft, recipe: draft.recipe.map((r, i) => (i === rowIndex ? updated : r)) });
-
-  const removeRow = useCallback(
-    async (rowIndex: number) => {
-      const row = draft.recipe[rowIndex];
-      // AI-created ingredient (isNew + positive DB id) 竊・delete from DB
-      if (row?.isNew && row.ingredientId > 0) {
-        try {
-          await deleteIngredient(row.ingredientId);
-        } catch {
-          // non-critical 窶・still remove from recipe
-        }
-      }
-      onChange({ ...draft, recipe: draft.recipe.filter((_, i) => i !== rowIndex) });
-    },
-    [draft, onChange],
-  );
-
-  const addRow = () => {
-    const newRow: DraftRecipeRow = {
-      ingredientId: -(draft.recipe.length + 1),
-      ingredientName: "",
-      unit: "",
-      quantity: 1,
-      costPerUnit: null,
-      isNew: true,
-    };
-    onChange({ ...draft, recipe: [...draft.recipe, newRow] });
-  };
+    draft.sellingPrice > 0
+      ? Math.round(((draft.sellingPrice - cogs) / draft.sellingPrice) * 100)
+      : 0;
 
   return (
     <>
@@ -87,59 +56,71 @@ export default function ProductDraftCard({
       />
 
       <div
-        className={`bg-white rounded-2xl shadow border ${
+        className={`rounded-2xl border bg-white shadow transition-all ${
           draft.aiGenerated ? "border-indigo-200" : "border-gray-200"
-        } transition-all`}
+        }`}
       >
-        {/* Card Header */}
-        <div className="flex items-center gap-4 px-5 py-4 rounded-t-2xl">
-          <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-4 rounded-t-2xl px-5 py-4">
+          <div className="min-w-0 flex-1">
             {editing ? (
               <input
                 autoFocus
                 value={draft.name}
-                onChange={(e) => onChange({ ...draft, name: e.target.value })}
+                onChange={(event) =>
+                  onChange({ ...draft, name: event.target.value })
+                }
                 onBlur={() => setEditing(false)}
-                className="w-full border border-indigo-300 rounded-lg px-3 py-1 text-lg font-bold text-slate-800 focus:ring-2 focus:ring-indigo-400 outline-none"
+                className="w-full rounded-lg border border-indigo-300 px-3 py-1 text-lg font-bold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-400"
               />
             ) : (
               <div className="flex items-center gap-2">
-                <h3 className="text-lg font-bold text-slate-800 truncate">{draft.name || `Product ${index + 1}`}</h3>
+                <h3 className="truncate text-lg font-bold text-slate-800">
+                  {draft.name || `Produk ${index + 1}`}
+                </h3>
                 {draft.aiGenerated && (
-                  <span className="inline-flex items-center gap-1 bg-indigo-100 text-indigo-600 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-indigo-600">
                     <Sparkles size={10} /> AI
                   </span>
                 )}
               </div>
             )}
-            <div className="flex items-center gap-2 mt-1 flex-wrap">
-              <span className="inline-flex items-center gap-1 bg-indigo-100 text-indigo-700 text-xs font-medium px-2 py-0.5 rounded-full">
+
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700">
                 <Tag size={10} />
                 {draft.categoryName || "Uncategorised"}
               </span>
-              {/* Product Type Badge (clickable to toggle) */}
               <button
                 type="button"
                 onClick={() =>
                   onChange({
                     ...draft,
-                    productType: draft.productType === "ReadyStock" ? "PreOrder" : "ReadyStock",
+                    productType:
+                      draft.productType === "ReadyStock"
+                        ? "PreOrder"
+                        : "ReadyStock",
                   })
                 }
-                className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full cursor-pointer transition-colors ${
+                className={`inline-flex cursor-pointer items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold transition-colors ${
                   draft.productType === "ReadyStock"
                     ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
                     : "bg-blue-100 text-blue-700 hover:bg-blue-200"
                 }`}
                 title="Klik untuk ganti tipe produk"
               >
-                {draft.productType === "ReadyStock" ? "📦 Ready Stock" : "🍳 Made to Order"}
+                {draft.productType === "ReadyStock"
+                  ? "Ready Stock"
+                  : "Made to Order"}
               </button>
-              <span className="text-indigo-700 font-semibold text-sm">{formatCurrency(draft.sellingPrice)}</span>
-              <span className="text-gray-400 text-xs">cost {recipeCost > 0 ? formatCurrency(recipeCost) : "—"}</span>
+              <span className="text-sm font-semibold text-indigo-700">
+                {formatCurrency(draft.sellingPrice)}
+              </span>
+              <span className="text-xs text-gray-400">
+                COGS {cogs > 0 ? formatCurrency(cogs) : "-"}
+              </span>
               {draft.sellingPrice > 0 && (
                 <span
-                  className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                  className={`rounded-full px-2 py-0.5 text-xs font-bold ${
                     margin >= 50
                       ? "bg-green-100 text-green-700"
                       : margin >= 20
@@ -153,173 +134,113 @@ export default function ProductDraftCard({
             </div>
           </div>
 
-          {/* Actions */}
-          <div className="flex items-center gap-1 shrink-0">
+          <div className="flex shrink-0 items-center gap-1">
             <button
+              type="button"
               onClick={() => setEditing(true)}
-              className="p-2 rounded-full hover:bg-indigo-50 text-indigo-500 transition"
-              title="Edit name"
+              className="rounded-full p-2 text-indigo-500 transition hover:bg-indigo-50"
+              title="Edit nama"
             >
               <Edit3 size={16} />
             </button>
             <button
+              type="button"
               onClick={() => setPendingDelete(true)}
-              className="p-2 rounded-full hover:bg-red-50 text-red-500 transition"
+              className="rounded-full p-2 text-red-500 transition hover:bg-red-50"
               title="Hapus produk ini"
             >
               <Trash2 size={16} />
             </button>
             <button
-              onClick={() => setExpanded((v) => !v)}
-              className="p-2 rounded-full hover:bg-gray-100 text-gray-500 transition"
-              title={expanded ? "Collapse" : "Expand recipe"}
+              type="button"
+              onClick={() => setExpanded((value) => !value)}
+              className="rounded-full p-2 text-gray-500 transition hover:bg-gray-100"
+              title={expanded ? "Sembunyikan detail" : "Edit detail"}
             >
               {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
             </button>
           </div>
         </div>
 
-        {/* Expanded edit panel */}
         {expanded && (
-          <div className="border-t border-gray-100 px-5 py-4 space-y-4 bg-indigo-50/30 rounded-b-2xl">
-            {/* Category + Selling Price */}
-            <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-4 rounded-b-2xl border-t border-gray-100 bg-indigo-50/30 px-5 py-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <div>
-                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Category</label>
+                <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  Kategori
+                </label>
                 <input
                   value={draft.categoryName}
-                  onChange={(e) => onChange({ ...draft, categoryName: e.target.value })}
-                  placeholder="e.g. Minuman"
-                  className="mt-1 w-full border border-indigo-200 rounded-lg px-3 py-2 text-sm text-slate-700 bg-white focus:ring-2 focus:ring-indigo-400 outline-none"
+                  onChange={(event) =>
+                    onChange({ ...draft, categoryName: event.target.value })
+                  }
+                  placeholder="cth. Minuman"
+                  className="mt-1 w-full rounded-lg border border-indigo-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-indigo-400"
                 />
               </div>
               <div>
-                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                  Selling Price (Rp)
+                <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  Harga Jual (Rp)
                 </label>
                 <input
                   type="number"
                   min={0}
                   value={draft.sellingPrice}
-                  onChange={(e) => onChange({ ...draft, sellingPrice: Number(e.target.value) })}
-                  className="mt-1 w-full border border-indigo-200 rounded-lg px-3 py-2 text-sm text-slate-700 bg-white focus:ring-2 focus:ring-indigo-400 outline-none"
+                  onChange={(event) =>
+                    onChange({
+                      ...draft,
+                      sellingPrice: Number(event.target.value),
+                    })
+                  }
+                  className="mt-1 w-full rounded-lg border border-indigo-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-indigo-400"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  COGS / HPP (Rp)
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  value={draft.cogs ?? 0}
+                  onChange={(event) =>
+                    onChange({ ...draft, cogs: Number(event.target.value) })
+                  }
+                  className="mt-1 w-full rounded-lg border border-indigo-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-indigo-400"
                 />
               </div>
             </div>
 
-            {/* Product Type */}
             <div>
-              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Tipe Produk</label>
-              <div className="flex gap-2 mt-1">
+              <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Tipe Produk
+              </label>
+              <div className="mt-1 flex gap-2">
                 <button
                   type="button"
                   onClick={() => onChange({ ...draft, productType: "PreOrder" })}
-                  className={`flex-1 py-2 px-3 rounded-lg border-2 text-xs font-semibold transition-all ${
+                  className={`flex-1 rounded-lg border-2 px-3 py-2 text-xs font-semibold transition-all ${
                     draft.productType !== "ReadyStock"
                       ? "border-blue-400 bg-blue-50 text-blue-700"
                       : "border-gray-200 bg-white text-gray-500 hover:border-gray-300"
                   }`}
                 >
-                  🍳 Made to Order
+                  Made to Order
                 </button>
                 <button
                   type="button"
-                  onClick={() => onChange({ ...draft, productType: "ReadyStock" })}
-                  className={`flex-1 py-2 px-3 rounded-lg border-2 text-xs font-semibold transition-all ${
+                  onClick={() =>
+                    onChange({ ...draft, productType: "ReadyStock" })
+                  }
+                  className={`flex-1 rounded-lg border-2 px-3 py-2 text-xs font-semibold transition-all ${
                     draft.productType === "ReadyStock"
                       ? "border-emerald-400 bg-emerald-50 text-emerald-700"
                       : "border-gray-200 bg-white text-gray-500 hover:border-gray-300"
                   }`}
                 >
-                  📦 Ready Stock
+                  Ready Stock
                 </button>
               </div>
-            </div>
-
-            {/* Recipe editor */}
-            <div>
-              <div className="flex items-center gap-2 mb-3">
-                <ChefHat size={14} className="text-indigo-400" />
-                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                  Recipe ({draft.recipe.length} ingredient{draft.recipe.length !== 1 ? "s" : ""})
-                </span>
-              </div>
-
-              {draft.recipe.length > 0 && (
-                <div className="space-y-2 mb-3">
-                  {/* Column headers */}
-                  <div className="grid grid-cols-12 gap-2 px-3 text-[10px] font-bold text-gray-400 uppercase tracking-wide">
-                    <div className="col-span-4">Ingredient</div>
-                    <div className="col-span-2">Qty</div>
-                    <div className="col-span-2">Unit</div>
-                    <div className="col-span-2">Cost/unit</div>
-                    <div className="col-span-2">Subtotal</div>
-                  </div>
-                  {draft.recipe.map((row, i) => (
-                    <IngredientSelectorRow
-                      key={`${draft._clientId}-${row.ingredientId}-${i}`}
-                      row={row}
-                      index={i}
-                      ingredientOptions={ingredientOptions}
-                      usedIngredientIds={
-                        new Set(draft.recipe.filter((r, j) => j !== i && r.ingredientId > 0).map((r) => r.ingredientId))
-                      }
-                      onChange={(updated) => updateRow(i, updated)}
-                      onRemove={() => removeRow(i)}
-                      // Manually-typed new ingredient (negative id): save to DB on confirm
-                      onConfirm={
-                        row.isNew && row.ingredientId < 0
-                          ? async (confirmedRow) => {
-                              try {
-                                const created = await createIngredient({
-                                  name: confirmedRow.ingredientName,
-                                  unit: confirmedRow.unit,
-                                  costPerUnit: confirmedRow.costPerUnit ?? 0,
-                                  ...(confirmedRow.initialStock !== undefined
-                                    ? { initialStock: confirmedRow.initialStock }
-                                    : {}),
-                                  ...(confirmedRow.expirationDate
-                                    ? { expirationDate: confirmedRow.expirationDate }
-                                    : {}),
-                                });
-                                // Update row immediately with real DB id so it's included in the final save
-                                updateRow(i, {
-                                  ...confirmedRow,
-                                  ingredientId: created.id,
-                                  isNew: false,
-                                });
-                                // Add to the shared options pool so all other draft cards can pick it
-                                onIngredientCreated?.({
-                                  id: created.id,
-                                  name: created.name,
-                                  unit: created.unit,
-                                  costPerUnit: confirmedRow.costPerUnit ?? null,
-                                  currentStock: confirmedRow.initialStock ?? 0,
-                                });
-                              } catch {
-                                // Non-critical: row stays locally confirmed; real id needed for save
-                              }
-                            }
-                          : undefined
-                      }
-                      // AI-created new ingredients (positive ID) are managed in the central
-                      // "New Ingredients" panel at the top of the page — disable per-row editing.
-                      managedCentrally={row.isNew === true && row.ingredientId > 0}
-                    />
-                  ))}
-                </div>
-              )}
-
-              {draft.recipe.length === 0 && <p className="text-xs text-gray-400 italic mb-3">No ingredients yet.</p>}
-
-              <button
-                type="button"
-                onClick={addRow}
-                className="flex items-center gap-1.5 text-xs text-indigo-600 font-semibold hover:text-indigo-800 transition"
-              >
-                <Plus size={13} />
-                Add Ingredient
-              </button>
             </div>
           </div>
         )}

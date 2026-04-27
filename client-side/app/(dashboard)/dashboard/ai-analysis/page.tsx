@@ -51,7 +51,7 @@ interface ProductionSummaryItem {
   productId: number;
   productName: string;
   sellingPrice: number | string;
-  recipeCost: number | string;
+  cogs: number | string;
   availableStock: number;
 }
 

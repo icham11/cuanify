@@ -49,6 +49,7 @@ export async function GET(request: NextRequest) {
     const sales = await prisma.sale.findMany({
       where: {
         businessId,
+        sales_channel: "direct",
         ...(startDate || endDate
           ? {
               createdAt: {

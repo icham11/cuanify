@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PaymentMethod, PaymentStatus } from "@prisma/client";
+import { PaymentMethod, PaymentStatus, SalesChannel } from "@prisma/client";
 
 // ===================== SALE ITEM =====================
 
@@ -18,6 +18,7 @@ export const createSaleSchema = z.object({
     error: "Invalid payment method",
   }),
   paymentStatus: z.nativeEnum(PaymentStatus).optional().default(PaymentStatus.Paid),
+  sales_channel: z.nativeEnum(SalesChannel).optional().default(SalesChannel.direct),
   customerName: z.string().optional(),
   customerEmail: z.string().email("Invalid email").optional(),
   customerPhone: z.string().optional(),
@@ -37,6 +38,7 @@ export interface SaleWithItems {
   totalCost: number;
   paymentMethod: PaymentMethod;
   paymentStatus: PaymentStatus;
+  sales_channel: SalesChannel;
   customerName?: string | null;
   customerEmail?: string | null;
   customerPhone?: string | null;

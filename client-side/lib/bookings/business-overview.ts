@@ -1,4 +1,5 @@
 import prisma from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import { buildDashboardProductName } from "@/lib/bookings/product-sync";
 
 interface BakeryOrderRow {
@@ -106,25 +107,58 @@ async function getBakeryOverview(
   businessId: number,
   counts: Pick<BusinessOverviewCounts, "products" | "ingredients" | "categories">,
 ): Promise<BusinessOverviewSummary | null> {
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE bakery_orders
+    ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+  `);
+
   const bakeryOrderRows = await prisma.$queryRaw<BakeryOrderRow[]>`
+    WITH latest_orders AS (
+      SELECT *
+      FROM (
+        SELECT
+          bo.*,
+          ROW_NUMBER() OVER (
+            PARTITION BY bo.business_id, bo.external_id
+            ORDER BY bo.updated_at DESC, bo.id DESC
+          ) AS rn
+        FROM bakery_orders bo
+        WHERE bo.business_id = ${businessId}
+      ) ranked_orders
+      WHERE ranked_orders.rn = 1
+    )
     SELECT external_id, payment_status, total_price
-    FROM bakery_orders
+    FROM latest_orders
     WHERE business_id = ${businessId}
+      AND LOWER(COALESCE(order_status, '')) = 'completed'
+      AND deleted_at IS NULL
   `;
 
   if (bakeryOrderRows.length === 0) {
     return null;
   }
 
-  const paidOrderIds = bakeryOrderRows
-    .filter((row) => row.payment_status === "Paid")
-    .map((row) => row.external_id);
+  const paidOrderIds = bakeryOrderRows.map((row) => row.external_id);
 
   const bakeryOrderItems = paidOrderIds.length
     ? await prisma.$queryRaw<BakeryOrderItemRow[]>`
+        WITH latest_items AS (
+          SELECT *
+          FROM (
+            SELECT
+              item.*,
+              ROW_NUMBER() OVER (
+                PARTITION BY item.business_id, item.order_external_id, item.item_index
+                ORDER BY item.created_at DESC, item.id DESC
+              ) AS rn
+            FROM bakery_order_items item
+            WHERE item.business_id = ${businessId}
+              AND item.order_external_id IN (${Prisma.join(paidOrderIds)})
+          ) ranked_items
+          WHERE ranked_items.rn = 1
+        )
         SELECT order_external_id, payload
-        FROM bakery_order_items
-        WHERE business_id = ${businessId}
+        FROM latest_items
       `
     : [];
 
@@ -133,13 +167,13 @@ async function getBakeryOverview(
     select: {
       id: true,
       name: true,
-      recipeCost: true,
+      cogs: true,
     },
   });
 
   const productCostMap = new Map<string, number>();
   products.forEach((product) => {
-    productCostMap.set(normalizeText(product.name), toNumber(product.recipeCost));
+    productCostMap.set(normalizeText(product.name), toNumber(product.cogs));
   });
 
   const paidOrderIdSet = new Set(paidOrderIds);
@@ -159,7 +193,7 @@ async function getBakeryOverview(
     totalCost += productCost * item.quantity;
   });
 
-  const paidOrders = bakeryOrderRows.filter((row) => row.payment_status === "Paid");
+  const paidOrders = bakeryOrderRows;
   const totalRevenue = paidOrders.reduce(
     (sum, row) => sum + toNumber(row.total_price),
     0,

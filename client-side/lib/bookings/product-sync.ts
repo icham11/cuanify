@@ -1,5 +1,4 @@
 import prisma from "@/lib/prisma";
-import { recomputeRecipeCost } from "@/lib/computeRecipeCost";
 import type { PricelistCategory } from "@/lib/bookings/pricelist";
 import {
   acquireProductWriteLock,
@@ -258,7 +257,7 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
         categoryId: number | null;
         name: string;
         sellingPrice: number;
-        recipeCost: number;
+        cogs: number;
         productType: "PreOrder";
       }> = [];
 
@@ -306,7 +305,7 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
           categoryId: resolvedCategoryId,
           name: normalizedName,
           sellingPrice: product.sellingPrice,
-          recipeCost: 0,
+          cogs: 0,
           productType: "PreOrder",
         });
       }
@@ -334,14 +333,6 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
       timeout: PRODUCT_SYNC_TX_TIMEOUT_MS,
     },
   );
-
-  if (result.touchedProductIds.length > 0) {
-    await Promise.all(
-      result.touchedProductIds.map((id) =>
-        recomputeRecipeCost(id).catch(() => {}),
-      ),
-    );
-  }
 
   return result;
 }

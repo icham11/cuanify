@@ -78,7 +78,7 @@ type ProductDuplicateCandidate = {
   name: string;
   categoryId: number | null;
   sellingPrice: string;
-  recipeCost: string;
+  cogs: string;
   productType: "ReadyStock" | "PreOrder";
   isActive: boolean;
   createdAt: Date;
@@ -109,7 +109,7 @@ function compareDuplicateCandidates(
     right.metricsCount - left.metricsCount,
     right.forecastCount - left.forecastCount,
     Number(Boolean(right.categoryId)) - Number(Boolean(left.categoryId)),
-    Number(Number(right.recipeCost) > 0) - Number(Number(left.recipeCost) > 0),
+    Number(Number(right.cogs) > 0) - Number(Number(left.cogs) > 0),
     Number(Number(right.sellingPrice) > 0) - Number(Number(left.sellingPrice) > 0),
   ];
 
@@ -261,10 +261,10 @@ async function mergeDuplicateProductIntoCanonical(args: {
         Number(canonical.sellingPrice) > 0
           ? canonical.sellingPrice
           : duplicate.sellingPrice,
-      recipeCost:
-        Number(canonical.recipeCost) > 0
-          ? canonical.recipeCost
-          : duplicate.recipeCost,
+      cogs:
+        Number(canonical.cogs) > 0
+          ? canonical.cogs
+          : duplicate.cogs,
     },
   });
 
@@ -295,7 +295,7 @@ export async function deduplicateProductsForBusiness(args: {
       p.name,
       p."categoryId",
       p."sellingPrice"::text AS "sellingPrice",
-      p."recipeCost"::text AS "recipeCost",
+      p."cogs"::text AS "cogs",
       p."productType"::text AS "productType",
       p."isActive",
       p."createdAt",
@@ -369,8 +369,8 @@ export async function deduplicateProductsForBusiness(args: {
       if (Number(canonical.sellingPrice) <= 0 && Number(duplicate.sellingPrice) > 0) {
         canonical.sellingPrice = duplicate.sellingPrice;
       }
-      if (Number(canonical.recipeCost) <= 0 && Number(duplicate.recipeCost) > 0) {
-        canonical.recipeCost = duplicate.recipeCost;
+      if (Number(canonical.cogs) <= 0 && Number(duplicate.cogs) > 0) {
+        canonical.cogs = duplicate.cogs;
       }
       removedProducts += 1;
     }

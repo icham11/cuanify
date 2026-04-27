@@ -60,6 +60,7 @@ export default function PhotoUploadModal({ onClose, onSuccess }: Props) {
             name: string;
             categoryName: string;
             sellingPrice: number;
+            cogs?: number;
             productType?: "ReadyStock" | "PreOrder";
             recipe: Array<{
               ingredientId: number;
@@ -76,8 +77,9 @@ export default function PhotoUploadModal({ onClose, onSuccess }: Props) {
           name: p.name,
           categoryName: p.categoryName,
           sellingPrice: p.sellingPrice,
+          cogs: Number(p.cogs || 0),
           productType: p.productType ?? "PreOrder",
-          recipe: p.recipe ?? [],
+          recipe: [],
           aiGenerated: true,
         }),
       );

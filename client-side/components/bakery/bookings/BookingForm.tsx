@@ -262,6 +262,9 @@ const bookingSchema = z
       "ASSISTED_SAME_DAY",
       "REGULAR_JNE_JNT",
     ]),
+    sales_channel: z.enum(["direct", "tokopedia", "shopee"], {
+      error: "Sales channel wajib dipilih.",
+    }),
     customNotes: z.string().max(1200).optional().or(z.literal("")),
     paymentStatus: z.enum(["DP Paid", "Paid"]),
     dpPaidAmount: z.number().default(0),
@@ -3229,7 +3232,12 @@ export default function BookingForm() {
   }, [shippingDistanceKm, selectedShippingQuote]);
 
   const deliveryFee = shouldUseShippingEngine
-    ? (selectedShippingQuote?.price ?? 0)
+    ? (selectedShippingQuote?.priceWithoutInsurance ??
+        selectedShippingQuote?.price ??
+        0)
+    : 0;
+  const insuranceFee = shouldUseShippingEngine
+    ? (selectedShippingQuote?.insuranceFee ?? 0)
     : 0;
   const serviceCharge = resolveAdminServiceCharge(deliveryMethod);
 
@@ -3242,6 +3250,7 @@ export default function BookingForm() {
     basePrice +
     addOnTotal +
     deliveryFee +
+    insuranceFee +
     serviceCharge +
     insuranceFee +
     Number(manualAdjustment || 0);
@@ -4152,11 +4161,13 @@ export default function BookingForm() {
       basePrice,
       addOnTotal,
       deliveryFee,
+      insuranceFee,
       manualAdjustment: Number(values.manualAdjustment || 0),
       totalPrice,
       downPaymentAmount,
       remainingBalance,
       paymentStatus: effectivePaymentStatus,
+      sales_channel: values.sales_channel,
       dpPaidAmount: effectiveDpPaidAmount,
       finalPaidAmount: effectiveFinalPaidAmount,
       whatsAppParsedData: normalizedParsedPreview,
@@ -7748,6 +7759,21 @@ export default function BookingForm() {
                 </div>
 
                 <label className="grid gap-2 text-sm font-medium text-gray-700">
+                  Sales Channel
+                  <Select {...register("sales_channel")}>
+                    <option value="">Pilih sales channel</option>
+                    <option value="direct">direct</option>
+                    <option value="tokopedia">tokopedia</option>
+                    <option value="shopee">shopee</option>
+                  </Select>
+                  {errors.sales_channel?.message && (
+                    <span className="text-[11px] font-normal text-rose-600">
+                      {String(errors.sales_channel.message)}
+                    </span>
+                  )}
+                </label>
+
+                <label className="grid gap-2 text-sm font-medium text-gray-700">
                   Metode Pengiriman
                   <Select {...register("deliveryMethod")}>
                     {selectableDeliveryMethodOptions.map((option) => (
@@ -8101,6 +8127,7 @@ export default function BookingForm() {
             basePrice={basePrice}
             addOnTotal={addOnTotal}
             deliveryFee={deliveryFee}
+            insuranceFee={insuranceFee}
             serviceCharge={serviceCharge}
             insuranceFee={insuranceFee}
             manualAdjustment={Number(manualAdjustment || 0)}

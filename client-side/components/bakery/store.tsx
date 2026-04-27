@@ -45,6 +45,10 @@ import {
 } from "@/lib/bookings/shipping-schedule";
 import { normalizeDateInput } from "@/lib/helpers/date-normalization";
 import { useBakerySettings } from "@/hooks/useBakerySettings";
+import {
+  distributeProductionTokens,
+  type ProductionStageAssignment,
+} from "@/lib/bookings/production-stages";
 
 export type OrderStatus =
   | "Inquiry"
@@ -131,14 +135,6 @@ export interface DeliveryAddress {
   addressLine: string;
 }
 
-export interface OrderClaimedStep {
-  step: "List" | "Filling" | "Finishing";
-  staffUserId: number;
-  staffName: string;
-  tokenAwarded: number;
-  claimedAt: string;
-}
-
 export interface BakeryOrder {
   id: string;
   resi: string;
@@ -155,6 +151,7 @@ export interface BakeryOrder {
   basePrice?: number;
   addOnTotal?: number;
   deliveryFee?: number;
+  insuranceFee?: number;
   manualAdjustment?: number;
   dpPaidAmount?: number;
   finalPaidAmount?: number;
@@ -166,12 +163,13 @@ export interface BakeryOrder {
   deliveryAddresses: DeliveryAddress[];
   product: string;
   totalPrice: number;
+  sales_channel?: "direct" | "tokopedia" | "shopee";
   paymentStatus: PaymentStatus;
   orderStatus: OrderStatus;
   assignedStaffUserId?: number | null;
   assignedStaffName?: string;
   productionAssignedAt?: string | null;
-  claimedSteps?: OrderClaimedStep[];
+  productionStages?: ProductionStageAssignment[];
   statusHistory: OrderStatusLog[];
   automationLogs?: OrderAutomationLog[];
   whatsAppParsedData?: ParsedWhatsAppOrder;
@@ -203,10 +201,12 @@ export interface NewOrderInput {
   basePrice: number;
   addOnTotal: number;
   deliveryFee: number;
+  insuranceFee?: number;
   manualAdjustment: number;
   dpPaidAmount: number;
   finalPaidAmount: number;
   totalPrice: number;
+  sales_channel: "direct" | "tokopedia" | "shopee";
   downPaymentAmount: number;
   remainingBalance: number;
   paymentStatus: PaymentStatus;
@@ -222,11 +222,10 @@ interface OrdersContextValue {
     id: string,
     staff: { userId: number; name: string },
   ) => void;
-  claimOrderStep: (
+  assignProductionStageStaff: (
     id: string,
-    step: "List" | "Filling" | "Finishing",
-    staff: { userId: number; name: string },
-    tokenAwarded: number,
+    stage: ProductionStageAssignment["stage"],
+    staff: { userId: number; name: string } | null,
   ) => void;
   clearOrderAssignee: (id: string) => void;
   updatePaymentStatus: (id: string, status: PaymentStatus) => void;
@@ -844,7 +843,20 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       return null as OrdersSyncResponse | null;
     }
 
-    const requestBody = { orders: nextOrders };
+    const requestBody = {
+      orders: nextOrders.map((order) => {
+        const { insuranceFee: _insuranceFee, shippingQuote, ...safeOrder } = order;
+        const safeShippingQuote = shippingQuote
+          ? ((quoteWithInsurance) => {
+              const { insuranceFee: _quoteInsuranceFee, ...quote } = quoteWithInsurance;
+              void _quoteInsuranceFee;
+              return quote;
+            })(shippingQuote)
+          : shippingQuote;
+        void _insuranceFee;
+        return { ...safeOrder, shippingQuote: safeShippingQuote };
+      }),
+    };
     console.info("[bookings][frontend] sync request", {
       endpoint: ORDERS_SYNC_ENDPOINT,
       method: "POST",
@@ -1524,6 +1536,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         basePrice: order.basePrice,
         addOnTotal: order.addOnTotal,
         deliveryFee: order.deliveryFee,
+        insuranceFee: order.insuranceFee ?? order.shippingQuote?.insuranceFee ?? 0,
         manualAdjustment: order.manualAdjustment,
         dpPaidAmount: normalizedDpPaid,
         finalPaidAmount: normalizedFinalPaid,
@@ -1568,11 +1581,13 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         addOns: order.items.flatMap((item) => item.addOns).join(", "),
         product: `${order.items.length} item(s)`,
         totalPrice: normalizedTotalPrice,
+        sales_channel: order.sales_channel,
         paymentStatus: inferredPaymentStatus,
         orderStatus: "In Production",
         assignedStaffUserId: null,
         assignedStaffName: "",
         productionAssignedAt: null,
+        productionStages: [],
         whatsAppParsedData: order.whatsAppParsedData,
         shippingQuote: order.shippingQuote ?? null,
         shipment: null,
@@ -1731,54 +1746,6 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
     [orders, persistOrders, actorIdentity],
   );
 
-  const claimOrderStep = useCallback(
-    (
-      id: string,
-      step: "List" | "Filling" | "Finishing",
-      staff: { userId: number; name: string },
-      tokenAwarded: number,
-    ) => {
-      const target = orders.find((order) => order.id === id);
-      if (!target) return;
-
-      const nowIso = new Date().toISOString();
-      const currentClaims = target.claimedSteps || [];
-      
-      const isAlreadyClaimed = currentClaims.some((c) => c.step === step);
-      if (isAlreadyClaimed) {
-        toast.error(`Tahap ${step} sudah diambil oleh staf lain.`);
-        return;
-      }
-
-      const nextOrders = orders.map((order) => {
-        if (order.id !== id) return order;
-        return {
-          ...order,
-          claimedSteps: [
-            ...(order.claimedSteps || []),
-            {
-              step,
-              staffUserId: staff.userId,
-              staffName: staff.name,
-              tokenAwarded,
-              claimedAt: nowIso,
-            },
-          ],
-          statusHistory: appendStatusLog(
-            order.statusHistory,
-            order.orderStatus,
-            `Proses [${step}] diambil oleh ${staff.name}`,
-            actorIdentity,
-          ),
-        };
-      });
-
-      persistOrders(nextOrders);
-      toast.success(`Tugas ${step} berhasil diambil!`);
-    },
-    [orders, persistOrders, actorIdentity],
-  );
-
   const clearOrderAssignee = useCallback(
     (id: string) => {
       const target = orders.find((order) => order.id === id);
@@ -1804,6 +1771,58 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       toast.message("Assignment staff dilepas");
     },
     [orders, persistOrders, actorIdentity],
+  );
+
+  const assignProductionStageStaff = useCallback(
+    (
+      id: string,
+      stage: ProductionStageAssignment["stage"],
+      staff: { userId: number; name: string } | null,
+    ) => {
+      const nextOrders = orders.map((order) => {
+        if (order.id !== id) return order;
+        const totalTokens = Number(order.items?.reduce((sum, item) => {
+          const qty = Math.max(0, Number(item.quantity) || 0);
+          const token =
+            Number(item.customTokenPerUnit) ||
+            (item.tokenDifficulty === "EXPERT"
+              ? 5
+              : item.tokenDifficulty === "ADVANCED"
+                ? 4
+                : item.tokenDifficulty === "HARD" || item.tokenDifficulty === "DIFFICULT"
+                  ? 3
+                  : item.tokenDifficulty === "NORMAL" || item.tokenDifficulty === "MEDIUM"
+                    ? 2
+                    : 1);
+          return sum + qty * token;
+        }, 0) || 0);
+        const currentByStage = new Map(
+          (order.productionStages ?? []).map((entry) => [entry.stage, entry]),
+        );
+        const productionStages = distributeProductionTokens({
+          totalTokens,
+          staffByStage: {
+            listing:
+              stage === "listing"
+                ? staff?.userId ?? null
+                : currentByStage.get("listing")?.staffId ?? null,
+            filling:
+              stage === "filling"
+                ? staff?.userId ?? null
+                : currentByStage.get("filling")?.staffId ?? null,
+            finishing:
+              stage === "finishing"
+                ? staff?.userId ?? null
+                : currentByStage.get("finishing")?.staffId ?? null,
+          },
+        });
+        return { ...order, productionStages };
+      });
+
+      persistOrders(nextOrders);
+      toast.success(staff ? `${stage} di-assign ke ${staff.name}` : `${stage} assignment dilepas`);
+    },
+    [orders, persistOrders],
   );
 
   const updatePaymentStatus = useCallback(
@@ -2108,7 +2127,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       addOrder,
       updateOrderStatus,
       assignOrderToStaff,
-      claimOrderStep,
+      assignProductionStageStaff,
       clearOrderAssignee,
       updatePaymentStatus,
       recordPayment,
@@ -2122,7 +2141,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       addOrder,
       updateOrderStatus,
       assignOrderToStaff,
-      claimOrderStep,
+      assignProductionStageStaff,
       clearOrderAssignee,
       updatePaymentStatus,
       recordPayment,
@@ -2145,3 +2164,4 @@ export function useOrders() {
   }
   return context;
 }
+

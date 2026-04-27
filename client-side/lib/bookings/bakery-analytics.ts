@@ -17,7 +17,7 @@ type BakeryOrderItemRow = {
 type ProductRecord = {
   id: number;
   name: string;
-  recipeCost: unknown;
+  cogs: unknown;
   category: { id: number; name: string } | null;
 };
 
@@ -159,7 +159,7 @@ async function loadBusinessProducts(
     select: {
       id: true,
       name: true,
-      recipeCost: true,
+      cogs: true,
       category: { select: { id: true, name: true } },
     },
   });
@@ -172,16 +172,40 @@ async function loadBusinessProducts(
   return map;
 }
 
-async function loadPaidBakeryOrders(
+async function ensureBakeryReportColumns(): Promise<void> {
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE bakery_orders
+    ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+  `);
+}
+
+async function loadCompletedBakeryOrders(
   businessId: number,
   startDate: Date,
   endDate: Date,
 ): Promise<BakeryOrderRow[]> {
+  await ensureBakeryReportColumns();
+
   return prisma.$queryRaw<BakeryOrderRow[]>`
+    WITH latest_orders AS (
+      SELECT *
+      FROM (
+        SELECT
+          bo.*,
+          ROW_NUMBER() OVER (
+            PARTITION BY bo.business_id, bo.external_id
+            ORDER BY bo.updated_at DESC, bo.id DESC
+          ) AS rn
+        FROM bakery_orders bo
+        WHERE bo.business_id = ${businessId}
+      ) ranked_orders
+      WHERE ranked_orders.rn = 1
+    )
     SELECT external_id, total_price, created_at
-    FROM bakery_orders
+    FROM latest_orders
     WHERE business_id = ${businessId}
-      AND payment_status = 'Paid'
+      AND LOWER(COALESCE(order_status, '')) = 'completed'
+      AND deleted_at IS NULL
       AND created_at BETWEEN ${startDate} AND ${endDate}
     ORDER BY created_at ASC
   `;
@@ -194,18 +218,35 @@ async function loadBakeryOrderItems(
   if (orderIds.length === 0) return [];
 
   return prisma.$queryRaw<BakeryOrderItemRow[]>`
+    WITH latest_items AS (
+      SELECT *
+      FROM (
+        SELECT
+          item.*,
+          ROW_NUMBER() OVER (
+            PARTITION BY item.business_id, item.order_external_id, item.item_index
+            ORDER BY item.created_at DESC, item.id DESC
+          ) AS rn
+        FROM bakery_order_items item
+        WHERE item.business_id = ${businessId}
+          AND item.order_external_id IN (${Prisma.join(orderIds)})
+      ) ranked_items
+      WHERE ranked_items.rn = 1
+    )
     SELECT order_external_id, payload
-    FROM bakery_order_items
-    WHERE business_id = ${businessId}
-      AND order_external_id IN (${Prisma.join(orderIds)})
+    FROM latest_items
   `;
 }
 
 export async function hasBakeryOrders(businessId: number): Promise<boolean> {
+  await ensureBakeryReportColumns();
+
   const rows = await prisma.$queryRaw<Array<{ count: bigint }>>`
     SELECT COUNT(*)::bigint AS count
     FROM bakery_orders
     WHERE business_id = ${businessId}
+      AND LOWER(COALESCE(order_status, '')) = 'completed'
+      AND deleted_at IS NULL
   `;
   return Number(rows[0]?.count ?? 0) > 0;
 }
@@ -216,7 +257,7 @@ export async function getBakeryProductAnalytics(
   endDate: Date,
 ): Promise<BakeryProductAnalytics[]> {
   const [orders, productsByName] = await Promise.all([
-    loadPaidBakeryOrders(businessId, startDate, endDate),
+    loadCompletedBakeryOrders(businessId, startDate, endDate),
     loadBusinessProducts(businessId),
   ]);
 
@@ -241,7 +282,7 @@ export async function getBakeryProductAnalytics(
           item.size ? `${item.productName} - ${item.size}` : item.productName,
         );
     const revenue = item.lineTotal;
-    const cost = toNumber(matchedProduct?.recipeCost) * item.quantity;
+    const cost = toNumber(matchedProduct?.cogs) * item.quantity;
     const existing = byProduct.get(key);
 
     if (existing) {
@@ -340,7 +381,7 @@ export async function getBakeryDailyAnalytics(
   endDate: Date,
 ): Promise<{ data: BakeryDailyPoint[]; totals: { revenue: number; cost: number; profit: number } }> {
   const [orders, productsByName] = await Promise.all([
-    loadPaidBakeryOrders(businessId, startDate, endDate),
+    loadCompletedBakeryOrders(businessId, startDate, endDate),
     loadBusinessProducts(businessId),
   ]);
 
@@ -370,7 +411,7 @@ export async function getBakeryDailyAnalytics(
         .map((candidate) => productsByName.get(normalizeText(candidate)))
         .find(Boolean) ?? null;
 
-    const cost = toNumber(matched?.recipeCost) * item.quantity;
+    const cost = toNumber(matched?.cogs) * item.quantity;
     costByDate.set(dateKey, (costByDate.get(dateKey) ?? 0) + cost);
   });
 
@@ -464,7 +505,7 @@ export async function getBakeryGrowthAnalytics(
 export async function getBakeryHourlyAnalytics(businessId: number) {
   const now = new Date();
   const since = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-  const orders = await loadPaidBakeryOrders(businessId, since, now);
+  const orders = await loadCompletedBakeryOrders(businessId, since, now);
   const daily = await getBakeryDailyAnalytics(businessId, since, now);
   const totalCost = daily.totals.cost;
   const totalRevenue = daily.totals.revenue;
@@ -614,22 +655,22 @@ export async function getBakeryForecastInputs(
 ): Promise<{
   revenueSeries: DailySalesEntry[];
   productSeries: BakeryForecastProductSeries[];
-  productPriceMap: Map<number, { sellingPrice: number; recipeCost: number }>;
+  productPriceMap: Map<number, { sellingPrice: number; cogs: number }>;
 }> {
   const [orders, productsByName, products] = await Promise.all([
-    loadPaidBakeryOrders(businessId, since, until),
+    loadCompletedBakeryOrders(businessId, since, until),
     loadBusinessProducts(businessId),
     prisma.product.findMany({
       where: { businessId, deletedAt: null, isActive: true },
-      select: { id: true, sellingPrice: true, recipeCost: true },
+      select: { id: true, sellingPrice: true, cogs: true },
     }),
   ]);
 
-  const productPriceMap = new Map<number, { sellingPrice: number; recipeCost: number }>();
+  const productPriceMap = new Map<number, { sellingPrice: number; cogs: number }>();
   products.forEach((product) => {
     productPriceMap.set(product.id, {
       sellingPrice: toNumber(product.sellingPrice),
-      recipeCost: toNumber(product.recipeCost),
+      cogs: toNumber(product.cogs),
     });
   });
 
