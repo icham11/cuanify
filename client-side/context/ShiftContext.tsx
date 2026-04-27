@@ -8,6 +8,8 @@ interface ShiftRunningTotals {
   transferTotal: number;
   digitalTotal: number;
   kasbonTotal: number;
+  // Marketplace (Tokped/Shopee) — uang belum cair, tidak masuk expectedCash
+  marketplaceTotal: number;
   totalRevenue: number;
   transactionCount: number;
   expectedCash: number;

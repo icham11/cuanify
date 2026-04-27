@@ -131,6 +131,14 @@ export interface DeliveryAddress {
   addressLine: string;
 }
 
+export interface OrderClaimedStep {
+  step: "List" | "Filling" | "Finishing";
+  staffUserId: number;
+  staffName: string;
+  tokenAwarded: number;
+  claimedAt: string;
+}
+
 export interface BakeryOrder {
   id: string;
   resi: string;
@@ -163,6 +171,7 @@ export interface BakeryOrder {
   assignedStaffUserId?: number | null;
   assignedStaffName?: string;
   productionAssignedAt?: string | null;
+  claimedSteps?: OrderClaimedStep[];
   statusHistory: OrderStatusLog[];
   automationLogs?: OrderAutomationLog[];
   whatsAppParsedData?: ParsedWhatsAppOrder;
@@ -212,6 +221,12 @@ interface OrdersContextValue {
   assignOrderToStaff: (
     id: string,
     staff: { userId: number; name: string },
+  ) => void;
+  claimOrderStep: (
+    id: string,
+    step: "List" | "Filling" | "Finishing",
+    staff: { userId: number; name: string },
+    tokenAwarded: number,
   ) => void;
   clearOrderAssignee: (id: string) => void;
   updatePaymentStatus: (id: string, status: PaymentStatus) => void;
@@ -1716,6 +1731,54 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
     [orders, persistOrders, actorIdentity],
   );
 
+  const claimOrderStep = useCallback(
+    (
+      id: string,
+      step: "List" | "Filling" | "Finishing",
+      staff: { userId: number; name: string },
+      tokenAwarded: number,
+    ) => {
+      const target = orders.find((order) => order.id === id);
+      if (!target) return;
+
+      const nowIso = new Date().toISOString();
+      const currentClaims = target.claimedSteps || [];
+      
+      const isAlreadyClaimed = currentClaims.some((c) => c.step === step);
+      if (isAlreadyClaimed) {
+        toast.error(`Tahap ${step} sudah diambil oleh staf lain.`);
+        return;
+      }
+
+      const nextOrders = orders.map((order) => {
+        if (order.id !== id) return order;
+        return {
+          ...order,
+          claimedSteps: [
+            ...(order.claimedSteps || []),
+            {
+              step,
+              staffUserId: staff.userId,
+              staffName: staff.name,
+              tokenAwarded,
+              claimedAt: nowIso,
+            },
+          ],
+          statusHistory: appendStatusLog(
+            order.statusHistory,
+            order.orderStatus,
+            `Proses [${step}] diambil oleh ${staff.name}`,
+            actorIdentity,
+          ),
+        };
+      });
+
+      persistOrders(nextOrders);
+      toast.success(`Tugas ${step} berhasil diambil!`);
+    },
+    [orders, persistOrders, actorIdentity],
+  );
+
   const clearOrderAssignee = useCallback(
     (id: string) => {
       const target = orders.find((order) => order.id === id);
@@ -2045,6 +2108,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       addOrder,
       updateOrderStatus,
       assignOrderToStaff,
+      claimOrderStep,
       clearOrderAssignee,
       updatePaymentStatus,
       recordPayment,
@@ -2058,6 +2122,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       addOrder,
       updateOrderStatus,
       assignOrderToStaff,
+      claimOrderStep,
       clearOrderAssignee,
       updatePaymentStatus,
       recordPayment,

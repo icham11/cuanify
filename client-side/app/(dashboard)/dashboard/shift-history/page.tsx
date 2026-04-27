@@ -16,6 +16,7 @@ interface S {
   transferSalesTotal: number;
   digitalSalesTotal: number;
   kasbonTotal: number;
+  marketplaceSalesTotal: number;
   totalRevenue: number;
   transactionCount: number;
   notes: string | null;
@@ -244,9 +245,14 @@ export default function ShiftHistoryPage() {
                 <div className="text-xs text-gray-500">💳 Digital</div>
                 <div className="font-bold text-indigo-700">{fRp(sel.digitalSalesTotal)}</div>
               </div>
-              <div className="bg-amber-50 rounded-lg p-3 col-span-2">
+              <div className="bg-amber-50 rounded-lg p-3">
                 <div className="text-xs text-gray-500">📝 Kasbon</div>
                 <div className="font-bold text-amber-700">{fRp(sel.kasbonTotal)}</div>
+              </div>
+              <div className="bg-orange-50 rounded-lg p-3 border border-orange-200 col-span-2">
+                <div className="text-xs text-gray-500">🛒 Marketplace (Tokped/Shopee)</div>
+                <div className="font-bold text-orange-700">{fRp(sel.marketplaceSalesTotal)}</div>
+                <div className="text-[10px] text-orange-500 mt-0.5">⚠️ Uang belum cair — masih di saldo e-commerce</div>
               </div>
             </div>
             <div className="bg-indigo-600 text-white rounded-xl p-4 flex justify-between items-center">

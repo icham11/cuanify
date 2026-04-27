@@ -114,7 +114,7 @@ function statusBadgeClass(status: string): string {
 export default function ProductionTable() {
   const router = useRouter();
   const { business, businesses, switchBusiness } = useBusiness();
-  const { orders, updateOrderStatus, assignOrderToStaff } = useOrders();
+  const { orders, updateOrderStatus, assignOrderToStaff, claimOrderStep } = useOrders();
   const { isOwner, isAdmin, isStaff, role, userName } = useRole();
   const isPrivilegedManager = isOwner || isAdmin;
   const { settings: bakerySettings } = useBakerySettings();
@@ -390,21 +390,26 @@ export default function ProductionTable() {
     }
 
     for (const order of orders) {
-      if (!order.assignedStaffUserId) continue;
-      if (!byUserId.has(order.assignedStaffUserId)) {
-        const fallbackName =
-          order.assignedStaffName?.trim() ||
-          teamMembers.find(
-            (member) => member.userId === order.assignedStaffUserId,
-          )?.name ||
-          `Staff #${order.assignedStaffUserId}`;
+      const participants = (order.claimedSteps && order.claimedSteps.length > 0)
+        ? order.claimedSteps.map(c => ({ id: c.staffUserId, name: c.staffName }))
+        : (order.assignedStaffUserId ? [{ id: order.assignedStaffUserId, name: order.assignedStaffName }] : []);
 
-        byUserId.set(order.assignedStaffUserId, {
-          userId: order.assignedStaffUserId,
-          name: fallbackName,
-          role: "Staff",
-          businessId: viewer?.businessId ?? 0,
-        });
+      for (const p of participants) {
+        if (!byUserId.has(p.id)) {
+          const fallbackName =
+            p.name?.trim() ||
+            teamMembers.find(
+              (member) => member.userId === p.id,
+            )?.name ||
+            `Staff #${p.id}`;
+
+          byUserId.set(p.id, {
+            userId: p.id,
+            name: fallbackName,
+            role: "Staff",
+            businessId: viewer?.businessId ?? 0,
+          });
+        }
       }
     }
 
@@ -428,18 +433,23 @@ export default function ProductionTable() {
     const usage = new Map<string, number>();
 
     for (const order of orders) {
-      const staffUserId = order.assignedStaffUserId ?? null;
       const deliveryDate = (order.deliveryDate || "").trim();
-      if (!staffUserId || !deliveryDate) continue;
+      if (!deliveryDate) continue;
 
       const status = normalizeOrderStatus(order.orderStatus);
       if (["Delivery", "Completed", "Cancelled"].includes(status)) {
         continue;
       }
 
-      const token = summarizeProductionTokensByItems(order.items ?? []);
-      const key = `${staffUserId}:${deliveryDate}`;
-      usage.set(key, (usage.get(key) ?? 0) + token);
+      const totalToken = summarizeProductionTokensByItems(order.items ?? []);
+      const awards = (order.claimedSteps && order.claimedSteps.length > 0)
+        ? order.claimedSteps.map(c => ({ id: c.staffUserId, t: c.tokenAwarded }))
+        : (order.assignedStaffUserId ? [{ id: order.assignedStaffUserId, t: totalToken }] : []);
+
+      for (const award of awards) {
+        const key = `${award.id}:${deliveryDate}`;
+        usage.set(key, (usage.get(key) ?? 0) + award.t);
+      }
     }
 
     return usage;
@@ -470,31 +480,37 @@ export default function ProductionTable() {
     const applyMonthlyBaseline = filterMonth !== "all" && filterYear !== "all";
 
     for (const order of orders) {
-      const staffUserId = order.assignedStaffUserId ?? null;
-      if (!staffUserId) continue;
       if (!matchesDateFilter(order.deliveryDate)) continue;
 
-      const token = summarizeProductionTokensByItems(order.items ?? []);
       const status = normalizeOrderStatus(order.orderStatus);
-      const current = statsMap.get(staffUserId) ?? {
-        userId: staffUserId,
-        name: order.assignedStaffName || `Staff #${staffUserId}`,
-        assignedActive: 0,
-        doneRaw: 0,
-        inProgress: 0,
-      };
+      const totalToken = summarizeProductionTokensByItems(order.items ?? []);
 
-      if (!["Delivery", "Completed", "Cancelled"].includes(status)) {
-        current.assignedActive += token;
+      const awards = (order.claimedSteps && order.claimedSteps.length > 0)
+        ? order.claimedSteps.map(c => ({ id: c.staffUserId, name: c.staffName, t: c.tokenAwarded }))
+        : (order.assignedStaffUserId ? [{ id: order.assignedStaffUserId, name: order.assignedStaffName || `Staff #${order.assignedStaffUserId}`, t: totalToken }] : []);
+
+      for (const award of awards) {
+        const staffUserId = award.id;
+        const current = statsMap.get(staffUserId) ?? {
+          userId: staffUserId,
+          name: award.name,
+          assignedActive: 0,
+          doneRaw: 0,
+          inProgress: 0,
+        };
+
+        if (!["Delivery", "Completed", "Cancelled"].includes(status)) {
+          current.assignedActive += award.t;
+        }
+
+        if (["Ready", "Delivery", "Completed"].includes(status)) {
+          current.doneRaw += award.t;
+        } else if (status === "In Production") {
+          current.inProgress += award.t;
+        }
+
+        statsMap.set(staffUserId, current);
       }
-
-      if (["Ready", "Delivery", "Completed"].includes(status)) {
-        current.doneRaw += token;
-      } else if (status === "In Production") {
-        current.inProgress += token;
-      }
-
-      statsMap.set(staffUserId, current);
     }
 
     return Array.from(statsMap.values())
@@ -564,12 +580,15 @@ export default function ProductionTable() {
       }
 
       if (quickFilter === "mine") {
-        if (!viewer?.userId || order.assignedStaffUserId !== viewer.userId)
-          return false;
+        if (!viewer?.userId) return false;
+        const isAssigned = order.assignedStaffUserId === viewer.userId;
+        const isClaimed = order.claimedSteps?.some(c => c.staffUserId === viewer.userId);
+        if (!isAssigned && !isClaimed) return false;
       }
 
       if (quickFilter === "unassigned") {
-        if (order.assignedStaffUserId) return false;
+        const hasClaimed = (order.claimedSteps && order.claimedSteps.length > 0);
+        if (order.assignedStaffUserId || hasClaimed) return false;
       }
 
       if (quickFilter === "heavy") {
@@ -760,12 +779,17 @@ export default function ProductionTable() {
     ]);
   };
 
-  const handleClaimByStaff = (orderId: string) => {
+  const handleClaimByStaff = (orderId: string, step: "List" | "Filling" | "Finishing", tokenAwarded: number) => {
     if (!viewer?.userId) return;
-    assignOrderToStaff(orderId, {
-      userId: viewer.userId,
-      name: viewer.name || userName || "Staff",
-    });
+    claimOrderStep(
+      orderId,
+      step,
+      {
+        userId: viewer.userId,
+        name: viewer.name || userName || "Staff",
+      },
+      tokenAwarded
+    );
   };
 
   const handleOpenTransferModal = (orderId: string) => {
@@ -892,28 +916,37 @@ export default function ProductionTable() {
     const staffName = order.assignedStaffName?.trim();
     const orderDateKey = (order.deliveryDate || "").trim();
 
-    const isUnassigned = !order.assignedStaffUserId;
     const isStaffViewer = isStaff || viewer?.role === "Staff";
-    const assignedToMe =
-      Boolean(viewer?.userId) && order.assignedStaffUserId === viewer?.userId;
-    const claimedByOther =
-      Boolean(order.assignedStaffUserId) &&
-      viewer?.userId !== order.assignedStaffUserId;
-    const canStaffClaim =
-      isStaffViewer && isUnassigned && Boolean(viewer?.userId);
     const currentStaffDailyToken =
       viewer?.userId && orderDateKey
         ? (staffDailyTokenByDate.get(`${viewer.userId}:${orderDateKey}`) ?? 0)
         : 0;
+
+    const tokenList = Math.max(1, Math.round(orderToken * 0.25));
+    const tokenFilling = Math.max(1, Math.round(orderToken * 0.25));
+    const tokenFinishing = Math.max(1, Math.round(orderToken * 0.50));
+
+    const claimList = order.claimedSteps?.find(c => c.step === "List");
+    const claimFilling = order.claimedSteps?.find(c => c.step === "Filling");
+    const claimFinishing = order.claimedSteps?.find(c => c.step === "Finishing");
+
+    const effectiveClaimList = claimList || (order.assignedStaffUserId ? { staffName: order.assignedStaffName, staffUserId: order.assignedStaffUserId } : null);
+    const effectiveClaimFilling = claimFilling || (order.assignedStaffUserId ? { staffName: order.assignedStaffName, staffUserId: order.assignedStaffUserId } : null);
+    const effectiveClaimFinishing = claimFinishing || (order.assignedStaffUserId ? { staffName: order.assignedStaffName, staffUserId: order.assignedStaffUserId } : null);
+    const isUnassigned = !effectiveClaimList && !effectiveClaimFilling && !effectiveClaimFinishing;
+    const assignedToMe = Boolean(viewer?.userId) && (
+      order.assignedStaffUserId === viewer?.userId || 
+      (order.claimedSteps && order.claimedSteps.some(c => c.staffUserId === viewer?.userId))
+    );
+
     const projectedStaffDailyToken = currentStaffDailyToken + orderToken;
     const exceedsStaffDailyLimit =
-      canStaffClaim &&
+      isStaffViewer && isUnassigned &&
       isStaffDailyTokenAssignmentBlocked({
         currentToken: currentStaffDailyToken,
         incomingToken: orderToken,
         limit: staffDailyTokenLimit,
       });
-    const claimDisabled = claimedByOther || exceedsStaffDailyLimit;
 
     const canOwnerAssignOrTransfer = isPrivilegedManager;
     const ownerActionCandidates = canOwnerAssignOrTransfer
@@ -974,30 +1007,49 @@ export default function ProductionTable() {
         </div>
 
         <div className="flex shrink-0 flex-col items-end gap-1.5">
-          <div className="flex items-center gap-2">
-            {staffName ? (
-              <span className="rounded-full bg-green-100 px-2.5 py-1 text-xs font-medium text-green-700">
-                {staffName}
-              </span>
-            ) : (
-              <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-500">
-                Unassigned
-              </span>
-            )}
+          <div className="flex flex-col items-end gap-1">
+            {[
+              { step: "List" as const, tokenAmt: tokenList, claim: effectiveClaimList },
+              { step: "Filling" as const, tokenAmt: tokenFilling, claim: effectiveClaimFilling },
+              { step: "Finishing" as const, tokenAmt: tokenFinishing, claim: effectiveClaimFinishing }
+            ].map(({ step, tokenAmt, claim }) => {
+              if (claim) {
+                return (
+                  <span key={step} className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-700">
+                    {step}: {claim.staffName}
+                  </span>
+                );
+              }
+              if (isStaffViewer) {
+                const limitExceeded = isStaffDailyTokenAssignmentBlocked({
+                  currentToken: currentStaffDailyToken,
+                  incomingToken: tokenAmt,
+                  limit: staffDailyTokenLimit,
+                });
+                return (
+                  <button
+                    key={step}
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleClaimByStaff(order.id, step, tokenAmt);
+                    }}
+                    disabled={limitExceeded}
+                    className="rounded-full bg-blue-500 px-2 py-0.5 text-[10px] font-medium text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Ambil {step}
+                  </button>
+                );
+              }
+              return (
+                <span key={step} className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-500">
+                  {step} Unassigned
+                </span>
+              );
+            })}
+          </div>
 
-            {canStaffClaim && (
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  handleClaimByStaff(order.id);
-                }}
-                disabled={claimDisabled}
-                className="rounded-full bg-blue-500 px-3 py-1 text-xs font-medium text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Ambil
-              </button>
-            )}
+          <div className="flex items-center gap-2 mt-1">
 
             {canOwnerAssignOrTransfer && (
               <button

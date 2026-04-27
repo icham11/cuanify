@@ -181,7 +181,7 @@ export default function POSPage() {
   const [customerEmail, setCustomerEmail] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<
-    "Cash" | "QRIS" | "Transfer" | "Digital" | "Kasbon"
+    "Cash" | "QRIS" | "Transfer" | "Digital" | "Kasbon" | "Marketplace"
   >("Cash");
   const [paymentNotice, setPaymentNotice] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
@@ -258,6 +258,7 @@ export default function POSPage() {
           cart.length > 0 &&
           paymentMethod !== "Cash" &&
           paymentMethod !== "Kasbon" &&
+          paymentMethod !== "Marketplace" &&
           !loading
         ) {
           handleCheckout("online");
@@ -468,7 +469,7 @@ export default function POSPage() {
     }
     if (
       mode === "online" &&
-      (paymentMethod === "Cash" || paymentMethod === "Kasbon")
+      (paymentMethod === "Cash" || paymentMethod === "Kasbon" || paymentMethod === "Marketplace")
     ) {
       alert(
         "Pilih metode pembayaran online (QRIS/Transfer/Digital) terlebih dahulu!",
@@ -1036,7 +1037,7 @@ export default function POSPage() {
             <div className="px-4 md:px-5 pt-2 md:pt-3 pb-2">
               <div className="flex gap-1.5 flex-wrap">
                 {(
-                  ["Cash", "QRIS", "Transfer", "Digital", "Kasbon"] as const
+                  ["Cash", "QRIS", "Transfer", "Digital", "Kasbon", "Marketplace"] as const
                 ).map((method) => (
                   <button
                     key={method}
@@ -1071,8 +1072,10 @@ export default function POSPage() {
                           ? "🏦"
                           : method === "Digital"
                             ? "💳"
-                            : "📒"}{" "}
-                    {method}
+                            : method === "Marketplace"
+                              ? "🛒"
+                              : "📒"}{" "}
+                    {method === "Marketplace" ? "Tokped/Shopee" : method}
                   </button>
                 ))}
               </div>
@@ -1390,6 +1393,10 @@ export default function POSPage() {
                 <div className="flex justify-between">
                   <span>📝 Kasbon</span>
                   <span>{formatRupiah(shift.runningTotals.kasbonTotal)}</span>
+                </div>
+                <div className="flex justify-between text-orange-600">
+                  <span>🛒 Tokped/Shopee</span>
+                  <span>{formatRupiah(shift.runningTotals.marketplaceTotal ?? 0)}</span>
                 </div>
                 <hr />
                 <div className="flex justify-between font-bold text-base">

@@ -45,6 +45,8 @@ export async function GET() {
     let transferTotal = 0;
     let digitalTotal = 0;
     let kasbonTotal = 0;
+    // Marketplace (Tokped/Shopee) — uang belum cair, tidak masuk expectedCash
+    let marketplaceTotal = 0;
     let totalRevenue = 0;
 
     for (const s of salesInShift) {
@@ -56,6 +58,7 @@ export async function GET() {
         case "Transfer": transferTotal += rev; break;
         case "Digital": digitalTotal += rev; break;
         case "Kasbon": kasbonTotal += rev; break;
+        case "Marketplace": marketplaceTotal += rev; break;
       }
     }
 
@@ -74,6 +77,7 @@ export async function GET() {
           transferTotal,
           digitalTotal,
           kasbonTotal,
+          marketplaceTotal,
           totalRevenue,
           transactionCount: totalCount,
           expectedCash: Number(shift.openingCash) + cashTotal,
