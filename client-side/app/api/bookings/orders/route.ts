@@ -216,7 +216,7 @@ interface StaffValidationOrder {
   items: JsonRecord[];
 }
 
-type SnapshotSource = "rows" | "snapshot-fallback";
+type SnapshotSource = "rows" | "snapshot-fallback" | "snapshot-newer-than-rows";
 type SnapshotStore = Pick<typeof prisma, "businessDocument">;
 
 const normalizedOrderSchema = z.object({
@@ -1864,12 +1864,32 @@ export async function GET() {
           deliveryAddresses: addressesMap.get(row.external_id) ?? [],
         }));
 
+        const snapshot = await readOrdersSnapshot(businessId);
+        const rowUpdatedAt = orderRows[0]?.updated_at?.toISOString() ?? null;
+        const snapshotUpdatedAt = snapshot?.updatedAt?.toISOString() ?? null;
+
+        if (
+          snapshotUpdatedAt &&
+          rowUpdatedAt &&
+          new Date(snapshotUpdatedAt).getTime() > new Date(rowUpdatedAt).getTime()
+        ) {
+          return NextResponse.json({
+            success: true,
+            data: {
+              source: "snapshot-newer-than-rows",
+              id: snapshot?.id ?? null,
+              orders: parseOrdersContent(snapshot?.content),
+              updatedAt: snapshotUpdatedAt,
+            },
+          });
+        }
+
         return NextResponse.json({
           success: true,
           data: {
             source: "rows",
             orders,
-            updatedAt: orderRows[0]?.updated_at?.toISOString() ?? null,
+            updatedAt: rowUpdatedAt,
           },
         });
       }
