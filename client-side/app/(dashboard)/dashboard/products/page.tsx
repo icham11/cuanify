@@ -567,8 +567,8 @@ export default function ProductsPage() {
   const [search, setSearch] = useState("");
   const [productGroupFilter, setProductGroupFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<number | null>(null);
-  const [sortBy, setSortBy] = useState<SortByField>("createdAt");
-  const [sortOrder, setSortOrder] = useState<SortOrderType>("desc");
+  const [sortBy, setSortBy] = useState<SortByField>("name");
+  const [sortOrder, setSortOrder] = useState<SortOrderType>("asc");
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
@@ -1010,7 +1010,7 @@ export default function ProductsPage() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-3 text-xs">
+                    <div className="grid grid-cols-5 gap-3 text-xs">
                       <div>
                         <span className="text-gray-400 block">Harga Jual</span>
                         <span className="font-bold text-indigo-700 text-sm">
@@ -1027,6 +1027,20 @@ export default function ProductsPage() {
                         <span className="text-gray-400 block">Margin</span>
                         <span className="font-semibold text-sm">
                           {margin !== null ? <MarginBadge margin={margin} /> : "—"}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-gray-400 block">Token</span>
+                        <span className="font-semibold text-slate-700 text-sm">
+                          {Math.max(0, Number(product.productionToken ?? 0))}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-gray-400 block">Stock</span>
+                        <span className="font-semibold text-slate-700 text-sm">
+                          {product.productType === "ReadyStock"
+                            ? Math.max(0, Number(product.availableStock ?? 0))
+                            : 0}
                         </span>
                       </div>
                     </div>
@@ -1057,6 +1071,8 @@ export default function ProductsPage() {
                     </th>
                     <th className="px-6 py-4 text-right font-bold">COGS / HPP</th>
                     <th className="px-6 py-4 text-right font-bold">Margin</th>
+                    <th className="px-6 py-4 text-right font-bold">Token</th>
+                    <th className="px-6 py-4 text-right font-bold">Stock</th>
                     <th className="px-6 py-4 text-center font-bold">Aksi</th>
                   </tr>
                 </thead>
@@ -1105,6 +1121,14 @@ export default function ProductsPage() {
                         </td>
                         <td className="px-6 py-4 text-right font-semibold">
                           {margin !== null ? <MarginBadge margin={margin} /> : "—"}
+                        </td>
+                        <td className="px-6 py-4 text-right font-semibold text-slate-700">
+                          {Math.max(0, Number(product.productionToken ?? 0))}
+                        </td>
+                        <td className="px-6 py-4 text-right font-semibold text-slate-700">
+                          {product.productType === "ReadyStock"
+                            ? Math.max(0, Number(product.availableStock ?? 0))
+                            : 0}
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex items-center justify-center gap-1">

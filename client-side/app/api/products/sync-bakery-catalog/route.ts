@@ -6,7 +6,7 @@ import {
   requireAuth,
   requireRole,
 } from "@/lib/auth/session";
-import { BOOKING_PRODUCT_CATALOG } from "@/lib/bookings/pricelist";
+import { loadEffectiveBookingCatalog } from "@/lib/bookings/catalog-config-server";
 import { syncBakeryCatalogToDashboardProducts } from "@/lib/bookings/product-sync";
 
 export const runtime = "nodejs";
@@ -41,11 +41,12 @@ function isUniqueConstraintError(error: unknown): boolean {
 export async function POST() {
   try {
     const auth = await requireAuth();
-    requireRole(auth, "Owner");
+    requireRole(auth, "Owner", "Admin");
 
+    const { productCatalog } = await loadEffectiveBookingCatalog(auth.businessId);
     const result = await syncBakeryCatalogToDashboardProducts({
       businessId: auth.businessId,
-      productCatalog: BOOKING_PRODUCT_CATALOG,
+      productCatalog,
       deduplicateExistingProducts: false,
     });
 

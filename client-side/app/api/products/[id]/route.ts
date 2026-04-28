@@ -34,6 +34,8 @@ const patchSchema = z.object({
     .positive("Selling price must be positive")
     .optional(),
   cogs: z.coerce.number().positive("COGS must be greater than 0").optional(),
+  productionToken: z.coerce.number().int().min(0).optional(),
+  manualStock: z.coerce.number().int().min(0).optional(),
   productType: z.enum(["ReadyStock", "PreOrder"]).optional(),
   createdAt: z.string().datetime().optional(),
   recipe: z.array(recipeItemSchema).optional(),
@@ -46,7 +48,7 @@ export async function PATCH(
 ) {
   try {
     const auth = await requireAuth();
-    requireRole(auth, "Owner");
+    requireRole(auth, "Owner", "Admin");
     const { businessId } = auth;
     const { id: idParam } = await params;
     const id = Number(idParam);
@@ -124,6 +126,10 @@ export async function PATCH(
         updateData.sellingPrice = parsed.data.sellingPrice;
       if (parsed.data.cogs !== undefined)
         updateData.cogs = normalizeDirectCogs(parsed.data.cogs);
+      if (parsed.data.productionToken !== undefined)
+        updateData.productionToken = parsed.data.productionToken;
+      if (parsed.data.manualStock !== undefined)
+        updateData.manualStock = parsed.data.manualStock;
       if (parsed.data.productType !== undefined)
         updateData.productType = parsed.data.productType;
       if (parsed.data.createdAt !== undefined)

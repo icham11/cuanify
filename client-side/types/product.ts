@@ -38,6 +38,8 @@ export type Product = {
   category: ProductCategory | null;
   recipes: ProductRecipeItem[];
   cogs: number;
+  productionToken?: number;
+  manualStock?: number;
 };
 
 // ─── Draft / AI-generated types ───────────────────────────────────────────────
@@ -82,6 +84,8 @@ export type CreateProductInput = {
   categoryName: string;
   sellingPrice: number;
   cogs: number;
+  productionToken?: number;
+  manualStock?: number;
   productType?: "ReadyStock" | "PreOrder";
   recipe?: RecipeItemInput[];
   manualCogs?: number;

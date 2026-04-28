@@ -44,6 +44,8 @@ const ADMIN_ALLOWED_PAGE_PREFIXES = [
   "/bakery/bookings",
   "/bakery/calendar",
   "/bakery/production",
+  "/dashboard/products",
+  "/dashboard/add-ons",
 ];
 
 const STAFF_ALLOWED_API_RULES: Array<{
@@ -92,6 +94,9 @@ const ADMIN_ALLOWED_API_RULES: Array<{
   { prefix: "/api/admin/daily-omzet", methods: ["GET"] },
   { prefix: "/api/admin/daily-omzet/reconciliation", methods: ["GET"] },
   { prefix: "/api/sales", methods: ["GET"] },
+  { prefix: "/api/categories", methods: ["GET"] },
+  { prefix: "/api/products", methods: ["GET", "POST", "DELETE"] },
+  { prefix: "/api/products/sync-bakery-catalog", methods: ["POST"] },
 ];
 
 const MOBILE_USER_AGENT_PATTERN = /Android|iPhone|iPad|iPod|Mobile/i;

@@ -11,6 +11,8 @@ import {
   normalizeProductName,
 } from "@/lib/products/uniqueness";
 import { ensureOwnerDefaultProducts } from "@/lib/bookings/owner-product-bootstrap";
+import { loadEffectiveBookingCatalog } from "@/lib/bookings/catalog-config-server";
+import { flattenCatalogProductsForDashboard } from "@/lib/bookings/product-sync";
 
 export const runtime = "nodejs";
 
@@ -53,6 +55,43 @@ function isExpiredTransactionError(error: unknown): boolean {
   }
 
   return false;
+}
+
+function normalizeTokenKey(value: string): string {
+  return value.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function getCatalogTokenMapFromCatalog(
+  catalog: Awaited<ReturnType<typeof loadEffectiveBookingCatalog>>["productCatalog"],
+): Map<string, number> {
+  const rows = flattenCatalogProductsForDashboard(catalog);
+  const map = new Map<string, number>();
+  rows.forEach((row) => {
+    map.set(
+      normalizeTokenKey(row.name),
+      Math.max(0, Number(row.productionToken ?? 0)),
+    );
+  });
+  return map;
+}
+
+async function getProductColumnAvailability(): Promise<{
+  hasProductionToken: boolean;
+  hasManualStock: boolean;
+}> {
+  const rows = await prisma.$queryRaw<
+    Array<{ column_name: string }>
+  >`SELECT column_name
+     FROM information_schema.columns
+     WHERE table_schema = current_schema()
+       AND table_name = 'Product'
+       AND column_name IN ('productionToken', 'manualStock')`;
+
+  const cols = new Set(rows.map((r) => r.column_name));
+  return {
+    hasProductionToken: cols.has("productionToken"),
+    hasManualStock: cols.has("manualStock"),
+  };
 }
 
 /** Find-or-create a category within the business (case-insensitive). */
@@ -228,28 +267,55 @@ export async function GET(request: NextRequest) {
     const avgSellingPrice = sr?.avg_price ? Math.round(Number(sr.avg_price)) : 0;
     const avgMargin = sr?.avg_margin ? Math.round(Number(sr.avg_margin)) : 0;
     const meta = { total, page, limit, totalPages, avgSellingPrice, avgMargin };
+    const { productCatalog } = await loadEffectiveBookingCatalog(businessId);
+    const catalogTokenMap = getCatalogTokenMapFromCatalog(productCatalog);
+    const { hasProductionToken, hasManualStock } =
+      await getProductColumnAvailability();
+
+    const selectBase: Record<string, boolean> = {
+      id: true,
+      businessId: true,
+      categoryId: true,
+      name: true,
+      sellingPrice: true,
+      isActive: true,
+      createdAt: true,
+      updatedAt: true,
+      recipeCost: true,
+      deletedAt: true,
+      productType: true,
+      cogs: true,
+    };
+    if (hasProductionToken) selectBase.productionToken = true;
+    if (hasManualStock) selectBase.manualStock = true;
 
     // Split query paths so Prisma can infer ingredient.inventoryBatches type
     if (!withRecipe) {
-      const products = await prisma.product.findMany({
+      const products = (await prisma.product.findMany({
         where,
         orderBy: { [sortBy]: sortOrder },
         skip,
         take: limit,
-        include: {
+        select: {
+          ...selectBase,
           category: { select: { id: true, name: true } },
-          productionBatches: {
-            where: { remainingQty: { gt: 0 } },
-            select: { remainingQty: true },
-          },
         },
-      });
+      })) as Array<Record<string, unknown> & { name: string; category: { id: number; name: string } | null }>;
       const data = products.map((p) => ({
         ...p,
-        availableStock: p.productType === "ReadyStock"
-          ? p.productionBatches.reduce((s, b) => s + b.remainingQty, 0)
-          : undefined,
-        productionBatches: undefined,
+        productionToken: (() => {
+          const current = Math.max(
+            0,
+            Number((p as { productionToken?: number }).productionToken ?? 0),
+          );
+          if (current > 0) return current;
+          const fallback = catalogTokenMap.get(normalizeTokenKey(p.name)) ?? 0;
+          return fallback;
+        })(),
+        availableStock: Math.max(
+          0,
+          Number((p as { manualStock?: number }).manualStock ?? 0),
+        ),
       }));
       return NextResponse.json({ success: true, data, meta });
     }
@@ -271,12 +337,13 @@ export async function GET(request: NextRequest) {
       orderedIds = marginRows.map((r) => Number(r.id));
     }
 
-    const products = await prisma.product.findMany({
+    const products = (await prisma.product.findMany({
       where: orderedIds ? { id: { in: orderedIds } } : where,
       orderBy: orderedIds ? undefined : { [sortBy]: sortOrder },
       skip: orderedIds ? undefined : skip,
       take: orderedIds ? undefined : limit,
-      include: {
+      select: {
+        ...selectBase,
         category: { select: { id: true, name: true } },
         productionBatches: {
           where: { remainingQty: { gt: 0 } },
@@ -300,7 +367,29 @@ export async function GET(request: NextRequest) {
           },
         },
       },
-    });
+    })) as unknown as Array<
+      Record<string, unknown> & {
+        id: number;
+        name: string;
+        cogs: number | string;
+        category: { id: number; name: string } | null;
+        productionBatches: Array<{ remainingQty: number }>;
+        recipes: Array<{
+          ingredient: {
+            id: number;
+            name: string;
+            unit: string;
+            inventoryBatches: Array<{ costPerUnit: number | string; remainingQty: number | string }>;
+          };
+          id: number;
+          quantity: number | string;
+          ingredientId: number;
+          productId: number;
+          createdAt: Date;
+          updatedAt: Date;
+        }>;
+      }
+    >;
 
     // Enrich recipe rows for backward-compatible API shape. Active COGS is always
     // the direct currency value stored on the product.
@@ -333,11 +422,23 @@ export async function GET(request: NextRequest) {
 
       return {
         ...product,
+        productionToken: (() => {
+          const current = Math.max(
+            0,
+            Number(
+              (product as { productionToken?: number }).productionToken ?? 0,
+            ),
+          );
+          if (current > 0) return current;
+          const fallback = catalogTokenMap.get(normalizeTokenKey(product.name)) ?? 0;
+          return fallback;
+        })(),
         recipes: recipesWithCost,
         cogs: Number(product.cogs),
-        availableStock: product.productType === "ReadyStock"
-          ? product.productionBatches.reduce((s, b) => s + b.remainingQty, 0)
-          : undefined,
+        availableStock: Math.max(
+          0,
+          Number((product as { manualStock?: number }).manualStock ?? 0),
+        ),
         productionBatches: undefined,
       };
     });
@@ -458,6 +559,8 @@ export async function POST(request: NextRequest) {
                 name: normalizedName,
                 sellingPrice: item.sellingPrice,
                 cogs: normalizeDirectCogs(item.cogs),
+                productionToken: item.productionToken ?? 0,
+                manualStock: item.manualStock ?? 0,
                 productType: item.productType ?? "PreOrder",
               },
             });
@@ -516,6 +619,8 @@ export async function POST(request: NextRequest) {
       productType,
       cogs,
       manualCogs,
+      productionToken,
+      manualStock,
     } = parsed.data;
 
     // Run creates inside a transaction (refetch outside to avoid timeout)
@@ -550,6 +655,8 @@ export async function POST(request: NextRequest) {
             name: normalizedName,
             sellingPrice,
             cogs: normalizeDirectCogs(cogs),
+            productionToken: productionToken ?? 0,
+            manualStock: manualStock ?? 0,
             productType: productType ?? "PreOrder",
             recipeCost:
               recipe.length === 0 && manualCogs !== undefined ? manualCogs : 0,

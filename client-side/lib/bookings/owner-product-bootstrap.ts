@@ -35,7 +35,6 @@ async function getMissingHardcodedCatalogProductCount(
   const existingProducts = await prisma.product.findMany({
     where: {
       businessId,
-      deletedAt: null,
     },
     select: {
       name: true,

@@ -15,6 +15,7 @@ import {
   Factory,
   FileText,
   Settings2,
+  ContactRound,
 } from "lucide-react";
 
 export interface NavItem {
@@ -77,6 +78,11 @@ export const navSections: NavSection[] = [
         href: "/bakery/catalog",
         icon: Settings2,
       },
+      {
+        label: "Customers",
+        href: "/bakery/customers",
+        icon: ContactRound,
+      },
     ],
   },
   {
@@ -124,11 +130,15 @@ export const navSections: NavSection[] = [
   },
   {
     title: "Inventory",
-    ownerOnly: true,
     items: [
       {
         label: "Products",
         href: "/dashboard/products",
+        icon: Package,
+      },
+      {
+        label: "Add on",
+        href: "/dashboard/add-ons",
         icon: Package,
       },
     ],

@@ -48,10 +48,7 @@ export async function GET(request: NextRequest) {
         name: true,
         sellingPrice: true,
         cogs: true,
-        productionBatches: {
-          where: { remainingQty: { gt: 0 } },
-          select: { remainingQty: true },
-        },
+        manualStock: true,
       },
     });
 
@@ -60,7 +57,7 @@ export async function GET(request: NextRequest) {
       productName: p.name,
       sellingPrice: p.sellingPrice,
       cogs: p.cogs,
-      availableStock: p.productionBatches.reduce((s, b) => s + b.remainingQty, 0),
+      availableStock: Math.max(0, Number(p.manualStock ?? 0)),
     }));
 
     return NextResponse.json({
@@ -141,6 +138,11 @@ export async function POST(request: NextRequest) {
             costPerUnit: Math.round(costPerUnit * 100) / 100,
             stockDocumentId: stockDocument.id,
           },
+        });
+
+        await tx.product.update({
+          where: { id: productId },
+          data: { manualStock: { increment: quantity } },
         });
 
         return { batch, totalCost, costPerUnit };

@@ -1,6 +1,6 @@
 import prisma from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
-import { buildDashboardProductName } from "@/lib/bookings/product-sync";
+import { buildDashboardProductName } from "@/lib/products/dashboard-name";
 
 interface BakeryOrderRow {
   external_id: string;

@@ -85,7 +85,10 @@ export async function POST(
 
         // 2. Calculate cost + deduct inventory for each item
         for (const item of sale.saleItems) {
-          const cost = await calculateProductCost(tx, item.productId, item.quantity);
+          const isReadyStock = item.product.productType === "ReadyStock";
+          const cost = isReadyStock
+            ? Number(item.product.cogs || 0) * item.quantity
+            : await calculateProductCost(tx, item.productId, item.quantity);
           totalCost += cost;
 
           const unitCost = item.quantity > 0 ? cost / item.quantity : 0;
@@ -95,7 +98,14 @@ export async function POST(
             data: { costAtSale: unitCost },
           });
 
-          await deductInventory(tx, item.productId, item.quantity, stockDocument.id);
+          if (isReadyStock) {
+            await tx.product.update({
+              where: { id: item.productId },
+              data: { manualStock: { decrement: item.quantity } },
+            });
+          } else {
+            await deductInventory(tx, item.productId, item.quantity, stockDocument.id);
+          }
 
           saleItemDetails.push({
             productId: item.productId,

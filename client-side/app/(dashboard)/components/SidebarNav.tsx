@@ -16,6 +16,7 @@ import {
   Factory,
   Settings2,
   ShoppingBag,
+  ContactRound,
 } from "lucide-react";
 import { useRole } from "@/context/RoleContext";
 
@@ -147,7 +148,7 @@ export default function SidebarNav() {
             label="Marketplace"
             active={isActive("/bakery/marketplace")}
           />
-          {isOwner && (
+          {isBakeryManager && (
             <>
               <SidebarLink
                 href="/bakery/reports"
@@ -160,6 +161,12 @@ export default function SidebarNav() {
                 icon={Settings2}
                 label="Catalog"
                 active={isActive("/bakery/catalog")}
+              />
+              <SidebarLink
+                href="/bakery/customers"
+                icon={ContactRound}
+                label="Customers"
+                active={isActive("/bakery/customers")}
               />
             </>
           )}
@@ -181,8 +188,8 @@ export default function SidebarNav() {
         </div>
       )}
 
-      {/* Inventory — Owner only */}
-      {isOwner && (
+      {/* Inventory — Owner/Admin */}
+      {isBakeryManager && (
         <div>
           <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5f78a1]">
             Inventory
@@ -192,6 +199,12 @@ export default function SidebarNav() {
             icon={Package}
             label="Products"
             active={isActive("/dashboard/products")}
+          />
+          <SidebarLink
+            href="/dashboard/add-ons"
+            icon={Package}
+            label="Add on"
+            active={isActive("/dashboard/add-ons")}
           />
         </div>
       )}

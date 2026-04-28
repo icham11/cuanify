@@ -181,6 +181,8 @@ export default function UnifiedAddProductModal({ open, onClose, onSaved }: Props
   const [itemName, setItemName] = useState("");
   const [sellingPrice, setSellingPrice] = useState(0);
   const [directCogs, setDirectCogs] = useState(0);
+  const [productionToken, setProductionToken] = useState(0);
+  const [manualStock, setManualStock] = useState(0);
   const [bookingVariantLabel, setBookingVariantLabel] = useState("Standard");
   const [appendVariantToDashboardName, setAppendVariantToDashboardName] =
     useState(true);
@@ -243,6 +245,8 @@ export default function UnifiedAddProductModal({ open, onClose, onSaved }: Props
     setItemName("");
     setSellingPrice(0);
     setDirectCogs(0);
+    setProductionToken(0);
+    setManualStock(0);
     setBookingVariantLabel("Standard");
     setAppendVariantToDashboardName(true);
     setPendingCatalogSync(false);
@@ -283,6 +287,8 @@ export default function UnifiedAddProductModal({ open, onClose, onSaved }: Props
           categoryName: bookingSubcategory.trim(),
           sellingPrice,
           cogs: directCogs,
+          productionToken,
+          manualStock,
           recipe: [],
         });
       }
@@ -449,6 +455,28 @@ export default function UnifiedAddProductModal({ open, onClose, onSaved }: Props
                 value={directCogs}
                 onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
                   setDirectCogs(Math.max(0, Number(event.target.value) || 0))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-semibold text-slate-700">Token / Product</label>
+              <Input
+                type="number"
+                min={0}
+                value={productionToken}
+                onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                  setProductionToken(Math.max(0, Number(event.target.value) || 0))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-semibold text-slate-700">Stock (Manual)</label>
+              <Input
+                type="number"
+                min={0}
+                value={manualStock}
+                onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                  setManualStock(Math.max(0, Number(event.target.value) || 0))
                 }
               />
             </div>

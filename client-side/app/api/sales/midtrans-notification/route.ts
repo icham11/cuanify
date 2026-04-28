@@ -119,15 +119,23 @@ export async function POST(request: NextRequest) {
               // Check product type
               const product = await tx.product.findUnique({
                 where: { id: item.productId },
-                select: { productType: true },
+                select: { productType: true, cogs: true },
               });
 
               let cost: number;
 
               if (product?.productType === "ReadyStock") {
-                // ReadyStock: deduct from production batches
-                const result = await deductProductionBatch(tx, item.productId, item.quantity);
-                cost = result.totalCost;
+                // ReadyStock: manual product stock is source of truth
+                await tx.product.update({
+                  where: { id: item.productId },
+                  data: { manualStock: { decrement: item.quantity } },
+                });
+                cost = Number(product.cogs || 0) * item.quantity;
+                try {
+                  await deductProductionBatch(tx, item.productId, item.quantity);
+                } catch {
+                  // keep backward compatibility with legacy batches; ignore when not available
+                }
               } else {
                 // PreOrder: deduct from ingredient inventory
                 cost = await calculateProductCost(tx, item.productId, item.quantity);

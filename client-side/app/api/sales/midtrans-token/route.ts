@@ -3,7 +3,6 @@ import prisma from "@/lib/prisma";
 import { requireAuth, isAuthError } from "@/lib/auth/session";
 import { createSaleSchema } from "@/lib/validations/sale";
 import { createSnapTransaction } from "@/lib/midtrans/snap";
-import { getReadyStockAvailable } from "@/lib/inventory/production-engine";
 
 export const runtime = "nodejs";
 
@@ -25,7 +24,7 @@ function getEnabledPayments(paymentMethod: string) {
 async function validateInventoryAvailability(
   tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0],
   items: Array<{ productId: number; quantity: number }>,
-  productInfoMap: Map<number, { name: string; productType: string }>,
+  productInfoMap: Map<number, { name: string; productType: string; manualStock: number }>,
 ) {
   for (const item of items) {
     const productInfo = productInfoMap.get(item.productId);
@@ -35,7 +34,7 @@ async function validateInventoryAvailability(
 
     // ReadyStock: validate from production batches (not ingredient batches)
     if (productInfo.productType === "ReadyStock") {
-      const available = await getReadyStockAvailable(tx, item.productId);
+      const available = Math.max(0, Number(productInfo.manualStock ?? 0));
       if (available < item.quantity) {
         throw new Error(
           `Stok produk "${productInfo.name}" tidak cukup. Tersedia: ${available}, dibutuhkan: ${item.quantity}.`,
@@ -160,7 +159,7 @@ export async function POST(request: NextRequest) {
         const productIds = [...new Set(items.map((i) => i.productId))];
         const products = await tx.product.findMany({
           where: { id: { in: productIds }, businessId, deletedAt: null },
-          select: { id: true, name: true, sellingPrice: true, productType: true },
+          select: { id: true, name: true, sellingPrice: true, productType: true, manualStock: true },
         });
 
         if (products.length !== productIds.length) {
@@ -170,7 +169,14 @@ export async function POST(request: NextRequest) {
         }
 
         const productInfoMap = new Map(
-          products.map((p) => [p.id, { name: p.name, productType: p.productType }]),
+          products.map((p) => [
+            p.id,
+            {
+              name: p.name,
+              productType: p.productType,
+              manualStock: Number(p.manualStock ?? 0),
+            },
+          ]),
         );
 
         await validateInventoryAvailability(tx, items, productInfoMap);

@@ -1,5 +1,7 @@
 import prisma from "@/lib/prisma";
 import type { PricelistCategory } from "@/lib/bookings/pricelist";
+import { calculateOrderTokenFromItems } from "@/lib/bookings/order-token-calculator";
+import { buildDashboardProductName } from "@/lib/products/dashboard-name";
 import {
   acquireProductWriteLock,
   collectDuplicateProductNames,
@@ -9,9 +11,13 @@ import {
 } from "@/lib/products/uniqueness";
 
 interface FlattenedCatalogProduct {
+  category: string;
+  productName: string;
+  variantLabel: string;
   name: string;
   subcategory: string;
   sellingPrice: number;
+  productionToken: number;
 }
 
 type ProductSyncDedupResult = {
@@ -42,21 +48,6 @@ function normalizeMoney(value: number): number {
   return Math.max(0, Math.round(parsed));
 }
 
-export function buildDashboardProductName(args: {
-  productName: string;
-  variantLabel: string;
-  variantCount: number;
-}): string {
-  if (
-    args.variantCount === 1 &&
-    ["standard", "start from"].includes(args.variantLabel.trim().toLowerCase())
-  ) {
-    return args.productName;
-  }
-
-  return `${args.productName} - ${args.variantLabel}`;
-}
-
 export function flattenCatalogProductsForDashboard(
   catalog: PricelistCategory[],
 ): FlattenedCatalogProduct[] {
@@ -79,9 +70,28 @@ export function flattenCatalogProductsForDashboard(
           seen.add(key);
 
           rows.push({
+            category: category.category,
+            productName: normalizeProductName(product.name),
+            variantLabel: normalizeProductName(variant.label),
             name,
             subcategory: normalizeProductName(subcategory.name),
             sellingPrice: normalizeMoney(variant.price),
+            productionToken: Math.max(
+              0,
+              Math.round(
+                calculateOrderTokenFromItems([
+                  {
+                    category: category.category,
+                    subcategory: subcategory.name,
+                    productName: product.name,
+                    size: variant.label,
+                    difficulty: variant.label,
+                    tokenDifficulty: variant.label,
+                    quantity: 1,
+                  },
+                ]),
+              ),
+            ),
           });
         });
       });
@@ -229,6 +239,7 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
           name: true,
           categoryId: true,
           sellingPrice: true,
+          productionToken: true,
           productType: true,
           isActive: true,
           deletedAt: true,
@@ -259,6 +270,7 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
         sellingPrice: number;
         cogs: number;
         productType: "PreOrder";
+        productionToken: number;
       }> = [];
 
       for (const product of products) {
@@ -274,6 +286,7 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
             matched.categoryId !== resolvedCategoryId ||
             normalizeProductName(matched.name) !== normalizedName ||
             Number(matched.sellingPrice) !== product.sellingPrice ||
+            Number(matched.productionToken ?? 0) !== product.productionToken ||
             matched.productType !== "PreOrder" ||
             matched.isActive !== true ||
             matched.deletedAt !== null;
@@ -285,6 +298,7 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
                 categoryId: resolvedCategoryId,
                 name: normalizedName,
                 sellingPrice: product.sellingPrice,
+                productionToken: product.productionToken,
                 productType: "PreOrder",
                 isActive: true,
                 deletedAt: null,
@@ -305,6 +319,7 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
           categoryId: resolvedCategoryId,
           name: normalizedName,
           sellingPrice: product.sellingPrice,
+          productionToken: product.productionToken,
           cogs: 0,
           productType: "PreOrder",
         });

@@ -9,7 +9,7 @@ import {
   updateBusinessMetrics,
   updateProductMetrics,
 } from "@/lib/services/saleHelpers";
-import { deductProductionBatch, getReadyStockAvailable } from "@/lib/inventory/production-engine";
+import { deductProductionBatch } from "@/lib/inventory/production-engine";
 
 export const runtime = "nodejs";
 
@@ -213,7 +213,7 @@ export async function POST(request: NextRequest) {
         const productIds = [...new Set(items.map((i) => i.productId))];
         const products = await tx.product.findMany({
           where: { id: { in: productIds }, businessId },
-          select: { id: true, sellingPrice: true, cogs: true, productType: true },
+          select: { id: true, sellingPrice: true, cogs: true, productType: true, manualStock: true },
         });
 
         if (products.length !== productIds.length) {
@@ -225,14 +225,14 @@ export async function POST(request: NextRequest) {
         const productPriceMap = new Map(products.map((p) => [p.id, Number(p.sellingPrice)]));
         const productCogsMap = new Map(products.map((p) => [p.id, Number(p.cogs)]));
         const productTypeMap = new Map(products.map((p) => [p.id, p.productType]));
+        const productStockMap = new Map(products.map((p) => [p.id, Number(p.manualStock ?? 0)]));
 
         // 2. Check availability for stock-controlled products.
         for (const item of items) {
           const pType = productTypeMap.get(item.productId);
 
           if (pType === "ReadyStock") {
-            // Check production batch availability
-            const available = await getReadyStockAvailable(tx, item.productId);
+            const available = productStockMap.get(item.productId) ?? 0;
             if (available < item.quantity) {
               const prod = products.find((p) => p.id === item.productId);
               throw new Error(
@@ -313,7 +313,15 @@ export async function POST(request: NextRequest) {
 
         // 6.5. Deduct stock for ReadyStock products.
         for (const rsd of readyStockDeductions) {
-          await deductProductionBatch(tx, rsd.productId, rsd.quantity);
+          await tx.product.update({
+            where: { id: rsd.productId },
+            data: { manualStock: { decrement: rsd.quantity } },
+          });
+          try {
+            await deductProductionBatch(tx, rsd.productId, rsd.quantity);
+          } catch {
+            // manual stock is the active source; batch deduction is best effort for backward compatibility
+          }
         }
         // Direct COGS is product-owned; ingredient recalculation is intentionally disabled.
 

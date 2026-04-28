@@ -1,6 +1,6 @@
 import prisma from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
-import { buildDashboardProductName } from "@/lib/bookings/product-sync";
+import { buildDashboardProductName } from "@/lib/products/dashboard-name";
 import type { DailySalesEntry } from "@/lib/forecasting/utils";
 
 type BakeryOrderRow = {

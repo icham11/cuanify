@@ -209,6 +209,8 @@ model Product {
   deletedAt         DateTime?
   productType       ProductType       @default(PreOrder)
   cogs              Decimal           @db.Decimal(15, 2)
+  productionToken   Int               @default(0)
+  manualStock       Int               @default(0)
   business          Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
   category          Category?         @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   productForecasts  ProductForecast[]

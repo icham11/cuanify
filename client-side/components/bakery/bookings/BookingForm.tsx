@@ -59,7 +59,6 @@ import {
   isSeasonalCookiesItem,
   isWithinBusinessHours,
   isDateBlockedForOrdering,
-  summarizeProductionTokensByItems,
   type SlotAvailabilityStatus,
   type SlotOrderType,
 } from "@/lib/bookings/operations";
@@ -68,6 +67,8 @@ import {
   calculateDownPayment,
 } from "@/lib/bookings/config";
 import { calculateOrderTokenFromItems } from "@/lib/bookings/order-token-calculator";
+import type { Product } from "@/types/product";
+import { buildDashboardProductName } from "@/lib/products/dashboard-name";
 import {
   normalizeDateInput,
   parseSafeDate,
@@ -1881,6 +1882,46 @@ function getItemProductionToken(item: BookingItemInput): number {
   ]);
 }
 
+function normalizeTokenLookupKey(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function toDashboardProductNameFromItem(item: BookingItemInput): string {
+  return buildDashboardProductName({
+    productName: item.productName,
+    variantLabel: item.size,
+    variantCount: 1,
+  });
+}
+
+function getItemProductionTokenSynced(
+  item: BookingItemInput,
+  tokenByProductName: Map<string, number>,
+): number {
+  const dashboardName = normalizeTokenLookupKey(
+    toDashboardProductNameFromItem(item),
+  );
+  const tokenFromProduct = tokenByProductName.get(dashboardName);
+  if (tokenFromProduct !== undefined) {
+    const qty = Math.max(0, Number(item.quantity) || 0);
+    return Math.max(0, tokenFromProduct) * qty;
+  }
+  return getItemProductionToken(item);
+}
+
+function getTotalProductionTokenSynced(
+  items: BookingItemInput[],
+  tokenByProductName: Map<string, number>,
+): number {
+  return items.reduce(
+    (sum, item) => sum + getItemProductionTokenSynced(item, tokenByProductName),
+    0,
+  );
+}
+
 function getDraftItemPriceBreakdown(args: {
   catalog: PricelistCategory[];
   addOnCatalog: Record<string, CatalogAddOn[]>;
@@ -2377,6 +2418,66 @@ export default function BookingForm() {
   const shouldRequireSubmitConfirmation =
     !isRoleLoading && (isOwner || isAdmin);
   const canWarnDuplicateTemplate = !isRoleLoading && (isOwner || isAdmin);
+  const [productTokenByName, setProductTokenByName] = useState<Map<string, number>>(
+    new Map(),
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    let inFlight = false;
+
+    const refreshTokenMap = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const response = await fetch("/api/products/token-map", {
+          cache: "no-store",
+          credentials: "include",
+        });
+        if (!response.ok) return;
+        const payload = (await response.json().catch(() => ({}))) as {
+          success?: boolean;
+          data?: Array<{ name: string; productionToken: number }>;
+        };
+        if (!payload.success || !Array.isArray(payload.data)) return;
+        if (cancelled) return;
+        const tokenMap = new Map<string, number>();
+        payload.data.forEach((product) => {
+          tokenMap.set(
+            normalizeTokenLookupKey(product.name),
+            Math.max(0, Number(product.productionToken ?? 0)),
+          );
+        });
+        setProductTokenByName(tokenMap);
+      } catch {
+        // fallback to calculator path only
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    void refreshTokenMap();
+    const intervalId = window.setInterval(() => {
+      void refreshTokenMap();
+    }, 10_000);
+    const onFocus = () => {
+      void refreshTokenMap();
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void refreshTokenMap();
+      }
+    };
+
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, []);
 
   useEffect(() => {
     if (!showSubmitConfirmation) return;
@@ -3362,8 +3463,8 @@ export default function BookingForm() {
   }, [slotAvailability]);
 
   const incomingProductionTokens = useMemo(() => {
-    return summarizeProductionTokensByItems(watchedItems);
-  }, [watchedItems]);
+    return getTotalProductionTokenSynced(watchedItems, productTokenByName);
+  }, [watchedItems, productTokenByName]);
 
   // Keep token preview and draft token on the same calculator path.
   const newTokenPreview = incomingProductionTokens;
@@ -3721,7 +3822,10 @@ export default function BookingForm() {
       return;
     }
 
-    const incomingTokens = calculateOrderTokenFromItems(values.items);
+    const incomingTokens = getTotalProductionTokenSynced(
+      values.items,
+      productTokenByName,
+    );
     let validatedUsedTokens = 0;
     let validatedMaxTokens = DAILY_PRODUCTION_TOKEN_LIMIT;
 
@@ -5926,8 +6030,10 @@ export default function BookingForm() {
                     );
                     const itemGrabCarOnly = isGrabCarOnlyItem(bouquetProbeItem);
                     const quantityRule = getItemQuantityRule(bouquetProbeItem);
-                    const itemTokenPreview =
-                      getItemProductionToken(bouquetProbeItem);
+                    const itemTokenPreview = getItemProductionTokenSynced(
+                      bouquetProbeItem,
+                      productTokenByName,
+                    );
                     const bouquetPriceOverride = isBouquet
                       ? normalizeBouquetPriceOverrideValue(
                           item?.bouquetPriceOverride,

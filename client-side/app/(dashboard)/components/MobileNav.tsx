@@ -282,7 +282,7 @@ export default function MobileNav({
                 </>
               )}
 
-              {isOwner && (
+              {isBakeryManager && (
                 <>
                   <p className="px-3 pb-1 pt-4 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5f78a1]">
                     Inventory
@@ -292,6 +292,13 @@ export default function MobileNav({
                     icon={Package}
                     label="Products"
                     active={isActive("/dashboard/products")}
+                    onClick={() => setIsDrawerOpen(false)}
+                  />
+                  <NavLink
+                    href="/dashboard/add-ons"
+                    icon={Package}
+                    label="Add on"
+                    active={isActive("/dashboard/add-ons")}
                     onClick={() => setIsDrawerOpen(false)}
                   />
                 </>

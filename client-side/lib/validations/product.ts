@@ -86,6 +86,8 @@ export const createProductSchema = z.object({
   categoryName: z.string().min(1, "Category is required").max(100),
   sellingPrice: z.number().positive("Selling price must be positive"),
   cogs: z.number().positive("COGS must be greater than 0"),
+  productionToken: z.number().int().min(0).optional().default(0),
+  manualStock: z.number().int().min(0).optional().default(0),
   productType: z.enum(["ReadyStock", "PreOrder"]).optional().default("PreOrder"),
   recipe: z.array(recipeItemSchema).optional().default([]),
   manualCogs: z.number().min(0).optional(),

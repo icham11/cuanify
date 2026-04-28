@@ -5,7 +5,7 @@ import type { DraftRecipeRow } from "@/types/product";
 import IngredientSelectorRow from "../products/create/components/IngredientSelectorRow";
 import { getIngredientOptions } from "@/lib/api/products";
 import type { IngredientOption } from "@/lib/api/products";
-import type { CatalogAdminState, CustomProductEntry } from "@/lib/bookings/catalog-admin";
+import { makeVariantKey, type CatalogAdminState, type CustomProductEntry } from "@/lib/bookings/catalog-admin";
 import { BOOKING_PRODUCT_CATALOG } from "@/lib/bookings/pricelist";
 import { Plus, X, Loader2, CheckCircle2, AlertTriangle } from "lucide-react";
 
@@ -131,7 +131,7 @@ function removeCustomProduct(
   return { ...state, customProducts: nextCustomProducts };
 }
 
-async function syncToBookingCatalog(
+async function syncToBookingCatalogPrice(
   entry: CustomProductEntry,
   previousEntry?: CustomProductEntry,
 ): Promise<void> {
@@ -146,11 +146,39 @@ async function syncToBookingCatalog(
 
   let nextState = normalizeCatalogState(getPayload.data);
 
+  const nextPrice = Math.max(0, Math.round(Number(entry.price || 0)));
+  const nextVariantKey = makeVariantKey(
+    entry.category.trim(),
+    entry.subcategory.trim(),
+    entry.productName.trim(),
+    entry.variantLabel.trim(),
+  );
+
+  nextState = {
+    ...nextState,
+    productVariantPriceOverrides: {
+      ...nextState.productVariantPriceOverrides,
+      [nextVariantKey]: nextPrice,
+    },
+  };
+
   if (previousEntry) {
+    const previousVariantKey = makeVariantKey(
+      previousEntry.category.trim(),
+      previousEntry.subcategory.trim(),
+      previousEntry.productName.trim(),
+      previousEntry.variantLabel.trim(),
+    );
+    if (previousVariantKey !== nextVariantKey) {
+      const nextOverrides = { ...nextState.productVariantPriceOverrides };
+      delete nextOverrides[previousVariantKey];
+      nextState = {
+        ...nextState,
+        productVariantPriceOverrides: nextOverrides,
+      };
+    }
     nextState = removeCustomProduct(nextState, previousEntry);
   }
-
-  nextState = upsertCustomProduct(nextState, entry);
 
   const putResponse = await fetch("/api/bookings/catalog-config", {
     method: "PUT",
@@ -266,6 +294,12 @@ export default function EditProductModal({ product, categories, onClose, onSaved
 
   const [sellingPrice, setSellingPrice] = useState<number>(Number(product.sellingPrice));
   const [directCogs, setDirectCogs] = useState<number>(Number(product.cogs || 0));
+  const [productionToken, setProductionToken] = useState<number>(
+    Math.max(0, Number(product.productionToken || 0)),
+  );
+  const [manualStock, setManualStock] = useState<number>(
+    Math.max(0, Number(product.availableStock ?? product.manualStock ?? 0)),
+  );
   const [productType] = useState<"ReadyStock" | "PreOrder">(product.productType ?? "PreOrder");
   const [recipe, setRecipe] = useState<DraftRecipeRowWithClientId[]>(() =>
     product.recipes.map((r, idx) => ({
@@ -386,6 +420,8 @@ export default function EditProductModal({ product, categories, onClose, onSaved
           categoryName: bookingSubcategory.trim(),
           sellingPrice: Number(sellingPrice),
           cogs: Number(directCogs),
+          productionToken: Number(productionToken),
+          manualStock: Number(manualStock),
           productType,
           recipe: recipePayload,
         }),
@@ -404,7 +440,7 @@ export default function EditProductModal({ product, categories, onClose, onSaved
       }
 
       try {
-        await syncToBookingCatalog(
+        await syncToBookingCatalogPrice(
           {
             category: productCategory.trim(),
             subcategory: bookingSubcategory.trim(),
@@ -623,6 +659,26 @@ export default function EditProductModal({ product, categories, onClose, onSaved
                 min={1}
                 value={directCogs}
                 onChange={(e) => setDirectCogs(Math.max(0, Number(e.target.value) || 0))}
+                className="w-full border border-indigo-200 rounded-xl px-4 py-2.5 text-base font-semibold text-slate-700 bg-white focus:ring-2 focus:ring-indigo-400 outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Token / Product</label>
+              <input
+                type="number"
+                min={0}
+                value={productionToken}
+                onChange={(e) => setProductionToken(Math.max(0, Number(e.target.value) || 0))}
+                className="w-full border border-indigo-200 rounded-xl px-4 py-2.5 text-base font-semibold text-slate-700 bg-white focus:ring-2 focus:ring-indigo-400 outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Stock (Manual)</label>
+              <input
+                type="number"
+                min={0}
+                value={manualStock}
+                onChange={(e) => setManualStock(Math.max(0, Number(e.target.value) || 0))}
                 className="w-full border border-indigo-200 rounded-xl px-4 py-2.5 text-base font-semibold text-slate-700 bg-white focus:ring-2 focus:ring-indigo-400 outline-none"
               />
             </div>
