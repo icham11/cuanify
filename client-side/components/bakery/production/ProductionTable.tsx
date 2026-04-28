@@ -12,6 +12,7 @@ import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 import { BAKERY_STAFF_DAILY_TOKEN_LIMIT } from "@/lib/bookings/config";
 import { DEFAULT_MAX_TOKEN } from "@/lib/calendar/getCalendarStatus";
 import { useBakerySettings } from "@/hooks/useBakerySettings";
+import { distributeProductionTokens } from "@/lib/bookings/production-stages";
 
 interface TeamMember {
   userId: number;
@@ -93,6 +94,31 @@ function getOrderStaffTokenAssignments(order: BakeryOrder): Array<{
       token: summarizeProductionTokensByItems(order.items ?? []),
     },
   ];
+}
+
+function getEffectiveProductionStages(order: BakeryOrder) {
+  const existingStages = order.productionStages ?? [];
+  if (existingStages.length > 0) return existingStages;
+
+  return distributeProductionTokens({
+    totalTokens: summarizeProductionTokensByItems(order.items ?? []),
+  });
+}
+
+function getOrderClaimedStaffIds(order: BakeryOrder): number[] {
+  const stageIds = getEffectiveProductionStages(order)
+    .map((stage) => parseNumericId(stage.staffId))
+    .filter((staffId): staffId is number => Boolean(staffId));
+
+  if (stageIds.length > 0) {
+    return [...new Set(stageIds)];
+  }
+
+  return order.assignedStaffUserId ? [order.assignedStaffUserId] : [];
+}
+
+function isOrderFullyUnassigned(order: BakeryOrder): boolean {
+  return getOrderClaimedStaffIds(order).length === 0;
 }
 
 function monthKeyOf(date: Date): string {
@@ -591,12 +617,13 @@ export default function ProductionTable() {
       }
 
       if (quickFilter === "mine") {
-        if (!viewer?.userId || order.assignedStaffUserId !== viewer.userId)
+        if (!viewer?.userId || !getOrderClaimedStaffIds(order).includes(viewer.userId)) {
           return false;
+        }
       }
 
       if (quickFilter === "unassigned") {
-        if (order.assignedStaffUserId) return false;
+        if (!isOrderFullyUnassigned(order)) return false;
       }
 
       if (quickFilter === "heavy") {
@@ -623,7 +650,7 @@ export default function ProductionTable() {
 
     for (const order of visibleOrders) {
       totalToken += summarizeProductionTokensByItems(order.items ?? []);
-      if (!order.assignedStaffUserId) unassigned += 1;
+      if (isOrderFullyUnassigned(order)) unassigned += 1;
       if ((order.deliveryDate || "").trim() === todayDateKey) {
         dueToday += 1;
       }
@@ -733,7 +760,7 @@ export default function ProductionTable() {
 
   const transferCandidates = useMemo(() => {
     if (!transferOrder) return [] as TeamMember[];
-    if (!transferOrder.assignedStaffUserId) return teamMembers;
+    if (isOrderFullyUnassigned(transferOrder)) return teamMembers;
     return teamMembers.filter(
       (member) => member.userId !== transferOrder.assignedStaffUserId,
     );
@@ -785,14 +812,6 @@ export default function ProductionTable() {
       "Delivery",
       "Completed",
     ]);
-  };
-
-  const handleClaimByStaff = (orderId: string) => {
-    if (!viewer?.userId) return;
-    assignOrderToStaff(orderId, {
-      userId: viewer.userId,
-      name: viewer.name || userName || "Staff",
-    });
   };
 
   const handleClaimStage = (orderId: string, stage: "listing" | "filling" | "finishing") => {
@@ -915,6 +934,7 @@ export default function ProductionTable() {
   const renderOrderRow = (order: (typeof orders)[number]) => {
     const normalizedOrderStatus = normalizeOrderStatus(order.orderStatus);
     const orderToken = summarizeProductionTokensByItems(order.items ?? []);
+    const effectiveStages = getEffectiveProductionStages(order);
     const orderQty = (order.items ?? []).reduce(
       (sum, item) => sum + Math.max(0, Number(item.quantity || 0)),
       0,
@@ -924,31 +944,13 @@ export default function ProductionTable() {
       order.items?.[0]?.productName ||
       order.items?.[0]?.subcategory ||
       "Produk";
-    const staffName = order.assignedStaffName?.trim();
     const orderDateKey = (order.deliveryDate || "").trim();
-
-    const isUnassigned = !order.assignedStaffUserId;
+    const claimedStaffIds = getOrderClaimedStaffIds(order);
+    const isUnassigned = claimedStaffIds.length === 0;
     const isStaffViewer = isStaff || viewer?.role === "Staff";
+    const viewerUserId = viewer?.userId ?? null;
     const assignedToMe =
-      Boolean(viewer?.userId) && order.assignedStaffUserId === viewer?.userId;
-    const claimedByOther =
-      Boolean(order.assignedStaffUserId) &&
-      viewer?.userId !== order.assignedStaffUserId;
-    const canStaffClaim =
-      isStaffViewer && isUnassigned && Boolean(viewer?.userId);
-    const currentStaffDailyToken =
-      viewer?.userId && orderDateKey
-        ? (staffDailyTokenByDate.get(`${viewer.userId}:${orderDateKey}`) ?? 0)
-        : 0;
-    const projectedStaffDailyToken = currentStaffDailyToken + orderToken;
-    const exceedsStaffDailyLimit =
-      canStaffClaim &&
-      isStaffDailyTokenAssignmentBlocked({
-        currentToken: currentStaffDailyToken,
-        incomingToken: orderToken,
-        limit: staffDailyTokenLimit,
-      });
-    const claimDisabled = claimedByOther || exceedsStaffDailyLimit;
+      viewerUserId !== null && claimedStaffIds.includes(viewerUserId);
 
     const canOwnerAssignOrTransfer = isPrivilegedManager;
     const ownerActionCandidates = canOwnerAssignOrTransfer
@@ -958,7 +960,7 @@ export default function ProductionTable() {
       : [];
 
     let statusDisabledMessage = "";
-    if (!order.assignedStaffUserId) {
+    if (claimedStaffIds.length === 0) {
       statusDisabledMessage =
         "Ambil order terlebih dahulu sebelum mengubah status";
     } else if (isStaffViewer && !assignedToMe) {
@@ -1011,8 +1013,12 @@ export default function ProductionTable() {
         <div className="flex shrink-0 flex-col items-end gap-1.5">
           <div className="flex flex-wrap items-center justify-end gap-2">
             {(["listing", "filling", "finishing"] as const).map((stage) => {
-              const stageData = order.productionStages?.find((s) => s.stage === stage);
+              const stageData = effectiveStages.find((s) => s.stage === stage);
               const isClaimed = !!stageData?.staffId;
+              const stageToken = Math.max(
+                0,
+                Math.round(Number(stageData?.tokenAmount ?? 0)),
+              );
               
               let assignedName = "Unassigned";
               if (isClaimed) {
@@ -1025,14 +1031,30 @@ export default function ProductionTable() {
 
               const stageLabel = stage === "listing" ? "List" : stage === "filling" ? "Filling" : "Finishing";
               const tokenPercent = stage === "finishing" ? "50%" : "25%";
+              const canStaffClaimStage =
+                isStaffViewer && !isClaimed && Boolean(viewer?.userId);
+              const currentStaffDailyToken =
+                viewer?.userId && orderDateKey
+                  ? (staffDailyTokenByDate.get(`${viewer.userId}:${orderDateKey}`) ?? 0)
+                  : 0;
+              const projectedStaffDailyToken =
+                currentStaffDailyToken + stageToken;
+              const exceedsStaffDailyLimit =
+                canStaffClaimStage &&
+                isStaffDailyTokenAssignmentBlocked({
+                  currentToken: currentStaffDailyToken,
+                  incomingToken: stageToken,
+                  limit: staffDailyTokenLimit,
+                });
+              const claimDisabled = exceedsStaffDailyLimit;
 
               return (
                 <div key={stage} className="flex items-center gap-1">
                   {isClaimed ? (
                     <span className="rounded-full bg-green-100 px-2.5 py-1 text-[11px] font-medium text-green-700 whitespace-nowrap">
-                      {stageLabel}: {assignedName}
+                      {stageLabel}: {assignedName} ({stageToken})
                     </span>
-                  ) : canStaffClaim ? (
+                  ) : canStaffClaimStage ? (
                     <button
                       type="button"
                       onClick={(event) => {
@@ -1041,12 +1063,17 @@ export default function ProductionTable() {
                       }}
                       disabled={claimDisabled}
                       className="rounded-full bg-blue-500 px-2.5 py-1 text-[11px] font-medium text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50 whitespace-nowrap"
+                      title={
+                        exceedsStaffDailyLimit
+                          ? `Token harian ${projectedStaffDailyToken}/${staffDailyTokenLimit}`
+                          : undefined
+                      }
                     >
-                      Ambil {stageLabel} ({tokenPercent})
+                      Ambil {stageLabel} ({stageToken} token)
                     </button>
                   ) : (
                     <span className="rounded-full bg-gray-100 px-2.5 py-1 text-[11px] font-medium text-gray-500 whitespace-nowrap">
-                      {stageLabel} ({tokenPercent})
+                      {stageLabel} ({tokenPercent} • {stageToken} token)
                     </span>
                   )}
                 </div>
@@ -1079,14 +1106,6 @@ export default function ProductionTable() {
               />
             </div>
           </div>
-
-          {exceedsStaffDailyLimit && (
-            <p className="text-[11px] font-medium text-rose-600">
-              Token harian staff melewati batas ({projectedStaffDailyToken}/
-              {staffDailyTokenLimit})
-            </p>
-          )}
-
           {statusDisabledMessage && (
             <p className="text-[11px] text-slate-500">
               {statusDisabledMessage}

@@ -212,6 +212,7 @@ interface StaffValidationOrder {
   orderStatus: string;
   assignedStaffUserId: number | null;
   deliveryDate: string;
+  productionStages?: ProductionStageAssignment[];
   items: JsonRecord[];
 }
 
@@ -398,6 +399,69 @@ function normalizeProductionStages(value: unknown): ProductionStageAssignment[] 
       };
     })
     .filter((entry): entry is ProductionStageAssignment => Boolean(entry));
+}
+
+function mergeStaffClaimableProductionStages(params: {
+  existingStages: ProductionStageAssignment[];
+  incomingStages: ProductionStageAssignment[];
+  userId: number;
+}) {
+  const { existingStages, incomingStages, userId } = params;
+  const fallbackStages =
+    existingStages.length > 0 ? existingStages : incomingStages;
+  const incomingByStage = new Map(
+    incomingStages.map((stage) => [stage.stage, stage]),
+  );
+  let claimedByUser = false;
+
+  const mergedStages = fallbackStages.map((stage) => {
+    const incoming = incomingByStage.get(stage.stage);
+    if (!incoming) return stage;
+
+    const currentStaffId = asPositiveIntOrNull(stage.staffId);
+    const nextStaffId = asPositiveIntOrNull(incoming.staffId);
+    const canClaimOwnUnassignedStage =
+      currentStaffId === null && nextStaffId === userId;
+
+    if (!canClaimOwnUnassignedStage) {
+      return stage;
+    }
+
+    claimedByUser = true;
+    return {
+      ...stage,
+      staffId: userId,
+    };
+  });
+
+  return {
+    mergedStages,
+    claimedByUser,
+  };
+}
+
+function getOrderStaffTokenAssignmentsForLimit(
+  order: Pick<
+    StaffValidationOrder,
+    "assignedStaffUserId" | "deliveryDate" | "items" | "orderStatus" | "productionStages"
+  >,
+) {
+  const stageAssignments = (order.productionStages ?? [])
+    .filter((stage) => stage.staffId && stage.tokenAmount > 0)
+    .map((stage) => ({
+      staffUserId: Number(stage.staffId),
+      token: Math.max(0, Math.round(Number(stage.tokenAmount) || 0)),
+    }));
+
+  if (stageAssignments.length > 0) return stageAssignments;
+  if (!order.assignedStaffUserId) return [];
+
+  return [
+    {
+      staffUserId: order.assignedStaffUserId,
+      token: calculateOrderTokenForLimit(order),
+    },
+  ];
 }
 
 function toIsoOrNull(value: unknown): string | null {
@@ -1210,14 +1274,14 @@ function buildStaffDailyTokenMap(
   const usage = new Map<string, number>();
 
   for (const order of orders) {
-    if (!order.assignedStaffUserId || !order.deliveryDate) continue;
+    if (!order.deliveryDate) continue;
     if (INACTIVE_STATUSES.includes(order.orderStatus || "")) continue;
 
-    const token = calculateOrderTokenForLimit(order);
-    if (token <= 0) continue;
-
-    const key = `${order.assignedStaffUserId}:${order.deliveryDate}`;
-    usage.set(key, (usage.get(key) ?? 0) + token);
+    for (const assignment of getOrderStaffTokenAssignmentsForLimit(order)) {
+      if (assignment.token <= 0) continue;
+      const key = `${assignment.staffUserId}:${order.deliveryDate}`;
+      usage.set(key, (usage.get(key) ?? 0) + assignment.token);
+    }
   }
 
   return usage;
@@ -2023,6 +2087,30 @@ export async function POST(request: NextRequest) {
         ORDER BY order_external_id ASC, address_index ASC
       `;
 
+      const staffMembers = await prisma.businessMember.findMany({
+        where: { businessId },
+        select: { userId: true },
+      });
+      const staffIdByUuid = buildStaffIdByUuid(
+        staffMembers.map((member) => member.userId),
+      );
+      const orderExternalByUuid = new Map(
+        existingRows.map((row) => [
+          row.order_uuid ?? orderTaskUuid(businessId, row.external_id),
+          row.external_id,
+        ]),
+      );
+      const orderUuids = [...orderExternalByUuid.keys()];
+      const stageRows =
+        orderUuids.length > 0
+          ? await prisma.$queryRaw<DbProductionStageRow[]>`
+              SELECT order_id::text AS order_id, stage, staff_id::text AS staff_id, token_amount
+              FROM production_tasks
+              WHERE order_id::text IN (${Prisma.join(orderUuids)})
+              ORDER BY order_id ASC, stage ASC
+            `
+          : [];
+
       const itemsMap = new Map<string, JsonRecord[]>();
       for (const row of itemRows) {
         const current = itemsMap.get(row.order_external_id) ?? [];
@@ -2037,6 +2125,20 @@ export async function POST(request: NextRequest) {
         const payload = asRecord(parseJsonField(row.payload));
         if (payload) current.push(payload);
         addressesMap.set(row.order_external_id, current);
+      }
+
+      const stagesMap = new Map<string, ProductionStageAssignment[]>();
+      for (const row of stageRows) {
+        const externalId = orderExternalByUuid.get(row.order_id);
+        if (!externalId) continue;
+        const current = stagesMap.get(externalId) ?? [];
+        current.push({
+          stage: row.stage,
+          staffId: row.staff_id ? staffIdByUuid.get(row.staff_id) ?? null : null,
+          tokenAmount: asNumber(row.token_amount),
+          percentage: row.stage === "finishing" ? 50 : 25,
+        });
+        stagesMap.set(externalId, current);
       }
 
       const existingOrders: ParsedOrder[] = existingRows.map((row) => ({
@@ -2079,7 +2181,7 @@ export async function POST(request: NextRequest) {
         paymentTransactions: asArrayOfRecords(
           parseJsonField(row.payment_transactions),
         ),
-        productionStages: [],
+        productionStages: stagesMap.get(row.external_id) ?? [],
         items: itemsMap.get(row.external_id) ?? [],
         deliveryAddresses: addressesMap.get(row.external_id) ?? [],
       }));
@@ -2116,9 +2218,18 @@ export async function POST(request: NextRequest) {
         if (!incomingOrder) return existingOrder;
 
         const currentAssignee = existingOrder.assignedStaffUserId;
-        const nextAssignee = incomingOrder.assignedStaffUserId;
         const statusChanged =
           incomingOrder.orderStatus !== existingOrder.orderStatus;
+        const { mergedStages, claimedByUser } =
+          mergeStaffClaimableProductionStages({
+            existingStages: existingOrder.productionStages,
+            incomingStages: incomingOrder.productionStages,
+            userId,
+          });
+        const viewerOwnsAnyStage = mergedStages.some(
+          (stage) => stage.staffId === userId,
+        );
+        const nextAssignee = incomingOrder.assignedStaffUserId;
 
         const sameAssignee = currentAssignee === nextAssignee;
         const staffClaimingUnassignedOwnOrder =
@@ -2131,13 +2242,13 @@ export async function POST(request: NextRequest) {
         }
 
         if (statusChanged) {
-          if (!nextAssignee) {
+          if (!nextAssignee && !viewerOwnsAnyStage) {
             return existingOrder;
           }
           if (!staffUpdatableStatuses.has(incomingOrder.orderStatus)) {
             return existingOrder;
           }
-          if (nextAssignee !== userId) {
+          if (nextAssignee && nextAssignee !== userId && !viewerOwnsAnyStage) {
             return existingOrder;
           }
         }
@@ -2163,6 +2274,8 @@ export async function POST(request: NextRequest) {
             incomingOrder.productionAssignedAt ||
             existingOrder.productionAssignedAt ||
             new Date().toISOString();
+        } else if (claimedByUser && !existingOrder.productionAssignedAt) {
+          nextAssignedAt = new Date().toISOString();
         }
 
         return {
@@ -2173,6 +2286,7 @@ export async function POST(request: NextRequest) {
           assignedStaffUserId: nextAssignee,
           assignedStaffName: nextAssignedName,
           productionAssignedAt: nextAssignedAt,
+          productionStages: mergedStages,
         };
       });
     } else {
@@ -2943,4 +3057,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-
