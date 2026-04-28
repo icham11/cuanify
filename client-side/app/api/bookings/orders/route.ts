@@ -212,10 +212,11 @@ interface StaffValidationOrder {
   orderStatus: string;
   assignedStaffUserId: number | null;
   deliveryDate: string;
+  productionStages?: ProductionStageAssignment[];
   items: JsonRecord[];
 }
 
-type SnapshotSource = "rows" | "snapshot-fallback";
+type SnapshotSource = "rows" | "snapshot-fallback" | "snapshot-newer-than-rows";
 type SnapshotStore = Pick<typeof prisma, "businessDocument">;
 
 const normalizedOrderSchema = z.object({
@@ -398,6 +399,69 @@ function normalizeProductionStages(value: unknown): ProductionStageAssignment[] 
       };
     })
     .filter((entry): entry is ProductionStageAssignment => Boolean(entry));
+}
+
+function mergeStaffClaimableProductionStages(params: {
+  existingStages: ProductionStageAssignment[];
+  incomingStages: ProductionStageAssignment[];
+  userId: number;
+}) {
+  const { existingStages, incomingStages, userId } = params;
+  const fallbackStages =
+    existingStages.length > 0 ? existingStages : incomingStages;
+  const incomingByStage = new Map(
+    incomingStages.map((stage) => [stage.stage, stage]),
+  );
+  let claimedByUser = false;
+
+  const mergedStages = fallbackStages.map((stage) => {
+    const incoming = incomingByStage.get(stage.stage);
+    if (!incoming) return stage;
+
+    const currentStaffId = asPositiveIntOrNull(stage.staffId);
+    const nextStaffId = asPositiveIntOrNull(incoming.staffId);
+    const canClaimOwnUnassignedStage =
+      currentStaffId === null && nextStaffId === userId;
+
+    if (!canClaimOwnUnassignedStage) {
+      return stage;
+    }
+
+    claimedByUser = true;
+    return {
+      ...stage,
+      staffId: userId,
+    };
+  });
+
+  return {
+    mergedStages,
+    claimedByUser,
+  };
+}
+
+function getOrderStaffTokenAssignmentsForLimit(
+  order: Pick<
+    StaffValidationOrder,
+    "assignedStaffUserId" | "deliveryDate" | "items" | "orderStatus" | "productionStages"
+  >,
+) {
+  const stageAssignments = (order.productionStages ?? [])
+    .filter((stage) => stage.staffId && stage.tokenAmount > 0)
+    .map((stage) => ({
+      staffUserId: Number(stage.staffId),
+      token: Math.max(0, Math.round(Number(stage.tokenAmount) || 0)),
+    }));
+
+  if (stageAssignments.length > 0) return stageAssignments;
+  if (!order.assignedStaffUserId) return [];
+
+  return [
+    {
+      staffUserId: order.assignedStaffUserId,
+      token: calculateOrderTokenForLimit(order),
+    },
+  ];
 }
 
 function toIsoOrNull(value: unknown): string | null {
@@ -1210,14 +1274,14 @@ function buildStaffDailyTokenMap(
   const usage = new Map<string, number>();
 
   for (const order of orders) {
-    if (!order.assignedStaffUserId || !order.deliveryDate) continue;
+    if (!order.deliveryDate) continue;
     if (INACTIVE_STATUSES.includes(order.orderStatus || "")) continue;
 
-    const token = calculateOrderTokenForLimit(order);
-    if (token <= 0) continue;
-
-    const key = `${order.assignedStaffUserId}:${order.deliveryDate}`;
-    usage.set(key, (usage.get(key) ?? 0) + token);
+    for (const assignment of getOrderStaffTokenAssignmentsForLimit(order)) {
+      if (assignment.token <= 0) continue;
+      const key = `${assignment.staffUserId}:${order.deliveryDate}`;
+      usage.set(key, (usage.get(key) ?? 0) + assignment.token);
+    }
   }
 
   return usage;
@@ -1331,9 +1395,23 @@ async function readOrdersSnapshot(businessId: number) {
     select: {
       id: true,
       content: true,
+      metadata: true,
       updatedAt: true,
     },
   });
+}
+
+function getSnapshotSource(value: unknown): SnapshotSource | null {
+  const metadata = asRecord(value);
+  const source = asString(metadata?.source);
+  if (
+    source === "rows" ||
+    source === "snapshot-fallback" ||
+    source === "snapshot-newer-than-rows"
+  ) {
+    return source;
+  }
+  return null;
 }
 
 async function upsertOrdersSnapshot(
@@ -1800,12 +1878,45 @@ export async function GET() {
           deliveryAddresses: addressesMap.get(row.external_id) ?? [],
         }));
 
+        const snapshot = await readOrdersSnapshot(businessId);
+        const snapshotSource = getSnapshotSource(snapshot?.metadata);
+        const rowUpdatedAt = orderRows[0]?.updated_at?.toISOString() ?? null;
+        const snapshotUpdatedAt = snapshot?.updatedAt?.toISOString() ?? null;
+
+        if (snapshotSource === "snapshot-fallback") {
+          return NextResponse.json({
+            success: true,
+            data: {
+              source: "snapshot-fallback",
+              id: snapshot?.id ?? null,
+              orders: parseOrdersContent(snapshot?.content),
+              updatedAt: snapshotUpdatedAt,
+            },
+          });
+        }
+
+        if (
+          snapshotUpdatedAt &&
+          rowUpdatedAt &&
+          new Date(snapshotUpdatedAt).getTime() > new Date(rowUpdatedAt).getTime()
+        ) {
+          return NextResponse.json({
+            success: true,
+            data: {
+              source: "snapshot-newer-than-rows",
+              id: snapshot?.id ?? null,
+              orders: parseOrdersContent(snapshot?.content),
+              updatedAt: snapshotUpdatedAt,
+            },
+          });
+        }
+
         return NextResponse.json({
           success: true,
           data: {
             source: "rows",
             orders,
-            updatedAt: orderRows[0]?.updated_at?.toISOString() ?? null,
+            updatedAt: rowUpdatedAt,
           },
         });
       }
@@ -2023,6 +2134,30 @@ export async function POST(request: NextRequest) {
         ORDER BY order_external_id ASC, address_index ASC
       `;
 
+      const staffMembers = await prisma.businessMember.findMany({
+        where: { businessId },
+        select: { userId: true },
+      });
+      const staffIdByUuid = buildStaffIdByUuid(
+        staffMembers.map((member) => member.userId),
+      );
+      const orderExternalByUuid = new Map(
+        existingRows.map((row) => [
+          row.order_uuid ?? orderTaskUuid(businessId, row.external_id),
+          row.external_id,
+        ]),
+      );
+      const orderUuids = [...orderExternalByUuid.keys()];
+      const stageRows =
+        orderUuids.length > 0
+          ? await prisma.$queryRaw<DbProductionStageRow[]>`
+              SELECT order_id::text AS order_id, stage, staff_id::text AS staff_id, token_amount
+              FROM production_tasks
+              WHERE order_id::text IN (${Prisma.join(orderUuids)})
+              ORDER BY order_id ASC, stage ASC
+            `
+          : [];
+
       const itemsMap = new Map<string, JsonRecord[]>();
       for (const row of itemRows) {
         const current = itemsMap.get(row.order_external_id) ?? [];
@@ -2037,6 +2172,20 @@ export async function POST(request: NextRequest) {
         const payload = asRecord(parseJsonField(row.payload));
         if (payload) current.push(payload);
         addressesMap.set(row.order_external_id, current);
+      }
+
+      const stagesMap = new Map<string, ProductionStageAssignment[]>();
+      for (const row of stageRows) {
+        const externalId = orderExternalByUuid.get(row.order_id);
+        if (!externalId) continue;
+        const current = stagesMap.get(externalId) ?? [];
+        current.push({
+          stage: row.stage,
+          staffId: row.staff_id ? staffIdByUuid.get(row.staff_id) ?? null : null,
+          tokenAmount: asNumber(row.token_amount),
+          percentage: row.stage === "finishing" ? 50 : 25,
+        });
+        stagesMap.set(externalId, current);
       }
 
       const existingOrders: ParsedOrder[] = existingRows.map((row) => ({
@@ -2079,7 +2228,7 @@ export async function POST(request: NextRequest) {
         paymentTransactions: asArrayOfRecords(
           parseJsonField(row.payment_transactions),
         ),
-        productionStages: [],
+        productionStages: stagesMap.get(row.external_id) ?? [],
         items: itemsMap.get(row.external_id) ?? [],
         deliveryAddresses: addressesMap.get(row.external_id) ?? [],
       }));
@@ -2116,9 +2265,18 @@ export async function POST(request: NextRequest) {
         if (!incomingOrder) return existingOrder;
 
         const currentAssignee = existingOrder.assignedStaffUserId;
-        const nextAssignee = incomingOrder.assignedStaffUserId;
         const statusChanged =
           incomingOrder.orderStatus !== existingOrder.orderStatus;
+        const { mergedStages, claimedByUser } =
+          mergeStaffClaimableProductionStages({
+            existingStages: existingOrder.productionStages,
+            incomingStages: incomingOrder.productionStages,
+            userId,
+          });
+        const viewerOwnsAnyStage = mergedStages.some(
+          (stage) => stage.staffId === userId,
+        );
+        const nextAssignee = incomingOrder.assignedStaffUserId;
 
         const sameAssignee = currentAssignee === nextAssignee;
         const staffClaimingUnassignedOwnOrder =
@@ -2131,13 +2289,13 @@ export async function POST(request: NextRequest) {
         }
 
         if (statusChanged) {
-          if (!nextAssignee) {
+          if (!nextAssignee && !viewerOwnsAnyStage) {
             return existingOrder;
           }
           if (!staffUpdatableStatuses.has(incomingOrder.orderStatus)) {
             return existingOrder;
           }
-          if (nextAssignee !== userId) {
+          if (nextAssignee && nextAssignee !== userId && !viewerOwnsAnyStage) {
             return existingOrder;
           }
         }
@@ -2163,6 +2321,8 @@ export async function POST(request: NextRequest) {
             incomingOrder.productionAssignedAt ||
             existingOrder.productionAssignedAt ||
             new Date().toISOString();
+        } else if (claimedByUser && !existingOrder.productionAssignedAt) {
+          nextAssignedAt = new Date().toISOString();
         }
 
         return {
@@ -2173,6 +2333,7 @@ export async function POST(request: NextRequest) {
           assignedStaffUserId: nextAssignee,
           assignedStaffName: nextAssignedName,
           productionAssignedAt: nextAssignedAt,
+          productionStages: mergedStages,
         };
       });
     } else {
@@ -2382,6 +2543,12 @@ export async function POST(request: NextRequest) {
               }
             }
 
+            // ── Release token lama jika ada perubahan pada order yang sudah ada ──
+            // Kasus: tanggal berubah, status jadi inactive, atau jumlah token berubah.
+            // Harus dilakukan sebelum consume token baru agar slot terbebas dulu.
+            let tokenWasReleased = false;
+            let releasedFromDate: string | null = null;
+
             if (
               existingOrder &&
               existingOrder.delivery_date &&
@@ -2401,40 +2568,83 @@ export async function POST(request: NextRequest) {
                   existingOrder.token_used,
                   tx,
                 );
+                tokenWasReleased = true;
+                releasedFromDate = existingOrder.delivery_date;
               }
             }
 
-            // Consume tokens for active orders with a delivery date
+            // ── Consume token baru untuk order aktif dengan tanggal delivery ──
             let finalTokenUsed = 0;
             if (isActiveStatus && order.deliveryDate && tokenForOrder > 0) {
+              const existingTokenUsed = existingOrder?.token_used ?? 0;
+              const existingDeliveryDate = existingOrder?.delivery_date ?? null;
+              const dateChanged = existingDeliveryDate !== (order.deliveryDate || null);
+              const tokenChanged = existingTokenUsed !== tokenForOrder;
+              const wasAlreadyActive = existingOrder ? wasActive : false;
+
               const shouldConsume =
                 !existingOrder ||
-                !wasActive ||
-                existingOrder.delivery_date !== (order.deliveryDate || null) ||
-                existingOrder.token_used !== tokenForOrder;
+                !wasAlreadyActive ||
+                dateChanged ||
+                tokenChanged;
 
               if (shouldConsume) {
-                const consumeResult = await consumeToken(
-                  businessId,
-                  order.deliveryDate,
-                  tokenForOrder,
-                  tx,
-                );
-                if (!consumeResult.success) {
-                  // Capacity full — reject this entire sync
-                  throw new CapacityFullError(
-                    `Production capacity full for ${order.deliveryDate}. ` +
-                      `Used: ${consumeResult.usedToken}/${consumeResult.maxToken}, ` +
-                      `Needed: ${tokenForOrder} for order ${order.id}.`,
+                // Kasus khusus: token berubah, tanggal sama, order sudah ada dan aktif.
+                // Token lama sudah di-release di atas (tokenWasReleased = true).
+                // Gunakan atomic direct-set daripada consumeToken yang bisa gagal
+                // karena ledger stale setelah reconcile.
+                const tokenOnlySameDate =
+                  tokenWasReleased &&
+                  releasedFromDate === (order.deliveryDate || null) &&
+                  !dateChanged;
+
+                if (tokenOnlySameDate) {
+                  // Direct atomic set: kita tahu slot sudah dibebaskan, aman langsung tulis
+                  await tx.$executeRaw`
+                    INSERT INTO production_capacity (business_id, date, max_token, used_token, created_at, updated_at)
+                    VALUES (
+                      ${businessId},
+                      ${order.deliveryDate}::date,
+                      ${bakerySettings.dailyProductionTokenLimit},
+                      LEAST(${bakerySettings.dailyProductionTokenLimit}, GREATEST(0, COALESCE(
+                        (SELECT used_token FROM production_capacity WHERE business_id = ${businessId} AND date = ${order.deliveryDate}::date),
+                        0
+                      ) + ${tokenForOrder})),
+                      NOW(),
+                      NOW()
+                    )
+                    ON CONFLICT (business_id, date) DO UPDATE SET
+                      used_token = LEAST(
+                        production_capacity.max_token,
+                        GREATEST(0, production_capacity.used_token + ${tokenForOrder})
+                      ),
+                      updated_at = NOW()
+                  `;
+                  finalTokenUsed = tokenForOrder;
+                } else {
+                  // Standard consume path: order baru atau tanggal berubah
+                  const consumeResult = await consumeToken(
+                    businessId,
                     order.deliveryDate,
-                    consumeResult.usedToken,
-                    consumeResult.maxToken,
                     tokenForOrder,
+                    tx,
                   );
+                  if (!consumeResult.success) {
+                    // Kapasitas penuh — tolak seluruh sync ini
+                    throw new CapacityFullError(
+                      `Production capacity full for ${order.deliveryDate}. ` +
+                        `Used: ${consumeResult.usedToken}/${consumeResult.maxToken}, ` +
+                        `Needed: ${tokenForOrder} for order ${order.id}.`,
+                      order.deliveryDate,
+                      consumeResult.usedToken,
+                      consumeResult.maxToken,
+                      tokenForOrder,
+                    );
+                  }
+                  finalTokenUsed = tokenForOrder;
                 }
-                finalTokenUsed = tokenForOrder;
               } else {
-                // No change needed, keep existing token
+                // Tidak ada perubahan — pertahankan token yang ada
                 finalTokenUsed = existingOrder?.token_used ?? 0;
               }
             }
@@ -2943,4 +3153,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

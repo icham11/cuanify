@@ -263,6 +263,43 @@ const SERVER_SYNC_POLL_INTERVAL_MS = 30000;
 const LOCAL_WRITE_STALE_GUARD_MS = 2500;
 const SHIPMENT_RETRY_BACKOFF_MS = 5 * 60 * 1000;
 const SHIPMENT_WARNING_COOLDOWN_MS = 10 * 60 * 1000;
+
+/**
+ * HTTP status code yang dikembalikan proxy saat role tidak punya akses.
+ * Digunakan untuk membedakan "error sistem" vs "dibatasi role" agar
+ * Staff tidak menerima toast warning yang tidak relevan.
+ */
+const ROLE_FORBIDDEN_HTTP_STATUS = 403;
+
+/**
+ * Error khusus yang dilempar saat API menolak request karena pembatasan role.
+ * Berbeda dari error jaringan/server sehingga bisa di-handle secara terpisah.
+ */
+class RoleForbiddenError extends Error {
+  constructor(message = "Akses API tidak diizinkan untuk role ini.") {
+    super(message);
+    this.name = "RoleForbiddenError";
+  }
+}
+
+/**
+ * Substring yang digunakan server saat kapasitas produksi penuh (HTTP 409).
+ * Digunakan untuk mendeteksi error ini dari response tanpa parsing JSON yang berat.
+ */
+const CAPACITY_FULL_ERROR_SUBSTRING = "capacity full";
+
+/**
+ * Error khusus untuk "Production capacity full" dari background sync.
+ * Berbeda dari error user-triggered agar tidak spam toast ke user.
+ * Background sync tidak perlu menampilkan error ini — kapasitas penuh
+ * adalah kondisi valid yang tidak perlu tindakan user.
+ */
+class CapacityFullSyncError extends Error {
+  constructor(message = "Production capacity full.") {
+    super(message);
+    this.name = "CapacityFullSyncError";
+  }
+}
 const AUTO_REQUOTE_ERROR_KEYWORDS = [
   "courier price is not found",
   "check your origin and destination location",
@@ -898,6 +935,17 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
     if (!response.ok || !payload.success) {
       const fallback = `Booking sync failed (${response.status}).`;
       const message = parseOrdersSyncError(payload, fallback);
+
+      // Jika server menolak karena kapasitas produksi penuh (HTTP 409),
+      // lempar CapacityFullSyncError agar background sync tidak spam toast ke user.
+      // Kapasitas penuh adalah kondisi valid — bukan kesalahan yang perlu dilaporkan.
+      if (
+        response.status === 409 &&
+        message.toLowerCase().includes(CAPACITY_FULL_ERROR_SUBSTRING)
+      ) {
+        throw new CapacityFullSyncError(message);
+      }
+
       throw new Error(message);
     }
 
@@ -1014,6 +1062,13 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
           endpoint: ORDERS_SYNC_ENDPOINT,
           message,
         });
+
+        // Kapasitas produksi penuh — ini kondisi valid dari sistem, bukan error user.
+        // Tidak perlu toast.error agar halaman marketplace/production tidak spam notif.
+        if (error instanceof CapacityFullSyncError) {
+          return;
+        }
+
         toast.error(`Perubahan dibatalkan karena sinkron gagal: ${message}`);
       });
     },
@@ -1249,6 +1304,15 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
               .json()
               .catch(() => ({}))) as ShippingResiResponse;
 
+            // Jika server menolak karena pembatasan role (403 dari proxy),
+            // lempar RoleForbiddenError agar tidak menampilkan toast warning ke Staff.
+            if (response.status === ROLE_FORBIDDEN_HTTP_STATUS) {
+              const forbiddenMsg =
+                (payload as unknown as { error?: string }).error ??
+                "Akses pembuatan resi tidak diizinkan untuk role ini.";
+              throw new RoleForbiddenError(forbiddenMsg);
+            }
+
             if (!response.ok || !payload.success || !payload.shipment) {
               throw new Error(payload.error || "Gagal membuat resi otomatis.");
             }
@@ -1386,6 +1450,13 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
           }
           toast.success(`Resi otomatis dibuat: ${createdShipment.trackingNumber}`);
         } catch (error: unknown) {
+          // Jika error karena pembatasan role (Staff tidak punya akses endpoint
+          // shipping), diam saja — tidak perlu tampilkan warning ke Staff.
+          // Fitur buat resi otomatis hanya relevan untuk Owner/Admin.
+          if (error instanceof RoleForbiddenError) {
+            return;
+          }
+
           const message =
             error instanceof Error
               ? error.message
@@ -2164,4 +2235,3 @@ export function useOrders() {
   }
   return context;
 }
-

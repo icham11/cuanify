@@ -34,4 +34,26 @@ describe("distributeProductionTokens", () => {
     expect(filling101).toBe(25);
     expect(finishing101).toBe(51);
   });
+
+  it("keeps 25/25/50 split and remembers staff per stage", () => {
+    const split = distributeProductionTokens({
+      totalTokens: 100,
+      staffByStage: {
+        listing: 11,
+        filling: 22,
+        finishing: 22,
+      },
+    });
+
+    const listing = split.find((entry) => entry.stage === "listing");
+    const filling = split.find((entry) => entry.stage === "filling");
+    const finishing = split.find((entry) => entry.stage === "finishing");
+
+    expect(listing?.tokenAmount).toBe(25);
+    expect(listing?.staffId).toBe(11);
+    expect(filling?.tokenAmount).toBe(25);
+    expect(filling?.staffId).toBe(22);
+    expect(finishing?.tokenAmount).toBe(50);
+    expect(finishing?.staffId).toBe(22);
+  });
 });
