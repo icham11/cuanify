@@ -50,15 +50,27 @@ const STAFF_ALLOWED_API_RULES: Array<{
   prefix: string;
   methods: ReadonlyArray<string>;
 }> = [
+  // Auth endpoints — wajib untuk semua role
   { prefix: "/api/auth/me", methods: ["GET"] },
   { prefix: "/api/auth/logout", methods: ["POST"] },
   { prefix: "/api/auth/post-login", methods: ["GET"] },
   { prefix: "/api/auth/session", methods: ["GET"] },
   { prefix: "/api/auth/csrf", methods: ["GET"] },
   { prefix: "/api/auth/providers", methods: ["GET"] },
+
+  // Business info — dibutuhkan untuk context bisnis
   { prefix: "/api/businesses", methods: ["GET"] },
+
+  // Bakery settings — dibutuhkan oleh useBakerySettings (token limit, dll)
+  { prefix: "/api/bakery/settings", methods: ["GET"] },
+
+  // Booking orders — Staff perlu baca & sync data order produksi
   { prefix: "/api/bookings/orders", methods: ["GET", "POST"] },
+
+  // Booking automations — Staff perlu trigger notif produksi
   { prefix: "/api/bookings/automations", methods: ["GET", "POST"] },
+
+  // Staff tokens — untuk tracking token produksi harian Staff
   { prefix: "/api/bakery/production/staff-tokens", methods: ["GET"] },
 ];
 
