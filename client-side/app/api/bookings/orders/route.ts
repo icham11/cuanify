@@ -1395,9 +1395,23 @@ async function readOrdersSnapshot(businessId: number) {
     select: {
       id: true,
       content: true,
+      metadata: true,
       updatedAt: true,
     },
   });
+}
+
+function getSnapshotSource(value: unknown): SnapshotSource | null {
+  const metadata = asRecord(value);
+  const source = asString(metadata?.source);
+  if (
+    source === "rows" ||
+    source === "snapshot-fallback" ||
+    source === "snapshot-newer-than-rows"
+  ) {
+    return source;
+  }
+  return null;
 }
 
 async function upsertOrdersSnapshot(
@@ -1865,8 +1879,21 @@ export async function GET() {
         }));
 
         const snapshot = await readOrdersSnapshot(businessId);
+        const snapshotSource = getSnapshotSource(snapshot?.metadata);
         const rowUpdatedAt = orderRows[0]?.updated_at?.toISOString() ?? null;
         const snapshotUpdatedAt = snapshot?.updatedAt?.toISOString() ?? null;
+
+        if (snapshotSource === "snapshot-fallback") {
+          return NextResponse.json({
+            success: true,
+            data: {
+              source: "snapshot-fallback",
+              id: snapshot?.id ?? null,
+              orders: parseOrdersContent(snapshot?.content),
+              updatedAt: snapshotUpdatedAt,
+            },
+          });
+        }
 
         if (
           snapshotUpdatedAt &&

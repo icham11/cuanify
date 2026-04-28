@@ -96,6 +96,11 @@ function getOrderStaffTokenAssignments(order: BakeryOrder): Array<{
   ];
 }
 
+function getSingleOrderAssignee(order: BakeryOrder): number | null {
+  const claimedStaffIds = getOrderClaimedStaffIds(order);
+  return claimedStaffIds.length === 1 ? claimedStaffIds[0] : null;
+}
+
 function getEffectiveProductionStages(order: BakeryOrder) {
   const existingStages = order.productionStages ?? [];
   if (existingStages.length > 0) return existingStages;
@@ -476,7 +481,8 @@ export default function ProductionTable() {
     );
   }, [isPrivilegedManager, isStaff, orders, teamMembers, viewer, userName]);
 
-  const staffDailyIndicatorDateKey = filterDate || todayDateKey;
+  const staffDailyIndicatorDateKey = filterDate || "";
+  const usesExplicitDailyDate = staffDailyIndicatorDateKey.length > 0;
 
   const staffDailyTokenByDate = useMemo(() => {
     const usage = new Map<string, number>();
@@ -555,10 +561,11 @@ export default function ProductionTable() {
         const baseline = applyMonthlyBaseline
           ? (resetMap[entry.userId]?.baselineToken ?? 0)
           : 0;
-        const dailyToken =
-          staffDailyTokenByDate.get(
-            `${entry.userId}:${staffDailyIndicatorDateKey}`,
-          ) ?? 0;
+        const dailyToken = usesExplicitDailyDate
+          ? (staffDailyTokenByDate.get(
+              `${entry.userId}:${staffDailyIndicatorDateKey}`,
+            ) ?? 0)
+          : entry.assignedActive;
         return {
           ...entry,
           baseline,
@@ -579,6 +586,7 @@ export default function ProductionTable() {
     trackedStaff,
     filterMonth,
     filterYear,
+    usesExplicitDailyDate,
     matchesDateFilter,
     staffDailyTokenLimit,
   ]);
@@ -761,8 +769,10 @@ export default function ProductionTable() {
   const transferCandidates = useMemo(() => {
     if (!transferOrder) return [] as TeamMember[];
     if (isOrderFullyUnassigned(transferOrder)) return teamMembers;
+    const singleAssignee = getSingleOrderAssignee(transferOrder);
+    if (!singleAssignee) return [] as TeamMember[];
     return teamMembers.filter(
-      (member) => member.userId !== transferOrder.assignedStaffUserId,
+      (member) => member.userId !== singleAssignee,
     );
   }, [teamMembers, transferOrder]);
 
@@ -825,10 +835,11 @@ export default function ProductionTable() {
   const handleOpenTransferModal = (orderId: string) => {
     const order = orders.find((entry) => entry.id === orderId);
     if (!order) return;
+    const singleAssignee = getSingleOrderAssignee(order);
 
-    const candidate = order.assignedStaffUserId
+    const candidate = singleAssignee
       ? teamMembers.find(
-          (member) => member.userId !== order.assignedStaffUserId,
+          (member) => member.userId !== singleAssignee,
         )
       : teamMembers[0];
 
@@ -910,9 +921,18 @@ export default function ProductionTable() {
     setQuickFilter("all");
   };
 
-  const transferOrderToken = transferOrder
-    ? summarizeProductionTokensByItems(transferOrder.items ?? [])
-    : 0;
+  const transferOrderToken = useMemo(() => {
+    if (!transferOrder) return 0;
+    if (isOrderFullyUnassigned(transferOrder)) {
+      return summarizeProductionTokensByItems(transferOrder.items ?? []);
+    }
+    const singleAssignee = getSingleOrderAssignee(transferOrder);
+    if (!singleAssignee) return 0;
+
+    return getOrderStaffTokenAssignments(transferOrder)
+      .filter((assignment) => assignment.staffUserId === singleAssignee)
+      .reduce((sum, assignment) => sum + assignment.token, 0);
+  }, [transferOrder]);
   const transferOrderDateKey = (transferOrder?.deliveryDate || "").trim();
   const selectedTransferTargetId = Number(transferStaffUserId);
   const selectedTransferBaselineToken =
@@ -947,6 +967,8 @@ export default function ProductionTable() {
     const orderDateKey = (order.deliveryDate || "").trim();
     const claimedStaffIds = getOrderClaimedStaffIds(order);
     const isUnassigned = claimedStaffIds.length === 0;
+    const singleAssignee = getSingleOrderAssignee(order);
+    const hasMixedStageAssignees = claimedStaffIds.length > 1;
     const isStaffViewer = isStaff || viewer?.role === "Staff";
     const viewerUserId = viewer?.userId ?? null;
     const assignedToMe =
@@ -955,7 +977,7 @@ export default function ProductionTable() {
     const canOwnerAssignOrTransfer = isPrivilegedManager;
     const ownerActionCandidates = canOwnerAssignOrTransfer
       ? teamMembers.filter(
-          (member) => member.userId !== order.assignedStaffUserId,
+          (member) => member.userId !== singleAssignee,
         )
       : [];
 
@@ -1080,7 +1102,7 @@ export default function ProductionTable() {
               );
             })}
 
-            {canOwnerAssignOrTransfer && (
+            {canOwnerAssignOrTransfer && !hasMixedStageAssignees && (
               <button
                 type="button"
                 onClick={(event) => {
@@ -1111,6 +1133,11 @@ export default function ProductionTable() {
               {statusDisabledMessage}
             </p>
           )}
+          {hasMixedStageAssignees && canOwnerAssignOrTransfer ? (
+            <p className="text-[11px] text-slate-500">
+              Order ini sudah dibagi ke beberapa staff. Ubah assignment per stage dari detail order.
+            </p>
+          ) : null}
         </div>
       </div>
     );
@@ -1393,11 +1420,15 @@ export default function ProductionTable() {
                       Token diambil (sesuai filter): {staff.assignedActive}
                     </p>
                     <p className="mt-1 text-[11px] text-slate-500">
-                      Tanggal acuan token:{" "}
-                      {formatGroupDate(staffDailyIndicatorDateKey)}
+                      {usesExplicitDailyDate
+                        ? `Tanggal acuan token: ${formatGroupDate(
+                            staffDailyIndicatorDateKey,
+                          )}`
+                        : "Acuan token: seluruh order pada filter aktif"}
                     </p>
                     <p className="mt-1 text-[11px] text-slate-600">
-                      Token harian: {usedDailyToken} / {normalizedDailyLimit}
+                      {usesExplicitDailyDate ? "Token harian" : "Token filter"}:{" "}
+                      {usedDailyToken} / {normalizedDailyLimit}
                     </p>
                     <p className="mt-1 text-[11px] text-slate-600">
                       Status token: {dailyStatusText}
@@ -1407,7 +1438,9 @@ export default function ProductionTable() {
                       {staff.inProgress} token
                     </p>
                     <p className="mt-1 text-[11px] text-slate-500">
-                      Sisa token hari ini: {remainingDailyToken}
+                      {usesExplicitDailyDate
+                        ? "Sisa token hari ini"
+                        : "Sisa limit pada filter"}: {remainingDailyToken}
                       {overDailyToken > 0 ? ` • Over ${overDailyToken}` : ""}
                     </p>
 
@@ -1472,14 +1505,14 @@ export default function ProductionTable() {
 
             <div className="rounded-xl border border-slate-200 bg-white p-3">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                Token harian
+                {usesExplicitDailyDate ? "Token harian" : "Token filter"}
               </p>
               <p className="mt-1 text-lg font-semibold text-slate-900">
                 {currentViewerStaffStat.dailyToken} / {staffDailyTokenLimit}
               </p>
               <p className="mt-1 text-[11px] text-slate-500">
-                {currentViewerStaffStat.dailyTokenPercentage}% dari limit
-                harian.
+                {currentViewerStaffStat.dailyTokenPercentage}% dari limit{" "}
+                {usesExplicitDailyDate ? "harian" : "pada filter"}.
               </p>
             </div>
 
@@ -1498,7 +1531,11 @@ export default function ProductionTable() {
                       : "Masih aman"}
               </p>
               <p className="mt-1 text-[11px] text-slate-500">
-                Tanggal acuan: {formatGroupDate(staffDailyIndicatorDateKey)}
+                {usesExplicitDailyDate
+                  ? `Tanggal acuan: ${formatGroupDate(
+                      staffDailyIndicatorDateKey,
+                    )}`
+                  : "Acuan: seluruh order pada filter aktif"}
               </p>
             </div>
           </div>
@@ -1588,20 +1625,29 @@ export default function ProductionTable() {
           >
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
+                {(() => {
+                  const isWholeOrderUnassigned = isOrderFullyUnassigned(transferOrder);
+                  const singleAssignee = getSingleOrderAssignee(transferOrder);
+                  const isTransferable = !isWholeOrderUnassigned && Boolean(singleAssignee);
+                  return (
+                    <>
                 <h3
                   id="transfer-order-modal-title"
                   className="text-base font-semibold text-slate-900"
                 >
-                  {transferOrder.assignedStaffUserId
+                  {isTransferable
                     ? "Transfer Order"
                     : "Assign Order"}
                 </h3>
                 <p className="mt-1 text-xs text-slate-500">
-                  {transferOrder.assignedStaffUserId
+                  {isTransferable
                     ? "Pindahkan order ke staff lain."
                     : "Assign order ke staff untuk mulai produksi."}{" "}
                   Token order: {transferOrderToken}
                 </p>
+                    </>
+                  );
+                })()}
               </div>
               <button
                 type="button"
@@ -1618,9 +1664,11 @@ export default function ProductionTable() {
 
             {transferCandidates.length === 0 ? (
               <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                {transferOrder.assignedStaffUserId
-                  ? "Tidak ada staff lain yang tersedia untuk transfer."
-                  : "Belum ada staff tersedia untuk assignment."}
+                {isOrderFullyUnassigned(transferOrder)
+                  ? "Belum ada staff tersedia untuk assignment."
+                  : getSingleOrderAssignee(transferOrder)
+                    ? "Tidak ada staff lain yang tersedia untuk transfer."
+                    : "Order ini sudah dibagi ke beberapa staff. Ubah assignment per stage dari detail order."}
               </div>
             ) : (
               <div className="space-y-3">
@@ -1691,9 +1739,11 @@ export default function ProductionTable() {
                 }
                 className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {transferOrder.assignedStaffUserId
-                  ? "Konfirmasi Transfer"
-                  : "Konfirmasi Assign"}
+                {isOrderFullyUnassigned(transferOrder)
+                  ? "Konfirmasi Assign"
+                  : getSingleOrderAssignee(transferOrder)
+                    ? "Konfirmasi Transfer"
+                    : "Atur di Detail"}
               </button>
             </div>
           </div>
