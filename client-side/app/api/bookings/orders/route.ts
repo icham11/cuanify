@@ -2543,6 +2543,12 @@ export async function POST(request: NextRequest) {
               }
             }
 
+            // ── Release token lama jika ada perubahan pada order yang sudah ada ──
+            // Kasus: tanggal berubah, status jadi inactive, atau jumlah token berubah.
+            // Harus dilakukan sebelum consume token baru agar slot terbebas dulu.
+            let tokenWasReleased = false;
+            let releasedFromDate: string | null = null;
+
             if (
               existingOrder &&
               existingOrder.delivery_date &&
@@ -2562,40 +2568,83 @@ export async function POST(request: NextRequest) {
                   existingOrder.token_used,
                   tx,
                 );
+                tokenWasReleased = true;
+                releasedFromDate = existingOrder.delivery_date;
               }
             }
 
-            // Consume tokens for active orders with a delivery date
+            // ── Consume token baru untuk order aktif dengan tanggal delivery ──
             let finalTokenUsed = 0;
             if (isActiveStatus && order.deliveryDate && tokenForOrder > 0) {
+              const existingTokenUsed = existingOrder?.token_used ?? 0;
+              const existingDeliveryDate = existingOrder?.delivery_date ?? null;
+              const dateChanged = existingDeliveryDate !== (order.deliveryDate || null);
+              const tokenChanged = existingTokenUsed !== tokenForOrder;
+              const wasAlreadyActive = existingOrder ? wasActive : false;
+
               const shouldConsume =
                 !existingOrder ||
-                !wasActive ||
-                existingOrder.delivery_date !== (order.deliveryDate || null) ||
-                existingOrder.token_used !== tokenForOrder;
+                !wasAlreadyActive ||
+                dateChanged ||
+                tokenChanged;
 
               if (shouldConsume) {
-                const consumeResult = await consumeToken(
-                  businessId,
-                  order.deliveryDate,
-                  tokenForOrder,
-                  tx,
-                );
-                if (!consumeResult.success) {
-                  // Capacity full — reject this entire sync
-                  throw new CapacityFullError(
-                    `Production capacity full for ${order.deliveryDate}. ` +
-                      `Used: ${consumeResult.usedToken}/${consumeResult.maxToken}, ` +
-                      `Needed: ${tokenForOrder} for order ${order.id}.`,
+                // Kasus khusus: token berubah, tanggal sama, order sudah ada dan aktif.
+                // Token lama sudah di-release di atas (tokenWasReleased = true).
+                // Gunakan atomic direct-set daripada consumeToken yang bisa gagal
+                // karena ledger stale setelah reconcile.
+                const tokenOnlySameDate =
+                  tokenWasReleased &&
+                  releasedFromDate === (order.deliveryDate || null) &&
+                  !dateChanged;
+
+                if (tokenOnlySameDate) {
+                  // Direct atomic set: kita tahu slot sudah dibebaskan, aman langsung tulis
+                  await tx.$executeRaw`
+                    INSERT INTO production_capacity (business_id, date, max_token, used_token, created_at, updated_at)
+                    VALUES (
+                      ${businessId},
+                      ${order.deliveryDate}::date,
+                      ${bakerySettings.dailyProductionTokenLimit},
+                      LEAST(${bakerySettings.dailyProductionTokenLimit}, GREATEST(0, COALESCE(
+                        (SELECT used_token FROM production_capacity WHERE business_id = ${businessId} AND date = ${order.deliveryDate}::date),
+                        0
+                      ) + ${tokenForOrder})),
+                      NOW(),
+                      NOW()
+                    )
+                    ON CONFLICT (business_id, date) DO UPDATE SET
+                      used_token = LEAST(
+                        production_capacity.max_token,
+                        GREATEST(0, production_capacity.used_token + ${tokenForOrder})
+                      ),
+                      updated_at = NOW()
+                  `;
+                  finalTokenUsed = tokenForOrder;
+                } else {
+                  // Standard consume path: order baru atau tanggal berubah
+                  const consumeResult = await consumeToken(
+                    businessId,
                     order.deliveryDate,
-                    consumeResult.usedToken,
-                    consumeResult.maxToken,
                     tokenForOrder,
+                    tx,
                   );
+                  if (!consumeResult.success) {
+                    // Kapasitas penuh — tolak seluruh sync ini
+                    throw new CapacityFullError(
+                      `Production capacity full for ${order.deliveryDate}. ` +
+                        `Used: ${consumeResult.usedToken}/${consumeResult.maxToken}, ` +
+                        `Needed: ${tokenForOrder} for order ${order.id}.`,
+                      order.deliveryDate,
+                      consumeResult.usedToken,
+                      consumeResult.maxToken,
+                      tokenForOrder,
+                    );
+                  }
+                  finalTokenUsed = tokenForOrder;
                 }
-                finalTokenUsed = tokenForOrder;
               } else {
-                // No change needed, keep existing token
+                // Tidak ada perubahan — pertahankan token yang ada
                 finalTokenUsed = existingOrder?.token_used ?? 0;
               }
             }

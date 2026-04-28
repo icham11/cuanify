@@ -281,6 +281,25 @@ class RoleForbiddenError extends Error {
     this.name = "RoleForbiddenError";
   }
 }
+
+/**
+ * Substring yang digunakan server saat kapasitas produksi penuh (HTTP 409).
+ * Digunakan untuk mendeteksi error ini dari response tanpa parsing JSON yang berat.
+ */
+const CAPACITY_FULL_ERROR_SUBSTRING = "capacity full";
+
+/**
+ * Error khusus untuk "Production capacity full" dari background sync.
+ * Berbeda dari error user-triggered agar tidak spam toast ke user.
+ * Background sync tidak perlu menampilkan error ini — kapasitas penuh
+ * adalah kondisi valid yang tidak perlu tindakan user.
+ */
+class CapacityFullSyncError extends Error {
+  constructor(message = "Production capacity full.") {
+    super(message);
+    this.name = "CapacityFullSyncError";
+  }
+}
 const AUTO_REQUOTE_ERROR_KEYWORDS = [
   "courier price is not found",
   "check your origin and destination location",
@@ -916,6 +935,17 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
     if (!response.ok || !payload.success) {
       const fallback = `Booking sync failed (${response.status}).`;
       const message = parseOrdersSyncError(payload, fallback);
+
+      // Jika server menolak karena kapasitas produksi penuh (HTTP 409),
+      // lempar CapacityFullSyncError agar background sync tidak spam toast ke user.
+      // Kapasitas penuh adalah kondisi valid — bukan kesalahan yang perlu dilaporkan.
+      if (
+        response.status === 409 &&
+        message.toLowerCase().includes(CAPACITY_FULL_ERROR_SUBSTRING)
+      ) {
+        throw new CapacityFullSyncError(message);
+      }
+
       throw new Error(message);
     }
 
@@ -1032,6 +1062,13 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
           endpoint: ORDERS_SYNC_ENDPOINT,
           message,
         });
+
+        // Kapasitas produksi penuh — ini kondisi valid dari sistem, bukan error user.
+        // Tidak perlu toast.error agar halaman marketplace/production tidak spam notif.
+        if (error instanceof CapacityFullSyncError) {
+          return;
+        }
+
         toast.error(`Perubahan dibatalkan karena sinkron gagal: ${message}`);
       });
     },
