@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
@@ -12,24 +11,13 @@ import OrderTimeline from "@/components/bakery/shared/OrderTimeline";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import {
-  AlertTriangle,
-  CheckCircle2,
-  FileText,
-  Printer,
-  RefreshCcw,
-} from "lucide-react";
+import { FileText, Printer } from "lucide-react";
 import { useOrders } from "@/components/bakery/store";
 import { useParams } from "next/navigation";
 import { formatCurrency } from "@/components/orders/formatters";
-import { toast } from "sonner";
 import { useRole } from "@/context/RoleContext";
 import { openInvoicePrintWindow } from "@/components/bakery/bookings/InvoiceTemplate";
 import { useBakerySettings } from "@/hooks/useBakerySettings";
-import {
-  getDisplayFields,
-  WHATSAPP_ORDER_LABELS,
-} from "@/lib/bookings/whatsapp-parser";
 import type { ShippingResiResponse } from "@/lib/bookings/shipping-types";
 import {
   countConcurrentOrdersForSlot,
@@ -59,7 +47,6 @@ import {
 } from "@/lib/bookings/shipping-schedule";
 import { normalizeDateInput } from "@/lib/helpers/date-normalization";
 import { getSmartCourierLabel } from "@/lib/bookings/shipping-service";
-import { distributeProductionTokens } from "@/lib/bookings/production-stages";
 
 type SaveSyncState = "idle" | "saving" | "saved" | "failed";
 
@@ -69,82 +56,6 @@ type ServerOrderPayload = {
   totalPaidAmount?: number;
   remainingBalance?: number;
 };
-
-type InventorySyncPayload = {
-  orderId: string;
-  orderStatus?: string;
-  deductions: Array<{
-    ingredientId: number;
-    ingredientName: string;
-    ingredientUnit: string;
-    quantity: number;
-  }>;
-  unresolvedProducts: string[];
-  updatedAt?: string;
-};
-
-type TokenDifficulty =
-  | "SIMPLE"
-  | "NORMAL"
-  | "HARD"
-  | "ADVANCED"
-  | "EXPERT"
-  | "MEDIUM"
-  | "DIFFICULT";
-
-function resolveItemDifficulty(item: {
-  category: string;
-  tokenDifficulty?: TokenDifficulty;
-}): TokenDifficulty {
-  if (item.tokenDifficulty) return item.tokenDifficulty;
-  if (item.category === "Cake" || item.category === "Cookies Tower") {
-    return "HARD";
-  }
-  if (item.category === "Buket" || item.category === "Cupcakes") {
-    return "NORMAL";
-  }
-  return "SIMPLE";
-}
-
-function getDifficultyMeta(value: TokenDifficulty): {
-  label: string;
-  token: number;
-  className: string;
-} {
-  if (value === "EXPERT") {
-    return {
-      label: "Expert",
-      token: 5,
-      className: "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700",
-    };
-  }
-  if (value === "ADVANCED") {
-    return {
-      label: "Advanced",
-      token: 4,
-      className: "border-purple-200 bg-purple-50 text-purple-700",
-    };
-  }
-  if (value === "HARD" || value === "DIFFICULT") {
-    return {
-      label: "Hard",
-      token: 3,
-      className: "border-rose-200 bg-rose-50 text-rose-700",
-    };
-  }
-  if (value === "NORMAL" || value === "MEDIUM") {
-    return {
-      label: "Normal",
-      token: 2,
-      className: "border-amber-200 bg-amber-50 text-amber-700",
-    };
-  }
-  return {
-    label: "Simple",
-    token: 1,
-    className: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  };
-}
 
 function inferDeliveryMethodFromNotes(notes?: string): string | undefined {
   const match = notes?.match(/delivery\s*method\s*:\s*([^\n]+)/i);
@@ -185,7 +96,6 @@ export default function OrderDetailPage() {
     syncOrderCalendar,
     getCustomerMessagePreview,
     setOrderShipment,
-    assignProductionStageStaff,
   } = useOrders();
   const params = useParams();
   const { isOwner, isAdmin } = useRole();
@@ -202,35 +112,10 @@ export default function OrderDetailPage() {
   const [paymentSaveSyncState, setPaymentSaveSyncState] =
     useState<SaveSyncState>("idle");
   const [paymentSaveSyncMessage, setPaymentSaveSyncMessage] = useState("");
-  const [inventorySync, setInventorySync] = useState<InventorySyncPayload | null>(
-    null,
-  );
-  const [inventorySyncLoading, setInventorySyncLoading] = useState(false);
-  const [inventorySyncError, setInventorySyncError] = useState("");
-  const [staffOptions, setStaffOptions] = useState<Array<{ userId: number; name: string }>>([]);
-
   const order = useMemo(
     () => orders.find((item) => item.id === orderId),
     [orders, orderId],
   );
-
-  useEffect(() => {
-    if (!isOwner && !isAdmin) return;
-    fetch("/api/staff", { cache: "no-store" })
-      .then((response) => response.json())
-      .then((payload) => {
-        const members = Array.isArray(payload?.data?.members) ? payload.data.members : [];
-        setStaffOptions(
-          members
-            .map((member: { userId?: number; name?: string; user?: { name?: string; email?: string } }) => ({
-              userId: Number(member.userId),
-              name: member.name || member.user?.name || member.user?.email || `Staff ${member.userId}`,
-            }))
-            .filter((member: { userId: number }) => Number.isInteger(member.userId) && member.userId > 0),
-        );
-      })
-      .catch(() => setStaffOptions([]));
-  }, [isOwner, isAdmin]);
   const normalizedOrderStatus = normalizeOrderStatus(order?.orderStatus);
   const normalizedPaymentStatus =
     order?.paymentStatus === "Pending"
@@ -245,13 +130,6 @@ export default function OrderDetailPage() {
   const isBeforeScheduledShippingDate =
     isScheduledShipmentProviderOrder &&
     Boolean(normalizedDeliveryDate && normalizedDeliveryDate > todayJakarta);
-  const showAutomationSummary = [
-    "In Production",
-    "Ready",
-    "Delivered",
-    "Completed",
-  ].includes(normalizedOrderStatus);
-
   const effectiveDate = rescheduleDate || order?.deliveryDate || "";
   const effectiveSlot = rescheduleSlot || order?.deliverySlot || "10:00";
   const deliveryMethod = useMemo(
@@ -322,18 +200,6 @@ export default function OrderDetailPage() {
     },
     [order?.notes, deliveryMethod],
   );
-  const totalWorkloadTokens = useMemo(() => {
-    if (!order) return 0;
-    return (order.items ?? []).reduce((sum, item) => {
-      const difficulty = resolveItemDifficulty(item);
-      const tokenPerUnit = getDifficultyMeta(difficulty).token;
-      return sum + tokenPerUnit * Math.max(0, Number(item.quantity) || 0);
-    }, 0);
-  }, [order]);
-  const fallbackProductionStages = useMemo(
-    () => distributeProductionTokens({ totalTokens: totalWorkloadTokens }),
-    [totalWorkloadTokens],
-  );
   const messagePreview = order ? getCustomerMessagePreview(order.id) : "";
   const calendarSyncStatus = order?.simulations?.calendarEventCreated
     ? "Synced"
@@ -351,103 +217,6 @@ export default function OrderDetailPage() {
     setPaymentSaveSyncState("idle");
     setPaymentSaveSyncMessage("");
   }, [order?.id]);
-
-  useEffect(() => {
-    if (!orderId) return;
-
-    let cancelled = false;
-
-    const loadInventorySync = async () => {
-      setInventorySyncLoading(true);
-      setInventorySyncError("");
-
-      try {
-        const response = await fetch(
-          `/api/bookings/orders/${encodeURIComponent(orderId)}/inventory-sync`,
-          {
-            method: "GET",
-            credentials: "include",
-            cache: "no-store",
-          },
-        );
-
-        const payload = (await response.json()) as {
-          success?: boolean;
-          data?: InventorySyncPayload | null;
-          error?: string;
-        };
-
-        if (!response.ok || !payload.success) {
-          throw new Error(payload.error || "Gagal memuat status inventory");
-        }
-
-        if (!cancelled) {
-          setInventorySync(payload.data ?? null);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setInventorySyncError(
-            error instanceof Error
-              ? error.message
-              : "Gagal memuat status inventory",
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setInventorySyncLoading(false);
-        }
-      }
-    };
-
-    void loadInventorySync();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [orderId, order?.orderStatus, order?.items, order?.paymentStatus]);
-
-  const inventorySyncLabel = useMemo(() => {
-    if (inventorySyncLoading) {
-      return {
-        text: "Mengecek sinkronisasi bahan...",
-        className: "border-sky-200 bg-sky-50 text-sky-700",
-      };
-    }
-
-    if (inventorySyncError) {
-      return {
-        text: "Status inventory belum bisa dicek",
-        className: "border-amber-200 bg-amber-50 text-amber-700",
-      };
-    }
-
-    if (!inventorySync) {
-      return {
-        text: "Belum ada catatan sinkronisasi inventory",
-        className: "border-gray-200 bg-gray-50 text-gray-600",
-      };
-    }
-
-    if ((inventorySync.unresolvedProducts?.length ?? 0) > 0) {
-      return {
-        text: "Sebagian item belum nyambung ke recipe inventory",
-        className: "border-amber-200 bg-amber-50 text-amber-700",
-      };
-    }
-
-    if ((inventorySync.deductions?.length ?? 0) > 0) {
-      return {
-        text: "Inventory sudah sinkron dan bahan sudah terpotong",
-        className: "border-emerald-200 bg-emerald-50 text-emerald-700",
-      };
-    }
-
-    return {
-      text: "Order ini belum memotong inventory",
-      className: "border-gray-200 bg-gray-50 text-gray-600",
-    };
-  }, [inventorySync, inventorySyncError, inventorySyncLoading]);
-
   const verifyPaymentSavedToServer = async (params: {
     orderId: string;
     expectedStatus: "DP Paid" | "Paid";
@@ -667,33 +436,17 @@ export default function OrderDetailPage() {
   const handleCopyMessage = async () => {
     try {
       await navigator.clipboard.writeText(messagePreview);
-      toast.success("Customer message copied");
-    } catch {
-      toast.error("Failed to copy message");
-    }
+    } catch {}
   };
 
   const handleCreateResi = async () => {
     if (!order) return;
-    if (!order.shippingQuote) {
-      toast.error(
-        "Quote pengiriman belum dipilih. Cek ongkir dulu di form booking.",
-      );
-      return;
-    }
-    if (isBeforeScheduledShippingDate) {
-      toast.error(
-        "Order Grab/Gojek/Paxel dijadwalkan otomatis. Resi baru bisa dibuat di hari pengiriman.",
-      );
-      return;
-    }
+    if (!order.shippingQuote) return;
+    if (isBeforeScheduledShippingDate) return;
 
     const primaryAddress =
       order.deliveryAddresses?.[0]?.addressLine || order.customerAddress || "";
-    if (!primaryAddress) {
-      toast.error("Alamat penerima belum lengkap.");
-      return;
-    }
+    if (!primaryAddress) return;
 
     setIsCreatingResi(true);
     try {
@@ -719,10 +472,7 @@ export default function OrderDetailPage() {
       const selectedQuoteProvider = inferScheduledProviderFromQuote(
         order.shippingQuote,
       );
-      if (!selectedQuoteProvider) {
-        toast.error("Provider kurir tidak dikenali. Pilih ulang quote kurir.");
-        return;
-      }
+      if (!selectedQuoteProvider) return;
       const selectedQuote = {
         ...order.shippingQuote,
         provider: selectedQuoteProvider,
@@ -760,27 +510,8 @@ export default function OrderDetailPage() {
       }
 
       setOrderShipment(order.id, payload.shipment);
-      if (payload.warning) {
-        toast.warning(payload.warning);
-      }
     } catch (error: unknown) {
-      const message =
-        error instanceof Error ? error.message : "Gagal membuat resi.";
-
-      if (message === "biteship_insufficient_balance") {
-        toast.error("Saldo Biteship Tidak Mencukupi!", {
-          description:
-            "Mohon top up saldo Bite Points di dashboard Biteship agar kurir bisa dipanggil.",
-          action: {
-            label: "Top Up Sekarang",
-            onClick: () =>
-              window.open("https://dashboard.biteship.com/pembayaran", "_blank"),
-          },
-          duration: 10000,
-        });
-      } else {
-        toast.error(message);
-      }
+      void error;
     } finally {
       setIsCreatingResi(false);
     }
@@ -850,33 +581,6 @@ export default function OrderDetailPage() {
         </div>
       </GradientPageHeader>
 
-      {showAutomationSummary && (
-        <div className="space-y-2 rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm font-semibold text-indigo-700">
-          <p>
-            Ringkasan order aktif. Booking code:{" "}
-            {order.resi || order.bookingCode}
-          </p>
-          <p className="text-xs font-medium text-indigo-600">
-            {order.simulations?.productionWhatsappSent
-              ? "WA Produksi sent"
-              : "WA Produksi pending"}{" "}
-            |{" "}
-            {order.simulations?.calendarEventCreated
-              ? "Calendar created"
-              : "Calendar pending"}{" "}
-            |{" "}
-            {order.simulations?.googleSheetsSynced
-              ? "Google Sheets synced"
-              : "Google Sheets pending"}
-          </p>
-          {order.simulations?.lastAutomationMessage && (
-            <p className="text-xs font-medium text-indigo-600">
-              Last automation: {order.simulations.lastAutomationMessage}
-            </p>
-          )}
-        </div>
-      )}
-
       <OrderStepper status={normalizedOrderStatus} />
 
       <div className="grid gap-6 lg:grid-cols-[2fr,1fr]">
@@ -922,7 +626,6 @@ export default function OrderDetailPage() {
                       className="h-8 gap-1 border-orange-200 bg-orange-50 text-orange-700 hover:bg-orange-100"
                       onClick={() => {
                         openInvoicePrintWindow(order);
-                        toast.success("Invoice dibuka di tab baru.");
                       }}
                     >
                       <Printer size={14} />
@@ -1043,39 +746,19 @@ export default function OrderDetailPage() {
               <div>
                 <div className="mb-2 flex flex-wrap items-center gap-2">
                   <p className="font-semibold">Items:</p>
-                  <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-700">
-                    Total workload {totalWorkloadTokens} token
-                  </span>
                 </div>
                 <div className="space-y-2">
-                  {(order.items ?? []).map((item) => {
-                    const difficulty = resolveItemDifficulty(item);
-                    const meta = getDifficultyMeta(difficulty);
-                    const quantity = Math.max(0, Number(item.quantity) || 0);
-                    const itemTokens = quantity * meta.token;
-
-                    return (
-                      <div
-                        key={item.id}
-                        className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2"
-                      >
-                        <p className="font-medium text-gray-800">
-                          {item.quantity}x {item.productName} ({item.category} /{" "}
-                          {item.subcategory} / {item.size})
-                        </p>
-                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                          <span
-                            className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${meta.className}`}
-                          >
-                            {meta.label} ({meta.token} token/unit)
-                          </span>
-                          <span className="text-[11px] font-medium text-gray-500">
-                            Item workload: {itemTokens} token
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
+                  {(order.items ?? []).map((item) => (
+                    <div
+                      key={item.id}
+                      className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2"
+                    >
+                      <p className="font-medium text-gray-800">
+                        {item.quantity}x {item.productName} ({item.category} /{" "}
+                        {item.subcategory} / {item.size})
+                      </p>
+                    </div>
+                  ))}
                 </div>
               </div>
               <p>
@@ -1106,217 +789,6 @@ export default function OrderDetailPage() {
               </div>
             </CardContent>
           </Card>
-
-          <Card className="rounded-xl shadow-sm">
-            <CardHeader className="p-6 pb-2">
-              <CardTitle>Production Tasks</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 px-6 pb-6 pt-0 text-sm text-gray-700">
-              {(["listing", "filling", "finishing"] as const).map((stage) => {
-                const existing = (order.productionStages ?? []).find((entry) => entry.stage === stage);
-                const fallback = fallbackProductionStages.find((entry) => entry.stage === stage);
-                const percentage = existing?.percentage ?? fallback?.percentage ?? (stage === "finishing" ? 50 : 25);
-                const tokenAmount = existing?.tokenAmount ?? fallback?.tokenAmount ?? 0;
-                return (
-                  <div
-                    key={stage}
-                    className="grid gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-3 sm:grid-cols-[1fr_120px_220px] sm:items-center"
-                  >
-                    <div>
-                      <p className="font-semibold capitalize text-gray-800">{stage}</p>
-                      <p className="text-xs text-gray-500">{percentage}% production share</p>
-                    </div>
-                    <div className="font-semibold text-sky-700">{tokenAmount} token</div>
-                    <Select
-                      value={existing?.staffId ? String(existing.staffId) : ""}
-                      onChange={(event) => {
-                        const userId = Number(event.target.value);
-                        const staff = staffOptions.find((member) => member.userId === userId) ?? null;
-                        assignProductionStageStaff(order.id, stage, staff);
-                      }}
-                      disabled={!isOwner && !isAdmin}
-                    >
-                      <option value="">Unassigned</option>
-                      {staffOptions.map((member) => (
-                        <option key={member.userId} value={member.userId}>
-                          {member.name}
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
-                );
-              })}
-            </CardContent>
-          </Card>
-
-          <Card className="rounded-xl shadow-sm">
-            <CardHeader className="p-6 pb-2">
-              <CardTitle>Inventory Sync</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 px-6 pb-6 pt-0 text-sm text-gray-700">
-              <div
-                className={`rounded-xl border px-3 py-2 text-sm font-semibold ${inventorySyncLabel.className}`}
-              >
-                <div className="flex items-center gap-2">
-                  {inventorySyncLoading ? (
-                    <RefreshCcw className="h-4 w-4 animate-spin" />
-                  ) : inventorySyncError ||
-                    (inventorySync?.unresolvedProducts?.length ?? 0) > 0 ? (
-                    <AlertTriangle className="h-4 w-4" />
-                  ) : (
-                    <CheckCircle2 className="h-4 w-4" />
-                  )}
-                  <span>{inventorySyncLabel.text}</span>
-                </div>
-              </div>
-
-              {inventorySync?.updatedAt ? (
-                <p className="text-xs text-gray-500">
-                  Sinkron terakhir{" "}
-                  {new Date(inventorySync.updatedAt).toLocaleString("id-ID")}
-                </p>
-              ) : null}
-
-              {inventorySync?.deductions?.length ? (
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    Bahan yang terpotong untuk order ini
-                  </p>
-                  <div className="space-y-2">
-                    {inventorySync.deductions.map((entry) => (
-                      <div
-                        key={`${entry.ingredientId}-${entry.ingredientName}`}
-                        className="flex items-center justify-between rounded-lg border border-emerald-100 bg-emerald-50/60 px-3 py-2"
-                      >
-                        <span className="font-medium text-gray-800">
-                          {entry.ingredientName}
-                        </span>
-                        <span className="text-sm font-semibold text-emerald-700">
-                          -{entry.quantity} {entry.ingredientUnit}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-
-              {inventorySync?.unresolvedProducts?.length ? (
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    Item yang belum punya mapping recipe
-                  </p>
-                  <div className="space-y-2">
-                    {inventorySync.unresolvedProducts.map((name) => (
-                      <div
-                        key={name}
-                        className="rounded-lg border border-amber-100 bg-amber-50/70 px-3 py-2 text-amber-800"
-                      >
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                          <span>{name}</span>
-                          <Link
-                            href={`/dashboard/products?search=${encodeURIComponent(name)}`}
-                            className="inline-flex h-9 items-center justify-center rounded-lg border border-amber-200 bg-white px-3 text-xs font-semibold text-amber-800 transition hover:bg-amber-100"
-                          >
-                            Buka product terkait
-                          </Link>
-                          <Link
-                            href={`/dashboard/products/create?name=${encodeURIComponent(name)}`}
-                            className="inline-flex h-9 items-center justify-center rounded-lg border border-indigo-200 bg-white px-3 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-50"
-                          >
-                            Buat product baru
-                          </Link>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <p className="text-xs text-amber-700">
-                    Lengkapi recipe di dashboard product untuk item ini supaya
-                    stok bahan bisa ikut berkurang otomatis.
-                  </p>
-                </div>
-              ) : null}
-
-              {!inventorySyncLoading &&
-              !inventorySyncError &&
-              inventorySync &&
-              (inventorySync.deductions?.length ?? 0) === 0 &&
-              (inventorySync.unresolvedProducts?.length ?? 0) === 0 ? (
-                <p className="text-xs text-gray-500">
-                  Biasanya ini terjadi kalau order masih status awal seperti
-                  inquiry/quoted, jadi inventory belum dipotong.
-                </p>
-              ) : null}
-            </CardContent>
-          </Card>
-
-          {order.whatsAppParsedData && (
-            <Card className="rounded-xl shadow-sm">
-              <CardHeader className="p-6 pb-2">
-                <CardTitle>
-                  Parsed WhatsApp Data (
-                  {WHATSAPP_ORDER_LABELS[order.whatsAppParsedData.orderType]}
-                  {Array.isArray(order.whatsAppParsedData.detectedItems) &&
-                  order.whatsAppParsedData.detectedItems.length > 1
-                    ? ` • ${order.whatsAppParsedData.detectedItems.length} item`
-                    : ""}
-                  )
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3 px-6 pb-6 pt-0 text-sm text-gray-700">
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {getDisplayFields(order.whatsAppParsedData).map(
-                    (field, index) => (
-                      <div
-                        key={`${field.label}-${index}`}
-                        className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2"
-                      >
-                        <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                          {field.label}
-                        </p>
-                        <p className="text-sm text-gray-800">{field.value}</p>
-                      </div>
-                    ),
-                  )}
-                </div>
-                {order.whatsAppParsedData.missingFields.length > 0 && (
-                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                    Field yang belum lengkap:{" "}
-                    {order.whatsAppParsedData.missingFields.join(", ")}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
-
-          {(order.automationLogs?.length ?? 0) > 0 && (
-            <Card className="rounded-xl shadow-sm">
-              <CardHeader className="p-6 pb-2">
-                <CardTitle>Automation Logs</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2 px-6 pb-6 pt-0 text-sm text-gray-700">
-                {(order.automationLogs ?? [])
-                  .slice()
-                  .reverse()
-                  .slice(0, 5)
-                  .map((log) => (
-                    <div
-                      key={log.id}
-                      className={`rounded-lg border px-3 py-2 ${
-                        log.success
-                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                          : "border-amber-200 bg-amber-50 text-amber-700"
-                      }`}
-                    >
-                      <p className="text-[11px] font-semibold uppercase tracking-wide">
-                        {log.eventType} -{" "}
-                        {new Date(log.timestamp).toLocaleString("id-ID")}
-                      </p>
-                      <p className="text-xs">{log.summary}</p>
-                    </div>
-                  ))}
-              </CardContent>
-            </Card>
-          )}
 
           <Card id="edit-delivery" className="rounded-xl shadow-sm">
             <CardHeader className="p-6 pb-2">
@@ -1626,3 +1098,4 @@ export default function OrderDetailPage() {
     </div>
   );
 }
+

@@ -3487,10 +3487,7 @@ export default function BookingForm() {
   const remainingProductionTokens =
     dbCapacity.maxToken - plannedProductionTokens;
   const isTokenCapacityOverflow = remainingProductionTokens < 0;
-
-  const dbRemainingToken = remainingProductionTokens;
   const dbWillExceed = isTokenCapacityOverflow;
-  const dbIsWarning = !dbWillExceed && dbRemainingToken <= 50;
 
   // ── Smart Date Recommendation — 30-day window ────────────────────────────────
   const recommendationWindowStart = useMemo(() => startOfDay(new Date()), []);
@@ -5702,67 +5699,8 @@ export default function BookingForm() {
               {deliveryDate && (
                 <div className="space-y-2 rounded-xl border border-gray-200 bg-gray-50/60 p-4">
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    Daily Production Token Capacity ({deliveryDate})
+                    Capacity Check ({deliveryDate})
                   </p>
-                  <div
-                    className={`rounded-lg border px-3 py-2 text-xs ${
-                      isTokenCapacityOverflow
-                        ? "border-rose-200 bg-rose-50 text-rose-700"
-                        : "border-sky-200 bg-sky-50 text-sky-700"
-                    }`}
-                  >
-                    <p className="font-semibold">Production Token System</p>
-                    <p className="mt-1 font-normal">
-                      Existing {existingProductionTokens} + Draft{" "}
-                      {incomingProductionTokens} = {plannedProductionTokens}/
-                      {DAILY_PRODUCTION_TOKEN_LIMIT}
-                    </p>
-                  </div>
-
-                  {/* ── Token Preview (real-time, new business rules) ── */}
-                  <div
-                    className={`rounded-lg border px-3 py-2 text-xs ${
-                      dbWillExceed
-                        ? "border-rose-300 bg-rose-50 text-rose-700"
-                        : dbIsWarning
-                          ? "border-amber-300 bg-amber-50 text-amber-700"
-                          : "border-emerald-200 bg-emerald-50 text-emerald-700"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <p className="font-semibold">Token Preview (Order)</p>
-                      {isCalendarCapacityLoading && (
-                        <span className="text-gray-400">memuat...</span>
-                      )}
-                    </div>
-                    <p className="mt-1 font-normal">
-                      Token dibutuhkan:{" "}
-                      <span className="font-semibold">{newTokenPreview}</span>
-                    </p>
-                    <p className="mt-0.5 font-normal">
-                      Kapasitas saat ini:{" "}
-                      <span className="font-semibold">
-                        {dbCapacity.usedToken}/{dbCapacity.maxToken}
-                      </span>{" "}
-                      &mdash; Setelah draft:{" "}
-                      <span className="font-semibold">
-                        {plannedProductionTokens}/{dbCapacity.maxToken}
-                      </span>{" "}
-                      &mdash; Sisa:{" "}
-                      <span className="font-semibold">{dbRemainingToken}</span>
-                    </p>
-                    {dbWillExceed && (
-                      <p className="mt-1 font-semibold text-rose-600">
-                        Kapasitas produksi tidak mencukupi untuk tanggal ini
-                      </p>
-                    )}
-                    {dbIsWarning && (
-                      <p className="mt-1 font-semibold text-amber-600">
-                        Kapasitas hampir penuh — sisa {dbRemainingToken} token
-                      </p>
-                    )}
-                  </div>
-
                   {/* ── Smart Date Recommendations ── */}
                   {shouldShowDateRecommendations && (
                     <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 px-3 py-2 text-xs">
@@ -8440,3 +8378,5 @@ export default function BookingForm() {
     </form>
   );
 }
+
+
