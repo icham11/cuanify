@@ -202,6 +202,16 @@ export default function ProductionTable() {
   const [transferOrderId, setTransferOrderId] = useState<string | null>(null);
   const [transferStaffUserId, setTransferStaffUserId] = useState<string>("");
   const [switchingBusinessId, setSwitchingBusinessId] = useState<string>("");
+  const [optimisticStageClaims, setOptimisticStageClaims] = useState<
+    Record<
+      string,
+      {
+        staffId: number;
+        staffName: string;
+        expiresAt: number;
+      }
+    >
+  >({});
 
   const fallbackMonthKey = useMemo(() => monthKeyOf(new Date()), []);
   const selectedMonthKey = useMemo(() => {
@@ -250,6 +260,36 @@ export default function ProductionTable() {
     },
     [filterDate, filterMonth, filterYear],
   );
+
+  useEffect(() => {
+    const now = Date.now();
+    setOptimisticStageClaims((current) => {
+      let changed = false;
+      const next = { ...current };
+
+      for (const [key, pending] of Object.entries(current)) {
+        if (pending.expiresAt <= now) {
+          delete next[key];
+          changed = true;
+          continue;
+        }
+
+        const [orderId, stage] = key.split(":");
+        const order = orders.find((entry) => entry.id === orderId);
+        if (!order) continue;
+
+        const effectiveStage = getEffectiveProductionStages(order).find(
+          (entry) => entry.stage === stage,
+        );
+        if (effectiveStage?.staffId === pending.staffId) {
+          delete next[key];
+          changed = true;
+        }
+      }
+
+      return changed ? next : current;
+    });
+  }, [orders]);
 
   useEffect(() => {
     let active = true;
@@ -827,6 +867,15 @@ export default function ProductionTable() {
 
   const handleClaimStage = (orderId: string, stage: "listing" | "filling" | "finishing") => {
     if (!viewer?.userId) return;
+    const claimKey = `${orderId}:${stage}`;
+    setOptimisticStageClaims((current) => ({
+      ...current,
+      [claimKey]: {
+        staffId: viewer.userId,
+        staffName: viewer.name || userName || "Staff",
+        expiresAt: Date.now() + 5000,
+      },
+    }));
     assignProductionStageStaff(orderId, stage, {
       userId: viewer.userId,
       name: viewer.name || userName || "Staff",
@@ -1037,14 +1086,17 @@ export default function ProductionTable() {
           <div className="flex flex-wrap items-center justify-end gap-2">
             {(["listing", "filling", "finishing"] as const).map((stage) => {
               const stageData = effectiveStages.find((s) => s.stage === stage);
-              const isClaimed = !!stageData?.staffId;
+              const pendingClaim = optimisticStageClaims[`${order.id}:${stage}`];
+              const isClaimed = !!stageData?.staffId || !!pendingClaim;
               const stageToken = Math.max(
                 0,
                 Math.round(Number(stageData?.tokenAmount ?? 0)),
               );
               
               let assignedName = "Unassigned";
-              if (isClaimed) {
+              if (pendingClaim) {
+                assignedName = pendingClaim.staffName;
+              } else if (isClaimed && stageData?.staffId) {
                 const member = teamMembers.find((m) => m.userId === stageData.staffId);
                 assignedName = member?.name || "Staff";
                 if (stageData.staffId === viewer?.userId) {
