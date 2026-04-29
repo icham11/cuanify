@@ -2089,6 +2089,14 @@ export async function POST(request: NextRequest) {
     const isStaffRequest = roleName === "Staff";
     const bakerySettings = await getBakeryBusinessSettings(businessId);
 
+    const staffMembers = await prisma.businessMember.findMany({
+      where: { businessId },
+      select: { userId: true },
+    });
+    const staffIdByUuid = buildStaffIdByUuid(
+      staffMembers.map((member) => member.userId),
+    );
+
     await ensureBakeryTables();
 
     const existingAssignmentRows = await prisma.$queryRaw<
@@ -2102,6 +2110,17 @@ export async function POST(request: NextRequest) {
       FROM bakery_orders
       WHERE business_id = ${businessId}
     `;
+
+    // Preserve the original intent from the request for Staff claim merging
+    const intentOrdersById = new Map(orders.map((o) => [o.id, o]));
+
+    const staffUpdatableStatuses = new Set([
+      "In Production",
+      "Ready",
+      "Delivery",
+      "Delivered",
+      "Completed",
+    ]);
 
     if (isStaffRequest) {
       const existingRows = await prisma.$queryRaw<DbOrderRow[]>`
@@ -2162,13 +2181,6 @@ export async function POST(request: NextRequest) {
         ORDER BY order_external_id ASC, address_index ASC
       `;
 
-      const staffMembers = await prisma.businessMember.findMany({
-        where: { businessId },
-        select: { userId: true },
-      });
-      const staffIdByUuid = buildStaffIdByUuid(
-        staffMembers.map((member) => member.userId),
-      );
       const orderExternalByUuid = new Map(
         existingRows.map((row) => [
           row.order_uuid ?? orderTaskUuid(businessId, row.external_id),
@@ -2281,14 +2293,6 @@ export async function POST(request: NextRequest) {
           { status: 403 },
         );
       }
-
-      const staffUpdatableStatuses = new Set([
-        "In Production",
-        "Ready",
-        "Delivery",
-        "Delivered",
-        "Completed",
-      ]);
 
       orders = existingOrders.map((existingOrder) => {
         const incomingOrder = incomingById.get(existingOrder.id);
@@ -2462,14 +2466,99 @@ export async function POST(request: NextRequest) {
                 delivery_date: string | null;
                 token_used: number;
                 order_status: string | null;
+                assigned_staff_user_id: number | null;
+                assigned_staff_name: string | null;
+                production_assigned_at: string | null;
               }[]
             >`
-              SELECT external_id, delivery_date, token_used, order_status
+              SELECT 
+                external_id, 
+                delivery_date, 
+                token_used, 
+                order_status,
+                assigned_staff_user_id,
+                assigned_staff_name,
+                production_assigned_at
               FROM bakery_orders
               WHERE business_id = ${businessId}
                 AND external_id = ${order.id}
               FOR UPDATE
             `;
+
+            // Staff: Hard merge to prevent race conditions during claims.
+            // We re-fetch fresh production tasks and re-apply merging logic 
+            // while holding the row lock.
+            if (isStaffRequest) {
+              const existingOrderRow = lockedExistingRows[0];
+              if (existingOrderRow) {
+                const incomingOrder = intentOrdersById.get(order.id) || order;
+                const freshStageRows = await tx.$queryRaw<DbProductionStageRow[]>`
+                  SELECT stage, staff_id::text AS staff_id, token_amount
+                  FROM production_tasks
+                  WHERE order_id = ${orderUuid}::uuid
+                `;
+
+                const existingStages: ProductionStageAssignment[] = freshStageRows.map((row) => ({
+                  stage: row.stage,
+                  staffId: row.staff_id ? staffIdByUuid.get(row.staff_id) ?? null : null,
+                  tokenAmount: asNumber(row.token_amount),
+                  percentage: row.stage === "finishing" ? 50 : 25,
+                }));
+
+                const normalizedExistingStages = normalizeProductionStageAssignments({
+                  totalTokens: asNumber(existingOrderRow.token_used),
+                  stages: existingStages,
+                });
+
+                const { mergedStages, claimedByUser } = mergeStaffClaimableProductionStages({
+                  existingStages: normalizedExistingStages,
+                  incomingStages: incomingOrder.productionStages,
+                  userId,
+                });
+
+                const viewerOwnsAnyStage = mergedStages.some((s) => s.staffId === userId);
+                const statusChanged = incomingOrder.orderStatus !== existingOrderRow.order_status;
+                const currentAssignee = asPositiveIntOrNull(existingOrderRow.assigned_staff_user_id);
+                const nextAssignee = incomingOrder.assignedStaffUserId;
+
+                // Re-apply staff permissions and status logic with FRESH data
+                const sameAssignee = currentAssignee === nextAssignee;
+                const staffClaimingUnassignedOwnOrder = currentAssignee === null && nextAssignee === userId;
+
+                if (!sameAssignee && !staffClaimingUnassignedOwnOrder) {
+                  // Revert to DB truth if illegal assignment change attempted
+                  order.assignedStaffUserId = currentAssignee;
+                  order.assignedStaffName = existingOrderRow.assigned_staff_name || "";
+                  order.productionAssignedAt = toIsoOrNull(existingOrderRow.production_assigned_at);
+                } else {
+                  // Assignment allowed, update name and timestamp
+                  if (nextAssignee === null) {
+                    order.assignedStaffName = "";
+                    order.productionAssignedAt = null;
+                  } else if (nextAssignee === userId) {
+                    order.assignedStaffName = incomingOrder.assignedStaffName.trim() || existingOrderRow.assigned_staff_name || `Staff #${userId}`;
+                    if (currentAssignee === null) {
+                      order.productionAssignedAt = incomingOrder.productionAssignedAt || new Date().toISOString();
+                    }
+                  } else if (claimedByUser && !existingOrderRow.production_assigned_at) {
+                    order.productionAssignedAt = new Date().toISOString();
+                  }
+                }
+
+                if (statusChanged) {
+                  const canUpdateStatus = (nextAssignee === userId || viewerOwnsAnyStage) && staffUpdatableStatuses.has(incomingOrder.orderStatus);
+                  if (!canUpdateStatus) {
+                    order.orderStatus = existingOrderRow.order_status || "Inquiry";
+                  } else {
+                    order.orderStatus = incomingOrder.orderStatus;
+                  }
+                } else {
+                  order.orderStatus = existingOrderRow.order_status || "Inquiry";
+                }
+
+                order.productionStages = mergedStages;
+              }
+            }
 
             // ── Token capacity: calculate tokens for this order ──
             const orderItems = (order.items || []).map((item) => ({
