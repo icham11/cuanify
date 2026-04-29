@@ -106,7 +106,7 @@ function buildProductNameCandidates(item: ParsedBakeryOrderItem): string[] {
 async function getBakeryOverview(
   businessId: number,
   counts: Pick<BusinessOverviewCounts, "products" | "ingredients" | "categories">,
-): Promise<BusinessOverviewSummary | null> {
+): Promise<BusinessOverviewSummary> {
   await prisma.$executeRawUnsafe(`
     ALTER TABLE bakery_orders
     ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
@@ -130,12 +130,21 @@ async function getBakeryOverview(
     SELECT external_id, payment_status, total_price
     FROM latest_orders
     WHERE business_id = ${businessId}
-      AND LOWER(COALESCE(order_status, '')) = 'completed'
+      AND LOWER(COALESCE(order_status, '')) NOT IN ('cancelled', 'draft')
       AND deleted_at IS NULL
   `;
 
   if (bakeryOrderRows.length === 0) {
-    return null;
+    return {
+      counts: { ...counts, sales: 0 },
+      stats: {
+        totalRevenue: 0,
+        totalCost: 0,
+        totalProfit: 0,
+        paidSalesCount: 0,
+        marginAvg: null,
+      },
+    };
   }
 
   const paidOrderIds = bakeryOrderRows.map((row) => row.external_id);
@@ -271,11 +280,28 @@ export async function getBusinessOverviewSummary(
   ]);
 
   const baseCounts = { products, ingredients, categories };
-  const bakeryOverview = await getBakeryOverview(businessId, baseCounts);
+  const [bakeryOverview, legacyOverview] = await Promise.all([
+    getBakeryOverview(businessId, baseCounts),
+    getLegacySalesOverview(businessId, baseCounts),
+  ]);
 
-  if (bakeryOverview) {
-    return bakeryOverview;
-  }
+  const totalSalesCount = bakeryOverview.counts.sales + legacyOverview.counts.sales;
+  const totalRevenue = bakeryOverview.stats.totalRevenue + legacyOverview.stats.totalRevenue;
+  const totalCost = bakeryOverview.stats.totalCost + legacyOverview.stats.totalCost;
+  const totalProfit = totalRevenue - totalCost;
+  const totalPaidSalesCount = bakeryOverview.stats.paidSalesCount + legacyOverview.stats.paidSalesCount;
 
-  return getLegacySalesOverview(businessId, baseCounts);
+  return {
+    counts: {
+      ...baseCounts,
+      sales: totalSalesCount,
+    },
+    stats: {
+      totalRevenue,
+      totalCost,
+      totalProfit,
+      paidSalesCount: totalPaidSalesCount,
+      marginAvg: totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : null,
+    },
+  };
 }
