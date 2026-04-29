@@ -12,6 +12,7 @@ import {
   isOpenOrderStatus,
   normalizeOrderStatus,
 } from "@/lib/bookings/order-status";
+import { getJakartaTodayIsoDate } from "@/lib/bookings/shipping-schedule";
 import {
   BarChart3,
   CheckCircle2,
@@ -123,9 +124,20 @@ export default function OrdersStats() {
     },
   ];
 
+  const todayIso = getJakartaTodayIsoDate();
+  const todayCapacity = capacityPerDay.find((c) => c.date === todayIso) ?? {
+    remaining: DAILY_PRODUCTION_TOKEN_LIMIT,
+    remainingPercent: 100,
+  };
+
+  summaryCards.push({
+    title: "Today Capacity",
+    value: `${todayCapacity.remainingPercent}% (${todayCapacity.remaining} tokens left)`,
+  });
+
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {summaryCards.map((card, index) => {
           const Icon = icons[index] ?? BarChart3;
           return (

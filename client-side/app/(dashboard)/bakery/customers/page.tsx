@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, Search, Users } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, Search, Users } from "lucide-react";
+import { exportToExcel } from "@/lib/helpers/export-excel";
 import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import { useOrders } from "@/components/bakery/store";
 
@@ -98,12 +99,36 @@ export default function BakeryCustomersPage() {
   );
   const totalSpend = filteredCustomers.reduce((sum, row) => sum + row.totalSpent, 0);
 
+  const handleExportExcel = () => {
+    const dataToExport = filteredCustomers.map((c) => ({
+      Name: c.name,
+      Phone: c.phone,
+      Address: c.address,
+      "Order Count": c.orderCount,
+      "Total Spent": c.totalSpent,
+      "Last Order": c.lastOrderDate,
+      "Last Slot": c.lastDeliverySlot,
+    }));
+
+    exportToExcel(dataToExport, "Bakery_Customers", "Customers");
+  };
+
   return (
     <div className="space-y-6 pb-8">
       <GradientPageHeader
         title="Customer Database"
         description="Data customer dari seluruh booking order, otomatis tersusun rapi."
         icon={Users}
+        actions={
+          <button
+            type="button"
+            onClick={handleExportExcel}
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-white px-4 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-50"
+          >
+            <Download className="h-4 w-4" />
+            Export Excel
+          </button>
+        }
       />
 
       <div className="grid gap-3 sm:grid-cols-3">

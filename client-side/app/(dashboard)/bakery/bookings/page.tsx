@@ -14,7 +14,8 @@ import {
   getJakartaTodayIsoDate,
   resolveShippingProvider,
 } from "@/lib/bookings/shipping-schedule";
-import { BookOpen } from "lucide-react";
+import { BookOpen, Download } from "lucide-react";
+import { exportToExcel } from "@/lib/helpers/export-excel";
 
 type CourierFilter = "" | "grab-gojek" | "paxel";
 type OrderSourceFilter = "" | "customer" | "admin";
@@ -267,11 +268,22 @@ export default function BookingListPage() {
     setCurrentPage(1);
   };
 
-  const handleSortChange = (
-    value: "delivery-asc" | "delivery-desc" | "name-asc" | "value-desc",
-  ) => {
-    setSortBy(value);
-    setCurrentPage(1);
+  const handleExportExcel = () => {
+    const dataToExport = filteredOrders.map((order) => ({
+      Resi: order.resi || order.bookingCode || order.id,
+      Customer: order.customerName || "Walk-in",
+      Phone: order.customerPhone || "-",
+      "Delivery Date": order.deliveryDate,
+      "Delivery Slot": order.deliverySlot || "10:00",
+      Products: (order.items ?? [])
+        .map((item) => `${item.quantity}x ${item.productName}`)
+        .join(", "),
+      "Total Price": order.totalPrice || 0,
+      "Payment Status": order.paymentStatus,
+      "Order Status": order.orderStatus,
+    }));
+
+    exportToExcel(dataToExport, `Bakery_Bookings_${today}`, "Bookings");
   };
 
   return (
@@ -281,12 +293,22 @@ export default function BookingListPage() {
         description="Track and manage all incoming cake orders and delivery schedules."
         icon={BookOpen}
         actions={
-          <Link
-            href="/bakery/bookings/new"
-            className="inline-flex h-10 items-center justify-center rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white transition hover:bg-indigo-700"
-          >
-            New Booking
-          </Link>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleExportExcel}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-white px-4 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-50"
+            >
+              <Download className="h-4 w-4" />
+              Export Excel
+            </button>
+            <Link
+              href="/bakery/bookings/new"
+              className="inline-flex h-10 items-center justify-center rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white transition hover:bg-indigo-700"
+            >
+              New Booking
+            </Link>
+          </div>
         }
       />
 

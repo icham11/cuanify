@@ -835,11 +835,7 @@ export default function OrderDetailPage() {
               <Button type="button" variant="outline" className="border-indigo-200 text-indigo-700 hover:bg-indigo-50" onClick={handleRecordPayment} disabled={paymentSaveSyncState === "saving"}>
                 {paymentSaveSyncState === "saving" ? "Menyimpan..." : "Save Payment Verification"}
               </Button>
-              {paymentSaveSyncState !== "idle" ? (
-                <p className={`text-xs font-medium ${paymentSaveSyncState === "saved" ? "text-emerald-700" : paymentSaveSyncState === "failed" ? "text-rose-700" : "text-indigo-700"}`}>
-                  {paymentSaveSyncMessage}
-                </p>
-              ) : null}
+
           </CardContent>
         </Card>
       </div>

@@ -5469,54 +5469,9 @@ export default function BookingForm() {
                   </div>
                 ))}
               </div>
-              {parsedPreview.missingFields.length > 0 && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                  Field yang perlu dicek manual:{" "}
-                  {parsedPreview.missingFields.join(", ")}
-                </div>
-              )}
-              {selectedOrderType === "unknown" &&
-                parsedPreview.missingFields.length > 0 && (
-                  <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
-                    <p className="font-semibold">
-                      Parser butuh konfirmasi jenis order. Pilih cepat lalu
-                      parse ulang:
-                    </p>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {specificWhatsappOrderTypeOptions.map((option) => (
-                        <Button
-                          key={`quick-order-type-${option.value}`}
-                          type="button"
-                          variant="outline"
-                          className="h-7 border-indigo-200 px-2 text-[11px] text-indigo-700 hover:bg-indigo-100"
-                          onClick={() => {
-                            setSelectedOrderType(
-                              option.value as ParserOrderType,
-                            );
-                            void importDraft({
-                              orderType: option.value as ParserOrderType,
-                              successMessage: `Parse ulang dengan jenis order ${option.label}.`,
-                            });
-                          }}
-                        >
-                          {option.label}
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              {(parsedPreview.sourceType === "image" ||
-                parsedPreview.sourceType === "email") &&
-                visionRawOutput && (
-                  <details className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-700">
-                    <summary className="cursor-pointer font-semibold text-gray-600">
-                      Lihat hasil ekstraksi AI
-                    </summary>
-                    <pre className="mt-2 whitespace-pre-wrap font-mono text-[11px] text-gray-700">
-                      {visionRawOutput}
-                    </pre>
-                  </details>
-                )}
+
+
+
               {Array.isArray(parsedPreview.referenceImages) &&
                 parsedPreview.referenceImages.length > 0 && (
                   <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-700">

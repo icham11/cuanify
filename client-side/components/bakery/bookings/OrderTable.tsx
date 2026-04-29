@@ -271,36 +271,36 @@ export default function OrderTable({ orders }: OrderTableProps) {
                     {order.customerName || "Walk-in Customer"}
                   </td>
                   <td className={cellPaddingClass}>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span>{formatDeliveryDate(order.deliveryDate)}</span>
-                      {(() => {
-                        const highlight = highlightMap.get(order.id);
-                        if (!highlight || !highlight.label) return null;
-                        return (
-                          <OrderHighlightBadge
-                            label={highlight.label}
-                            tone={highlight.tone}
-                          />
-                        );
-                      })()}
+                    <div className="flex flex-col gap-0.5">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold text-gray-900">
+                          {formatDeliveryDate(order.deliveryDate)}
+                        </span>
+                        {(() => {
+                          const highlight = highlightMap.get(order.id);
+                          if (!highlight || !highlight.label) return null;
+                          return (
+                            <OrderHighlightBadge
+                              label={highlight.label}
+                              tone={highlight.tone}
+                            />
+                          );
+                        })()}
+                      </div>
+                      <p className="text-xs font-medium text-slate-500">
+                        Jam: {order.deliverySlot || "10:00"}
+                      </p>
                     </div>
                   </td>
                   <td className={cellPaddingClass}>
                     <div className="max-w-105 space-y-1">
                       <p
-                        className={`${rowTitleClass} whitespace-pre-line wrap-break-word text-gray-700`}
+                        className={`${rowTitleClass} whitespace-pre-line wrap-break-word font-medium text-gray-700`}
                         title={productSummary}
                       >
                         {productSummary}
                       </p>
                       <div className="flex flex-wrap items-center gap-1.5">
-                        {difficultyMeta && (
-                          <span
-                            className={`${chipClass} ${difficultyMeta.className}`}
-                          >
-                            {difficultyMeta.label}
-                          </span>
-                        )}
                         {(order.items?.length ?? 0) > 1 && (
                           <span className={`${chipClass} border-gray-200 bg-white font-medium text-gray-500`}>
                             {order.items.length} items

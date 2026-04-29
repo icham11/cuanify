@@ -1684,7 +1684,9 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         cakeType: order.items[0]?.subcategory,
         size: order.items[0]?.size,
         addOns: order.items.flatMap((item) => item.addOns).join(", "),
-        product: `${order.items.length} item(s)`,
+        product: order.items
+          .map((item) => `${item.quantity}x ${item.productName}`)
+          .join("\n"),
         totalPrice: normalizedTotalPrice,
         sales_channel: order.sales_channel,
         paymentStatus: inferredPaymentStatus,
