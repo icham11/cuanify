@@ -448,10 +448,12 @@ describe("Token Capacity Service — Unit Tests", () => {
 
 // ─── Integration Tests (require DB) ──────────────────────────────────────────
 // These tests require a real database connection.
-// They are wrapped in describe.skip by default to avoid CI failures
-// without a database. Remove .skip to run them locally.
+// They run automatically when DATABASE_URL is available, and stay skipped
+// in environments that do not have a real Postgres connection.
 
-describe.skip("Token Capacity Service — Integration Tests", () => {
+const describeIntegration = process.env.DATABASE_URL ? describe : describe.skip;
+
+describeIntegration("Token Capacity Service — Integration Tests", () => {
   const TEST_BUSINESS_ID = 99999; // Use a high ID to avoid conflicts
   const TEST_DATE = "2099-01-15"; // Far future date to avoid conflicts
   const TEST_DATE_2 = "2099-01-16";

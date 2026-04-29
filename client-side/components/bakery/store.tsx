@@ -30,7 +30,10 @@ import type {
   ShippingShipment,
 } from "@/lib/bookings/shipping-types";
 import { calculateDownPayment } from "@/lib/bookings/config";
-import { isWithinBusinessHours } from "@/lib/bookings/operations";
+import {
+  isWithinBusinessHours,
+  summarizeProductionTokensByItems,
+} from "@/lib/bookings/operations";
 import {
   estimateOperationalWeightGram,
   parseServiceChargeFromNotes,
@@ -1889,21 +1892,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
     ) => {
       const nextOrders = orders.map((order) => {
         if (order.id !== id) return order;
-        const totalTokens = Number(order.items?.reduce((sum, item) => {
-          const qty = Math.max(0, Number(item.quantity) || 0);
-          const token =
-            Number(item.customTokenPerUnit) ||
-            (item.tokenDifficulty === "EXPERT"
-              ? 5
-              : item.tokenDifficulty === "ADVANCED"
-                ? 4
-                : item.tokenDifficulty === "HARD" || item.tokenDifficulty === "DIFFICULT"
-                  ? 3
-                  : item.tokenDifficulty === "NORMAL" || item.tokenDifficulty === "MEDIUM"
-                    ? 2
-                    : 1);
-          return sum + qty * token;
-        }, 0) || 0);
+        const totalTokens = summarizeProductionTokensByItems(order.items ?? []);
         const currentByStage = new Map(
           (order.productionStages ?? []).map((entry) => [entry.stage, entry]),
         );

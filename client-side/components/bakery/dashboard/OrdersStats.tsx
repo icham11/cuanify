@@ -1,18 +1,20 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { endOfMonth, startOfMonth } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatCurrency } from "@/components/orders/formatters";
 import { useOrders } from "@/components/bakery/store";
+import { useCalendarCapacity } from "@/hooks/useCalendarCapacity";
 import {
   DAILY_PRODUCTION_TOKEN_LIMIT,
-  summarizeProductionTokensByItems,
 } from "@/lib/bookings/operations";
 import {
   isOpenOrderStatus,
   normalizeOrderStatus,
 } from "@/lib/bookings/order-status";
 import { getJakartaTodayIsoDate } from "@/lib/bookings/shipping-schedule";
+import { normalizeDateInput, parseSafeDate } from "@/lib/helpers/date-normalization";
 import {
   BarChart3,
   CheckCircle2,
@@ -23,46 +25,69 @@ import {
 
 const icons = [BarChart3, CheckCircle2, Factory, PackageCheck, Wallet];
 
+function getCapacityRangeFromOrders(orders: ReturnType<typeof useOrders>["orders"]) {
+  const today = parseSafeDate(getJakartaTodayIsoDate()) ?? new Date();
+  const candidateDates: Date[] = [today];
+
+  for (const order of orders) {
+    const normalized = normalizeDateInput((order.deliveryDate || "").trim());
+    const parsed = normalized ? parseSafeDate(normalized) : null;
+    if (parsed) {
+      candidateDates.push(parsed);
+    }
+  }
+
+  let start = startOfMonth(today);
+  let end = endOfMonth(today);
+
+  for (const date of candidateDates) {
+    if (date < start) start = date;
+    if (date > end) end = date;
+  }
+
+  return { start, end };
+}
+
 export default function OrdersStats() {
   const { orders } = useOrders();
   const [monthFilter, setMonthFilter] = useState("all");
   const [capacityPage, setCapacityPage] = useState(1);
 
+  const capacityRange = useMemo(
+    () => getCapacityRangeFromOrders(orders),
+    [orders],
+  );
+  const { capacityMap, getCapacity } = useCalendarCapacity(
+    capacityRange.start,
+    capacityRange.end,
+  );
+
   const capacityPerDay = useMemo(
     () =>
-      Array.from(
-        orders.reduce((map, order) => {
-          const date = (order.deliveryDate || "").trim();
-          if (!date) return map;
-          const used = map.get(date) ?? 0;
-          map.set(
-            date,
-            used + summarizeProductionTokensByItems(order.items ?? []),
-          );
-          return map;
-        }, new Map<string, number>()),
-      )
-        .sort(([left], [right]) => right.localeCompare(left))
-        .map(([date, used]) => {
-          const safeUsed = Math.max(0, Math.round(used));
-          const remaining = Math.max(0, DAILY_PRODUCTION_TOKEN_LIMIT - safeUsed);
+      Array.from(capacityMap.values())
+        .sort((left, right) => right.date.localeCompare(left.date))
+        .map((entry) => {
+          const safeUsed = Math.max(0, Math.round(entry.usedToken));
+          const safeMax = Math.max(1, Math.round(entry.maxToken));
+          const remaining = Math.max(0, safeMax - safeUsed);
           const remainingPercent = Math.max(
             0,
-            Math.round((remaining / DAILY_PRODUCTION_TOKEN_LIMIT) * 100),
+            Math.round((remaining / safeMax) * 100),
           );
           return {
-            date,
-            monthKey: date.slice(0, 7),
+            date: entry.date,
+            monthKey: entry.date.slice(0, 7),
             remaining,
             used: safeUsed,
             remainingPercent,
             usagePercent: Math.min(
               100,
-              Math.round((safeUsed / DAILY_PRODUCTION_TOKEN_LIMIT) * 100),
+              Math.round((safeUsed / safeMax) * 100),
             ),
+            maxToken: safeMax,
           };
         }),
-    [orders],
+    [capacityMap],
   );
 
   const monthOptions = useMemo(
@@ -125,9 +150,17 @@ export default function OrdersStats() {
   ];
 
   const todayIso = getJakartaTodayIsoDate();
-  const todayCapacity = capacityPerDay.find((c) => c.date === todayIso) ?? {
-    remaining: DAILY_PRODUCTION_TOKEN_LIMIT,
-    remainingPercent: 100,
+  const todayCapacityRaw = getCapacity(todayIso);
+  const todayCapacity = {
+    remaining: Math.max(0, todayCapacityRaw.maxToken - todayCapacityRaw.usedToken),
+    remainingPercent: Math.max(
+      0,
+      Math.round(
+        ((Math.max(0, todayCapacityRaw.maxToken - todayCapacityRaw.usedToken)) /
+          Math.max(1, todayCapacityRaw.maxToken)) *
+          100,
+      ),
+    ),
   };
 
   summaryCards.push({
@@ -208,7 +241,7 @@ export default function OrdersStats() {
                           {entry.date}
                         </td>
                         <td className="px-3 py-2 text-gray-700">
-                          {entry.used}/{DAILY_PRODUCTION_TOKEN_LIMIT}
+                          {entry.used}/{entry.maxToken ?? DAILY_PRODUCTION_TOKEN_LIMIT}
                         </td>
                         <td className="px-3 py-2 text-gray-700">
                           {entry.remaining} token
