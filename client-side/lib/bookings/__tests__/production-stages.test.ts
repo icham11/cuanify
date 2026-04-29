@@ -4,7 +4,10 @@ declare const expect: (value: unknown) => {
   toBe: (expected: unknown) => void;
 };
 
-import { distributeProductionTokens } from "../production-stages";
+import {
+  distributeProductionTokens,
+  normalizeProductionStageAssignments,
+} from "../production-stages";
 
 describe("distributeProductionTokens", () => {
   it("always preserves total token sum", () => {
@@ -55,5 +58,27 @@ describe("distributeProductionTokens", () => {
     expect(filling?.staffId).toBe(22);
     expect(finishing?.tokenAmount).toBe(50);
     expect(finishing?.staffId).toBe(22);
+  });
+
+  it("normalizes stale stored stages back to the current token total", () => {
+    const normalized = normalizeProductionStageAssignments({
+      totalTokens: 250,
+      stages: [
+        { stage: "listing", staffId: 1, tokenAmount: 8, percentage: 25 },
+        { stage: "filling", staffId: 2, tokenAmount: 8, percentage: 25 },
+        { stage: "finishing", staffId: 3, tokenAmount: 15, percentage: 50 },
+      ],
+    });
+
+    const listing = normalized.find((entry) => entry.stage === "listing");
+    const filling = normalized.find((entry) => entry.stage === "filling");
+    const finishing = normalized.find((entry) => entry.stage === "finishing");
+
+    expect(listing?.tokenAmount).toBe(63);
+    expect(filling?.tokenAmount).toBe(63);
+    expect(finishing?.tokenAmount).toBe(124);
+    expect(listing?.staffId).toBe(1);
+    expect(filling?.staffId).toBe(2);
+    expect(finishing?.staffId).toBe(3);
   });
 });

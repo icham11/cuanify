@@ -74,3 +74,82 @@ export function distributeProductionTokens(args: {
     };
   });
 }
+
+export function normalizeProductionStageAssignments(args: {
+  totalTokens: number;
+  stages?: ProductionStageAssignment[];
+  staffByStage?: Partial<Record<ProductionStage, number | null>>;
+  percentages?: Partial<Record<ProductionStage, number>>;
+}): ProductionStageAssignment[] {
+  const totalTokens = Math.max(0, Math.round(Number(args.totalTokens) || 0));
+  const existingByStage = new Map(
+    (args.stages ?? []).map((entry) => [entry.stage, entry]),
+  );
+
+  const mergedStaffByStage: Partial<Record<ProductionStage, number | null>> = {
+    listing:
+      args.staffByStage?.listing ??
+      existingByStage.get("listing")?.staffId ??
+      null,
+    filling:
+      args.staffByStage?.filling ??
+      existingByStage.get("filling")?.staffId ??
+      null,
+    finishing:
+      args.staffByStage?.finishing ??
+      existingByStage.get("finishing")?.staffId ??
+      null,
+  };
+
+  const canonical = distributeProductionTokens({
+    totalTokens,
+    staffByStage: mergedStaffByStage,
+    percentages: args.percentages,
+  });
+
+  const existingSignature = canonical.map((entry) => {
+    const existing = existingByStage.get(entry.stage);
+    return existing
+      ? {
+          stage: entry.stage,
+          staffId: existing.staffId ?? null,
+          tokenAmount: Math.max(0, Math.round(Number(existing.tokenAmount) || 0)),
+          percentage: Math.max(0, Math.round(Number(existing.percentage) || 0)),
+        }
+      : null;
+  });
+
+  const canonicalSignature = canonical.map((entry) => ({
+    stage: entry.stage,
+    staffId: entry.staffId ?? null,
+    tokenAmount: entry.tokenAmount,
+    percentage: entry.percentage,
+  }));
+
+  const isExactMatch =
+    existingSignature.every((entry, index) => {
+      const canonicalEntry = canonicalSignature[index];
+      return (
+        entry !== null &&
+        canonicalEntry !== undefined &&
+        entry.stage === canonicalEntry.stage &&
+        entry.staffId === canonicalEntry.staffId &&
+        entry.tokenAmount === canonicalEntry.tokenAmount &&
+        entry.percentage === canonicalEntry.percentage
+      );
+    }) && existingSignature.every(Boolean);
+
+  if (isExactMatch) {
+    return canonicalSignature.map((entry) => {
+      const existing = existingByStage.get(entry.stage);
+      return {
+        stage: entry.stage,
+        staffId: existing?.staffId ?? entry.staffId,
+        tokenAmount: entry.tokenAmount,
+        percentage: entry.percentage,
+      };
+    });
+  }
+
+  return canonical;
+}

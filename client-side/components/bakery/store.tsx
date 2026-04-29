@@ -34,6 +34,7 @@ import {
   isWithinBusinessHours,
   summarizeProductionTokensByItems,
 } from "@/lib/bookings/operations";
+import { normalizeProductionStageAssignments } from "@/lib/bookings/production-stages";
 import {
   estimateOperationalWeightGram,
   parseServiceChargeFromNotes,
@@ -50,7 +51,6 @@ import {
 import { normalizeDateInput } from "@/lib/helpers/date-normalization";
 import { useBakerySettings } from "@/hooks/useBakerySettings";
 import {
-  distributeProductionTokens,
   type ProductionStageAssignment,
 } from "@/lib/bookings/production-stages";
 
@@ -256,6 +256,7 @@ const OrdersContext = createContext<OrdersContextValue | null>(null);
 
 const initialOrders: BakeryOrder[] = [];
 const STORAGE_KEY = "bakeryOrdersState";
+const STORAGE_SYNC_META_KEY = "bakeryOrdersStateSyncMeta";
 const STORAGE_EVENT = "bakeryOrdersUpdated";
 const RAW_BOOKINGS_API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || "";
@@ -314,6 +315,45 @@ class CapacityFullSyncError extends Error {
     super(message);
     this.name = "CapacityFullSyncError";
   }
+}
+
+type OrdersSyncMeta = {
+  lastLocalWriteAt: number;
+  lastServerAckAt: number;
+};
+
+function readOrdersSyncMeta(): OrdersSyncMeta {
+  if (typeof window === "undefined") {
+    return { lastLocalWriteAt: 0, lastServerAckAt: 0 };
+  }
+
+  try {
+    const raw = window.localStorage.getItem(STORAGE_SYNC_META_KEY);
+    if (!raw) return { lastLocalWriteAt: 0, lastServerAckAt: 0 };
+    const parsed = JSON.parse(raw) as Partial<OrdersSyncMeta>;
+    return {
+      lastLocalWriteAt: Number(parsed.lastLocalWriteAt) || 0,
+      lastServerAckAt: Number(parsed.lastServerAckAt) || 0,
+    };
+  } catch {
+    return { lastLocalWriteAt: 0, lastServerAckAt: 0 };
+  }
+}
+
+function writeOrdersSyncMeta(meta: Partial<OrdersSyncMeta>) {
+  if (typeof window === "undefined") return;
+  const current = readOrdersSyncMeta();
+  const next = {
+    lastLocalWriteAt:
+      typeof meta.lastLocalWriteAt === "number"
+        ? meta.lastLocalWriteAt
+        : current.lastLocalWriteAt,
+    lastServerAckAt:
+      typeof meta.lastServerAckAt === "number"
+        ? meta.lastServerAckAt
+        : current.lastServerAckAt,
+  };
+  window.localStorage.setItem(STORAGE_SYNC_META_KEY, JSON.stringify(next));
 }
 const AUTO_REQUOTE_ERROR_KEYWORDS = [
   "courier price is not found",
@@ -1002,14 +1042,20 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
           : [];
 
         if (serverOrders.length > 0) {
+          const syncMeta = readOrdersSyncMeta();
           const recentlyChangedLocally =
             !force &&
             Date.now() - lastLocalWriteAtRef.current <
               LOCAL_WRITE_STALE_GUARD_MS;
           if (recentlyChangedLocally) return;
 
+          const localChangesPendingAck =
+            !force && syncMeta.lastLocalWriteAt > syncMeta.lastServerAckAt;
+          if (localChangesPendingAck) return;
+
           if (!areOrdersSnapshotsEqual(localOrders, serverOrders)) {
             writeOrdersSnapshot(serverOrders);
+            writeOrdersSyncMeta({ lastServerAckAt: Date.now() });
           }
           return;
         }
@@ -1067,34 +1113,44 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       if (typeof window === "undefined") return;
       const previousSnapshot =
         window.localStorage.getItem(STORAGE_KEY) ?? INITIAL_SNAPSHOT;
-      lastLocalWriteAtRef.current = Date.now();
+      const now = Date.now();
+      lastLocalWriteAtRef.current = now;
+      writeOrdersSyncMeta({ lastLocalWriteAt: now });
       writeOrdersSnapshot(nextOrders);
-      void syncOrdersToServer(nextOrders).catch((error) => {
-        const message =
-          error instanceof Error
-            ? error.message
-            : "Gagal sinkron perubahan booking ke server.";
+      void syncOrdersToServer(nextOrders)
+        .then(() => {
+          writeOrdersSyncMeta({ lastServerAckAt: Date.now() });
+        })
+        .catch((error) => {
+          const message =
+            error instanceof Error
+              ? error.message
+              : "Gagal sinkron perubahan booking ke server.";
 
-        // Revert optimistic local state so role-based guardrail failures
-        // do not leave this browser out of sync from server truth.
-        const rollbackOrders = parseSnapshot(previousSnapshot);
-        writeOrdersSnapshot(rollbackOrders);
-        lastLocalWriteAtRef.current = 0;
-        void hydrateOrdersFromServer(true);
+          // Revert optimistic local state so role-based guardrail failures
+          // do not leave this browser out of sync from server truth.
+          const rollbackOrders = parseSnapshot(previousSnapshot);
+          writeOrdersSnapshot(rollbackOrders);
+          lastLocalWriteAtRef.current = 0;
+          writeOrdersSyncMeta({
+            lastLocalWriteAt: 0,
+            lastServerAckAt: 0,
+          });
+          void hydrateOrdersFromServer(true);
 
-        console.warn("[bookings][frontend] persist sync failed", {
-          endpoint: ORDERS_SYNC_ENDPOINT,
-          message,
+          console.warn("[bookings][frontend] persist sync failed", {
+            endpoint: ORDERS_SYNC_ENDPOINT,
+            message,
+          });
+
+          // Kapasitas produksi penuh — ini kondisi valid dari sistem, bukan error user.
+          // Tidak perlu toast.error agar halaman marketplace/production tidak spam notif.
+          if (error instanceof CapacityFullSyncError) {
+            return;
+          }
+
+          toast.error(`Perubahan dibatalkan karena sinkron gagal: ${message}`);
         });
-
-        // Kapasitas produksi penuh — ini kondisi valid dari sistem, bukan error user.
-        // Tidak perlu toast.error agar halaman marketplace/production tidak spam notif.
-        if (error instanceof CapacityFullSyncError) {
-          return;
-        }
-
-        toast.error(`Perubahan dibatalkan karena sinkron gagal: ${message}`);
-      });
     },
     [hydrateOrdersFromServer, syncOrdersToServer],
   );
@@ -1893,24 +1949,14 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       const nextOrders = orders.map((order) => {
         if (order.id !== id) return order;
         const totalTokens = summarizeProductionTokensByItems(order.items ?? []);
-        const currentByStage = new Map(
-          (order.productionStages ?? []).map((entry) => [entry.stage, entry]),
-        );
-        const productionStages = distributeProductionTokens({
+        const productionStages = normalizeProductionStageAssignments({
           totalTokens,
+          stages: order.productionStages ?? [],
           staffByStage: {
-            listing:
-              stage === "listing"
-                ? staff?.userId ?? null
-                : currentByStage.get("listing")?.staffId ?? null,
-            filling:
-              stage === "filling"
-                ? staff?.userId ?? null
-                : currentByStage.get("filling")?.staffId ?? null,
+            listing: stage === "listing" ? staff?.userId ?? null : undefined,
+            filling: stage === "filling" ? staff?.userId ?? null : undefined,
             finishing:
-              stage === "finishing"
-                ? staff?.userId ?? null
-                : currentByStage.get("finishing")?.staffId ?? null,
+              stage === "finishing" ? staff?.userId ?? null : undefined,
           },
         });
         return { ...order, productionStages };

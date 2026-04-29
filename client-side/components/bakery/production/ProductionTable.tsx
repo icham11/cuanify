@@ -12,7 +12,9 @@ import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 import { BAKERY_STAFF_DAILY_TOKEN_LIMIT } from "@/lib/bookings/config";
 import { DEFAULT_MAX_TOKEN } from "@/lib/calendar/getCalendarStatus";
 import { useBakerySettings } from "@/hooks/useBakerySettings";
-import { distributeProductionTokens } from "@/lib/bookings/production-stages";
+import {
+  normalizeProductionStageAssignments,
+} from "@/lib/bookings/production-stages";
 
 interface TeamMember {
   userId: number;
@@ -102,11 +104,10 @@ function getSingleOrderAssignee(order: BakeryOrder): number | null {
 }
 
 function getEffectiveProductionStages(order: BakeryOrder) {
-  const existingStages = order.productionStages ?? [];
-  if (existingStages.length > 0) return existingStages;
-
-  return distributeProductionTokens({
-    totalTokens: summarizeProductionTokensByItems(order.items ?? []),
+  const totalTokens = summarizeProductionTokensByItems(order.items ?? []);
+  return normalizeProductionStageAssignments({
+    totalTokens,
+    stages: order.productionStages ?? [],
   });
 }
 
