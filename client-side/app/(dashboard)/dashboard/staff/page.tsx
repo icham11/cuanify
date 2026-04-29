@@ -55,7 +55,7 @@ interface OwnerInfo {
 type TabMode = "register" | "existing";
 
 export default function StaffPage() {
-  const { isOwner } = useRole();
+  const { isOwner, loading: isRoleLoading } = useRole();
   const [owner, setOwner] = useState<OwnerInfo | null>(null);
   const [members, setMembers] = useState<StaffMember[]>([]);
   const [businesses, setBusinesses] = useState<BusinessInfo[]>([]);
@@ -124,9 +124,10 @@ export default function StaffPage() {
   }, []);
 
   useEffect(() => {
+    if (isRoleLoading) return;
     if (isOwner) fetchStaff();
     else setLoading(false);
-  }, [isOwner, fetchStaff]);
+  }, [isOwner, fetchStaff, isRoleLoading]);
 
   // ── Generate random password ──
   function generatePassword() {
@@ -320,6 +321,15 @@ export default function StaffPage() {
   }, [filteredMembers, owner]);
 
   // ── Access denied for Cashier ──
+  if (isRoleLoading) {
+    return (
+      <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-5 text-sm text-gray-500 shadow-sm">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Memuat hak akses staff...
+      </div>
+    );
+  }
+
   if (!isOwner) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-gray-400">

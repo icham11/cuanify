@@ -9,7 +9,7 @@ import PriceSummaryCard from "@/components/bakery/bookings/PriceSummaryCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { FileText } from "lucide-react";
+import { FileText, Loader2 } from "lucide-react";
 import { useOrders } from "@/components/bakery/store";
 import { useParams } from "next/navigation";
 import { formatCurrency } from "@/components/orders/formatters";
@@ -95,7 +95,7 @@ export default function OrderDetailPage() {
     setOrderShipment,
   } = useOrders();
   const params = useParams();
-  const { isOwner, isAdmin } = useRole();
+  const { isOwner, isAdmin, loading: isRoleLoading } = useRole();
   const { settings: bakerySettings } = useBakerySettings();
   const blockedDates = bakerySettings?.blockedDates;
   const canGenerateInvoice = isOwner || isAdmin;
@@ -475,6 +475,15 @@ export default function OrderDetailPage() {
       expectedRemaining: nextRemaining,
     });
   };
+  if (isRoleLoading) {
+    return (
+      <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-5 text-sm text-gray-500 shadow-sm">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Memuat hak akses booking...
+      </div>
+    );
+  }
+
   if (!order) {
     return (
       <div className="space-y-6 pb-10">
@@ -842,5 +851,3 @@ export default function OrderDetailPage() {
     </div>
   );
 }
-
-

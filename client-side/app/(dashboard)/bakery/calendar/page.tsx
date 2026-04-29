@@ -229,7 +229,7 @@ function CalendarToolbar({
 export default function BakeryCalendarPage() {
   const router = useRouter();
   const { orders } = useOrders();
-  const { isOwner, isAdmin } = useRole();
+  const { isOwner, isAdmin, loading: isRoleLoading } = useRole();
   const canManageCalendarConnection = isOwner || isAdmin;
   const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
   const [isDateOrdersPopupOpen, setIsDateOrdersPopupOpen] = useState(false);
@@ -606,6 +606,15 @@ export default function BakeryCalendarPage() {
   };
 
   // ─── Render ─────────────────────────────────────────────────────────────────
+  if (isRoleLoading) {
+    return (
+      <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-5 text-sm text-gray-500 shadow-sm">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Memuat hak akses kalender...
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 pb-10">
       <GradientPageHeader

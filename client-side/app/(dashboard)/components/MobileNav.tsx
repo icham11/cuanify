@@ -35,7 +35,14 @@ export default function MobileNav({
 }: MobileNavProps) {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const pathname = usePathname();
-  const { isOwner, isAdmin, isCashier, isStaff, userName } = useRole();
+  const {
+    isOwner,
+    isAdmin,
+    isCashier,
+    isStaff,
+    userName,
+    loading: isRoleLoading,
+  } = useRole();
   const isBakeryManager = isOwner || isAdmin;
 
   const isActive = (href: string) => {
@@ -67,6 +74,10 @@ export default function MobileNav({
           { href: "/dashboard/sales-history", icon: History, label: "Riwayat" },
           { href: "/dashboard/debts", icon: ClipboardList, label: "Kasbon" },
         ];
+
+  if (isRoleLoading) {
+    return null;
+  }
 
   return (
     <>

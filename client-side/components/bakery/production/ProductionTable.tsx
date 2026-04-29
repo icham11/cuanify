@@ -174,7 +174,8 @@ export default function ProductionTable() {
   const router = useRouter();
   const { business, businesses, switchBusiness } = useBusiness();
   const { orders, updateOrderStatus, assignOrderToStaff, assignProductionStageStaff } = useOrders();
-  const { isOwner, isAdmin, isStaff, role, userName } = useRole();
+  const { isOwner, isAdmin, isStaff, role, userName, loading: isRoleLoading } =
+    useRole();
   const isPrivilegedManager = isOwner || isAdmin;
   const { settings: bakerySettings } = useBakerySettings();
   const productionDailyTokenLimit =
@@ -1195,6 +1196,15 @@ export default function ProductionTable() {
       </div>
     );
   };
+
+  if (isRoleLoading) {
+    return (
+      <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-5 text-sm text-slate-500 shadow-sm">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Memuat hak akses produksi...
+      </div>
+    );
+  }
 
   if (orders.length === 0) {
     return (
