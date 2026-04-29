@@ -627,4 +627,3 @@ export default function AddOnsPage() {
     </div>
   );
 }
-}
