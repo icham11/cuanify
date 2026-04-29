@@ -189,6 +189,8 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
   businessId: number;
   productCatalog: PricelistCategory[];
   deduplicateExistingProducts?: boolean;
+  updateExistingProducts?: boolean;
+  reactivateDeletedProducts?: boolean;
 }) {
   const products = flattenCatalogProductsForDashboard(args.productCatalog);
   const duplicateCatalogNames = collectDuplicateProductNames(
@@ -263,6 +265,8 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
       let createdCount = 0;
       let updatedCount = 0;
       let reactivatedCount = 0;
+      const shouldUpdateExisting = args.updateExistingProducts !== false;
+      const shouldReactivateDeleted = args.reactivateDeletedProducts !== false;
       const productsToCreate: Array<{
         businessId: number;
         categoryId: number | null;
@@ -282,6 +286,14 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
         );
 
         if (matched) {
+          if (matched.deletedAt && !shouldReactivateDeleted) {
+            continue;
+          }
+
+          if (!shouldUpdateExisting) {
+            continue;
+          }
+
           const needsUpdate =
             matched.categoryId !== resolvedCategoryId ||
             normalizeProductName(matched.name) !== normalizedName ||
@@ -301,7 +313,7 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
                 productionToken: product.productionToken,
                 productType: "PreOrder",
                 isActive: true,
-                deletedAt: null,
+                ...(shouldReactivateDeleted ? { deletedAt: null } : {}),
               },
             });
 

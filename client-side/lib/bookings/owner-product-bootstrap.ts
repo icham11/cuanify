@@ -18,11 +18,16 @@ const OWNER_AUTO_BOOTSTRAP_MIN_PRODUCTS = parsePositiveInteger(
   process.env.OWNER_AUTO_BOOTSTRAP_MIN_PRODUCTS,
   0,
 );
+const OWNER_AUTO_BOOTSTRAP_ALLOW_AFTER_HISTORY =
+  process.env.OWNER_AUTO_BOOTSTRAP_ALLOW_AFTER_HISTORY === "true";
 
 export type OwnerProductBootstrapResult = {
   skipped: boolean;
   existingProducts: number;
-  reason?: "existing-products-threshold" | "existing-product-history";
+  reason?:
+    | "existing-products-threshold"
+    | "existing-product-history"
+    | "existing-product-history-disabled";
   syncResult?: Awaited<ReturnType<typeof syncBakeryCatalogToDashboardProducts>>;
 };
 
@@ -67,6 +72,20 @@ export async function ensureOwnerDefaultProducts(args: {
     },
   });
 
+  // Guardrail: once a business has product history, do not auto-bootstrap again.
+  // This prevents deleted products from unexpectedly reappearing.
+  if (
+    !args.force &&
+    productHistoryCount > 0 &&
+    !OWNER_AUTO_BOOTSTRAP_ALLOW_AFTER_HISTORY
+  ) {
+    return {
+      skipped: true,
+      existingProducts,
+      reason: "existing-product-history-disabled",
+    };
+  }
+
   if (!args.force && OWNER_AUTO_BOOTSTRAP_MIN_PRODUCTS === 0 && productHistoryCount > 0) {
     return {
       skipped: true,
@@ -103,6 +122,8 @@ export async function ensureOwnerDefaultProducts(args: {
     businessId: args.businessId,
     productCatalog: BOOKING_PRODUCT_CATALOG,
     deduplicateExistingProducts: false,
+    updateExistingProducts: false,
+    reactivateDeletedProducts: false,
   });
 
   return {
