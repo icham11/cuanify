@@ -3,7 +3,11 @@ import crypto from "crypto";
 import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { AuthError, ForbiddenError, requireAuth } from "@/lib/auth/session";
-import { evaluateProductionTokenCapacity } from "@/lib/bookings/operations";
+import {
+  evaluateProductionTokenCapacity,
+  type BookingItemForOperations,
+  summarizeProductionTokensByItems,
+} from "@/lib/bookings/operations";
 import { z } from "zod";
 import {
   ensureCapacityTable,
@@ -32,6 +36,7 @@ import { getBakeryBusinessSettings } from "@/lib/bakery/settings";
 import { calculateShippingInsuranceFee } from "@/lib/bookings/shipping-insurance";
 import {
   distributeProductionTokens,
+  normalizeProductionStageAssignments,
   type ProductionStageAssignment,
   type ProductionStage,
 } from "@/lib/bookings/production-stages";
@@ -286,6 +291,22 @@ function parseOrdersContent(content: string | null | undefined): unknown[] {
   } catch {
     return [];
   }
+}
+
+function normalizeOrderProductionStages<T extends {
+  items?: JsonRecord[];
+  productionStages?: ProductionStageAssignment[] | null;
+}>(order: T): T & { productionStages: ProductionStageAssignment[] } {
+  const totalTokens = summarizeProductionTokensByItems(
+    (order.items ?? []) as unknown as BookingItemForOperations[],
+  );
+  return {
+    ...order,
+    productionStages: normalizeProductionStageAssignments({
+      totalTokens,
+      stages: order.productionStages ?? [],
+    }),
+  };
 }
 
 function asRecord(value: unknown): JsonRecord | null {
@@ -1835,7 +1856,8 @@ export async function GET() {
           stagesMap.set(externalId, current);
         }
 
-        const orders = orderRows.map((row) => ({
+        const orders = orderRows.map((row) =>
+          normalizeOrderProductionStages({
           id: row.external_id,
           bookingCode: row.booking_code ?? "",
           resi: row.resi ?? "",
@@ -1889,7 +1911,9 @@ export async function GET() {
             data: {
               source: "snapshot-fallback",
               id: snapshot?.id ?? null,
-              orders: parseOrdersContent(snapshot?.content),
+              orders: parseOrdersContent(snapshot?.content).map(
+                (entry) => normalizeOrderProductionStages(entry as ParsedOrder),
+              ),
               updatedAt: snapshotUpdatedAt,
             },
           });
@@ -1905,7 +1929,9 @@ export async function GET() {
             data: {
               source: "snapshot-newer-than-rows",
               id: snapshot?.id ?? null,
-              orders: parseOrdersContent(snapshot?.content),
+              orders: parseOrdersContent(snapshot?.content).map(
+                (entry) => normalizeOrderProductionStages(entry as ParsedOrder),
+              ),
               updatedAt: snapshotUpdatedAt,
             },
           });
@@ -1939,7 +1965,9 @@ export async function GET() {
       data: {
         source: rowReadFailed ? "snapshot-fallback" : "snapshot",
         id: snapshot?.id ?? null,
-        orders: parseOrdersContent(snapshot?.content),
+        orders: parseOrdersContent(snapshot?.content).map((entry) =>
+          normalizeOrderProductionStages(entry as ParsedOrder),
+        ),
         updatedAt: snapshot?.updatedAt?.toISOString() ?? null,
       },
     });
@@ -2188,7 +2216,8 @@ export async function POST(request: NextRequest) {
         stagesMap.set(externalId, current);
       }
 
-      const existingOrders: ParsedOrder[] = existingRows.map((row) => ({
+      const existingOrders: ParsedOrder[] = existingRows.map((row) =>
+        normalizeOrderProductionStages({
         id: row.external_id,
         bookingCode: row.booking_code ?? "",
         resi: row.resi ?? "",
@@ -2231,7 +2260,8 @@ export async function POST(request: NextRequest) {
         productionStages: stagesMap.get(row.external_id) ?? [],
         items: itemsMap.get(row.external_id) ?? [],
         deliveryAddresses: addressesMap.get(row.external_id) ?? [],
-      }));
+      }),
+      );
 
       const existingById = new Map(
         existingOrders.map((order) => [order.id, order]),
@@ -2345,14 +2375,16 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    orders = orders.map((order) => ({
-      ...order,
-      insuranceFee: computeInsuranceFee({
-        shippingQuote: order.shippingQuote,
-        shipment: order.shipment,
-        totalPrice: order.totalPrice,
+    orders = orders.map((order) =>
+      normalizeOrderProductionStages({
+        ...order,
+        insuranceFee: computeInsuranceFee({
+          shippingQuote: order.shippingQuote,
+          shipment: order.shipment,
+          totalPrice: order.totalPrice,
+        }),
       }),
-    }));
+    );
 
     validateProjectedStaffDailyTokenLimit({
       orders,
