@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
@@ -12,7 +12,6 @@ import { useOrders } from "@/components/bakery/store";
 import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 import {
   getJakartaTodayIsoDate,
-  isTodayScheduledReminderOrder,
   resolveShippingProvider,
 } from "@/lib/bookings/shipping-schedule";
 import { BookOpen } from "lucide-react";
@@ -106,45 +105,9 @@ export default function BookingListPage() {
     "delivery-asc" | "delivery-desc" | "name-asc" | "value-desc"
   >("delivery-asc");
   const [currentPage, setCurrentPage] = useState(1);
-  const [dismissedReminderKey, setDismissedReminderKey] = useState("");
-  const [todayJakarta, setTodayJakarta] = useState(() =>
-    getJakartaTodayIsoDate(),
-  );
-  const today = todayJakarta;
-  const tomorrow = useMemo(() => addDaysToIsoDate(todayJakarta, 1), [todayJakarta]);
+  const today = getJakartaTodayIsoDate();
+  const tomorrow = useMemo(() => addDaysToIsoDate(today, 1), [today]);
   const PAGE_SIZE = 10;
-
-  useEffect(() => {
-    const syncTodayJakarta = () => {
-      setTodayJakarta((previous) => {
-        const current = getJakartaTodayIsoDate();
-        return previous === current ? previous : current;
-      });
-    };
-
-    syncTodayJakarta();
-    const intervalId = window.setInterval(syncTodayJakarta, 60_000);
-    window.addEventListener("focus", syncTodayJakarta);
-    document.addEventListener("visibilitychange", syncTodayJakarta);
-
-    return () => {
-      window.clearInterval(intervalId);
-      window.removeEventListener("focus", syncTodayJakarta);
-      document.removeEventListener("visibilitychange", syncTodayJakarta);
-    };
-  }, []);
-
-  const dueScheduledShipmentsToday = useMemo(() => {
-    return orders.filter((order) =>
-      isTodayScheduledReminderOrder(order, todayJakarta),
-    );
-  }, [orders, todayJakarta]);
-  const reminderKey = useMemo(
-    () => dueScheduledShipmentsToday.map((order) => order.id).join("|"),
-    [dueScheduledShipmentsToday],
-  );
-  const showDeliveryReminder =
-    dueScheduledShipmentsToday.length > 0 && dismissedReminderKey !== reminderKey;
 
   const filteredOrders = useMemo(() => {
     const filtered = orders.filter((order) => {
@@ -313,55 +276,6 @@ export default function BookingListPage() {
 
   return (
     <div className="space-y-6 pb-10">
-      {showDeliveryReminder && dueScheduledShipmentsToday.length > 0 && (
-        <div
-          className="fixed inset-x-3 z-50 rounded-xl border border-amber-300 bg-amber-50 p-3 shadow-xl sm:p-4 md:inset-x-auto md:right-4 md:w-[min(92vw,430px)]"
-          style={{ top: "max(0.75rem, env(safe-area-inset-top))" }}
-        >
-          <div className="flex items-start justify-between gap-2 sm:gap-3">
-            <div>
-              <p className="text-sm font-semibold text-amber-900">
-                Reminder Pengiriman Hari Ini
-              </p>
-              <p className="mt-1 text-xs text-amber-800">
-                Ada {dueScheduledShipmentsToday.length} order Grab/Gojek/Paxel
-                yang harus diproses pengiriman hari ini.
-              </p>
-              <p className="mt-1 text-[11px] text-amber-700">
-                Resi otomatis akan dibuat saat jam slot masing-masing order
-                sudah masuk.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setDismissedReminderKey(reminderKey)}
-              className="shrink-0 rounded-md border border-amber-300 bg-white px-2 py-1 text-[11px] font-semibold text-amber-800 hover:bg-amber-100"
-            >
-              Tutup
-            </button>
-          </div>
-          <div className="mt-3 max-h-[42vh] space-y-2 overflow-y-auto pr-1 sm:max-h-56">
-            {dueScheduledShipmentsToday.map((order) => (
-              <Link
-                key={order.id}
-                href={`/bakery/bookings/${order.id}`}
-                className="block rounded-lg border border-amber-200 bg-white px-3 py-2 text-xs text-amber-900 hover:bg-amber-100"
-              >
-                <p className="font-semibold">
-                  {order.resi || order.bookingCode || `Order ${order.id}`}
-                </p>
-                <p className="mt-0.5 wrap-break-word text-[11px] leading-snug text-amber-800">
-                  {order.customerName} • {order.deliverySlot || "-"} •{" "}
-                  {resolveShippingProvider(order) ||
-                    order.shippingQuote?.provider ||
-                    "Kurir"}
-                </p>
-              </Link>
-            ))}
-          </div>
-        </div>
-      )}
-
       <GradientPageHeader
         title="Bookings"
         description="Track and manage all incoming cake orders and delivery schedules."
@@ -489,3 +403,4 @@ export default function BookingListPage() {
     </div>
   );
 }
+

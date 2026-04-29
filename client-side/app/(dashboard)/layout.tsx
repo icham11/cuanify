@@ -85,7 +85,7 @@ export default async function DashboardLayout({
           <div className="pointer-events-none absolute right-0 top-0 h-80 w-80 rounded-full bg-[#f9bd1f]/20 blur-3xl" />
           <div className="pointer-events-none absolute -bottom-20 right-20 h-72 w-72 rounded-full bg-[#25b4c8]/20 blur-3xl" />
 
-          <div className="relative z-10 flex h-full gap-3 px-3 py-3 md:gap-4 md:px-4 md:py-4">
+          <div className="relative z-10 flex h-full gap-2 px-2 py-2 md:gap-3 md:px-3 md:py-3">
             <aside
               className="custom-scrollbar sticky top-4 hidden h-[calc(100vh-2rem)] min-h-[calc(100vh-2rem)] w-64 shrink-0 self-start flex-col overflow-y-auto rounded-4xl border border-white/70 px-4 py-5 shadow-[0_24px_45px_-32px_rgba(23,58,122,0.85)] backdrop-blur-md md:flex lg:w-72 lg:px-5 xl:w-80 xl:px-6"
               style={{
@@ -121,8 +121,8 @@ export default async function DashboardLayout({
             <div className="hidden w-1 self-stretch rounded-full bg-linear-to-b from-transparent via-[#f26a21]/50 to-[#25b4c8]/55 md:block" />
 
             <main className="custom-scrollbar h-[calc(100vh-2rem)] min-w-0 flex-1 overflow-y-auto overscroll-contain pb-20 md:pb-0">
-              <div className="mx-auto max-w-7xl px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
-                <div className="relative overflow-hidden rounded-[34px] bg-white/58 p-3 shadow-[0_28px_60px_-42px_rgba(23,58,122,0.95)] ring-1 ring-white/70 backdrop-blur-sm sm:p-5">
+              <div className="mx-auto max-w-[96rem] px-2 py-3 sm:px-4 sm:py-5 lg:px-5">
+                <div className="relative overflow-hidden rounded-[30px] bg-white/58 p-2.5 text-[0.95rem] shadow-[0_28px_60px_-42px_rgba(23,58,122,0.95)] ring-1 ring-white/70 backdrop-blur-sm sm:p-4">
                   <div className="pointer-events-none absolute -left-10 -top-10 h-40 w-40 rounded-full bg-[#f26a21]/14 blur-2xl" />
                   <div className="pointer-events-none absolute -right-8 top-1/3 h-36 w-36 rounded-full bg-[#f9bd1f]/14 blur-2xl" />
                   <div className="pointer-events-none absolute bottom-0 left-1/3 h-32 w-32 rounded-full bg-[#25b4c8]/14 blur-2xl" />

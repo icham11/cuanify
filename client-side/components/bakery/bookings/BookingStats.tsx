@@ -2,10 +2,6 @@ import { addDays } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BakeryOrder } from "@/components/bakery/store";
 import {
-  DAILY_PRODUCTION_TOKEN_LIMIT,
-  evaluateProductionTokenCapacity,
-} from "@/lib/bookings/operations";
-import {
   isOpenOrderStatus,
   normalizeOrderStatus,
 } from "@/lib/bookings/order-status";
@@ -34,37 +30,15 @@ export default function BookingStats({ orders }: { orders: BakeryOrder[] }) {
     (order) => order.deliveryDate >= today && order.deliveryDate <= tomorrow,
   ).length;
 
-  const tokenToday = evaluateProductionTokenCapacity({
-    orders,
-    deliveryDate: today,
-    incomingItems: [],
-  });
-  const remainingToday = Math.max(0, tokenToday.allowed - tokenToday.usedToday);
-  const isClosedToday = remainingToday <= 0;
-
   const stats = [
     { label: "Today Orders", value: todayOrders },
     { label: "Active Queue", value: activeQueue },
     { label: "In Production", value: inProduction },
     { label: "Upcoming Deliveries", value: upcoming },
-    {
-      label: "Token Tersisa Hari Ini",
-      value: `${remainingToday}`,
-      helper: `${tokenToday.usedToday}/${tokenToday.allowed} terpakai${
-        tokenToday.allowed > DAILY_PRODUCTION_TOKEN_LIMIT
-          ? ` (carry-over ${tokenToday.allowed - DAILY_PRODUCTION_TOKEN_LIMIT})`
-          : ""
-      }`,
-      tone: isClosedToday
-        ? "danger"
-        : remainingToday <= 50
-          ? "warning"
-          : "normal",
-    },
   ];
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       {stats.map((stat) => (
         <Card
           key={stat.label}
@@ -95,9 +69,7 @@ export default function BookingStats({ orders }: { orders: BakeryOrder[] }) {
                       : "text-gray-500"
                 }`}
               >
-                {isClosedToday && stat.label === "Token Tersisa Hari Ini"
-                  ? "Closed: token harian habis"
-                  : stat.helper}
+                {stat.helper}
               </p>
             ) : null}
           </CardContent>

@@ -1,35 +1,21 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import StatusBadge from "@/components/bakery/shared/StatusBadge";
 import PaymentBadge from "@/components/bakery/shared/PaymentBadge";
 import PriceSummaryCard from "@/components/bakery/bookings/PriceSummaryCard";
-import OrderStepper from "@/components/bakery/shared/OrderStepper";
-import OrderTimeline from "@/components/bakery/shared/OrderTimeline";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import {
-  AlertTriangle,
-  CheckCircle2,
-  FileText,
-  Printer,
-  RefreshCcw,
-} from "lucide-react";
+import { FileText } from "lucide-react";
 import { useOrders } from "@/components/bakery/store";
 import { useParams } from "next/navigation";
 import { formatCurrency } from "@/components/orders/formatters";
-import { toast } from "sonner";
 import { useRole } from "@/context/RoleContext";
 import { openInvoicePrintWindow } from "@/components/bakery/bookings/InvoiceTemplate";
 import { useBakerySettings } from "@/hooks/useBakerySettings";
-import {
-  getDisplayFields,
-  WHATSAPP_ORDER_LABELS,
-} from "@/lib/bookings/whatsapp-parser";
 import type { ShippingResiResponse } from "@/lib/bookings/shipping-types";
 import {
   countConcurrentOrdersForSlot,
@@ -59,7 +45,6 @@ import {
 } from "@/lib/bookings/shipping-schedule";
 import { normalizeDateInput } from "@/lib/helpers/date-normalization";
 import { getSmartCourierLabel } from "@/lib/bookings/shipping-service";
-import { distributeProductionTokens } from "@/lib/bookings/production-stages";
 
 type SaveSyncState = "idle" | "saving" | "saved" | "failed";
 
@@ -69,82 +54,6 @@ type ServerOrderPayload = {
   totalPaidAmount?: number;
   remainingBalance?: number;
 };
-
-type InventorySyncPayload = {
-  orderId: string;
-  orderStatus?: string;
-  deductions: Array<{
-    ingredientId: number;
-    ingredientName: string;
-    ingredientUnit: string;
-    quantity: number;
-  }>;
-  unresolvedProducts: string[];
-  updatedAt?: string;
-};
-
-type TokenDifficulty =
-  | "SIMPLE"
-  | "NORMAL"
-  | "HARD"
-  | "ADVANCED"
-  | "EXPERT"
-  | "MEDIUM"
-  | "DIFFICULT";
-
-function resolveItemDifficulty(item: {
-  category: string;
-  tokenDifficulty?: TokenDifficulty;
-}): TokenDifficulty {
-  if (item.tokenDifficulty) return item.tokenDifficulty;
-  if (item.category === "Cake" || item.category === "Cookies Tower") {
-    return "HARD";
-  }
-  if (item.category === "Buket" || item.category === "Cupcakes") {
-    return "NORMAL";
-  }
-  return "SIMPLE";
-}
-
-function getDifficultyMeta(value: TokenDifficulty): {
-  label: string;
-  token: number;
-  className: string;
-} {
-  if (value === "EXPERT") {
-    return {
-      label: "Expert",
-      token: 5,
-      className: "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700",
-    };
-  }
-  if (value === "ADVANCED") {
-    return {
-      label: "Advanced",
-      token: 4,
-      className: "border-purple-200 bg-purple-50 text-purple-700",
-    };
-  }
-  if (value === "HARD" || value === "DIFFICULT") {
-    return {
-      label: "Hard",
-      token: 3,
-      className: "border-rose-200 bg-rose-50 text-rose-700",
-    };
-  }
-  if (value === "NORMAL" || value === "MEDIUM") {
-    return {
-      label: "Normal",
-      token: 2,
-      className: "border-amber-200 bg-amber-50 text-amber-700",
-    };
-  }
-  return {
-    label: "Simple",
-    token: 1,
-    className: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  };
-}
 
 function inferDeliveryMethodFromNotes(notes?: string): string | undefined {
   const match = notes?.match(/delivery\s*method\s*:\s*([^\n]+)/i);
@@ -182,10 +91,8 @@ export default function OrderDetailPage() {
     updateOrderSchedule,
     updatePaymentStatus,
     recordPayment,
-    syncOrderCalendar,
     getCustomerMessagePreview,
     setOrderShipment,
-    assignProductionStageStaff,
   } = useOrders();
   const params = useParams();
   const { isOwner, isAdmin } = useRole();
@@ -195,42 +102,17 @@ export default function OrderDetailPage() {
   const orderId = typeof params?.id === "string" ? params.id : "";
   const [rescheduleDate, setRescheduleDate] = useState("");
   const [rescheduleSlot, setRescheduleSlot] = useState("");
-  const [isSyncingCalendar, setIsSyncingCalendar] = useState(false);
   const [isCreatingResi, setIsCreatingResi] = useState(false);
   const [dpPaidDraft, setDpPaidDraft] = useState(0);
   const [finalPaidDraft, setFinalPaidDraft] = useState(0);
+  const [statusDraft, setStatusDraft] = useState("");
   const [paymentSaveSyncState, setPaymentSaveSyncState] =
     useState<SaveSyncState>("idle");
   const [paymentSaveSyncMessage, setPaymentSaveSyncMessage] = useState("");
-  const [inventorySync, setInventorySync] = useState<InventorySyncPayload | null>(
-    null,
-  );
-  const [inventorySyncLoading, setInventorySyncLoading] = useState(false);
-  const [inventorySyncError, setInventorySyncError] = useState("");
-  const [staffOptions, setStaffOptions] = useState<Array<{ userId: number; name: string }>>([]);
-
   const order = useMemo(
     () => orders.find((item) => item.id === orderId),
     [orders, orderId],
   );
-
-  useEffect(() => {
-    if (!isOwner && !isAdmin) return;
-    fetch("/api/staff", { cache: "no-store" })
-      .then((response) => response.json())
-      .then((payload) => {
-        const members = Array.isArray(payload?.data?.members) ? payload.data.members : [];
-        setStaffOptions(
-          members
-            .map((member: { userId?: number; name?: string; user?: { name?: string; email?: string } }) => ({
-              userId: Number(member.userId),
-              name: member.name || member.user?.name || member.user?.email || `Staff ${member.userId}`,
-            }))
-            .filter((member: { userId: number }) => Number.isInteger(member.userId) && member.userId > 0),
-        );
-      })
-      .catch(() => setStaffOptions([]));
-  }, [isOwner, isAdmin]);
   const normalizedOrderStatus = normalizeOrderStatus(order?.orderStatus);
   const normalizedPaymentStatus =
     order?.paymentStatus === "Pending"
@@ -245,13 +127,6 @@ export default function OrderDetailPage() {
   const isBeforeScheduledShippingDate =
     isScheduledShipmentProviderOrder &&
     Boolean(normalizedDeliveryDate && normalizedDeliveryDate > todayJakarta);
-  const showAutomationSummary = [
-    "In Production",
-    "Ready",
-    "Delivered",
-    "Completed",
-  ].includes(normalizedOrderStatus);
-
   const effectiveDate = rescheduleDate || order?.deliveryDate || "";
   const effectiveSlot = rescheduleSlot || order?.deliverySlot || "10:00";
   const deliveryMethod = useMemo(
@@ -322,25 +197,7 @@ export default function OrderDetailPage() {
     },
     [order?.notes, deliveryMethod],
   );
-  const totalWorkloadTokens = useMemo(() => {
-    if (!order) return 0;
-    return (order.items ?? []).reduce((sum, item) => {
-      const difficulty = resolveItemDifficulty(item);
-      const tokenPerUnit = getDifficultyMeta(difficulty).token;
-      return sum + tokenPerUnit * Math.max(0, Number(item.quantity) || 0);
-    }, 0);
-  }, [order]);
-  const fallbackProductionStages = useMemo(
-    () => distributeProductionTokens({ totalTokens: totalWorkloadTokens }),
-    [totalWorkloadTokens],
-  );
   const messagePreview = order ? getCustomerMessagePreview(order.id) : "";
-  const calendarSyncStatus = order?.simulations?.calendarEventCreated
-    ? "Synced"
-    : order?.simulations?.lastAutomationAt
-      ? "Failed / Pending"
-      : "Not synced yet";
-
   useEffect(() => {
     if (!order) return;
     setDpPaidDraft(Number(order.dpPaidAmount ?? 0));
@@ -348,106 +205,14 @@ export default function OrderDetailPage() {
   }, [order]);
 
   useEffect(() => {
+    if (!normalizedOrderStatus) return;
+    setStatusDraft(normalizedOrderStatus);
+  }, [normalizedOrderStatus]);
+
+  useEffect(() => {
     setPaymentSaveSyncState("idle");
     setPaymentSaveSyncMessage("");
   }, [order?.id]);
-
-  useEffect(() => {
-    if (!orderId) return;
-
-    let cancelled = false;
-
-    const loadInventorySync = async () => {
-      setInventorySyncLoading(true);
-      setInventorySyncError("");
-
-      try {
-        const response = await fetch(
-          `/api/bookings/orders/${encodeURIComponent(orderId)}/inventory-sync`,
-          {
-            method: "GET",
-            credentials: "include",
-            cache: "no-store",
-          },
-        );
-
-        const payload = (await response.json()) as {
-          success?: boolean;
-          data?: InventorySyncPayload | null;
-          error?: string;
-        };
-
-        if (!response.ok || !payload.success) {
-          throw new Error(payload.error || "Gagal memuat status inventory");
-        }
-
-        if (!cancelled) {
-          setInventorySync(payload.data ?? null);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setInventorySyncError(
-            error instanceof Error
-              ? error.message
-              : "Gagal memuat status inventory",
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setInventorySyncLoading(false);
-        }
-      }
-    };
-
-    void loadInventorySync();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [orderId, order?.orderStatus, order?.items, order?.paymentStatus]);
-
-  const inventorySyncLabel = useMemo(() => {
-    if (inventorySyncLoading) {
-      return {
-        text: "Mengecek sinkronisasi bahan...",
-        className: "border-sky-200 bg-sky-50 text-sky-700",
-      };
-    }
-
-    if (inventorySyncError) {
-      return {
-        text: "Status inventory belum bisa dicek",
-        className: "border-amber-200 bg-amber-50 text-amber-700",
-      };
-    }
-
-    if (!inventorySync) {
-      return {
-        text: "Belum ada catatan sinkronisasi inventory",
-        className: "border-gray-200 bg-gray-50 text-gray-600",
-      };
-    }
-
-    if ((inventorySync.unresolvedProducts?.length ?? 0) > 0) {
-      return {
-        text: "Sebagian item belum nyambung ke recipe inventory",
-        className: "border-amber-200 bg-amber-50 text-amber-700",
-      };
-    }
-
-    if ((inventorySync.deductions?.length ?? 0) > 0) {
-      return {
-        text: "Inventory sudah sinkron dan bahan sudah terpotong",
-        className: "border-emerald-200 bg-emerald-50 text-emerald-700",
-      };
-    }
-
-    return {
-      text: "Order ini belum memotong inventory",
-      className: "border-gray-200 bg-gray-50 text-gray-600",
-    };
-  }, [inventorySync, inventorySyncError, inventorySyncLoading]);
-
   const verifyPaymentSavedToServer = async (params: {
     orderId: string;
     expectedStatus: "DP Paid" | "Paid";
@@ -604,96 +369,20 @@ export default function OrderDetailPage() {
     `);
     printWindow.document.close();
   };
-
-  const handlePrintResi = () => {
-    if (!order || !order.shipment) return;
-    const orderServiceCharge = serviceCharge;
-
-    const primaryAddress =
-      order.deliveryAddresses?.[0]?.addressLine || order.customerAddress || "-";
-    const itemSummary = (order.items ?? [])
-      .map((item) => `${item.quantity}x ${item.productName} (${item.size})`)
-      .join("<br />");
-
-    const printWindow = window.open("", "_blank", "width=480,height=760");
-    if (!printWindow) return;
-
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>Print Resi</title>
-          <style>
-            @page { size: 100mm 150mm; margin: 0; }
-            html, body { width: 100mm; height: 150mm; }
-            body { font-family: Arial, sans-serif; margin: 0; padding: 4mm; color: #111827; box-sizing: border-box; }
-            .sheet { border: 1px solid #111827; border-radius: 6px; padding: 3.5mm; width: calc(100% - 2px); box-sizing: border-box; }
-            .title { font-size: 13px; font-weight: 800; margin-bottom: 6px; letter-spacing: .5px; text-transform: uppercase; }
-            .awb { border: 2px dashed #111827; border-radius: 6px; padding: 6px; margin-bottom: 8px; }
-            .awb-label { font-size: 9px; color: #4b5563; margin-bottom: 2px; }
-            .awb-value { font-size: 17px; font-weight: 800; letter-spacing: .8px; word-break: break-all; line-height: 1.1; }
-            .row { font-size: 11px; margin-bottom: 4px; line-height: 1.25; }
-            .label { font-weight: 700; }
-            .foot { font-size: 9px; color: #6b7280; margin-top: 7px; }
-          </style>
-        </head>
-        <body>
-          <div class="sheet">
-            <div class="title">RESI PENGIRIMAN</div>
-            <div class="awb">
-              <div class="awb-label">NO. RESI / AWB</div>
-              <div class="awb-value">${order.shipment.trackingNumber || "-"}</div>
-            </div>
-
-            <div class="row"><span class="label">Kurir:</span> ${order.shipment.provider} - ${order.shipment.courierServiceName}</div>
-            <div class="row"><span class="label">Penerima:</span> ${order.customerName || "-"}</div>
-            <div class="row"><span class="label">No. HP:</span> ${order.customerPhone || "-"}</div>
-            <div class="row"><span class="label">Alamat:</span><br />${primaryAddress}</div>
-            <div class="row"><span class="label">Jadwal:</span> ${order.deliveryDate || "-"} ${order.deliverySlot || ""}</div>
-            <div class="row"><span class="label">Isi Paket:</span><br />${itemSummary || "-"}</div>
-            ${orderDeliveryFee > 0 ? `<div class="row"><span class="label">Ongkir:</span> ${formatCurrency(orderDeliveryFee)}</div>` : ""}
-            ${orderServiceCharge > 0 ? `<div class="row"><span class="label">Service Charge:</span> ${formatCurrency(orderServiceCharge)}</div>` : ""}
-            <div class="row"><span class="label">Total Bayar:</span> ${formatCurrency(order.totalPrice ?? 0)}</div>
-            ${order.shipment.trackingUrl ? `<div class="row"><span class="label">Tracking URL:</span><br />${order.shipment.trackingUrl}</div>` : ""}
-
-            <div class="foot">Dicetak dari Bakery OMS (tanpa buka dashboard Biteship)</div>
-          </div>
-          <script>window.print();window.close();</script>
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
-  };
-
   const handleCopyMessage = async () => {
     try {
       await navigator.clipboard.writeText(messagePreview);
-      toast.success("Customer message copied");
-    } catch {
-      toast.error("Failed to copy message");
-    }
+    } catch {}
   };
 
   const handleCreateResi = async () => {
     if (!order) return;
-    if (!order.shippingQuote) {
-      toast.error(
-        "Quote pengiriman belum dipilih. Cek ongkir dulu di form booking.",
-      );
-      return;
-    }
-    if (isBeforeScheduledShippingDate) {
-      toast.error(
-        "Order Grab/Gojek/Paxel dijadwalkan otomatis. Resi baru bisa dibuat di hari pengiriman.",
-      );
-      return;
-    }
+    if (!order.shippingQuote) return;
+    if (isBeforeScheduledShippingDate) return;
 
     const primaryAddress =
       order.deliveryAddresses?.[0]?.addressLine || order.customerAddress || "";
-    if (!primaryAddress) {
-      toast.error("Alamat penerima belum lengkap.");
-      return;
-    }
+    if (!primaryAddress) return;
 
     setIsCreatingResi(true);
     try {
@@ -719,10 +408,7 @@ export default function OrderDetailPage() {
       const selectedQuoteProvider = inferScheduledProviderFromQuote(
         order.shippingQuote,
       );
-      if (!selectedQuoteProvider) {
-        toast.error("Provider kurir tidak dikenali. Pilih ulang quote kurir.");
-        return;
-      }
+      if (!selectedQuoteProvider) return;
       const selectedQuote = {
         ...order.shippingQuote,
         provider: selectedQuoteProvider,
@@ -760,27 +446,8 @@ export default function OrderDetailPage() {
       }
 
       setOrderShipment(order.id, payload.shipment);
-      if (payload.warning) {
-        toast.warning(payload.warning);
-      }
     } catch (error: unknown) {
-      const message =
-        error instanceof Error ? error.message : "Gagal membuat resi.";
-
-      if (message === "biteship_insufficient_balance") {
-        toast.error("Saldo Biteship Tidak Mencukupi!", {
-          description:
-            "Mohon top up saldo Bite Points di dashboard Biteship agar kurir bisa dipanggil.",
-          action: {
-            label: "Top Up Sekarang",
-            onClick: () =>
-              window.open("https://dashboard.biteship.com/pembayaran", "_blank"),
-          },
-          duration: 10000,
-        });
-      } else {
-        toast.error(message);
-      }
+      void error;
     } finally {
       setIsCreatingResi(false);
     }
@@ -808,17 +475,6 @@ export default function OrderDetailPage() {
       expectedRemaining: nextRemaining,
     });
   };
-
-  const handleManualCalendarSync = async () => {
-    if (!order || isSyncingCalendar) return;
-    setIsSyncingCalendar(true);
-    try {
-      await syncOrderCalendar(order.id);
-    } finally {
-      setIsSyncingCalendar(false);
-    }
-  };
-
   if (!order) {
     return (
       <div className="space-y-6 pb-10">
@@ -834,496 +490,247 @@ export default function OrderDetailPage() {
     );
   }
 
+  const createdDisplayTime = new Date(
+    (order as { createdAt?: string }).createdAt ||
+      order.statusHistory?.[0]?.timestamp ||
+      Date.now(),
+  ).toLocaleString("id-ID");
+
+  const primaryAddress =
+    order.deliveryAddresses?.[0]?.addressLine || order.customerAddress || "-";
+  const bookingCodeValue = order.resi || order.bookingCode || order.id;
+  const readableMethod =
+    deliveryMethod === "PICKUP"
+      ? "Pickup"
+      : deliveryMethod === "CUSTOMER_APP_COURIER"
+        ? "Kurir Pesanan Customer"
+        : deliveryMethod === "ASSISTED_GOSEND"
+          ? "GoSend (Admin)"
+          : deliveryMethod === "ASSISTED_GOCAR"
+            ? "GoCar (Admin)"
+            : deliveryMethod === "ASSISTED_GRAB"
+              ? "Grab (Admin)"
+              : deliveryMethod === "ASSISTED_PAXEL"
+                ? "Paxel (Admin)"
+                : deliveryMethod === "ASSISTED_SAME_DAY"
+                  ? "Same Day (Admin)"
+                  : deliveryMethod === "REGULAR_JNE_JNT"
+                    ? "JNE/JNT"
+                    : "Pickup";
+  const parsedReferenceLabels = [
+    ...(Array.isArray(order.whatsAppParsedData?.requestedImageLabels)
+      ? order.whatsAppParsedData.requestedImageLabels
+      : []),
+    ...((order.whatsAppParsedData?.referenceImages ?? [])
+      .map((image) => image.label || "")
+      .filter((label) => label.trim().length > 0)),
+  ]
+    .map((label) => label.trim())
+    .filter((label, index, array) => {
+      const normalized = label.toLowerCase();
+      return (
+        normalized.length > 0 &&
+        array.findIndex((entry) => entry.toLowerCase() === normalized) === index
+      );
+    });
+  const customNotesOnly = (order.notes || "")
+    .split(/\r?\n/g)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .filter(
+      (line) =>
+        !/^delivery\s*method\s*:/i.test(line) &&
+        !/^service\s*charge\s*:/i.test(line) &&
+        !/^insurance\s*fee\s*:/i.test(line) &&
+        !/^wholesale\s*discount\s*:/i.test(line),
+    );
+  const bookingNotesList = [...parsedReferenceLabels, ...customNotesOnly];
+  const itemRows = (order.items ?? []).map((item) => {
+    const quantity = Math.max(1, Number(item.quantity || 1));
+    const baseUnit = Math.max(0, Number(item.basePrice || 0));
+    const addOnUnit = Math.max(0, Number(item.addOnTotal || 0));
+    const computedLineTotal = Math.max(0, Math.round((baseUnit + addOnUnit) * quantity));
+    const lineTotal = Math.max(0, Math.round(Number(item.lineTotal || computedLineTotal)));
+    const unitPrice = quantity > 0 ? Math.round(lineTotal / quantity) : lineTotal;
+    const details = [
+      item.size ? `${item.size}` : "",
+      item.subcategory ? `${item.subcategory}` : "",
+      item.addOns?.length ? `Add-on: ${item.addOns.join(", ")}` : "",
+      item.notes ? item.notes : "",
+      item.cookieDifficultyBreakdown ? item.cookieDifficultyBreakdown : "",
+    ].filter((text) => text.length > 0);
+    return {
+      id: item.id,
+      title: `${quantity}x ${item.productName || "Produk"} (${item.category || "-"})`,
+      unitPrice,
+      lineTotal,
+      details,
+    };
+  });
+
   return (
-    <div className="space-y-6 pb-10">
+    <div className="mx-auto max-w-4xl space-y-5 pb-10">
       <GradientPageHeader
-        title="Order Detail"
-        description="Review the booking, update the status, and keep production on track."
+        title={`Booking #${bookingCodeValue}`}
+        description={`Dibuat ${createdDisplayTime}`}
         icon={FileText}
-      >
-        <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-[10px] font-bold tracking-tight text-emerald-700 uppercase">
-          <span className="relative flex h-1.5 w-1.5">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
-            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
-          </span>
-          Biteship Live Ready
-        </div>
-      </GradientPageHeader>
+      />
 
-      {showAutomationSummary && (
-        <div className="space-y-2 rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm font-semibold text-indigo-700">
-          <p>
-            Ringkasan order aktif. Booking code:{" "}
-            {order.resi || order.bookingCode}
-          </p>
-          <p className="text-xs font-medium text-indigo-600">
-            {order.simulations?.productionWhatsappSent
-              ? "WA Produksi sent"
-              : "WA Produksi pending"}{" "}
-            |{" "}
-            {order.simulations?.calendarEventCreated
-              ? "Calendar created"
-              : "Calendar pending"}{" "}
-            |{" "}
-            {order.simulations?.googleSheetsSynced
-              ? "Google Sheets synced"
-              : "Google Sheets pending"}
-          </p>
-          {order.simulations?.lastAutomationMessage && (
-            <p className="text-xs font-medium text-indigo-600">
-              Last automation: {order.simulations.lastAutomationMessage}
-            </p>
-          )}
-        </div>
-      )}
-
-      <OrderStepper status={normalizedOrderStatus} />
-
-      <div className="grid gap-6 lg:grid-cols-[2fr,1fr]">
-        <div className="space-y-6">
-          <Card className="rounded-xl shadow-sm">
-            <CardHeader className="p-6 pb-2">
-              <CardTitle>Customer Info</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 px-6 pb-6 pt-0 text-sm text-gray-700">
-              <p>
-                <span className="font-semibold">Name:</span>{" "}
-                {order.customerName}
-              </p>
-              <p>
-                <span className="font-semibold">Phone:</span>{" "}
-                {order.customerPhone ?? "-"}
-              </p>
-              <p>
-                <span className="font-semibold">Address:</span>{" "}
-                {order.customerAddress ?? "-"}
-              </p>
-              <p>
-                <span className="font-semibold">Tracking:</span>{" "}
-                {order.shipment?.trackingNumber ?? "-"}
-              </p>
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-8 gap-1 border-indigo-200 text-indigo-700 hover:bg-indigo-50"
-                  onClick={handlePrintLabel}
-                >
-                  <Printer size={14} />
-                  Print Label
-                </Button>
-
-                {/* Invoice button — hanya Owner & Admin yang bisa lihat */}
-                {canGenerateInvoice && (
-                  <>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="h-8 gap-1 border-orange-200 bg-orange-50 text-orange-700 hover:bg-orange-100"
-                      onClick={() => {
-                        openInvoicePrintWindow(order);
-                        toast.success("Invoice dibuka di tab baru.");
-                      }}
-                    >
-                      <Printer size={14} />
-                      Cetak Invoice
-                    </Button>
-                  </>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="rounded-xl shadow-sm">
-            <CardHeader className="p-6 pb-2">
-              <CardTitle>Courier & Resi</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 px-6 pb-6 pt-0 text-sm text-gray-700">
-              {order.shippingQuote ? (
-                <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
-                  <p className="font-semibold">
-                    {order.shippingQuote.provider} -{" "}
-                    {getSmartCourierLabel({
-                      courierName: order.shippingQuote.courierServiceName,
-                      deliveryDate: order.deliveryDate,
-                    })}
-                  </p>
-                  <p className="text-xs text-gray-600">
-                    Ongkir {formatCurrency(orderDeliveryFee)} | ETA{" "}
-                    {order.shippingQuote.eta} | Jarak{" "}
-                    {order.shippingQuote.distanceKm} km
-                  </p>
-                  {serviceCharge > 0 && (
-                    <p className="mt-1 text-xs text-gray-600">
-                      Service Charge {formatCurrency(serviceCharge)}
-                    </p>
-                  )}
-                </div>
-              ) : (
-                <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                  Belum ada quote kurir. Lengkapi alamat + item di form booking
-                  agar ongkir live otomatis muncul.
-                </p>
-              )}
-
-              {order.shipment && (
-                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
-                  <p>
-                    Resi aktif:{" "}
-                    <span className="font-semibold">
-                      {order.shipment.trackingNumber}
-                    </span>
-                  </p>
-                  {order.shipment.externalOrderId && (
-                    <p>
-                      Biteship Order ID:{" "}
-                      <span className="font-semibold">
-                        {order.shipment.externalOrderId}
-                      </span>
-                    </p>
-                  )}
-                  {order.shipment.trackingUrl && (
-                    <p>
-                      Tracking URL:{" "}
-                      <a
-                        href={order.shipment.trackingUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="underline"
-                      >
-                        {order.shipment.trackingUrl}
-                      </a>
-                    </p>
-                  )}
-                  <div className="mt-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="h-8 gap-1 border-emerald-300 bg-white text-emerald-700 hover:bg-emerald-100"
-                      onClick={handlePrintResi}
-                    >
-                      <Printer size={14} />
-                      Print Resi
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {!order.shipment && (
-                <div className="space-y-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="border-indigo-200 text-indigo-700 hover:bg-indigo-50"
-                    disabled={
-                      !order.shippingQuote ||
-                      isCreatingResi ||
-                      isBeforeScheduledShippingDate
-                    }
-                    onClick={handleCreateResi}
-                  >
-                    {isCreatingResi ? "Membuat Resi..." : "Generate Resi"}
-                  </Button>
-                  {isBeforeScheduledShippingDate && (
-                    <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-700">
-                      Order ini akan otomatis dibuatkan resi di hari pengiriman
-                      (jam 00.00 WIB ke atas).
-                    </p>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card className="rounded-xl shadow-sm">
-            <CardHeader className="p-6 pb-2">
-              <CardTitle>Order Details</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 px-6 pb-6 pt-0 text-sm text-gray-700">
-              <div>
-                <div className="mb-2 flex flex-wrap items-center gap-2">
-                  <p className="font-semibold">Items:</p>
-                  <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-700">
-                    Total workload {totalWorkloadTokens} token
-                  </span>
-                </div>
-                <div className="space-y-2">
-                  {(order.items ?? []).map((item) => {
-                    const difficulty = resolveItemDifficulty(item);
-                    const meta = getDifficultyMeta(difficulty);
-                    const quantity = Math.max(0, Number(item.quantity) || 0);
-                    const itemTokens = quantity * meta.token;
-
-                    return (
-                      <div
-                        key={item.id}
-                        className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2"
-                      >
-                        <p className="font-medium text-gray-800">
-                          {item.quantity}x {item.productName} ({item.category} /{" "}
-                          {item.subcategory} / {item.size})
-                        </p>
-                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                          <span
-                            className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${meta.className}`}
-                          >
-                            {meta.label} ({meta.token} token/unit)
-                          </span>
-                          <span className="text-[11px] font-medium text-gray-500">
-                            Item workload: {itemTokens} token
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-              <p>
-                <span className="font-semibold">Delivery Date:</span>{" "}
-                {order.deliveryDate}
-              </p>
-              <p>
-                <span className="font-semibold">Delivery Slot:</span>{" "}
-                {order.deliverySlot}
-              </p>
-              <p>
-                <span className="font-semibold">Add-ons:</span>{" "}
-                {order.addOns ?? "-"}
-              </p>
-              <p>
-                <span className="font-semibold">Notes:</span>{" "}
-                {order.notes ?? "-"}
-              </p>
-              <div>
-                <p className="mb-1 font-semibold">Delivery Addresses:</p>
-                <div className="space-y-1">
-                  {(order.deliveryAddresses ?? []).map((address) => (
-                    <p key={address.id}>
-                      {address.label} - {address.area}: {address.addressLine}
-                    </p>
-                  ))}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="rounded-xl shadow-sm">
-            <CardHeader className="p-6 pb-2">
-              <CardTitle>Production Tasks</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 px-6 pb-6 pt-0 text-sm text-gray-700">
-              {(["listing", "filling", "finishing"] as const).map((stage) => {
-                const existing = (order.productionStages ?? []).find((entry) => entry.stage === stage);
-                const fallback = fallbackProductionStages.find((entry) => entry.stage === stage);
-                const percentage = existing?.percentage ?? fallback?.percentage ?? (stage === "finishing" ? 50 : 25);
-                const tokenAmount = existing?.tokenAmount ?? fallback?.tokenAmount ?? 0;
-                return (
-                  <div
-                    key={stage}
-                    className="grid gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-3 sm:grid-cols-[1fr_120px_220px] sm:items-center"
-                  >
-                    <div>
-                      <p className="font-semibold capitalize text-gray-800">{stage}</p>
-                      <p className="text-xs text-gray-500">{percentage}% production share</p>
-                    </div>
-                    <div className="font-semibold text-sky-700">{tokenAmount} token</div>
-                    <Select
-                      value={existing?.staffId ? String(existing.staffId) : ""}
-                      onChange={(event) => {
-                        const userId = Number(event.target.value);
-                        const staff = staffOptions.find((member) => member.userId === userId) ?? null;
-                        assignProductionStageStaff(order.id, stage, staff);
-                      }}
-                      disabled={!isOwner && !isAdmin}
-                    >
-                      <option value="">Unassigned</option>
-                      {staffOptions.map((member) => (
-                        <option key={member.userId} value={member.userId}>
-                          {member.name}
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
-                );
-              })}
-            </CardContent>
-          </Card>
-
-          <Card className="rounded-xl shadow-sm">
-            <CardHeader className="p-6 pb-2">
-              <CardTitle>Inventory Sync</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 px-6 pb-6 pt-0 text-sm text-gray-700">
-              <div
-                className={`rounded-xl border px-3 py-2 text-sm font-semibold ${inventorySyncLabel.className}`}
-              >
-                <div className="flex items-center gap-2">
-                  {inventorySyncLoading ? (
-                    <RefreshCcw className="h-4 w-4 animate-spin" />
-                  ) : inventorySyncError ||
-                    (inventorySync?.unresolvedProducts?.length ?? 0) > 0 ? (
-                    <AlertTriangle className="h-4 w-4" />
-                  ) : (
-                    <CheckCircle2 className="h-4 w-4" />
-                  )}
-                  <span>{inventorySyncLabel.text}</span>
-                </div>
-              </div>
-
-              {inventorySync?.updatedAt ? (
-                <p className="text-xs text-gray-500">
-                  Sinkron terakhir{" "}
-                  {new Date(inventorySync.updatedAt).toLocaleString("id-ID")}
-                </p>
-              ) : null}
-
-              {inventorySync?.deductions?.length ? (
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    Bahan yang terpotong untuk order ini
-                  </p>
-                  <div className="space-y-2">
-                    {inventorySync.deductions.map((entry) => (
-                      <div
-                        key={`${entry.ingredientId}-${entry.ingredientName}`}
-                        className="flex items-center justify-between rounded-lg border border-emerald-100 bg-emerald-50/60 px-3 py-2"
-                      >
-                        <span className="font-medium text-gray-800">
-                          {entry.ingredientName}
-                        </span>
-                        <span className="text-sm font-semibold text-emerald-700">
-                          -{entry.quantity} {entry.ingredientUnit}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-
-              {inventorySync?.unresolvedProducts?.length ? (
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    Item yang belum punya mapping recipe
-                  </p>
-                  <div className="space-y-2">
-                    {inventorySync.unresolvedProducts.map((name) => (
-                      <div
-                        key={name}
-                        className="rounded-lg border border-amber-100 bg-amber-50/70 px-3 py-2 text-amber-800"
-                      >
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                          <span>{name}</span>
-                          <Link
-                            href={`/dashboard/products?search=${encodeURIComponent(name)}`}
-                            className="inline-flex h-9 items-center justify-center rounded-lg border border-amber-200 bg-white px-3 text-xs font-semibold text-amber-800 transition hover:bg-amber-100"
-                          >
-                            Buka product terkait
-                          </Link>
-                          <Link
-                            href={`/dashboard/products/create?name=${encodeURIComponent(name)}`}
-                            className="inline-flex h-9 items-center justify-center rounded-lg border border-indigo-200 bg-white px-3 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-50"
-                          >
-                            Buat product baru
-                          </Link>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <p className="text-xs text-amber-700">
-                    Lengkapi recipe di dashboard product untuk item ini supaya
-                    stok bahan bisa ikut berkurang otomatis.
-                  </p>
-                </div>
-              ) : null}
-
-              {!inventorySyncLoading &&
-              !inventorySyncError &&
-              inventorySync &&
-              (inventorySync.deductions?.length ?? 0) === 0 &&
-              (inventorySync.unresolvedProducts?.length ?? 0) === 0 ? (
-                <p className="text-xs text-gray-500">
-                  Biasanya ini terjadi kalau order masih status awal seperti
-                  inquiry/quoted, jadi inventory belum dipotong.
-                </p>
-              ) : null}
-            </CardContent>
-          </Card>
-
-          {order.whatsAppParsedData && (
-            <Card className="rounded-xl shadow-sm">
-              <CardHeader className="p-6 pb-2">
-                <CardTitle>
-                  Parsed WhatsApp Data (
-                  {WHATSAPP_ORDER_LABELS[order.whatsAppParsedData.orderType]}
-                  {Array.isArray(order.whatsAppParsedData.detectedItems) &&
-                  order.whatsAppParsedData.detectedItems.length > 1
-                    ? ` • ${order.whatsAppParsedData.detectedItems.length} item`
-                    : ""}
+      <div className="space-y-6">
+        <Card className="rounded-2xl border-[#eadccf] shadow-sm">
+          <CardHeader className="p-6 pb-2">
+            <CardTitle className="text-[#7e6655]">Status Booking</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 px-6 pb-6 pt-0">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+              <span className="rounded-full bg-gray-100 px-3 py-1">Requested</span>
+              <span className="rounded-full bg-gray-100 px-3 py-1">Confirmed</span>
+              <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 font-semibold text-amber-700">
+                {normalizedOrderStatus}
+              </span>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+              <Select value={statusDraft} onChange={(event) => setStatusDraft(event.target.value)}>
+                {BOOKING_STATUS_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+              <Button
+                type="button"
+                variant="outline"
+                className="border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                onClick={() =>
+                  updateOrderStatus(
+                    order.id,
+                    statusDraft as
+                      | "In Production"
+                      | "Ready"
+                      | "Delivery"
+                      | "Completed"
+                      | "Delivered"
+                      | "Cancelled",
                   )
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3 px-6 pb-6 pt-0 text-sm text-gray-700">
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {getDisplayFields(order.whatsAppParsedData).map(
-                    (field, index) => (
-                      <div
-                        key={`${field.label}-${index}`}
-                        className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2"
-                      >
-                        <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                          {field.label}
-                        </p>
-                        <p className="text-sm text-gray-800">{field.value}</p>
-                      </div>
-                    ),
-                  )}
-                </div>
-                {order.whatsAppParsedData.missingFields.length > 0 && (
-                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                    Field yang belum lengkap:{" "}
-                    {order.whatsAppParsedData.missingFields.join(", ")}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
+                }
+              >
+                Simpan
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
 
-          {(order.automationLogs?.length ?? 0) > 0 && (
-            <Card className="rounded-xl shadow-sm">
-              <CardHeader className="p-6 pb-2">
-                <CardTitle>Automation Logs</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2 px-6 pb-6 pt-0 text-sm text-gray-700">
-                {(order.automationLogs ?? [])
-                  .slice()
-                  .reverse()
-                  .slice(0, 5)
-                  .map((log) => (
-                    <div
-                      key={log.id}
-                      className={`rounded-lg border px-3 py-2 ${
-                        log.success
-                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                          : "border-amber-200 bg-amber-50 text-amber-700"
-                      }`}
-                    >
-                      <p className="text-[11px] font-semibold uppercase tracking-wide">
-                        {log.eventType} -{" "}
-                        {new Date(log.timestamp).toLocaleString("id-ID")}
-                      </p>
-                      <p className="text-xs">{log.summary}</p>
-                    </div>
-                  ))}
-              </CardContent>
-            </Card>
-          )}
+        <Card className="rounded-2xl border-[#eadccf] shadow-sm">
+          <CardHeader className="p-6 pb-2">
+            <CardTitle className="text-[#7e6655]">Detail Pesanan</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4 px-6 pb-6 pt-0 text-sm text-gray-800">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div><p className="text-[11px] font-semibold uppercase tracking-wide text-[#e0b48b]">Tanggal Pengiriman</p><p className="mt-1 font-semibold">{order.deliveryDate || "-"}</p></div>
+              <div><p className="text-[11px] font-semibold uppercase tracking-wide text-[#e0b48b]">Jam</p><p className="mt-1 font-semibold">{order.deliverySlot || "-"}</p></div>
+              <div><p className="text-[11px] font-semibold uppercase tracking-wide text-[#e0b48b]">Metode</p><p className="mt-1 font-semibold">{readableMethod}</p></div>
+              <div><p className="text-[11px] font-semibold uppercase tracking-wide text-[#e0b48b]">Kode Booking</p><p className="mt-1 font-semibold">{bookingCodeValue}</p></div>
+            </div>
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-[#e0b48b]">Alamat Pengiriman</p>
+              <p className="mt-1">{primaryAddress}</p>
+            </div>
+          </CardContent>
+        </Card>
 
-          <Card id="edit-delivery" className="rounded-xl shadow-sm">
+        <Card className="rounded-2xl border-[#eadccf] shadow-sm">
+          <CardHeader className="p-6 pb-2"><CardTitle className="text-[#7e6655]">Customer</CardTitle></CardHeader>
+          <CardContent className="space-y-1 px-6 pb-6 pt-0 text-sm text-gray-800">
+            <p className="font-semibold">{order.customerName || "-"}</p>
+            <p className="text-[#e0b48b]">{order.customerPhone || "-"}</p>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-2xl border-[#eadccf] shadow-sm">
+          <CardHeader className="p-6 pb-2"><CardTitle className="text-[#7e6655]">Order Items</CardTitle></CardHeader>
+          <CardContent className="space-y-3 px-6 pb-6 pt-0 text-sm text-gray-800">
+            {itemRows.map((row) => (
+              <div key={row.id} className="rounded-xl border border-[#eadccf] px-4 py-3">
+                <div className="flex items-start justify-between gap-2"><p className="font-semibold">{row.title}</p><p className="font-semibold">{formatCurrency(row.lineTotal)}</p></div>
+                {row.details.length > 0 && <div className="mt-1 space-y-1 text-xs text-[#c79b73]">{row.details.map((detail, index) => (<p key={`${row.id}-detail-${index}`}>{detail}</p>))}</div>}
+                <p className="mt-1 text-xs text-gray-500">Harga/unit: {formatCurrency(row.unitPrice)}</p>
+              </div>
+            ))}
+            <div className="flex items-center justify-between border-t border-[#eadccf] pt-3">
+              <p className="text-base font-semibold">Total Pesanan</p>
+              <p className="text-2xl font-bold text-[#f26a21]">{formatCurrency(totalPrice)}</p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-2xl border-[#eadccf] shadow-sm">
+          <CardHeader className="p-6 pb-2"><CardTitle className="text-[#7e6655]">Ringkasan Harga</CardTitle></CardHeader>
+          <CardContent className="px-6 pb-6 pt-0">
+            <PriceSummaryCard
+              basePrice={order.basePrice ?? 0}
+              addOnTotal={order.addOnTotal ?? 0}
+              deliveryFee={order.deliveryFee ?? 0}
+              serviceCharge={serviceCharge}
+              manualAdjustment={order.manualAdjustment ?? 0}
+              totalPrice={totalPrice}
+            />
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-2xl border-[#eadccf] shadow-sm">
+          <CardHeader className="p-6 pb-2"><CardTitle className="text-[#7e6655]">Kurir & Pengiriman</CardTitle></CardHeader>
+          <CardContent className="space-y-3 px-6 pb-6 pt-0 text-sm text-gray-700">
+            {order.shippingQuote ? (
+              <div className="rounded-lg border border-[#eadccf] bg-[#fff8f1] px-3 py-2">
+                <p className="font-semibold">{order.shippingQuote.provider} - {getSmartCourierLabel({ courierName: order.shippingQuote.courierServiceName, deliveryDate: order.deliveryDate })}</p>
+                <p className="text-xs text-[#c79b73]">Ongkir {formatCurrency(orderDeliveryFee)} ? ETA {order.shippingQuote.eta} ? {order.shippingQuote.distanceKm} km</p>
+                {serviceCharge > 0 && <p className="text-xs text-[#c79b73]">Service Charge {formatCurrency(serviceCharge)}</p>}
+              </div>
+            ) : null}
+            <div className="grid gap-2 sm:grid-cols-3">
+              <Button type="button" variant="outline" className="h-10 border-indigo-200 text-indigo-700 hover:bg-indigo-50" onClick={handlePrintLabel}>Print Label</Button>
+              {canGenerateInvoice && <Button type="button" variant="outline" className="h-10 border-orange-200 bg-orange-50 text-orange-700 hover:bg-orange-100" onClick={() => openInvoicePrintWindow(order)}>Cetak Invoice</Button>}
+              <Button type="button" variant="outline" className="h-10 border-indigo-200 text-indigo-700 hover:bg-indigo-50" disabled={!order.shippingQuote || isCreatingResi || isBeforeScheduledShippingDate} onClick={handleCreateResi}>{isCreatingResi ? "Membuat Resi..." : "Generate Resi"}</Button>
+            </div>
+            {order.shipment?.trackingNumber ? <p className="text-xs text-gray-600">Resi aktif: <span className="font-semibold">{order.shipment.trackingNumber}</span></p> : null}
+          </CardContent>
+        </Card>
+
+        {bookingNotesList.length > 0 ? (
+          <Card className="rounded-2xl border-[#eadccf] shadow-sm">
             <CardHeader className="p-6 pb-2">
-              <CardTitle>Reschedule Delivery</CardTitle>
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="text-[#7e6655]">Catatan Booking</CardTitle>
+                <a href="#edit-delivery" className="inline-flex h-8 items-center rounded-lg border border-[#eadccf] px-3 text-xs font-semibold text-[#7e6655]">Edit</a>
+              </div>
             </CardHeader>
-            <CardContent className="space-y-3 px-6 pb-6 pt-0 text-sm text-gray-700">
-              <div className="grid gap-3 sm:grid-cols-2">
+            <CardContent className="space-y-2 px-6 pb-6 pt-0 text-sm text-gray-800">
+              <ol className="space-y-2 pl-5">
+                {bookingNotesList.map((note, index) => (
+                  <li key={`note-${index}`} className="list-decimal marker:text-[#f26a21]">{note}</li>
+                ))}
+              </ol>
+            </CardContent>
+          </Card>
+        ) : null}
+
+        <Card className="rounded-2xl border-[#eadccf] shadow-sm">
+          <CardHeader className="p-6 pb-2"><CardTitle className="text-[#7e6655]">Riwayat Status</CardTitle></CardHeader>
+          <CardContent className="space-y-3 px-6 pb-6 pt-0 text-sm text-gray-700">
+            {(order.statusHistory ?? []).slice().reverse().map((entry) => (
+              <div key={entry.id} className="rounded-lg border border-[#eadccf] px-3 py-2">
+                <p className="font-semibold text-[#2f7f63]">{entry.status}</p>
+                <p className="text-xs text-[#c79b73]">{new Date(entry.timestamp).toLocaleString("id-ID")}</p>
+                <p className="text-sm text-gray-600">{entry.note || "-"}</p>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+
+        <Card id="edit-delivery" className="rounded-2xl border-[#eadccf] shadow-sm">
+          <CardHeader className="p-6 pb-2"><CardTitle className="text-[#7e6655]">Edit Jadwal Delivery</CardTitle></CardHeader>
+          <CardContent className="space-y-3 px-6 pb-6 pt-0 text-sm text-gray-700">
+            <div className="grid gap-3 sm:grid-cols-2">
                 <label className="grid gap-2">
                   <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
                     Delivery Date
@@ -1367,43 +774,23 @@ export default function OrderDetailPage() {
               >
                 Save Reschedule
               </Button>
-            </CardContent>
-          </Card>
+            <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 whitespace-pre-wrap text-xs text-gray-700">
+              {messagePreview}
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+              onClick={handleCopyMessage}
+            >
+              Copy Message
+            </Button>
+          </CardContent>
+        </Card>
 
-          <Card className="rounded-xl shadow-sm">
-            <CardHeader className="p-6 pb-2">
-              <CardTitle>Customer Message Preview</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 px-6 pb-6 pt-0 text-sm text-gray-700">
-              <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 whitespace-pre-wrap">
-                {messagePreview}
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                className="border-indigo-200 text-indigo-700 hover:bg-indigo-50"
-                onClick={handleCopyMessage}
-              >
-                Copy Message
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="space-y-6">
-          <PriceSummaryCard
-            basePrice={order.basePrice ?? 0}
-            addOnTotal={order.addOnTotal ?? 0}
-            deliveryFee={order.deliveryFee ?? 0}
-            serviceCharge={serviceCharge}
-            manualAdjustment={order.manualAdjustment ?? 0}
-            totalPrice={totalPrice}
-          />
-          <Card className="rounded-xl shadow-sm">
-            <CardHeader className="p-6 pb-2">
-              <CardTitle>Status</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 px-6 pb-6 pt-0">
+        <Card className="rounded-2xl border-[#eadccf] shadow-sm">
+          <CardHeader className="p-6 pb-2"><CardTitle className="text-[#7e6655]">Verifikasi Pembayaran</CardTitle></CardHeader>
+          <CardContent className="space-y-3 px-6 pb-6 pt-0">
               <div className="flex items-center justify-between text-sm text-gray-600">
                 <span>Payment Status</span>
                 <PaymentBadge status={order.paymentStatus} />
@@ -1429,200 +816,35 @@ export default function OrderDetailPage() {
                 <span>Order Status</span>
                 <StatusBadge status={normalizedOrderStatus} />
               </div>
-              <Select
-                value={normalizedOrderStatus}
-                onChange={(event) =>
-                  updateOrderStatus(
-                    order.id,
-                    event.target.value as
-                      | "In Production"
-                      | "Ready"
-                      | "Completed"
-                      | "Delivered"
-                      | "Cancelled",
-                  )
-                }
-              >
-                {BOOKING_STATUS_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </Select>
               <div className="flex items-center justify-between text-sm text-gray-600">
                 <span>DP ({BAKERY_DOWN_PAYMENT_PERCENT}%)</span>
                 <span className="font-semibold text-gray-900">
-                  Rp{" "}
-                  {Number(calculateDownPayment(totalPrice)).toLocaleString(
-                    "id-ID",
-                  )}
+                  Rp {Number(calculateDownPayment(totalPrice)).toLocaleString("id-ID")}
                 </span>
               </div>
               <div className="grid gap-2">
-                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                  DP Paid (Actual)
-                </span>
-                <Input
-                  type="number"
-                  min={0}
-                  step={1000}
-                  value={dpPaidDraft}
-                  onChange={(event) =>
-                    setDpPaidDraft(Number(event.target.value || 0))
-                  }
-                />
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">DP Paid (Actual)</span>
+                <Input type="number" min={0} step={1000} value={dpPaidDraft} onChange={(event) => setDpPaidDraft(Number(event.target.value || 0))} />
               </div>
               <div className="grid gap-2">
-                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                  Final Paid (Actual)
-                </span>
-                <Input
-                  type="number"
-                  min={0}
-                  step={1000}
-                  value={finalPaidDraft}
-                  onChange={(event) =>
-                    setFinalPaidDraft(Number(event.target.value || 0))
-                  }
-                />
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Final Paid (Actual)</span>
+                <Input type="number" min={0} step={1000} value={finalPaidDraft} onChange={(event) => setFinalPaidDraft(Number(event.target.value || 0))} />
               </div>
-              <div className="flex items-center justify-between text-sm text-gray-600">
-                <span>Total Paid</span>
-                <span className="font-semibold text-gray-900">
-                  Rp{" "}
-                  {Number(order.totalPaidAmount ?? 0).toLocaleString("id-ID")}
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-sm text-gray-600">
-                <span>Remaining</span>
-                <span className="font-semibold text-gray-900">
-                  Rp{" "}
-                  {Number(order.remainingBalance ?? 0).toLocaleString("id-ID")}
-                </span>
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                className="border-indigo-200 text-indigo-700 hover:bg-indigo-50"
-                onClick={handleRecordPayment}
-                disabled={paymentSaveSyncState === "saving"}
-              >
-                {paymentSaveSyncState === "saving"
-                  ? "Menyimpan..."
-                  : "Save Payment Verification"}
+              <div className="flex items-center justify-between text-sm text-gray-600"><span>Total Paid</span><span className="font-semibold text-gray-900">Rp {Number(order.totalPaidAmount ?? 0).toLocaleString("id-ID")}</span></div>
+              <div className="flex items-center justify-between text-sm text-gray-600"><span>Remaining</span><span className="font-semibold text-gray-900">Rp {Number(order.remainingBalance ?? 0).toLocaleString("id-ID")}</span></div>
+              <Button type="button" variant="outline" className="border-indigo-200 text-indigo-700 hover:bg-indigo-50" onClick={handleRecordPayment} disabled={paymentSaveSyncState === "saving"}>
+                {paymentSaveSyncState === "saving" ? "Menyimpan..." : "Save Payment Verification"}
               </Button>
               {paymentSaveSyncState !== "idle" ? (
-                <p
-                  className={`text-xs font-medium ${
-                    paymentSaveSyncState === "saved"
-                      ? "text-emerald-700"
-                      : paymentSaveSyncState === "failed"
-                        ? "text-rose-700"
-                        : "text-indigo-700"
-                  }`}
-                >
+                <p className={`text-xs font-medium ${paymentSaveSyncState === "saved" ? "text-emerald-700" : paymentSaveSyncState === "failed" ? "text-rose-700" : "text-indigo-700"}`}>
                   {paymentSaveSyncMessage}
                 </p>
               ) : null}
-            </CardContent>
-          </Card>
-
-          <Card className="rounded-xl shadow-sm">
-            <CardHeader className="p-6 pb-2">
-              <CardTitle>Google Calendar Sync</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 px-6 pb-6 pt-0 text-sm">
-              <div className="flex items-center justify-between text-gray-600">
-                <span>Status</span>
-                <span
-                  className={`font-semibold ${
-                    calendarSyncStatus === "Synced"
-                      ? "text-emerald-700"
-                      : calendarSyncStatus === "Failed / Pending"
-                        ? "text-amber-700"
-                        : "text-gray-500"
-                  }`}
-                >
-                  {calendarSyncStatus}
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between text-gray-600">
-                <span>Event ID</span>
-                <span className="max-w-48 truncate font-medium text-gray-900">
-                  {order.simulations?.calendarEventId || "-"}
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between text-gray-600">
-                <span>Last Automation</span>
-                <span className="font-medium text-gray-900">
-                  {order.simulations?.lastAutomationAt
-                    ? new Date(
-                        order.simulations.lastAutomationAt,
-                      ).toLocaleString("id-ID")
-                    : "-"}
-                </span>
-              </div>
-
-              {order.simulations?.calendarEventLink ? (
-                <div className="flex flex-wrap gap-2">
-                  <a
-                    href={order.simulations.calendarEventLink}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex h-9 items-center justify-center rounded-xl border border-indigo-200 px-3 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-50"
-                  >
-                    Open Calendar Event
-                  </a>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-9 border-indigo-200 text-indigo-700 hover:bg-indigo-50"
-                    onClick={handleManualCalendarSync}
-                    disabled={isSyncingCalendar}
-                  >
-                    {isSyncingCalendar ? "Syncing..." : "Re-sync Calendar"}
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
-                    Event link belum tersedia. Pastikan env Google Calendar
-                    sudah lengkap dan order sudah menjalankan automation.
-                  </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-9 border-indigo-200 text-indigo-700 hover:bg-indigo-50"
-                    onClick={handleManualCalendarSync}
-                    disabled={isSyncingCalendar}
-                  >
-                    {isSyncingCalendar ? "Syncing..." : "Re-sync Calendar"}
-                  </Button>
-                </div>
-              )}
-
-              {order.simulations?.lastAutomationMessage ? (
-                <p className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
-                  {order.simulations.lastAutomationMessage}
-                </p>
-              ) : null}
-
-              <p className="text-xs text-gray-500">
-                Sinkronisasi kalender otomatis berjalan saat booking dibuat,
-                di-approve, dan saat reschedule.
-              </p>
-            </CardContent>
-          </Card>
-
-          <OrderTimeline
-            status={order.orderStatus}
-            deliveryDate={order.deliveryDate}
-            history={order.statusHistory}
-          />
-        </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
 }
+
+

@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Bar,
   BarChart,
@@ -21,6 +22,7 @@ import { Select } from "@/components/ui/select";
 import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import { formatCurrency } from "@/components/orders/formatters";
 import { normalizeOrderStatus } from "@/lib/bookings/order-status";
+import { generateExcel } from "@/lib/export/excel";
 import { Download, PieChart as PieChartIcon } from "lucide-react";
 import { useOrders } from "@/components/bakery/store";
 
@@ -36,6 +38,34 @@ export default function ReportsPage() {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [isExportPickerOpen, setIsExportPickerOpen] = useState(false);
+  const exportDialogTitleRef = useRef<HTMLParagraphElement | null>(null);
+
+  useEffect(() => {
+    if (!isExportPickerOpen) return;
+
+    // Force viewport and dashboard scroller to top so modal is always visible.
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    const dashboardScroller = document.querySelector(
+      "main.custom-scrollbar",
+    ) as HTMLElement | null;
+    if (dashboardScroller) {
+      dashboardScroller.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    // Lock background scroll while modal is open.
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const focusId = window.setTimeout(() => {
+      exportDialogTitleRef.current?.focus();
+    }, 120);
+
+    return () => {
+      window.clearTimeout(focusId);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isExportPickerOpen]);
 
   const filteredOrders = useMemo(() => {
     return orders.filter((order) => {
@@ -134,52 +164,161 @@ export default function ReportsPage() {
     setStatusFilter("");
   };
 
-  const exportCsv = () => {
-    const headers = [
-      "Booking Code",
-      "Customer",
-      "Phone",
-      "Delivery Date",
-      "Delivery Slot",
-      "Order Status",
-      "Payment Status",
-      "Total Price",
-    ];
-
-    const escapeCsv = (value: string | number) => {
-      const text = String(value ?? "");
-      if (text.includes(",") || text.includes('"') || text.includes("\n")) {
-        return `"${text.replace(/"/g, '""')}"`;
+  const customerRows = useMemo(() => {
+    const grouped = new Map<
+      string,
+      {
+        customer: string;
+        phone: string;
+        address: string;
+        orderCount: number;
+        totalSpent: number;
+        lastOrderDate: string;
+        lastDeliverySlot: string;
       }
-      return text;
-    };
+    >();
 
-    const rows = filteredOrders.map((order) => {
-      const normalizedOrderStatus = normalizeOrderStatus(order.orderStatus);
-      const normalizedPaymentStatus =
-        order.paymentStatus === "Pending" ? "DP Paid" : order.paymentStatus;
+    filteredOrders.forEach((order) => {
+      const customer = (order.customerName || "Walk-in Customer").trim();
+      const phone = (order.customerPhone || "").trim();
+      const address =
+        order.deliveryAddresses?.[0]?.addressLine?.trim() ||
+        order.customerAddress?.trim() ||
+        "-";
+      const key = `${customer.toLowerCase()}||${phone.toLowerCase()}`;
+      const existing = grouped.get(key);
 
-      return [
-        order.bookingCode || order.resi || order.id,
-        order.customerName || "Walk-in Customer",
-        order.customerPhone || "",
-        order.deliveryDate || "",
-        order.deliverySlot || "",
-        normalizedOrderStatus,
-        normalizedPaymentStatus,
-        order.totalPrice || 0,
-      ];
+      if (!existing) {
+        grouped.set(key, {
+          customer,
+          phone,
+          address,
+          orderCount: 1,
+          totalSpent: Number(order.totalPrice || 0),
+          lastOrderDate: order.deliveryDate || "",
+          lastDeliverySlot: order.deliverySlot || "",
+        });
+        return;
+      }
+
+      existing.orderCount += 1;
+      existing.totalSpent += Number(order.totalPrice || 0);
+      if ((order.deliveryDate || "") >= existing.lastOrderDate) {
+        existing.lastOrderDate = order.deliveryDate || "";
+        existing.lastDeliverySlot = order.deliverySlot || "";
+        existing.address = address;
+      }
     });
 
-    const csv = [headers, ...rows]
-      .map((row) => row.map((cell) => escapeCsv(cell)).join(","))
-      .join("\n");
+    return Array.from(grouped.values()).sort((a, b) =>
+      a.customer.localeCompare(b.customer, "id"),
+    );
+  }, [filteredOrders]);
 
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const bookingRows = useMemo(
+    () =>
+      filteredOrders.map((order) => ({
+        bookingCode: order.bookingCode || order.resi || order.id,
+        resi: order.resi || "-",
+        customer: order.customerName || "Walk-in Customer",
+        phone: order.customerPhone || "",
+        deliveryDate: order.deliveryDate || "",
+        deliverySlot: order.deliverySlot || "",
+        status: normalizeOrderStatus(order.orderStatus),
+        paymentStatus:
+          order.paymentStatus === "Pending" ? "DP Paid" : order.paymentStatus,
+        totalPrice: Number(order.totalPrice || 0),
+        notes: order.notes || "",
+      })),
+    [filteredOrders],
+  );
+
+  const itemRows = useMemo(
+    () =>
+      filteredOrders.flatMap((order) =>
+        (order.items || []).map((item) => ({
+          bookingCode: order.bookingCode || order.resi || order.id,
+          customer: order.customerName || "Walk-in Customer",
+          deliveryDate: order.deliveryDate || "",
+          productName: item.productName || "Produk",
+          category: item.category || "",
+          size: item.size || "",
+          qty: Number(item.quantity || 0),
+          lineTotal: Number(item.lineTotal || 0),
+          addOns: (item.addOns || []).join(", "),
+        })),
+      ),
+    [filteredOrders],
+  );
+
+  const exportExcel = (type: "bookings" | "items" | "customers") => {
+    const selectedSheet =
+      type === "bookings"
+        ? [
+            {
+              name: "Bookings",
+              columns: [
+                { key: "bookingCode", header: "Booking Code", width: 18 },
+                { key: "resi", header: "Resi", width: 18 },
+                { key: "customer", header: "Customer", width: 24 },
+                { key: "phone", header: "Phone", width: 18 },
+                { key: "deliveryDate", header: "Delivery Date", width: 16 },
+                { key: "deliverySlot", header: "Delivery Slot", width: 22 },
+                { key: "status", header: "Order Status", width: 16 },
+                { key: "paymentStatus", header: "Payment Status", width: 16 },
+                { key: "totalPrice", header: "Total Price", width: 16 },
+                { key: "notes", header: "Notes", width: 36 },
+              ],
+              rows: bookingRows,
+            },
+          ]
+        : type === "items"
+          ? [
+              {
+                name: "Booking Items",
+                columns: [
+                  { key: "bookingCode", header: "Booking Code", width: 18 },
+                  { key: "customer", header: "Customer", width: 24 },
+                  { key: "deliveryDate", header: "Delivery Date", width: 16 },
+                  { key: "productName", header: "Product", width: 28 },
+                  { key: "category", header: "Category", width: 16 },
+                  { key: "size", header: "Size", width: 14 },
+                  { key: "qty", header: "Qty", width: 10 },
+                  { key: "lineTotal", header: "Line Total", width: 16 },
+                  { key: "addOns", header: "Add Ons", width: 28 },
+                ],
+                rows: itemRows,
+              },
+            ]
+          : [
+              {
+                name: "Customers",
+                columns: [
+                  { key: "customer", header: "Customer", width: 24 },
+                  { key: "phone", header: "Phone", width: 18 },
+                  { key: "address", header: "Last Address", width: 40 },
+                  { key: "orderCount", header: "Total Orders", width: 14 },
+                  { key: "totalSpent", header: "Total Spent", width: 16 },
+                  { key: "lastOrderDate", header: "Last Order Date", width: 16 },
+                  { key: "lastDeliverySlot", header: "Last Delivery Slot", width: 22 },
+                ],
+                rows: customerRows,
+              },
+            ];
+
+    const blob = generateExcel(selectedSheet);
+    const filePrefix =
+      type === "bookings"
+        ? "reports-bookings"
+        : type === "items"
+          ? "reports-booking-items"
+          : "reports-customers";
+    const filename = `${filePrefix}-${toDateInputValue(new Date())}.xlsx`;
+    setIsExportPickerOpen(false);
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `bakery-report-${toDateInputValue(new Date())}.csv`;
+    link.download = filename;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -202,14 +341,63 @@ export default function ReportsPage() {
             </Link>
             <Button
               className="gap-2 bg-indigo-600 text-white hover:bg-indigo-700 focus-visible:ring-indigo-500"
-              onClick={exportCsv}
+              onClick={() => setIsExportPickerOpen(true)}
             >
               <Download size={16} />
-              Export CSV
+              Export Excel
             </Button>
           </div>
         }
       />
+      {typeof document !== "undefined" &&
+        isExportPickerOpen &&
+        createPortal(
+          <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/35 p-4">
+            <div className="w-full max-w-md rounded-2xl border border-indigo-100 bg-white p-5 shadow-2xl">
+              <p
+                ref={exportDialogTitleRef}
+                tabIndex={-1}
+                className="text-base font-bold text-slate-800 outline-none"
+              >
+                Pilih Data Export
+              </p>
+              <p className="mt-1 text-sm text-slate-600">
+                Pilih salah satu jenis data Excel yang ingin diunduh.
+              </p>
+              <div className="mt-4 grid gap-2">
+                <Button
+                  onClick={() => exportExcel("bookings")}
+                  className="justify-start"
+                >
+                  Bookings
+                </Button>
+                <Button
+                  onClick={() => exportExcel("items")}
+                  className="justify-start"
+                >
+                  Booking Items
+                </Button>
+                <Button
+                  onClick={() => exportExcel("customers")}
+                  className="justify-start"
+                >
+                  Customers
+                </Button>
+              </div>
+              <div className="mt-4">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setIsExportPickerOpen(false)}
+                  className="w-full"
+                >
+                  Batal
+                </Button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
 
       <Card className="rounded-xl shadow-sm">
         <CardHeader className="p-6 pb-2">

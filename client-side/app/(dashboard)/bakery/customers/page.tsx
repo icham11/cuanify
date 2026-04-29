@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Search, Users } from "lucide-react";
 import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import { useOrders } from "@/components/bakery/store";
@@ -12,6 +12,7 @@ type CustomerRow = {
   orderCount: number;
   totalSpent: number;
   lastOrderDate: string;
+  lastDeliverySlot: string;
 };
 
 function normalizePhone(value: string): string {
@@ -57,6 +58,7 @@ export default function BakeryCustomersPage() {
           orderCount: 1,
           totalSpent: orderTotal,
           lastOrderDate: deliveryDate,
+          lastDeliverySlot: (order.deliverySlot || "").trim(),
         });
         return;
       }
@@ -65,6 +67,7 @@ export default function BakeryCustomersPage() {
       existing.totalSpent += orderTotal;
       if (deliveryDate && deliveryDate > existing.lastOrderDate) {
         existing.lastOrderDate = deliveryDate;
+        existing.lastDeliverySlot = (order.deliverySlot || "").trim();
         existing.address = address || existing.address;
       }
     });
@@ -82,10 +85,6 @@ export default function BakeryCustomersPage() {
 
     return filtered.sort((a, b) => a.name.localeCompare(b.name, "id"));
   }, [orders, query]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [query, pageSize]);
 
   const totalCustomers = filteredCustomers.length;
   const totalPages = Math.max(1, Math.ceil(totalCustomers / pageSize));
@@ -134,14 +133,20 @@ export default function BakeryCustomersPage() {
             <Search className="h-4 w-4 text-indigo-500" />
             <input
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setPage(1);
+              }}
               placeholder="Cari nama, no hp, atau alamat..."
               className="h-10 w-full bg-transparent text-sm text-slate-700 outline-none"
             />
           </div>
           <select
             value={String(pageSize)}
-            onChange={(event) => setPageSize(Math.max(5, Number(event.target.value) || 25))}
+            onChange={(event) => {
+              setPageSize(Math.max(5, Number(event.target.value) || 25));
+              setPage(1);
+            }}
             className="h-10 rounded-xl border border-indigo-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-indigo-400"
           >
             <option value="10">10 / halaman</option>
@@ -163,7 +168,7 @@ export default function BakeryCustomersPage() {
         </div>
 
         <div className="hidden max-h-[62vh] overflow-auto md:block">
-          <table className="w-full min-w-[880px] text-sm">
+          <table className="w-full min-w-[720px] text-sm">
             <thead className="sticky top-0 z-10">
               <tr className="bg-indigo-50 text-left text-xs uppercase tracking-wide text-indigo-700">
                 <th className="px-4 py-3">Customer</th>
@@ -182,7 +187,12 @@ export default function BakeryCustomersPage() {
                   <td className="px-4 py-3 text-slate-600">{customer.address}</td>
                   <td className="px-4 py-3 text-right font-semibold text-slate-700">{customer.orderCount}</td>
                   <td className="px-4 py-3 text-right font-semibold text-emerald-700">{formatCurrency(customer.totalSpent)}</td>
-                  <td className="px-4 py-3 text-right text-slate-600">{customer.lastOrderDate || "-"}</td>
+                  <td className="px-4 py-3 text-right text-slate-600">
+                    <p>{customer.lastOrderDate || "-"}</p>
+                    <p className="text-xs text-slate-500">
+                      {customer.lastDeliverySlot || "-"}
+                    </p>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -206,7 +216,12 @@ export default function BakeryCustomersPage() {
                 </div>
                 <div>
                   <p className="text-slate-400">Terakhir</p>
-                  <p className="font-semibold text-slate-700">{customer.lastOrderDate || "-"}</p>
+                  <p className="font-semibold text-slate-700">
+                    {customer.lastOrderDate || "-"}
+                  </p>
+                  <p className="text-[11px] text-slate-500">
+                    {customer.lastDeliverySlot || "-"}
+                  </p>
                 </div>
               </div>
             </div>

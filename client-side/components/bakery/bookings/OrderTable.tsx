@@ -9,7 +9,6 @@ import PaymentBadge from "@/components/bakery/shared/PaymentBadge";
 import OrderHighlightBadge from "@/components/bakery/bookings/OrderHighlightBadge";
 import SkeletonBlock from "@/components/bakery/shared/SkeletonBlock";
 import { BakeryOrder, useOrders } from "@/components/bakery/store";
-import { summarizeProductionTokensByItems } from "@/lib/bookings/operations";
 import {
   BOOKING_STATUS_OPTIONS,
   normalizeOrderStatus,
@@ -244,16 +243,13 @@ export default function OrderTable({ orders }: OrderTableProps) {
                 order.orderStatus,
               );
               const showGrabGojekPaymentTag = isGrabOrGojekOrder(order);
-              const orderTokenTotal = summarizeProductionTokensByItems(
-                order.items ?? [],
-              );
               const productSummary = order.items?.length
                 ? order.items
                     .map(
                       (item) =>
                         `${Math.max(1, Number(item.quantity) || 1)}x ${compactText(item.productName || "Produk")}`,
                     )
-                    .join(" • ")
+                    .join("\n")
                 : compactText(order.product || "Custom Cake");
               const primaryDifficulty = resolvePrimaryDifficulty(order.items ?? []);
               const difficultyMeta = primaryDifficulty
@@ -292,15 +288,12 @@ export default function OrderTable({ orders }: OrderTableProps) {
                   <td className={cellPaddingClass}>
                     <div className="max-w-105 space-y-1">
                       <p
-                        className={`${rowTitleClass} whitespace-normal wrap-break-word text-gray-700`}
+                        className={`${rowTitleClass} whitespace-pre-line wrap-break-word text-gray-700`}
                         title={productSummary}
                       >
                         {productSummary}
                       </p>
                       <div className="flex flex-wrap items-center gap-1.5">
-                        <span className={`${chipClass} border-sky-200 bg-sky-50 text-sky-700`}>
-                          {orderTokenTotal} token
-                        </span>
                         {difficultyMeta && (
                           <span
                             className={`${chipClass} ${difficultyMeta.className}`}
@@ -412,3 +405,4 @@ export default function OrderTable({ orders }: OrderTableProps) {
     </div>
   );
 }
+
