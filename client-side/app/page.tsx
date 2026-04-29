@@ -1,7 +1,6 @@
 "use client";
 import Link from "next/link";
 import Image from "next/image";
-import { Space_Grotesk, Manrope } from "next/font/google";
 import {
   ArrowRight,
   CalendarCheck2,
@@ -12,15 +11,8 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
-const headingFont = Space_Grotesk({
-  subsets: ["latin"],
-  weight: ["500", "700"],
-});
-
-const bodyFont = Manrope({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-});
+const headingFontClass = "font-sans";
+const bodyFontClass = "font-sans";
 
 const QUICK_ROUTES: Array<{
   title: string;
@@ -62,7 +54,7 @@ const QUICK_ROUTES: Array<{
 export default function LandingPage() {
   return (
     <div
-      className={`${bodyFont.className} relative min-h-screen overflow-hidden bg-[#f8fafc] text-[#111827]`}
+      className={`${bodyFontClass} relative min-h-screen overflow-hidden bg-[#f8fafc] text-[#111827]`}
     >
       <div className="pointer-events-none absolute -left-20 -top-20 hidden h-96 w-96 rounded-full bg-[#f26a21]/15 blur-3xl sm:block" />
       <div className="pointer-events-none absolute right-0 top-0 hidden h-80 w-80 rounded-full bg-[#25b4c8]/18 blur-3xl sm:block" />
@@ -86,7 +78,7 @@ export default function LandingPage() {
             </div>
 
             <h1
-              className={`${headingFont.className} mt-4 text-4xl font-bold leading-[1.05] sm:text-5xl`}
+              className={`${headingFontClass} mt-4 text-4xl font-bold leading-[1.05] sm:text-5xl`}
             >
               Command Center untuk Tim Internal Crumbella
             </h1>
@@ -151,7 +143,7 @@ export default function LandingPage() {
                     <ArrowRight className="h-4 w-4 text-[#64748b] transition group-hover:translate-x-0.5 group-hover:text-[#173a7a]" />
                   </div>
                   <h2
-                    className={`${headingFont.className} mt-4 text-lg font-semibold text-[#173a7a]`}
+                    className={`${headingFontClass} mt-4 text-lg font-semibold text-[#173a7a]`}
                   >
                     {item.title}
                   </h2>

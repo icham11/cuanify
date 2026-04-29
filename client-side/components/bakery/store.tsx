@@ -10,6 +10,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { usePathname } from "next/navigation";
 import { toast } from "sonner";
 import {
   detailFieldDefinitions,
@@ -264,6 +265,16 @@ const LOCAL_WRITE_STALE_GUARD_MS = 2500;
 const SHIPMENT_RETRY_BACKOFF_MS = 5 * 60 * 1000;
 const SHIPMENT_WARNING_COOLDOWN_MS = 10 * 60 * 1000;
 
+type CreateShipmentOptions = {
+  notify?: boolean;
+};
+
+const AUTO_SHIPMENT_ROUTE_PREFIXES = [
+  "/bakery/bookings",
+  "/bakery/production",
+  "/bakery/calendar",
+];
+
 /**
  * HTTP status code yang dikembalikan proxy saat role tidak punya akses.
  * Digunakan untuk membedakan "error sistem" vs "dibatasi role" agar
@@ -323,6 +334,14 @@ function shouldAutoRefreshQuote(errorMessage: string): boolean {
 
   return AUTO_REQUOTE_ERROR_KEYWORDS.some((keyword) =>
     normalized.includes(keyword),
+  );
+}
+
+function shouldRunAutoShipmentScheduler(pathname: string | null): boolean {
+  if (!pathname) return false;
+
+  return AUTO_SHIPMENT_ROUTE_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
   );
 }
 
@@ -811,6 +830,7 @@ function parseOrdersSyncError(
 }
 
 export function OrdersProvider({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
   const { settings: bakerySettings } = useBakerySettings();
   const blockedDates = bakerySettings?.blockedDates;
   const snapshot = useSyncExternalStore(
@@ -1197,10 +1217,11 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
   );
 
   const createShipmentForOrder = useCallback(
-    async (orderId: string) => {
+    async (orderId: string, options: CreateShipmentOptions = {}) => {
       if (typeof window === "undefined") return;
       if (processingShipmentIdsRef.current.has(orderId)) return;
 
+      const shouldNotify = options.notify ?? false;
       const nowMs = Date.now();
       const retryAt = shipmentRetryBackoffUntilRef.current.get(orderId) || 0;
       if (retryAt > nowMs) return;
@@ -1445,10 +1466,14 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
           persistOrders(nextOrders);
           shipmentRetryBackoffUntilRef.current.delete(orderId);
           shipmentWarningStateRef.current.delete(orderId);
-          if (payload.warning) {
+          if (shouldNotify && payload.warning) {
             toast.warning(payload.warning);
           }
-          toast.success(`Resi otomatis dibuat: ${createdShipment.trackingNumber}`);
+          if (shouldNotify) {
+            toast.success(
+              `Resi otomatis dibuat: ${createdShipment.trackingNumber}`,
+            );
+          }
         } catch (error: unknown) {
           // Jika error karena pembatasan role (Staff tidak punya akses endpoint
           // shipping), diam saja — tidak perlu tampilkan warning ke Staff.
@@ -1467,6 +1492,14 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
             orderId,
             now + SHIPMENT_RETRY_BACKOFF_MS,
           );
+
+          if (!shouldNotify) {
+            console.warn("[bookings][frontend] silent shipment create failed", {
+              orderId,
+              message,
+            });
+            return;
+          }
 
           const previousWarning = shipmentWarningStateRef.current.get(orderId);
           const shouldShowWarning =
@@ -1507,7 +1540,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         .map((order) => order.id);
 
       for (const dueOrderId of dueOrderIds) {
-        await createShipmentForOrder(dueOrderId);
+        await createShipmentForOrder(dueOrderId, { notify: false });
       }
     } finally {
       scheduledShipmentRunInFlightRef.current = false;
@@ -1516,6 +1549,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    if (!shouldRunAutoShipmentScheduler(pathname)) return;
 
     const run = () => {
       void runScheduledShipmentCreation();
@@ -1538,7 +1572,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
-  }, [runScheduledShipmentCreation]);
+  }, [pathname, runScheduledShipmentCreation]);
 
   const addOrder = useCallback(
     async (order: NewOrderInput) => {
@@ -1690,14 +1724,14 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       if (isScheduledShipmentOrder(newOrder)) {
         const todayJakarta = getJakartaTodayIsoDate();
         if (isDueForScheduledShipment(newOrder, todayJakarta)) {
-          void createShipmentForOrder(id);
+          void createShipmentForOrder(id, { notify: false });
         } else {
           toast.message(
             "Order Grab/Gojek/Paxel dijadwalkan. Resi akan dibuat otomatis di hari pengiriman.",
           );
         }
       } else {
-        void createShipmentForOrder(id);
+        void createShipmentForOrder(id, { notify: false });
       }
       void runAutomationsForOrder("order_confirmed", id);
     },
@@ -2110,7 +2144,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         updatedOrder &&
         isDueForScheduledShipment(updatedOrder, getJakartaTodayIsoDate())
       ) {
-        void createShipmentForOrder(id);
+        void createShipmentForOrder(id, { notify: false });
       }
     },
     [
