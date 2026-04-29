@@ -253,6 +253,11 @@ export default function BookingListPage() {
     setCurrentPage(1);
   };
 
+  const handleSortChange = (value: typeof sortBy) => {
+    setSortBy(value);
+    setCurrentPage(1);
+  };
+
   const handleDateChange = (value: string) => {
     setDateFilter(value);
     setCurrentPage(1);

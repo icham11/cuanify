@@ -30,7 +30,14 @@ export default function BookingStats({ orders }: { orders: BakeryOrder[] }) {
     (order) => order.deliveryDate >= today && order.deliveryDate <= tomorrow,
   ).length;
 
-  const stats = [
+  interface StatItem {
+    label: string;
+    value: number;
+    tone?: "danger" | "warning" | "default";
+    helper?: string;
+  }
+
+  const stats: StatItem[] = [
     { label: "Today Orders", value: todayOrders },
     { label: "Active Queue", value: activeQueue },
     { label: "In Production", value: inProduction },

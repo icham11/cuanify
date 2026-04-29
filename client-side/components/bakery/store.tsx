@@ -127,6 +127,7 @@ export interface OrderItem {
   addOnQuantities?: Record<string, number>;
   addOnTotal: number;
   notes?: string;
+  cookieDifficultyBreakdown?: string;
 }
 
 export interface DeliveryAddress {
