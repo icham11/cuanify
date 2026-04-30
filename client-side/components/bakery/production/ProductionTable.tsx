@@ -1,8 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, RotateCcw, Search, Sparkles, X } from "lucide-react";
+import {
+  AlertCircle,
+  BookOpen,
+  ChevronRight,
+  Factory,
+  Loader2,
+  RotateCcw,
+  Search,
+  Sparkles,
+  Volume2,
+  X,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import StatusDropdown from "@/components/bakery/production/StatusDropdown";
 import { useOrders, type BakeryOrder } from "@/components/bakery/store";
 import { useBusiness } from "@/context/BusinessContext";
@@ -204,6 +216,13 @@ export default function ProductionTable() {
   const [quickFilter, setQuickFilter] = useState<
     "all" | "mine" | "unassigned" | "heavy"
   >("all");
+
+  // Auto-focus on "My Tasks" for Staff role
+  useEffect(() => {
+    if (isStaff && !isOwner && !isAdmin) {
+      setQuickFilter("mine");
+    }
+  }, [isStaff, isOwner, isAdmin]);
   const [isListTransitioning, setIsListTransitioning] = useState(false);
   const [selectedDatePopupKey, setSelectedDatePopupKey] = useState<
     string | null
@@ -230,6 +249,25 @@ export default function ProductionTable() {
 
   const normalizedQuery = useMemo(() => query.trim().toLowerCase(), [query]);
   const todayDateKey = useMemo(() => toLocalDateKey(new Date()), []);
+
+  const [lastOrderCount, setLastOrderCount] = useState(orders.length);
+
+  // Real-time Audio & Visual Notification
+  useEffect(() => {
+    if (orders.length > lastOrderCount) {
+      // Play sound
+      const audio = new Audio("https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3");
+      audio.volume = 0.5;
+      void audio.play().catch(() => {
+        // Silently fail if browser blocks autoplay
+      });
+      
+      toast.success("Ada pesanan produksi baru masuk!", {
+        icon: <Sparkles className="h-4 w-4 text-amber-500" />,
+      });
+    }
+    setLastOrderCount(orders.length);
+  }, [orders.length, lastOrderCount]);
 
   useEffect(() => {
     setIsListTransitioning(true);
@@ -722,6 +760,17 @@ export default function ProductionTable() {
     };
   }, [todayDateKey, visibleOrders]);
 
+  const itemAggregation = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const order of visibleOrders) {
+      for (const item of order.items ?? []) {
+        const key = `${item.productName || item.subcategory || "Produk"} (${item.size || "Standard"})`;
+        counts.set(key, (counts.get(key) ?? 0) + (item.quantity || 0));
+      }
+    }
+    return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
+  }, [visibleOrders]);
+
   const groupedOrders = useMemo(() => {
     const groups = new Map<string, typeof visibleOrders>();
 
@@ -1069,6 +1118,11 @@ export default function ProductionTable() {
           ? "border-l-violet-400"
           : "border-l-emerald-400";
 
+    const hasNotes = Boolean(order.notes?.trim());
+    const orderNotes = (order.notes || "").trim();
+
+    const isNew = lastOrderCount > 0 && orders.length > lastOrderCount && !orders.slice(0, lastOrderCount).some(o => o.id === order.id);
+
     return (
       <div
         key={order.id}
@@ -1086,24 +1140,53 @@ export default function ProductionTable() {
             );
           }
         }}
-        className={`group flex cursor-pointer items-center justify-between gap-3 border-l-4 px-4 py-2.5 transition hover:bg-gray-50 ${accentClass}`}
+        className={`group flex flex-col gap-1 border-l-4 px-4 py-3 transition hover:bg-gray-50 md:flex-row md:items-center md:justify-between md:gap-3 ${accentClass} ${isNew ? "animate-pulse-glow bg-indigo-50/30" : ""}`}
       >
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-gray-900 group-hover:text-indigo-700">
-            {order.customerName || "Walk-in Customer"}
-          </p>
-          <p className="truncate text-xs text-gray-500">
-            {productName} • Qty {orderQty || 0} •{" "}
-            {order.deliverySlot || "No slot"}
-          </p>
+          <div className="flex items-center gap-2">
+            <p className="text-sm font-bold text-gray-900 group-hover:text-indigo-700">
+              {order.customerName || "Walk-in Customer"}
+            </p>
+            {hasNotes && (
+              <span className="inline-flex items-center gap-1 rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-bold text-rose-700 animate-pulse">
+                <AlertCircle className="h-3 w-3" />
+                INSTRUKSI KHUSUS
+              </span>
+            )}
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-gray-500">
+            <span className="font-medium text-slate-700">{productName}</span>
+            <span>•</span>
+            <span className="font-semibold text-indigo-600">Qty {orderQty || 0}</span>
+            <span>•</span>
+            <span>{order.deliverySlot || "No slot"}</span>
+            <button 
+              type="button" 
+              className="ml-1 inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-indigo-500"
+              onClick={(e) => {
+                e.stopPropagation();
+                // Placeholder for recipe link
+                toast.info("Resep akan segera tersedia di modul SOP");
+              }}
+            >
+              <BookOpen className="h-3 w-3" />
+              Resep
+            </button>
+          </div>
+          {hasNotes && (
+            <p className="mt-1.5 line-clamp-1 text-[11px] font-medium text-rose-600 bg-rose-50 px-2 py-0.5 rounded-sm">
+              Note: {orderNotes}
+            </p>
+          )}
         </div>
 
-        <div className="w-24 shrink-0 text-center text-xs">
-          <p className="font-semibold text-gray-700">{orderToken} token</p>
-          <p className="text-gray-500">{order.deliveryDate || "-"}</p>
-        </div>
+        <div className="flex shrink-0 items-center gap-4 py-2 md:py-0">
+          <div className="w-24 shrink-0 text-center text-xs">
+            <p className="font-semibold text-gray-700">{orderToken} token</p>
+            <p className="text-gray-500">{order.deliveryDate || "-"}</p>
+          </div>
 
-        <div className="flex shrink-0 flex-col items-end gap-1.5">
+          <div className="flex shrink-0 flex-col items-end gap-1.5">
           <div className="flex flex-wrap items-center justify-end gap-2">
             {(["listing", "filling", "finishing"] as const).map((stage) => {
               const stageData = effectiveStages.find((s) => s.stage === stage);
@@ -1147,7 +1230,7 @@ export default function ProductionTable() {
               return (
                 <div key={stage} className="flex items-center gap-1">
                   {isClaimed ? (
-                    <span className="rounded-full bg-green-100 px-2.5 py-1 text-[11px] font-medium text-green-700 whitespace-nowrap">
+                    <span className="rounded-full bg-green-100 px-3 py-1.5 text-[11px] font-bold text-green-700 whitespace-nowrap border border-green-200">
                       {stageLabel}: {assignedName} ({stageToken})
                     </span>
                   ) : canStaffClaimStage ? (
@@ -1158,18 +1241,18 @@ export default function ProductionTable() {
                         handleClaimStage(order.id, stage);
                       }}
                       disabled={claimDisabled}
-                      className="rounded-full bg-blue-500 px-2.5 py-1 text-[11px] font-medium text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50 whitespace-nowrap"
+                      className="rounded-full bg-indigo-600 px-4 py-2 text-[11px] font-bold text-white shadow-sm transition active:scale-95 hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50 whitespace-nowrap"
                       title={
                         exceedsStaffDailyLimit
                           ? `Token harian ${projectedStaffDailyToken}/${staffDailyTokenLimit}`
                           : undefined
                       }
                     >
-                      Ambil {stageLabel} ({stageToken} token)
+                      Ambil {stageLabel} (+{stageToken})
                     </button>
                   ) : (
-                    <span className="rounded-full bg-gray-100 px-2.5 py-1 text-[11px] font-medium text-gray-500 whitespace-nowrap">
-                      {stageLabel} ({tokenPercent} • {stageToken} token)
+                    <span className="rounded-full bg-gray-100 px-3 py-1.5 text-[11px] font-medium text-gray-500 whitespace-nowrap border border-gray-200">
+                      {stageLabel} ({stageToken} tkn)
                     </span>
                   )}
                 </div>
@@ -1214,6 +1297,7 @@ export default function ProductionTable() {
           ) : null}
         </div>
       </div>
+    </div>
     );
   };
 
@@ -1394,7 +1478,7 @@ export default function ProductionTable() {
             onClick={() => setQuickFilter("mine")}
             className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
               quickFilter === "mine"
-                ? "bg-indigo-600 text-white"
+                ? "bg-indigo-600 text-white shadow-md shadow-indigo-100"
                 : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
             }`}
           >
@@ -1430,6 +1514,26 @@ export default function ProductionTable() {
             </span>
           ) : null}
         </div>
+
+        {/* Production Item Aggregator (Rekap Borongan) */}
+        {itemAggregation.length > 0 && (
+          <div className="mt-4 border-t border-slate-100 pt-4">
+            <p className="mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              <Volume2 className="h-3 w-3" />
+              Rekap Item Produksi (Total dari filter saat ini)
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {itemAggregation.map(([name, qty]) => (
+                <div key={name} className="flex items-center gap-2 rounded-lg border border-indigo-100 bg-indigo-50/50 px-3 py-1.5">
+                  <span className="text-xs font-medium text-indigo-900">{name}</span>
+                  <span className="flex h-5 min-w-[20px] items-center justify-center rounded bg-indigo-600 px-1.5 text-[11px] font-bold text-white">
+                    {qty}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {isPrivilegedManager ? (

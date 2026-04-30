@@ -33,6 +33,16 @@
   }
 }
 
+@keyframes pulse-glow {
+  0% { background-color: transparent; }
+  50% { background-color: rgba(99, 102, 241, 0.15); }
+  100% { background-color: transparent; }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
 @keyframes slide-in-right {
   from {
     transform: translateX(100%);
