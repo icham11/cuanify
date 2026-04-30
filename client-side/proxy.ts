@@ -8,11 +8,42 @@ import { verifyToken } from "@/lib/auth/jwt";
  * Handles role-based redirects so non-owner roles never see Owner pages,
  * and unauthenticated users get sent to /login.
  *
+ * Also implements basic Rate Limiting for /api endpoints.
+ *
  * Flow:
- *   1. Extract userId from JWT cookie or NextAuth session token
- *   2. If no auth → let /login, /register, /api, /_next pass through; block the rest → /login
- *   3. If auth and non-owner hitting blocked owner pages → redirect by role
+ *   1. Rate Limit check for /api paths
+ *   2. Extract userId from JWT cookie or NextAuth session token
+ *   3. If no auth → let /login, /register, /api, /_next pass through; block the rest → /login
+ *   4. If auth and non-owner hitting blocked owner pages → redirect by role
  */
+
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+const RATE_LIMIT_WINDOW_MS = 60_000; // 1 menit
+const MAX_REQUESTS_PER_MINUTE = 100;
+
+function handleRateLimit(request: NextRequest) {
+  const ip = request.headers.get("x-forwarded-for") ?? "unknown";
+  const now = Date.now();
+  
+  const record = rateLimitMap.get(ip);
+  if (!record || now > record.resetAt) {
+    rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    return null;
+  }
+  
+  record.count++;
+  if (record.count > MAX_REQUESTS_PER_MINUTE) {
+    return new NextResponse(
+      JSON.stringify({ error: "Terlalu banyak permintaan, coba lagi nanti." }),
+      { 
+        status: 429, 
+        headers: { "Content-Type": "application/json" } 
+      }
+    );
+  }
+  
+  return null;
+}
 
 const STATIC_PATH_PREFIXES = [
   "/_next",
@@ -206,6 +237,12 @@ export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const method = request.method.toUpperCase();
   const apiRequest = isApiPath(pathname);
+
+  // Rate Limiting for API
+  if (apiRequest) {
+    const rateLimitResponse = handleRateLimit(request);
+    if (rateLimitResponse) return rateLimitResponse;
+  }
 
   // Let static assets through.
   if (isStaticPath(pathname) || pathname.includes(".")) {
