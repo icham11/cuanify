@@ -1275,7 +1275,7 @@ export default function ProductionTable() {
               );
             })}
 
-            {canOwnerAssignOrTransfer && !hasMixedStageAssignees && (
+            {canOwnerAssignOrTransfer && (
               <button
                 type="button"
                 onClick={(event) => {
@@ -1306,11 +1306,7 @@ export default function ProductionTable() {
               {statusDisabledMessage}
             </p>
           )}
-          {hasMixedStageAssignees && canOwnerAssignOrTransfer ? (
-            <p className="text-[11px] text-slate-500">
-              Order ini sudah dibagi ke beberapa staff. Ubah assignment per stage dari detail order.
-            </p>
-          ) : null}
+          {/* Pesan mixed assignees dihapus karena Owner sekarang bisa manage via modal transfer multi-stage */}
         </div>
       </div>
     </div>
