@@ -14,6 +14,10 @@ function createPrismaClient() {
   const pool = new Pool({
     connectionString: cleanUrl,
     ssl: { rejectUnauthorized: false },  // Supabase pooler requires this
+    max: 3,                              // Serverless environment = max 3-5
+    min: 0,                              // Jangan menahan idle connection
+    idleTimeoutMillis: 10000,            // Tutup koneksi yang idle dalam 10 detik
+    connectionTimeoutMillis: 5000,       // Timeout jika pool penuh dalam 5 detik
   });
   const adapter = new PrismaPg(pool);
   return new PrismaClient({

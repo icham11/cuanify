@@ -266,7 +266,7 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
       let updatedCount = 0;
       let reactivatedCount = 0;
       const shouldUpdateExisting = args.updateExistingProducts !== false;
-      const shouldReactivateDeleted = args.reactivateDeletedProducts !== false;
+      const shouldReactivateDeleted = args.reactivateDeletedProducts === true;
       const productsToCreate: Array<{
         businessId: number;
         categoryId: number | null;

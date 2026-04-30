@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
@@ -163,6 +164,8 @@ export async function PUT(request: NextRequest) {
       businessId,
       productCatalog: buildEffectiveProductCatalog(normalizedState),
     });
+
+    revalidateTag("catalog", "max");
 
     return NextResponse.json({ success: true, productSync }, { status: 200 });
   } catch (error: unknown) {

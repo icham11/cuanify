@@ -4,7 +4,8 @@ import { useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import OrdersStats from "@/components/bakery/dashboard/OrdersStats";
-import OrdersChart from "@/components/bakery/dashboard/OrdersChart";
+import dynamic from "next/dynamic";
+const OrdersChart = dynamic(() => import("@/components/bakery/dashboard/OrdersChart"), { ssr: false });
 import { useOrders } from "@/components/bakery/store";
 import { BarChart3 } from "lucide-react";
 

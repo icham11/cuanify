@@ -6,7 +6,6 @@ import Image from "next/image";
 import { authOptions } from "@/lib/auth";
 import { verifyToken } from "@/lib/auth/jwt";
 import prisma from "@/lib/prisma";
-import { BusinessProvider } from "@/context/BusinessContext";
 
 import SidebarUserInfo from "@/app/(dashboard)/components/sidebar_user_info";
 import SidebarNav from "@/app/(dashboard)/components/SidebarNav";
@@ -78,9 +77,8 @@ export default async function DashboardLayout({
       : undefined;
 
   return (
-    <BusinessProvider>
-      <DashboardClientLayout>
-        <div className="relative h-screen overflow-hidden bg-[linear-gradient(145deg,#fff8ec_0%,#eef9ff_50%,#f9f3ff_100%)]">
+    <DashboardClientLayout>
+      <div className="relative h-screen overflow-hidden bg-[linear-gradient(145deg,#fff8ec_0%,#eef9ff_50%,#f9f3ff_100%)]">
           <div className="pointer-events-none absolute -left-20 top-20 h-72 w-72 rounded-full bg-[#f26a21]/15 blur-3xl" />
           <div className="pointer-events-none absolute right-0 top-0 h-80 w-80 rounded-full bg-[#f9bd1f]/20 blur-3xl" />
           <div className="pointer-events-none absolute -bottom-20 right-20 h-72 w-72 rounded-full bg-[#25b4c8]/20 blur-3xl" />
@@ -139,7 +137,6 @@ export default async function DashboardLayout({
             jwtUserEmail={jwtUserEmail}
           />
         </div>
-      </DashboardClientLayout>
-    </BusinessProvider>
+    </DashboardClientLayout>
   );
 }

@@ -1,0 +1,81 @@
+components/bakery/bookings/booking-form-helpers.ts(4,15): error TS2724: '"./booking-form-schema"' has no exported member named 'BookingItemInput'. Did you mean 'BookingFormInput'?
+components/bakery/bookings/booking-form-helpers.ts(109,32): error TS2552: Cannot find name 'BookingFormInput'. Did you mean 'BookingItemInput'?
+components/bakery/bookings/booking-form-helpers.ts(112,27): error TS2552: Cannot find name 'BookingFormInput'. Did you mean 'BookingItemInput'?
+components/bakery/bookings/booking-form-helpers.ts(113,31): error TS2552: Cannot find name 'BookingFormInput'. Did you mean 'BookingItemInput'?
+components/bakery/bookings/booking-form-helpers.ts(705,12): error TS2304: Cannot find name 'PricelistCategory'.
+components/bakery/bookings/booking-form-helpers.ts(707,4): error TS2552: Cannot find name 'CatalogSelection'. Did you mean 'CDATASection'?
+components/bakery/bookings/booking-form-helpers.ts(714,8): error TS7006: Parameter 'entry' implicitly has an 'any' type.
+components/bakery/bookings/booking-form-helpers.ts(742,12): error TS2304: Cannot find name 'PricelistCategory'.
+components/bakery/bookings/booking-form-helpers.ts(744,31): error TS2304: Cannot find name 'CatalogSelection'.
+components/bakery/bookings/booking-form-helpers.ts(745,5): error TS2304: Cannot find name 'CatalogSelection'.
+components/bakery/bookings/booking-form-helpers.ts(754,42): error TS7006: Parameter 'entry' implicitly has an 'any' type.
+components/bakery/bookings/booking-form-helpers.ts(757,42): error TS7006: Parameter 'entry' implicitly has an 'any' type.
+components/bakery/bookings/booking-form-helpers.ts(766,6): error TS7006: Parameter 'entry' implicitly has an 'any' type.
+components/bakery/bookings/booking-form-helpers.ts(771,8): error TS7006: Parameter 'entry' implicitly has an 'any' type.
+components/bakery/bookings/booking-form-helpers.ts(774,8): error TS7006: Parameter 'entry' implicitly has an 'any' type.
+components/bakery/bookings/booking-form-helpers.ts(787,12): error TS2304: Cannot find name 'PricelistCategory'.
+components/bakery/bookings/booking-form-helpers.ts(788,20): error TS2304: Cannot find name 'CatalogSelection'.
+components/bakery/bookings/booking-form-helpers.ts(789,4): error TS2304: Cannot find name 'CatalogSelection'.
+components/bakery/bookings/booking-form-helpers.ts(799,8): error TS7006: Parameter 'entry' implicitly has an 'any' type.
+components/bakery/bookings/booking-form-helpers.ts(803,8): error TS7006: Parameter 'entry' implicitly has an 'any' type.
+components/bakery/bookings/booking-form-helpers.ts(806,33): error TS7006: Parameter 'entry' implicitly has an 'any' type.
+components/bakery/bookings/booking-form-helpers.ts(808,8): error TS7006: Parameter 'entry' implicitly has an 'any' type.
+components/bakery/bookings/booking-form-helpers.ts(821,12): error TS2304: Cannot find name 'PricelistCategory'.
+components/bakery/bookings/booking-form-helpers.ts(822,14): error TS2552: Cannot find name 'CatalogSelection'. Did you mean 'CDATASection'?
+components/bakery/bookings/booking-form-helpers.ts(828,6): error TS7006: Parameter 'entry' implicitly has an 'any' type.
+components/bakery/bookings/booking-form-helpers.ts(831,6): error TS7006: Parameter 'entry' implicitly has an 'any' type.
+components/bakery/bookings/booking-form-helpers.ts(837,12): error TS2304: Cannot find name 'PricelistCategory'.
+components/bakery/bookings/booking-form-helpers.ts(838,14): error TS2304: Cannot find name 'CatalogSelection'.
+components/bakery/bookings/booking-form-helpers.ts(841,35): error TS7006: Parameter 'entry' implicitly has an 'any' type.
+components/bakery/bookings/booking-form-helpers.ts(846,32): error TS2304: Cannot find name 'CatalogAddOn'.
+components/bakery/bookings/booking-form-helpers.ts(853,33): error TS2304: Cannot find name 'CatalogAddOn'.
+components/bakery/bookings/booking-form-helpers.ts(854,20): error TS2304: Cannot find name 'CatalogAddOn'.
+components/bakery/bookings/booking-form-helpers.ts(898,10): error TS2552: Cannot find name 'getFlavorOptionsByCategory'. Did you mean 'getFlavorOptionsForCategory'?
+components/bakery/bookings/booking-form-helpers.ts(902,11): error TS2304: Cannot find name 'CatalogAddOn'.
+components/bakery/bookings/booking-form-helpers.ts(904,5): error TS2304: Cannot find name 'CatalogAddOn'.
+components/bakery/bookings/booking-form-helpers.ts(905,29): error TS2304: Cannot find name 'getFlavorAddOnIdsByCategory'.
+components/bakery/bookings/booking-form-helpers.ts(972,29): error TS2304: Cannot find name 'getFlavorAddOnIdsByCategory'.
+components/bakery/bookings/booking-form-helpers.ts(1151,24): error TS2304: Cannot find name 'CatalogAddOn'.
+components/bakery/bookings/booking-form-helpers.ts(1192,40): error TS7006: Parameter 'option' implicitly has an 'any' type.
+components/bakery/bookings/booking-form-helpers.ts(1218,12): error TS2304: Cannot find name 'PricelistCategory'.
+components/bakery/bookings/booking-form-helpers.ts(1220,4): error TS2304: Cannot find name 'CatalogSelection'.
+components/bakery/bookings/booking-form-helpers.ts(1225,67): error TS7006: Parameter 'sub' implicitly has an 'any' type.
+components/bakery/bookings/booking-form-helpers.ts(1226,24): error TS7006: Parameter 'product' implicitly has an 'any' type.
+components/bakery/bookings/booking-form-helpers.ts(1232,63): error TS7006: Parameter 'product' implicitly has an 'any' type.
+components/bakery/bookings/booking-form-helpers.ts(1277,10): error TS2304: Cannot find name 'formatCurrency'.
+components/bakery/bookings/booking-form-helpers.ts(1331,12): error TS2304: Cannot find name 'PricelistCategory'.
+components/bakery/bookings/booking-form-helpers.ts(1332,14): error TS2304: Cannot find name 'CatalogSelection'.
+components/bakery/bookings/booking-form-helpers.ts(1346,20): error TS7006: Parameter 'entry' implicitly has an 'any' type.
+components/bakery/bookings/booking-form-helpers.ts(1510,12): error TS2304: Cannot find name 'PricelistCategory'.
+components/bakery/bookings/booking-form-helpers.ts(1581,12): error TS2304: Cannot find name 'PricelistCategory'.
+components/bakery/bookings/booking-form-helpers.ts(1629,10): error TS2304: Cannot find name 'calculateOrderTokenFromItems'.
+components/bakery/bookings/booking-form-helpers.ts(1653,10): error TS2304: Cannot find name 'buildDashboardProductName'.
+components/bakery/bookings/booking-form-helpers.ts(1686,12): error TS2304: Cannot find name 'PricelistCategory'.
+components/bakery/bookings/booking-form-helpers.ts(1687,32): error TS2304: Cannot find name 'CatalogAddOn'.
+components/bakery/bookings/booking-form-helpers.ts(1784,29): error TS7006: Parameter 'addOnId' implicitly has an 'any' type.
+components/bakery/bookings/booking-form-helpers.ts(1804,67): error TS2304: Cannot find name 'formatCurrency'.
+components/bakery/bookings/booking-form-helpers.ts(1868,26): error TS2304: Cannot find name 'normalizeDateInput'.
+components/bakery/bookings/booking-form-helpers.ts(1889,11): error TS2304: Cannot find name 'BakeryOrder'.
+components/bakery/bookings/booking-form-helpers.ts(2034,10): error TS2304: Cannot find name 'BakeryOrder'.
+components/bakery/bookings/booking-form-helpers.ts(2040,11): error TS2304: Cannot find name 'BakeryOrder'.
+components/bakery/bookings/booking-form-helpers.ts(2097,22): error TS2304: Cannot find name 'normalizeDateInput'.
+components/bakery/bookings/BookingForm.tsx(1322,11): error TS2322: Type '{ category: string; subcategory: string; productName: string; size: string; quantity: number; addOns: string[]; tokenDifficulty?: "SIMPLE" | "NORMAL" | "HARD" | "ADVANCED" | "EXPERT" | undefined; ... 20 more ...; notes?: string | undefined; }' is not assignable to type 'Pick<BookingItemInput, "addOnPriceOverrides">'.
+components/bakery/bookings/BookingForm.tsx(1708,59): error TS7006: Parameter 'option' implicitly has an 'any' type.
+components/bakery/bookings/BookingForm.tsx(1742,11): error TS2322: Type '{ category: string; subcategory: string; productName: string; size: string; quantity: number; addOns: string[]; tokenDifficulty?: "SIMPLE" | "NORMAL" | "HARD" | "ADVANCED" | "EXPERT" | undefined; ... 20 more ...; notes?: string | undefined; }' is not assignable to type 'Pick<BookingItemInput, "addOnPriceOverrides">'.
+components/bakery/bookings/BookingForm.tsx(1747,60): error TS2345: Argument of type '{ category: string; subcategory: string; productName: string; size: string; quantity: number; addOns: string[]; tokenDifficulty?: "SIMPLE" | "NORMAL" | "HARD" | "ADVANCED" | "EXPERT" | undefined; ... 20 more ...; notes?: string | undefined; }' is not assignable to parameter of type 'Pick<BookingItemInput, "quantity" | "parsedUnitPrice" | "parsedSubtotal" | "pricingSource">'.
+components/bakery/bookings/BookingForm.tsx(1748,58): error TS2345: Argument of type '{ category: string; subcategory: string; productName: string; size: string; quantity: number; addOns: string[]; tokenDifficulty?: "SIMPLE" | "NORMAL" | "HARD" | "ADVANCED" | "EXPERT" | undefined; ... 20 more ...; notes?: string | undefined; }' is not assignable to parameter of type 'Pick<BookingItemInput, "parsedUnitPrice" | "pricingSource">'.
+components/bakery/bookings/BookingForm.tsx(1749,56): error TS2345: Argument of type '{ category: string; subcategory: string; productName: string; size: string; quantity: number; addOns: string[]; tokenDifficulty?: "SIMPLE" | "NORMAL" | "HARD" | "ADVANCED" | "EXPERT" | undefined; ... 20 more ...; notes?: string | undefined; }' is not assignable to parameter of type 'Pick<BookingItemInput, "quantity" | "parsedUnitPrice" | "parsedSubtotal" | "pricingSource">'.
+components/bakery/bookings/BookingForm.tsx(1784,15): error TS7006: Parameter 'option' implicitly has an 'any' type.
+components/bakery/bookings/BookingForm.tsx(1789,50): error TS2345: Argument of type '{ category: string; subcategory: string; productName: string; size: string; quantity: number; addOns: string[]; tokenDifficulty?: "SIMPLE" | "NORMAL" | "HARD" | "ADVANCED" | "EXPERT" | undefined; ... 20 more ...; notes?: string | undefined; }' is not assignable to parameter of type 'Pick<BookingItemInput, "designCount" | "additionalDesignCount">'.
+components/bakery/bookings/BookingForm.tsx(3588,24): error TS7006: Parameter 'option' implicitly has an 'any' type.
+components/bakery/bookings/BookingForm.tsx(3591,24): error TS7006: Parameter 'option' implicitly has an 'any' type.
+components/bakery/bookings/BookingForm.tsx(3594,29): error TS7006: Parameter 'option' implicitly has an 'any' type.
+components/bakery/bookings/BookingForm.tsx(3595,32): error TS7006: Parameter 'price' implicitly has an 'any' type.
+components/bakery/bookings/BookingForm.tsx(3659,30): error TS7006: Parameter 'variant' implicitly has an 'any' type.
+components/bakery/bookings/BookingForm.tsx(3680,74): error TS2345: Argument of type '{ category: string; subcategory: string; productName: string; size: string; quantity: number; addOns: string[]; tokenDifficulty?: "SIMPLE" | "NORMAL" | "HARD" | "ADVANCED" | "EXPERT" | undefined; ... 20 more ...; notes?: string | undefined; }' is not assignable to parameter of type 'Pick<BookingItemInput, "quantity" | "parsedUnitPrice" | "parsedSubtotal" | "pricingSource">'.
+components/bakery/bookings/BookingForm.tsx(3681,72): error TS2345: Argument of type '{ category: string; subcategory: string; productName: string; size: string; quantity: number; addOns: string[]; tokenDifficulty?: "SIMPLE" | "NORMAL" | "HARD" | "ADVANCED" | "EXPERT" | undefined; ... 20 more ...; notes?: string | undefined; }' is not assignable to parameter of type 'Pick<BookingItemInput, "parsedUnitPrice" | "pricingSource">'.
+components/bakery/bookings/BookingForm.tsx(3682,70): error TS2345: Argument of type '{ category: string; subcategory: string; productName: string; size: string; quantity: number; addOns: string[]; tokenDifficulty?: "SIMPLE" | "NORMAL" | "HARD" | "ADVANCED" | "EXPERT" | undefined; ... 20 more ...; notes?: string | undefined; }' is not assignable to parameter of type 'Pick<BookingItemInput, "quantity" | "parsedUnitPrice" | "parsedSubtotal" | "pricingSource">'.
+components/bakery/bookings/BookingForm.tsx(3689,56): error TS2345: Argument of type '{ category: string; subcategory: string; productName: string; size: string; quantity: number; addOns: string[]; tokenDifficulty?: "SIMPLE" | "NORMAL" | "HARD" | "ADVANCED" | "EXPERT" | undefined; ... 20 more ...; notes?: string | undefined; }' is not assignable to parameter of type 'Pick<BookingItemInput, "category" | "pricingSource" | "cookieDifficultyBreakdown" | "notes">'.
+components/bakery/bookings/BookingForm.tsx(4410,55): error TS7006: Parameter 'sizeOption' implicitly has an 'any' type.
+components/bakery/bookings/BookingForm.tsx(4934,58): error TS7006: Parameter 'option' implicitly has an 'any' type.
+components/bakery/bookings/BookingForm.tsx(4978,62): error TS7006: Parameter 'option' implicitly has an 'any' type.

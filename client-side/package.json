@@ -31,6 +31,7 @@
     "@prisma/adapter-pg": "^7.4.0",
     "@prisma/client": "^7.4.0",
     "@sparticuz/chromium": "^147.0.0",
+    "@supabase/supabase-js": "^2.105.1",
     "arima": "^0.2.8",
     "bcryptjs": "^3.0.3",
     "cloudinary": "^2.9.0",
@@ -38,6 +39,7 @@
     "dotenv": "^17.3.1",
     "framer-motion": "^12.34.0",
     "groq-sdk": "^0.37.0",
+    "idb-keyval": "^6.2.2",
     "imagekit": "^6.0.0",
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "^0.570.0",
@@ -59,6 +61,7 @@
     "recharts": "^3.7.0",
     "remark-gfm": "^4.0.1",
     "sonner": "^2.0.7",
+    "swr": "^2.4.1",
     "tooltip": "^1.6.1",
     "xlsx": "^0.18.5",
     "zod": "^4.3.6"

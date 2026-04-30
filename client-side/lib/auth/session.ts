@@ -39,25 +39,35 @@ function normalizeNumericId(value: unknown): number | undefined {
 async function resolveUserIdFromCustomJwt(
   cookieStore: Awaited<ReturnType<typeof cookies>>,
   headerList: Awaited<ReturnType<typeof headers>>,
-): Promise<number | undefined> {
-  // 1) Try JWT from app cookie (set by /api/auth/login and /api/auth/register)
+): Promise<{ userId: number; businessId?: number; role?: UserRole } | undefined> {
   const cookieToken = cookieStore.get("token")?.value
   if (cookieToken) {
     const decoded = verifyToken(cookieToken)
     if (decoded && typeof decoded === "object" && "userId" in decoded) {
       const parsed = normalizeNumericId((decoded as { userId: unknown }).userId)
-      if (parsed) return parsed
+      if (parsed) {
+        return {
+          userId: parsed,
+          businessId: normalizeNumericId((decoded as { businessId?: unknown }).businessId),
+          role: (decoded as { role?: UserRole }).role,
+        }
+      }
     }
   }
 
-  // 2) Try JWT from Bearer header (Postman/API use case)
   const authHeader = headerList.get("authorization")
   if (authHeader?.startsWith("Bearer ")) {
     const bearerToken = authHeader.replace("Bearer ", "")
     const decoded = verifyToken(bearerToken)
     if (decoded && typeof decoded === "object" && "userId" in decoded) {
       const parsed = normalizeNumericId((decoded as { userId: unknown }).userId)
-      if (parsed) return parsed
+      if (parsed) {
+        return {
+          userId: parsed,
+          businessId: normalizeNumericId((decoded as { businessId?: unknown }).businessId),
+          role: (decoded as { role?: UserRole }).role,
+        }
+      }
     }
   }
 
@@ -124,14 +134,19 @@ export async function requireAuth(): Promise<AuthResult> {
 
   // 1) Try NextAuth JWT cookie/header first (Google OAuth flow)
   let userId = await resolveUserIdFromNextAuthJwt()
+  let jwtBusinessId: number | undefined
+  let jwtRole: UserRole | undefined
 
-  // 2) Fallback to app JWT auth flow (email/password + API clients)
   if (!userId) {
-    userId = await resolveUserIdFromCustomJwt(cookieStore, headerList)
+    const customAuth = await resolveUserIdFromCustomJwt(cookieStore, headerList)
+    if (customAuth) {
+      userId = customAuth.userId
+      jwtBusinessId = customAuth.businessId
+      jwtRole = customAuth.role
+    }
   }
 
   if (!userId) {
-    // Check if any auth cookies exist at all to provide better error
     const hasNextAuth = cookieStore.get("next-auth.session-token") || cookieStore.get("__Secure-next-auth.session-token")
     const hasCustom = cookieStore.get("token")
     
@@ -143,9 +158,19 @@ export async function requireAuth(): Promise<AuthResult> {
     throw new AuthError(`Unauthorized: ${reason}`)
   }
 
-  // 4️⃣ Resolve active business — respect cookie preference for multi-business switch
   const preferredId = cookieStore.get("active_business_id")?.value
 
+  // Jika tidak ada request ganti bisnis (preferredId) dan token JWT memiliki informasi lengkap,
+  // bypass pengecekan database sepenuhnya.
+  if (!preferredId && jwtBusinessId && jwtRole) {
+    return {
+      userId: Number(userId),
+      businessId: jwtBusinessId,
+      role: jwtRole,
+    }
+  }
+
+  // 4️⃣ Resolve active business — respect cookie preference for multi-business switch
   let business = null
 
   if (preferredId) {

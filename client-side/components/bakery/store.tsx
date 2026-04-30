@@ -8,8 +8,9 @@ import {
   useEffect,
   useMemo,
   useState,
-  useSyncExternalStore,
 } from "react";
+import useSWR from "swr";
+import { get, set } from "idb-keyval";
 import { usePathname } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -18,6 +19,7 @@ import {
   type WhatsAppOrderType,
 } from "@/lib/bookings/whatsapp-parser";
 import { buildOrderRecapWhatsAppText } from "@/lib/bookings/whatsapp-message-template";
+import { supabase } from "@/lib/supabase-client";
 import type {
   BookingAutomationEvent,
   BookingAutomationOrderPayload,
@@ -265,8 +267,8 @@ const ORDERS_SYNC_ENDPOINT = NORMALIZED_BOOKINGS_API_BASE
   ? `${NORMALIZED_BOOKINGS_API_BASE}/api/bookings/orders`
   : "/api/bookings/orders";
 const INITIAL_SNAPSHOT = JSON.stringify(initialOrders);
-const SERVER_SYNC_POLL_INTERVAL_MS = 30000;
-const LOCAL_WRITE_STALE_GUARD_MS = 2500;
+const SERVER_SYNC_POLL_INTERVAL_MS = 120000;
+
 const SHIPMENT_RETRY_BACKOFF_MS = 5 * 60 * 1000;
 const SHIPMENT_WARNING_COOLDOWN_MS = 10 * 60 * 1000;
 
@@ -317,44 +319,7 @@ class CapacityFullSyncError extends Error {
   }
 }
 
-type OrdersSyncMeta = {
-  lastLocalWriteAt: number;
-  lastServerAckAt: number;
-};
 
-function readOrdersSyncMeta(): OrdersSyncMeta {
-  if (typeof window === "undefined") {
-    return { lastLocalWriteAt: 0, lastServerAckAt: 0 };
-  }
-
-  try {
-    const raw = window.localStorage.getItem(STORAGE_SYNC_META_KEY);
-    if (!raw) return { lastLocalWriteAt: 0, lastServerAckAt: 0 };
-    const parsed = JSON.parse(raw) as Partial<OrdersSyncMeta>;
-    return {
-      lastLocalWriteAt: Number(parsed.lastLocalWriteAt) || 0,
-      lastServerAckAt: Number(parsed.lastServerAckAt) || 0,
-    };
-  } catch {
-    return { lastLocalWriteAt: 0, lastServerAckAt: 0 };
-  }
-}
-
-function writeOrdersSyncMeta(meta: Partial<OrdersSyncMeta>) {
-  if (typeof window === "undefined") return;
-  const current = readOrdersSyncMeta();
-  const next = {
-    lastLocalWriteAt:
-      typeof meta.lastLocalWriteAt === "number"
-        ? meta.lastLocalWriteAt
-        : current.lastLocalWriteAt,
-    lastServerAckAt:
-      typeof meta.lastServerAckAt === "number"
-        ? meta.lastServerAckAt
-        : current.lastServerAckAt,
-  };
-  window.localStorage.setItem(STORAGE_SYNC_META_KEY, JSON.stringify(next));
-}
 const AUTO_REQUOTE_ERROR_KEYWORDS = [
   "courier price is not found",
   "check your origin and destination location",
@@ -815,21 +780,12 @@ function summarizeAutomationResult(result: BookingAutomationResponse): {
   };
 }
 
-function subscribe(callback: () => void) {
-  if (typeof window === "undefined") return () => {};
-  const handler = () => callback();
-  window.addEventListener("storage", handler);
-  window.addEventListener(STORAGE_EVENT, handler as EventListener);
-  return () => {
-    window.removeEventListener("storage", handler);
-    window.removeEventListener(STORAGE_EVENT, handler as EventListener);
-  };
-}
+let inMemoryOrdersSnapshot: string | null = null;
 
 function getSnapshot() {
   if (typeof window === "undefined") return INITIAL_SNAPSHOT;
-  if (!hasHydrated) return INITIAL_SNAPSHOT;
-  return window.localStorage.getItem(STORAGE_KEY) ?? INITIAL_SNAPSHOT;
+  if (inMemoryOrdersSnapshot === null) return INITIAL_SNAPSHOT;
+  return inMemoryOrdersSnapshot;
 }
 
 function getServerSnapshot() {
@@ -855,9 +811,21 @@ function areOrdersSnapshotsEqual(
 
 function writeOrdersSnapshot(nextOrders: BakeryOrder[]) {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextOrders));
-  window.dispatchEvent(new Event(STORAGE_EVENT));
+  const snap = JSON.stringify(nextOrders);
+  inMemoryOrdersSnapshot = snap;
+  set(STORAGE_KEY, snap).catch(console.error);
 }
+
+const ordersFetcher = async (url: string) => {
+  const response = await fetch(url, { cache: "no-store" });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || !payload.success) {
+    throw new Error(payload.error || "Failed to fetch orders");
+  }
+  const serverOrders = Array.isArray(payload.data?.orders) ? payload.data.orders : [];
+  writeOrdersSnapshot(serverOrders);
+  return serverOrders;
+};
 
 function parseOrdersSyncError(
   payload: OrdersSyncResponse,
@@ -877,15 +845,46 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { settings: bakerySettings } = useBakerySettings();
   const blockedDates = bakerySettings?.blockedDates;
-  const snapshot = useSyncExternalStore(
-    subscribe,
-    getSnapshot,
-    getServerSnapshot,
+
+  const { data: serverOrders, mutate } = useSWR<BakeryOrder[]>(
+    ORDERS_SYNC_ENDPOINT,
+    ordersFetcher,
+    {
+      fallbackData: parseSnapshot(getSnapshot()),
+      refreshInterval: SERVER_SYNC_POLL_INTERVAL_MS,
+      revalidateOnFocus: true,
+      revalidateOnReconnect: true,
+    }
   );
-  const orders = useMemo<BakeryOrder[]>(
-    () => parseSnapshot(snapshot),
-    [snapshot],
-  );
+
+  const orders = serverOrders || parseSnapshot(getSnapshot());
+
+  useEffect(() => {
+    if (!supabase) return;
+
+    const channel = supabase
+      .channel("schema-db-changes")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "bakery_orders",
+        },
+        () => {
+          // When orders change in the DB, trigger SWR revalidation
+          mutate();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      if (supabase) {
+        supabase.removeChannel(channel);
+      }
+    };
+  }, [mutate]);
+
   const [actorIdentity, setActorIdentity] = useState<{
     userId: number | null;
     name: string;
@@ -893,22 +892,25 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
     userId: null,
     name: "System",
   });
-  const hydrationInFlightRef = useRef(false);
-  const lastLocalWriteAtRef = useRef(0);
-  const scheduledShipmentRunInFlightRef = useRef(false);
+
   const processingShipmentIdsRef = useRef<Set<string>>(new Set());
+  const scheduledShipmentRunInFlightRef = useRef(false);
   const shipmentRetryBackoffUntilRef = useRef<Map<string, number>>(new Map());
   const shipmentWarningStateRef = useRef<
     Map<string, { message: string; at: number }>
   >(new Map());
-
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (!hasHydrated) {
-      hasHydrated = true;
-      window.dispatchEvent(new Event(STORAGE_EVENT));
-    }
-  }, []);
+    
+    // Load data from IDB for initial offline fallback
+    get(STORAGE_KEY).then((ordersVal) => {
+      inMemoryOrdersSnapshot = (ordersVal as string) ?? INITIAL_SNAPSHOT;
+      if (!hasHydrated) {
+        hasHydrated = true;
+        mutate(); // trigger SWR revalidation after hydration
+      }
+    }).catch(console.error);
+  }, [mutate]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1016,110 +1018,22 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
     return payload;
   }, []);
 
-  const hydrateOrdersFromServer = useCallback(
-    async (force = false) => {
-      if (typeof window === "undefined") return;
-      if (hydrationInFlightRef.current) return;
-
-      hydrationInFlightRef.current = true;
-      const localSnapshot = window.localStorage.getItem(STORAGE_KEY);
-      const localOrders = parseSnapshot(localSnapshot ?? INITIAL_SNAPSHOT);
-
-      try {
-        const response = await fetch(ORDERS_SYNC_ENDPOINT, {
-          method: "GET",
-          cache: "no-store",
-        });
-        const payload = (await response.json().catch(() => ({}))) as {
-          success?: boolean;
-          data?: { orders?: BakeryOrder[] };
-        };
-
-        if (!response.ok || !payload.success) return;
-
-        const serverOrders = Array.isArray(payload.data?.orders)
-          ? payload.data.orders
-          : [];
-
-        if (serverOrders.length > 0) {
-          const syncMeta = readOrdersSyncMeta();
-          const recentlyChangedLocally =
-            !force &&
-            Date.now() - lastLocalWriteAtRef.current <
-              LOCAL_WRITE_STALE_GUARD_MS;
-          if (recentlyChangedLocally) return;
-
-          const localChangesPendingAck =
-            !force && syncMeta.lastLocalWriteAt > syncMeta.lastServerAckAt;
-          if (localChangesPendingAck) return;
-
-          if (!areOrdersSnapshotsEqual(localOrders, serverOrders)) {
-            writeOrdersSnapshot(serverOrders);
-            writeOrdersSyncMeta({ lastServerAckAt: Date.now() });
-          }
-          return;
-        }
-
-        if (localOrders.length > 0) {
-          void syncOrdersToServer(localOrders).catch((error) => {
-            console.warn("[bookings][frontend] hydrate sync failed", {
-              endpoint: ORDERS_SYNC_ENDPOINT,
-              message: error instanceof Error ? error.message : String(error),
-            });
-          });
-        }
-      } catch {
-        // Keep local snapshot if server is unreachable.
-      } finally {
-        hydrationInFlightRef.current = false;
-      }
-    },
-    [syncOrdersToServer],
-  );
-
-  useEffect(() => {
-    void hydrateOrdersFromServer();
-  }, [hydrateOrdersFromServer]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const pollId = window.setInterval(() => {
-      void hydrateOrdersFromServer();
-    }, SERVER_SYNC_POLL_INTERVAL_MS);
-
-    const handleFocus = () => {
-      void hydrateOrdersFromServer();
-    };
-
-    const handleVisibility = () => {
-      if (document.visibilityState === "visible") {
-        void hydrateOrdersFromServer();
-      }
-    };
-
-    window.addEventListener("focus", handleFocus);
-    document.addEventListener("visibilitychange", handleVisibility);
-
-    return () => {
-      window.clearInterval(pollId);
-      window.removeEventListener("focus", handleFocus);
-      document.removeEventListener("visibilitychange", handleVisibility);
-    };
-  }, [hydrateOrdersFromServer]);
-
   const persistOrders = useCallback(
     (nextOrders: BakeryOrder[]) => {
       if (typeof window === "undefined") return;
-      const previousSnapshot =
-        window.localStorage.getItem(STORAGE_KEY) ?? INITIAL_SNAPSHOT;
-      const now = Date.now();
-      lastLocalWriteAtRef.current = now;
-      writeOrdersSyncMeta({ lastLocalWriteAt: now });
+      const previousSnapshot = getSnapshot();
       writeOrdersSnapshot(nextOrders);
+
+      mutate(nextOrders, {
+        optimisticData: nextOrders,
+        rollbackOnError: true,
+        populateCache: true,
+        revalidate: false, // Wait for sync to complete before revalidating
+      });
+
       void syncOrdersToServer(nextOrders)
         .then(() => {
-          writeOrdersSyncMeta({ lastServerAckAt: Date.now() });
+          mutate(nextOrders, { revalidate: true });
         })
         .catch((error) => {
           const message =
@@ -1127,16 +1041,10 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
               ? error.message
               : "Gagal sinkron perubahan booking ke server.";
 
-          // Revert optimistic local state so role-based guardrail failures
-          // do not leave this browser out of sync from server truth.
+          // Revert optimistic local state
           const rollbackOrders = parseSnapshot(previousSnapshot);
           writeOrdersSnapshot(rollbackOrders);
-          lastLocalWriteAtRef.current = 0;
-          writeOrdersSyncMeta({
-            lastLocalWriteAt: 0,
-            lastServerAckAt: 0,
-          });
-          void hydrateOrdersFromServer(true);
+          mutate(rollbackOrders, { revalidate: true });
 
           console.warn("[bookings][frontend] persist sync failed", {
             endpoint: ORDERS_SYNC_ENDPOINT,
@@ -1152,15 +1060,14 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
           toast.error(`Perubahan dibatalkan karena sinkron gagal: ${message}`);
         });
     },
-    [hydrateOrdersFromServer, syncOrdersToServer],
+    [mutate, syncOrdersToServer],
   );
 
   const runAutomationsForOrder = useCallback(
     async (eventType: BookingAutomationEvent, orderId: string) => {
       if (typeof window === "undefined") return;
 
-      const currentSnapshot =
-        window.localStorage.getItem(STORAGE_KEY) ?? INITIAL_SNAPSHOT;
+      const currentSnapshot = getSnapshot();
       const currentOrders = parseSnapshot(currentSnapshot);
       const targetOrder = currentOrders.find((item) => item.id === orderId);
       if (!targetOrder) return;
@@ -1288,8 +1195,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
 
       processingShipmentIdsRef.current.add(orderId);
       try {
-        const currentSnapshot =
-          window.localStorage.getItem(STORAGE_KEY) ?? INITIAL_SNAPSHOT;
+        const currentSnapshot = getSnapshot();
         const currentOrders = parseSnapshot(currentSnapshot);
         const order = currentOrders.find((item) => item.id === orderId);
         if (!order || order.shipment || !order.shippingQuote) return;
@@ -1469,8 +1375,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
               );
             }
 
-            const latestSnapshot =
-              window.localStorage.getItem(STORAGE_KEY) ?? INITIAL_SNAPSHOT;
+            const latestSnapshot = getSnapshot();
             const latestOrders = parseSnapshot(latestSnapshot);
             const ordersWithRefreshedQuote = latestOrders.map((entry) =>
               entry.id === orderId
@@ -1508,8 +1413,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
 
           const createdShipment = payload.shipment;
 
-          const latestSnapshot =
-            window.localStorage.getItem(STORAGE_KEY) ?? INITIAL_SNAPSHOT;
+          const latestSnapshot = getSnapshot();
           const latestOrders = parseSnapshot(latestSnapshot);
           const nextOrders = latestOrders.map((entry) => {
             if (entry.id !== orderId) return entry;
@@ -1590,8 +1494,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
 
     scheduledShipmentRunInFlightRef.current = true;
     try {
-      const currentSnapshot =
-        window.localStorage.getItem(STORAGE_KEY) ?? INITIAL_SNAPSHOT;
+      const currentSnapshot = getSnapshot();
       const currentOrders = parseSnapshot(currentSnapshot);
       const todayJakarta = getJakartaTodayIsoDate();
 

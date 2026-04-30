@@ -18,11 +18,13 @@ import {
   ChevronDown,
   TrendingUp,
 } from "lucide-react";
+import { toast } from "sonner";
 import {
   getProducts,
   getCategoryOptions,
   updateProductPrice,
   deleteProduct,
+  bulkDeleteProducts,
   syncBakeryCatalogProducts,
 } from "@/lib/api/products";
 import type { Product, ProductCategory } from "@/types/product";
@@ -576,10 +578,10 @@ export default function ProductsPage() {
   const [avgMargin, setAvgMargin] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedIds] = useState<Set<number>>(new Set());
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
-  const [bulkDeleting] = useState(false);
-  const [bulkDeleteError] = useState<string | null>(null);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkDeleteError, setBulkDeleteError] = useState<string | null>(null);
   const [syncingCatalog, setSyncingCatalog] = useState(false);
   const [syncCatalogMessage, setSyncCatalogMessage] = useState<string | null>(
     null,
@@ -760,8 +762,42 @@ export default function ProductsPage() {
     fetchProducts(boundedPage);
   };
 
-  const handleBulkDelete = () => {
-    setBulkDeleteOpen(false);
+  const toggleSelectAll = () => {
+    setSelectedIds((prev) => {
+      if (prev.size === products.length) return new Set();
+      return new Set(products.map((p) => p.id));
+    });
+  };
+
+  const toggleSelectProduct = (id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    setBulkDeleting(true);
+    setBulkDeleteError(null);
+    try {
+      await bulkDeleteProducts(Array.from(selectedIds));
+      setSelectedIds(new Set());
+      setBulkDeleteOpen(false);
+      await fetchProducts(1);
+      toast.success(`${selectedIds.size} produk berhasil dihapus.`);
+    } catch (err) {
+      setBulkDeleteError(
+        err instanceof Error ? err.message : "Gagal menghapus produk terpilih.",
+      );
+    } finally {
+      setBulkDeleting(false);
+    }
   };
 
   // ...continue with correct component logic here (conditional rendering, table, modals, etc.)
@@ -906,6 +942,26 @@ export default function ProductsPage() {
           </div>
         </div>
 
+        {selectedIds.size > 0 && (
+          <div className="flex items-center justify-between gap-4 rounded-2xl bg-red-50 p-4 border border-red-100 animate-in fade-in slide-in-from-top-2">
+            <div className="flex items-center gap-2">
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-red-600 text-[10px] font-bold text-white">
+                {selectedIds.size}
+              </span>
+              <p className="text-sm font-semibold text-red-700">
+                item terpilih untuk dihapus
+              </p>
+            </div>
+            <button
+              onClick={() => setBulkDeleteOpen(true)}
+              className="flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-red-700 shadow-sm"
+            >
+              <Trash2 size={16} />
+              Hapus Sekaligus
+            </button>
+          </div>
+        )}
+
         {/* TABLE */}
         {loading && products.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-24 bg-white rounded-3xl shadow">
@@ -966,8 +1022,20 @@ export default function ProductsPage() {
                 return (
                   <div
                     key={product.id}
-                    className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 space-y-3"
+                    onClick={() => toggleSelectProduct(product.id)}
+                    className={`relative rounded-2xl shadow-sm border transition-all cursor-pointer p-4 space-y-3 ${
+                      selectedIds.has(product.id)
+                        ? "border-red-300 bg-red-50/30 ring-1 ring-red-300"
+                        : "bg-white border-gray-100"
+                    }`}
                   >
+                    {selectedIds.has(product.id) && (
+                      <div className="absolute top-3 right-3">
+                        <div className="flex h-5 w-5 items-center justify-center rounded-full bg-red-600">
+                          <div className="h-2 w-2 rounded-full bg-white" />
+                        </div>
+                      </div>
+                    )}
                     {/* Top row: name + subcategory */}
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
@@ -1054,7 +1122,17 @@ export default function ProductsPage() {
               <table className="w-full min-w-190 text-base">
                 <thead className="bg-linear-to-r from-indigo-50 to-indigo-50 text-indigo-800 text-xs uppercase tracking-wider">
                   <tr>
-                    <th className="pl-5 pr-2 py-4 w-10">Product</th>
+                    <th className="pl-5 pr-2 py-4 w-10">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-gray-300 text-red-600 focus:ring-red-500 cursor-pointer"
+                        checked={
+                          products.length > 0 &&
+                          selectedIds.size === products.length
+                        }
+                        onChange={toggleSelectAll}
+                      />
+                    </th>
                     <th className="px-4 py-4 text-left font-bold cursor-pointer select-none">
                       <span className="inline-flex items-center">
                         Sub Category
@@ -1088,10 +1166,18 @@ export default function ProductsPage() {
                     return (
                       <tr
                         key={product.id}
-                        className="border-t bg-white transition-all hover:bg-indigo-50/40"
+                        className={`border-t transition-all hover:bg-indigo-50/40 ${
+                          selectedIds.has(product.id) ? "bg-red-50/40" : "bg-white"
+                        }`}
                       >
-                        <td className="pl-5 pr-2 py-4 font-semibold text-slate-700">
-                          {productGroup}
+                        <td className="pl-5 pr-2 py-4">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-gray-300 text-red-600 focus:ring-red-500 cursor-pointer"
+                            checked={selectedIds.has(product.id)}
+                            onChange={() => toggleSelectProduct(product.id)}
+                            onClick={(e) => e.stopPropagation()}
+                          />
                         </td>
                         <td className="px-4 py-4 align-middle">
                           <div className="font-bold text-slate-800">

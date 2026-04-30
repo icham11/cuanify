@@ -26,7 +26,7 @@ describe("Booking operations — token helpers", () => {
     const total = summarizeProductionTokensByItems([
       { category: "Cake", quantity: 1 },
       { category: "Buket", subcategory: "Hand Bouquet", quantity: 1 },
-      { category: "Cookies", difficulty: "simple", quantity: 3 },
+      { category: "Cookies", tokenDifficulty: "simple", quantity: 3 },
       { category: "Cupcakes", productName: "Dozen Box", quantity: 1 },
     ]);
 
@@ -48,7 +48,7 @@ describe("Booking operations — token helpers", () => {
           deliveryDate: "2026-04-30",
           deliverySlot: "10:00",
           orderStatus: "In Production",
-          items: [{ category: "Cookies", difficulty: "simple", quantity: 3 }],
+          items: [{ category: "Cookies", tokenDifficulty: "simple", quantity: 3 }],
         },
         {
           id: "cancelled",

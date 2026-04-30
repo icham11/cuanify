@@ -1,0 +1,2 @@
+components/bakery/bookings/hooks/useBookingFormState.ts(3004,5): error TS18004: No value exists in scope for the shorthand property 'loading'. Either declare one or provide an initializer.
+components/bakery/bookings/hooks/useBookingFormState.ts(3068,5): error TS18004: No value exists in scope for the shorthand property 'settings'. Either declare one or provide an initializer.

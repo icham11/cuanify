@@ -37,7 +37,7 @@ export type CatalogSyncStatus = "idle" | "syncing" | "synced" | "error";
 const STORAGE_KEY = "bakeryCatalogAdminState";
 const STORAGE_EVENT = "bakeryCatalogAdminUpdated";
 const CATALOG_CONFIG_API = "/api/bookings/catalog-config";
-const SERVER_REVALIDATE_INTERVAL_MS = 10000;
+const SERVER_REVALIDATE_INTERVAL_MS = 120000;
 const SERVER_REVALIDATE_STALE_GUARD_MS = 3000;
 
 const EMPTY_STATE: CatalogAdminState = {
@@ -315,6 +315,7 @@ export function useCatalogAdminState() {
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   const saveInFlightRef = useRef(false);
   const lastLocalWriteAtRef = useRef(0);
+  const syncStatusRef = useRef<CatalogSyncStatus>("idle");
 
   const hydrateFromServer = useCallback(
     async (options?: { silent?: boolean; force?: boolean }) => {
@@ -323,6 +324,12 @@ export function useCatalogAdminState() {
 
       if (!silent) {
         setSyncStatus("syncing");
+        syncStatusRef.current = "syncing";
+      }
+
+      if (syncStatusRef.current === "error" && !force) {
+        // Prevent overwriting local state if we have unsaved changes that failed to sync
+        return;
       }
 
       if (saveInFlightRef.current && !force) {
@@ -347,6 +354,7 @@ export function useCatalogAdminState() {
       if (!fromServer) {
         if (!silent) {
           setSyncStatus("error");
+          syncStatusRef.current = "error";
         }
         return;
       }
@@ -366,6 +374,7 @@ export function useCatalogAdminState() {
       }
 
       setSyncStatus("synced");
+      syncStatusRef.current = "synced";
       setLastSyncedAt(new Date().toISOString());
     },
     [],
@@ -431,9 +440,11 @@ export function useCatalogAdminState() {
         try {
           await saveStateToServer(next);
           setSyncStatus("synced");
+          syncStatusRef.current = "synced";
           setLastSyncedAt(new Date().toISOString());
         } catch {
           setSyncStatus("error");
+          syncStatusRef.current = "error";
         } finally {
           saveInFlightRef.current = false;
         }
@@ -452,9 +463,11 @@ export function useCatalogAdminState() {
       try {
         await saveStateToServer(EMPTY_STATE);
         setSyncStatus("synced");
+        syncStatusRef.current = "synced";
         setLastSyncedAt(new Date().toISOString());
       } catch {
         setSyncStatus("error");
+        syncStatusRef.current = "error";
       } finally {
         saveInFlightRef.current = false;
       }
@@ -469,9 +482,11 @@ export function useCatalogAdminState() {
       try {
         await saveStateToServer(state);
         setSyncStatus("synced");
+        syncStatusRef.current = "synced";
         setLastSyncedAt(new Date().toISOString());
       } catch {
         setSyncStatus("error");
+        syncStatusRef.current = "error";
       } finally {
         saveInFlightRef.current = false;
       }
