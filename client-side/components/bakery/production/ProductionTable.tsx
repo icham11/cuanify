@@ -156,6 +156,14 @@ function toLocalDateKey(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+function getNormalizedDateKey(deliveryDate: string | undefined): string {
+  const date = (deliveryDate ?? "").trim();
+  if (!date) return "";
+  // Ambil hanya bagian YYYY-MM-DD jika formatnya ISO atau ada jamnya
+  const match = date.match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : date;
+}
+
 function statusBadgeClass(status: string): string {
   const normalized = normalizeOrderStatus(status);
   if (normalized === "In Production") {
@@ -530,8 +538,8 @@ export default function ProductionTable() {
     const usage = new Map<string, number>();
 
     for (const order of orders) {
-      const deliveryDate = (order.deliveryDate || "").trim();
-      if (!deliveryDate) continue;
+      const dateKey = getNormalizedDateKey(order.deliveryDate);
+      if (!dateKey) continue;
 
       const status = normalizeOrderStatus(order.orderStatus);
       if (["Delivery", "Completed", "Cancelled"].includes(status)) {
@@ -539,7 +547,7 @@ export default function ProductionTable() {
       }
 
       for (const assignment of getOrderStaffTokenAssignments(order)) {
-        const key = `${assignment.staffUserId}:${deliveryDate}`;
+        const key = `${assignment.staffUserId}:${dateKey}`;
         usage.set(key, (usage.get(key) ?? 0) + assignment.token);
       }
     }
@@ -984,14 +992,26 @@ export default function ProductionTable() {
       .filter((assignment) => assignment.staffUserId === singleAssignee)
       .reduce((sum, assignment) => sum + assignment.token, 0);
   }, [transferOrder]);
-  const transferOrderDateKey = (transferOrder?.deliveryDate || "").trim();
+  const transferOrderDateKey = getNormalizedDateKey(transferOrder?.deliveryDate);
   const selectedTransferTargetId = Number(transferStaffUserId);
-  const selectedTransferBaselineToken =
-    transferOrderDateKey && Number.isInteger(selectedTransferTargetId)
-      ? (staffDailyTokenByDate.get(
-          `${selectedTransferTargetId}:${transferOrderDateKey}`,
-        ) ?? 0)
+  
+  const selectedTransferBaselineToken = useMemo(() => {
+    if (!transferOrderDateKey || !Number.isInteger(selectedTransferTargetId)) return 0;
+    
+    // Hitung token yang sudah dimiliki target staff di tanggal tersebut
+    const totalOnDate = staffDailyTokenByDate.get(`${selectedTransferTargetId}:${transferOrderDateKey}`) ?? 0;
+    
+    // PENTING: Jika target staff kebetulan SUDAH punya porsi di order yang sedang ditransfer ini (misal di stage lain),
+    // kita kurangi dulu agar tidak double counting saat proyeksi.
+    const alreadyInThisOrder = transferOrder 
+      ? getOrderStaffTokenAssignments(transferOrder)
+          .filter(a => a.staffUserId === selectedTransferTargetId)
+          .reduce((sum, a) => sum + a.token, 0)
       : 0;
+
+    return Math.max(0, totalOnDate - alreadyInThisOrder);
+  }, [staffDailyTokenByDate, selectedTransferTargetId, transferOrderDateKey, transferOrder]);
+
   const selectedTransferProjectedToken =
     selectedTransferBaselineToken + transferOrderToken;
   const selectedTransferOverLimit =
@@ -1751,16 +1771,25 @@ export default function ProductionTable() {
                           `${member.userId}:${transferOrderDateKey}`,
                         ) ?? 0)
                       : 0;
-                    const projected = baselineDailyToken + transferOrderToken;
+                    
+                    // Kurangi jika staff target sudah punya porsi di order ini
+                    const alreadyInThisOrder = transferOrder 
+                      ? getOrderStaffTokenAssignments(transferOrder)
+                          .filter(a => a.staffUserId === member.userId)
+                          .reduce((sum, a) => sum + a.token, 0)
+                      : 0;
+                    
+                    const effectiveBaseline = Math.max(0, baselineDailyToken - alreadyInThisOrder);
+                    const projected = effectiveBaseline + transferOrderToken;
                     const overLimit = isStaffDailyTokenAssignmentBlocked({
-                      currentToken: baselineDailyToken,
+                      currentToken: effectiveBaseline,
                       incomingToken: transferOrderToken,
                       limit: staffDailyTokenLimit,
                     });
 
                     return (
                       <option key={member.userId} value={String(member.userId)}>
-                        {member.name} ({projected}/{staffDailyTokenLimit}
+                        {member.name} ({effectiveBaseline} → {projected} / {staffDailyTokenLimit}
                         {overLimit ? " - melebihi batas" : ""})
                       </option>
                     );
@@ -1768,14 +1797,13 @@ export default function ProductionTable() {
                 </select>
 
                 <p
-                  className={`text-xs ${
+                  className={`text-xs font-medium ${
                     selectedTransferOverLimit
                       ? "text-rose-600"
-                      : "text-slate-500"
+                      : "text-indigo-600"
                   }`}
                 >
-                  Proyeksi token harian: {selectedTransferProjectedToken}/
-                  {staffDailyTokenLimit}
+                  Proyeksi beban harian staff: {selectedTransferBaselineToken} → {selectedTransferProjectedToken} / {staffDailyTokenLimit} token
                   {selectedTransferOverLimit ? " (melebihi batas)" : ""}
                 </p>
               </div>

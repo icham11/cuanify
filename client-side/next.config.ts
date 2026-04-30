@@ -7,10 +7,6 @@ const publicBuildVersion =
   "local";
 
 const nextConfig: NextConfig = {
-  turbopack: {
-    root: process.cwd(),
-  },
-
   env: {
     NEXT_PUBLIC_BUILD_VERSION: publicBuildVersion,
   },
@@ -26,13 +22,6 @@ const nextConfig: NextConfig = {
   },
 
   // PWA: Set Cache-Control for the service worker so browsers always check for updates
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
-  typescript: {
-    ignoreBuildErrors: true,
-  },
-
   async headers() {
     return [
       {
