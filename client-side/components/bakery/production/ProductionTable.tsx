@@ -13,7 +13,7 @@ import { BAKERY_STAFF_DAILY_TOKEN_LIMIT } from "@/lib/bookings/config";
 import { DEFAULT_MAX_TOKEN } from "@/lib/calendar/getCalendarStatus";
 import { useBakerySettings } from "@/hooks/useBakerySettings";
 import { distributeProductionTokens } from "@/lib/bookings/production-stages";
-import { getStaffTokenLimitForUser } from "@/lib/bakery/settings";
+import { getStaffTokenLimitForUser } from "@/lib/bakery/token-limits";
 
 interface TeamMember {
   userId: number;
@@ -91,7 +91,8 @@ function getOrderStaffTokenAssignments(order: BakeryOrder): Array<{
   return [
     {
       staffUserId: order.assignedStaffUserId,
-      staffName: order.assignedStaffName || `Staff #${order.assignedStaffUserId}`,
+      staffName:
+        order.assignedStaffName || `Staff #${order.assignedStaffUserId}`,
       token: summarizeProductionTokensByItems(order.items ?? []),
     },
   ];
@@ -195,7 +196,12 @@ function statusBadgeClass(status: string): string {
 export default function ProductionTable() {
   const router = useRouter();
   const { business, businesses, switchBusiness } = useBusiness();
-  const { orders, updateOrderStatus, assignOrderToStaff, assignProductionStageStaff } = useOrders();
+  const {
+    orders,
+    updateOrderStatus,
+    assignOrderToStaff,
+    assignProductionStageStaff,
+  } = useOrders();
   const { isOwner, isAdmin, isStaff, role, userName } = useRole();
   const isPrivilegedManager = isOwner || isAdmin;
   const { settings: bakerySettings } = useBakerySettings();
@@ -209,19 +215,18 @@ export default function ProductionTable() {
         (bakerySettings?.staffSettings ?? []).map((entry) => [
           entry.userId,
           getStaffTokenLimitForUser({
-            settings:
-              bakerySettings ?? {
-                dailyProductionTokenLimit: DEFAULT_MAX_TOKEN,
-                staffDailyTokenLimit: STAFF_DAILY_TOKEN_LIMIT_FALLBACK,
-                cutoffHour: 10,
-                cutoffEnabled: true,
-                defaultDpPercentage: 50,
-                notifyProductionWhatsapp: true,
-                blockedDates: [],
-                holidayEntries: [],
-                staffSettings: [],
-                monthlyExpenses: [],
-              },
+            settings: bakerySettings ?? {
+              dailyProductionTokenLimit: DEFAULT_MAX_TOKEN,
+              staffDailyTokenLimit: STAFF_DAILY_TOKEN_LIMIT_FALLBACK,
+              cutoffHour: 10,
+              cutoffEnabled: true,
+              defaultDpPercentage: 50,
+              notifyProductionWhatsapp: true,
+              blockedDates: [],
+              holidayEntries: [],
+              staffSettings: [],
+              monthlyExpenses: [],
+            },
             userId: entry.userId,
           }),
         ]),
@@ -511,11 +516,11 @@ export default function ProductionTable() {
 
           byUserId.set(assignment.staffUserId, {
             userId: assignment.staffUserId,
-          name: fallbackName,
-          role: "Staff",
-          businessId: viewer?.businessId ?? 0,
-        });
-      }
+            name: fallbackName,
+            role: "Staff",
+            businessId: viewer?.businessId ?? 0,
+          });
+        }
       }
     }
 
@@ -659,7 +664,8 @@ export default function ProductionTable() {
         inProgress: 0,
         baseline: 0,
         dailyToken: 0,
-        limit: staffTokenLimitByUserId.get(viewer.userId) ?? staffDailyTokenLimit,
+        limit:
+          staffTokenLimitByUserId.get(viewer.userId) ?? staffDailyTokenLimit,
         dailyTokenPercentage: 0,
       }
     );
@@ -686,7 +692,12 @@ export default function ProductionTable() {
           ? (staffTokenLimitByUserId.get(viewer.userId) ?? staffDailyTokenLimit)
           : staffDailyTokenLimit) - currentViewerTodayToken,
       ),
-    [currentViewerTodayToken, staffDailyTokenLimit, staffTokenLimitByUserId, viewer?.userId],
+    [
+      currentViewerTodayToken,
+      staffDailyTokenLimit,
+      staffTokenLimitByUserId,
+      viewer?.userId,
+    ],
   );
 
   const currentViewerTodayTokenPct = useMemo(() => {
@@ -698,7 +709,12 @@ export default function ProductionTable() {
       0,
       Math.round((currentViewerTodayToken / effectiveLimit) * 100),
     );
-  }, [currentViewerTodayToken, staffDailyTokenLimit, staffTokenLimitByUserId, viewer?.userId]);
+  }, [
+    currentViewerTodayToken,
+    staffDailyTokenLimit,
+    staffTokenLimitByUserId,
+    viewer?.userId,
+  ]);
 
   const staffAvailableOrders = useMemo(() => {
     if (!isStaff) return [] as typeof activeOrders;
@@ -764,7 +780,10 @@ export default function ProductionTable() {
       }
 
       if (quickFilter === "mine") {
-        if (!viewer?.userId || !getOrderClaimedStaffIds(order).includes(viewer.userId)) {
+        if (
+          !viewer?.userId ||
+          !getOrderClaimedStaffIds(order).includes(viewer.userId)
+        ) {
           return false;
         }
       }
@@ -915,9 +934,7 @@ export default function ProductionTable() {
     if (isOrderFullyUnassigned(transferOrder)) return teamMembers;
     const singleAssignee = getSingleOrderAssignee(transferOrder);
     if (!singleAssignee) return [] as TeamMember[];
-    return teamMembers.filter(
-      (member) => member.userId !== singleAssignee,
-    );
+    return teamMembers.filter((member) => member.userId !== singleAssignee);
   }, [teamMembers, transferOrder]);
 
   useEffect(() => {
@@ -968,7 +985,10 @@ export default function ProductionTable() {
     ]);
   };
 
-  const handleClaimStage = (orderId: string, stage: "listing" | "filling" | "finishing") => {
+  const handleClaimStage = (
+    orderId: string,
+    stage: "listing" | "filling" | "finishing",
+  ) => {
     if (!viewer?.userId) return;
     assignProductionStageStaff(orderId, stage, {
       userId: viewer.userId,
@@ -982,9 +1002,7 @@ export default function ProductionTable() {
     const singleAssignee = getSingleOrderAssignee(order);
 
     const candidate = singleAssignee
-      ? teamMembers.find(
-          (member) => member.userId !== singleAssignee,
-        )
+      ? teamMembers.find((member) => member.userId !== singleAssignee)
       : teamMembers[0];
 
     setTransferOrderId(orderId);
@@ -1088,7 +1106,8 @@ export default function ProductionTable() {
   const selectedTransferProjectedToken =
     selectedTransferBaselineToken + transferOrderToken;
   const selectedTransferLimit = Number.isInteger(selectedTransferTargetId)
-    ? (staffTokenLimitByUserId.get(selectedTransferTargetId) ?? staffDailyTokenLimit)
+    ? (staffTokenLimitByUserId.get(selectedTransferTargetId) ??
+      staffDailyTokenLimit)
     : staffDailyTokenLimit;
   const selectedTransferOverLimit =
     transferCandidates.length > 0 &&
@@ -1131,9 +1150,7 @@ export default function ProductionTable() {
 
     const canOwnerAssignOrTransfer = isPrivilegedManager;
     const ownerActionCandidates = canOwnerAssignOrTransfer
-      ? teamMembers.filter(
-          (member) => member.userId !== singleAssignee,
-        )
+      ? teamMembers.filter((member) => member.userId !== singleAssignee)
       : [];
 
     let statusDisabledMessage = "";
@@ -1255,7 +1272,8 @@ export default function ProductionTable() {
               const projectedStaffDailyToken =
                 currentStaffDailyToken + stageToken;
               const currentStaffLimit = viewer?.userId
-                ? (staffTokenLimitByUserId.get(viewer.userId) ?? staffDailyTokenLimit)
+                ? (staffTokenLimitByUserId.get(viewer.userId) ??
+                  staffDailyTokenLimit)
                 : staffDailyTokenLimit;
               const exceedsStaffDailyLimit =
                 canStaffClaimStage &&
@@ -1307,11 +1325,11 @@ export default function ProductionTable() {
                       }}
                       disabled={claimDisabled}
                       className="rounded-full bg-[var(--crumbella-primary)] px-3 py-1.5 text-[11px] font-semibold text-white transition hover:bg-[var(--crumbella-primary-strong)] disabled:cursor-not-allowed disabled:opacity-50"
-                        title={
-                          exceedsStaffDailyLimit
+                      title={
+                        exceedsStaffDailyLimit
                           ? `Token harian ${projectedStaffDailyToken}/${currentStaffLimit}`
-                           : undefined
-                       }
+                          : undefined
+                      }
                     >
                       Assign
                     </button>
@@ -1377,7 +1395,8 @@ export default function ProductionTable() {
           )}
           {hasMixedStageAssignees && canOwnerAssignOrTransfer ? (
             <p className="text-[11px] text-[var(--crumbella-muted)]">
-              Order ini sudah dibagi ke beberapa staff. Ubah assignment per stage dari detail order.
+              Order ini sudah dibagi ke beberapa staff. Ubah assignment per
+              stage dari detail order.
             </p>
           ) : null}
         </div>
@@ -1441,7 +1460,10 @@ export default function ProductionTable() {
                 Assign Staff
               </p>
               <h3 className="mt-2 truncate text-[1.45rem] font-extrabold leading-none text-[var(--foreground)]">
-                {viewer?.name || currentViewerStaffStat?.name || userName || "Staff"}
+                {viewer?.name ||
+                  currentViewerStaffStat?.name ||
+                  userName ||
+                  "Staff"}
               </h3>
               <p className="mt-1 text-[11px] text-[var(--crumbella-muted)]">
                 Pilih proses yang akan di-assign dari queue aktif.
@@ -1450,7 +1472,10 @@ export default function ProductionTable() {
 
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-[var(--crumbella-border)] bg-white text-sm font-semibold text-[var(--crumbella-primary)]">
               {getInitials(
-                viewer?.name || currentViewerStaffStat?.name || userName || "Staff",
+                viewer?.name ||
+                  currentViewerStaffStat?.name ||
+                  userName ||
+                  "Staff",
               )}
             </div>
           </div>
@@ -1462,11 +1487,13 @@ export default function ProductionTable() {
                   Kapasitas hari ini
                 </p>
                 <p className="mt-1 text-[11px] text-[var(--crumbella-muted)]">
-                  Sisa {currentViewerRemainingTodayToken} token. Tap Assign untuk menambah tugas.
+                  Sisa {currentViewerRemainingTodayToken} token. Tap Assign
+                  untuk menambah tugas.
                 </p>
               </div>
               <p className="text-lg font-extrabold text-[var(--foreground)]">
-                {currentViewerTodayToken} / {currentViewerStaffStat?.limit ?? staffDailyTokenLimit} token
+                {currentViewerTodayToken} /{" "}
+                {currentViewerStaffStat?.limit ?? staffDailyTokenLimit} token
               </p>
             </div>
             <div className="mt-4 h-2 overflow-hidden rounded-full bg-[#eadfd3]">
@@ -1494,9 +1521,7 @@ export default function ProductionTable() {
                 Owner View
               </p>
               <h3 className="mt-1 text-[1.5rem] font-extrabold leading-none text-[var(--foreground)]">
-                {activeTab === "active"
-                  ? "Produksi"
-                  : "Ready & Delivery"}
+                {activeTab === "active" ? "Produksi" : "Ready & Delivery"}
               </h3>
               <p className="mt-1 text-[11px] text-[var(--crumbella-muted)]">
                 {activeTab === "active"
@@ -1513,7 +1538,9 @@ export default function ProductionTable() {
                 <p className="mt-1 text-[1.7rem] font-extrabold leading-none text-[var(--foreground)]">
                   {queueSummary.totalToken}
                 </p>
-                <p className="mt-1 text-[10px] text-[var(--crumbella-muted)]">Semua order aktif</p>
+                <p className="mt-1 text-[10px] text-[var(--crumbella-muted)]">
+                  Semua order aktif
+                </p>
               </div>
               <div className="rounded-[20px] border border-[var(--crumbella-border)] bg-white px-3 py-3 shadow-[0_10px_18px_-20px_rgba(30,18,10,0.7)]">
                 <p className="text-[10px] font-medium text-[var(--crumbella-muted)]">
@@ -1522,7 +1549,9 @@ export default function ProductionTable() {
                 <p className="mt-1 text-[1.7rem] font-extrabold leading-none text-[#a83030]">
                   {queueSummary.unassigned}
                 </p>
-                <p className="mt-1 text-[10px] text-[var(--crumbella-muted)]">Proses kosong</p>
+                <p className="mt-1 text-[10px] text-[var(--crumbella-muted)]">
+                  Proses kosong
+                </p>
               </div>
               <div className="rounded-[20px] border border-[var(--crumbella-border)] bg-white px-3 py-3 shadow-[0_10px_18px_-20px_rgba(30,18,10,0.7)]">
                 <p className="text-[10px] font-medium text-[var(--crumbella-muted)]">
@@ -1531,7 +1560,9 @@ export default function ProductionTable() {
                 <p className="mt-1 text-[1.7rem] font-extrabold leading-none text-[var(--foreground)]">
                   {queueSummary.dueToday}
                 </p>
-                <p className="mt-1 text-[10px] text-[var(--crumbella-muted)]">Jatuh tempo</p>
+                <p className="mt-1 text-[10px] text-[var(--crumbella-muted)]">
+                  Jatuh tempo
+                </p>
               </div>
               <div className="rounded-[20px] border border-[var(--crumbella-border)] bg-white px-3 py-3 shadow-[0_10px_18px_-20px_rgba(30,18,10,0.7)]">
                 <p className="text-[10px] font-medium text-[var(--crumbella-muted)]">
@@ -1540,7 +1571,9 @@ export default function ProductionTable() {
                 <p className="mt-1 text-[1.7rem] font-extrabold leading-none text-[var(--crumbella-success)]">
                   {queueSummary.orderCount}
                 </p>
-                <p className="mt-1 text-[10px] text-[var(--crumbella-muted)]">Terlihat pada filter</p>
+                <p className="mt-1 text-[10px] text-[var(--crumbella-muted)]">
+                  Terlihat pada filter
+                </p>
               </div>
             </div>
           </div>
@@ -1725,7 +1758,8 @@ export default function ProductionTable() {
                             {staff.name}
                           </p>
                           <p className="mt-1 text-[11px] text-[var(--crumbella-muted)]">
-                            Token aktif {staff.assignedActive} • In progress {staff.inProgress}
+                            Token aktif {staff.assignedActive} • In progress{" "}
+                            {staff.inProgress}
                           </p>
                         </div>
                       </div>
@@ -1739,14 +1773,18 @@ export default function ProductionTable() {
                           disabled={resettingUserId === staff.userId}
                           className="shrink-0 rounded-full border border-[var(--crumbella-border)] bg-[var(--crumbella-accent-soft)] px-3 py-1.5 text-[11px] font-semibold text-[var(--crumbella-primary)] transition hover:bg-[#f6dcc8] disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                          {resettingUserId === staff.userId ? "Reset..." : "Reset token"}
+                          {resettingUserId === staff.userId
+                            ? "Reset..."
+                            : "Reset token"}
                         </button>
                       )}
                     </div>
 
                     <div className="mt-4 grid grid-cols-2 gap-3 text-[11px] text-[var(--crumbella-muted)]">
                       <div>
-                        <p className="uppercase tracking-[0.14em]">Token hari ini</p>
+                        <p className="uppercase tracking-[0.14em]">
+                          Token hari ini
+                        </p>
                         <p className="mt-1 text-lg font-semibold text-[var(--foreground)]">
                           {usedDailyToken} / {normalizedDailyLimit}
                         </p>
@@ -1950,25 +1988,25 @@ export default function ProductionTable() {
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
                 {(() => {
-                  const isWholeOrderUnassigned = isOrderFullyUnassigned(transferOrder);
+                  const isWholeOrderUnassigned =
+                    isOrderFullyUnassigned(transferOrder);
                   const singleAssignee = getSingleOrderAssignee(transferOrder);
-                  const isTransferable = !isWholeOrderUnassigned && Boolean(singleAssignee);
+                  const isTransferable =
+                    !isWholeOrderUnassigned && Boolean(singleAssignee);
                   return (
                     <>
-                <h3
-                  id="transfer-order-modal-title"
-                  className="text-base font-semibold text-slate-900"
-                >
-                  {isTransferable
-                    ? "Transfer Order"
-                    : "Assign Order"}
-                </h3>
-                <p className="mt-1 text-xs text-slate-500">
-                  {isTransferable
-                    ? "Pindahkan order ke staff lain."
-                    : "Assign order ke staff untuk mulai produksi."}{" "}
-                  Token order: {transferOrderToken}
-                </p>
+                      <h3
+                        id="transfer-order-modal-title"
+                        className="text-base font-semibold text-slate-900"
+                      >
+                        {isTransferable ? "Transfer Order" : "Assign Order"}
+                      </h3>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {isTransferable
+                          ? "Pindahkan order ke staff lain."
+                          : "Assign order ke staff untuk mulai produksi."}{" "}
+                        Token order: {transferOrderToken}
+                      </p>
                     </>
                   );
                 })()}
@@ -2014,7 +2052,8 @@ export default function ProductionTable() {
                       : 0;
                     const projected = baselineDailyToken + transferOrderToken;
                     const memberLimit =
-                      staffTokenLimitByUserId.get(member.userId) ?? staffDailyTokenLimit;
+                      staffTokenLimitByUserId.get(member.userId) ??
+                      staffDailyTokenLimit;
                     const overLimit = isStaffDailyTokenAssignmentBlocked({
                       currentToken: baselineDailyToken,
                       incomingToken: transferOrderToken,
@@ -2184,4 +2223,3 @@ export default function ProductionTable() {
     </div>
   );
 }
-

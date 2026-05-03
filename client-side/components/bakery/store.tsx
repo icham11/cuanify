@@ -903,10 +903,15 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
 
     const requestBody = {
       orders: nextOrders.map((order) => {
-        const { insuranceFee: _insuranceFee, shippingQuote, ...safeOrder } = order;
+        const {
+          insuranceFee: _insuranceFee,
+          shippingQuote,
+          ...safeOrder
+        } = order;
         const safeShippingQuote = shippingQuote
           ? ((quoteWithInsurance) => {
-              const { insuranceFee: _quoteInsuranceFee, ...quote } = quoteWithInsurance;
+              const { insuranceFee: _quoteInsuranceFee, ...quote } =
+                quoteWithInsurance;
               void _quoteInsuranceFee;
               return quote;
             })(shippingQuote)
@@ -1288,7 +1293,9 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
           const submitCreateResi = async (
             quote: ShippingQuote,
           ): Promise<ShippingResiResponse> => {
-            const destinationLatitude = Number.isFinite(quote.destinationLatitude)
+            const destinationLatitude = Number.isFinite(
+              quote.destinationLatitude,
+            )
               ? Number(quote.destinationLatitude)
               : undefined;
             const destinationLongitude = Number.isFinite(
@@ -1469,7 +1476,9 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
           if (payload.warning) {
             toast.warning(payload.warning);
           }
-          toast.success(`Resi otomatis dibuat: ${createdShipment.trackingNumber}`);
+          toast.success(
+            `Resi otomatis dibuat: ${createdShipment.trackingNumber}`,
+          );
         } catch (error: unknown) {
           // Jika error karena pembatasan role (Staff tidak punya akses endpoint
           // shipping), diam saja — tidak perlu tampilkan warning ke Staff.
@@ -1637,7 +1646,8 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         basePrice: order.basePrice,
         addOnTotal: order.addOnTotal,
         deliveryFee: order.deliveryFee,
-        insuranceFee: order.insuranceFee ?? order.shippingQuote?.insuranceFee ?? 0,
+        insuranceFee:
+          order.insuranceFee ?? order.shippingQuote?.insuranceFee ?? 0,
         manualAdjustment: order.manualAdjustment,
         dpPaidAmount: normalizedDpPaid,
         finalPaidAmount: normalizedFinalPaid,
@@ -1944,21 +1954,25 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
     ) => {
       const nextOrders = orders.map((order) => {
         if (order.id !== id) return order;
-        const totalTokens = Number(order.items?.reduce((sum, item) => {
-          const qty = Math.max(0, Number(item.quantity) || 0);
-          const token =
-            Number(item.customTokenPerUnit) ||
-            (item.tokenDifficulty === "EXPERT"
-              ? 5
-              : item.tokenDifficulty === "ADVANCED"
-                ? 4
-                : item.tokenDifficulty === "HARD" || item.tokenDifficulty === "DIFFICULT"
-                  ? 3
-                  : item.tokenDifficulty === "NORMAL" || item.tokenDifficulty === "MEDIUM"
-                    ? 2
-                    : 1);
-          return sum + qty * token;
-        }, 0) || 0);
+        const totalTokens = Number(
+          order.items?.reduce((sum, item) => {
+            const qty = Math.max(0, Number(item.quantity) || 0);
+            const token =
+              Number(item.customTokenPerUnit) ||
+              (item.tokenDifficulty === "EXPERT"
+                ? 5
+                : item.tokenDifficulty === "ADVANCED"
+                  ? 4
+                  : item.tokenDifficulty === "HARD" ||
+                      item.tokenDifficulty === "DIFFICULT"
+                    ? 3
+                    : item.tokenDifficulty === "NORMAL" ||
+                        item.tokenDifficulty === "MEDIUM"
+                      ? 2
+                      : 1);
+            return sum + qty * token;
+          }, 0) || 0,
+        );
         const currentByStage = new Map(
           (order.productionStages ?? []).map((entry) => [entry.stage, entry]),
         );
@@ -1967,16 +1981,16 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
           staffByStage: {
             listing:
               stage === "listing"
-                ? staff?.userId ?? null
-                : currentByStage.get("listing")?.staffId ?? null,
+                ? (staff?.userId ?? null)
+                : (currentByStage.get("listing")?.staffId ?? null),
             filling:
               stage === "filling"
-                ? staff?.userId ?? null
-                : currentByStage.get("filling")?.staffId ?? null,
+                ? (staff?.userId ?? null)
+                : (currentByStage.get("filling")?.staffId ?? null),
             finishing:
               stage === "finishing"
-                ? staff?.userId ?? null
-                : currentByStage.get("finishing")?.staffId ?? null,
+                ? (staff?.userId ?? null)
+                : (currentByStage.get("finishing")?.staffId ?? null),
           },
         });
         const uniqueAssignees = [
@@ -1988,14 +2002,22 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         ];
         const nextAssignedStaffUserId =
           uniqueAssignees.length === 1 ? uniqueAssignees[0] : null;
-        const nextAssignedStaffName =
-          nextAssignedStaffUserId === null
-            ? ""
-            : nextAssignedStaffUserId === staff?.userId
-              ? staff.name
-              : order.assignedStaffUserId === nextAssignedStaffUserId
-                ? order.assignedStaffName || ""
-                : "";
+        // Determine staff name: prefer new staff, fallback to existing, handle multi-stage assignments
+        let nextAssignedStaffName = "";
+        if (nextAssignedStaffUserId !== null) {
+          if (nextAssignedStaffUserId === staff?.userId) {
+            nextAssignedStaffName = staff.name;
+          } else if (
+            order.assignedStaffUserId === nextAssignedStaffUserId &&
+            order.assignedStaffName
+          ) {
+            // Keep existing name if single assignee hasn't changed
+            nextAssignedStaffName = order.assignedStaffName;
+          } else {
+            // For multi-stage or mixed assignments, use fallback
+            nextAssignedStaffName = `Staff #${nextAssignedStaffUserId}`;
+          }
+        }
         const hasAnyStageAssignment = uniqueAssignees.length > 0;
 
         return {
@@ -2010,7 +2032,11 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       });
 
       persistOrders(nextOrders);
-      toast.success(staff ? `${stage} di-assign ke ${staff.name}` : `${stage} assignment dilepas`);
+      toast.success(
+        staff
+          ? `${stage} di-assign ke ${staff.name}`
+          : `${stage} assignment dilepas`,
+      );
     },
     [orders, persistOrders],
   );
@@ -2289,7 +2315,8 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       const dpAmount =
         order.downPaymentAmount ??
         Math.round(
-          Math.max(0, Number(order.totalPrice ?? 0)) * (defaultDpPercentage / 100),
+          Math.max(0, Number(order.totalPrice ?? 0)) *
+            (defaultDpPercentage / 100),
         );
       const remainingBalance =
         order.paymentStatus === "Paid"

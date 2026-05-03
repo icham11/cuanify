@@ -5,13 +5,7 @@ import { useBusiness } from "@/context/BusinessContext";
 import { BAKERY_SETTINGS_UPDATED_EVENT } from "@/hooks/useBakerySettings";
 import { apiFetch } from "@/lib/api/client";
 import type { BakeryBusinessSettings } from "@/lib/bakery/settings";
-import {
-  ChevronDown,
-  Download,
-  Loader2,
-  Menu,
-  Trophy,
-} from "lucide-react";
+import { ChevronDown, Download, Loader2, Menu, Trophy } from "lucide-react";
 
 type BusinessDetail = {
   id: number;
@@ -184,10 +178,16 @@ function getInitials(name: string) {
 }
 
 function normalizeStatus(value?: string) {
-  return String(value || "").trim().toLowerCase();
+  return String(value || "")
+    .trim()
+    .toLowerCase();
 }
 
-function isDateWithinRange(value: string | undefined, from: string, to: string) {
+function isDateWithinRange(
+  value: string | undefined,
+  from: string,
+  to: string,
+) {
   if (!value) return false;
   return value >= from && value <= to;
 }
@@ -207,7 +207,11 @@ function buildExportCsv(args: {
   profit: number;
   activeOrders: number;
   margin: number;
-  topProducts: Array<{ productName: string; quantitySold: number; revenue: number }>;
+  topProducts: Array<{
+    productName: string;
+    quantitySold: number;
+    revenue: number;
+  }>;
 }) {
   const rows = [
     ["Business", args.businessName],
@@ -235,11 +239,18 @@ function buildExportCsv(args: {
     .join("\n");
 }
 
-async function safeApiFetch<T>(path: string): Promise<T | null> {
+async function safeApiFetch<T>(
+  path: string,
+  timeoutMs = 15000,
+): Promise<T | null> {
   try {
-    return (await apiFetch(path)) as T;
+    return (await apiFetch(path, undefined, timeoutMs)) as T;
   } catch (error) {
-    console.error(`Failed to fetch ${path}`, error);
+    if (error instanceof Error && error.name === "AbortError") {
+      console.warn(`Fetch timeout for ${path} after ${timeoutMs}ms`);
+    } else {
+      console.error(`Failed to fetch ${path}`, error);
+    }
     return null;
   }
 }
@@ -280,14 +291,18 @@ function BreakdownRow({
             {label}
           </p>
           {note ? (
-            <p className="mt-1 text-[11px] leading-tight text-[#b58872]">{note}</p>
+            <p className="mt-1 text-[11px] leading-tight text-[#b58872]">
+              {note}
+            </p>
           ) : null}
         </div>
         <p
           className={`shrink-0 font-mono text-[14px] leading-tight ${amountClassName}`}
         >
           {formatSignedCurrency(
-            tone === "positive" || tone === "profit" ? amount : -Math.abs(amount),
+            tone === "positive" || tone === "profit"
+              ? amount
+              : -Math.abs(amount),
           )}
         </p>
       </div>
@@ -348,7 +363,9 @@ export default function BusinessPage() {
         bakerySettingsPayload,
       ] = await Promise.all([
         safeApiFetch<ViewerResponse>("/api/auth/me"),
-        safeApiFetch<{ data?: BusinessDetail }>(`/api/businesses/${business.id}`),
+        safeApiFetch<{ data?: BusinessDetail }>(
+          `/api/businesses/${business.id}`,
+        ),
         safeApiFetch<ProductAnalyticsResponse>(
           `/api/analytics/products?from=${currentRange.startDate}&to=${currentRange.endDate}`,
         ),
@@ -372,15 +389,22 @@ export default function BusinessPage() {
           (member) => String(member.businessId) === String(business.id),
         ) ?? [];
 
-      const periodOrders = orders.filter((order) =>
-        isDateWithinRange(order.deliveryDate, currentRange.startDate, currentRange.endDate) &&
-        (["dp paid", "paid"].includes(normalizeStatus(order.paymentStatus)) ||
-          Number(order.totalPaidAmount ?? 0) > 0),
+      const periodOrders = orders.filter(
+        (order) =>
+          isDateWithinRange(
+            order.deliveryDate,
+            currentRange.startDate,
+            currentRange.endDate,
+          ) &&
+          (["dp paid", "paid"].includes(normalizeStatus(order.paymentStatus)) ||
+            Number(order.totalPaidAmount ?? 0) > 0),
       );
 
       const activeOrders = periodOrders.filter((order) => {
         const status = normalizeStatus(order.orderStatus);
-        return !["completed", "delivered", "delivery", "cancelled"].includes(status);
+        return !["completed", "delivered", "delivery", "cancelled"].includes(
+          status,
+        );
       }).length;
 
       const dpOrderCount = periodOrders.filter(
@@ -449,7 +473,10 @@ export default function BusinessPage() {
     };
   }, [business?.id, business?.name, selectedMonth, refreshToken]);
 
-  const monthLabel = useMemo(() => getMonthLabel(selectedMonth), [selectedMonth]);
+  const monthLabel = useMemo(
+    () => getMonthLabel(selectedMonth),
+    [selectedMonth],
+  );
   const previousMonthLabel = useMemo(() => {
     const { prevMonthKey } = getMonthRange(selectedMonth);
     return getMonthLabel(prevMonthKey);
@@ -466,18 +493,21 @@ export default function BusinessPage() {
     );
   }, [viewState.currentRevenue, viewState.previousRevenue]);
 
-  const selectedMonthExpenses = (viewState.bakerySettings?.monthlyExpenses ?? []).filter(
-    (entry) => entry.monthKey === selectedMonth,
-  );
+  const selectedMonthExpenses = (
+    viewState.bakerySettings?.monthlyExpenses ?? []
+  ).filter((entry) => entry.monthKey === selectedMonth);
   const expenseAmountByCategory = new Map(
-    selectedMonthExpenses.map((entry) => [entry.category, Number(entry.amount || 0)]),
+    selectedMonthExpenses.map((entry) => [
+      entry.category,
+      Number(entry.amount || 0),
+    ]),
   );
   const customExpenses = selectedMonthExpenses.filter(
     (entry) => entry.category === "custom",
   );
-  const staffPayrollRows = (viewState.bakerySettings?.staffSettings ?? []).filter(
-    (entry) => entry.isActive,
-  );
+  const staffPayrollRows = (
+    viewState.bakerySettings?.staffSettings ?? []
+  ).filter((entry) => entry.isActive);
   const staffCost = staffPayrollRows.reduce(
     (sum, entry) => sum + Number(entry.takeHomePay || 0),
     0,
@@ -608,8 +638,8 @@ export default function BusinessPage() {
                   }`}
                 >
                   {revenueGrowth >= 0 ? "+" : "-"}{" "}
-                  {`${revenueGrowth >= 0 ? "+" : ""}${Math.round(revenueGrowth)}%`} vs{" "}
-                  {previousMonthLabel}
+                  {`${revenueGrowth >= 0 ? "+" : ""}${Math.round(revenueGrowth)}%`}{" "}
+                  vs {previousMonthLabel}
                 </p>
               </div>
               <div className="pl-3">
@@ -624,7 +654,9 @@ export default function BusinessPage() {
             </div>
             <div className="border-t border-[#ead8cb] bg-[#fff8f3] px-4 py-3">
               <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#7d675a]">
-                <span className="font-semibold text-[#1f120e]">Pembayaran:</span>
+                <span className="font-semibold text-[#1f120e]">
+                  Pembayaran:
+                </span>
                 <span className="rounded-full bg-[#fbf0d8] px-2.5 py-1 font-semibold text-[#9a6b10]">
                   DP 50% {viewState.dpOrderCount}
                 </span>
@@ -661,7 +693,9 @@ export default function BusinessPage() {
               <BreakdownRow
                 label="Gaji Staff"
                 note={
-                  staffPayrollRows.length > 0 ? "Payroll bulanan aktif" : "Belum ada payroll aktif"
+                  staffPayrollRows.length > 0
+                    ? "Payroll bulanan aktif"
+                    : "Belum ada payroll aktif"
                 }
                 amount={staffCost}
               >
