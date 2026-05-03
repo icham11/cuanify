@@ -1,70 +1,81 @@
-"use client"
+"use client";
 
-import { createContext, useContext, useEffect, useState, useCallback } from "react"
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useCallback,
+} from "react";
 import {
   getCurrentBusiness,
   getAllBusinesses,
   switchBusiness as switchBusinessApi,
   type Business,
-} from "@/lib/api/business"
+} from "@/lib/api/business";
 
 type BusinessContextType = {
   /** The currently active business */
-  business: Business | null
+  business: Business | null;
   /** All businesses owned by the user */
-  businesses: Business[]
-  loading: boolean
+  businesses: Business[];
+  loading: boolean;
   /** Re-fetch from server */
-  refreshBusiness: () => Promise<void>
+  refreshBusiness: () => Promise<void>;
   /** Switch active business by ID — triggers re-fetch */
-  switchBusiness: (id: string | number) => Promise<void>
-}
+  switchBusiness: (id: string | number) => Promise<void>;
+};
 
-const BusinessContext = createContext<BusinessContextType | undefined>(undefined)
+const BusinessContext = createContext<BusinessContextType | undefined>(
+  undefined,
+);
 
-export function BusinessProvider({
-  children,
-}: {
-  children: React.ReactNode
-}) {
-  const [business, setBusiness] = useState<Business | null>(null)
-  const [businesses, setBusinesses] = useState<Business[]>([])
-  const [loading, setLoading] = useState(true)
+export function BusinessProvider({ children }: { children: React.ReactNode }) {
+  const [business, setBusiness] = useState<Business | null>(null);
+  const [businesses, setBusinesses] = useState<Business[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const fetchBusiness = useCallback(async () => {
     try {
-      const [current, all] = await Promise.all([
-        getCurrentBusiness(),
-        getAllBusinesses(),
-      ])
-      setBusiness(current)
-      setBusinesses(all)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
+      try {
+        const [current, all] = await Promise.all([
+          getCurrentBusiness(),
+          getAllBusinesses(),
+        ]);
+        setBusiness(current);
+        setBusinesses(all);
+      } finally {
+        clearTimeout(timeoutId);
+      }
     } catch (error) {
-      console.error("Failed to fetch business:", error)
+      console.error("Failed to fetch business:", error);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [])
+  }, []);
 
   const handleSwitch = useCallback(async (id: string | number) => {
-    switchBusinessApi(id)
+    switchBusinessApi(id);
     // Re-fetch so the context reflects the new active business
-    setLoading(true)
+    setLoading(true);
     try {
-      const all = await getAllBusinesses()
-      setBusinesses(all)
-      const found = all.find((b) => String(b.id) === String(id))
-      setBusiness(found ?? all[0] ?? null)
+      const all = await getAllBusinesses();
+      setBusinesses(all);
+      const found = all.find((b) => String(b.id) === String(id));
+      setBusiness(found ?? all[0] ?? null);
     } catch {
       // fallback
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [])
+  }, []);
 
   useEffect(() => {
-    fetchBusiness()
-  }, [fetchBusiness])
+    fetchBusiness();
+  }, [fetchBusiness]);
 
   return (
     <BusinessContext.Provider
@@ -78,13 +89,13 @@ export function BusinessProvider({
     >
       {children}
     </BusinessContext.Provider>
-  )
+  );
 }
 
 export function useBusiness() {
-  const context = useContext(BusinessContext)
+  const context = useContext(BusinessContext);
   if (!context) {
-    throw new Error("useBusiness must be used inside BusinessProvider")
+    throw new Error("useBusiness must be used inside BusinessProvider");
   }
-  return context
+  return context;
 }

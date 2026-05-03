@@ -317,7 +317,9 @@ function asPositiveIntOrNull(value: unknown): number | null {
   return parsed;
 }
 
-function normalizeSalesChannel(value: unknown): "direct" | "tokopedia" | "shopee" {
+function normalizeSalesChannel(
+  value: unknown,
+): "direct" | "tokopedia" | "shopee" {
   const normalized = asString(value).trim().toLowerCase();
   if (normalized === "tokopedia" || normalized === "shopee") return normalized;
   return "direct";
@@ -383,10 +385,14 @@ function staffUuid(staffUserId: number | null): string | null {
 }
 
 function buildStaffIdByUuid(staffUserIds: number[]): Map<string, number> {
-  return new Map(staffUserIds.map((id) => [deterministicUuid(`staff:${id}`), id]));
+  return new Map(
+    staffUserIds.map((id) => [deterministicUuid(`staff:${id}`), id]),
+  );
 }
 
-function normalizeProductionStages(value: unknown): ProductionStageAssignment[] {
+function normalizeProductionStages(
+  value: unknown,
+): ProductionStageAssignment[] {
   if (!Array.isArray(value)) return [];
 
   return value
@@ -450,7 +456,11 @@ function mergeStaffClaimableProductionStages(params: {
 function getOrderStaffTokenAssignmentsForLimit(
   order: Pick<
     StaffValidationOrder,
-    "assignedStaffUserId" | "deliveryDate" | "items" | "orderStatus" | "productionStages"
+    | "assignedStaffUserId"
+    | "deliveryDate"
+    | "items"
+    | "orderStatus"
+    | "productionStages"
   >,
 ) {
   const stageAssignments = (order.productionStages ?? [])
@@ -929,7 +939,9 @@ function buildCaptionItemDetailLines(
 
       return value ? { label: field.label, value } : null;
     })
-    .filter((entry): entry is { label: string; value: string } => Boolean(entry));
+    .filter((entry): entry is { label: string; value: string } =>
+      Boolean(entry),
+    );
 }
 
 function formatCaptionAddOns(item: JsonRecord): string {
@@ -1077,9 +1089,7 @@ function buildTemplateSlotNotes(order: NormalizedOrder): string[] {
 }
 
 function normalizeWhatsAppCaptionValue(value: unknown): string {
-  return asString(value)
-    .replace(/\s+/g, " ")
-    .trim();
+  return asString(value).replace(/\s+/g, " ").trim();
 }
 
 function buildWhatsAppCustomerNotes(order: NormalizedOrder): string {
@@ -1329,7 +1339,11 @@ function validateAssignmentTransitionRules(params: {
       continue;
     }
 
-    if (currentAssignee !== null && nextAssignee === null && !nextHasAssignment) {
+    if (
+      currentAssignee !== null &&
+      nextAssignee === null &&
+      !nextHasAssignment
+    ) {
       throw new ForbiddenError(
         "Order yang sudah diambil tidak bisa dilepas. Gunakan transfer oleh owner.",
       );
@@ -1390,16 +1404,23 @@ function validateProjectedStaffDailyTokenLimit(params: {
       const projectedToken = projectedStaffDailyTokenMap.get(staffDayKey) ?? 0;
       const previousTokenForStaff =
         previousByStaff.get(assignment.staffUserId) ?? 0;
-      const incomingDelta = Math.max(0, assignment.token - previousTokenForStaff);
+      const incomingDelta = Math.max(
+        0,
+        assignment.token - previousTokenForStaff,
+      );
       if (incomingDelta <= 0) continue;
 
       const tokenBeforeAssignment = Math.max(0, projectedToken - incomingDelta);
 
       // Allow assigning one oversized order as the first workload of the day.
-      if (projectedToken > effectiveLimit && tokenBeforeAssignment > 0) {
-        throw new ForbiddenError(
-          `${STAFF_DAILY_TOKEN_LIMIT_MESSAGE}. Staff ${assignment.staffUserId} pada ${order.deliveryDate}: ${projectedToken}/${effectiveLimit} token.`,
-        );
+      // But reject if staff already has work and new assignment would exceed limit.
+      if (projectedToken > effectiveLimit) {
+        // Only block if staff has previous work OR this is not their first task
+        if (tokenBeforeAssignment > 0 || previousTokenForStaff > 0) {
+          throw new ForbiddenError(
+            `${STAFF_DAILY_TOKEN_LIMIT_MESSAGE}. Staff ${assignment.staffUserId} pada ${order.deliveryDate}: ${projectedToken}/${effectiveLimit} token.`,
+          );
+        }
       }
     }
   }
@@ -1807,7 +1828,9 @@ export async function GET() {
           where: { businessId },
           select: { userId: true },
         });
-        const staffIdByUuid = buildStaffIdByUuid(staffMembers.map((member) => member.userId));
+        const staffIdByUuid = buildStaffIdByUuid(
+          staffMembers.map((member) => member.userId),
+        );
         const orderExternalByUuid = new Map(
           orderRows.map((row) => [
             row.order_uuid ?? orderTaskUuid(businessId, row.external_id),
@@ -1848,7 +1871,9 @@ export async function GET() {
           const current = stagesMap.get(externalId) ?? [];
           current.push({
             stage: row.stage,
-            staffId: row.staff_id ? staffIdByUuid.get(row.staff_id) ?? null : null,
+            staffId: row.staff_id
+              ? (staffIdByUuid.get(row.staff_id) ?? null)
+              : null,
             tokenAmount: asNumber(row.token_amount),
             percentage: row.stage === "finishing" ? 50 : 25,
           });
@@ -1918,7 +1943,8 @@ export async function GET() {
         if (
           snapshotUpdatedAt &&
           rowUpdatedAt &&
-          new Date(snapshotUpdatedAt).getTime() > new Date(rowUpdatedAt).getTime()
+          new Date(snapshotUpdatedAt).getTime() >
+            new Date(rowUpdatedAt).getTime()
         ) {
           return NextResponse.json({
             success: true,
@@ -2213,7 +2239,9 @@ export async function POST(request: NextRequest) {
         const current = stagesMap.get(externalId) ?? [];
         current.push({
           stage: row.stage,
-          staffId: row.staff_id ? staffIdByUuid.get(row.staff_id) ?? null : null,
+          staffId: row.staff_id
+            ? (staffIdByUuid.get(row.staff_id) ?? null)
+            : null,
           tokenAmount: asNumber(row.token_amount),
           percentage: row.stage === "finishing" ? 50 : 25,
         });
@@ -2313,10 +2341,15 @@ export async function POST(request: NextRequest) {
         const sameAssignee = currentAssignee === nextAssignee;
         const staffClaimingUnassignedOwnOrder =
           currentAssignee === null && nextAssignee === userId;
+        const staffClaimingOwnProductionStage = claimedByUser;
 
         // Staff payload can be stale for unrelated orders; keep server truth
         // and only apply changes that are explicitly allowed.
-        if (!sameAssignee && !staffClaimingUnassignedOwnOrder) {
+        if (
+          !sameAssignee &&
+          !staffClaimingUnassignedOwnOrder &&
+          !staffClaimingOwnProductionStage
+        ) {
           return existingOrder;
         }
 
@@ -2615,7 +2648,8 @@ export async function POST(request: NextRequest) {
             if (isActiveStatus && order.deliveryDate && tokenForOrder > 0) {
               const existingTokenUsed = existingOrder?.token_used ?? 0;
               const existingDeliveryDate = existingOrder?.delivery_date ?? null;
-              const dateChanged = existingDeliveryDate !== (order.deliveryDate || null);
+              const dateChanged =
+                existingDeliveryDate !== (order.deliveryDate || null);
               const tokenChanged = existingTokenUsed !== tokenForOrder;
               const wasAlreadyActive = existingOrder ? wasActive : false;
 
@@ -2893,14 +2927,14 @@ export async function POST(request: NextRequest) {
               orderId: order.id,
               orderStatus: order.orderStatus || "",
               items: order.items.map((item) => ({
-                category: typeof item.category === "string" ? item.category : "",
+                category:
+                  typeof item.category === "string" ? item.category : "",
                 subcategory:
                   typeof item.subcategory === "string" ? item.subcategory : "",
                 productName:
                   typeof item.productName === "string" ? item.productName : "",
                 size: typeof item.size === "string" ? item.size : "",
-                quantity:
-                  typeof item.quantity === "number" ? item.quantity : 0,
+                quantity: typeof item.quantity === "number" ? item.quantity : 0,
               })),
             });
 
@@ -3015,11 +3049,14 @@ export async function POST(request: NextRequest) {
       });
 
       if (!shouldSendWhatsAppNotification) {
-        console.info("[api/bookings/orders] WA notification skipped by request", {
-          businessId,
-          userId,
-          eligibleCount: createdOrdersForWhatsApp.length,
-        });
+        console.info(
+          "[api/bookings/orders] WA notification skipped by request",
+          {
+            businessId,
+            userId,
+            eligibleCount: createdOrdersForWhatsApp.length,
+          },
+        );
       } else {
         // Wait for WA delivery so image generation/upload/send is not cut off by serverless teardown.
         await Promise.allSettled(
@@ -3036,7 +3073,9 @@ export async function POST(request: NextRequest) {
           itemCount: orders.length,
           durationMs,
           ...summaryStats,
-          waNotificationMode: shouldSendWhatsAppNotification ? "sent" : "skipped",
+          waNotificationMode: shouldSendWhatsAppNotification
+            ? "sent"
+            : "skipped",
           waNotificationEligible: createdOrdersForWhatsApp.length,
           waNotificationQueued: shouldSendWhatsAppNotification
             ? createdOrdersForWhatsApp.length
@@ -3076,7 +3115,8 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(
           {
             error: rowError.message,
-            details: "Hari ini ditandai sebagai hari libur oleh owner, sehingga order baru ditutup.",
+            details:
+              "Hari ini ditandai sebagai hari libur oleh owner, sehingga order baru ditutup.",
           },
           { status: 409 },
         );
@@ -3158,7 +3198,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error: error.message,
-          details: "Hari ini ditandai sebagai hari libur oleh owner, sehingga order baru ditutup.",
+          details:
+            "Hari ini ditandai sebagai hari libur oleh owner, sehingga order baru ditutup.",
         },
         { status: 409 },
       );
