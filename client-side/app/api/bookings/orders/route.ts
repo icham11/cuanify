@@ -2133,6 +2133,8 @@ export async function POST(request: NextRequest) {
       WHERE business_id = ${businessId}
     `;
 
+    let ordersToPersist = orders;
+
     if (isStaffRequest) {
       const existingRows = await prisma.$queryRaw<DbOrderRow[]>`
         SELECT
@@ -2293,6 +2295,24 @@ export async function POST(request: NextRequest) {
         deliveryAddresses: addressesMap.get(row.external_id) ?? [],
       }));
 
+      const snapshot = await readOrdersSnapshot(businessId);
+      if (snapshot?.content) {
+        const snapshotOrders = parseOrdersContent(snapshot.content)
+          .map((entry, index) => normalizeOrder(entry, index))
+          .filter((entry): entry is NormalizedOrder => Boolean(entry)) as ParsedOrder[];
+        const mergedExistingOrders = new Map(
+          existingOrders.map((order) => [order.id, order]),
+        );
+
+        for (const order of snapshotOrders) {
+          if (!mergedExistingOrders.has(order.id)) {
+            mergedExistingOrders.set(order.id, order);
+          }
+        }
+
+        existingOrders = Array.from(mergedExistingOrders.values());
+      }
+
       const existingById = new Map(
         existingOrders.map((order) => [order.id, order]),
       );
@@ -2401,6 +2421,7 @@ export async function POST(request: NextRequest) {
           productionStages: mergedStages,
         };
       });
+      ordersToPersist = orders.filter((order) => incomingById.has(order.id));
     } else {
       validateAssignmentTransitionRules({
         orders,
@@ -2444,7 +2465,8 @@ export async function POST(request: NextRequest) {
       businessId,
       userId,
       orderCount: orders.length,
-      ids: orders.map((order) => order.id),
+      persistedOrderCount: ordersToPersist.length,
+      ids: ordersToPersist.map((order) => order.id),
     });
 
     const durationMs = Date.now() - requestStartedAt;
@@ -2481,7 +2503,7 @@ export async function POST(request: NextRequest) {
           // Clients can send stale/partial snapshots across tabs/devices; hard
           // delete here can drop valid orders created/edited by other users.
 
-          for (const order of orders) {
+          for (const order of ordersToPersist) {
             upsertedOrderCount += 1;
             const orderUuid = orderTaskUuid(businessId, order.id);
 
