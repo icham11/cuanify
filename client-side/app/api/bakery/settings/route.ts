@@ -121,6 +121,10 @@ export async function PATCH(request: NextRequest) {
             : undefined,
         cutoffHour:
           body.cutoffHour !== undefined ? Number(body.cutoffHour) : undefined,
+        cutoffEnabled:
+          body.cutoffEnabled !== undefined
+            ? Boolean(body.cutoffEnabled)
+            : undefined,
         defaultDpPercentage:
           body.defaultDpPercentage !== undefined
             ? Number(body.defaultDpPercentage)

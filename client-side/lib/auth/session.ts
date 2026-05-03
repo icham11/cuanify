@@ -20,7 +20,7 @@ export function isForbiddenError(error: unknown): error is ForbiddenError {
 export type AuthResult = {
   userId: number
   businessId: number
-  role: UserRole // "Owner" | "Admin" | "Cashier" | "Staff"
+  role: UserRole
 }
 
 function normalizeNumericId(value: unknown): number | undefined {
@@ -34,6 +34,11 @@ function normalizeNumericId(value: unknown): number | undefined {
     }
   }
   return undefined
+}
+
+function isPrismaConnectionTimeout(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return message.toLowerCase().includes("timeout exceeded when trying to connect")
 }
 
 async function resolveUserIdFromCustomJwt(
@@ -76,24 +81,24 @@ async function resolveUserIdFromCustomJwt(
 
 async function resolveUserIdFromNextAuthJwt(): Promise<number | undefined> {
   try {
-    // 1. Try official getServerSession (App Router recommended way)
     const session = await getServerSession(authOptions)
     if (session?.user?.id) {
       const directId = normalizeNumericId(session.user.id)
       if (directId) return directId
     }
 
-    // 2. Fallback to getToken with a properly formatted mock request (more reliable in some Vercel Edge cases)
     const cookieStore = await cookies()
     const headerList = await headers()
-    
+
     const token = await getToken({
       req: {
         headers: Object.fromEntries(headerList.entries()),
-        cookies: Object.fromEntries(cookieStore.getAll().map(c => [c.name, c.value]))
+        cookies: Object.fromEntries(cookieStore.getAll().map((c) => [c.name, c.value])),
       } as any,
       secret: process.env.NEXTAUTH_SECRET,
-      secureCookie: process.env.NODE_ENV === "production" || process.env.NEXTAUTH_URL?.startsWith("https")
+      secureCookie:
+        process.env.NODE_ENV === "production" ||
+        process.env.NEXTAUTH_URL?.startsWith("https"),
     })
 
     if (token) {
@@ -113,7 +118,6 @@ async function resolveUserIdFromNextAuthJwt(): Promise<number | undefined> {
       }
     }
 
-    // 3. Last resort fallback for session email
     if (session?.user?.email) {
       const dbUser = await prisma.user.findUnique({
         where: { email: session.user.email },
@@ -131,25 +135,22 @@ async function resolveUserIdFromNextAuthJwt(): Promise<number | undefined> {
 export async function requireAuth(): Promise<AuthResult> {
   const cookieStore = await cookies()
   const headerList = await headers()
+  const customAuth = await resolveUserIdFromCustomJwt(cookieStore, headerList)
 
-  // 1) Try NextAuth JWT cookie/header first (Google OAuth flow)
   let userId = await resolveUserIdFromNextAuthJwt()
-  let jwtBusinessId: number | undefined
-  let jwtRole: UserRole | undefined
+  let jwtBusinessId: number | undefined = customAuth?.businessId
+  let jwtRole: UserRole | undefined = customAuth?.role
 
-  if (!userId) {
-    const customAuth = await resolveUserIdFromCustomJwt(cookieStore, headerList)
-    if (customAuth) {
-      userId = customAuth.userId
-      jwtBusinessId = customAuth.businessId
-      jwtRole = customAuth.role
-    }
+  if (!userId && customAuth) {
+    userId = customAuth.userId
   }
 
   if (!userId) {
-    const hasNextAuth = cookieStore.get("next-auth.session-token") || cookieStore.get("__Secure-next-auth.session-token")
+    const hasNextAuth =
+      cookieStore.get("next-auth.session-token") ||
+      cookieStore.get("__Secure-next-auth.session-token")
     const hasCustom = cookieStore.get("token")
-    
+
     let reason = "Sesi tidak ditemukan."
     if (!hasNextAuth && !hasCustom) reason = "Anda belum login atau cookie diblokir browser."
     else if (hasNextAuth && !userId) reason = "Sesi Google ditemukan tapi gagal divalidasi (Secret mismatch?)."
@@ -159,9 +160,8 @@ export async function requireAuth(): Promise<AuthResult> {
   }
 
   const preferredId = cookieStore.get("active_business_id")?.value
+  const normalizedPreferredId = normalizeNumericId(preferredId)
 
-  // Jika tidak ada request ganti bisnis (preferredId) dan token JWT memiliki informasi lengkap,
-  // bypass pengecekan database sepenuhnya.
   if (!preferredId && jwtBusinessId && jwtRole) {
     return {
       userId: Number(userId),
@@ -170,32 +170,61 @@ export async function requireAuth(): Promise<AuthResult> {
     }
   }
 
-  // 4️⃣ Resolve active business — respect cookie preference for multi-business switch
-  let business = null
-
-  if (preferredId) {
-    // Try to find the preferred business — must belong to this user (as owner)
-    business = await prisma.business.findFirst({
-      where: { id: Number(preferredId), userId: Number(userId) },
-    })
-
-    // Or as a member (admin/cashier/staff)
-    if (!business) {
-      const membership = await prisma.businessMember.findFirst({
-        where: { userId: Number(userId), businessId: Number(preferredId) },
-        include: { business: true },
-      })
-      if (membership) {
-        return {
-          userId: Number(userId),
-          businessId: membership.businessId,
-          role: membership.role,
-        }
-      }
+  if (
+    normalizedPreferredId &&
+    jwtBusinessId &&
+    jwtRole &&
+    normalizedPreferredId === jwtBusinessId
+  ) {
+    return {
+      userId: Number(userId),
+      businessId: jwtBusinessId,
+      role: jwtRole,
     }
   }
 
-  // Fallback: pick the first business owned by this user
+  let business = null
+
+  if (preferredId) {
+    try {
+      business = await prisma.business.findFirst({
+        where: { id: Number(preferredId), userId: Number(userId) },
+      })
+
+      if (!business) {
+        const membership = await prisma.businessMember.findFirst({
+          where: { userId: Number(userId), businessId: Number(preferredId) },
+          include: { business: true },
+        })
+        if (membership) {
+          return {
+            userId: Number(userId),
+            businessId: membership.businessId,
+            role: membership.role,
+          }
+        }
+      }
+    } catch (error) {
+      if (
+        isPrismaConnectionTimeout(error) &&
+        normalizedPreferredId &&
+        jwtBusinessId &&
+        jwtRole &&
+        normalizedPreferredId === jwtBusinessId
+      ) {
+        console.warn(
+          "[Auth] Prisma timeout while resolving active business. Falling back to JWT business context.",
+        )
+        return {
+          userId: Number(userId),
+          businessId: jwtBusinessId,
+          role: jwtRole,
+        }
+      }
+      throw error
+    }
+  }
+
   if (!business) {
     business = await prisma.business.findFirst({
       where: { userId: Number(userId) },
@@ -203,7 +232,6 @@ export async function requireAuth(): Promise<AuthResult> {
     })
   }
 
-  // 5️⃣ If not an owner, check if they're a member of any business
   if (!business) {
     const membership = await prisma.businessMember.findFirst({
       where: { userId: Number(userId) },
@@ -221,10 +249,11 @@ export async function requireAuth(): Promise<AuthResult> {
   }
 
   if (!business) {
-    throw new AuthError(`Business not found for user ID: ${userId}. Pastikan Anda sudah membuat bisnis di halaman Onboarding.`)
+    throw new AuthError(
+      `Business not found for user ID: ${userId}. Pastikan Anda sudah membuat bisnis di halaman Onboarding.`,
+    )
   }
 
-  // Owner of the business
   return {
     userId: Number(userId),
     businessId: business.id,
@@ -232,16 +261,10 @@ export async function requireAuth(): Promise<AuthResult> {
   }
 }
 
-/**
- * Require a specific role. Call AFTER requireAuth().
- * Usage:
- *   const auth = await requireAuth();
- *   requireRole(auth, "Owner");
- */
 export function requireRole(auth: AuthResult, ...allowedRoles: UserRole[]): void {
   if (!allowedRoles.includes(auth.role)) {
     throw new ForbiddenError(
-      `Akses ditolak. Hanya ${allowedRoles.join("/")} yang bisa mengakses fitur ini.`
+      `Akses ditolak. Hanya ${allowedRoles.join("/")} yang bisa mengakses fitur ini.`,
     )
   }
 }

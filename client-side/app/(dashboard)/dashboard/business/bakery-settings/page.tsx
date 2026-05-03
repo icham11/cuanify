@@ -166,6 +166,7 @@ export default function BakerySettingsPage() {
   const [dailyProductionTokenLimit, setDailyProductionTokenLimit] = useState(500);
   const [staffDailyTokenLimit, setStaffDailyTokenLimit] = useState(500);
   const [cutoffHour, setCutoffHour] = useState(10);
+  const [cutoffEnabled, setCutoffEnabled] = useState(true);
   const [defaultDpPercentage, setDefaultDpPercentage] = useState(50);
   const [notifyProductionWhatsapp, setNotifyProductionWhatsapp] = useState(true);
   const [staffSettings, setStaffSettings] = useState<EditableStaff[]>([]);
@@ -211,6 +212,7 @@ export default function BakerySettingsPage() {
     setDailyProductionTokenLimit(settings.dailyProductionTokenLimit);
     setStaffDailyTokenLimit(settings.staffDailyTokenLimit);
     setCutoffHour(settings.cutoffHour);
+    setCutoffEnabled(settings.cutoffEnabled);
     setDefaultDpPercentage(settings.defaultDpPercentage);
     setNotifyProductionWhatsapp(settings.notifyProductionWhatsapp);
     setHolidayEntries(settings.holidayEntries);
@@ -335,6 +337,7 @@ export default function BakerySettingsPage() {
           dailyProductionTokenLimit,
           staffDailyTokenLimit,
           cutoffHour,
+          cutoffEnabled,
           defaultDpPercentage,
           notifyProductionWhatsapp,
           holidayEntries,
@@ -598,6 +601,48 @@ export default function BakerySettingsPage() {
             <span className="text-xs font-normal text-[#b58872]">
               Order besok hanya bisa masuk sebelum jam ini.
             </span>
+          </label>
+
+          <label className="flex items-center justify-between gap-4 rounded-[20px] border border-[#dcc7b8] bg-[#fbf4ed] px-4 py-3.5">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-semibold text-[#2f1e13]">
+                  Cut-off Order Aktif
+                </p>
+                <span
+                  className={`inline-flex min-w-[44px] items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-bold tracking-[0.08em] ${
+                    cutoffEnabled
+                      ? "bg-[#f7d8bf] text-[#b35b2a]"
+                      : "bg-[#e7ddd4] text-[#8b6d5b]"
+                  }`}
+                >
+                  {cutoffEnabled ? "ON" : "OFF"}
+                </span>
+              </div>
+              <p className="mt-1 text-xs leading-5 text-[#b58872]">
+                ON: aturan cut-off H-1 berjalan. OFF: admin dan owner bisa input order lama untuk backfill laporan.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={cutoffEnabled}
+              disabled={!isOwner}
+              onClick={() => setCutoffEnabled((current) => !current)}
+              className={`relative inline-flex h-[34px] w-[62px] shrink-0 items-center rounded-full border transition-all duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#cb6837]/30 focus-visible:ring-offset-2 focus-visible:ring-offset-[#fbf4ed] disabled:cursor-not-allowed disabled:opacity-50 ${
+                cutoffEnabled
+                  ? "border-[#bf6435] bg-linear-to-r from-[#cf7442] to-[#c86131] shadow-[inset_0_1px_0_rgba(255,255,255,0.28),0_8px_16px_-12px_rgba(156,79,36,0.8)]"
+                  : "border-[#d9c6b7] bg-[#e8ddd3] shadow-[inset_0_1px_0_rgba(255,255,255,0.55)]"
+              }`}
+            >
+              <span
+                className={`inline-block h-[26px] w-[26px] rounded-full bg-white transition-all duration-200 ease-out ${
+                  cutoffEnabled
+                    ? "translate-x-[32px] shadow-[0_3px_10px_rgba(110,54,24,0.28)]"
+                    : "translate-x-[3px] shadow-[0_2px_8px_rgba(109,83,64,0.18)]"
+                }`}
+              />
+            </button>
           </label>
 
           <label className="grid gap-1 text-sm font-semibold text-[#2f1e13]">

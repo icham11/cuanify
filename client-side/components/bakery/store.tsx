@@ -608,6 +608,26 @@ function generateShippingReferenceId(
     .join("-");
 }
 
+function buildHistoricalOrderTimestamp(
+  deliveryDate: string,
+  deliverySlot: string,
+): string | null {
+  const normalizedDate = normalizeDateInput(deliveryDate);
+  if (!normalizedDate) return null;
+
+  const slot =
+    /^\d{2}:\d{2}$/.test(deliverySlot || "") ? deliverySlot : "10:00";
+  const timestamp = new Date(`${normalizedDate}T${slot}:00+07:00`);
+  if (!Number.isFinite(timestamp.getTime())) return null;
+  return timestamp.toISOString();
+}
+
+function isHistoricalBackfillOrder(deliveryDate: string): boolean {
+  const normalizedDate = normalizeDateInput(deliveryDate);
+  if (!normalizedDate) return false;
+  return normalizedDate < getJakartaTodayIsoDate();
+}
+
 function appendStatusLog(
   history: OrderStatusLog[] | undefined,
   status: OrderStatus,
@@ -812,6 +832,7 @@ function parseOrdersSyncError(
 export function OrdersProvider({ children }: { children: React.ReactNode }) {
   const { settings: bakerySettings } = useBakerySettings();
   const blockedDates = bakerySettings?.blockedDates;
+  const cutoffEnabled = bakerySettings?.cutoffEnabled ?? true;
   const defaultDpPercentage = bakerySettings?.defaultDpPercentage ?? 50;
   const snapshot = useSyncExternalStore(
     subscribe,
@@ -1543,6 +1564,8 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
   const addOrder = useCallback(
     async (order: NewOrderInput) => {
       const deliveryMethod = inferDeliveryMethodFromNotes(order.notes);
+      const allowHistoricalBackfill =
+        !cutoffEnabled && isHistoricalBackfillOrder(order.deliveryDate);
       if (
         !isWithinBusinessHours(
           order.deliveryDate,
@@ -1552,6 +1575,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
             deliveryMethod,
             items: order.items,
             blockedDates,
+            allowHistoricalBackfill,
           },
         )
       ) {
@@ -1592,6 +1616,12 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         normalizedTotalPrice,
         normalizedTotalPaid,
       );
+      const isHistoricalBackfill = isHistoricalBackfillOrder(order.deliveryDate);
+      const historicalTimestamp =
+        isHistoricalBackfill
+          ? buildHistoricalOrderTimestamp(order.deliveryDate, order.deliverySlot)
+          : null;
+      const eventTimestamp = historicalTimestamp || new Date().toISOString();
 
       const newOrder: BakeryOrder = {
         id,
@@ -1622,7 +1652,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
             ? [
                 {
                   id: `pay-${id}-dp`,
-                  timestamp: new Date().toISOString(),
+                  timestamp: eventTimestamp,
                   amount: normalizedDpPaid,
                   type: "DP" as const,
                   note: "Initial DP recorded on create",
@@ -1635,7 +1665,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
             ? [
                 {
                   id: `pay-${id}-final`,
-                  timestamp: new Date().toISOString(),
+                  timestamp: eventTimestamp,
                   amount: normalizedFinalPaid,
                   type: "Final" as const,
                   note: "Initial final payment recorded on create",
@@ -1667,7 +1697,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
           {
             id: `log-${id}-created`,
             status: "In Production",
-            timestamp: new Date().toISOString(),
+            timestamp: eventTimestamp,
             note: "Booking dibuat dan langsung masuk produksi",
             userId: actorIdentity.userId,
             actorName: actorIdentity.name,
@@ -1687,6 +1717,12 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       writeOrdersSnapshot(nextOrders);
 
       toast.success(`Booking masuk produksi: ${bookingCode}`);
+      if (isHistoricalBackfill) {
+        toast.message(
+          "Booking backfill historis disimpan. Laporan, kalender internal, dan analytics akan ikut terbarui tanpa trigger operasional baru.",
+        );
+        return;
+      }
       if (isScheduledShipmentOrder(newOrder)) {
         const todayJakarta = getJakartaTodayIsoDate();
         if (isDueForScheduledShipment(newOrder, todayJakarta)) {
@@ -1708,6 +1744,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       createShipmentForOrder,
       syncOrdersToServer,
       blockedDates,
+      cutoffEnabled,
     ],
   );
 
@@ -2008,6 +2045,11 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         const totalPaidAmount = Math.min(total, dpPaidAmount + finalPaidAmount);
         const remainingBalance = Math.max(0, total - totalPaidAmount);
         const nowIso = new Date().toISOString();
+        const eventTimestamp =
+          isHistoricalBackfillOrder(order.deliveryDate)
+            ? buildHistoricalOrderTimestamp(order.deliveryDate, order.deliverySlot) ||
+              nowIso
+            : nowIso;
         const deltaDp = normalizeMoney(dpPaidAmount - previousDpPaid);
         const deltaFinal = normalizeMoney(finalPaidAmount - previousFinalPaid);
 
@@ -2016,7 +2058,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
           const direction = deltaDp > 0 ? "added" : "adjusted";
           appendedTransactions.push({
             id: `pay-${id}-dp-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-            timestamp: nowIso,
+            timestamp: eventTimestamp,
             amount: deltaDp,
             type: "DP",
             note: `Status set to ${status} (DP ${direction})`,
@@ -2029,7 +2071,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
           const direction = deltaFinal > 0 ? "added" : "adjusted";
           appendedTransactions.push({
             id: `pay-${id}-final-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-            timestamp: nowIso,
+            timestamp: eventTimestamp,
             amount: deltaFinal,
             type: "Final",
             note: `Status set to ${status} (Final ${direction})`,
@@ -2095,13 +2137,18 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         const deltaDp = normalizeMoney(nextDpPaid - previousDpPaid);
         const deltaFinal = normalizeMoney(nextFinalPaid - previousFinalPaid);
         const nowIso = new Date().toISOString();
+        const eventTimestamp =
+          isHistoricalBackfillOrder(order.deliveryDate)
+            ? buildHistoricalOrderTimestamp(order.deliveryDate, order.deliverySlot) ||
+              nowIso
+            : nowIso;
 
         const appendedTransactions: PaymentTransaction[] = [];
         if (deltaDp !== 0) {
           const direction = deltaDp > 0 ? "added" : "adjusted";
           appendedTransactions.push({
             id: `pay-${id}-dp-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-            timestamp: new Date().toISOString(),
+            timestamp: eventTimestamp,
             amount: deltaDp,
             type: "DP",
             note: payload.note || `DP ${direction}`,
@@ -2114,7 +2161,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
           const direction = deltaFinal > 0 ? "added" : "adjusted";
           appendedTransactions.push({
             id: `pay-${id}-final-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-            timestamp: nowIso,
+            timestamp: eventTimestamp,
             amount: deltaFinal,
             type: "Final",
             note: payload.note || `Final payment ${direction}`,
@@ -2156,11 +2203,14 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
     (id: string, deliveryDate: string, deliverySlot: string) => {
       const targetOrder = orders.find((order) => order.id === id);
       const deliveryMethod = inferDeliveryMethodFromNotes(targetOrder?.notes);
+      const allowHistoricalBackfill =
+        !cutoffEnabled && isHistoricalBackfillOrder(deliveryDate);
       if (
         !isWithinBusinessHours(deliveryDate, deliverySlot, undefined, {
           deliveryMethod,
           items: targetOrder?.items ?? [],
           blockedDates,
+          allowHistoricalBackfill,
         })
       ) {
         toast.error(
@@ -2202,6 +2252,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       actorIdentity,
       createShipmentForOrder,
       blockedDates,
+      cutoffEnabled,
     ],
   );
 

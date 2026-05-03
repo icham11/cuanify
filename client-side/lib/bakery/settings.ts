@@ -46,6 +46,7 @@ export interface BakeryBusinessSettings {
   dailyProductionTokenLimit: number;
   staffDailyTokenLimit: number;
   cutoffHour: number;
+  cutoffEnabled: boolean;
   defaultDpPercentage: number;
   notifyProductionWhatsapp: boolean;
   blockedDates: string[];
@@ -219,6 +220,7 @@ export function getDefaultBakerySettings(): BakeryBusinessSettings {
     dailyProductionTokenLimit: BAKERY_DAILY_PRODUCTION_TOKEN_LIMIT,
     staffDailyTokenLimit: BAKERY_STAFF_DAILY_TOKEN_LIMIT,
     cutoffHour: BAKERY_H_MINUS_1_CUTOFF_HOUR,
+    cutoffEnabled: true,
     defaultDpPercentage: 50,
     notifyProductionWhatsapp: true,
     blockedDates: holidayEntries.map((entry) => entry.date),
@@ -246,6 +248,7 @@ function parseMetadataToSettings(metadata: unknown): BakeryBusinessSettings {
     ),
     staffDailyTokenLimit: clampStaffTokenLimit(record.staffDailyTokenLimit),
     cutoffHour: clampCutoffHour(record.cutoffHour),
+    cutoffEnabled: record.cutoffEnabled !== false,
     defaultDpPercentage: clampPercent(record.defaultDpPercentage, 50),
     notifyProductionWhatsapp: record.notifyProductionWhatsapp !== false,
     blockedDates: holidayEntries.map((entry) => entry.date),
@@ -305,6 +308,10 @@ export async function upsertBakeryBusinessSettings(args: {
       args.input.cutoffHour !== undefined
         ? clampCutoffHour(args.input.cutoffHour)
         : current.cutoffHour,
+    cutoffEnabled:
+      args.input.cutoffEnabled !== undefined
+        ? Boolean(args.input.cutoffEnabled)
+        : current.cutoffEnabled,
     defaultDpPercentage:
       args.input.defaultDpPercentage !== undefined
         ? clampPercent(args.input.defaultDpPercentage, current.defaultDpPercentage)

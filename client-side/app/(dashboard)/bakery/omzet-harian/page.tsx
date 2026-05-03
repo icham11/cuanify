@@ -218,15 +218,15 @@ export default function AdminDailyOmzetPage() {
         icon: ReceiptText,
       },
       {
-        title: "Total Pesanan Hari Ini",
+        title: "Total Pesanan Tanggal Ini",
         value: formatCurrency(data.summary.bookingSalesCreatedToday),
-        hint: `${data.summary.bookingCountCreatedToday} booking dibuat hari ini`,
+        hint: `${data.summary.bookingCountCreatedToday} booking masuk ke tanggal bisnis ini`,
         icon: BarChart3,
       },
       {
-        title: "Sisa Belum Lunas Hari Ini",
+        title: "Sisa Belum Lunas Tanggal Ini",
         value: formatCurrency(data.summary.pendingFromCreatedToday),
-        hint: "Sisa dari booking hari ini yang belum lunas",
+        hint: "Sisa tagihan dari booking pada tanggal bisnis ini",
         icon: CalendarClock,
       },
       {

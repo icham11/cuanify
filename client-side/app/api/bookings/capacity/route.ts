@@ -5,7 +5,10 @@ import {
   getCapacityForDateRange,
   checkTokenAvailability,
 } from "@/lib/bookings/token-capacity-service";
-import { getBakeryBusinessSettings } from "@/lib/bakery/settings";
+import {
+  getBakeryBusinessSettings,
+  getDefaultBakerySettings,
+} from "@/lib/bakery/settings";
 import { normalizeDateInput } from "@/lib/helpers/date-normalization";
 
 export const runtime = "nodejs";
@@ -29,7 +32,15 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
   try {
     const { businessId } = await requireAuth();
-    const settings = await getBakeryBusinessSettings(businessId);
+    const settings = await getBakeryBusinessSettings(businessId).catch((error) => {
+      const message =
+        error instanceof Error ? error.message : "Unknown settings error";
+      console.warn(
+        "[api/bookings/capacity] Falling back to default bakery settings:",
+        message,
+      );
+      return getDefaultBakerySettings();
+    });
     const { searchParams } = new URL(request.url);
 
     const date = searchParams.get("date");

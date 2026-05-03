@@ -16,6 +16,7 @@ import {
   parseSafeDate,
 } from "@/lib/helpers/date-normalization";
 import { calculateOrderTokenFromItems } from "@/lib/bookings/order-token-calculator";
+import { isPastDate } from "@/lib/calendar/getCalendarStatus";
 
 export interface BookingItemForOperations {
   category: string;
@@ -43,6 +44,7 @@ export interface DateBlockingContext {
   items?: BookingItemForOperations[];
   blockedDates?: readonly string[];
   cutoffHour?: number;
+  allowHistoricalBackfill?: boolean;
 }
 
 export type SlotOrderType = "CUSTOM" | "SEASONAL";
@@ -299,6 +301,11 @@ export function isDateBlockedForOrdering(
   if (!normalized) return true;
 
   const blockedDates = context?.blockedDates ?? BAKERY_BLOCKED_DATES;
+  const allowHistoricalBackfill = context?.allowHistoricalBackfill === true;
+
+  if (allowHistoricalBackfill && isPastDate(normalized, now)) {
+    return false;
+  }
 
   if (isOrderingBlockedToday(now, blockedDates)) {
     return true;
