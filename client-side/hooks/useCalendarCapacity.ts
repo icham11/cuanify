@@ -143,7 +143,7 @@ export function useCalendarCapacity(
       const message =
         err instanceof Error ? err.message : "Failed to load capacity data";
       setError(message);
-      console.error("[useCalendarCapacity] Fetch error:", message);
+      console.warn("[useCalendarCapacity] Fetch error:", message);
     } finally {
       setIsLoading(false);
     }

@@ -219,6 +219,7 @@ export default function ProductionTable() {
               dailyProductionTokenLimit: DEFAULT_MAX_TOKEN,
               staffDailyTokenLimit: STAFF_DAILY_TOKEN_LIMIT_FALLBACK,
               cutoffHour: 10,
+              cutoffEnabled: true,
               defaultDpPercentage: 50,
               notifyProductionWhatsapp: true,
               blockedDates: [],

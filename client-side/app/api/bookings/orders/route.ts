@@ -2106,6 +2106,9 @@ export async function POST(request: NextRequest) {
     const roleName = role as unknown as string;
     const isStaffRequest = roleName === "Staff";
     const bakerySettings = await getBakeryBusinessSettings(businessId);
+    const canBackfillPastOrders =
+      !bakerySettings.cutoffEnabled &&
+      (role === "Owner" || role === "Admin");
     const shouldSendWhatsAppNotification =
       !skipWhatsAppNotification && bakerySettings.notifyProductionWhatsapp;
     let existingOrders: ParsedOrder[] = [];
@@ -2601,7 +2604,7 @@ export async function POST(request: NextRequest) {
 
             // Enforce H-1 cutoff policy in backend as final authority.
             if (shouldValidateSchedule && order.deliveryDate) {
-              if (isPastDate(order.deliveryDate)) {
+              if (!canBackfillPastOrders && isPastDate(order.deliveryDate)) {
                 throw new PastDateError(order.deliveryDate);
               }
 
@@ -2627,7 +2630,7 @@ export async function POST(request: NextRequest) {
                 throw new CapacityBlockedDateError(order.deliveryDate);
               }
 
-              if (status === "CUTOFF") {
+              if (!canBackfillPastOrders && status === "CUTOFF") {
                 throw new CapacityCutoffError(
                   order.deliveryDate,
                   bakerySettings.cutoffHour,

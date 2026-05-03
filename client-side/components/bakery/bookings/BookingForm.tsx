@@ -251,7 +251,7 @@ const addressSchema = z.object({
         sanitizePostalCodeInput(value).length === 5,
       "Kode pos harus 5 digit.",
     ),
-  addressLine: z.string().min(5, "Address is too short"),
+  addressLine: z.string().default(""),
 });
 
 const bookingSchema = z
@@ -288,12 +288,28 @@ const bookingSchema = z
   })
   .superRefine((values, ctx) => {
     values.deliveryAddresses.forEach((address, index) => {
+      const addressLine = (address.addressLine || "").trim();
       const postalCode = sanitizePostalCodeInput(address.postalCode || "");
       const embeddedPostalCode = extractPostalCodeFromAddress(
-        address.addressLine || "",
+        addressLine,
       );
+      const requiresPrimaryAddress = values.deliveryMethod !== "PICKUP";
+      const shouldValidateAddressDetails =
+        index === 0 ? requiresPrimaryAddress : addressLine.length > 0;
 
-      if (address.postalCode.trim().length > 0 && postalCode.length !== 5) {
+      if (index === 0 && requiresPrimaryAddress && addressLine.length < 5) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["deliveryAddresses", index, "addressLine"],
+          message: "Alamat wajib diisi untuk metode pengiriman ini.",
+        });
+      }
+
+      if (
+        shouldValidateAddressDetails &&
+        address.postalCode.trim().length > 0 &&
+        postalCode.length !== 5
+      ) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["deliveryAddresses", index, "postalCode"],
@@ -302,8 +318,9 @@ const bookingSchema = z
       }
 
       if (
-        ADDRESS_CONTACT_LABEL_PATTERN.test(address.addressLine || "") ||
-        ADDRESS_PHONE_PATTERN.test(address.addressLine || "")
+        shouldValidateAddressDetails &&
+        (ADDRESS_CONTACT_LABEL_PATTERN.test(addressLine) ||
+          ADDRESS_PHONE_PATTERN.test(addressLine))
       ) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -332,14 +349,14 @@ const bookingSchema = z
           });
         }
 
-        if ((address.addressLine || "").trim().length < 15) {
+        if (addressLine.length < 15) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ["deliveryAddresses", index, "addressLine"],
             message:
               "Alamat utama terlalu singkat untuk shipping. Isi alamat lengkap.",
           });
-        } else if (!addressLooksStructured(address.addressLine || "")) {
+        } else if (!addressLooksStructured(addressLine)) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ["deliveryAddresses", index, "addressLine"],
@@ -2530,7 +2547,7 @@ export default function BookingForm() {
       customerName: "",
       phoneNumber: "",
       deliveryDate: "",
-      deliverySlot: "",
+      deliverySlot: "10:00",
       deliveryMethod: "REGULAR_JNE_JNT",
       customNotes: "",
       paymentStatus: "DP Paid",
@@ -2705,9 +2722,16 @@ export default function BookingForm() {
   const { settings: bakerySettings } = useBakerySettings();
   const blockedDates = bakerySettings?.blockedDates ?? BAKERY_BLOCKED_DATES;
   const cutoffHour = bakerySettings?.cutoffHour ?? 10;
+  const cutoffEnabled = bakerySettings?.cutoffEnabled ?? true;
   const defaultDpPercentage = bakerySettings?.defaultDpPercentage ?? 50;
+  const canBackfillPastOrders =
+    !cutoffEnabled && !isRoleLoading && (isOwner || isAdmin);
+  const allowHistoricalBackfillForSelectedDate =
+    canBackfillPastOrders &&
+    Boolean(normalizedDeliveryDate) &&
+    isPastDate(normalizedDeliveryDate);
 
-  const selectedCalendarStatus = useMemo(() => {
+  const rawSelectedCalendarStatus = useMemo(() => {
     if (!normalizedDeliveryDate) {
       return "AVAILABLE" as const;
     }
@@ -2722,6 +2746,18 @@ export default function BookingForm() {
       { blockedDates, cutoffHour },
     );
   }, [normalizedDeliveryDate, getCalendarCapacity, blockedDates, cutoffHour]);
+
+  const selectedCalendarStatus = useMemo(() => {
+    if (
+      canBackfillPastOrders &&
+      (rawSelectedCalendarStatus === "PAST" ||
+        rawSelectedCalendarStatus === "CUTOFF")
+    ) {
+      return "AVAILABLE" as const;
+    }
+
+    return rawSelectedCalendarStatus;
+  }, [canBackfillPastOrders, rawSelectedCalendarStatus]);
 
   const calendarDateError = useMemo(() => {
     if (selectedCalendarStatus === "PAST") {
@@ -2738,6 +2774,17 @@ export default function BookingForm() {
     }
     return "";
   }, [selectedCalendarStatus, cutoffHour]);
+
+  const calendarDateNotice = useMemo(() => {
+    if (!canBackfillPastOrders) return "";
+    if (rawSelectedCalendarStatus === "PAST") {
+      return "Mode backfill aktif: Admin/Owner boleh input order untuk tanggal yang sudah lewat.";
+    }
+    if (rawSelectedCalendarStatus === "CUTOFF") {
+      return "Mode backfill aktif: Admin/Owner boleh input order walau sudah lewat cut-off H-1.";
+    }
+    return "";
+  }, [canBackfillPastOrders, rawSelectedCalendarStatus]);
 
   const isCalendarDateInvalid =
     selectedCalendarStatus === "BLOCKED" ||
@@ -2998,6 +3045,7 @@ export default function BookingForm() {
     () => usesShippingEngine(deliveryMethod as DeliveryMethod),
     [deliveryMethod],
   );
+  const isPickupMethod = deliveryMethod === "PICKUP";
   const isCarRideHailingMethod =
     deliveryMethod === "ASSISTED_GOCAR" || deliveryMethod === "ASSISTED_GRAB";
   const hasBouquetItems = useMemo(
@@ -3441,9 +3489,18 @@ export default function BookingForm() {
         deliveryMethod,
         items: watchedItems,
         blockedDates,
-        cutoffHour,
+        cutoffHour: canBackfillPastOrders ? 99 : cutoffHour,
+        allowHistoricalBackfill: allowHistoricalBackfillForSelectedDate,
       }),
-    [deliveryDate, deliveryMethod, watchedItems, blockedDates, cutoffHour],
+    [
+      deliveryDate,
+      deliveryMethod,
+      watchedItems,
+      blockedDates,
+      cutoffHour,
+      canBackfillPastOrders,
+      allowHistoricalBackfillForSelectedDate,
+    ],
   );
   const draftOrderType = useMemo<SlotOrderType>(
     () => inferOrderTypeFromItems(watchedItems),
@@ -3459,13 +3516,14 @@ export default function BookingForm() {
   );
   const isBlockedDate = Boolean(
     deliveryDate &&
-    (isDateBlockedForOrdering(deliveryDate, undefined, {
-      deliveryMethod,
-      items: watchedItems,
-      blockedDates,
-      cutoffHour,
-    }) ||
-      false),
+    (!canBackfillPastOrders &&
+      isDateBlockedForOrdering(deliveryDate, undefined, {
+        deliveryMethod,
+        items: watchedItems,
+        blockedDates,
+        cutoffHour,
+        allowHistoricalBackfill: allowHistoricalBackfillForSelectedDate,
+      })),
   );
 
   useEffect(() => {
@@ -3492,7 +3550,8 @@ export default function BookingForm() {
             deliveryMethod,
             items: watchedItems,
             blockedDates,
-            cutoffHour,
+            cutoffHour: canBackfillPastOrders ? 99 : cutoffHour,
+            allowHistoricalBackfill: allowHistoricalBackfillForSelectedDate,
           },
         });
       return {
@@ -3510,6 +3569,8 @@ export default function BookingForm() {
     watchedItems,
     blockedDates,
     cutoffHour,
+    canBackfillPastOrders,
+    allowHistoricalBackfillForSelectedDate,
   ]);
 
   const slotStatusByTime = useMemo(() => {
@@ -3582,7 +3643,8 @@ export default function BookingForm() {
             deliveryMethod,
             items: watchedItems,
             blockedDates,
-            cutoffHour,
+            cutoffHour: canBackfillPastOrders ? 99 : cutoffHour,
+            allowHistoricalBackfill: canBackfillPastOrders && isPastDate(dateKey),
           })
         ) {
           const cap = getRecommendationCapacity(dateKey);
@@ -3614,6 +3676,7 @@ export default function BookingForm() {
     watchedItems,
     blockedDates,
     cutoffHour,
+    canBackfillPastOrders,
   ]);
 
   const handleSuggestionClick = (dateKey: string) => {
@@ -3852,7 +3915,7 @@ export default function BookingForm() {
       return;
     }
 
-    if (isPastDate(normalizedDeliveryDate)) {
+    if (!canBackfillPastOrders && isPastDate(normalizedDeliveryDate)) {
       toast.error("Tanggal sudah terlewat");
       return;
     }
@@ -3866,6 +3929,8 @@ export default function BookingForm() {
           deliveryMethod: values.deliveryMethod,
           items: values.items,
           blockedDates,
+          allowHistoricalBackfill:
+            canBackfillPastOrders && isPastDate(normalizedDeliveryDate),
         },
       )
     ) {
@@ -3921,17 +3986,24 @@ export default function BookingForm() {
         throw new Error("Tanggal sudah penuh");
       }
 
-      if (status === "PAST") {
+      if (!canBackfillPastOrders && status === "PAST") {
         throw new Error("Tanggal sudah terlewat");
       }
 
-      if (status === "CUTOFF") {
+      if (!canBackfillPastOrders && status === "CUTOFF") {
         throw new Error("Pemesanan H-1 sudah ditutup (setelah jam 10 pagi)");
       }
 
       if (payload.data.isAvailable === false) {
         throw new Error("Slot produksi sudah penuh");
       }
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Gagal validasi kapasitas produksi.";
+      toast.error(message);
+      return;
     } finally {
       setIsCapacityValidating(false);
     }
@@ -5677,6 +5749,11 @@ export default function BookingForm() {
                   {deliveryDate && calendarDateError ? (
                     <span className="text-xs font-medium text-rose-600">
                       {calendarDateError}
+                    </span>
+                  ) : null}
+                  {deliveryDate && calendarDateNotice ? (
+                    <span className="text-xs font-medium text-amber-700">
+                      {calendarDateNotice}
                     </span>
                   ) : null}
                   <div className="rounded-lg border border-amber-200 bg-amber-50 p-2">
@@ -7820,7 +7897,7 @@ export default function BookingForm() {
                           )}
                         </label>
                         <label className="grid gap-2 text-sm font-medium text-gray-700 sm:col-span-2">
-                          Full Address
+                          Full Address {isPickupMethod ? "(Opsional untuk Pickup)" : ""}
                           <Textarea
                             className="min-h-20"
                             placeholder="Jalan, nomor, blok, RT/RW, kelurahan, kecamatan, kota"
@@ -7838,8 +7915,9 @@ export default function BookingForm() {
                           />
                           {!addressError?.addressLine?.message && (
                             <span className="text-[11px] font-normal leading-4 text-gray-500">
-                              Jangan campur nama penerima atau no. telepon di
-                              field ini. Fokus ke satu alamat final.
+                              {isPickupMethod
+                                ? "Untuk pickup, alamat boleh dikosongkan. Isi hanya jika memang perlu dicatat."
+                                : "Jangan campur nama penerima atau no. telepon di field ini. Fokus ke satu alamat final."}
                             </span>
                           )}
                           {addressError?.addressLine?.message && (

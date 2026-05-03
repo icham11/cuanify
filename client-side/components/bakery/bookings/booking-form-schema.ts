@@ -65,7 +65,7 @@ export const addressSchema = z.object({
         sanitizePostalCodeInput(value).length === 5,
       "Kode pos harus 5 digit.",
     ),
-  addressLine: z.string().min(5, "Address is too short"),
+  addressLine: z.string().default(""),
 });
 
 export const bookingSchema = z
@@ -102,12 +102,28 @@ export const bookingSchema = z
   })
   .superRefine((values, ctx) => {
     values.deliveryAddresses.forEach((address, index) => {
+      const addressLine = (address.addressLine || "").trim();
       const postalCode = sanitizePostalCodeInput(address.postalCode || "");
       const embeddedPostalCode = extractPostalCodeFromAddress(
-        address.addressLine || "",
+        addressLine,
       );
+      const requiresPrimaryAddress = values.deliveryMethod !== "PICKUP";
+      const shouldValidateAddressDetails =
+        index === 0 ? requiresPrimaryAddress : addressLine.length > 0;
 
-      if (address.postalCode.trim().length > 0 && postalCode.length !== 5) {
+      if (index === 0 && requiresPrimaryAddress && addressLine.length < 5) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["deliveryAddresses", index, "addressLine"],
+          message: "Alamat wajib diisi untuk metode pengiriman ini.",
+        });
+      }
+
+      if (
+        shouldValidateAddressDetails &&
+        address.postalCode.trim().length > 0 &&
+        postalCode.length !== 5
+      ) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["deliveryAddresses", index, "postalCode"],
@@ -116,8 +132,9 @@ export const bookingSchema = z
       }
 
       if (
-        ADDRESS_CONTACT_LABEL_PATTERN.test(address.addressLine || "") ||
-        ADDRESS_PHONE_PATTERN.test(address.addressLine || "")
+        shouldValidateAddressDetails &&
+        (ADDRESS_CONTACT_LABEL_PATTERN.test(addressLine) ||
+          ADDRESS_PHONE_PATTERN.test(addressLine))
       ) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -146,14 +163,14 @@ export const bookingSchema = z
           });
         }
 
-        if ((address.addressLine || "").trim().length < 15) {
+        if (addressLine.length < 15) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ["deliveryAddresses", index, "addressLine"],
             message:
               "Alamat utama terlalu singkat untuk shipping. Isi alamat lengkap.",
           });
-        } else if (!addressLooksStructured(address.addressLine || "")) {
+        } else if (!addressLooksStructured(addressLine)) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ["deliveryAddresses", index, "addressLine"],
