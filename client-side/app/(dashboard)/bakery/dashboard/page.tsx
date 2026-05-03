@@ -1,83 +1,625 @@
 "use client";
 
-import { useMemo } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useEffect, useMemo, useState } from "react";
+import {
+  AlertTriangle,
+  BarChart3,
+  CalendarDays,
+  CheckSquare,
+  Clock3,
+  Package2,
+  Wallet,
+} from "lucide-react";
 import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
-import OrdersStats from "@/components/bakery/dashboard/OrdersStats";
-import dynamic from "next/dynamic";
-const OrdersChart = dynamic(() => import("@/components/bakery/dashboard/OrdersChart"), { ssr: false });
-import { useOrders } from "@/components/bakery/store";
-import { BarChart3 } from "lucide-react";
+import { type BakeryOrder, useOrders } from "@/components/bakery/store";
+import { useBusiness } from "@/context/BusinessContext";
+import { useBakerySettings } from "@/hooks/useBakerySettings";
+import { BAKERY_STAFF_DAILY_TOKEN_LIMIT } from "@/lib/bookings/config";
+import { summarizeProductionTokensByItems } from "@/lib/bookings/operations";
+import { normalizeOrderStatus } from "@/lib/bookings/order-status";
+import { getJakartaTodayIsoDate } from "@/lib/bookings/shipping-schedule";
+
+type TeamMember = {
+  userId: number;
+  name: string;
+  role: "Cashier" | "Staff";
+  businessId: number;
+};
+
+type StaffStat = {
+  userId: number;
+  name: string;
+  role: "Cashier" | "Staff";
+  todayToken: number;
+  activeOrders: number;
+  completedToday: number;
+};
+
+function formatRupiah(value: number) {
+  return `Rp${Math.max(0, value).toLocaleString("id-ID")}`;
+}
+
+function formatDisplayDate(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("id-ID", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(date);
+}
+
+function toJakartaDateKey(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Jakarta",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+
+  const year = parts.find((part) => part.type === "year")?.value || "1970";
+  const month = parts.find((part) => part.type === "month")?.value || "01";
+  const day = parts.find((part) => part.type === "day")?.value || "01";
+  return `${year}-${month}-${day}`;
+}
+
+function parseNumericId(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function getOrderStaffTokenAssignments(order: BakeryOrder): Array<{
+  staffUserId: number;
+  staffName: string;
+  token: number;
+}> {
+  const stageAssignments = (order.productionStages ?? [])
+    .filter((stage) => stage.staffId && stage.tokenAmount > 0)
+    .map((stage) => ({
+      staffUserId: Number(stage.staffId),
+      staffName:
+        order.assignedStaffName ||
+        `${stage.stage.charAt(0).toUpperCase()}${stage.stage.slice(1)} staff`,
+      token: Math.max(0, Math.round(Number(stage.tokenAmount) || 0)),
+    }));
+
+  if (stageAssignments.length > 0) return stageAssignments;
+  if (!order.assignedStaffUserId) return [];
+
+  return [
+    {
+      staffUserId: order.assignedStaffUserId,
+      staffName: order.assignedStaffName || `Staff #${order.assignedStaffUserId}`,
+      token: summarizeProductionTokensByItems(order.items ?? []),
+    },
+  ];
+}
 
 export default function BakeryDashboardPage() {
   const { orders } = useOrders();
+  const { business } = useBusiness();
+  const { settings: bakerySettings } = useBakerySettings();
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [isTeamLoading, setIsTeamLoading] = useState(true);
+
+  const today = getJakartaTodayIsoDate();
+  const staffDailyTokenLimit =
+    bakerySettings?.staffDailyTokenLimit ?? BAKERY_STAFF_DAILY_TOKEN_LIMIT;
+
+  useEffect(() => {
+    let active = true;
+
+    const loadTeamMembers = async () => {
+      if (!business?.id) {
+        if (active) {
+          setTeamMembers([]);
+          setIsTeamLoading(false);
+        }
+        return;
+      }
+
+      setIsTeamLoading(true);
+
+      try {
+        const response = await fetch("/api/staff", { cache: "no-store" });
+        if (!response.ok) {
+          if (active) {
+            setTeamMembers([]);
+          }
+          return;
+        }
+
+        const payload = (await response.json().catch(() => ({}))) as {
+          data?: {
+            members?: Array<{
+              userId?: unknown;
+              role?: unknown;
+              businessId?: unknown;
+              name?: unknown;
+            }>;
+          };
+        };
+
+        const currentBusinessId = Number(business.id);
+        const nextMembers = (payload.data?.members ?? [])
+          .map((member) => {
+            const userId = parseNumericId(member.userId);
+            const businessId = parseNumericId(member.businessId);
+            const role =
+              member.role === "Cashier" || member.role === "Staff"
+                ? member.role
+                : null;
+            const name =
+              typeof member.name === "string" ? member.name.trim() : "";
+
+            if (!userId || !businessId || !role || !name) {
+              return null;
+            }
+
+            return {
+              userId,
+              businessId,
+              role,
+              name,
+            };
+          })
+          .filter((member): member is TeamMember => Boolean(member))
+          .filter(
+            (member) =>
+              member.role === "Staff" && member.businessId === currentBusinessId,
+          )
+          .sort((left, right) => left.name.localeCompare(right.name, "id"));
+
+        if (active) {
+          setTeamMembers(nextMembers);
+        }
+      } catch {
+        if (active) {
+          setTeamMembers([]);
+        }
+      } finally {
+        if (active) {
+          setIsTeamLoading(false);
+        }
+      }
+    };
+
+    void loadTeamMembers();
+
+    return () => {
+      active = false;
+    };
+  }, [business?.id]);
+
+  const activeOrders = useMemo(
+    () =>
+      orders.filter((order) => {
+        const status = normalizeOrderStatus(order.orderStatus);
+        return !["Completed", "Delivered", "Cancelled"].includes(status);
+      }),
+    [orders],
+  );
+
+  const completedThisMonth = useMemo(() => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+
+    return orders.filter((order) => {
+      if (!order.deliveryDate) return false;
+      const status = normalizeOrderStatus(order.orderStatus);
+      if (!["Completed", "Delivered", "Delivery"].includes(status)) return false;
+
+      const date = new Date(`${order.deliveryDate}T00:00:00`);
+      return date.getFullYear() === year && date.getMonth() === month;
+    }).length;
+  }, [orders]);
+
+  const lateOrders = useMemo(
+    () =>
+      orders.filter((order) => {
+        const status = normalizeOrderStatus(order.orderStatus);
+        return order.deliveryDate < today && !["Completed", "Delivered", "Cancelled"].includes(status);
+      }),
+    [orders, today],
+  );
+
+  const todayOrders = useMemo(
+    () =>
+      orders.filter((order) => {
+        const status = normalizeOrderStatus(order.orderStatus);
+        return order.deliveryDate === today && !["Completed", "Delivered", "Cancelled"].includes(status);
+      }),
+    [orders, today],
+  );
+
+  const todayPayments = useMemo(() => {
+    return orders.flatMap((order) =>
+      (order.paymentTransactions ?? []).filter(
+        (transaction) => toJakartaDateKey(transaction.timestamp) === today,
+      ),
+    );
+  }, [orders, today]);
+
+  const cashInToday = useMemo(
+    () => todayPayments.reduce((sum, transaction) => sum + Number(transaction.amount || 0), 0),
+    [todayPayments],
+  );
 
   const upcomingDeliveries = useMemo(
     () =>
       orders
+        .filter((order) => order.deliveryDate >= today)
         .slice()
         .sort((a, b) => a.deliveryDate.localeCompare(b.deliveryDate))
         .slice(0, 5)
         .map((order) => ({
-          id: order.resi || `ORD-${order.id}`,
+          id: order.bookingCode || order.resi || `ORD-${order.id}`,
           customer: order.customerName || "Walk-in Customer",
           product: order.product || "Custom Cake",
           date: order.deliveryDate || "-",
+          slot: order.deliverySlot || "-",
+          status: normalizeOrderStatus(order.orderStatus),
         })),
-    [orders]
+    [orders, today],
   );
 
+  const trackedStaff = useMemo(() => {
+    const byUserId = new Map<number, TeamMember>();
+
+    for (const member of teamMembers) {
+      byUserId.set(member.userId, member);
+    }
+
+    for (const order of orders) {
+      for (const assignment of getOrderStaffTokenAssignments(order)) {
+        if (!byUserId.has(assignment.staffUserId)) {
+          byUserId.set(assignment.staffUserId, {
+            userId: assignment.staffUserId,
+            businessId: Number(business?.id || 0),
+            role: "Staff",
+            name: assignment.staffName || `Staff #${assignment.staffUserId}`,
+          });
+        }
+      }
+    }
+
+    return Array.from(byUserId.values()).sort((left, right) =>
+      left.name.localeCompare(right.name, "id"),
+    );
+  }, [business?.id, orders, teamMembers]);
+
+  const staffStats = useMemo<StaffStat[]>(() => {
+    const statMap = new Map<
+      number,
+      {
+        userId: number;
+        name: string;
+        role: "Cashier" | "Staff";
+        todayToken: number;
+        activeOrderIds: Set<string>;
+        completedOrderIds: Set<string>;
+      }
+    >();
+
+    for (const member of trackedStaff) {
+      statMap.set(member.userId, {
+        userId: member.userId,
+        name: member.name,
+        role: member.role,
+        todayToken: 0,
+        activeOrderIds: new Set<string>(),
+        completedOrderIds: new Set<string>(),
+      });
+    }
+
+    for (const order of orders) {
+      if ((order.deliveryDate || "").trim() !== today) continue;
+
+      const status = normalizeOrderStatus(order.orderStatus);
+      for (const assignment of getOrderStaffTokenAssignments(order)) {
+        const current = statMap.get(assignment.staffUserId) ?? {
+          userId: assignment.staffUserId,
+          name: assignment.staffName || `Staff #${assignment.staffUserId}`,
+          role: "Staff" as const,
+          todayToken: 0,
+          activeOrderIds: new Set<string>(),
+          completedOrderIds: new Set<string>(),
+        };
+
+        if (!["Completed", "Delivered", "Cancelled"].includes(status)) {
+          current.todayToken += assignment.token;
+          current.activeOrderIds.add(order.id);
+        }
+
+        if (["Completed", "Delivered"].includes(status)) {
+          current.completedOrderIds.add(order.id);
+        }
+
+        statMap.set(assignment.staffUserId, current);
+      }
+    }
+
+    return Array.from(statMap.values())
+      .map((entry) => ({
+        userId: entry.userId,
+        name: entry.name,
+        role: entry.role,
+        todayToken: entry.todayToken,
+        activeOrders: entry.activeOrderIds.size,
+        completedToday: entry.completedOrderIds.size,
+      }))
+      .sort((left, right) => {
+        if (right.todayToken !== left.todayToken) {
+          return right.todayToken - left.todayToken;
+        }
+        if (right.activeOrders !== left.activeOrders) {
+          return right.activeOrders - left.activeOrders;
+        }
+        return left.name.localeCompare(right.name, "id");
+      });
+  }, [orders, today, trackedStaff]);
+
+  const summaryCards = [
+    {
+      key: "active",
+      label: "Order Aktif",
+      value: activeOrders.length,
+      note: "Masih berjalan",
+      icon: Package2,
+      tone: "bg-[var(--crumbella-accent-soft)] text-[var(--crumbella-primary)]",
+    },
+    {
+      key: "late",
+      label: "Terlambat",
+      value: lateOrders.length,
+      note: "Perlu perhatian",
+      icon: AlertTriangle,
+      tone: "bg-[#fdeaea] text-[var(--crumbella-danger)]",
+    },
+    {
+      key: "due",
+      label: "Due Today",
+      value: todayOrders.length,
+      note: "Jadwal hari ini",
+      icon: CalendarDays,
+      tone: "bg-[#e4eef8] text-[var(--crumbella-info)]",
+    },
+    {
+      key: "done",
+      label: "Selesai",
+      value: completedThisMonth,
+      note: "Bulan ini",
+      icon: CheckSquare,
+      tone: "bg-[#e0f0e8] text-[var(--crumbella-success)]",
+    },
+  ];
+
   return (
-    <div className="space-y-6 pb-10">
+    <div className="mx-auto max-w-3xl space-y-4 pb-10">
       <GradientPageHeader
-        title="Bakery Dashboard"
-        description="Real-time overview of bakery orders and delivery commitments."
+        title="Dashboard"
+        description={new Date().toLocaleDateString("id-ID", {
+          weekday: "long",
+          day: "numeric",
+          month: "short",
+          year: "numeric",
+        })}
         icon={BarChart3}
       />
 
-      <div className="space-y-3">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-            Order Statistics
+      <section className="rounded-[26px] border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] px-4 py-4 shadow-[0_16px_30px_-24px_rgba(30,18,10,0.5)]">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--crumbella-muted)]">
+              Uang Masuk Hari Ini
+            </p>
+            <p className="mt-1 text-[1.7rem] font-extrabold leading-none text-[var(--foreground)] sm:text-[2rem]">
+              {formatRupiah(cashInToday)}
+            </p>
+            <p className="mt-2 text-[11px] text-[var(--crumbella-muted)]">
+              Berdasar transaksi payment hari ini - {todayPayments.length} transaksi
+            </p>
+          </div>
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[var(--crumbella-accent-soft)] text-[var(--crumbella-primary)] sm:h-12 sm:w-12">
+            <Wallet className="h-5 w-5" />
+          </div>
+        </div>
+      </section>
+
+      <section className="grid grid-cols-2 gap-3">
+        {summaryCards.map((card) => {
+          const Icon = card.icon;
+
+          return (
+            <div
+              key={card.key}
+              className="rounded-[22px] border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] p-3.5 shadow-[0_10px_18px_-20px_rgba(30,18,10,0.7)]"
+            >
+              <div className={`mb-3 inline-flex h-9 w-9 items-center justify-center rounded-2xl ${card.tone}`}>
+                <Icon className="h-4.5 w-4.5" />
+              </div>
+              <p className="text-[10px] font-medium text-[var(--crumbella-muted)]">{card.label}</p>
+              <p className="mt-1 text-[1.45rem] font-extrabold leading-none text-[var(--foreground)] sm:text-[1.75rem]">
+                {card.value}
+              </p>
+              <p className="mt-1 text-[10px] text-[var(--crumbella-muted)]">{card.note}</p>
+            </div>
+          );
+        })}
+      </section>
+
+      {lateOrders.length > 0 ? (
+        <div className="rounded-[22px] border border-[#e8a0a0] bg-[#fdeaea] px-4 py-3 shadow-[0_12px_24px_-22px_rgba(168,48,48,0.6)]">
+          <p className="flex items-center gap-2 text-[12px] font-semibold text-[#a83030]">
+            <Clock3 className="h-4 w-4" />
+            {lateOrders.length} order terlambat
+          </p>
+          <p className="mt-1 text-[10px] text-[#a83030]">
+            {lateOrders
+              .slice(0, 3)
+              .map((order) => `${order.customerName || "Customer"} (${formatDisplayDate(order.deliveryDate)})`)
+              .join(" - ")}
           </p>
         </div>
-        <OrdersStats />
-      </div>
+      ) : null}
 
-      <OrdersChart />
+      <section className="space-y-2">
+        <div className="px-1 pt-1">
+          <p className="text-[1.35rem] font-extrabold leading-tight text-[var(--foreground)] sm:text-[1.55rem]">
+            Kapasitas Staff
+          </p>
+          <p className="mt-1 text-[11px] text-[var(--crumbella-muted)]">
+            Mengikuti anggota staff dari business aktif dan assignment order hari ini
+          </p>
+        </div>
 
-      <Card className="rounded-xl shadow-sm">
-        <CardHeader className="p-6 pb-2">
-          <CardTitle>Upcoming Deliveries</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3 px-6 pb-6 pt-0">
+        <div className="space-y-2">
+          {staffStats.length === 0 ? (
+            <div className="rounded-[24px] border border-dashed border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] px-4 py-5 text-sm text-[var(--crumbella-muted)]">
+              {isTeamLoading
+                ? "Memuat data staff..."
+                : "Belum ada staff pada business aktif atau belum ada assignment hari ini."}
+            </div>
+          ) : (
+            staffStats.map((staff) => {
+              const remainingToken = Math.max(0, staffDailyTokenLimit - staff.todayToken);
+              const usagePercent =
+                staffDailyTokenLimit > 0
+                  ? Math.min(100, Math.round((staff.todayToken / staffDailyTokenLimit) * 100))
+                  : 0;
+              const usageTone =
+                usagePercent >= 80
+                  ? "text-[var(--crumbella-danger)]"
+                  : usagePercent >= 55
+                    ? "text-[var(--crumbella-primary)]"
+                    : "text-[var(--crumbella-success)]";
+
+              return (
+                <div
+                  key={staff.userId}
+                  className="rounded-[26px] border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] shadow-[0_16px_28px_-24px_rgba(30,18,10,0.56)]"
+                >
+                  <div className="flex items-center justify-between gap-3 border-b border-[var(--crumbella-border)] px-4 py-3">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--crumbella-accent-soft)] text-sm font-bold text-[var(--crumbella-primary)]">
+                        {staff.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate text-[13px] font-semibold text-[var(--foreground)]">
+                          {staff.name}
+                        </p>
+                        <p className="text-[10px] text-[var(--crumbella-muted)]">
+                          {staff.role} - {staff.activeOrders} order aktif hari ini
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[10px] text-[var(--crumbella-muted)]">Selesai</p>
+                      <p className="text-[1.1rem] font-bold leading-none text-[var(--foreground)]">
+                        {staff.completedToday}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 px-4 py-3">
+                    <div className="flex items-end justify-between gap-3">
+                      <div>
+                        <p className="text-[10px] text-[var(--crumbella-muted)]">Token hari ini</p>
+                        <p className="text-[1.6rem] font-extrabold leading-none text-[var(--foreground)] sm:text-[1.8rem]">
+                          {staff.todayToken}{" "}
+                          <span className="text-sm font-medium text-[var(--crumbella-muted)]">
+                            / {staffDailyTokenLimit}
+                          </span>
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[10px] text-[var(--crumbella-muted)]">Sisa</p>
+                        <p className="text-[1.4rem] font-extrabold leading-none text-[var(--crumbella-success)]">
+                          {remainingToken}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="h-2 overflow-hidden rounded-full bg-[var(--crumbella-border)]">
+                      <div
+                        className="h-full rounded-full bg-[var(--crumbella-accent)] transition-[width] duration-300"
+                        style={{ width: `${usagePercent}%` }}
+                      />
+                    </div>
+
+                    <div className="flex justify-between text-[10px]">
+                      <span className={usageTone}>{usagePercent}% terpakai</span>
+                      <span className="text-[var(--crumbella-muted)]">
+                        {staff.activeOrders > 0 ? `${staff.activeOrders} order berjalan` : "Belum ada tugas"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </section>
+
+      <section className="space-y-2">
+        <div className="flex items-center justify-between px-1">
+          <h2 className="text-[1.35rem] font-extrabold leading-tight text-[var(--foreground)] sm:text-[1.5rem]">
+            Upcoming Deliveries
+          </h2>
+          <button type="button" className="text-[10px] font-semibold text-[var(--crumbella-primary)]">
+            Lihat semua
+          </button>
+        </div>
+
+        <div className="space-y-2">
           {upcomingDeliveries.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/60 px-4 py-6 text-center text-sm text-gray-500">
-              No upcoming deliveries yet.
+            <div className="rounded-[22px] border border-dashed border-[var(--crumbella-border)] bg-[var(--crumbella-accent-soft)]/35 px-4 py-6 text-center text-sm text-[var(--crumbella-muted)]">
+              Belum ada delivery.
             </div>
           ) : (
             upcomingDeliveries.map((delivery) => (
               <div
                 key={delivery.id}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-100 bg-gray-50/60 px-4 py-3"
+                className="rounded-[24px] border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] px-4 py-3 shadow-[0_14px_26px_-24px_rgba(30,18,10,0.65)]"
               >
-                <div>
-                  <p className="text-sm font-semibold text-gray-900">
-                    {delivery.customer}
-                  </p>
-                  <p className="text-xs text-gray-500">{delivery.product}</p>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-[13px] font-semibold text-[var(--foreground)]">
+                      {delivery.customer}
+                    </p>
+                    <p className="mt-0.5 text-[10px] text-[var(--crumbella-muted)]">{delivery.product}</p>
+                    <p className="text-[10px] text-[var(--crumbella-muted)]">{delivery.id}</p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className="text-[12px] font-semibold text-[var(--foreground)]">
+                      {formatDisplayDate(delivery.date)}
+                    </p>
+                    <p className="text-[10px] text-[var(--crumbella-muted)]">{delivery.slot}</p>
+                  </div>
                 </div>
-                <div className="text-sm font-medium text-indigo-700">
-                  {delivery.date}
-                </div>
-                <div className="rounded-full border border-indigo-100 bg-white px-3 py-1 text-xs font-semibold text-indigo-700">
-                  {delivery.id}
+                <div className="mt-2">
+                  <span
+                    className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                      delivery.status === "In Production"
+                        ? "bg-[#fbf0d8] text-[#9a6b10]"
+                        : delivery.status === "Ready" || delivery.status === "Delivery"
+                          ? "bg-[#e0f0e8] text-[#2a5c3f]"
+                          : "bg-[#fdeaea] text-[#a83030]"
+                    }`}
+                  >
+                    {delivery.status}
+                  </span>
                 </div>
               </div>
             ))
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </section>
     </div>
   );
 }

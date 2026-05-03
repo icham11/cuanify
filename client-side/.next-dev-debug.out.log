@@ -1,0 +1,14 @@
+
+> client-side@0.1.0 dev
+> node ./scripts/clean-next-dev-cache.mjs && next dev --hostname localhost --port 3000 --webpack --port 3010
+
+[dev-cache] Cleared local and parent Next/Turbo caches
+▲ Next.js 16.1.6 (webpack)
+- Local:         http://localhost:3010
+- Network:       http://localhost:3010
+- Environments: .env
+
+✓ Starting...
+✓ Ready in 1945ms
+○ Compiling /login ...
+ GET /login 200 in 7.0s (compile: 6.5s, proxy.ts: 7ms, render: 430ms)

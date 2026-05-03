@@ -15,12 +15,13 @@ export interface ButtonProps
 
 const variantClasses: Record<ButtonVariant, string> = {
   default:
-    "bg-[#f36f21] text-white hover:bg-[#d85f1c] focus-visible:ring-[#f36f21]",
+    "bg-[var(--crumbella-accent)] text-white hover:bg-[var(--crumbella-accent-hover)] focus-visible:ring-[var(--crumbella-focus)]",
   outline:
-    "border border-[#dbe2ea] text-[#243b5a] hover:bg-[#fff4ed] focus-visible:ring-[#334e68]",
-  ghost: "text-[#243b5a] hover:bg-[#fff4ed] focus-visible:ring-[#334e68]",
+    "border border-[var(--crumbella-border)] text-[var(--foreground)] hover:bg-[var(--crumbella-accent-soft)] focus-visible:ring-[var(--crumbella-focus)]",
+  ghost:
+    "text-[var(--foreground)] hover:bg-[var(--crumbella-accent-soft)] focus-visible:ring-[var(--crumbella-focus)]",
   secondary:
-    "bg-[#243b5a] text-white hover:bg-[#1f324d] focus-visible:ring-[#334e68]",
+    "bg-[var(--crumbella-primary)] text-white hover:bg-[var(--crumbella-primary-soft)] focus-visible:ring-[var(--crumbella-focus)]",
 };
 
 const sizeClasses: Record<ButtonSize, string> = {

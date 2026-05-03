@@ -4,6 +4,7 @@ import { requireAuth, isAuthError } from "@/lib/auth/session";
 import {
   getBakeryCategoryAnalytics,
   getBakeryDailyAnalytics,
+  getBakeryPaymentSummary,
   getBakeryProductAnalytics,
   hasBakeryOrders,
 } from "@/lib/bookings/bakery-analytics";
@@ -59,32 +60,11 @@ export async function GET(request: Request) {
       .filter((item) => item.currentStock <= item.minStock);
 
     if (useBakery) {
-      const paidOrderCountRows = await prisma.$queryRaw<Array<{ count: bigint }>>`
-        WITH latest_orders AS (
-          SELECT *
-          FROM (
-            SELECT
-              bo.*,
-              ROW_NUMBER() OVER (
-                PARTITION BY bo.business_id, bo.external_id
-                ORDER BY bo.updated_at DESC, bo.id DESC
-              ) AS rn
-            FROM bakery_orders bo
-            WHERE bo.business_id = ${businessId}
-          ) ranked_orders
-          WHERE ranked_orders.rn = 1
-        )
-        SELECT COUNT(*)::bigint AS count
-        FROM latest_orders
-        WHERE business_id = ${businessId}
-          AND LOWER(COALESCE(order_status, '')) = 'completed'
-          AND deleted_at IS NULL
-          AND created_at BETWEEN ${startDate} AND ${endDate}
-      `;
-      const [daily, products, categories] = await Promise.all([
+      const [daily, products, categories, paymentSummary] = await Promise.all([
         getBakeryDailyAnalytics(businessId, startDate, endDate),
         getBakeryProductAnalytics(businessId, startDate, endDate),
         getBakeryCategoryAnalytics(businessId, startDate, endDate),
+        getBakeryPaymentSummary(businessId, startDate, endDate),
       ]);
 
       return NextResponse.json({
@@ -96,7 +76,9 @@ export async function GET(request: Request) {
             daily.totals.revenue > 0
               ? Math.round((daily.totals.profit / daily.totals.revenue) * 10000) / 100
               : 0,
-          transactionCount: Number(paidOrderCountRows[0]?.count ?? 0),
+          transactionCount: paymentSummary.totalOrderCount,
+          dpOrderCount: paymentSummary.dpOrderCount,
+          paidOrderCount: paymentSummary.paidOrderCount,
           topProducts: products.slice(0, 5).map((product) => ({
             product: { id: product.productId, name: product.productName },
             quantitySold: product.quantitySold,
@@ -104,7 +86,20 @@ export async function GET(request: Request) {
           topCategories: categories.categories.slice(0, 5),
           lowStockIngredients,
         },
-        paymentBreakdown: [],
+        paymentBreakdown: [
+          {
+            method: "DP 50%",
+            count: paymentSummary.dpOrderCount,
+            revenue: paymentSummary.dpCashIn,
+            bookedRevenue: paymentSummary.dpRevenue,
+          },
+          {
+            method: "Paid Lunas",
+            count: paymentSummary.paidOrderCount,
+            revenue: paymentSummary.paidCashIn,
+            bookedRevenue: paymentSummary.paidRevenue,
+          },
+        ],
       });
     }
 

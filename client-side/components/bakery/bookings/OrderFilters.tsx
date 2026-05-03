@@ -39,33 +39,36 @@ export default function OrderFilters({
   onReset,
   onSavedViewSelect,
 }: OrderFiltersProps) {
+  const quickButtonClass =
+    "h-8 rounded-full border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] px-3 text-xs font-semibold text-[var(--crumbella-primary)]";
+
   return (
-    <Card className="rounded-xl shadow-sm">
-      <CardHeader className="p-6 pb-2">
+    <Card className="rounded-2xl">
+      <CardHeader className="p-5 pb-2">
         <CardTitle>Filters</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-3 px-6 pb-6 pt-0">
+      <CardContent className="space-y-3 px-5 pb-5 pt-0">
         <div className="flex flex-wrap gap-2">
           <Button
             type="button"
             variant="outline"
-            className="h-8 rounded-lg px-3 text-xs"
+            className={quickButtonClass}
             onClick={() => onSavedViewSelect("today")}
           >
-            Today
+            Hari Ini
           </Button>
           <Button
             type="button"
             variant="outline"
-            className="h-8 rounded-lg px-3 text-xs"
+            className={quickButtonClass}
             onClick={() => onSavedViewSelect("tomorrow")}
           >
-            Tomorrow
+            Besok
           </Button>
           <Button
             type="button"
             variant="outline"
-            className="h-8 rounded-lg px-3 text-xs"
+            className={quickButtonClass}
             onClick={() => onSavedViewSelect("production")}
           >
             In Production
@@ -73,22 +76,24 @@ export default function OrderFilters({
           <Button
             type="button"
             variant="outline"
-            className="h-8 rounded-lg px-3 text-xs"
+            className={quickButtonClass}
             onClick={() => onSavedViewSelect("ready")}
           >
             Ready
           </Button>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-[2fr,1fr,1fr,1fr,1fr,auto]">
+        <div className="grid gap-3 lg:grid-cols-[2fr,1fr,1fr,1fr,1fr,auto]">
           <Input
-            placeholder="Search booking code or customer"
+            placeholder="Cari booking/customer"
             value={query}
             onChange={(event) => onQueryChange(event.target.value)}
+            className="h-10 rounded-xl border-[var(--crumbella-border)] bg-white"
           />
           <Select
             value={status}
             onChange={(event) => onStatusChange(event.target.value)}
+            className="h-10 rounded-xl border-[var(--crumbella-border)] bg-white"
           >
             <option value="">All status</option>
             {BOOKING_STATUS_OPTIONS.map((option) => (
@@ -101,12 +106,14 @@ export default function OrderFilters({
             type="date"
             value={date}
             onChange={(event) => onDateChange(event.target.value)}
+            className="h-10 rounded-xl border-[var(--crumbella-border)] bg-white"
           />
           <Select
             value={courier}
             onChange={(event) =>
               onCourierChange(event.target.value as "" | "grab-gojek" | "paxel")
             }
+            className="h-10 rounded-xl border-[var(--crumbella-border)] bg-white"
           >
             <option value="">All courier</option>
             <option value="grab-gojek">Grab/Gojek</option>
@@ -123,6 +130,7 @@ export default function OrderFilters({
                   | "value-desc",
               )
             }
+            className="h-10 rounded-xl border-[var(--crumbella-border)] bg-white"
           >
             <option value="delivery-asc">Sort: Delivery (Soonest)</option>
             <option value="delivery-desc">Sort: Delivery (Latest)</option>
@@ -134,6 +142,7 @@ export default function OrderFilters({
             variant="outline"
             disabled={!hasActiveFilters && sortBy === "delivery-asc"}
             onClick={onReset}
+            className="h-10 rounded-xl border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] text-[var(--crumbella-primary)]"
           >
             Reset
           </Button>

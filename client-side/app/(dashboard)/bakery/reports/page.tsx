@@ -1,30 +1,45 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import { formatCurrency } from "@/components/orders/formatters";
 import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 import { generateExcel } from "@/lib/export/excel";
-import { Download, PieChart as PieChartIcon } from "lucide-react";
 import { useOrders } from "@/components/bakery/store";
+import { calculateOrderTokenFromItems } from "@/lib/bookings/order-token-calculator";
+import type { Product } from "@/types/product";
+
+type AttendanceMember = {
+  memberId: number;
+  userId: number;
+  name: string;
+  email: string;
+  role: "Admin" | "Staff";
+  attendanceCount: number;
+  lateCount: number;
+  daily: Array<{
+    date: string;
+    status: "present";
+    checkInAt: string;
+    isLate: boolean;
+  }>;
+};
+
+type AttendanceSelfData = {
+  attendanceCount: number;
+  lateCount: number;
+  totalDays: number;
+  records: Array<{
+    date: string;
+    status: "present";
+    checkInAt: string;
+    isLate: boolean;
+    notes: string | null;
+  }>;
+};
 
 function toDateInputValue(date: Date) {
   const year = date.getFullYear();
@@ -33,18 +48,126 @@ function toDateInputValue(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
+function monthKeyFromDate(dateStr: string) {
+  return String(dateStr || "").slice(0, 7);
+}
+
+function normalizeText(value: string) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getMonthRange(monthKey: string) {
+  const [year, month] = monthKey.split("-").map(Number);
+  if (!year || !month) {
+    const today = new Date();
+    return {
+      from: toDateInputValue(new Date(today.getFullYear(), today.getMonth(), 1)),
+      to: toDateInputValue(new Date(today.getFullYear(), today.getMonth() + 1, 0)),
+    };
+  }
+
+  return {
+    from: toDateInputValue(new Date(year, month - 1, 1)),
+    to: toDateInputValue(new Date(year, month, 0)),
+  };
+}
+
+function formatMonthLabel(monthKey: string) {
+  const [year, month] = monthKey.split("-").map(Number);
+  if (!year || !month) return "Pilih Bulan";
+  return new Intl.DateTimeFormat("id-ID", {
+    month: "long",
+    year: "numeric",
+  }).format(new Date(year, month - 1, 1));
+}
+
+function getPaymentIn(order: {
+  totalPaidAmount?: number;
+  dpPaidAmount?: number;
+  finalPaidAmount?: number;
+}) {
+  const totalPaid = Number(order.totalPaidAmount ?? 0);
+  if (totalPaid > 0) return totalPaid;
+  return Number(order.dpPaidAmount ?? 0) + Number(order.finalPaidAmount ?? 0);
+}
+
+function parseNumericId(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function getOrderStaffTokenAssignments(order: {
+  assignedStaffUserId?: number | null;
+  assignedStaffName?: string;
+  items?: Array<{
+    quantity?: number;
+    category?: string;
+    tokenDifficulty?: string | null;
+  }>;
+  productionStages?: Array<{
+    staffId?: number | string | null;
+    tokenAmount?: number | null;
+  }>;
+}) {
+  const stageAssignments = (order.productionStages ?? [])
+    .map((stage) => ({
+      staffUserId: parseNumericId(stage.staffId),
+      token: Math.max(0, Math.round(Number(stage.tokenAmount) || 0)),
+    }))
+    .filter(
+      (stage): stage is { staffUserId: number; token: number } =>
+        Boolean(stage.staffUserId) && stage.token > 0,
+    )
+    .map((stage) => ({
+      staffUserId: stage.staffUserId,
+      staffName:
+        (order.assignedStaffName || "").trim() || `Staff #${stage.staffUserId}`,
+      token: stage.token,
+    }));
+
+  if (stageAssignments.length > 0) return stageAssignments;
+  if (!order.assignedStaffUserId) return [];
+
+  return [
+    {
+      staffUserId: order.assignedStaffUserId,
+      staffName:
+        (order.assignedStaffName || "").trim() ||
+        `Staff #${order.assignedStaffUserId}`,
+      token: calculateOrderTokenFromItems(
+        (order.items || []).map((item) => ({
+          ...item,
+          category: item.category || "",
+          tokenDifficulty: item.tokenDifficulty || undefined,
+        })),
+      ),
+    },
+  ];
+}
+
 export default function ReportsPage() {
   const { orders } = useOrders();
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
+  const currentMonth = monthKeyFromDate(toDateInputValue(new Date()));
+  const initialRange = getMonthRange(currentMonth);
+  const [fromDate, setFromDate] = useState(initialRange.from);
+  const [toDate, setToDate] = useState(initialRange.to);
+  const [selectedMonth, setSelectedMonth] = useState(currentMonth);
+  const [isCustomOpen, setIsCustomOpen] = useState(false);
   const [isExportPickerOpen, setIsExportPickerOpen] = useState(false);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [attendanceTeam, setAttendanceTeam] = useState<AttendanceMember[]>([]);
+  const [attendanceSelf, setAttendanceSelf] = useState<AttendanceSelfData | null>(null);
+  const [attendanceTotalDays, setAttendanceTotalDays] = useState(0);
+  const [isAttendanceLoading, setIsAttendanceLoading] = useState(true);
   const exportDialogTitleRef = useRef<HTMLParagraphElement | null>(null);
 
   useEffect(() => {
     if (!isExportPickerOpen) return;
 
-    // Force viewport and dashboard scroller to top so modal is always visible.
     window.scrollTo({ top: 0, behavior: "smooth" });
     const dashboardScroller = document.querySelector(
       "main.custom-scrollbar",
@@ -53,7 +176,6 @@ export default function ReportsPage() {
       dashboardScroller.scrollTo({ top: 0, behavior: "smooth" });
     }
 
-    // Lock background scroll while modal is open.
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
 
@@ -67,153 +189,341 @@ export default function ReportsPage() {
     };
   }, [isExportPickerOpen]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadProducts = async () => {
+      try {
+        const response = await fetch("/api/products?limit=999&withRecipe=false", {
+          cache: "no-store",
+        });
+        const payload = (await response.json().catch(() => ({}))) as {
+          data?: Product[];
+        };
+        if (!response.ok || cancelled) return;
+        setProducts(payload.data || []);
+      } catch {
+        if (!cancelled) setProducts([]);
+      }
+    };
+
+    void loadProducts();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadAttendance = async () => {
+      setIsAttendanceLoading(true);
+      try {
+        const response = await fetch(
+          `/api/bakery/attendance?from=${fromDate}&to=${toDate}`,
+          { cache: "no-store" },
+        );
+        const payload = (await response.json().catch(() => ({}))) as {
+          data?: {
+            mode?: "owner" | "self";
+            team?: AttendanceMember[];
+            totalDays?: number;
+          } & AttendanceSelfData;
+        };
+
+        if (!response.ok || cancelled) return;
+
+        if (payload.data?.mode === "owner") {
+          setAttendanceTeam(payload.data.team || []);
+          setAttendanceSelf(null);
+          setAttendanceTotalDays(Math.max(0, Number(payload.data.totalDays || 0)));
+        } else {
+          setAttendanceSelf(payload.data || null);
+          setAttendanceTeam([]);
+          setAttendanceTotalDays(Math.max(0, Number(payload.data?.totalDays || 0)));
+        }
+      } catch {
+        if (!cancelled) {
+          setAttendanceTeam([]);
+          setAttendanceSelf(null);
+          setAttendanceTotalDays(0);
+        }
+      } finally {
+        if (!cancelled) setIsAttendanceLoading(false);
+      }
+    };
+
+    void loadAttendance();
+    return () => {
+      cancelled = true;
+    };
+  }, [fromDate, toDate]);
+
+  const monthOptions = useMemo(() => {
+    const months = Array.from(
+      new Set([
+        currentMonth,
+        ...orders.map((order) => monthKeyFromDate(order.deliveryDate)).filter(Boolean),
+      ]),
+    ).sort((a, b) => b.localeCompare(a));
+
+    return months.map((month) => ({
+      value: month,
+      label: formatMonthLabel(month),
+    }));
+  }, [currentMonth, orders]);
+
   const filteredOrders = useMemo(() => {
     return orders.filter((order) => {
-      const normalizedOrderStatus = normalizeOrderStatus(order.orderStatus);
       if (fromDate && order.deliveryDate < fromDate) return false;
       if (toDate && order.deliveryDate > toDate) return false;
-      if (statusFilter && normalizedOrderStatus !== statusFilter) return false;
       return true;
     });
-  }, [orders, fromDate, toDate, statusFilter]);
+  }, [orders, fromDate, toDate]);
+
+  const today = toDateInputValue(new Date());
+  const lateOrders = filteredOrders.filter((order) => {
+    const status = normalizeOrderStatus(order.orderStatus);
+    return (
+      Boolean(order.deliveryDate) &&
+      order.deliveryDate < today &&
+      !["Delivered", "Completed", "Cancelled"].includes(status)
+    );
+  });
 
   const totalOrders = filteredOrders.length;
   const totalRevenue = filteredOrders.reduce(
-    (sum, order) => sum + (order.totalPrice || 0),
+    (sum, order) => sum + Number(order.totalPrice || 0),
     0,
   );
-  const aov = totalOrders > 0 ? Math.round(totalRevenue / totalOrders) : 0;
-  const completedCount = filteredOrders.filter((order) =>
-    ["Completed", "Delivered"].includes(normalizeOrderStatus(order.orderStatus)),
-  ).length;
+  const totalCashFlowIn = filteredOrders.reduce(
+    (sum, order) => sum + getPaymentIn(order),
+    0,
+  );
 
-  const statusCounts = [
-    "In Production",
-    "Ready",
-    "Delivered",
-    "Completed",
-    "Cancelled",
-  ].map((status) => ({
-    name: status,
-    value: filteredOrders.filter((order) => {
-      const normalizedOrderStatus = normalizeOrderStatus(order.orderStatus);
-      return normalizedOrderStatus === status;
-    }).length,
-  }));
-
-  const bakeryStatusMix = statusCounts
-    .filter((item) => item.value > 0)
-    .map((item, index) => ({
-      ...item,
-      color: [
-        "#1d4ed8",
-        "#2563eb",
-        "#3b82f6",
-        "#0ea5e9",
-        "#6366f1",
-        "#4f46e5",
-        "#4338ca",
-        "#e11d48",
-      ][index % 8],
-    }));
-
-  const weekday = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  const bakeryRevenueByWeek = weekday.map((day) => {
-    const revenue = filteredOrders
-      .filter((order) => {
-        const date = new Date(order.deliveryDate);
-        return (
-          Number.isFinite(date.getTime()) && weekday[date.getDay()] === day
-        );
-      })
-      .reduce((sum, order) => sum + (order.totalPrice || 0), 0);
-    return { week: day, revenue };
-  });
-
-  const revenueBySize = useMemo(() => {
+  const productCogsMap = useMemo(() => {
     const map = new Map<string, number>();
+    products.forEach((product) => {
+      map.set(normalizeText(product.name), Number(product.cogs || 0));
+    });
+    return map;
+  }, [products]);
+
+  const financialSummary = useMemo(() => {
+    let totalCost = 0;
+    let itemsWithMissingCogs = 0;
+
     filteredOrders.forEach((order) => {
-      const key = order.items?.[0]?.size || order.size || "Unknown";
-      const current = map.get(key) ?? 0;
-      map.set(key, current + (order.totalPrice || 0));
+      (order.items || []).forEach((item) => {
+        const quantity = Math.max(1, Number(item.quantity || 1));
+        const probes = [
+          normalizeText(item.productName || ""),
+          normalizeText(order.product || ""),
+        ].filter(Boolean);
+        const matchedCogs = probes
+          .map((probe) => productCogsMap.get(probe) ?? 0)
+          .find((value) => value > 0);
+
+        if (!matchedCogs) {
+          itemsWithMissingCogs += 1;
+          return;
+        }
+
+        totalCost += matchedCogs * quantity;
+      });
     });
 
-    return Array.from(map.entries())
-      .map(([size, revenue]) => ({ size, revenue }))
-      .sort((a, b) => b.revenue - a.revenue);
-  }, [filteredOrders]);
+    return {
+      totalCost,
+      netProfit: totalRevenue - totalCost,
+      itemsWithMissingCogs,
+      isAccurate: itemsWithMissingCogs === 0,
+    };
+  }, [filteredOrders, productCogsMap, totalRevenue]);
 
-  const reportStats = [
-    { title: "Total Orders", value: String(totalOrders) },
-    { title: "Total Revenue", value: formatCurrency(totalRevenue) },
-    { title: "AOV", value: formatCurrency(aov) },
-    { title: "Completed Orders", value: String(completedCount) },
-  ];
+  const completedOrders = filteredOrders.filter((order) =>
+    ["Completed", "Delivered"].includes(normalizeOrderStatus(order.orderStatus)),
+  ).length;
+  const avgOrderValue = totalOrders > 0 ? Math.round(totalRevenue / totalOrders) : 0;
 
-  const setQuickRange = (days: number) => {
-    const now = new Date();
-    const from = new Date(now);
-    from.setDate(now.getDate() - (days - 1));
-    setFromDate(toDateInputValue(from));
-    setToDate(toDateInputValue(now));
-  };
-
-  const resetFilters = () => {
-    setFromDate("");
-    setToDate("");
-    setStatusFilter("");
-  };
-
-  const customerRows = useMemo(() => {
+  const allCustomers = useMemo(() => {
     const grouped = new Map<
       string,
-      {
-        customer: string;
-        phone: string;
-        address: string;
-        orderCount: number;
-        totalSpent: number;
-        lastOrderDate: string;
-        lastDeliverySlot: string;
-      }
+      { name: string; firstOrder: string; totalOrders: number }
     >();
 
-    filteredOrders.forEach((order) => {
-      const customer = (order.customerName || "Walk-in Customer").trim();
+    orders.forEach((order) => {
+      const name = (order.customerName || "Walk-in Customer").trim();
       const phone = (order.customerPhone || "").trim();
-      const address =
-        order.deliveryAddresses?.[0]?.addressLine?.trim() ||
-        order.customerAddress?.trim() ||
-        "-";
-      const key = `${customer.toLowerCase()}||${phone.toLowerCase()}`;
-      const existing = grouped.get(key);
+      const key = `${name.toLowerCase()}||${phone.toLowerCase()}`;
+      const current = grouped.get(key);
+      const deliveryDate = order.deliveryDate || "";
 
-      if (!existing) {
+      if (!current) {
         grouped.set(key, {
-          customer,
-          phone,
-          address,
-          orderCount: 1,
-          totalSpent: Number(order.totalPrice || 0),
-          lastOrderDate: order.deliveryDate || "",
-          lastDeliverySlot: order.deliverySlot || "",
+          name,
+          firstOrder: deliveryDate,
+          totalOrders: 1,
         });
         return;
       }
 
-      existing.orderCount += 1;
-      existing.totalSpent += Number(order.totalPrice || 0);
-      if ((order.deliveryDate || "") >= existing.lastOrderDate) {
-        existing.lastOrderDate = order.deliveryDate || "";
-        existing.lastDeliverySlot = order.deliverySlot || "";
-        existing.address = address;
+      current.totalOrders += 1;
+      if (!current.firstOrder || (deliveryDate && deliveryDate < current.firstOrder)) {
+        current.firstOrder = deliveryDate;
       }
     });
 
-    return Array.from(grouped.values()).sort((a, b) =>
-      a.customer.localeCompare(b.customer, "id"),
+    return grouped;
+  }, [orders]);
+
+  const filteredCustomerKeys = useMemo(() => {
+    return Array.from(
+      new Set(
+        filteredOrders.map((order) => {
+          const name = (order.customerName || "Walk-in Customer").trim();
+          const phone = (order.customerPhone || "").trim();
+          return `${name.toLowerCase()}||${phone.toLowerCase()}`;
+        }),
+      ),
     );
   }, [filteredOrders]);
+
+  const totalCustomers = filteredCustomerKeys.length;
+  const newCustomers = filteredCustomerKeys.filter((key) => {
+    const customer = allCustomers.get(key);
+    return (
+      customer?.firstOrder &&
+      (!fromDate || customer.firstOrder >= fromDate) &&
+      (!toDate || customer.firstOrder <= toDate)
+    );
+  }).length;
+  const repeatCustomers = filteredCustomerKeys.filter((key) => {
+    const customer = allCustomers.get(key);
+    return (customer?.totalOrders ?? 0) > 1;
+  }).length;
+  const repeatRate = totalCustomers > 0 ? (repeatCustomers / totalCustomers) * 100 : 0;
+
+  const topProducts = useMemo(() => {
+    const grouped = new Map<
+      string,
+      { name: string; revenue: number; orderCount: number }
+    >();
+
+    filteredOrders.forEach((order) => {
+      (order.items || []).forEach((item) => {
+        const key = item.productName || order.product || "Produk";
+        const row = grouped.get(key) ?? {
+          name: key,
+          revenue: 0,
+          orderCount: 0,
+        };
+        row.revenue += Number(
+          item.lineTotal ||
+            item.selectedPrice ||
+            item.basePrice * Math.max(1, Number(item.quantity || 1)) ||
+            0,
+        );
+        row.orderCount += Math.max(1, Number(item.quantity || 1));
+        grouped.set(key, row);
+      });
+    });
+
+    return Array.from(grouped.values())
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, 3);
+  }, [filteredOrders]);
+
+  const roleMap = useMemo(() => {
+    const map = new Map<number, "Admin" | "Staff">();
+    attendanceTeam.forEach((member) => {
+      map.set(member.userId, member.role);
+    });
+    return map;
+  }, [attendanceTeam]);
+
+  const lateByStaffMap = useMemo(() => {
+    const map = new Map<number, number>();
+    attendanceTeam.forEach((member) => {
+      map.set(member.userId, member.lateCount);
+    });
+    return map;
+  }, [attendanceTeam]);
+
+  const staffPerformance = useMemo(() => {
+    const grouped = new Map<
+      number,
+      {
+        userId: number;
+        name: string;
+        token: number;
+        dates: Set<string>;
+      }
+    >();
+
+    filteredOrders.forEach((order) => {
+      getOrderStaffTokenAssignments(order).forEach((assignment) => {
+        const current = grouped.get(assignment.staffUserId) ?? {
+          userId: assignment.staffUserId,
+          name: assignment.staffName,
+          token: 0,
+          dates: new Set<string>(),
+        };
+        current.token += assignment.token;
+        if (order.deliveryDate) current.dates.add(order.deliveryDate);
+        grouped.set(assignment.staffUserId, current);
+      });
+    });
+
+    return Array.from(grouped.values())
+      .map((staff) => {
+        const activeDays = Math.max(1, staff.dates.size);
+        const lateCount = lateByStaffMap.get(staff.userId) ?? 0;
+        return {
+          ...staff,
+          avgToken: Math.round(staff.token / activeDays),
+          lateCount,
+          qualityLabel: lateCount === 0 ? "Baik" : "Kalibrasi",
+        };
+      })
+      .sort((a, b) => b.token - a.token);
+  }, [filteredOrders, lateByStaffMap]);
+
+  const attendanceCards = useMemo(() => {
+    if (attendanceTeam.length > 0) {
+      return attendanceTeam.map((member) => ({
+        key: `member-${member.memberId}`,
+        name: member.name,
+        role: member.role,
+        attendanceCount: member.attendanceCount,
+        lateCount: member.lateCount,
+        totalDays: Math.max(attendanceTotalDays, 1),
+      }));
+    }
+
+    if (attendanceSelf) {
+      return [
+        {
+          key: "self",
+          name: "Saya",
+          role: "Staff",
+          attendanceCount: attendanceSelf.attendanceCount,
+          lateCount: attendanceSelf.lateCount,
+          totalDays: Math.max(attendanceSelf.totalDays || 0, 1),
+        },
+      ];
+    }
+
+    return [];
+  }, [attendanceSelf, attendanceTeam, attendanceTotalDays]);
+
+  const reportScopeLabel = useMemo(() => {
+    const monthRange = getMonthRange(selectedMonth);
+    if (fromDate === monthRange.from && toDate === monthRange.to) {
+      return formatMonthLabel(selectedMonth);
+    }
+    return `${fromDate} s/d ${toDate}`;
+  }, [fromDate, selectedMonth, toDate]);
 
   const bookingRows = useMemo(
     () =>
@@ -250,6 +560,17 @@ export default function ReportsPage() {
       ),
     [filteredOrders],
   );
+
+  const customerRows = useMemo(() => {
+    return filteredCustomerKeys.map((key) => {
+      const customer = allCustomers.get(key);
+      return {
+        customer: customer?.name || "Customer",
+        orderCount: customer?.totalOrders || 0,
+        firstOrder: customer?.firstOrder || "",
+      };
+    });
+  }, [allCustomers, filteredCustomerKeys]);
 
   const exportExcel = (type: "bookings" | "items" | "customers") => {
     const selectedSheet =
@@ -295,12 +616,8 @@ export default function ReportsPage() {
                 name: "Customers",
                 columns: [
                   { key: "customer", header: "Customer", width: 24 },
-                  { key: "phone", header: "Phone", width: 18 },
-                  { key: "address", header: "Last Address", width: 40 },
                   { key: "orderCount", header: "Total Orders", width: 14 },
-                  { key: "totalSpent", header: "Total Spent", width: 16 },
-                  { key: "lastOrderDate", header: "Last Order Date", width: 16 },
-                  { key: "lastDeliverySlot", header: "Last Delivery Slot", width: 22 },
+                  { key: "firstOrder", header: "First Order", width: 18 },
                 ],
                 rows: customerRows,
               },
@@ -326,34 +643,12 @@ export default function ReportsPage() {
   };
 
   return (
-    <div className="space-y-6 pb-10">
-      <GradientPageHeader
-        title="Owner Monitoring"
-        description="Analytics for revenue and order health across time."
-        icon={PieChartIcon}
-        actions={
-          <div className="flex flex-wrap gap-2">
-            <Link
-              href="/bakery/omzet-harian"
-              className="inline-flex h-10 items-center justify-center rounded-xl border border-[#dbe2ea] px-4 text-sm font-semibold text-[#243b5a] transition hover:bg-[#fff4ed]"
-            >
-              Buka halaman omzet harian
-            </Link>
-            <Button
-              className="gap-2 bg-indigo-600 text-white hover:bg-indigo-700 focus-visible:ring-indigo-500"
-              onClick={() => setIsExportPickerOpen(true)}
-            >
-              <Download size={16} />
-              Export Excel
-            </Button>
-          </div>
-        }
-      />
+    <div className="mx-auto max-w-[360px] pb-10 text-[#2f1e13]">
       {typeof document !== "undefined" &&
         isExportPickerOpen &&
         createPortal(
           <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/35 p-4">
-            <div className="w-full max-w-md rounded-2xl border border-indigo-100 bg-white p-5 shadow-2xl">
+            <div className="w-full max-w-md rounded-2xl border border-[#e9d4c2] bg-white p-5 shadow-2xl">
               <p
                 ref={exportDialogTitleRef}
                 tabIndex={-1}
@@ -365,22 +660,13 @@ export default function ReportsPage() {
                 Pilih salah satu jenis data Excel yang ingin diunduh.
               </p>
               <div className="mt-4 grid gap-2">
-                <Button
-                  onClick={() => exportExcel("bookings")}
-                  className="justify-start"
-                >
+                <Button onClick={() => exportExcel("bookings")} className="justify-start">
                   Bookings
                 </Button>
-                <Button
-                  onClick={() => exportExcel("items")}
-                  className="justify-start"
-                >
+                <Button onClick={() => exportExcel("items")} className="justify-start">
                   Booking Items
                 </Button>
-                <Button
-                  onClick={() => exportExcel("customers")}
-                  className="justify-start"
-                >
+                <Button onClick={() => exportExcel("customers")} className="justify-start">
                   Customers
                 </Button>
               </div>
@@ -399,217 +685,334 @@ export default function ReportsPage() {
           document.body,
         )}
 
-      <Card className="rounded-xl shadow-sm">
-        <CardHeader className="p-6 pb-2">
-          <CardTitle>Date Range</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-wrap gap-3 px-6 pb-6 pt-0">
-          <div className="grid gap-2">
-            <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-              From
-            </span>
-            <Input
-              type="date"
-              className="max-w-50"
-              value={fromDate}
-              onChange={(event) => setFromDate(event.target.value)}
-            />
-          </div>
-          <div className="grid gap-2">
-            <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-              To
-            </span>
-            <Input
-              type="date"
-              className="max-w-50"
-              value={toDate}
-              onChange={(event) => setToDate(event.target.value)}
-            />
-          </div>
-          <div className="grid gap-2">
-            <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-              Status
-            </span>
-            <Select
-              value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value)}
-            >
-              <option value="">All status</option>
-              <option value="In Production">In Production</option>
-              <option value="Ready">Ready</option>
-              <option value="Delivered">Delivered</option>
-              <option value="Completed">Completed</option>
-              <option value="Cancelled">Cancelled</option>
-            </Select>
-          </div>
-          <div className="grid gap-2">
-            <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-              Quick Range
-            </span>
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setQuickRange(7)}
-              >
-                7D
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setQuickRange(30)}
-              >
-                30D
-              </Button>
-              <Button type="button" variant="outline" onClick={resetFilters}>
-                Reset
-              </Button>
+      <div className="rounded-[34px] border border-[#dec8b6] bg-[#fffaf4] px-4 pb-5 pt-3 shadow-[0_26px_55px_-42px_rgba(94,53,30,0.5)]">
+        <div className="flex items-start justify-between gap-3 border-b border-[#ead6c8] pb-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-[1rem] leading-none text-[#cb6531]">≡</span>
+              <h1 className="text-[1.1rem] font-bold leading-none text-[#1f140d]">
+                Reports
+              </h1>
+              <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#fbe7d8] text-[11px] font-bold text-[#a64f1f]">
+                FE
+              </span>
             </div>
+            <p className="mt-1 text-[11px] text-[#b0734d]">Data & Ringkasan Bisnis</p>
           </div>
-        </CardContent>
-      </Card>
+        </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {reportStats.map((stat) => (
-          <Card key={stat.title} className="rounded-xl shadow-sm">
-            <CardHeader className="p-6 pb-2">
-              <CardTitle className="text-sm text-gray-600">
-                {stat.title}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="px-6 pb-6 pt-0">
-              <div className="text-xl font-semibold text-gray-900">
-                {stat.value}
+        <div className="mt-4 flex gap-2">
+          <Select
+            value={selectedMonth}
+            onChange={(event) => {
+              const nextMonth = event.target.value;
+              setSelectedMonth(nextMonth);
+              const range = getMonthRange(nextMonth);
+              setFromDate(range.from);
+              setToDate(range.to);
+              setIsCustomOpen(false);
+            }}
+            className="h-11 rounded-xl border-[#dfc9b7] bg-white text-sm font-semibold text-[#2f1e13]"
+          >
+            {monthOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </Select>
+
+          <button
+            type="button"
+            onClick={() => setIsCustomOpen((prev) => !prev)}
+            className="inline-flex h-11 items-center justify-center rounded-xl border border-[#dfc9b7] bg-white px-4 text-sm font-semibold text-[#2f1e13]"
+          >
+            Custom
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsExportPickerOpen(true)}
+            className="inline-flex h-11 items-center justify-center rounded-xl bg-[#d46a2d] px-4 text-sm font-semibold text-white"
+          >
+            Export
+          </button>
+        </div>
+
+        {isCustomOpen ? (
+          <div className="mt-3 rounded-[18px] border border-[#e9d4c2] bg-white px-3 py-3">
+            <div className="grid gap-3">
+              <div className="grid gap-1">
+                <span className="text-[11px] font-semibold text-[#9b775e]">Dari</span>
+                <Input
+                  type="date"
+                  value={fromDate}
+                  onChange={(event) => setFromDate(event.target.value)}
+                  className="h-10 rounded-xl border-[#dfc9b7]"
+                />
               </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card className="rounded-xl shadow-sm">
-          <CardHeader className="p-6 pb-2">
-            <CardTitle>Revenue Summary</CardTitle>
-          </CardHeader>
-          <CardContent className="px-6 pb-6 pt-0">
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={bakeryRevenueByWeek}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="week" tickLine={false} axisLine={false} />
-                  <YAxis
-                    tickLine={false}
-                    axisLine={false}
-                    tickFormatter={(value) => `Rp ${value / 1000000}M`}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      borderRadius: 12,
-                      border: "1px solid #e5e7eb",
-                      fontSize: 12,
-                    }}
-                    formatter={(value) => formatCurrency(Number(value))}
-                  />
-                  <Bar dataKey="revenue" fill="#3b82f6" radius={[6, 6, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              <div className="grid gap-1">
+                <span className="text-[11px] font-semibold text-[#9b775e]">Sampai</span>
+                <Input
+                  type="date"
+                  value={toDate}
+                  onChange={(event) => setToDate(event.target.value)}
+                  className="h-10 rounded-xl border-[#dfc9b7]"
+                />
+              </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        ) : null}
 
-        <Card className="rounded-xl shadow-sm">
-          <CardHeader className="p-6 pb-2">
-            <CardTitle>Order Status Mix</CardTitle>
-          </CardHeader>
-          <CardContent className="px-6 pb-6 pt-0">
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={bakeryStatusMix}
-                    dataKey="value"
-                    nameKey="name"
-                    innerRadius={70}
-                    outerRadius={100}
-                    paddingAngle={4}
-                  >
-                    {bakeryStatusMix.map((entry) => (
-                      <Cell key={entry.name} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{
-                      borderRadius: 12,
-                      border: "1px solid #e5e7eb",
-                      fontSize: 12,
-                    }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="mt-4 grid gap-2 text-sm text-gray-600">
-              {bakeryStatusMix.length === 0 ? (
-                <p className="text-sm text-gray-500">
-                  No status data in selected range.
-                </p>
-              ) : (
-                bakeryStatusMix.map((status) => (
-                  <div
-                    key={status.name}
-                    className="flex items-center justify-between"
-                  >
-                    <span className="flex items-center gap-2">
-                      <span
-                        className="h-2 w-2 rounded-full"
-                        style={{ background: status.color }}
-                      />
-                      {status.name}
-                    </span>
-                    <span>{status.value}</span>
-                  </div>
-                ))
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+        <p className="mt-3 text-[11px] text-[#9b775e]">Laporan aktif: {reportScopeLabel}</p>
 
-      <Card className="rounded-xl shadow-sm">
-        <CardHeader className="p-6 pb-2">
-          <CardTitle>Insights</CardTitle>
-        </CardHeader>
-        <CardContent className="px-6 pb-6 pt-0 text-sm text-gray-600">
-          Use these charts to highlight peak weeks and ensure production
-          capacity matches demand.
-        </CardContent>
-      </Card>
-
-      <Card className="rounded-xl shadow-sm">
-        <CardHeader className="p-6 pb-2">
-          <CardTitle>Revenue by Size</CardTitle>
-        </CardHeader>
-        <CardContent className="px-6 pb-6 pt-0">
-          {revenueBySize.length === 0 ? (
-            <p className="text-sm text-gray-500">
-              No size data in selected range.
+        <section className="mt-5">
+          <h2 className="mb-2 flex items-center gap-2 text-[1rem] font-bold text-[#23160f]">
+            <span>💰</span> Keuangan
+          </h2>
+          <div className="overflow-hidden rounded-[18px] border border-[#dec8b6] bg-white">
+            <ReportRow label="Total Revenue" value={formatCurrency(totalRevenue)} />
+            <ReportRow
+              label="Cash Flow In"
+              value={formatCurrency(totalCashFlowIn)}
+              valueClassName="text-[#0e7b3f]"
+            />
+            <ReportRow
+              label="Total Biaya"
+              value={formatCurrency(financialSummary.totalCost)}
+              valueClassName="text-[#cf4028]"
+            />
+            <ReportRow
+              label="Profit Bersih"
+              value={formatCurrency(financialSummary.netProfit)}
+              rowClassName="bg-[#dff1ea]"
+              valueClassName="text-[#0d6a4f]"
+              isLast
+            />
+          </div>
+          {!financialSummary.isAccurate ? (
+            <p className="mt-2 text-[11px] text-[#a35c3a]">
+              Perhitungan belum akurat penuh. Ada {financialSummary.itemsWithMissingCogs} item tanpa COGS produk.
             </p>
-          ) : (
-            <div className="space-y-2 text-sm text-gray-700">
-              {revenueBySize.map((row) => (
+          ) : null}
+        </section>
+
+        <section className="mt-5">
+          <h2 className="mb-2 flex items-center gap-2 text-[1rem] font-bold text-[#23160f]">
+            <span>📦</span> Orders
+          </h2>
+          <div className="overflow-hidden rounded-[18px] border border-[#dec8b6] bg-white">
+            <ReportRow label="Total Order" value={String(totalOrders)} />
+            <ReportRow label="Order Selesai" value={String(completedOrders)} />
+            <ReportRow
+              label="Order Terlambat"
+              value={String(lateOrders.length)}
+              valueClassName="text-[#cf4028]"
+            />
+            <ReportRow label="Avg Order Value" value={formatCurrency(avgOrderValue)} isLast />
+          </div>
+        </section>
+
+        <section className="mt-5">
+          <h2 className="mb-2 flex items-center gap-2 text-[1rem] font-bold text-[#23160f]">
+            <span>🏆</span> Produk Terjual
+          </h2>
+          <div className="overflow-hidden rounded-[18px] border border-[#dec8b6] bg-white">
+            {topProducts.length === 0 ? (
+              <div className="px-4 py-4 text-sm text-[#8a6a54]">Belum ada data produk di range ini.</div>
+            ) : (
+              topProducts.map((product, index) => (
                 <div
-                  key={row.size}
-                  className="flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2"
+                  key={product.name}
+                  className={`flex items-start justify-between gap-3 px-4 py-3 ${
+                    index < topProducts.length - 1 ? "border-b border-[#ead6c8]" : ""
+                  }`}
                 >
-                  <span className="font-medium text-gray-600">{row.size}</span>
-                  <span className="font-semibold text-gray-900">
-                    {formatCurrency(row.revenue)}
-                  </span>
+                  <div className="flex items-start gap-3">
+                    <span className="pt-0.5 text-sm">🥇</span>
+                    <div>
+                      <p className="text-sm font-bold text-[#1f140d]">{product.name}</p>
+                      <p className="text-[11px] text-[#8a6a54]">{product.orderCount} order</p>
+                    </div>
+                  </div>
+                  <p className="text-sm font-bold text-[#e2692b]">{formatCurrency(product.revenue)}</p>
                 </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+              ))
+            )}
+          </div>
+        </section>
+
+        <section className="mt-5">
+          <h2 className="mb-2 flex items-center gap-2 text-[1rem] font-bold text-[#23160f]">
+            <span>👥</span> Customer
+          </h2>
+          <div className="overflow-hidden rounded-[18px] border border-[#dec8b6] bg-white">
+            <ReportRow label="Total Customer" value={String(totalCustomers)} />
+            <ReportRow
+              label="New Customer"
+              value={String(newCustomers)}
+              valueClassName="text-[#1d4ed8]"
+            />
+            <ReportRow
+              label="Repeat Customer"
+              value={String(repeatCustomers)}
+              valueClassName="text-[#0e7b3f]"
+            />
+            <ReportRow
+              label="Order lebih dari 1x"
+              value={`${repeatRate.toFixed(1)}%`}
+              labelClassName="text-[11px] text-[#9b775e]"
+              isLast
+            />
+          </div>
+        </section>
+
+        <section className="mt-5">
+          <h2 className="mb-2 flex items-center gap-2 text-[1rem] font-bold text-[#23160f]">
+            <span>👤</span> Kinerja Staff
+          </h2>
+          <div className="overflow-hidden rounded-[18px] border border-[#dec8b6] bg-white">
+            {staffPerformance.length === 0 ? (
+              <div className="px-4 py-4 text-sm text-[#8a6a54]">
+                Belum ada assignment staff di range ini.
+              </div>
+            ) : (
+              staffPerformance.map((staff, index) => (
+                <div
+                  key={staff.userId}
+                  className={`px-4 py-4 ${index < staffPerformance.length - 1 ? "border-b border-[#ead6c8]" : ""}`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[#fbe7d8] text-sm font-bold text-[#a64f1f]">
+                        {staff.name.slice(0, 1).toUpperCase()}
+                      </span>
+                      <div>
+                        <p className="text-sm font-bold text-[#1f140d]">{staff.name}</p>
+                        <p className="text-[11px] text-[#8a6a54]">
+                          {roleMap.get(staff.userId) || "Staff"}
+                        </p>
+                      </div>
+                    </div>
+                    <span
+                      className={`rounded-full px-3 py-1 text-[11px] font-semibold ${
+                        staff.qualityLabel === "Baik"
+                          ? "bg-[#e2f3df] text-[#327341]"
+                          : "bg-[#faead7] text-[#9e5b18]"
+                      }`}
+                    >
+                      {staff.qualityLabel}
+                    </span>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-3 gap-2">
+                    <MetricTile
+                      title={staff.token.toLocaleString("id-ID")}
+                      subtitle="Token bulan ini"
+                    />
+                    <MetricTile title={String(staff.avgToken)} subtitle="Avg tok/hari" />
+                    <MetricTile
+                      title={`${staff.lateCount}x`}
+                      subtitle="Terlambat"
+                      danger={staff.lateCount > 0}
+                    />
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
+
+        <section className="mt-5">
+          <h2 className="mb-2 flex items-center gap-2 text-[1rem] font-bold text-[#23160f]">
+            <span>🪪</span> Absensi Staff
+          </h2>
+          <div className="overflow-hidden rounded-[18px] border border-[#dec8b6] bg-white">
+            {isAttendanceLoading ? (
+              <div className="px-4 py-4 text-sm text-[#8a6a54]">Memuat absensi staff...</div>
+            ) : attendanceCards.length === 0 ? (
+              <div className="px-4 py-4 text-sm text-[#8a6a54]">
+                Belum ada data absensi di range ini.
+              </div>
+            ) : (
+              attendanceCards.map((member, index) => (
+                <div
+                  key={member.key}
+                  className={`flex items-center justify-between gap-3 px-4 py-4 ${
+                    index < attendanceCards.length - 1 ? "border-b border-[#ead6c8]" : ""
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[#fbe7d8] text-sm font-bold text-[#a64f1f]">
+                      {member.name.slice(0, 1).toUpperCase()}
+                    </span>
+                    <div>
+                      <p className="text-sm font-bold text-[#1f140d]">{member.name}</p>
+                      <p className="text-[11px] text-[#8a6a54]">{member.role}</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-bold text-[#1f140d]">
+                      {member.attendanceCount}/{member.totalDays}
+                    </p>
+                    <p className="text-[11px] text-[#8a6a54]">hari hadir</p>
+                  </div>
+                  <p className="text-sm font-bold text-[#cf4028]">{member.lateCount}x telat</p>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function ReportRow({
+  label,
+  value,
+  valueClassName,
+  rowClassName,
+  labelClassName,
+  isLast = false,
+}: {
+  label: string;
+  value: string;
+  valueClassName?: string;
+  rowClassName?: string;
+  labelClassName?: string;
+  isLast?: boolean;
+}) {
+  return (
+    <div
+      className={`flex items-center justify-between gap-4 px-4 py-3 ${
+        isLast ? "" : "border-b border-[#ead6c8]"
+      } ${rowClassName || ""}`}
+    >
+      <p className={`text-sm text-[#6d4f3a] ${labelClassName || ""}`}>{label}</p>
+      <p className={`text-sm font-bold text-[#1f140d] ${valueClassName || ""}`}>{value}</p>
+    </div>
+  );
+}
+
+function MetricTile({
+  title,
+  subtitle,
+  danger = false,
+}: {
+  title: string;
+  subtitle: string;
+  danger?: boolean;
+}) {
+  return (
+    <div
+      className={`rounded-[12px] px-3 py-3 text-center ${
+        danger ? "bg-[#fdecee]" : "bg-[#f6ede4]"
+      }`}
+    >
+      <p className={`text-[1.15rem] font-bold ${danger ? "text-[#cf4028]" : "text-[#1f140d]"}`}>
+        {title}
+      </p>
+      <p className="text-[11px] text-[#8a6a54]">{subtitle}</p>
     </div>
   );
 }

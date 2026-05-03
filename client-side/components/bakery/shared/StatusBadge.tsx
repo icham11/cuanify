@@ -2,15 +2,15 @@ import { Badge } from "@/components/ui/badge";
 import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 
 const statusStyles: Record<string, string> = {
-  Inquiry: "border-slate-200 bg-slate-100 text-slate-700",
-  Quoted: "border-blue-200 bg-blue-50 text-blue-700",
-  "DP Paid": "border-cyan-200 bg-cyan-50 text-cyan-700",
-  "In Production": "border-indigo-200 bg-indigo-50 text-indigo-700",
-  Ready: "border-blue-200 bg-blue-50 text-blue-700",
-  Delivery: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  Delivered: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  Completed: "border-indigo-200 bg-indigo-100 text-indigo-800",
-  Cancelled: "border-rose-200 bg-rose-50 text-rose-700",
+  Inquiry: "border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] text-[var(--crumbella-muted)]",
+  Quoted: "border-[#d8b870] bg-[#fbf0d8] text-[#9a6b10]",
+  "DP Paid": "border-[#d8b870] bg-[#fbf0d8] text-[#9a6b10]",
+  "In Production": "border-[var(--crumbella-border)] bg-[var(--crumbella-accent-soft)] text-[var(--crumbella-primary)]",
+  Ready: "border-[#e0f0e8] bg-[#e0f0e8] text-[#2a5c3f]",
+  Delivery: "border-[#e0f0e8] bg-[#e0f0e8] text-[#2a5c3f]",
+  Delivered: "border-[#e0f0e8] bg-[#e0f0e8] text-[#2a5c3f]",
+  Completed: "border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] text-[var(--crumbella-primary)]",
+  Cancelled: "border-[#e8a0a0] bg-[#fdeaea] text-[#a83030]",
 };
 
 export default function StatusBadge({ status }: { status: string }) {
@@ -20,7 +20,7 @@ export default function StatusBadge({ status }: { status: string }) {
     <Badge
       className={
         statusStyles[normalizedStatus] ??
-        "border-gray-200 bg-gray-50 text-gray-600"
+        "border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] text-[var(--crumbella-muted)]"
       }
     >
       {normalizedStatus || "Unknown"}

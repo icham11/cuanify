@@ -9,10 +9,10 @@ export default function OrderHighlightBadge({
 }) {
   const styles =
     tone === "danger"
-      ? "border-rose-200 bg-rose-50 text-rose-700"
+      ? "border-[#e8a0a0] bg-[#fdeaea] text-[#a83030]"
       : tone === "warning"
-        ? "border-amber-200 bg-amber-50 text-amber-700"
-        : "border-sky-200 bg-sky-50 text-sky-700";
+        ? "border-[#d8b870] bg-[#fbf0d8] text-[#9a6b10]"
+        : "border-[var(--crumbella-border)] bg-[var(--crumbella-accent-soft)] text-[var(--crumbella-primary)]";
 
   return <Badge className={styles}>{label}</Badge>;
 }

@@ -6,6 +6,7 @@ interface BakeryOrderRow {
   external_id: string;
   payment_status: string | null;
   total_price: unknown;
+  total_paid_amount: unknown;
 }
 
 interface BakeryOrderItemRow {
@@ -57,6 +58,10 @@ function normalizeText(value: string): string {
   return value.trim().toLowerCase();
 }
 
+function normalizePaymentStatus(value: string | null | undefined): string {
+  return String(value || "").trim().toLowerCase();
+}
+
 function parseBakeryOrderItem(payload: unknown): ParsedBakeryOrderItem | null {
   const record = asRecord(payload);
   if (!record) return null;
@@ -106,7 +111,7 @@ function buildProductNameCandidates(item: ParsedBakeryOrderItem): string[] {
 async function getBakeryOverview(
   businessId: number,
   counts: Pick<BusinessOverviewCounts, "products" | "ingredients" | "categories">,
-): Promise<BusinessOverviewSummary> {
+): Promise<BusinessOverviewSummary | null> {
   await prisma.$executeRawUnsafe(`
     ALTER TABLE bakery_orders
     ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
@@ -128,23 +133,19 @@ async function getBakeryOverview(
       WHERE ranked_orders.rn = 1
     )
     SELECT external_id, payment_status, total_price
+         , total_paid_amount
     FROM latest_orders
     WHERE business_id = ${businessId}
-      AND LOWER(COALESCE(order_status, '')) NOT IN ('cancelled', 'draft')
       AND deleted_at IS NULL
+      AND LOWER(COALESCE(order_status, '')) <> 'cancelled'
+      AND (
+        LOWER(COALESCE(payment_status, '')) IN ('dp paid', 'paid')
+        OR COALESCE(total_paid_amount, 0) > 0
+      )
   `;
 
   if (bakeryOrderRows.length === 0) {
-    return {
-      counts: { ...counts, sales: 0 },
-      stats: {
-        totalRevenue: 0,
-        totalCost: 0,
-        totalProfit: 0,
-        paidSalesCount: 0,
-        marginAvg: null,
-      },
-    };
+    return null;
   }
 
   const paidOrderIds = bakeryOrderRows.map((row) => row.external_id);
@@ -202,7 +203,11 @@ async function getBakeryOverview(
     totalCost += productCost * item.quantity;
   });
 
-  const paidOrders = bakeryOrderRows;
+  const paidOrders = bakeryOrderRows.filter(
+    (row) =>
+      normalizePaymentStatus(row.payment_status) === "paid" ||
+      toNumber(row.total_paid_amount) > 0,
+  );
   const totalRevenue = paidOrders.reduce(
     (sum, row) => sum + toNumber(row.total_price),
     0,
@@ -280,28 +285,11 @@ export async function getBusinessOverviewSummary(
   ]);
 
   const baseCounts = { products, ingredients, categories };
-  const [bakeryOverview, legacyOverview] = await Promise.all([
-    getBakeryOverview(businessId, baseCounts),
-    getLegacySalesOverview(businessId, baseCounts),
-  ]);
+  const bakeryOverview = await getBakeryOverview(businessId, baseCounts);
 
-  const totalSalesCount = bakeryOverview.counts.sales + legacyOverview.counts.sales;
-  const totalRevenue = bakeryOverview.stats.totalRevenue + legacyOverview.stats.totalRevenue;
-  const totalCost = bakeryOverview.stats.totalCost + legacyOverview.stats.totalCost;
-  const totalProfit = totalRevenue - totalCost;
-  const totalPaidSalesCount = bakeryOverview.stats.paidSalesCount + legacyOverview.stats.paidSalesCount;
+  if (bakeryOverview) {
+    return bakeryOverview;
+  }
 
-  return {
-    counts: {
-      ...baseCounts,
-      sales: totalSalesCount,
-    },
-    stats: {
-      totalRevenue,
-      totalCost,
-      totalProfit,
-      paidSalesCount: totalPaidSalesCount,
-      marginAvg: totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : null,
-    },
-  };
+  return getLegacySalesOverview(businessId, baseCounts);
 }

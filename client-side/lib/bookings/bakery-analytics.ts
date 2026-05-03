@@ -6,6 +6,12 @@ import type { DailySalesEntry } from "@/lib/forecasting/utils";
 type BakeryOrderRow = {
   external_id: string;
   total_price: unknown;
+  dp_paid_amount: unknown;
+  final_paid_amount: unknown;
+  total_paid_amount: unknown;
+  payment_status: string | null;
+  order_status: string | null;
+  delivery_date: string | null;
   created_at: Date;
 };
 
@@ -78,6 +84,16 @@ export type BakeryForecastProductSeries = {
   historicalPrices: number[];
 };
 
+export type BakeryPaymentSummary = {
+  totalOrderCount: number;
+  dpOrderCount: number;
+  paidOrderCount: number;
+  dpRevenue: number;
+  paidRevenue: number;
+  dpCashIn: number;
+  paidCashIn: number;
+};
+
 function toNumber(value: unknown): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -94,6 +110,10 @@ function asString(value: unknown): string {
 
 function normalizeText(value: string): string {
   return value.trim().toLowerCase();
+}
+
+function normalizePaymentStatus(value: string | null | undefined): string {
+  return String(value || "").trim().toLowerCase();
 }
 
 function toJakartaDateKey(date: Date): string {
@@ -179,12 +199,21 @@ async function ensureBakeryReportColumns(): Promise<void> {
   `);
 }
 
-async function loadCompletedBakeryOrders(
+function getAnalyticsDateKeyForOrder(order: BakeryOrderRow): string {
+  const normalizedDeliveryDate = (order.delivery_date || "").trim();
+  if (normalizedDeliveryDate) return normalizedDeliveryDate;
+  return toJakartaDateKey(order.created_at);
+}
+
+async function loadReportableBakeryOrders(
   businessId: number,
   startDate: Date,
   endDate: Date,
 ): Promise<BakeryOrderRow[]> {
   await ensureBakeryReportColumns();
+
+  const startKey = toJakartaDateKey(startDate);
+  const endKey = toJakartaDateKey(endDate);
 
   return prisma.$queryRaw<BakeryOrderRow[]>`
     WITH latest_orders AS (
@@ -201,12 +230,28 @@ async function loadCompletedBakeryOrders(
       ) ranked_orders
       WHERE ranked_orders.rn = 1
     )
-    SELECT external_id, total_price, created_at
+    SELECT
+      external_id,
+      total_price,
+      dp_paid_amount,
+      final_paid_amount,
+      total_paid_amount,
+      payment_status,
+      order_status,
+      delivery_date,
+      created_at
     FROM latest_orders
     WHERE business_id = ${businessId}
-      AND LOWER(COALESCE(order_status, '')) = 'completed'
       AND deleted_at IS NULL
-      AND created_at BETWEEN ${startDate} AND ${endDate}
+      AND LOWER(COALESCE(order_status, '')) <> 'cancelled'
+      AND (
+        LOWER(COALESCE(payment_status, '')) IN ('dp paid', 'paid')
+        OR COALESCE(total_paid_amount, 0) > 0
+      )
+      AND COALESCE(
+        NULLIF(TRIM(delivery_date), ''),
+        TO_CHAR((created_at AT TIME ZONE 'Asia/Jakarta')::date, 'YYYY-MM-DD')
+      )::date BETWEEN ${startKey}::date AND ${endKey}::date
     ORDER BY created_at ASC
   `;
 }
@@ -245,10 +290,53 @@ export async function hasBakeryOrders(businessId: number): Promise<boolean> {
     SELECT COUNT(*)::bigint AS count
     FROM bakery_orders
     WHERE business_id = ${businessId}
-      AND LOWER(COALESCE(order_status, '')) = 'completed'
       AND deleted_at IS NULL
+      AND LOWER(COALESCE(order_status, '')) <> 'cancelled'
+      AND (
+        LOWER(COALESCE(payment_status, '')) IN ('dp paid', 'paid')
+        OR COALESCE(total_paid_amount, 0) > 0
+      )
   `;
   return Number(rows[0]?.count ?? 0) > 0;
+}
+
+export async function getBakeryPaymentSummary(
+  businessId: number,
+  startDate: Date,
+  endDate: Date,
+): Promise<BakeryPaymentSummary> {
+  const orders = await loadReportableBakeryOrders(businessId, startDate, endDate);
+
+  return orders.reduce<BakeryPaymentSummary>(
+    (acc, order) => {
+      const paymentStatus = normalizePaymentStatus(order.payment_status);
+      const totalPrice = toNumber(order.total_price);
+      const totalPaidAmount = toNumber(order.total_paid_amount);
+
+      acc.totalOrderCount += 1;
+
+      if (paymentStatus === "paid") {
+        acc.paidOrderCount += 1;
+        acc.paidRevenue += totalPrice;
+        acc.paidCashIn += totalPaidAmount;
+        return acc;
+      }
+
+      acc.dpOrderCount += 1;
+      acc.dpRevenue += totalPrice;
+      acc.dpCashIn += totalPaidAmount;
+      return acc;
+    },
+    {
+      totalOrderCount: 0,
+      dpOrderCount: 0,
+      paidOrderCount: 0,
+      dpRevenue: 0,
+      paidRevenue: 0,
+      dpCashIn: 0,
+      paidCashIn: 0,
+    },
+  );
 }
 
 export async function getBakeryProductAnalytics(
@@ -257,7 +345,7 @@ export async function getBakeryProductAnalytics(
   endDate: Date,
 ): Promise<BakeryProductAnalytics[]> {
   const [orders, productsByName] = await Promise.all([
-    loadCompletedBakeryOrders(businessId, startDate, endDate),
+    loadReportableBakeryOrders(businessId, startDate, endDate),
     loadBusinessProducts(businessId),
   ]);
 
@@ -381,13 +469,13 @@ export async function getBakeryDailyAnalytics(
   endDate: Date,
 ): Promise<{ data: BakeryDailyPoint[]; totals: { revenue: number; cost: number; profit: number } }> {
   const [orders, productsByName] = await Promise.all([
-    loadCompletedBakeryOrders(businessId, startDate, endDate),
+    loadReportableBakeryOrders(businessId, startDate, endDate),
     loadBusinessProducts(businessId),
   ]);
 
   const revenueByDate = new Map<string, number>();
   orders.forEach((order) => {
-    const key = toJakartaDateKey(order.created_at);
+    const key = getAnalyticsDateKeyForOrder(order);
     revenueByDate.set(key, (revenueByDate.get(key) ?? 0) + toNumber(order.total_price));
   });
 
@@ -397,7 +485,7 @@ export async function getBakeryDailyAnalytics(
   const items = await loadBakeryOrderItems(businessId, orderIds);
   const orderDateMap = new Map<string, string>();
   orders.forEach((order) => {
-    orderDateMap.set(order.external_id, toJakartaDateKey(order.created_at));
+    orderDateMap.set(order.external_id, getAnalyticsDateKeyForOrder(order));
   });
 
   items.forEach((row) => {
@@ -505,7 +593,7 @@ export async function getBakeryGrowthAnalytics(
 export async function getBakeryHourlyAnalytics(businessId: number) {
   const now = new Date();
   const since = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-  const orders = await loadCompletedBakeryOrders(businessId, since, now);
+  const orders = await loadReportableBakeryOrders(businessId, since, now);
   const daily = await getBakeryDailyAnalytics(businessId, since, now);
   const totalCost = daily.totals.cost;
   const totalRevenue = daily.totals.revenue;
@@ -658,7 +746,7 @@ export async function getBakeryForecastInputs(
   productPriceMap: Map<number, { sellingPrice: number; cogs: number }>;
 }> {
   const [orders, productsByName, products] = await Promise.all([
-    loadCompletedBakeryOrders(businessId, since, until),
+    loadReportableBakeryOrders(businessId, since, until),
     loadBusinessProducts(businessId),
     prisma.product.findMany({
       where: { businessId, deletedAt: null, isActive: true },
@@ -677,7 +765,7 @@ export async function getBakeryForecastInputs(
   const revenueByDate = new Map<string, number>();
   const orderDateMap = new Map<string, string>();
   orders.forEach((order) => {
-    const dateKey = toJakartaDateKey(order.created_at);
+    const dateKey = getAnalyticsDateKeyForOrder(order);
     orderDateMap.set(order.external_id, dateKey);
     revenueByDate.set(dateKey, (revenueByDate.get(dateKey) ?? 0) + toNumber(order.total_price));
   });

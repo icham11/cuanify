@@ -1,0 +1,43 @@
+[Error: ENOENT: no such file or directory, stat 'D:\PROJECT\cuanify2\client-side\.next\dev\cache\webpack\server-development\0.pack.gz'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'stat',
+  path: 'D:\\PROJECT\\cuanify2\\client-side\\.next\\dev\\cache\\webpack\\server-development\\0.pack.gz'
+}
+⨯ unhandledRejection: [Error: ENOENT: no such file or directory, stat 'D:\PROJECT\cuanify2\client-side\.next\dev\cache\webpack\server-development\0.pack.gz'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'stat',
+  path: 'D:\\PROJECT\\cuanify2\\client-side\\.next\\dev\\cache\\webpack\\server-development\\0.pack.gz'
+}
+⨯ unhandledRejection:  [Error: ENOENT: no such file or directory, stat 'D:\PROJECT\cuanify2\client-side\.next\dev\cache\webpack\server-development\0.pack.gz'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'stat',
+  path: 'D:\\PROJECT\\cuanify2\\client-side\\.next\\dev\\cache\\webpack\\server-development\\0.pack.gz'
+}
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, stat 'D:\PROJECT\cuanify2\client-side\.next\dev\cache\webpack\server-development\0.pack.gz'
+[Error: ENOENT: no such file or directory, stat 'D:\PROJECT\cuanify2\client-side\.next\dev\cache\webpack\client-development\1.pack.gz'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'stat',
+  path: 'D:\\PROJECT\\cuanify2\\client-side\\.next\\dev\\cache\\webpack\\client-development\\1.pack.gz'
+}
+⨯ unhandledRejection: [Error: ENOENT: no such file or directory, stat 'D:\PROJECT\cuanify2\client-side\.next\dev\cache\webpack\client-development\1.pack.gz'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'stat',
+  path: 'D:\\PROJECT\\cuanify2\\client-side\\.next\\dev\\cache\\webpack\\client-development\\1.pack.gz'
+}
+⨯ unhandledRejection:  [Error: ENOENT: no such file or directory, stat 'D:\PROJECT\cuanify2\client-side\.next\dev\cache\webpack\client-development\1.pack.gz'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'stat',
+  path: 'D:\\PROJECT\\cuanify2\\client-side\\.next\\dev\\cache\\webpack\\client-development\\1.pack.gz'
+}
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, stat 'D:\PROJECT\cuanify2\client-side\.next\dev\cache\webpack\client-development\1.pack.gz'
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename 'D:\PROJECT\cuanify2\client-side\.next\dev\cache\webpack\client-development\0.pack.gz_' -> 'D:\PROJECT\cuanify2\client-side\.next\dev\cache\webpack\client-development\0.pack.gz'
+⚠ Your page app/login/page.tsx did not have a root layout. We created app\login\layout.tsx for you.
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: incorrect header check
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: EPERM: operation not permitted, rename 'D:\PROJECT\cuanify2\client-side\.next\dev\cache\webpack\client-development\0.pack.gz_' -> 'D:\PROJECT\cuanify2\client-side\.next\dev\cache\webpack\client-development\0.pack.gz'
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: EPERM: operation not permitted, rename 'D:\PROJECT\cuanify2\client-side\.next\dev\cache\webpack\client-development\1.pack.gz_' -> 'D:\PROJECT\cuanify2\client-side\.next\dev\cache\webpack\client-development\1.pack.gz'

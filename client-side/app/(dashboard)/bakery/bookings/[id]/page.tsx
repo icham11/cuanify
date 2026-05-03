@@ -1,36 +1,32 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
-import StatusBadge from "@/components/bakery/shared/StatusBadge";
-import PaymentBadge from "@/components/bakery/shared/PaymentBadge";
-import PriceSummaryCard from "@/components/bakery/bookings/PriceSummaryCard";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { FileText, Loader2 } from "lucide-react";
+import {
+  ArrowLeft,
+  Check,
+  Circle,
+  CircleCheckBig,
+  Clock3,
+  CreditCard,
+  FileText,
+  MessageCircle,
+  Palette,
+  Printer,
+  ReceiptText,
+  Truck,
+  UserRound,
+} from "lucide-react";
 import { useOrders } from "@/components/bakery/store";
 import { useParams } from "next/navigation";
 import { formatCurrency } from "@/components/orders/formatters";
-import { useRole } from "@/context/RoleContext";
 import { openInvoicePrintWindow } from "@/components/bakery/bookings/InvoiceTemplate";
-import { useBakerySettings } from "@/hooks/useBakerySettings";
 import type { ShippingResiResponse } from "@/lib/bookings/shipping-types";
 import {
-  countConcurrentOrdersForSlot,
-  getDeliverySlotsForDate,
-  getSlotLimitByItems,
-  isDateBlockedForOrdering,
-} from "@/lib/bookings/operations";
-import {
-  BAKERY_DOWN_PAYMENT_PERCENT,
-  calculateDownPayment,
-} from "@/lib/bookings/config";
-import {
   estimateOperationalWeightGram,
-  parseServiceChargeFromNotes,
-  resolveAdminServiceCharge,
   resolveShippingParcelCount,
 } from "@/lib/bookings/delivery-rules";
 import {
@@ -40,20 +36,9 @@ import {
 import {
   getJakartaTodayIsoDate,
   inferScheduledProviderFromQuote,
-  isGrabOrGojekOrder,
   isScheduledShipmentOrder,
 } from "@/lib/bookings/shipping-schedule";
 import { normalizeDateInput } from "@/lib/helpers/date-normalization";
-import { getSmartCourierLabel } from "@/lib/bookings/shipping-service";
-
-type SaveSyncState = "idle" | "saving" | "saved" | "failed";
-
-type ServerOrderPayload = {
-  id: string;
-  paymentStatus?: string;
-  totalPaidAmount?: number;
-  remainingBalance?: number;
-};
 
 function inferDeliveryMethodFromNotes(notes?: string): string | undefined {
   const match = notes?.match(/delivery\s*method\s*:\s*([^\n]+)/i);
@@ -84,31 +69,44 @@ function inferDeliveryMethodFromNotes(notes?: string): string | undefined {
   return undefined;
 }
 
+function formatDisplayDate(value?: string): string {
+  if (!value) return "-";
+  const parsed = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return new Intl.DateTimeFormat("id-ID", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(parsed);
+}
+
+function formatDisplayTime(value?: string): string {
+  if (!value) return "-";
+  return value.replace(":", ".");
+}
+
+function getInitials(value?: string): string {
+  const parts = (value || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2);
+  if (parts.length === 0) return "AD";
+  return parts.map((part) => part[0]?.toUpperCase() || "").join("");
+}
+
 export default function OrderDetailPage() {
   const {
     orders,
     updateOrderStatus,
-    updateOrderSchedule,
-    updatePaymentStatus,
-    recordPayment,
     getCustomerMessagePreview,
     setOrderShipment,
   } = useOrders();
   const params = useParams();
-  const { isOwner, isAdmin, loading: isRoleLoading } = useRole();
-  const { settings: bakerySettings } = useBakerySettings();
-  const blockedDates = bakerySettings?.blockedDates;
-  const canGenerateInvoice = isOwner || isAdmin;
+  const canGenerateInvoice = true;
   const orderId = typeof params?.id === "string" ? params.id : "";
-  const [rescheduleDate, setRescheduleDate] = useState("");
-  const [rescheduleSlot, setRescheduleSlot] = useState("");
   const [isCreatingResi, setIsCreatingResi] = useState(false);
-  const [dpPaidDraft, setDpPaidDraft] = useState(0);
-  const [finalPaidDraft, setFinalPaidDraft] = useState(0);
   const [statusDraft, setStatusDraft] = useState("");
-  const [paymentSaveSyncState, setPaymentSaveSyncState] =
-    useState<SaveSyncState>("idle");
-  const [paymentSaveSyncMessage, setPaymentSaveSyncMessage] = useState("");
   const order = useMemo(
     () => orders.find((item) => item.id === orderId),
     [orders, orderId],
@@ -118,7 +116,6 @@ export default function OrderDetailPage() {
     order?.paymentStatus === "Pending"
       ? "DP Paid"
       : (order?.paymentStatus ?? "DP Paid");
-  const isGrabOrGojekPaymentOrder = order ? isGrabOrGojekOrder(order) : false;
   const isScheduledShipmentProviderOrder = order
     ? isScheduledShipmentOrder(order)
     : false;
@@ -127,58 +124,10 @@ export default function OrderDetailPage() {
   const isBeforeScheduledShippingDate =
     isScheduledShipmentProviderOrder &&
     Boolean(normalizedDeliveryDate && normalizedDeliveryDate > todayJakarta);
-  const effectiveDate = rescheduleDate || order?.deliveryDate || "";
-  const effectiveSlot = rescheduleSlot || order?.deliverySlot || "10:00";
   const deliveryMethod = useMemo(
     () => inferDeliveryMethodFromNotes(order?.notes),
     [order?.notes],
   );
-  const slotLimitPerHour = useMemo(
-    () => getSlotLimitByItems(order?.items ?? []),
-    [order?.items],
-  );
-  const deliverySlots = useMemo(
-    () =>
-      getDeliverySlotsForDate(effectiveDate, undefined, {
-        deliveryMethod,
-        items: order?.items ?? [],
-        blockedDates,
-      }),
-    [effectiveDate, deliveryMethod, order?.items, blockedDates],
-  );
-
-  useEffect(() => {
-    if (!deliverySlots.length) return;
-    const preferred = rescheduleSlot || order?.deliverySlot || deliverySlots[0];
-    if (!deliverySlots.includes(preferred)) {
-      setRescheduleSlot(deliverySlots[0]);
-      return;
-    }
-    if (!rescheduleSlot) {
-      setRescheduleSlot(preferred);
-    }
-  }, [deliverySlots, rescheduleSlot, order?.deliverySlot]);
-
-  const slotUsage = useMemo(() => {
-    if (!effectiveDate || !effectiveSlot) return 0;
-    return countConcurrentOrdersForSlot({
-      orders,
-      deliveryDate: effectiveDate,
-      deliverySlot: effectiveSlot,
-      targetItems: order?.items ?? [],
-      excludeOrderId: orderId,
-    });
-  }, [orders, order, orderId, effectiveDate, effectiveSlot]);
-
-  const isBlockedDate = Boolean(
-    effectiveDate &&
-    isDateBlockedForOrdering(effectiveDate, undefined, {
-      deliveryMethod,
-      items: order?.items ?? [],
-      blockedDates,
-    }),
-  );
-  const isSlotFull = slotUsage >= slotLimitPerHour;
 
   const totalPrice = order?.totalPrice ?? 0;
   const orderDeliveryFee = useMemo(
@@ -189,144 +138,19 @@ export default function OrderDetailPage() {
       ),
     [order?.deliveryFee, order?.shippingQuote?.price],
   );
-  const serviceCharge = useMemo(
-    () => {
-      const parsedFromNotes = parseServiceChargeFromNotes(order?.notes);
-      if (parsedFromNotes > 0) return parsedFromNotes;
-      return resolveAdminServiceCharge(deliveryMethod);
-    },
-    [order?.notes, deliveryMethod],
+  const insuranceFee = Math.max(
+    0,
+    Math.round(Number(order?.insuranceFee ?? order?.shippingQuote?.insuranceFee ?? 0)),
   );
   const messagePreview = order ? getCustomerMessagePreview(order.id) : "";
-  useEffect(() => {
-    if (!order) return;
-    setDpPaidDraft(Number(order.dpPaidAmount ?? 0));
-    setFinalPaidDraft(Number(order.finalPaidAmount ?? 0));
-  }, [order]);
 
   useEffect(() => {
     if (!normalizedOrderStatus) return;
     setStatusDraft(normalizedOrderStatus);
   }, [normalizedOrderStatus]);
 
-  useEffect(() => {
-    setPaymentSaveSyncState("idle");
-    setPaymentSaveSyncMessage("");
-  }, [order?.id]);
-  const verifyPaymentSavedToServer = async (params: {
-    orderId: string;
-    expectedStatus: "DP Paid" | "Paid";
-    expectedTotalPaid: number;
-    expectedRemaining: number;
-  }) => {
-    const { orderId, expectedStatus, expectedTotalPaid, expectedRemaining } =
-      params;
-
-    for (let attempt = 0; attempt < 7; attempt += 1) {
-      try {
-        const response = await fetch("/api/bookings/orders", {
-          method: "GET",
-          credentials: "include",
-          cache: "no-store",
-        });
-
-        if (response.ok) {
-          const payload = (await response.json()) as {
-            success?: boolean;
-            data?: { orders?: ServerOrderPayload[] };
-          };
-
-          const serverOrder = payload.data?.orders?.find(
-            (entry) => entry.id === orderId,
-          );
-
-          if (serverOrder) {
-            const normalizedStatus =
-              serverOrder.paymentStatus === "Pending"
-                ? "DP Paid"
-                : serverOrder.paymentStatus;
-            const normalizedTotalPaid = Math.max(
-              0,
-              Math.round(Number(serverOrder.totalPaidAmount ?? 0)),
-            );
-            const normalizedRemaining = Math.max(
-              0,
-              Math.round(Number(serverOrder.remainingBalance ?? 0)),
-            );
-
-            if (
-              normalizedStatus === expectedStatus &&
-              normalizedTotalPaid === expectedTotalPaid &&
-              normalizedRemaining === expectedRemaining
-            ) {
-              return true;
-            }
-          }
-        }
-      } catch {
-        // Retry shortly; server sync can be slightly delayed.
-      }
-
-      await new Promise((resolve) => window.setTimeout(resolve, 450));
-    }
-
-    return false;
-  };
-
-  const runPaymentSaveConfirmation = async (params: {
-    orderId: string;
-    expectedStatus: "DP Paid" | "Paid";
-    expectedTotalPaid: number;
-    expectedRemaining: number;
-  }) => {
-    setPaymentSaveSyncState("saving");
-    setPaymentSaveSyncMessage("Menyimpan ke server...");
-
-    const saved = await verifyPaymentSavedToServer(params);
-    if (saved) {
-      const savedAt = new Intl.DateTimeFormat("id-ID", {
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-      }).format(new Date());
-      setPaymentSaveSyncState("saved");
-      setPaymentSaveSyncMessage(`Tersimpan ke server (${savedAt})`);
-      return;
-    }
-
-    setPaymentSaveSyncState("failed");
-    setPaymentSaveSyncMessage(
-      "Belum terverifikasi di server. Coba refresh atau simpan lagi.",
-    );
-  };
-
-  const handlePaymentStatusChange = (nextStatus: "DP Paid" | "Paid") => {
-    if (!order) return;
-
-    updatePaymentStatus(order.id, nextStatus);
-
-    const total = Math.max(0, Math.round(Number(order.totalPrice || 0)));
-    const expectedTotalPaid =
-      nextStatus === "Paid" ? total : calculateDownPayment(total);
-    const expectedRemaining = Math.max(0, total - expectedTotalPaid);
-
-    void runPaymentSaveConfirmation({
-      orderId: order.id,
-      expectedStatus: nextStatus,
-      expectedTotalPaid,
-      expectedRemaining,
-    });
-  };
-
-  const handleReschedule = () => {
-    if (!order) return;
-    if (!effectiveDate || !effectiveSlot || isBlockedDate || isSlotFull) return;
-    updateOrderSchedule(order.id, effectiveDate, effectiveSlot);
-  };
-
   const handlePrintLabel = () => {
     if (!order) return;
-    const orderServiceCharge = serviceCharge;
     const itemLines = (order.items ?? [])
       .map((item) => `${item.quantity}x ${item.productName} (${item.size})`)
       .join("<br />");
@@ -359,7 +183,7 @@ export default function OrderDetailPage() {
             <div class="row"><strong>Delivery:</strong> ${order.deliveryDate} ${order.deliverySlot}</div>
             <div class="row"><strong>Items:</strong><br />${itemLines || "-"}</div>
             ${orderDeliveryFee > 0 ? `<div class="row"><strong>Ongkir:</strong> ${formatCurrency(orderDeliveryFee)}</div>` : ""}
-            ${orderServiceCharge > 0 ? `<div class="row"><strong>Service Charge:</strong> ${formatCurrency(orderServiceCharge)}</div>` : ""}
+            ${insuranceFee > 0 ? `<div class="row"><strong>Insurance:</strong> ${formatCurrency(insuranceFee)}</div>` : ""}
             <div class="row"><strong>Total:</strong> ${formatCurrency(order.totalPrice ?? 0)}</div>
             <div class="muted">Generated by Bakery OMS</div>
           </div>
@@ -453,47 +277,16 @@ export default function OrderDetailPage() {
     }
   };
 
-  const handleRecordPayment = () => {
-    if (!order) return;
-    const nextDpPaid = Math.max(0, Math.round(Number(dpPaidDraft || 0)));
-    const nextFinalPaid = Math.max(0, Math.round(Number(finalPaidDraft || 0)));
-    const total = Math.max(0, Math.round(Number(order.totalPrice || 0)));
-    const nextTotalPaid = Math.min(total, nextDpPaid + nextFinalPaid);
-    const nextRemaining = Math.max(0, total - nextTotalPaid);
-    const expectedStatus = nextTotalPaid >= total ? "Paid" : "DP Paid";
-
-    recordPayment(order.id, {
-      dpPaidAmount: nextDpPaid,
-      finalPaidAmount: nextFinalPaid,
-      note: "Payment verified from booking detail",
-    });
-
-    void runPaymentSaveConfirmation({
-      orderId: order.id,
-      expectedStatus,
-      expectedTotalPaid: nextTotalPaid,
-      expectedRemaining: nextRemaining,
-    });
-  };
-  if (isRoleLoading) {
-    return (
-      <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-5 text-sm text-gray-500 shadow-sm">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        Memuat hak akses booking...
-      </div>
-    );
-  }
-
   if (!order) {
     return (
-      <div className="space-y-6 pb-10">
-        <GradientPageHeader
-          title="Order Detail"
-          description="We could not find this booking."
-          icon={FileText}
-        />
-        <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/60 px-4 py-6 text-center text-sm text-gray-500">
-          Order not found. Please return to the bookings list.
+      <div className="space-y-4 pb-10">
+        <div className="flex justify-center">
+          <div className="inline-flex items-center rounded-full border border-[var(--crumbella-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.95)_0%,rgba(246,233,219,0.92)_100%)] px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.28em] text-[var(--crumbella-primary)] shadow-[0_12px_24px_-22px_rgba(30,18,10,0.7)]">
+            Booking Detail
+          </div>
+        </div>
+        <div className="rounded-[28px] border border-[var(--crumbella-border)] bg-white px-5 py-8 text-center text-sm text-[var(--crumbella-muted)] shadow-[0_18px_30px_-24px_rgba(30,18,10,0.35)]">
+          Order tidak ditemukan. Kembali ke daftar booking.
         </div>
       </div>
     );
@@ -554,6 +347,27 @@ export default function OrderDetailPage() {
         !/^wholesale\s*discount\s*:/i.test(line),
     );
   const bookingNotesList = [...parsedReferenceLabels, ...customNotesOnly];
+  const totalPaidAmount = Math.max(0, Math.round(Number(order.totalPaidAmount ?? 0)));
+  const remainingBalanceAmount = Math.max(
+    0,
+    Math.round(Number(order.remainingBalance ?? Math.max(0, totalPrice - totalPaidAmount))),
+  );
+  const statusSteps = [
+    "Order Created",
+    "In Production",
+    "Ready",
+    "Delivery",
+    "Completed",
+  ] as const;
+  const activeStatusIndex = Math.max(
+    0,
+    statusSteps.findIndex(
+      (status) => status.toLowerCase() === normalizedOrderStatus.toLowerCase(),
+    ),
+  );
+  const isLateOrder =
+    Boolean(normalizedDeliveryDate && normalizedDeliveryDate < todayJakarta) &&
+    !["Completed", "Delivered", "Cancelled"].includes(normalizedOrderStatus);
   const itemRows = (order.items ?? []).map((item) => {
     const quantity = Math.max(1, Number(item.quantity || 1));
     const baseUnit = Math.max(0, Number(item.basePrice || 0));
@@ -566,7 +380,6 @@ export default function OrderDetailPage() {
       item.subcategory ? `${item.subcategory}` : "",
       item.addOns?.length ? `Add-on: ${item.addOns.join(", ")}` : "",
       item.notes ? item.notes : "",
-      item.cookieDifficultyBreakdown ? item.cookieDifficultyBreakdown : "",
     ].filter((text) => text.length > 0);
     return {
       id: item.id,
@@ -578,276 +391,318 @@ export default function OrderDetailPage() {
   });
 
   return (
-    <div className="mx-auto max-w-4xl space-y-5 pb-10">
-      <GradientPageHeader
-        title={`Booking #${bookingCodeValue}`}
-        description={`Dibuat ${createdDisplayTime}`}
-        icon={FileText}
-      />
+    <div className="mx-auto max-w-3xl space-y-4 pb-10">
+      <div className="flex justify-center">
+        <div className="inline-flex items-center rounded-full border border-[var(--crumbella-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.95)_0%,rgba(246,233,219,0.92)_100%)] px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.28em] text-[var(--crumbella-primary)] shadow-[0_12px_24px_-22px_rgba(30,18,10,0.7)]">
+          Booking
+        </div>
+      </div>
 
-      <div className="space-y-6">
-        <Card className="rounded-2xl border-[#eadccf] shadow-sm">
-          <CardHeader className="p-6 pb-2">
-            <CardTitle className="text-[#7e6655]">Status Booking</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 px-6 pb-6 pt-0">
-            <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
-              <span className="rounded-full bg-gray-100 px-3 py-1">Requested</span>
-              <span className="rounded-full bg-gray-100 px-3 py-1">Confirmed</span>
-              <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 font-semibold text-amber-700">
-                {normalizedOrderStatus}
-              </span>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
-              <Select value={statusDraft} onChange={(event) => setStatusDraft(event.target.value)}>
-                {BOOKING_STATUS_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </Select>
-              <Button
-                type="button"
-                variant="outline"
-                className="border-indigo-200 text-indigo-700 hover:bg-indigo-50"
-                onClick={() =>
-                  updateOrderStatus(
-                    order.id,
-                    statusDraft as
-                      | "In Production"
-                      | "Ready"
-                      | "Delivery"
-                      | "Completed"
-                      | "Delivered"
-                      | "Cancelled",
-                  )
-                }
-              >
-                Simpan
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border-[#eadccf] shadow-sm">
-          <CardHeader className="p-6 pb-2">
-            <CardTitle className="text-[#7e6655]">Detail Pesanan</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4 px-6 pb-6 pt-0 text-sm text-gray-800">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div><p className="text-[11px] font-semibold uppercase tracking-wide text-[#e0b48b]">Tanggal Pengiriman</p><p className="mt-1 font-semibold">{order.deliveryDate || "-"}</p></div>
-              <div><p className="text-[11px] font-semibold uppercase tracking-wide text-[#e0b48b]">Jam</p><p className="mt-1 font-semibold">{order.deliverySlot || "-"}</p></div>
-              <div><p className="text-[11px] font-semibold uppercase tracking-wide text-[#e0b48b]">Metode</p><p className="mt-1 font-semibold">{readableMethod}</p></div>
-              <div><p className="text-[11px] font-semibold uppercase tracking-wide text-[#e0b48b]">Kode Booking</p><p className="mt-1 font-semibold">{bookingCodeValue}</p></div>
-            </div>
+      <div className="space-y-4 px-1 sm:px-2">
+        <div className="flex items-start justify-between gap-3 border-b border-[var(--crumbella-border)] pb-4">
+          <div className="flex items-start gap-3">
+            <Link
+              href="/bakery/bookings"
+              className="flex h-10 w-10 items-center justify-center rounded-2xl border border-[var(--crumbella-border)] bg-white text-[var(--crumbella-primary)]"
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </Link>
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-[#e0b48b]">Alamat Pengiriman</p>
-              <p className="mt-1">{primaryAddress}</p>
+              <p className="text-[1.9rem] font-bold leading-none text-[var(--foreground)]">
+                #{bookingCodeValue}
+              </p>
+              <p className="mt-1 text-sm text-[var(--crumbella-muted)]">
+                Dibuat {createdDisplayTime}
+              </p>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+          {isLateOrder ? (
+            <span className="rounded-full bg-[#ffe7e1] px-3 py-1 text-xs font-semibold text-[#b63b2d]">
+              Terlambat
+            </span>
+          ) : (
+            <span className="rounded-full bg-[#eef7ef] px-3 py-1 text-xs font-semibold text-[#2d6d48]">
+              {normalizedOrderStatus}
+            </span>
+          )}
+        </div>
 
-        <Card className="rounded-2xl border-[#eadccf] shadow-sm">
-          <CardHeader className="p-6 pb-2"><CardTitle className="text-[#7e6655]">Customer</CardTitle></CardHeader>
-          <CardContent className="space-y-1 px-6 pb-6 pt-0 text-sm text-gray-800">
-            <p className="font-semibold">{order.customerName || "-"}</p>
-            <p className="text-[#e0b48b]">{order.customerPhone || "-"}</p>
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border-[#eadccf] shadow-sm">
-          <CardHeader className="p-6 pb-2"><CardTitle className="text-[#7e6655]">Order Items</CardTitle></CardHeader>
-          <CardContent className="space-y-3 px-6 pb-6 pt-0 text-sm text-gray-800">
-            {itemRows.map((row) => (
-              <div key={row.id} className="rounded-xl border border-[#eadccf] px-4 py-3">
-                <div className="flex items-start justify-between gap-2"><p className="font-semibold">{row.title}</p><p className="font-semibold">{formatCurrency(row.lineTotal)}</p></div>
-                {row.details.length > 0 && <div className="mt-1 space-y-1 text-xs text-[#c79b73]">{row.details.map((detail, index) => (<p key={`${row.id}-detail-${index}`}>{detail}</p>))}</div>}
-                <p className="mt-1 text-xs text-gray-500">Harga/unit: {formatCurrency(row.unitPrice)}</p>
-              </div>
-            ))}
-            <div className="flex items-center justify-between border-t border-[#eadccf] pt-3">
-              <p className="text-base font-semibold">Total Pesanan</p>
-              <p className="text-2xl font-bold text-[#f26a21]">{formatCurrency(totalPrice)}</p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border-[#eadccf] shadow-sm">
-          <CardHeader className="p-6 pb-2"><CardTitle className="text-[#7e6655]">Ringkasan Harga</CardTitle></CardHeader>
-          <CardContent className="px-6 pb-6 pt-0">
-            <PriceSummaryCard
-              basePrice={order.basePrice ?? 0}
-              addOnTotal={order.addOnTotal ?? 0}
-              deliveryFee={order.deliveryFee ?? 0}
-              serviceCharge={serviceCharge}
-              manualAdjustment={order.manualAdjustment ?? 0}
-              totalPrice={totalPrice}
-            />
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border-[#eadccf] shadow-sm">
-          <CardHeader className="p-6 pb-2"><CardTitle className="text-[#7e6655]">Kurir & Pengiriman</CardTitle></CardHeader>
-          <CardContent className="space-y-3 px-6 pb-6 pt-0 text-sm text-gray-700">
-            {order.shippingQuote ? (
-              <div className="rounded-lg border border-[#eadccf] bg-[#fff8f1] px-3 py-2">
-                <p className="font-semibold">{order.shippingQuote.provider} - {getSmartCourierLabel({ courierName: order.shippingQuote.courierServiceName, deliveryDate: order.deliveryDate })}</p>
-                <p className="text-xs text-[#c79b73]">Ongkir {formatCurrency(orderDeliveryFee)} ? ETA {order.shippingQuote.eta} ? {order.shippingQuote.distanceKm} km</p>
-                {serviceCharge > 0 && <p className="text-xs text-[#c79b73]">Service Charge {formatCurrency(serviceCharge)}</p>}
-              </div>
-            ) : null}
-            <div className="grid gap-2 sm:grid-cols-3">
-              <Button type="button" variant="outline" className="h-10 border-indigo-200 text-indigo-700 hover:bg-indigo-50" onClick={handlePrintLabel}>Print Label</Button>
-              {canGenerateInvoice && <Button type="button" variant="outline" className="h-10 border-orange-200 bg-orange-50 text-orange-700 hover:bg-orange-100" onClick={() => openInvoicePrintWindow(order)}>Cetak Invoice</Button>}
-              <Button type="button" variant="outline" className="h-10 border-indigo-200 text-indigo-700 hover:bg-indigo-50" disabled={!order.shippingQuote || isCreatingResi || isBeforeScheduledShippingDate} onClick={handleCreateResi}>{isCreatingResi ? "Membuat Resi..." : "Generate Resi"}</Button>
-            </div>
-            {order.shipment?.trackingNumber ? <p className="text-xs text-gray-600">Resi aktif: <span className="font-semibold">{order.shipment.trackingNumber}</span></p> : null}
-          </CardContent>
-        </Card>
-
-        {bookingNotesList.length > 0 ? (
-          <Card className="rounded-2xl border-[#eadccf] shadow-sm">
-            <CardHeader className="p-6 pb-2">
-              <div className="flex items-center justify-between gap-2">
-                <CardTitle className="text-[#7e6655]">Catatan Booking</CardTitle>
-                <a href="#edit-delivery" className="inline-flex h-8 items-center rounded-lg border border-[#eadccf] px-3 text-xs font-semibold text-[#7e6655]">Edit</a>
-              </div>
+        <div className="space-y-4">
+          <Card className="overflow-hidden rounded-[24px] border-[var(--crumbella-border)] shadow-none">
+            <CardHeader className="px-4 pb-3 pt-4">
+              <CardTitle className="text-sm uppercase tracking-[0.16em] text-[var(--foreground)]">
+                Status Order
+              </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-2 px-6 pb-6 pt-0 text-sm text-gray-800">
-              <ol className="space-y-2 pl-5">
-                {bookingNotesList.map((note, index) => (
-                  <li key={`note-${index}`} className="list-decimal marker:text-[#f26a21]">{note}</li>
-                ))}
-              </ol>
+            <CardContent className="space-y-4 px-4 pb-4 pt-0">
+              <div className="grid grid-cols-5 gap-2">
+                {statusSteps.map((step, index) => {
+                  const isDone = index < activeStatusIndex;
+                  const isActive = index === activeStatusIndex;
+                  return (
+                    <div key={step} className="flex flex-col items-center text-center">
+                      <div className="flex w-full items-center justify-center">
+                        {index > 0 ? (
+                          <div className={`h-[2px] flex-1 ${index <= activeStatusIndex ? "bg-[var(--crumbella-accent)]" : "bg-[#dfcdc0]"}`} />
+                        ) : (
+                          <div className="flex-1" />
+                        )}
+                        <div
+                          className={`flex h-8 w-8 items-center justify-center rounded-full border text-[11px] ${
+                            isDone
+                              ? "border-[#2d6d48] bg-[#2d6d48] text-white"
+                              : isActive
+                                ? "border-[var(--crumbella-accent)] bg-[var(--crumbella-accent)] text-white"
+                                : "border-[#d9c8bc] bg-[#f6ebe1] text-[#b89d8a]"
+                          }`}
+                        >
+                          {isDone ? <Check className="h-4 w-4" /> : <Circle className="h-3 w-3 fill-current" />}
+                        </div>
+                        {index < statusSteps.length - 1 ? (
+                          <div className={`h-[2px] flex-1 ${index < activeStatusIndex ? "bg-[var(--crumbella-accent)]" : "bg-[#dfcdc0]"}`} />
+                        ) : (
+                          <div className="flex-1" />
+                        )}
+                      </div>
+                      <p className={`mt-2 text-[10px] font-medium leading-tight ${isActive ? "text-[var(--crumbella-accent)]" : isDone ? "text-[#2d6d48]" : "text-[#aa8b76]"}`}>
+                        {step}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+                <Select value={statusDraft} onChange={(event) => setStatusDraft(event.target.value)}>
+                  {BOOKING_STATUS_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </Select>
+                <Button
+                  type="button"
+                  className="h-11 rounded-2xl bg-[var(--crumbella-accent)] px-5 text-white hover:bg-[var(--crumbella-accent-strong)]"
+                  onClick={() =>
+                    updateOrderStatus(
+                      order.id,
+                      statusDraft as
+                        | "In Production"
+                        | "Ready"
+                        | "Delivery"
+                        | "Completed"
+                        | "Delivered"
+                        | "Cancelled",
+                    )
+                  }
+                >
+                  Simpan
+                </Button>
+              </div>
             </CardContent>
           </Card>
-        ) : null}
 
-        <Card className="rounded-2xl border-[#eadccf] shadow-sm">
-          <CardHeader className="p-6 pb-2"><CardTitle className="text-[#7e6655]">Riwayat Status</CardTitle></CardHeader>
-          <CardContent className="space-y-3 px-6 pb-6 pt-0 text-sm text-gray-700">
-            {(order.statusHistory ?? []).slice().reverse().map((entry) => (
-              <div key={entry.id} className="rounded-lg border border-[#eadccf] px-3 py-2">
-                <p className="font-semibold text-[#2f7f63]">{entry.status}</p>
-                <p className="text-xs text-[#c79b73]">{new Date(entry.timestamp).toLocaleString("id-ID")}</p>
-                <p className="text-sm text-gray-600">{entry.note || "-"}</p>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-
-        <Card id="edit-delivery" className="rounded-2xl border-[#eadccf] shadow-sm">
-          <CardHeader className="p-6 pb-2"><CardTitle className="text-[#7e6655]">Edit Jadwal Delivery</CardTitle></CardHeader>
-          <CardContent className="space-y-3 px-6 pb-6 pt-0 text-sm text-gray-700">
-            <div className="grid gap-3 sm:grid-cols-2">
-                <label className="grid gap-2">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    Delivery Date
-                  </span>
-                  <input
-                    type="date"
-                    value={rescheduleDate}
-                    onChange={(event) => setRescheduleDate(event.target.value)}
-                    className="h-10 rounded-xl border border-gray-200 px-3"
-                  />
-                </label>
-                <label className="grid gap-2">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    Delivery Slot
-                  </span>
-                  <Select
-                    value={rescheduleSlot}
-                    onChange={(event) => setRescheduleSlot(event.target.value)}
-                  >
-                    {deliverySlots.map((slot) => (
-                      <option key={slot} value={slot}>
-                        {slot}
-                      </option>
-                    ))}
-                  </Select>
-                </label>
-              </div>
-              {(isBlockedDate || isSlotFull) && (
-                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                  {isBlockedDate
-                    ? "Selected date is blocked/unavailable."
-                    : `Slot full (${slotUsage}/${slotLimitPerHour}). Choose another time.`}
+          <Card className="overflow-hidden rounded-[24px] border-[var(--crumbella-border)] shadow-none">
+            <CardHeader className="border-b border-[var(--crumbella-border)] px-4 py-4">
+              <CardTitle className="flex items-center gap-2 text-[1.2rem] text-[var(--foreground)]">
+                <FileText className="h-4 w-4 text-[var(--crumbella-primary)]" />
+                Detail Pesanan
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="px-4 py-4">
+              <div className="grid grid-cols-2 gap-0 rounded-[18px] border border-[#eadccf] bg-[#fffdf9]">
+                <div className="border-b border-r border-[#eadccf] px-3 py-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#d29a6e]">Tanggal</p>
+                  <p className="mt-1 text-lg font-semibold text-[var(--foreground)]">{formatDisplayDate(order.deliveryDate)}</p>
                 </div>
-              )}
-              <Button
+                <div className="border-b border-[#eadccf] px-3 py-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#d29a6e]">Jam</p>
+                  <p className="mt-1 text-lg font-semibold text-[var(--foreground)]">{formatDisplayTime(order.deliverySlot)}</p>
+                </div>
+                <div className="border-r border-[#eadccf] px-3 py-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#d29a6e]">Metode</p>
+                  <p className="mt-1 text-lg font-semibold text-[var(--foreground)]">{readableMethod}</p>
+                </div>
+                <div className="px-3 py-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#d29a6e]">Kode Booking</p>
+                  <p className="mt-1 text-lg font-semibold text-[var(--foreground)]">{bookingCodeValue}</p>
+                </div>
+              </div>
+              <div className="mt-3 rounded-[18px] border border-[#eadccf] bg-[#fffdf9] px-3 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#d29a6e]">Alamat</p>
+                <p className="mt-1 text-sm text-[var(--foreground)]">{primaryAddress}</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="overflow-hidden rounded-[24px] border-[var(--crumbella-border)] shadow-none">
+            <CardHeader className="border-b border-[var(--crumbella-border)] px-4 py-4">
+              <CardTitle className="flex items-center gap-2 text-[1.2rem] text-[var(--foreground)]">
+                <UserRound className="h-4 w-4 text-[var(--crumbella-primary)]" />
+                Customer
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="flex items-center gap-3 px-4 py-4">
+              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#f6e2d1] text-sm font-bold text-[var(--crumbella-primary)]">
+                {getInitials(order.customerName)}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xl font-semibold text-[var(--foreground)]">{order.customerName || "-"}</p>
+                <p className="text-sm text-[var(--crumbella-muted)]">{order.customerPhone || "-"}</p>
+              </div>
+              <button
                 type="button"
-                variant="outline"
-                className="border-indigo-200 text-indigo-700 hover:bg-indigo-50"
-                disabled={!rescheduleDate || isBlockedDate || isSlotFull}
-                onClick={handleReschedule}
+                onClick={handleCopyMessage}
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-[#efe7fb] text-[#9a7acd]"
               >
-                Save Reschedule
-              </Button>
-            <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 whitespace-pre-wrap text-xs text-gray-700">
-              {messagePreview}
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              className="border-indigo-200 text-indigo-700 hover:bg-indigo-50"
-              onClick={handleCopyMessage}
-            >
-              Copy Message
-            </Button>
-          </CardContent>
-        </Card>
+                <MessageCircle className="h-4 w-4" />
+              </button>
+            </CardContent>
+          </Card>
 
-        <Card className="rounded-2xl border-[#eadccf] shadow-sm">
-          <CardHeader className="p-6 pb-2"><CardTitle className="text-[#7e6655]">Verifikasi Pembayaran</CardTitle></CardHeader>
-          <CardContent className="space-y-3 px-6 pb-6 pt-0">
-              <div className="flex items-center justify-between text-sm text-gray-600">
-                <span>Payment Status</span>
-                <PaymentBadge status={order.paymentStatus} />
-              </div>
-              {isGrabOrGojekPaymentOrder && (
-                <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-700">
-                  Penanda pembayaran: order ini menggunakan Grab/Gojek.
+          <Card className="overflow-hidden rounded-[24px] border-[var(--crumbella-border)] shadow-none">
+            <CardHeader className="border-b border-[var(--crumbella-border)] px-4 py-4">
+              <CardTitle className="text-[1.2rem] text-[var(--foreground)]">🍪 Order Items</CardTitle>
+            </CardHeader>
+            <CardContent className="px-0 py-0">
+              {itemRows.map((row) => (
+                <div key={row.id} className="border-b border-[var(--crumbella-border)] px-4 py-4 last:border-b-0">
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="text-lg font-semibold text-[var(--foreground)]">{row.title}</p>
+                    <p className="shrink-0 text-lg font-semibold text-[var(--foreground)]">{formatCurrency(row.lineTotal)}</p>
+                  </div>
+                  {row.details.length > 0 ? (
+                    <div className="mt-1 space-y-1 text-sm text-[#7e6655]">
+                      {row.details.map((detail, index) => (
+                        <p key={`${row.id}-${index}`}>{detail}</p>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
-              )}
-              <Select
-                value={normalizedPaymentStatus}
-                onChange={(event) =>
-                  handlePaymentStatusChange(
-                    event.target.value as "DP Paid" | "Paid",
-                  )
-                }
-                disabled={paymentSaveSyncState === "saving"}
-              >
-                <option value="DP Paid">DP 50%</option>
-                <option value="Paid">Lunas</option>
-              </Select>
-              <div className="flex items-center justify-between text-sm text-gray-600">
-                <span>Order Status</span>
-                <StatusBadge status={normalizedOrderStatus} />
+              ))}
+              <div className="flex items-center justify-between px-4 py-4">
+                <p className="text-[1.1rem] font-semibold text-[var(--foreground)]">Total</p>
+                <p className="text-[1.7rem] font-bold text-[var(--crumbella-accent)]">{formatCurrency(totalPrice)}</p>
               </div>
-              <div className="flex items-center justify-between text-sm text-gray-600">
-                <span>DP ({BAKERY_DOWN_PAYMENT_PERCENT}%)</span>
-                <span className="font-semibold text-gray-900">
-                  Rp {Number(calculateDownPayment(totalPrice)).toLocaleString("id-ID")}
+            </CardContent>
+          </Card>
+
+          <Card className="overflow-hidden rounded-[24px] border-[var(--crumbella-border)] shadow-none">
+            <CardHeader className="border-b border-[var(--crumbella-border)] px-4 py-4">
+              <CardTitle className="flex items-center gap-2 text-[1.2rem] text-[var(--foreground)]">
+                <CreditCard className="h-4 w-4 text-[var(--crumbella-primary)]" />
+                Status Pembayaran
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-0 px-0 py-0">
+              <div className="flex items-center justify-between px-4 py-4">
+                <div>
+                  <p className="text-sm text-[var(--crumbella-muted)]">DP Masuk</p>
+                  <p className="text-[1.5rem] font-bold text-[var(--foreground)]">{formatCurrency(totalPaidAmount)}</p>
+                </div>
+                <span className="rounded-full bg-[#eaf7e9] px-3 py-1 text-xs font-semibold text-[#2d6d48]">
+                  {normalizedPaymentStatus === "Paid" ? "Lunas" : "DP 50%"}
                 </span>
               </div>
-              <div className="grid gap-2">
-                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">DP Paid (Actual)</span>
-                <Input type="number" min={0} step={1000} value={dpPaidDraft} onChange={(event) => setDpPaidDraft(Number(event.target.value || 0))} />
+              <div className="border-t border-[var(--crumbella-border)] px-4 py-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-[var(--crumbella-muted)]">Sisa Tagihan</p>
+                    <p className="text-[1.5rem] font-bold text-[#cb3d2f]">{formatCurrency(remainingBalanceAmount)}</p>
+                  </div>
+                  <span className="rounded-full bg-[#ffe9e6] px-3 py-1 text-xs font-semibold text-[#cb3d2f]">
+                    {remainingBalanceAmount > 0 ? "Belum Lunas" : "Lunas"}
+                  </span>
+                </div>
               </div>
-              <div className="grid gap-2">
-                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Final Paid (Actual)</span>
-                <Input type="number" min={0} step={1000} value={finalPaidDraft} onChange={(event) => setFinalPaidDraft(Number(event.target.value || 0))} />
-              </div>
-              <div className="flex items-center justify-between text-sm text-gray-600"><span>Total Paid</span><span className="font-semibold text-gray-900">Rp {Number(order.totalPaidAmount ?? 0).toLocaleString("id-ID")}</span></div>
-              <div className="flex items-center justify-between text-sm text-gray-600"><span>Remaining</span><span className="font-semibold text-gray-900">Rp {Number(order.remainingBalance ?? 0).toLocaleString("id-ID")}</span></div>
-              <Button type="button" variant="outline" className="border-indigo-200 text-indigo-700 hover:bg-indigo-50" onClick={handleRecordPayment} disabled={paymentSaveSyncState === "saving"}>
-                {paymentSaveSyncState === "saving" ? "Menyimpan..." : "Save Payment Verification"}
-              </Button>
+            </CardContent>
+          </Card>
 
-          </CardContent>
-        </Card>
+          {bookingNotesList.length > 0 ? (
+            <Card className="overflow-hidden rounded-[24px] border-[var(--crumbella-border)] shadow-none">
+              <CardHeader className="border-b border-[var(--crumbella-border)] px-4 py-4">
+                <CardTitle className="flex items-center gap-2 text-[1.2rem] text-[var(--foreground)]">
+                  <Palette className="h-4 w-4 text-[var(--crumbella-primary)]" />
+                  Design Notes
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4 px-0 py-0">
+                <div className="px-4 py-4">
+                  {itemRows.map((row, index) => (
+                    <div key={`${row.id}-notes-${index}`} className="border-b border-[var(--crumbella-border)] pb-4 last:border-b-0 last:pb-0">
+                      <div className="mb-3 flex items-center gap-2">
+                        <span className="rounded-full bg-[var(--crumbella-accent)] px-2 py-1 text-[10px] font-semibold text-white">
+                          Produk {index + 1}
+                        </span>
+                        <p className="text-base font-semibold text-[var(--foreground)]">{row.title}</p>
+                      </div>
+                      <ol className="space-y-2">
+                        {bookingNotesList.map((note, noteIndex) => (
+                          <li key={`${row.id}-note-${noteIndex}`} className="grid grid-cols-[18px_1fr] gap-2 text-sm text-[var(--foreground)]">
+                            <span className="text-[var(--crumbella-accent)]">{noteIndex + 1}</span>
+                            <span>{note}</span>
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
+
+          <div className="grid grid-cols-3 gap-3">
+            <Button type="button" variant="outline" className="h-12 rounded-2xl border-[var(--crumbella-border)] text-[var(--foreground)]" onClick={handlePrintLabel}>
+              <Printer className="mr-2 h-4 w-4" />
+              Label
+            </Button>
+            {canGenerateInvoice ? (
+              <Button type="button" variant="outline" className="h-12 rounded-2xl border-[var(--crumbella-border)] text-[var(--foreground)]" onClick={() => openInvoicePrintWindow(order)}>
+                <ReceiptText className="mr-2 h-4 w-4" />
+                Invoice
+              </Button>
+            ) : (
+              <div className="h-12" />
+            )}
+            <Button
+              type="button"
+              className="h-12 rounded-2xl bg-[var(--crumbella-accent)] text-white hover:bg-[var(--crumbella-accent-strong)]"
+              disabled={!order.shippingQuote || isCreatingResi || isBeforeScheduledShippingDate}
+              onClick={handleCreateResi}
+            >
+              <Truck className="mr-2 h-4 w-4" />
+              {isCreatingResi ? "Membuat Resi..." : "Kurir"}
+            </Button>
+          </div>
+
+          <Card className="overflow-hidden rounded-[24px] border-[var(--crumbella-border)] shadow-none">
+            <CardHeader className="border-b border-[var(--crumbella-border)] px-4 py-4">
+              <CardTitle className="flex items-center gap-2 text-[1.2rem] text-[var(--foreground)]">
+                <Clock3 className="h-4 w-4 text-[var(--crumbella-primary)]" />
+                Riwayat Status
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4 px-4 py-4">
+              {(order.statusHistory ?? []).slice().reverse().map((entry) => (
+                <div key={entry.id} className="grid grid-cols-[20px_1fr] gap-3">
+                  <div className="flex justify-center pt-1">
+                    <CircleCheckBig className="h-5 w-5 text-[#2d6d48]" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-[var(--foreground)]">{entry.status}</p>
+                    <p className="text-xs text-[var(--crumbella-muted)]">
+                      {new Date(entry.timestamp).toLocaleString("id-ID")}
+                    </p>
+                    <p className="text-sm text-[#7e6655]">{entry.note || "-"}</p>
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+
+        </div>
       </div>
     </div>
   );
 }
+
+

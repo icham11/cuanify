@@ -64,6 +64,11 @@ export const navSections: NavSection[] = [
         icon: CalendarDays,
       },
       {
+        label: "Attendance",
+        href: "/bakery/attendance",
+        icon: Clock,
+      },
+      {
         label: "Production",
         href: "/bakery/production",
         icon: Factory,

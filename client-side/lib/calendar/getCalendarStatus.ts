@@ -34,6 +34,7 @@ export interface CalendarDayInput {
 
 interface CalendarStatusOptions {
   blockedDates?: readonly string[];
+  cutoffHour?: number;
 }
 
 function getDatePartsInTimeZone(
@@ -99,7 +100,21 @@ export function isPastDate(dateStr: string, now: Date = new Date()): boolean {
  *
  * Uses local date comparison to avoid timezone shift issues.
  */
-function isCutoff(dateStr: string, now: Date = new Date()): boolean {
+function isOrderingBlockedToday(
+  blockedDates: readonly string[] | undefined,
+  now: Date = new Date(),
+): boolean {
+  const activeBlockedDates = blockedDates ?? BAKERY_BLOCKED_DATES;
+  const nowParts = getDatePartsInTimeZone(now, BUSINESS_TIME_ZONE);
+  const today = `${nowParts.year}-${String(nowParts.month).padStart(2, "0")}-${String(nowParts.day).padStart(2, "0")}`;
+  return activeBlockedDates.includes(today);
+}
+
+function isCutoff(
+  dateStr: string,
+  now: Date = new Date(),
+  cutoffHour: number = BAKERY_H_MINUS_1_CUTOFF_HOUR,
+): boolean {
   const targetParts = parseDatePartsFromYmd(dateStr);
   if (!targetParts) return false;
 
@@ -116,7 +131,7 @@ function isCutoff(dateStr: string, now: Date = new Date()): boolean {
 
   if (!isTomorrow) return false;
 
-  return nowParts.hour >= BAKERY_H_MINUS_1_CUTOFF_HOUR;
+  return nowParts.hour >= cutoffHour;
 }
 
 /**
@@ -149,7 +164,7 @@ export function getCalendarStatus(
   // Priority 2: BLOCKED
   const blockedDates = options?.blockedDates ?? BAKERY_BLOCKED_DATES;
 
-  if (blockedDates.includes(date)) {
+  if (isOrderingBlockedToday(blockedDates, now)) {
     return "BLOCKED";
   }
 
@@ -159,7 +174,7 @@ export function getCalendarStatus(
   }
 
   // Priority 4: CUTOFF — H-1 rule
-  if (isCutoff(date, now)) {
+  if (isCutoff(date, now, options?.cutoffHour)) {
     return "CUTOFF";
   }
 

@@ -1,30 +1,24 @@
 "use client";
+
 import { useState, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Plus,
-  ShoppingBag,
   AlertTriangle,
-  Tag,
   ChefHat,
   Eye,
   Pencil,
   Trash2,
   X,
   Loader2,
-  CheckCircle2,
-  ChevronUp,
-  ChevronDown,
-  TrendingUp,
+  Search,
+  ArrowUpDown,
 } from "lucide-react";
-import { toast } from "sonner";
 import {
   getProducts,
   getCategoryOptions,
-  updateProductPrice,
   deleteProduct,
-  bulkDeleteProducts,
   syncBakeryCatalogProducts,
 } from "@/lib/api/products";
 import type { Product, ProductCategory } from "@/types/product";
@@ -46,59 +40,104 @@ const SUBCATEGORY_PRODUCT_MAP = new Map(
     ),
   ),
 );
+
 const REMOVED_BAKERY_SUBCATEGORIES = new Set([
   ["Best", "Seller", "Kids", "Edition"].join(" "),
   ["Best", "Seller", "Signature"].join(" "),
 ]);
 
+type SortByField = "name" | "sellingPrice" | "createdAt";
+type SortOrderType = "asc" | "desc";
+
+const PRODUCT_SORT_OPTIONS: Array<{
+  label: string;
+  sortBy: SortByField;
+  sortOrder: SortOrderType;
+}> = [
+  { label: "Nama A-Z", sortBy: "name", sortOrder: "asc" },
+  { label: "Nama Z-A", sortBy: "name", sortOrder: "desc" },
+  { label: "Harga Tertinggi", sortBy: "sellingPrice", sortOrder: "desc" },
+  { label: "Harga Terendah", sortBy: "sellingPrice", sortOrder: "asc" },
+  { label: "Terbaru", sortBy: "createdAt", sortOrder: "desc" },
+];
+
 function getProductGroupName(product: Product): string {
   const subcategory = product.category?.name ?? "";
-  return getProductGroupFromSubcategoryName(subcategory);
-}
-
-function getProductGroupFromSubcategoryName(subcategory: string): string {
   return SUBCATEGORY_PRODUCT_MAP.get(subcategory) ?? "Custom";
 }
 
-/**
- * Renders a margin value with color + contextual badge.
- * < -100%  → red + "Cek Data" badge (likely a unit/cost entry mistake)
- * < 0%     → red + "Rugi" badge
- * < 20%    → red
- * < 50%    → yellow
- * ≥ 50%    → green
- */
+function formatCompactCurrency(value: number): string {
+  const amount = Math.max(0, Number(value || 0));
+  if (amount >= 1_000_000) {
+    const compact = amount / 1_000_000;
+    return `${Number.isInteger(compact) ? compact : compact.toFixed(1)}M`;
+  }
+  if (amount >= 1_000) {
+    const compact = amount / 1_000;
+    return `${Number.isInteger(compact) ? compact : compact.toFixed(1)}K`;
+  }
+  return String(amount);
+}
+
+function formatProductTimestamp(product: Product): string {
+  const source = product.updatedAt || product.createdAt;
+  if (!source) return "Baru dibuat";
+
+  const date = new Date(source);
+  if (Number.isNaN(date.getTime())) return "Baru dibuat";
+
+  return new Intl.DateTimeFormat("id-ID", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(date);
+}
+
+function getProductStatus(product: Product) {
+  return product.isActive === false
+    ? {
+        label: "Nonaktif",
+        badgeClassName: "bg-[#fdeaea] text-[#a83030]",
+        cardClassName: "opacity-65",
+      }
+    : {
+        label: "Aktif",
+        badgeClassName: "bg-[#e0f0e8] text-[#2a5c3f]",
+        cardClassName: "",
+      };
+}
+
 function MarginBadge({ margin }: { margin: number }) {
   if (margin < -100) {
     return (
-      <span className="text-red-700 font-semibold">
+      <span className="font-semibold text-red-700">
         {margin}%{" "}
-        <span className="inline-flex items-center gap-0.5 bg-red-100 text-red-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-          <AlertTriangle size={9} /> Cek Data
+        <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700">
+          Cek
         </span>
       </span>
     );
   }
   if (margin < 0) {
     return (
-      <span className="text-red-600 font-semibold">
+      <span className="font-semibold text-red-600">
         {margin}%{" "}
-        <span className="inline-flex items-center gap-0.5 bg-red-50 text-red-600 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+        <span className="rounded-full bg-red-50 px-1.5 py-0.5 text-[10px] font-bold text-red-600">
           Rugi
         </span>
       </span>
     );
   }
+
   const color =
     margin >= 50
-      ? "text-green-600"
+      ? "text-[#2a5c3f]"
       : margin >= 20
-        ? "text-yellow-600"
-        : "text-red-600";
-  return <span className={`${color} font-semibold`}>{margin}%</span>;
-}
+        ? "text-[#9a6b10]"
+        : "text-[#a83030]";
 
-// Recipe modal
+  return <span className={`font-semibold ${color}`}>{margin}%</span>;
+}
 
 function RecipeModal({
   product,
@@ -116,120 +155,103 @@ function RecipeModal({
       : null;
 
   if (typeof document === "undefined") return null;
+
   return createPortal(
     <div
       ref={overlayRef}
-      className="fixed inset-0 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4"
+      className="fixed inset-0 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4"
       style={{ zIndex: 200 }}
-      onMouseDown={(e) => e.target === overlayRef.current && onClose()}
+      onMouseDown={(event) =>
+        event.target === overlayRef.current ? onClose() : undefined
+      }
     >
-      <div className="bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl w-full sm:max-w-lg max-h-[85dvh] flex flex-col overflow-hidden">
-        {/* Drag handle (mobile only) */}
-        <div className="flex justify-center pt-3 pb-1 sm:hidden shrink-0">
-          <div className="w-10 h-1 bg-gray-200 rounded-full" />
+      <div className="max-h-[85dvh] w-full overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:max-w-lg sm:rounded-3xl">
+        <div className="flex justify-center pt-3 sm:hidden">
+          <div className="h-1 w-10 rounded-full bg-gray-200" />
         </div>
-        {/* Header */}
-        <div className="flex items-start justify-between px-6 py-4 sm:py-5 border-b border-gray-100 bg-linear-to-r from-indigo-50 to-indigo-50">
+        <div className="flex items-start justify-between border-b border-gray-100 bg-[#fff7f1] px-6 py-4">
           <div>
-            <div className="flex items-center gap-2">
-              <ChefHat size={18} className="text-indigo-500" />
-              <h2 className="text-lg font-extrabold text-indigo-700">
-                {product.name}
-              </h2>
-            </div>
-            {product.category && (
-              <span className="inline-flex items-center gap-1 mt-1 bg-indigo-100 text-indigo-700 text-xs font-semibold px-2.5 py-0.5 rounded-full">
-                <Tag size={10} />
+            <h2 className="text-lg font-extrabold text-[#7c3410]">
+              {product.name}
+            </h2>
+            {product.category ? (
+              <span className="mt-1 inline-flex rounded-full bg-[#f5e0d0] px-2.5 py-0.5 text-xs font-semibold text-[#a84820]">
                 Sub Category: {product.category.name}
               </span>
-            )}
+            ) : null}
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-full hover:bg-gray-100 text-gray-400 transition"
+            className="rounded-full p-1.5 text-gray-400 transition hover:bg-gray-100"
           >
             <X size={18} />
           </button>
         </div>
 
-        {/* Pricing summary */}
-        <div className="grid grid-cols-3 divide-x divide-gray-100 border-b border-gray-100 text-center shrink-0">
-          <div className="px-2 py-2.5 sm:px-4 sm:py-3">
-            <p className="text-[9px] sm:text-[10px] text-gray-400 font-bold uppercase tracking-wide">
+        <div className="grid grid-cols-3 divide-x divide-gray-100 border-b border-gray-100 text-center">
+          <div className="px-3 py-3">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400">
               Harga Jual
             </p>
-            <p className="text-xs sm:text-sm font-extrabold text-indigo-700 mt-0.5">
+            <p className="mt-1 text-sm font-extrabold text-[#c86030]">
               {formatCurrency(sellingPrice)}
             </p>
           </div>
-          <div className="px-2 py-2.5 sm:px-4 sm:py-3">
-            <p className="text-[9px] sm:text-[10px] text-gray-400 font-bold uppercase tracking-wide">
-              COGS/HPP
+          <div className="px-3 py-3">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400">
+              COGS / HPP
             </p>
-            <p className="text-xs sm:text-sm font-extrabold text-slate-700 mt-0.5">
+            <p className="mt-1 text-sm font-extrabold text-slate-700">
               {cogs > 0 ? formatCurrency(cogs) : "—"}
             </p>
           </div>
-          <div className="px-2 py-2.5 sm:px-4 sm:py-3">
-            <p className="text-[9px] sm:text-[10px] text-gray-400 font-bold uppercase tracking-wide">
+          <div className="px-3 py-3">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400">
               Margin
             </p>
-            <p className="text-xs sm:text-sm font-extrabold mt-0.5">
+            <p className="mt-1 text-sm font-extrabold">
               {margin !== null ? <MarginBadge margin={margin} /> : "—"}
             </p>
           </div>
         </div>
 
-        {/* Recipe list */}
-        <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 pb-safe">
+        <div className="max-h-[55dvh] overflow-y-auto px-4 py-4 sm:px-6">
           {product.recipes.length === 0 ? (
-            <p className="text-center text-gray-400 italic py-8">
+            <p className="py-8 text-center text-sm italic text-gray-400">
               Tidak ada bahan dalam resep ini.
             </p>
           ) : (
             <div className="space-y-2">
-              {/* Column headers */}
-              <div className="grid grid-cols-12 gap-2 px-3 text-[10px] font-bold text-gray-400 uppercase tracking-wide">
+              <div className="grid grid-cols-12 gap-2 px-3 text-[10px] font-bold uppercase tracking-wide text-gray-400">
                 <div className="col-span-5">Bahan</div>
                 <div className="col-span-2 text-right">Jml</div>
                 <div className="col-span-2">Satuan</div>
                 <div className="col-span-3 text-right">Biaya</div>
               </div>
-              {product.recipes.map((r) => {
-                const costPerUnit = Number(r.ingredient.costPerUnit ?? 0);
-                const rowCost = Number(r.quantity) * costPerUnit;
+              {product.recipes.map((recipe) => {
+                const costPerUnit = Number(recipe.ingredient.costPerUnit ?? 0);
+                const rowCost = Number(recipe.quantity) * costPerUnit;
+
                 return (
                   <div
-                    key={r.id}
-                    className="grid grid-cols-12 gap-2 items-center bg-gray-50 rounded-xl px-3 py-2.5 border border-gray-100"
+                    key={recipe.id}
+                    className="grid grid-cols-12 items-center gap-2 rounded-xl border border-gray-100 bg-gray-50 px-3 py-2.5"
                   >
-                    <div className="col-span-5 font-medium text-slate-700 text-sm truncate">
-                      {r.ingredient.name}
+                    <div className="col-span-5 truncate text-sm font-medium text-slate-700">
+                      {recipe.ingredient.name}
                     </div>
                     <div className="col-span-2 text-right text-sm text-gray-600">
-                      {Number(r.quantity)}
+                      {Number(recipe.quantity)}
                     </div>
                     <div className="col-span-2 text-sm text-gray-500">
-                      {r.ingredient.unit}
+                      {recipe.ingredient.unit}
                     </div>
-                    <div className="col-span-3 text-right text-xs font-bold text-indigo-600">
+                    <div className="col-span-3 text-right text-xs font-bold text-[#7c3410]">
                       {rowCost > 0 ? formatCurrency(rowCost) : "—"}
                     </div>
                   </div>
                 );
               })}
-
-              {/* Total */}
-              {cogs > 0 && (
-                <div className="flex justify-between items-center pt-2 pb-4 sm:pb-2 border-t border-gray-100 px-3">
-                  <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">
-                    Total COGS/HPP
-                  </span>
-                  <span className="text-sm font-extrabold text-indigo-700">
-                    {formatCurrency(cogs)}
-                  </span>
-                </div>
-              )}
             </div>
           )}
         </div>
@@ -238,143 +260,6 @@ function RecipeModal({
     document.body,
   );
 }
-
-// Edit price modal
-
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function EditPriceModal({
-  product,
-  onClose,
-  onSaved,
-}: {
-  product: Product;
-  onClose: () => void;
-  onSaved: (updated: Product) => void;
-}) {
-  const [price, setPrice] = useState(Number(product.sellingPrice));
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const overlayRef = useRef<HTMLDivElement>(null);
-
-  const cogs = Number(product.cogs);
-  const margin =
-    price > 0 && cogs > 0
-      ? Math.round(((price - cogs) / price) * 100)
-      : null;
-
-  const handleSave = async () => {
-    if (!price || price <= 0) {
-      setError("Harga jual harus lebih dari 0.");
-      return;
-    }
-    setSaving(true);
-    setError(null);
-    try {
-      const updated = await updateProductPrice(product.id, price);
-      onSaved({ ...product, sellingPrice: Number(updated.sellingPrice) });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Gagal memperbarui harga");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  if (typeof document === "undefined") return null;
-  return createPortal(
-    <div
-      ref={overlayRef}
-      className="fixed inset-0 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4"
-      style={{ zIndex: 200 }}
-      onMouseDown={(e) => e.target === overlayRef.current && onClose()}
-    >
-      <div className="bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl w-full sm:max-w-sm overflow-hidden">
-        {/* Drag handle (mobile only) */}
-        <div className="flex justify-center pt-3 pb-1 sm:hidden">
-          <div className="w-10 h-1 bg-gray-200 rounded-full" />
-        </div>
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 sm:py-5 border-b border-gray-100 bg-linear-to-r from-indigo-50 to-indigo-50">
-          <div>
-            <h2 className="text-base font-extrabold text-indigo-700">
-              Edit Harga Jual
-            </h2>
-            <p className="text-xs text-gray-500 mt-0.5 truncate max-w-55">
-              {product.name}
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-full hover:bg-gray-100 text-gray-400 transition"
-          >
-            <X size={18} />
-          </button>
-        </div>
-
-        <div className="px-6 py-5 space-y-4">
-          {error && (
-            <div className="flex items-start gap-2 bg-red-50 text-red-600 rounded-xl p-3 text-xs">
-              <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-              {error}
-            </div>
-          )}
-
-          <div>
-            <label className="text-xs font-bold text-gray-600 uppercase tracking-wide">
-              Harga Jual (Rp)
-            </label>
-            <input
-              type="number"
-              min={1}
-              autoFocus
-              value={price}
-              onChange={(e) => {
-                setPrice(Number(e.target.value));
-                setError(null);
-              }}
-              onKeyDown={(e) => e.key === "Enter" && handleSave()}
-              className="mt-1.5 w-full border border-indigo-200 rounded-xl px-4 py-2.5 text-base font-semibold text-slate-700 bg-white focus:ring-2 focus:ring-indigo-400 outline-none"
-            />
-            {cogs > 0 && (
-              <p className="text-xs text-gray-400 mt-1.5">
-                COGS/HPP: {formatCurrency(cogs)}
-                {margin !== null && (
-                  <>
-                    {" — "}
-                    <MarginBadge margin={margin} />
-                  </>
-                )}
-              </p>
-            )}
-          </div>
-
-          <div className="flex gap-3 pt-1 pb-8 sm:pb-0">
-            <button
-              onClick={onClose}
-              className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50 transition"
-            >
-              Batal
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 text-white font-bold text-sm rounded-xl hover:bg-indigo-700 transition disabled:opacity-50"
-            >
-              {saving ? (
-                <Loader2 size={16} className="animate-spin" />
-              ) : (
-                <CheckCircle2 size={16} />
-              )}
-              Simpan
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>,
-    document.body,
-  );
-}
-
-// Delete confirmation modal
 
 function DeleteConfirmModal({
   product,
@@ -402,54 +287,55 @@ function DeleteConfirmModal({
   };
 
   if (typeof document === "undefined") return null;
+
   return createPortal(
     <div
       ref={overlayRef}
-      className="fixed inset-0 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4"
+      className="fixed inset-0 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4"
       style={{ zIndex: 200 }}
-      onMouseDown={(e) => e.target === overlayRef.current && onClose()}
+      onMouseDown={(event) =>
+        event.target === overlayRef.current ? onClose() : undefined
+      }
     >
-      <div className="bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl w-full sm:max-w-sm overflow-hidden">
-        <div className="flex justify-center pt-3 pb-1 sm:hidden">
-          <div className="w-10 h-1 bg-gray-200 rounded-full" />
+      <div className="w-full overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:max-w-sm sm:rounded-3xl">
+        <div className="flex justify-center pt-3 sm:hidden">
+          <div className="h-1 w-10 rounded-full bg-gray-200" />
         </div>
-        <div className="px-6 py-5 sm:py-6 space-y-4">
+        <div className="space-y-4 px-6 py-5">
           <div className="flex items-start gap-3">
-            <div className="shrink-0 flex items-center justify-center w-10 h-10 rounded-full bg-red-100 text-red-600">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-100 text-red-600">
               <Trash2 size={18} />
             </div>
             <div>
               <h2 className="text-base font-extrabold text-slate-800">
                 Hapus Produk?
               </h2>
-              <p className="text-sm text-gray-500 mt-1">
+              <p className="mt-1 text-sm text-gray-500">
                 <span className="font-semibold text-slate-700">
                   {product.name}
                 </span>{" "}
-                dan seluruh resepnya akan dihapus permanen. Tindakan ini tidak
-                dapat dibatalkan.
+                dan seluruh resepnya akan dihapus permanen.
               </p>
             </div>
           </div>
 
-          {error && (
-            <div className="flex items-start gap-2 bg-red-50 text-red-600 rounded-xl p-3 text-xs">
-              <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+          {error ? (
+            <div className="rounded-xl bg-red-50 p-3 text-xs text-red-600">
               {error}
             </div>
-          )}
+          ) : null}
 
           <div className="flex gap-3">
             <button
               onClick={onClose}
-              className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50 transition"
+              className="flex-1 rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-600"
             >
               Batal
             </button>
             <button
               onClick={handleDelete}
               disabled={deleting}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-red-600 text-white font-bold text-sm rounded-xl hover:bg-red-700 transition disabled:opacity-50"
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50"
             >
               {deleting ? (
                 <Loader2 size={16} className="animate-spin" />
@@ -466,105 +352,13 @@ function DeleteConfirmModal({
   );
 }
 
-// Bulk delete confirmation modal
-
-function BulkDeleteConfirmModal({
-  count,
-  deleting,
-  error,
-  onClose,
-  onConfirm,
-}: {
-  count: number;
-  deleting: boolean;
-  error: string | null;
-  onClose: () => void;
-  onConfirm: () => void;
-}) {
-  const overlayRef = useRef<HTMLDivElement>(null);
-  if (typeof document === "undefined") return null;
-  return createPortal(
-    <div
-      ref={overlayRef}
-      className="fixed inset-0 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4"
-      style={{ zIndex: 200 }}
-      onMouseDown={(e) => e.target === overlayRef.current && onClose()}
-    >
-      <div className="bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl w-full sm:max-w-sm overflow-hidden">
-        <div className="flex justify-center pt-3 pb-1 sm:hidden">
-          <div className="w-10 h-1 bg-gray-200 rounded-full" />
-        </div>
-        <div className="px-6 py-5 sm:py-6 space-y-4">
-          <div className="flex items-start gap-3">
-            <div className="shrink-0 flex items-center justify-center w-10 h-10 rounded-full bg-red-100 text-red-600">
-              <Trash2 size={18} />
-            </div>
-            <div>
-              <h2 className="text-base font-extrabold text-slate-800">
-                Hapus {count} Produk?
-              </h2>
-              <p className="text-sm text-gray-500 mt-1">
-                Semua produk yang dipilih dan resepnya akan dihapus permanen.
-                Tindakan ini tidak dapat dibatalkan.
-              </p>
-            </div>
-          </div>
-
-          {error && (
-            <div className="flex items-start gap-2 bg-red-50 text-red-600 rounded-xl p-3 text-xs">
-              <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-              {error}
-            </div>
-          )}
-
-          <div className="flex gap-3">
-            <button
-              onClick={onClose}
-              className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50 transition"
-            >
-              Batal
-            </button>
-            <button
-              onClick={onConfirm}
-              disabled={deleting}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-red-600 text-white font-bold text-sm rounded-xl hover:bg-red-700 transition disabled:opacity-50"
-            >
-              {deleting ? (
-                <Loader2 size={16} className="animate-spin" />
-              ) : (
-                <Trash2 size={16} />
-              )}
-              Hapus {count}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>,
-    document.body,
-  );
-}
-
-type SortByField =
-  | "name"
-  | "sellingPrice"
-  | "createdAt";
-type SortOrderType = "asc" | "desc";
-
 export default function ProductsPage() {
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const latestRequestRef = useRef(0);
+
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<ProductCategory[]>([]);
-  // Fetch categories from backend
-  useEffect(() => {
-    fetch("/api/categories")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.success && Array.isArray(data.data)) {
-          setCategories(data.data);
-        }
-      })
-      .catch(() => {});
-  }, []);
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [productGroupFilter, setProductGroupFilter] = useState("");
@@ -578,10 +372,6 @@ export default function ProductsPage() {
   const [avgMargin, setAvgMargin] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
-  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
-  const [bulkDeleting, setBulkDeleting] = useState(false);
-  const [bulkDeleteError, setBulkDeleteError] = useState<string | null>(null);
   const [syncingCatalog, setSyncingCatalog] = useState(false);
   const [syncCatalogMessage, setSyncCatalogMessage] = useState<string | null>(
     null,
@@ -590,6 +380,18 @@ export default function ProductsPage() {
   const [deleteModal, setDeleteModal] = useState<Product | null>(null);
   const [recipeModal, setRecipeModal] = useState<Product | null>(null);
   const [addProductModalOpen, setAddProductModalOpen] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/categories")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && Array.isArray(data.data)) {
+          setCategories(data.data);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   const visibleCategories = useMemo(
     () =>
       categories.filter(
@@ -597,26 +399,32 @@ export default function ProductsPage() {
       ),
     [categories],
   );
+
   const productGroupOptions = useMemo(() => {
     const groups = new Set(
-      visibleCategories.map((category) =>
-        getProductGroupFromSubcategoryName(category.name),
+      visibleCategories.map(
+        (category) => SUBCATEGORY_PRODUCT_MAP.get(category.name) ?? "Custom",
       ),
     );
     return Array.from(groups).sort((a, b) => a.localeCompare(b));
   }, [visibleCategories]);
+
   const filteredSubcategoryOptions = useMemo(() => {
     if (!productGroupFilter) return visibleCategories;
     return visibleCategories.filter(
       (category) =>
-        getProductGroupFromSubcategoryName(category.name) === productGroupFilter,
+        (SUBCATEGORY_PRODUCT_MAP.get(category.name) ?? "Custom") ===
+        productGroupFilter,
     );
   }, [productGroupFilter, visibleCategories]);
+
   const selectedProductGroupCategoryIds = useMemo(
     () => filteredSubcategoryOptions.map((category) => category.id),
     [filteredSubcategoryOptions],
   );
-  const selectedProductGroupCategoryKey = selectedProductGroupCategoryIds.join(",");
+
+  const selectedProductGroupCategoryKey =
+    selectedProductGroupCategoryIds.join(",");
 
   useEffect(() => {
     const searchFromUrl = searchParams.get("search") ?? "";
@@ -626,14 +434,12 @@ export default function ProductsPage() {
     setSearch(searchFromUrl);
     setPage(1);
   }, [searchParams]);
-  const latestRequestRef = useRef(0);
-  const router = useRouter();
 
   useEffect(() => {
     if (searchParams.get("addProduct") !== "1") return;
     setAddProductModalOpen(true);
     router.replace("/dashboard/products", { scroll: false });
-  }, [searchParams, router]);
+  }, [router, searchParams]);
 
   const fetchProducts = async (
     pageOverride?: number,
@@ -643,6 +449,7 @@ export default function ProductsPage() {
     latestRequestRef.current = requestId;
     setLoading(true);
     setError(null);
+
     try {
       const { data, meta } = await getProducts({
         search,
@@ -659,7 +466,9 @@ export default function ProductsPage() {
         sortOrder,
         page: pageOverride ?? page,
       });
+
       if (requestId !== latestRequestRef.current) return;
+
       setProducts(data);
       setTotalPages(Math.max(1, meta.totalPages));
       setTotalCount(meta.total);
@@ -681,7 +490,7 @@ export default function ProductsPage() {
       const data = await getCategoryOptions();
       setCategories(data);
     } catch {
-      // Category filter is optional; product fetch remains the main path.
+      // Optional path only.
     }
   };
 
@@ -711,13 +520,22 @@ export default function ProductsPage() {
   };
 
   useEffect(() => {
-    fetchProducts(1);
+    void fetchProducts(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, categoryFilter, productGroupFilter, selectedProductGroupCategoryKey, sortBy, sortOrder]);
+  }, [
+    search,
+    categoryFilter,
+    productGroupFilter,
+    selectedProductGroupCategoryKey,
+    sortBy,
+    sortOrder,
+  ]);
 
   useEffect(() => {
     if (!categoryFilter) return;
-    if (filteredSubcategoryOptions.some((category) => category.id === categoryFilter)) {
+    if (
+      filteredSubcategoryOptions.some((category) => category.id === categoryFilter)
+    ) {
       return;
     }
     setCategoryFilter(null);
@@ -735,194 +553,127 @@ export default function ProductsPage() {
     return () => window.clearTimeout(timeoutId);
   }, [searchInput, search]);
 
-  const handleSortClick = (col: SortByField) => {
-    if (sortBy === col) {
-      setSortOrder(
-        (o: SortOrderType): SortOrderType => (o === "asc" ? "desc" : "asc"),
-      );
-      return;
-    }
+  const activeSortLabel = useMemo(
+    () =>
+      PRODUCT_SORT_OPTIONS.find(
+        (option) => option.sortBy === sortBy && option.sortOrder === sortOrder,
+      )?.label ?? "Nama A-Z",
+    [sortBy, sortOrder],
+  );
 
-    setSortBy(col);
-    setSortOrder("asc");
-  };
-
-  const SortIcon = ({ col }: { col: SortByField }) =>
-    sortBy !== col ? (
-      <ChevronUp size={12} className="ml-1 text-gray-300" />
-    ) : sortOrder === "asc" ? (
-      <ChevronUp size={12} className="ml-1 text-indigo-500" />
-    ) : (
-      <ChevronDown size={12} className="ml-1 text-indigo-500" />
+  const cycleSortOption = () => {
+    const currentIndex = PRODUCT_SORT_OPTIONS.findIndex(
+      (option) => option.sortBy === sortBy && option.sortOrder === sortOrder,
     );
+    const nextOption =
+      PRODUCT_SORT_OPTIONS[
+        currentIndex >= 0
+          ? (currentIndex + 1) % PRODUCT_SORT_OPTIONS.length
+          : 0
+      ];
+    setSortBy(nextOption.sortBy);
+    setSortOrder(nextOption.sortOrder);
+    setPage(1);
+  };
 
   const handlePageChange = (nextPage: number) => {
     const boundedPage = Math.min(Math.max(1, nextPage), totalPages);
     if (boundedPage === page || loading) return;
-    fetchProducts(boundedPage);
+    void fetchProducts(boundedPage);
   };
-
-  const toggleSelectAll = () => {
-    setSelectedIds((prev) => {
-      if (prev.size === products.length) return new Set();
-      return new Set(products.map((p) => p.id));
-    });
-  };
-
-  const toggleSelectProduct = (id: number) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  };
-
-  const handleBulkDelete = async () => {
-    if (selectedIds.size === 0) return;
-    setBulkDeleting(true);
-    setBulkDeleteError(null);
-    try {
-      await bulkDeleteProducts(Array.from(selectedIds));
-      setSelectedIds(new Set());
-      setBulkDeleteOpen(false);
-      await fetchProducts(1);
-      toast.success(`${selectedIds.size} produk berhasil dihapus.`);
-    } catch (err) {
-      setBulkDeleteError(
-        err instanceof Error ? err.message : "Gagal menghapus produk terpilih.",
-      );
-    } finally {
-      setBulkDeleting(false);
-    }
-  };
-
-  // ...continue with correct component logic here (conditional rendering, table, modals, etc.)
 
   return (
     <>
-      <div className="space-y-8">
-        {/* HEADER */}
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 bg-linear-to-r from-indigo-500 via-indigo-500 to-indigo-400 rounded-2xl p-4 sm:p-6 shadow-lg">
-          <div>
-            <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-white flex items-center gap-2 sm:gap-3">
-              <ShoppingBag className="w-5 h-5 sm:w-7 sm:h-7 shrink-0" />
-              Products
-            </h1>
-            <p className="text-indigo-100 text-sm mt-1">
-              Kelola produk dan resep bisnis Anda.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={handleSyncBakeryCatalog}
-              disabled={syncingCatalog}
-              className="flex items-center justify-center gap-2 px-4 sm:px-5 py-2.5 bg-white text-indigo-700 font-semibold rounded-xl shadow hover:bg-indigo-50 transition text-sm sm:text-base disabled:opacity-60"
-            >
-              {syncingCatalog ? (
-                <Loader2 size={18} className="animate-spin" />
-              ) : (
-                <ShoppingBag size={18} />
-              )}
-              Sync Bakery Catalog
-            </button>
-            <button
-              onClick={() => setAddProductModalOpen(true)}
-              className="flex items-center justify-center gap-2 px-4 sm:px-5 py-2.5 bg-indigo-950/20 text-white font-semibold rounded-xl shadow hover:bg-indigo-950/30 transition text-sm sm:text-base"
-            >
-              <Plus size={20} />
-              Add Product
-            </button>
-          </div>
-        </div>
-
-        {syncCatalogMessage ? (
-          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
-            {syncCatalogMessage}
-          </div>
-        ) : null}
-
-        {/* STATS ROW */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
-          {/* Rata-rata Harga — top row on mobile (full width), middle on desktop */}
-          <div className="col-span-2 sm:col-span-1 sm:order-2 bg-white/80 backdrop-blur border border-indigo-100 rounded-xl sm:rounded-2xl p-4 sm:p-6 shadow-sm hover:shadow-md hover:border-indigo-200 transition">
-            <div className="flex items-center gap-1.5 mb-1">
-              <Tag size={14} className="text-indigo-400 shrink-0" />
-              <p className="text-xs sm:text-sm text-gray-500">
-                Rata-rata Harga
+      <div className="mx-auto max-w-6xl space-y-5 text-[#1e120a]">
+        <section className="overflow-hidden rounded-[30px] border border-[#d9cabc] bg-[#f2eae1] shadow-[0_24px_60px_-40px_rgba(30,18,10,0.35)]">
+          <div className="flex items-center justify-between gap-3 border-b border-[#e0d0c4] px-4 py-4 sm:px-5">
+            <div className="min-w-0">
+              <h1 className="text-lg font-bold text-[#1e120a] sm:text-xl">
+                Products
+              </h1>
+              <p className="mt-0.5 text-xs text-[#b89080]">
+                {totalCount} produk · {visibleCategories.length} kategori
               </p>
             </div>
-            <h2 className="text-lg sm:text-2xl font-bold text-gray-900 mt-1 sm:mt-2 truncate">
-              {totalCount > 0 ? formatCurrency(avgSellingPrice) : "—"}
-            </h2>
-          </div>
-          {/* Total Produk — bottom-left on mobile, first on desktop */}
-          <div className="sm:order-1 bg-white/80 backdrop-blur border border-indigo-100 rounded-xl sm:rounded-2xl p-4 sm:p-6 shadow-sm hover:shadow-md hover:border-indigo-200 transition">
-            <div className="flex items-center gap-1.5 mb-1">
-              <ShoppingBag size={14} className="text-indigo-400 shrink-0" />
-              <p className="text-xs sm:text-sm text-gray-500">Total Produk</p>
-            </div>
-            <h2 className="text-lg sm:text-2xl font-bold text-gray-900 mt-1 sm:mt-2 truncate">
-              {totalCount}
-            </h2>
-          </div>
-          {/* Rata-rata Margin — bottom-right on mobile, last on desktop */}
-          <div className="sm:order-3 bg-white/80 backdrop-blur border border-indigo-100 rounded-xl sm:rounded-2xl p-4 sm:p-6 shadow-sm hover:shadow-md hover:border-indigo-200 transition">
-            <div className="flex items-center gap-1.5 mb-1">
-              <TrendingUp size={14} className="text-green-400 shrink-0" />
-              <p className="text-xs sm:text-sm text-gray-500">
-                Rata-rata Margin
-              </p>
-            </div>
-            <h2
-              className={`text-lg sm:text-2xl font-bold mt-1 sm:mt-2 truncate ${
-                avgMargin < 0
-                  ? "text-red-600"
-                  : avgMargin < 20
-                    ? "text-yellow-600"
-                    : "text-green-700"
-              }`}
-            >
-              {totalCount > 0 ? `${avgMargin}%` : "—"}
-            </h2>
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-indigo-100 bg-white p-4 shadow-sm">
-          <div className="grid gap-3 md:grid-cols-[minmax(180px,1fr)_200px_220px] md:items-center">
-            <input
-              type="text"
-              placeholder="Cari nama item..."
-              className="h-10 rounded-xl border border-indigo-200 bg-white px-3 text-sm text-slate-700 placeholder:text-slate-400 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-300"
-              value={searchInput}
-              onChange={(e) => {
-                setSearchInput(e.target.value);
-              }}
-            />
-            {productGroupOptions.length > 0 && (
-              <select
-                className="h-10 rounded-xl border border-indigo-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-300"
-                value={productGroupFilter}
-                onChange={(e) => {
-                  setProductGroupFilter(e.target.value);
-                  setCategoryFilter(null);
-                  setPage(1);
-                }}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleSyncBakeryCatalog}
+                disabled={syncingCatalog}
+                className="hidden rounded-full border border-[#d7b6a1] bg-white px-3 py-2 text-xs font-semibold text-[#7c3410] transition hover:bg-[#fff7f1] disabled:opacity-60 sm:inline-flex"
               >
-                <option value="">Semua Product</option>
-                {productGroupOptions.map((group) => (
-                  <option key={group} value={group}>
-                    {group}
-                  </option>
-                ))}
-              </select>
-            )}
-            {filteredSubcategoryOptions.length > 0 && (
+                {syncingCatalog ? "Sync..." : "Sync Catalog"}
+              </button>
+              <button
+                onClick={() => setAddProductModalOpen(true)}
+                className="inline-flex items-center gap-1 rounded-full bg-[#c86030] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-[#a84820]"
+              >
+                <Plus size={16} />
+                Tambah
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-4 px-4 py-4 sm:px-5">
+            {syncCatalogMessage ? (
+              <div className="rounded-2xl border border-[#d8eadf] bg-[#f4fbf7] px-4 py-3 text-sm font-semibold text-[#2a5c3f]">
+                {syncCatalogMessage}
+              </div>
+            ) : null}
+
+            <div className="flex items-center gap-3 rounded-[18px] border border-[#e0d0c4] bg-[#fdfaf7] px-4 py-3 shadow-[0_1px_4px_rgba(30,18,10,0.06)]">
+              <Search size={18} className="shrink-0 text-[#c86030]" />
+              <input
+                type="text"
+                placeholder="Cari nama produk..."
+                className="h-6 w-full bg-transparent text-sm text-[#1e120a] outline-none placeholder:text-[#b89080]"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+              />
+            </div>
+
+            {productGroupOptions.length > 0 ? (
+              <div className="-mx-1 overflow-x-auto">
+                <div className="flex min-w-max gap-2 px-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProductGroupFilter("");
+                      setCategoryFilter(null);
+                      setPage(1);
+                    }}
+                    className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
+                      !productGroupFilter
+                        ? "border-[#c86030] bg-[#c86030] text-white"
+                        : "border-[#e0d0c4] bg-[#fdfaf7] text-[#6b4a38]"
+                    }`}
+                  >
+                    Semua
+                  </button>
+                  {productGroupOptions.map((group) => (
+                    <button
+                      key={group}
+                      type="button"
+                      onClick={() => {
+                        setProductGroupFilter(group);
+                        setCategoryFilter(null);
+                        setPage(1);
+                      }}
+                      className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
+                        productGroupFilter === group
+                          ? "border-[#c86030] bg-[#c86030] text-white"
+                          : "border-[#e0d0c4] bg-[#fdfaf7] text-[#6b4a38]"
+                      }`}
+                    >
+                      {group}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {filteredSubcategoryOptions.length > 0 ? (
               <select
-                className="h-10 rounded-xl border border-indigo-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-300"
+                className="h-11 w-full rounded-2xl border border-[#e0d0c4] bg-[#fdfaf7] px-4 text-sm text-[#1e120a] outline-none"
                 value={categoryFilter ?? ""}
                 onChange={(e) => {
                   setCategoryFilter(
@@ -931,371 +682,249 @@ export default function ProductsPage() {
                   setPage(1);
                 }}
               >
-                <option value="">Semua Sub Category</option>
-                {filteredSubcategoryOptions.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
+                <option value="">Semua Subkategori</option>
+                {filteredSubcategoryOptions.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
                   </option>
                 ))}
               </select>
-            )}
+            ) : null}
           </div>
-        </div>
+        </section>
 
-        {selectedIds.size > 0 && (
-          <div className="flex items-center justify-between gap-4 rounded-2xl bg-red-50 p-4 border border-red-100 animate-in fade-in slide-in-from-top-2">
-            <div className="flex items-center gap-2">
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-red-600 text-[10px] font-bold text-white">
-                {selectedIds.size}
-              </span>
-              <p className="text-sm font-semibold text-red-700">
-                item terpilih untuk dihapus
+        <section className="space-y-4">
+          <div className="flex items-center justify-between gap-3 px-1">
+            <div>
+              <h2 className="text-[1.55rem] font-bold text-[#1e120a]">
+                {totalCount} produk
+              </h2>
+              <p className="text-xs text-[#8d6a55]">
+                Rata-rata harga {totalCount > 0 ? formatCurrency(avgSellingPrice) : "—"}
+                {" · "}
+                margin {totalCount > 0 ? `${avgMargin}%` : "—"}
               </p>
             </div>
             <button
-              onClick={() => setBulkDeleteOpen(true)}
-              className="flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-red-700 shadow-sm"
+              type="button"
+              onClick={cycleSortOption}
+              className="inline-flex items-center gap-1 text-sm font-semibold text-[#7c3410] transition hover:text-[#a84820]"
             >
-              <Trash2 size={16} />
-              Hapus Sekaligus
+              <ArrowUpDown size={14} />
+              Sort
             </button>
           </div>
-        )}
 
-        {/* TABLE */}
-        {loading && products.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-24 bg-white rounded-3xl shadow">
-            <Loader2 size={40} className="animate-spin text-indigo-400" />
-            <p className="mt-4 text-sm font-semibold text-gray-400">
-              Memuat produk...
-            </p>
-          </div>
-        ) : error ? (
-          <div className="flex flex-col items-center justify-center py-24 bg-white rounded-3xl shadow text-red-500">
-            <AlertTriangle size={40} />
-            <p className="mt-4 text-sm font-semibold">{error}</p>
-            <button
-              onClick={() => fetchProducts()}
-              className="mt-4 px-4 py-2 bg-red-100 text-red-700 rounded-lg font-medium hover:bg-red-200 transition"
-            >
-              Coba lagi
-            </button>
-          </div>
-        ) : products.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-24 text-gray-400 bg-white rounded-3xl shadow">
-            <ChefHat size={56} className="mb-4 text-indigo-200" />
-            {search || productGroupFilter || categoryFilter ? (
-              <>
-                <p className="text-lg font-semibold">Produk tidak ditemukan.</p>
-                <p className="text-sm mt-1">
-                  Coba ubah kata pencarian atau pilihan filter.
-                </p>
-              </>
-            ) : (
-              <>
-                <p className="text-lg font-semibold">Belum ada produk.</p>
-                <p className="text-sm mt-1">
-                  Klik{" "}
+          <p className="px-1 text-xs text-[#b89080]">
+            Urutan aktif: {activeSortLabel}
+          </p>
+
+          {loading && products.length === 0 ? (
+            <div className="rounded-[24px] border border-[#e0d0c4] bg-[#fdfaf7] px-6 py-16 text-center">
+              <Loader2 size={28} className="mx-auto animate-spin text-[#c86030]" />
+              <p className="mt-3 text-sm font-semibold text-[#8d6a55]">
+                Memuat produk...
+              </p>
+            </div>
+          ) : error ? (
+            <div className="rounded-[24px] border border-[#f0cbc6] bg-[#fff7f5] px-6 py-12 text-center text-[#a83030]">
+              <AlertTriangle size={28} className="mx-auto" />
+              <p className="mt-3 text-sm font-semibold">{error}</p>
+              <button
+                onClick={() => void fetchProducts()}
+                className="mt-4 rounded-full border border-[#e8b8b1] bg-white px-4 py-2 text-sm font-semibold text-[#a83030]"
+              >
+                Coba lagi
+              </button>
+            </div>
+          ) : products.length === 0 ? (
+            <div className="rounded-[24px] border border-[#e0d0c4] bg-[#fdfaf7] px-6 py-14 text-center text-[#8d6a55]">
+              <ChefHat size={34} className="mx-auto text-[#c9a48f]" />
+              {search || productGroupFilter || categoryFilter ? (
+                <>
+                  <p className="mt-3 text-base font-bold text-[#1e120a]">
+                    Produk tidak ditemukan
+                  </p>
+                  <p className="mt-1 text-sm">
+                    Coba ubah kata pencarian atau filter yang dipakai.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="mt-3 text-base font-bold text-[#1e120a]">
+                    Belum ada produk
+                  </p>
                   <button
                     onClick={() => setAddProductModalOpen(true)}
-                    className="text-indigo-600 font-semibold hover:underline"
+                    className="mt-4 rounded-full bg-[#c86030] px-4 py-2 text-sm font-bold text-white"
                   >
                     Tambah Produk
-                  </button>{" "}
-                  untuk mulai.
-                </p>
-              </>
-            )}
-          </div>
-        ) : (
-          <>
-            {/* ═══ MOBILE CARD VIEW ═══ */}
-            <div className="md:hidden space-y-3">
-              {products.map((product) => {
-                const sp = Number(product.sellingPrice);
-                const cogs = Number(product.cogs ?? 0);
-                const margin =
-                  sp > 0 && cogs > 0
-                    ? Math.round(((sp - cogs) / sp) * 100)
-                    : null;
-                const productGroup = getProductGroupName(product);
-                return (
-                  <div
-                    key={product.id}
-                    onClick={() => toggleSelectProduct(product.id)}
-                    className={`relative rounded-2xl shadow-sm border transition-all cursor-pointer p-4 space-y-3 ${
-                      selectedIds.has(product.id)
-                        ? "border-red-300 bg-red-50/30 ring-1 ring-red-300"
-                        : "bg-white border-gray-100"
-                    }`}
-                  >
-                    {selectedIds.has(product.id) && (
-                      <div className="absolute top-3 right-3">
-                        <div className="flex h-5 w-5 items-center justify-center rounded-full bg-red-600">
-                          <div className="h-2 w-2 rounded-full bg-white" />
-                        </div>
-                      </div>
-                    )}
-                    {/* Top row: name + subcategory */}
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0 flex-1">
-                        <p className="text-[11px] font-bold uppercase tracking-wide text-indigo-500">
-                          {productGroup}
-                        </p>
-                        <h3 className="font-bold text-slate-800 text-sm leading-tight">
-                          {product.name}
-                        </h3>
-                        {product.category && (
-                          <span className="inline-flex items-center gap-1 mt-1 bg-indigo-100 text-indigo-700 text-[10px] font-semibold px-2 py-0.5 rounded-full">
-                            <Tag size={10} />
-                            Sub Category: {product.category.name}
-                          </span>
-                        )}
-                      </div>
-                      {/* Actions */}
-                      <div className="flex items-center gap-0.5 shrink-0">
-                        <button
-                          onClick={() => setRecipeModal(product)}
-                          className="p-1.5 rounded-full hover:bg-indigo-50 text-indigo-400 hover:text-indigo-600 transition"
-                          title="Lihat resep"
-                        >
-                          <Eye size={16} />
-                        </button>
-                        <button
-                          onClick={() => setEditModal(product)}
-                          className="p-1.5 rounded-full hover:bg-green-50 text-green-500 hover:text-green-700 transition"
-                          title="Edit"
-                        >
-                          <Pencil size={16} />
-                        </button>
-                        <button
-                          onClick={() => setDeleteModal(product)}
-                          className="p-1.5 rounded-full hover:bg-red-50 text-red-300 hover:text-red-500 transition"
-                          title="Hapus"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-5 gap-3 text-xs">
-                      <div>
-                        <span className="text-gray-400 block">Harga Jual</span>
-                        <span className="font-bold text-indigo-700 text-sm">
-                          {formatCurrency(sp)}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-gray-400 block">COGS / HPP</span>
-                        <span className="font-semibold text-slate-700 text-sm">
-                          {cogs > 0 ? formatCurrency(cogs) : "—"}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-gray-400 block">Margin</span>
-                        <span className="font-semibold text-sm">
-                          {margin !== null ? <MarginBadge margin={margin} /> : "—"}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-gray-400 block">Token</span>
-                        <span className="font-semibold text-slate-700 text-sm">
-                          {Math.max(0, Number(product.productionToken ?? 0))}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-gray-400 block">Stock</span>
-                        <span className="font-semibold text-slate-700 text-sm">
-                          {product.productType === "ReadyStock"
-                            ? Math.max(0, Number(product.availableStock ?? 0))
-                            : 0}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+                  </button>
+                </>
+              )}
             </div>
+          ) : (
+            <>
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {products.map((product) => {
+                  const sellingPrice = Number(product.sellingPrice || 0);
+                  const cogs = Number(product.cogs || 0);
+                  const margin =
+                    sellingPrice > 0 && cogs > 0
+                      ? Math.round(((sellingPrice - cogs) / sellingPrice) * 100)
+                      : null;
+                  const productGroup = getProductGroupName(product);
+                  const stock =
+                    product.productType === "ReadyStock"
+                      ? Math.max(0, Number(product.availableStock ?? 0))
+                      : 0;
+                  const status = getProductStatus(product);
 
-            {/* ═══ DESKTOP TABLE ═══ */}
-            <div className="hidden md:block bg-white rounded-3xl shadow-xl overflow-x-auto">
-              <table className="w-full min-w-190 text-base">
-                <thead className="bg-linear-to-r from-indigo-50 to-indigo-50 text-indigo-800 text-xs uppercase tracking-wider">
-                  <tr>
-                    <th className="pl-5 pr-2 py-4 w-10">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 rounded border-gray-300 text-red-600 focus:ring-red-500 cursor-pointer"
-                        checked={
-                          products.length > 0 &&
-                          selectedIds.size === products.length
-                        }
-                        onChange={toggleSelectAll}
-                      />
-                    </th>
-                    <th className="px-4 py-4 text-left font-bold cursor-pointer select-none">
-                      <span className="inline-flex items-center">
-                        Sub Category
-                      </span>
-                    </th>
-                    <th className="px-6 py-4 text-left font-bold">Nama Item</th>
-                    <th
-                      className="px-6 py-4 text-right font-bold cursor-pointer select-none"
-                      onClick={() => handleSortClick("sellingPrice")}
+                  return (
+                    <article
+                      key={product.id}
+                      className={`overflow-hidden rounded-[20px] border border-[#e0d0c4] bg-[#fdfaf7] shadow-[0_1px_4px_rgba(30,18,10,0.06)] ${status.cardClassName}`}
                     >
-                      <span className="inline-flex items-center justify-end w-full">
-                        Harga Jual <SortIcon col="sellingPrice" />
-                      </span>
-                    </th>
-                    <th className="px-6 py-4 text-right font-bold">COGS / HPP</th>
-                    <th className="px-6 py-4 text-right font-bold">Margin</th>
-                    <th className="px-6 py-4 text-right font-bold">Token</th>
-                    <th className="px-6 py-4 text-right font-bold">Stock</th>
-                    <th className="px-6 py-4 text-center font-bold">Aksi</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {products.map((product) => {
-                    const sp = Number(product.sellingPrice);
-                    const cogs = Number(product.cogs ?? 0);
-                    const margin =
-                      sp > 0 && cogs > 0
-                        ? Math.round(((sp - cogs) / sp) * 100)
-                        : null;
-                    const productGroup = getProductGroupName(product);
-                    return (
-                      <tr
-                        key={product.id}
-                        className={`border-t transition-all hover:bg-indigo-50/40 ${
-                          selectedIds.has(product.id) ? "bg-red-50/40" : "bg-white"
-                        }`}
-                      >
-                        <td className="pl-5 pr-2 py-4">
-                          <input
-                            type="checkbox"
-                            className="h-4 w-4 rounded border-gray-300 text-red-600 focus:ring-red-500 cursor-pointer"
-                            checked={selectedIds.has(product.id)}
-                            onChange={() => toggleSelectProduct(product.id)}
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                        </td>
-                        <td className="px-4 py-4 align-middle">
-                          <div className="font-bold text-slate-800">
-                            {product.category?.name ?? "—"}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className="font-semibold text-slate-800">
+                      <div className="flex items-start justify-between gap-3 border-b border-[#e0d0c4] px-4 py-3">
+                        <button
+                          type="button"
+                          onClick={() => setRecipeModal(product)}
+                          className="min-w-0 flex-1 text-left"
+                          title="Lihat detail resep"
+                        >
+                          <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-[#c86030]">
+                            {productGroup}
+                          </p>
+                          <h3 className="mt-0.5 line-clamp-2 text-[1rem] font-bold text-[#1e120a]">
                             {product.name}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-right">
+                          </h3>
+                          <p className="mt-1 text-[11px] text-[#6b4a38]">
+                            Sub: {product.category?.name ?? "Tanpa subkategori"}
+                          </p>
+                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setRecipeModal(product)}
+                            className="rounded-full p-1.5 text-[#8d6a55] transition hover:bg-[#f5e0d0] hover:text-[#7c3410]"
+                            title="Lihat resep"
+                          >
+                            <Eye size={15} />
+                          </button>
                           <button
                             onClick={() => setEditModal(product)}
-                            title="Edit harga jual"
-                            className="group inline-flex items-center justify-end gap-1.5 font-bold text-indigo-700 hover:text-indigo-900 transition"
+                            className="rounded-full p-1.5 text-[#f06b2b] transition hover:bg-[#fff0e7]"
+                            title="Edit produk"
                           >
-                            <span>{formatCurrency(sp)}</span>
-                            <Pencil
-                              size={12}
-                              className="opacity-0 group-hover:opacity-80 transition text-green-600 group-hover:text-green-900 shrink-0"
-                            />
+                            <Pencil size={15} />
                           </button>
-                        </td>
-                        <td className="px-6 py-4 text-right font-semibold text-slate-700">
-                          {cogs > 0 ? formatCurrency(cogs) : "—"}
-                        </td>
-                        <td className="px-6 py-4 text-right font-semibold">
-                          {margin !== null ? <MarginBadge margin={margin} /> : "—"}
-                        </td>
-                        <td className="px-6 py-4 text-right font-semibold text-slate-700">
-                          {Math.max(0, Number(product.productionToken ?? 0))}
-                        </td>
-                        <td className="px-6 py-4 text-right font-semibold text-slate-700">
-                          {product.productType === "ReadyStock"
-                            ? Math.max(0, Number(product.availableStock ?? 0))
-                            : 0}
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center justify-center gap-1">
-                            <button
-                              onClick={() => setEditModal(product)}
-                              title="Edit produk"
-                              className="p-2 rounded-full hover:bg-green-50 text-green-600 hover:text-green-900 transition"
-                            >
-                              <Pencil
-                                size={16}
-                                className="text-green-600 hover:text-green-900"
-                              />
-                            </button>
-                            <button
-                              onClick={() => setDeleteModal(product)}
-                              title="Hapus produk"
-                              className="p-2 rounded-full hover:bg-red-50 text-red-300 hover:text-red-600 transition"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                          <button
+                            onClick={() => setDeleteModal(product)}
+                            className="rounded-full p-1.5 text-[#6f6f8f] transition hover:bg-[#f5f2ef]"
+                            title="Hapus produk"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                      </div>
 
-            {/* PAGINATION BAR */}
-            {totalPages > 1 && (
-              <div className="flex items-center justify-center gap-3 sm:gap-6 px-2 py-4 sm:py-6">
-                <button
-                  className="px-3 sm:px-6 py-2 rounded-full border border-indigo-200 bg-white text-indigo-600 font-bold shadow transition hover:bg-indigo-50 disabled:opacity-40 text-xs sm:text-base"
-                  disabled={page === 1 || loading}
-                  onClick={() => handlePageChange(page - 1)}
-                >
-                  ‹ Prev
-                </button>
-                <span className="text-xs sm:text-base font-semibold text-indigo-700 bg-indigo-50 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full shadow-sm whitespace-nowrap">
-                  {page} / {totalPages}
-                </span>
-                <button
-                  className="px-3 sm:px-6 py-2 rounded-full border border-indigo-200 bg-white text-indigo-600 font-bold shadow transition hover:bg-indigo-50 disabled:opacity-40 text-xs sm:text-base"
-                  disabled={page === totalPages || loading}
-                  onClick={() => handlePageChange(page + 1)}
-                >
-                  Next ›
-                </button>
+                      <div className="grid grid-cols-5 border-b border-[#e0d0c4] px-3 py-3">
+                        <div className="border-r border-[#e0d0c4] px-1 text-center">
+                          <p className="text-[10px] text-[#b89080]">Harga</p>
+                          <p className="mt-1 text-sm font-bold text-[#c86030]">
+                            {formatCompactCurrency(sellingPrice)}
+                          </p>
+                        </div>
+                        <div className="border-r border-[#e0d0c4] px-1 text-center">
+                          <p className="text-[10px] text-[#b89080]">COGS / HPP</p>
+                          <p className="mt-1 text-sm font-semibold text-[#1e120a]">
+                            {cogs > 0 ? formatCompactCurrency(cogs) : "—"}
+                          </p>
+                        </div>
+                        <div className="border-r border-[#e0d0c4] px-1 text-center">
+                          <p className="text-[10px] text-[#b89080]">Margin</p>
+                          <p className="mt-1 text-sm font-bold">
+                            {margin !== null ? <MarginBadge margin={margin} /> : "—"}
+                          </p>
+                        </div>
+                        <div className="border-r border-[#e0d0c4] px-1 text-center">
+                          <p className="text-[10px] text-[#b89080]">Token</p>
+                          <p className="mt-1 text-sm font-semibold text-[#1e120a]">
+                            {Math.max(0, Number(product.productionToken ?? 0))}
+                          </p>
+                        </div>
+                        <div className="px-1 text-center">
+                          <p className="text-[10px] text-[#b89080]">Stok</p>
+                          <p className="mt-1 text-sm font-semibold text-[#1e120a]">
+                            {stock}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-3 px-4 py-2.5">
+                        <span
+                          className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold ${status.badgeClassName}`}
+                        >
+                          • {status.label}
+                        </span>
+                        <p className="text-[10px] text-[#b89080]">
+                          Diperbarui {formatProductTimestamp(product)}
+                        </p>
+                      </div>
+                    </article>
+                  );
+                })}
               </div>
-            )}
-          </>
-        )}
+
+              {totalPages > 1 ? (
+                <div className="flex items-center justify-center gap-3 py-2">
+                  <button
+                    className="rounded-full border border-[#e0d0c4] bg-[#fdfaf7] px-4 py-2 text-sm font-semibold text-[#7c3410] disabled:opacity-40"
+                    disabled={page === 1 || loading}
+                    onClick={() => handlePageChange(page - 1)}
+                  >
+                    Prev
+                  </button>
+                  <span className="rounded-full bg-[#f5e0d0] px-4 py-2 text-sm font-semibold text-[#7c3410]">
+                    {page} / {totalPages}
+                  </span>
+                  <button
+                    className="rounded-full border border-[#e0d0c4] bg-[#fdfaf7] px-4 py-2 text-sm font-semibold text-[#7c3410] disabled:opacity-40"
+                    disabled={page === totalPages || loading}
+                    onClick={() => handlePageChange(page + 1)}
+                  >
+                    Next
+                  </button>
+                </div>
+              ) : null}
+            </>
+          )}
+        </section>
       </div>
 
-      {/* Modals */}
-      {recipeModal && (
+      {recipeModal ? (
         <RecipeModal
           product={recipeModal}
           onClose={() => setRecipeModal(null)}
         />
-      )}
+      ) : null}
 
-      {/* Modal edit produk lengkap */}
-      {editModal && (
+      {editModal ? (
         <EditProductModal
           product={editModal}
           categories={visibleCategories}
           onClose={() => setEditModal(null)}
           onSaved={(updated) => {
             setProducts((prev) =>
-              prev.map((p) => (p.id === updated.id ? updated : p)),
+              prev.map((product) => (product.id === updated.id ? updated : product)),
             );
-            refreshCategories();
-            fetchProducts(page);
+            void refreshCategories();
+            void fetchProducts(page);
             setEditModal(null);
           }}
         />
-      )}
+      ) : null}
 
-      {deleteModal && (
+      {deleteModal ? (
         <DeleteConfirmModal
           product={deleteModal}
           onClose={() => setDeleteModal(null)}
@@ -1306,24 +935,14 @@ export default function ProductsPage() {
             await fetchProducts(nextPage);
           }}
         />
-      )}
-
-      {bulkDeleteOpen && (
-        <BulkDeleteConfirmModal
-          count={selectedIds.size}
-          deleting={bulkDeleting}
-          error={bulkDeleteError}
-          onClose={() => setBulkDeleteOpen(false)}
-          onConfirm={handleBulkDelete}
-        />
-      )}
+      ) : null}
 
       <UnifiedAddProductModal
         open={addProductModalOpen}
         onClose={() => setAddProductModalOpen(false)}
         onSaved={() => {
-          fetchProducts(page);
-          refreshCategories();
+          void fetchProducts(page);
+          void refreshCategories();
         }}
       />
     </>

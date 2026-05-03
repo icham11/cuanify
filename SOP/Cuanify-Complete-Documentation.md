@@ -1,14 +1,14 @@
-# Cuanify Complete Documentation
+# Crumbella Complete Documentation
 
-Dokumen ini adalah referensi teknis dan operasional lengkap untuk aplikasi Cuanify (frontend, backend API, database, integrasi eksternal, deployment, dan runbook).
+Dokumen ini adalah referensi teknis dan operasional lengkap untuk aplikasi Crumbella (frontend, backend API, database, integrasi eksternal, deployment, dan runbook).
 
 Dokumen pendamping:
 
-- User Journey: `SOP/Cuanify-User-Journey.md`
+- User Journey: `SOP/Crumbella-User-Journey.md`
 
 ## 1. Ringkasan Produk
 
-Cuanify adalah platform POS + inventory + analytics berbasis AI untuk UMKM (terutama F&B/bakery/retail). Aplikasi menyediakan:
+Crumbella adalah platform POS + inventory + analytics berbasis AI untuk UMKM (terutama F&B/bakery/retail). Aplikasi menyediakan:
 
 - Pencatatan transaksi dan kasir shift.
 - Manajemen produk, kategori, bahan baku, resep, dan stok.

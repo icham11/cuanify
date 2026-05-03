@@ -1,0 +1,17 @@
+
+> client-side@0.1.0 dev
+> node ./scripts/clean-next-dev-cache.mjs && next dev --hostname localhost --port 3000 --webpack --port 3003
+
+[dev-cache] Cleared local and parent Next/Turbo caches
+▲ Next.js 16.1.6 (webpack)
+- Local:         http://localhost:3003
+- Network:       http://localhost:3003
+- Environments: .env
+
+✓ Starting...
+✓ Ready in 2.7s
+○ Compiling /login ...
+ GET /login 200 in 7.1s (compile: 6.8s, proxy.ts: 8ms, render: 295ms)
+ GET /login 200 in 65ms (compile: 7ms, proxy.ts: 6ms, render: 52ms)
+ GET /login 200 in 216ms (compile: 57ms, proxy.ts: 90ms, render: 70ms)
+ GET /api/auth/session 200 in 3.2s (compile: 3.2s, proxy.ts: 7ms, render: 28ms)

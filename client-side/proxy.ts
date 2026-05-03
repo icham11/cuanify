@@ -67,13 +67,14 @@ const CASHIER_BLOCKED_PATHS = [
   "/dashboard/ai-analysis",
 ];
 
-const STAFF_ALLOWED_PAGE_PREFIXES = ["/bakery/production"];
+const STAFF_ALLOWED_PAGE_PREFIXES = ["/bakery/production", "/bakery/attendance"];
 
 const ADMIN_ALLOWED_PAGE_PREFIXES = [
   "/bakery/dashboard",
   "/bakery/omzet-harian",
   "/bakery/bookings",
   "/bakery/calendar",
+  "/bakery/attendance",
   "/bakery/production",
   "/dashboard/products",
   "/dashboard/add-ons",
@@ -105,6 +106,7 @@ const STAFF_ALLOWED_API_RULES: Array<{
 
   // Staff tokens — untuk tracking token produksi harian Staff
   { prefix: "/api/bakery/production/staff-tokens", methods: ["GET"] },
+  { prefix: "/api/bakery/attendance", methods: ["GET", "POST"] },
 ];
 
 const ADMIN_ALLOWED_API_RULES: Array<{
@@ -121,6 +123,7 @@ const ADMIN_ALLOWED_API_RULES: Array<{
   { prefix: "/api/staff", methods: ["GET"] },
   { prefix: "/api/bakery/settings", methods: ["GET"] },
   { prefix: "/api/bakery/production/staff-tokens", methods: ["GET"] },
+  { prefix: "/api/bakery/attendance", methods: ["GET", "POST"] },
   { prefix: "/api/bookings/orders", methods: ["GET", "POST"] },
   { prefix: "/api/bookings/automations", methods: ["GET", "POST"] },
   { prefix: "/api/bookings/capacity", methods: ["GET"] },
@@ -176,6 +179,8 @@ function isMobileRequest(request: NextRequest) {
 
   return secChUaMobile === "?1" || MOBILE_USER_AGENT_PATTERN.test(userAgent);
 }
+
+void isMobileRequest;
 
 function isStaffAllowedPage(pathname: string) {
   return STAFF_ALLOWED_PAGE_PREFIXES.some(

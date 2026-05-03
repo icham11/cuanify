@@ -46,28 +46,28 @@ export default function OrdersChart() {
 
   return (
     <div className="grid gap-6 lg:grid-cols-2">
-      <Card className="rounded-xl shadow-sm">
-        <CardHeader className="p-6 pb-2">
+      <Card className="rounded-2xl">
+        <CardHeader className="p-5 pb-2">
           <CardTitle>Orders per Day</CardTitle>
         </CardHeader>
-        <CardContent className="px-6 pb-6 pt-0">
+        <CardContent className="px-5 pb-5 pt-0">
           {isLoading ? (
             <SkeletonBlock className="h-64 w-full" />
           ) : (
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={ordersPerDay}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e0d0c4" />
                   <XAxis dataKey="day" tickLine={false} axisLine={false} />
                   <YAxis tickLine={false} axisLine={false} />
                   <Tooltip
                     contentStyle={{
                       borderRadius: 12,
-                      border: "1px solid #e5e7eb",
+                      border: "1px solid #e0d0c4",
                       fontSize: 12,
                     }}
                   />
-                  <Bar dataKey="orders" fill="#3b82f6" radius={[6, 6, 0, 0]} />
+                  <Bar dataKey="orders" fill="#c86030" radius={[6, 6, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -75,18 +75,18 @@ export default function OrdersChart() {
         </CardContent>
       </Card>
 
-      <Card className="rounded-xl shadow-sm">
-        <CardHeader className="p-6 pb-2">
+      <Card className="rounded-2xl">
+        <CardHeader className="p-5 pb-2">
           <CardTitle>Revenue Trend</CardTitle>
         </CardHeader>
-        <CardContent className="px-6 pb-6 pt-0">
+        <CardContent className="px-5 pb-5 pt-0">
           {isLoading ? (
             <SkeletonBlock className="h-64 w-full" />
           ) : (
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={revenueTrend}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e0d0c4" />
                   <XAxis dataKey="day" tickLine={false} axisLine={false} />
                   <YAxis
                     tickLine={false}
@@ -96,7 +96,7 @@ export default function OrdersChart() {
                   <Tooltip
                     contentStyle={{
                       borderRadius: 12,
-                      border: "1px solid #e5e7eb",
+                      border: "1px solid #e0d0c4",
                       fontSize: 12,
                     }}
                     formatter={(value) => formatCurrency(Number(value))}
@@ -104,9 +104,9 @@ export default function OrdersChart() {
                   <Line
                     type="monotone"
                     dataKey="revenue"
-                    stroke="#4f46e5"
+                    stroke="#7c3410"
                     strokeWidth={3}
-                    dot={{ r: 4, fill: "#fff", strokeWidth: 2, stroke: "#4f46e5" }}
+                    dot={{ r: 4, fill: "#fff", strokeWidth: 2, stroke: "#7c3410" }}
                     activeDot={{ r: 6 }}
                   />
                 </LineChart>

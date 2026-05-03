@@ -8,7 +8,7 @@ export function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElemen
   return (
     <div
       className={cn(
-        "rounded-[26px] bg-white/92 shadow-[0_18px_36px_-30px_rgba(23,58,122,0.9)] ring-1 ring-[#ffe4cb] backdrop-blur-[1px]",
+        "rounded-[22px] border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] shadow-[0_6px_16px_rgba(30,18,10,0.08)]",
         className
       )}
       {...props}
@@ -30,10 +30,7 @@ export function CardTitle({
   ...props
 }: React.HTMLAttributes<HTMLHeadingElement>) {
   return (
-    <h3
-      className={cn("text-base font-semibold text-[#243b5a]", className)}
-      {...props}
-    />
+    <h3 className={cn("text-base font-semibold text-[var(--foreground)]", className)} {...props} />
   );
 }
 
@@ -42,7 +39,7 @@ export function CardDescription({
   ...props
 }: React.HTMLAttributes<HTMLParagraphElement>) {
   return (
-    <p className={cn("text-sm text-gray-500", className)} {...props} />
+    <p className={cn("text-sm text-[var(--crumbella-muted)]", className)} {...props} />
   );
 }
 

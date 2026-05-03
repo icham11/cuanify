@@ -32,9 +32,11 @@ export type Product = {
   businessId: number;
   categoryId: number | null;
   sellingPrice: number;
+  isActive?: boolean;
   productType?: "ReadyStock" | "PreOrder";
   availableStock?: number; // for ReadyStock: sum of production batch remaining
   createdAt?: string;
+  updatedAt?: string;
   category: ProductCategory | null;
   recipes: ProductRecipeItem[];
   cogs: number;

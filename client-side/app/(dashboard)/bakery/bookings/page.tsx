@@ -2,23 +2,20 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select } from "@/components/ui/select";
+import { ArrowUpDown, BookOpen, Search } from "lucide-react";
 import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
-import OrderFilters from "@/components/bakery/bookings/OrderFilters";
 import OrderTable from "@/components/bakery/bookings/OrderTable";
-import BookingStats from "@/components/bakery/bookings/BookingStats";
+import { Select } from "@/components/ui/select";
 import { useOrders } from "@/components/bakery/store";
 import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 import {
   getJakartaTodayIsoDate,
   resolveShippingProvider,
 } from "@/lib/bookings/shipping-schedule";
-import { BookOpen, Download } from "lucide-react";
-import { exportToExcel } from "@/lib/helpers/export-excel";
 
 type CourierFilter = "" | "grab-gojek" | "paxel";
 type OrderSourceFilter = "" | "customer" | "admin";
+type SavedView = "all" | "today" | "tomorrow" | "production";
 
 function addDaysToIsoDate(isoDate: string, days: number): string {
   const matched = isoDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -44,22 +41,12 @@ function inferDeliveryMethodFromText(rawValue?: string): string | undefined {
   if (raw.includes("customer_app_courier") || raw.includes("pesan customer") || raw.includes("customer")) {
     return "CUSTOMER_APP_COURIER";
   }
-  if (raw.includes("assisted_")) {
-    return raw.toUpperCase();
-  }
-  if (raw.includes("gosend") || raw.includes("go send")) {
-    return "ASSISTED_GOSEND";
-  }
-  if (raw.includes("gocar") || raw.includes("go car")) {
-    return "ASSISTED_GOCAR";
-  }
+  if (raw.includes("assisted_")) return raw.toUpperCase();
+  if (raw.includes("gosend") || raw.includes("go send")) return "ASSISTED_GOSEND";
+  if (raw.includes("gocar") || raw.includes("go car")) return "ASSISTED_GOCAR";
   if (raw.includes("grab")) return "ASSISTED_GRAB";
   if (raw.includes("paxel")) return "ASSISTED_PAXEL";
-  if (
-    raw.includes("same day") ||
-    raw.includes("same-day") ||
-    raw.includes("sameday")
-  ) {
+  if (raw.includes("same day") || raw.includes("same-day") || raw.includes("sameday")) {
     return "ASSISTED_SAME_DAY";
   }
   if (raw.includes("jne") || raw.includes("j&t") || raw.includes("jnt")) {
@@ -106,6 +93,7 @@ export default function BookingListPage() {
     "delivery-asc" | "delivery-desc" | "name-asc" | "value-desc"
   >("delivery-asc");
   const [currentPage, setCurrentPage] = useState(1);
+  const [activeSavedView, setActiveSavedView] = useState<SavedView>("all");
   const today = getJakartaTodayIsoDate();
   const tomorrow = useMemo(() => addDaysToIsoDate(today, 1), [today]);
   const PAGE_SIZE = 10;
@@ -171,11 +159,38 @@ export default function BookingListPage() {
     sortBy,
   ]);
 
-  const hasActiveFilters = Boolean(
-    query || statusFilter || dateFilter || courierFilter || orderSourceFilter,
+  const activeOrdersCount = useMemo(
+    () =>
+      orders.filter((order) => {
+        const status = normalizeOrderStatus(order.orderStatus);
+        return !["Completed", "Delivered", "Cancelled"].includes(status);
+      }).length,
+    [orders],
   );
 
-  const clearFilters = () => {
+  const unpaidCount = useMemo(
+    () => filteredOrders.filter((order) => order.paymentStatus !== "Paid").length,
+    [filteredOrders],
+  );
+
+  const hasActiveFilters = Boolean(
+    query ||
+      statusFilter ||
+      dateFilter ||
+      courierFilter ||
+      orderSourceFilter ||
+      activeSavedView !== "all" ||
+      sortBy !== "delivery-asc",
+  );
+
+  const totalPages = Math.max(1, Math.ceil(filteredOrders.length / PAGE_SIZE));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const pagedOrders = filteredOrders.slice(
+    (safeCurrentPage - 1) * PAGE_SIZE,
+    safeCurrentPage * PAGE_SIZE,
+  );
+
+  const resetFilters = () => {
     setQuery("");
     setStatusFilter("");
     setDateFilter("");
@@ -183,16 +198,18 @@ export default function BookingListPage() {
     setOrderSourceFilter("");
     setSortBy("delivery-asc");
     setCurrentPage(1);
+    setActiveSavedView("all");
   };
 
-  const applySavedView = (
-    view: "today" | "tomorrow" | "production" | "ready",
-  ) => {
-    setQuery("");
-    setCourierFilter("");
-    setOrderSourceFilter("");
-    setSortBy("delivery-asc");
+  const applySavedView = (view: SavedView) => {
     setCurrentPage(1);
+    setActiveSavedView(view);
+
+    if (view === "all") {
+      setStatusFilter("");
+      setDateFilter("");
+      return;
+    }
 
     if (view === "today") {
       setDateFilter(today);
@@ -206,228 +223,202 @@ export default function BookingListPage() {
       return;
     }
 
-    if (view === "production") {
-      setDateFilter("");
-      setStatusFilter("In Production");
-      return;
-    }
-
     setDateFilter("");
-    setStatusFilter("Ready");
+    setStatusFilter("In Production");
   };
 
-  const totalPages = Math.max(1, Math.ceil(filteredOrders.length / PAGE_SIZE));
-  const safeCurrentPage = Math.min(currentPage, totalPages);
-  const pagedOrders = filteredOrders.slice(
-    (safeCurrentPage - 1) * PAGE_SIZE,
-    safeCurrentPage * PAGE_SIZE,
-  );
-  const activeCourierLabel =
-    courierFilter === "grab-gojek"
-      ? "Grab/Gojek"
-      : courierFilter === "paxel"
-        ? "Paxel"
-        : "";
-  const activeOrderSourceLabel =
-    orderSourceFilter === "customer"
-      ? "Dipesan Customer"
-      : orderSourceFilter === "admin"
-        ? "Dibantu Admin"
-        : "";
-
-  const handlePrevPage = () => {
-    setCurrentPage((prev) => Math.max(1, prev - 1));
-  };
-
-  const handleNextPage = () => {
-    setCurrentPage((prev) => Math.min(totalPages, prev + 1));
-  };
-
-  const handleQueryChange = (value: string) => {
-    setQuery(value);
-    setCurrentPage(1);
-  };
-
-  const handleStatusChange = (value: string) => {
-    setStatusFilter(value);
-    setCurrentPage(1);
-  };
-
-  const handleSortChange = (value: typeof sortBy) => {
-    setSortBy(value);
-    setCurrentPage(1);
-  };
-
-  const handleDateChange = (value: string) => {
-    setDateFilter(value);
-    setCurrentPage(1);
-  };
-
-  const handleCourierChange = (value: CourierFilter) => {
-    setCourierFilter(value);
-    setCurrentPage(1);
-  };
-
-  const handleOrderSourceChange = (value: OrderSourceFilter) => {
-    setOrderSourceFilter(value);
-    setCurrentPage(1);
-  };
-
-  const handleExportExcel = () => {
-    const dataToExport = filteredOrders.map((order) => ({
-      Resi: order.resi || order.bookingCode || order.id,
-      Customer: order.customerName || "Walk-in",
-      Phone: order.customerPhone || "-",
-      "Delivery Date": order.deliveryDate,
-      "Delivery Slot": order.deliverySlot || "10:00",
-      Products: (order.items ?? [])
-        .map((item) => `${item.quantity}x ${item.productName}`)
-        .join(", "),
-      "Total Price": order.totalPrice || 0,
-      "Payment Status": order.paymentStatus,
-      "Order Status": order.orderStatus,
-    }));
-
-    exportToExcel(dataToExport, `Bakery_Bookings_${today}`, "Bookings");
-  };
+  const quickChipClass = (isActive: boolean) =>
+    `inline-flex h-9 items-center justify-center rounded-full border px-4 text-[12px] font-semibold transition ${
+      isActive
+        ? "border-[var(--crumbella-accent)] bg-[var(--crumbella-accent)] text-white"
+        : "border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] text-[var(--foreground)]"
+    }`;
 
   return (
-    <div className="space-y-6 pb-10">
+    <div className="space-y-4 pb-10">
       <GradientPageHeader
         title="Bookings"
-        description="Track and manage all incoming cake orders and delivery schedules."
+        description={`${activeOrdersCount} order aktif`}
         icon={BookOpen}
         actions={
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleExportExcel}
-              className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-white px-4 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-50"
-            >
-              <Download className="h-4 w-4" />
-              Export Excel
-            </button>
-            <Link
-              href="/bakery/bookings/new"
-              className="inline-flex h-10 items-center justify-center rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white transition hover:bg-indigo-700"
-            >
-              New Booking
-            </Link>
-          </div>
+          <Link
+            href="/bakery/bookings/new"
+            className="inline-flex h-9 items-center justify-center rounded-full bg-[var(--crumbella-accent)] px-4 text-xs font-semibold text-white transition hover:bg-[var(--crumbella-accent-hover)]"
+          >
+            + Baru
+          </Link>
         }
       />
 
-      <BookingStats orders={orders} />
+      <section className="space-y-3 rounded-[28px] border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] p-4 shadow-[0_16px_30px_-24px_rgba(30,18,10,0.45)]">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--crumbella-muted)]" />
+          <input
+            type="text"
+            placeholder="Cari customer atau booking ID..."
+            value={query}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setCurrentPage(1);
+            }}
+            className="h-12 w-full rounded-[18px] border border-[var(--crumbella-border)] bg-white pl-11 pr-4 text-[14px] text-[var(--foreground)] placeholder:text-[var(--crumbella-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--crumbella-focus)]"
+          />
+        </div>
 
-      <OrderFilters
-        query={query}
-        status={statusFilter}
-        date={dateFilter}
-        courier={courierFilter}
-        sortBy={sortBy}
-        hasActiveFilters={hasActiveFilters}
-        onQueryChange={handleQueryChange}
-        onStatusChange={handleStatusChange}
-        onDateChange={handleDateChange}
-        onCourierChange={(value) => handleCourierChange(value as CourierFilter)}
-        onSortChange={handleSortChange}
-        onReset={clearFilters}
-        onSavedViewSelect={applySavedView}
-      />
+        <div className="flex gap-2 overflow-x-auto scrollbar-none">
+          <button type="button" onClick={() => applySavedView("all")} className={quickChipClass(activeSavedView === "all")}>
+            Semua
+          </button>
+          <button type="button" onClick={() => applySavedView("today")} className={quickChipClass(activeSavedView === "today")}>
+            Hari Ini
+          </button>
+          <button type="button" onClick={() => applySavedView("tomorrow")} className={quickChipClass(activeSavedView === "tomorrow")}>
+            Besok
+          </button>
+          <button
+            type="button"
+            onClick={() => applySavedView("production")}
+            className={quickChipClass(activeSavedView === "production")}
+          >
+            In Production
+          </button>
+        </div>
 
-      <Card className="rounded-xl shadow-sm">
-        <CardHeader className="p-6 pb-2">
-          <CardTitle>Orders</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3 px-6 pb-6 pt-0">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="text-xs font-medium text-gray-500">
-              Showing {filteredOrders.length} of {orders.length} orders
-            </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Select
+            value={courierFilter}
+            onChange={(event) => {
+              setCourierFilter(event.target.value as CourierFilter);
+              setCurrentPage(1);
+              setActiveSavedView("all");
+            }}
+            className="h-10 rounded-xl border-[var(--crumbella-border)] bg-white text-xs"
+          >
+            <option value="">Semua courier</option>
+            <option value="grab-gojek">Grab/Gojek</option>
+            <option value="paxel">Paxel</option>
+          </Select>
+          <Select
+            value={orderSourceFilter}
+            onChange={(event) => {
+              setOrderSourceFilter(event.target.value as OrderSourceFilter);
+              setCurrentPage(1);
+              setActiveSavedView("all");
+            }}
+            className="h-10 rounded-xl border-[var(--crumbella-border)] bg-white text-xs"
+          >
+            <option value="">Semua pemesan</option>
+            <option value="customer">Customer</option>
+            <option value="admin">Admin</option>
+          </Select>
+        </div>
+
+        <div className="grid gap-2 sm:grid-cols-[1fr,1fr,auto]">
+          <Select
+            value={statusFilter}
+            onChange={(event) => {
+              setStatusFilter(event.target.value);
+              setCurrentPage(1);
+              setActiveSavedView("all");
+            }}
+            className="h-10 rounded-xl border-[var(--crumbella-border)] bg-white text-xs"
+          >
+            <option value="">Semua status</option>
+            <option value="Inquiry">Inquiry</option>
+            <option value="Quoted">Quoted</option>
+            <option value="DP Paid">DP Paid</option>
+            <option value="Confirmed">Confirmed</option>
+            <option value="In Production">In Production</option>
+            <option value="Ready">Ready</option>
+            <option value="Delivery">Delivery</option>
+            <option value="Completed">Completed</option>
+            <option value="Delivered">Delivered</option>
+            <option value="Cancelled">Cancelled</option>
+          </Select>
+          <input
+            type="date"
+            value={dateFilter}
+            onChange={(event) => {
+              setDateFilter(event.target.value);
+              setCurrentPage(1);
+              setActiveSavedView("all");
+            }}
+            className="h-10 rounded-xl border border-[var(--crumbella-border)] bg-white px-3 text-xs text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--crumbella-focus)]"
+          />
+          <button
+            type="button"
+            onClick={resetFilters}
+            disabled={!hasActiveFilters}
+            className="inline-flex h-10 items-center justify-center rounded-xl border border-[var(--crumbella-border)] bg-[var(--background)] px-4 text-xs font-semibold text-[var(--crumbella-primary)] disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            Reset
+          </button>
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <div className="flex items-start justify-between gap-3 px-1">
+          <div className="min-w-0">
+            <p className="text-[1.25rem] font-extrabold leading-none text-[var(--foreground)]">
+              {filteredOrders.length} order
+            </p>
+            <p className="mt-1 text-[11px] text-[var(--crumbella-muted)]">
+              DP = {unpaidCount} belum lunas
+            </p>
+          </div>
+          <div className="flex items-center gap-2 rounded-full border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] px-3 py-1.5">
+            <ArrowUpDown className="h-3.5 w-3.5 text-[var(--crumbella-primary)]" />
+            <Select
+              value={sortBy}
+              onChange={(event) => {
+                setSortBy(
+                  event.target.value as
+                    | "delivery-asc"
+                    | "delivery-desc"
+                    | "name-asc"
+                    | "value-desc",
+                );
+                setCurrentPage(1);
+              }}
+              className="h-auto min-w-[96px] border-none bg-transparent p-0 text-[11px] font-semibold text-[var(--crumbella-primary)] shadow-none focus:ring-0"
+            >
+              <option value="delivery-asc">Sort</option>
+              <option value="delivery-desc">Delivery terbaru</option>
+              <option value="delivery-asc">Delivery terdekat</option>
+              <option value="name-asc">Nama customer</option>
+              <option value="value-desc">Nilai tertinggi</option>
+            </Select>
+          </div>
+        </div>
+
+        <OrderTable orders={pagedOrders} />
+
+        {filteredOrders.length > PAGE_SIZE ? (
+          <div className="flex items-center justify-between gap-3 px-1 pt-1">
+            <p className="text-[11px] text-[var(--crumbella-muted)]">
+              Page {safeCurrentPage} dari {totalPages}
+            </p>
             <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-gray-500">
-                Courier:
-              </span>
-              <Select
-                value={courierFilter}
-                onChange={(event) =>
-                  handleCourierChange(event.target.value as CourierFilter)
-                }
-                className="h-8 min-w-36 rounded-lg border-gray-300 bg-white px-2 text-xs"
+              <button
+                type="button"
+                onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                disabled={safeCurrentPage === 1}
+                className="inline-flex h-9 items-center justify-center rounded-xl border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] px-3 text-[11px] font-semibold text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-45"
               >
-                <option value="">All courier</option>
-                <option value="grab-gojek">Grab/Gojek</option>
-                <option value="paxel">Paxel</option>
-              </Select>
-              <span className="ml-1 text-xs font-medium text-gray-500">
-                Dipesan oleh:
-              </span>
-              <Select
-                value={orderSourceFilter}
-                onChange={(event) =>
-                  handleOrderSourceChange(
-                    event.target.value as OrderSourceFilter,
-                  )
-                }
-                className="h-8 min-w-36 rounded-lg border-gray-300 bg-white px-2 text-xs"
+                Prev
+              </button>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                disabled={safeCurrentPage === totalPages}
+                className="inline-flex h-9 items-center justify-center rounded-xl border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] px-3 text-[11px] font-semibold text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-45"
               >
-                <option value="">Semua</option>
-                <option value="customer">Customer</option>
-                <option value="admin">Admin</option>
-              </Select>
+                Next
+              </button>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {activeCourierLabel ? (
-              <div className="inline-flex items-center rounded-full border border-cyan-200 bg-cyan-50 px-3 py-1 text-xs font-semibold text-cyan-800">
-                Courier filter: {activeCourierLabel}
-              </div>
-            ) : null}
-            {activeOrderSourceLabel ? (
-              <div className="inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-800">
-                Filter pemesan: {activeOrderSourceLabel}
-              </div>
-            ) : null}
-          </div>
-          <OrderTable orders={pagedOrders} />
-          {filteredOrders.length > PAGE_SIZE ? (
-            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 pt-3">
-              <p className="text-xs text-gray-500">
-                Page {safeCurrentPage} of {totalPages}
-              </p>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handlePrevPage}
-                  disabled={currentPage === 1}
-                  className="inline-flex h-8 items-center justify-center rounded-lg border border-gray-200 px-3 text-xs font-semibold text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Previous
-                </button>
-                <button
-                  type="button"
-                  onClick={handleNextPage}
-                  disabled={currentPage === totalPages}
-                  className="inline-flex h-8 items-center justify-center rounded-lg border border-gray-200 px-3 text-xs font-semibold text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Next
-                </button>
-              </div>
-            </div>
-          ) : null}
-        </CardContent>
-      </Card>
-
-      <Card className="rounded-xl shadow-sm">
-        <CardHeader className="p-6 pb-2">
-        <CardTitle>Workflow Tips</CardTitle>
-        </CardHeader>
-        <CardContent className="px-6 pb-6 pt-0 text-sm text-gray-600">
-          Booking baru sekarang langsung masuk produksi. Gunakan dropdown status
-          untuk menggeser order dari In Production ke Ready lalu Completed.
-        </CardContent>
-      </Card>
+        ) : null}
+      </section>
     </div>
   );
 }
-

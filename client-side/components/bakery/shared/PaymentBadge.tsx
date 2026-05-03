@@ -1,8 +1,8 @@
 import { Badge } from "@/components/ui/badge";
 
 const statusStyles: Record<string, string> = {
-  "DP Paid": "border-amber-200 bg-amber-50 text-amber-700",
-  Paid: "border-indigo-200 bg-indigo-50 text-indigo-700",
+  "DP Paid": "border-[#d8b870] bg-[#fbf0d8] text-[#9a6b10]",
+  Paid: "border-[var(--crumbella-border)] bg-[var(--crumbella-accent-soft)] text-[var(--crumbella-primary)]",
 };
 
 export default function PaymentBadge({ status }: { status: string }) {
@@ -12,7 +12,7 @@ export default function PaymentBadge({ status }: { status: string }) {
     <Badge
       className={
         statusStyles[normalizedStatus] ??
-        "border-gray-200 bg-gray-50 text-gray-600"
+        "border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] text-[var(--crumbella-muted)]"
       }
     >
       {normalizedStatus || "Unknown"}

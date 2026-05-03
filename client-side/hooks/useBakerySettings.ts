@@ -1,21 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import type { BakeryBusinessSettings } from "@/lib/bakery/settings";
 
-export interface BakerySettingsState {
-  dailyProductionTokenLimit: number;
-  staffDailyTokenLimit: number;
-  blockedDates: string[];
-}
+export const BAKERY_SETTINGS_UPDATED_EVENT = "bakery-settings-updated";
 
 interface BakerySettingsResponse {
   success?: boolean;
-  data?: BakerySettingsState;
+  data?: BakeryBusinessSettings;
   error?: string;
 }
 
 export function useBakerySettings() {
-  const [settings, setSettings] = useState<BakerySettingsState | null>(null);
+  const [settings, setSettings] = useState<BakeryBusinessSettings | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -48,6 +45,17 @@ export function useBakerySettings() {
 
   useEffect(() => {
     void refetch();
+  }, [refetch]);
+
+  useEffect(() => {
+    const handleUpdated = () => {
+      void refetch();
+    };
+
+    window.addEventListener(BAKERY_SETTINGS_UPDATED_EVENT, handleUpdated);
+    return () => {
+      window.removeEventListener(BAKERY_SETTINGS_UPDATED_EVENT, handleUpdated);
+    };
   }, [refetch]);
 
   return {

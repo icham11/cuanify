@@ -1,11 +1,11 @@
-# Cuanify User Journey
+# Crumbella User Journey
 
 Versi visual siap presentasi:
 
-- `SOP/Cuanify-User-Journey-Map-Visual.html`
-- `SOP/Cuanify-User-Journey-Map-Visual.pdf`
+- `SOP/Crumbella-User-Journey-Map-Visual.html`
+- `SOP/Crumbella-User-Journey-Map-Visual.pdf`
 
-Dokumen ini menjabarkan alur end-to-end pengguna Cuanify dari onboarding sampai operasi harian dan evaluasi bisnis.
+Dokumen ini menjabarkan alur end-to-end pengguna Crumbella dari onboarding sampai operasi harian dan evaluasi bisnis.
 
 ## 1. Tujuan User Journey
 

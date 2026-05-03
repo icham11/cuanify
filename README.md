@@ -1,15 +1,15 @@
-# Cuanify
+# Crumbella
 
 **Bikin bisnis makin cuan.**
 
-Cuanify adalah platform **AI-powered Point of Sale (POS)** dan **inventory dinamis** untuk UMKM/MSME—berperan sebagai _virtual business consultant_ yang membantu bisnis lebih rapi tanpa ribet. Dari catatan penjualan sampai insight yang bikin kamu lebih paham bisnis sendiri, semuanya dibuat simpel dan enak dipakai supaya kamu nggak cuma “jalanin usaha”, tapi juga bisa ngarahin biar makin cuan.
+Crumbella adalah platform **AI-powered Point of Sale (POS)** dan **inventory dinamis** untuk UMKM/MSME—berperan sebagai _virtual business consultant_ yang membantu bisnis lebih rapi tanpa ribet. Dari catatan penjualan sampai insight yang bikin kamu lebih paham bisnis sendiri, semuanya dibuat simpel dan enak dipakai supaya kamu nggak cuma “jalanin usaha”, tapi juga bisa ngarahin biar makin cuan.
 
 ---
 
 ## Complete Documentation
 
-- Dokumentasi teknis + operasional lengkap tersedia di `SOP/Cuanify-Complete-Documentation.md`.
-- User Journey tersedia di `SOP/Cuanify-User-Journey.md`.
+- Dokumentasi teknis + operasional lengkap tersedia di `SOP/Crumbella-Complete-Documentation.md`.
+- User Journey tersedia di `SOP/Crumbella-User-Journey.md`.
 
 ---
 
@@ -133,7 +133,7 @@ Cuanify adalah platform **AI-powered Point of Sale (POS)** dan **inventory dinam
 
 ### Deployment Platform
 
-- Vercel - [link](https://cuanify-chi.vercel.app/)
+- Vercel - [link](https://crumbella-chi.vercel.app/)
 
 ### Additional Tools
 
@@ -149,14 +149,14 @@ Cuanify adalah platform **AI-powered Point of Sale (POS)** dan **inventory dinam
 | ---------------------- | -------: | --------------------------------------- | ----------------------------------------------- |
 | `NODE_ENV`             |       No | Environment mode                        | `development`                                   |
 | `APP_URL`              |      Yes | Base URL aplikasi (untuk callback/auth) | `http://localhost:3000`                         |
-| `DATABASE_URL`         |      Yes | Connection string DB utama              | `postgresql://user:pass@localhost:5432/cuanify` |
+| `DATABASE_URL`         |      Yes | Connection string DB utama              | `postgresql://user:pass@localhost:5432/crumbella` |
 | `JWT_SECRET`           |      Yes | Secret untuk signing JWT                | `change-me`                                     |
 | `GOOGLE_CLIENT_ID`     |     No\* | OAuth Google Client ID                  | `...`                                           |
 | `GOOGLE_CLIENT_SECRET` |     No\* | OAuth Google Client Secret              | `...`                                           |
 | `GROQ_API_KEY`         |      Yes | API key Groq untuk LLM/insight          | `gsk_...`                                       |
 | `VECTOR_DB_URL`        |     No\* | Endpoint vector database                | `http://localhost:6333`                         |
 | `VECTOR_DB_API_KEY`    |     No\* | API key vector database (jika managed)  | `...`                                           |
-| `STORAGE_BUCKET`       |     No\* | Bucket untuk file/PDF upload            | `cuanify-docs`                                  |
+| `STORAGE_BUCKET`       |     No\* | Bucket untuk file/PDF upload            | `crumbella-docs`                                  |
 | `STORAGE_ACCESS_KEY`   |     No\* | Credentials storage                     | `...`                                           |
 | `STORAGE_SECRET_KEY`   |     No\* | Credentials storage                     | `...`                                           |
 

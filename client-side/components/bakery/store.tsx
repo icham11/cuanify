@@ -8,10 +8,8 @@ import {
   useEffect,
   useMemo,
   useState,
+  useSyncExternalStore,
 } from "react";
-import useSWR from "swr";
-import { get, set } from "idb-keyval";
-import { usePathname } from "next/navigation";
 import { toast } from "sonner";
 import {
   detailFieldDefinitions,
@@ -19,7 +17,6 @@ import {
   type WhatsAppOrderType,
 } from "@/lib/bookings/whatsapp-parser";
 import { buildOrderRecapWhatsAppText } from "@/lib/bookings/whatsapp-message-template";
-import { supabase } from "@/lib/supabase-client";
 import type {
   BookingAutomationEvent,
   BookingAutomationOrderPayload,
@@ -31,12 +28,7 @@ import type {
   ShippingResiResponse,
   ShippingShipment,
 } from "@/lib/bookings/shipping-types";
-import { calculateDownPayment } from "@/lib/bookings/config";
-import {
-  isWithinBusinessHours,
-  summarizeProductionTokensByItems,
-} from "@/lib/bookings/operations";
-import { normalizeProductionStageAssignments } from "@/lib/bookings/production-stages";
+import { isWithinBusinessHours } from "@/lib/bookings/operations";
 import {
   estimateOperationalWeightGram,
   parseServiceChargeFromNotes,
@@ -53,6 +45,7 @@ import {
 import { normalizeDateInput } from "@/lib/helpers/date-normalization";
 import { useBakerySettings } from "@/hooks/useBakerySettings";
 import {
+  distributeProductionTokens,
   type ProductionStageAssignment,
 } from "@/lib/bookings/production-stages";
 
@@ -132,7 +125,6 @@ export interface OrderItem {
   addOnQuantities?: Record<string, number>;
   addOnTotal: number;
   notes?: string;
-  cookieDifficultyBreakdown?: string;
 }
 
 export interface DeliveryAddress {
@@ -258,7 +250,6 @@ const OrdersContext = createContext<OrdersContextValue | null>(null);
 
 const initialOrders: BakeryOrder[] = [];
 const STORAGE_KEY = "bakeryOrdersState";
-const STORAGE_SYNC_META_KEY = "bakeryOrdersStateSyncMeta";
 const STORAGE_EVENT = "bakeryOrdersUpdated";
 const RAW_BOOKINGS_API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || "";
@@ -267,20 +258,10 @@ const ORDERS_SYNC_ENDPOINT = NORMALIZED_BOOKINGS_API_BASE
   ? `${NORMALIZED_BOOKINGS_API_BASE}/api/bookings/orders`
   : "/api/bookings/orders";
 const INITIAL_SNAPSHOT = JSON.stringify(initialOrders);
-const SERVER_SYNC_POLL_INTERVAL_MS = 120000;
-
+const SERVER_SYNC_POLL_INTERVAL_MS = 30000;
+const LOCAL_WRITE_STALE_GUARD_MS = 2500;
 const SHIPMENT_RETRY_BACKOFF_MS = 5 * 60 * 1000;
 const SHIPMENT_WARNING_COOLDOWN_MS = 10 * 60 * 1000;
-
-type CreateShipmentOptions = {
-  notify?: boolean;
-};
-
-const AUTO_SHIPMENT_ROUTE_PREFIXES = [
-  "/bakery/bookings",
-  "/bakery/production",
-  "/bakery/calendar",
-];
 
 /**
  * HTTP status code yang dikembalikan proxy saat role tidak punya akses.
@@ -318,8 +299,6 @@ class CapacityFullSyncError extends Error {
     this.name = "CapacityFullSyncError";
   }
 }
-
-
 const AUTO_REQUOTE_ERROR_KEYWORDS = [
   "courier price is not found",
   "check your origin and destination location",
@@ -343,14 +322,6 @@ function shouldAutoRefreshQuote(errorMessage: string): boolean {
 
   return AUTO_REQUOTE_ERROR_KEYWORDS.some((keyword) =>
     normalized.includes(keyword),
-  );
-}
-
-function shouldRunAutoShipmentScheduler(pathname: string | null): boolean {
-  if (!pathname) return false;
-
-  return AUTO_SHIPMENT_ROUTE_PREFIXES.some(
-    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
   );
 }
 
@@ -780,12 +751,21 @@ function summarizeAutomationResult(result: BookingAutomationResponse): {
   };
 }
 
-let inMemoryOrdersSnapshot: string | null = null;
+function subscribe(callback: () => void) {
+  if (typeof window === "undefined") return () => {};
+  const handler = () => callback();
+  window.addEventListener("storage", handler);
+  window.addEventListener(STORAGE_EVENT, handler as EventListener);
+  return () => {
+    window.removeEventListener("storage", handler);
+    window.removeEventListener(STORAGE_EVENT, handler as EventListener);
+  };
+}
 
 function getSnapshot() {
   if (typeof window === "undefined") return INITIAL_SNAPSHOT;
-  if (inMemoryOrdersSnapshot === null) return INITIAL_SNAPSHOT;
-  return inMemoryOrdersSnapshot;
+  if (!hasHydrated) return INITIAL_SNAPSHOT;
+  return window.localStorage.getItem(STORAGE_KEY) ?? INITIAL_SNAPSHOT;
 }
 
 function getServerSnapshot() {
@@ -811,21 +791,9 @@ function areOrdersSnapshotsEqual(
 
 function writeOrdersSnapshot(nextOrders: BakeryOrder[]) {
   if (typeof window === "undefined") return;
-  const snap = JSON.stringify(nextOrders);
-  inMemoryOrdersSnapshot = snap;
-  set(STORAGE_KEY, snap).catch(console.error);
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextOrders));
+  window.dispatchEvent(new Event(STORAGE_EVENT));
 }
-
-const ordersFetcher = async (url: string) => {
-  const response = await fetch(url, { cache: "no-store" });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok || !payload.success) {
-    throw new Error(payload.error || "Failed to fetch orders");
-  }
-  const serverOrders = Array.isArray(payload.data?.orders) ? payload.data.orders : [];
-  writeOrdersSnapshot(serverOrders);
-  return serverOrders;
-};
 
 function parseOrdersSyncError(
   payload: OrdersSyncResponse,
@@ -842,49 +810,18 @@ function parseOrdersSyncError(
 }
 
 export function OrdersProvider({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
   const { settings: bakerySettings } = useBakerySettings();
   const blockedDates = bakerySettings?.blockedDates;
-
-  const { data: serverOrders, mutate } = useSWR<BakeryOrder[]>(
-    ORDERS_SYNC_ENDPOINT,
-    ordersFetcher,
-    {
-      fallbackData: parseSnapshot(getSnapshot()),
-      refreshInterval: SERVER_SYNC_POLL_INTERVAL_MS,
-      revalidateOnFocus: true,
-      revalidateOnReconnect: true,
-    }
+  const defaultDpPercentage = bakerySettings?.defaultDpPercentage ?? 50;
+  const snapshot = useSyncExternalStore(
+    subscribe,
+    getSnapshot,
+    getServerSnapshot,
   );
-
-  const orders = serverOrders || parseSnapshot(getSnapshot());
-
-  useEffect(() => {
-    if (!supabase) return;
-
-    const channel = supabase
-      .channel("schema-db-changes")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "bakery_orders",
-        },
-        () => {
-          // When orders change in the DB, trigger SWR revalidation
-          mutate();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      if (supabase) {
-        supabase.removeChannel(channel);
-      }
-    };
-  }, [mutate]);
-
+  const orders = useMemo<BakeryOrder[]>(
+    () => parseSnapshot(snapshot),
+    [snapshot],
+  );
   const [actorIdentity, setActorIdentity] = useState<{
     userId: number | null;
     name: string;
@@ -892,25 +829,22 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
     userId: null,
     name: "System",
   });
-
-  const processingShipmentIdsRef = useRef<Set<string>>(new Set());
+  const hydrationInFlightRef = useRef(false);
+  const lastLocalWriteAtRef = useRef(0);
   const scheduledShipmentRunInFlightRef = useRef(false);
+  const processingShipmentIdsRef = useRef<Set<string>>(new Set());
   const shipmentRetryBackoffUntilRef = useRef<Map<string, number>>(new Map());
   const shipmentWarningStateRef = useRef<
     Map<string, { message: string; at: number }>
   >(new Map());
+
   useEffect(() => {
     if (typeof window === "undefined") return;
-    
-    // Load data from IDB for initial offline fallback
-    get(STORAGE_KEY).then((ordersVal) => {
-      inMemoryOrdersSnapshot = (ordersVal as string) ?? INITIAL_SNAPSHOT;
-      if (!hasHydrated) {
-        hasHydrated = true;
-        mutate(); // trigger SWR revalidation after hydration
-      }
-    }).catch(console.error);
-  }, [mutate]);
+    if (!hasHydrated) {
+      hasHydrated = true;
+      window.dispatchEvent(new Event(STORAGE_EVENT));
+    }
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1018,56 +952,135 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
     return payload;
   }, []);
 
+  const hydrateOrdersFromServer = useCallback(
+    async (force = false) => {
+      if (typeof window === "undefined") return;
+      if (hydrationInFlightRef.current) return;
+
+      hydrationInFlightRef.current = true;
+      const localSnapshot = window.localStorage.getItem(STORAGE_KEY);
+      const localOrders = parseSnapshot(localSnapshot ?? INITIAL_SNAPSHOT);
+
+      try {
+        const response = await fetch(ORDERS_SYNC_ENDPOINT, {
+          method: "GET",
+          cache: "no-store",
+        });
+        const payload = (await response.json().catch(() => ({}))) as {
+          success?: boolean;
+          data?: { orders?: BakeryOrder[] };
+        };
+
+        if (!response.ok || !payload.success) return;
+
+        const serverOrders = Array.isArray(payload.data?.orders)
+          ? payload.data.orders
+          : [];
+
+        if (serverOrders.length > 0) {
+          const recentlyChangedLocally =
+            !force &&
+            Date.now() - lastLocalWriteAtRef.current <
+              LOCAL_WRITE_STALE_GUARD_MS;
+          if (recentlyChangedLocally) return;
+
+          if (!areOrdersSnapshotsEqual(localOrders, serverOrders)) {
+            writeOrdersSnapshot(serverOrders);
+          }
+          return;
+        }
+
+        if (localOrders.length > 0) {
+          void syncOrdersToServer(localOrders).catch((error) => {
+            console.warn("[bookings][frontend] hydrate sync failed", {
+              endpoint: ORDERS_SYNC_ENDPOINT,
+              message: error instanceof Error ? error.message : String(error),
+            });
+          });
+        }
+      } catch {
+        // Keep local snapshot if server is unreachable.
+      } finally {
+        hydrationInFlightRef.current = false;
+      }
+    },
+    [syncOrdersToServer],
+  );
+
+  useEffect(() => {
+    void hydrateOrdersFromServer();
+  }, [hydrateOrdersFromServer]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const pollId = window.setInterval(() => {
+      void hydrateOrdersFromServer();
+    }, SERVER_SYNC_POLL_INTERVAL_MS);
+
+    const handleFocus = () => {
+      void hydrateOrdersFromServer();
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        void hydrateOrdersFromServer();
+      }
+    };
+
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      window.clearInterval(pollId);
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [hydrateOrdersFromServer]);
+
   const persistOrders = useCallback(
     (nextOrders: BakeryOrder[]) => {
       if (typeof window === "undefined") return;
-      const previousSnapshot = getSnapshot();
+      const previousSnapshot =
+        window.localStorage.getItem(STORAGE_KEY) ?? INITIAL_SNAPSHOT;
+      lastLocalWriteAtRef.current = Date.now();
       writeOrdersSnapshot(nextOrders);
+      void syncOrdersToServer(nextOrders).catch((error) => {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Gagal sinkron perubahan booking ke server.";
 
-      mutate(nextOrders, {
-        optimisticData: nextOrders,
-        rollbackOnError: true,
-        populateCache: true,
-        revalidate: false, // Wait for sync to complete before revalidating
-      });
+        // Revert optimistic local state so role-based guardrail failures
+        // do not leave this browser out of sync from server truth.
+        const rollbackOrders = parseSnapshot(previousSnapshot);
+        writeOrdersSnapshot(rollbackOrders);
+        lastLocalWriteAtRef.current = 0;
+        void hydrateOrdersFromServer(true);
 
-      void syncOrdersToServer(nextOrders)
-        .then(() => {
-          mutate(nextOrders, { revalidate: true });
-        })
-        .catch((error) => {
-          const message =
-            error instanceof Error
-              ? error.message
-              : "Gagal sinkron perubahan booking ke server.";
-
-          // Revert optimistic local state
-          const rollbackOrders = parseSnapshot(previousSnapshot);
-          writeOrdersSnapshot(rollbackOrders);
-          mutate(rollbackOrders, { revalidate: true });
-
-          console.warn("[bookings][frontend] persist sync failed", {
-            endpoint: ORDERS_SYNC_ENDPOINT,
-            message,
-          });
-
-          // Kapasitas produksi penuh — ini kondisi valid dari sistem, bukan error user.
-          // Tidak perlu toast.error agar halaman marketplace/production tidak spam notif.
-          if (error instanceof CapacityFullSyncError) {
-            return;
-          }
-
-          toast.error(`Perubahan dibatalkan karena sinkron gagal: ${message}`);
+        console.warn("[bookings][frontend] persist sync failed", {
+          endpoint: ORDERS_SYNC_ENDPOINT,
+          message,
         });
+
+        // Kapasitas produksi penuh — ini kondisi valid dari sistem, bukan error user.
+        // Tidak perlu toast.error agar halaman marketplace/production tidak spam notif.
+        if (error instanceof CapacityFullSyncError) {
+          return;
+        }
+
+        toast.error(`Perubahan dibatalkan karena sinkron gagal: ${message}`);
+      });
     },
-    [mutate, syncOrdersToServer],
+    [hydrateOrdersFromServer, syncOrdersToServer],
   );
 
   const runAutomationsForOrder = useCallback(
     async (eventType: BookingAutomationEvent, orderId: string) => {
       if (typeof window === "undefined") return;
 
-      const currentSnapshot = getSnapshot();
+      const currentSnapshot =
+        window.localStorage.getItem(STORAGE_KEY) ?? INITIAL_SNAPSHOT;
       const currentOrders = parseSnapshot(currentSnapshot);
       const targetOrder = currentOrders.find((item) => item.id === orderId);
       if (!targetOrder) return;
@@ -1184,18 +1197,18 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
   );
 
   const createShipmentForOrder = useCallback(
-    async (orderId: string, options: CreateShipmentOptions = {}) => {
+    async (orderId: string) => {
       if (typeof window === "undefined") return;
       if (processingShipmentIdsRef.current.has(orderId)) return;
 
-      const shouldNotify = options.notify ?? false;
       const nowMs = Date.now();
       const retryAt = shipmentRetryBackoffUntilRef.current.get(orderId) || 0;
       if (retryAt > nowMs) return;
 
       processingShipmentIdsRef.current.add(orderId);
       try {
-        const currentSnapshot = getSnapshot();
+        const currentSnapshot =
+          window.localStorage.getItem(STORAGE_KEY) ?? INITIAL_SNAPSHOT;
         const currentOrders = parseSnapshot(currentSnapshot);
         const order = currentOrders.find((item) => item.id === orderId);
         if (!order || order.shipment || !order.shippingQuote) return;
@@ -1375,7 +1388,8 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
               );
             }
 
-            const latestSnapshot = getSnapshot();
+            const latestSnapshot =
+              window.localStorage.getItem(STORAGE_KEY) ?? INITIAL_SNAPSHOT;
             const latestOrders = parseSnapshot(latestSnapshot);
             const ordersWithRefreshedQuote = latestOrders.map((entry) =>
               entry.id === orderId
@@ -1413,7 +1427,8 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
 
           const createdShipment = payload.shipment;
 
-          const latestSnapshot = getSnapshot();
+          const latestSnapshot =
+            window.localStorage.getItem(STORAGE_KEY) ?? INITIAL_SNAPSHOT;
           const latestOrders = parseSnapshot(latestSnapshot);
           const nextOrders = latestOrders.map((entry) => {
             if (entry.id !== orderId) return entry;
@@ -1430,14 +1445,10 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
           persistOrders(nextOrders);
           shipmentRetryBackoffUntilRef.current.delete(orderId);
           shipmentWarningStateRef.current.delete(orderId);
-          if (shouldNotify && payload.warning) {
+          if (payload.warning) {
             toast.warning(payload.warning);
           }
-          if (shouldNotify) {
-            toast.success(
-              `Resi otomatis dibuat: ${createdShipment.trackingNumber}`,
-            );
-          }
+          toast.success(`Resi otomatis dibuat: ${createdShipment.trackingNumber}`);
         } catch (error: unknown) {
           // Jika error karena pembatasan role (Staff tidak punya akses endpoint
           // shipping), diam saja — tidak perlu tampilkan warning ke Staff.
@@ -1456,14 +1467,6 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
             orderId,
             now + SHIPMENT_RETRY_BACKOFF_MS,
           );
-
-          if (!shouldNotify) {
-            console.warn("[bookings][frontend] silent shipment create failed", {
-              orderId,
-              message,
-            });
-            return;
-          }
 
           const previousWarning = shipmentWarningStateRef.current.get(orderId);
           const shouldShowWarning =
@@ -1494,7 +1497,8 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
 
     scheduledShipmentRunInFlightRef.current = true;
     try {
-      const currentSnapshot = getSnapshot();
+      const currentSnapshot =
+        window.localStorage.getItem(STORAGE_KEY) ?? INITIAL_SNAPSHOT;
       const currentOrders = parseSnapshot(currentSnapshot);
       const todayJakarta = getJakartaTodayIsoDate();
 
@@ -1503,7 +1507,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         .map((order) => order.id);
 
       for (const dueOrderId of dueOrderIds) {
-        await createShipmentForOrder(dueOrderId, { notify: false });
+        await createShipmentForOrder(dueOrderId);
       }
     } finally {
       scheduledShipmentRunInFlightRef.current = false;
@@ -1512,7 +1516,6 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (!shouldRunAutoShipmentScheduler(pathname)) return;
 
     const run = () => {
       void runScheduledShipmentCreation();
@@ -1535,7 +1538,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
-  }, [pathname, runScheduledShipmentCreation]);
+  }, [runScheduledShipmentCreation]);
 
   const addOrder = useCallback(
     async (order: NewOrderInput) => {
@@ -1647,9 +1650,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         cakeType: order.items[0]?.subcategory,
         size: order.items[0]?.size,
         addOns: order.items.flatMap((item) => item.addOns).join(", "),
-        product: order.items
-          .map((item) => `${item.quantity}x ${item.productName}`)
-          .join("\n"),
+        product: `${order.items.length} item(s)`,
         totalPrice: normalizedTotalPrice,
         sales_channel: order.sales_channel,
         paymentStatus: inferredPaymentStatus,
@@ -1689,14 +1690,14 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       if (isScheduledShipmentOrder(newOrder)) {
         const todayJakarta = getJakartaTodayIsoDate();
         if (isDueForScheduledShipment(newOrder, todayJakarta)) {
-          void createShipmentForOrder(id, { notify: false });
+          void createShipmentForOrder(id);
         } else {
           toast.message(
             "Order Grab/Gojek/Paxel dijadwalkan. Resi akan dibuat otomatis di hari pengiriman.",
           );
         }
       } else {
-        void createShipmentForOrder(id, { notify: false });
+        void createShipmentForOrder(id);
       }
       void runAutomationsForOrder("order_confirmed", id);
     },
@@ -1792,11 +1793,39 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       const nowIso = new Date().toISOString();
       const nextOrders = orders.map((order) => {
         if (order.id !== id) return order;
+        const totalTokens = Number(
+          order.items?.reduce((sum, item) => {
+            const qty = Math.max(0, Number(item.quantity) || 0);
+            const token =
+              Number(item.customTokenPerUnit) ||
+              (item.tokenDifficulty === "EXPERT"
+                ? 5
+                : item.tokenDifficulty === "ADVANCED"
+                  ? 4
+                  : item.tokenDifficulty === "HARD" ||
+                      item.tokenDifficulty === "DIFFICULT"
+                    ? 3
+                    : item.tokenDifficulty === "NORMAL" ||
+                        item.tokenDifficulty === "MEDIUM"
+                      ? 2
+                      : 1);
+            return sum + qty * token;
+          }, 0) || 0,
+        );
+        const productionStages = distributeProductionTokens({
+          totalTokens,
+          staffByStage: {
+            listing: staff.userId,
+            filling: staff.userId,
+            finishing: staff.userId,
+          },
+        });
         return {
           ...order,
           assignedStaffUserId: staff.userId,
           assignedStaffName: staff.name,
           productionAssignedAt: order.productionAssignedAt || nowIso,
+          productionStages,
           statusHistory: appendStatusLog(
             order.statusHistory,
             order.orderStatus,
@@ -1823,11 +1852,38 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
 
       const nextOrders = orders.map((order) => {
         if (order.id !== id) return order;
+        const totalTokens = Number(
+          order.items?.reduce((sum, item) => {
+            const qty = Math.max(0, Number(item.quantity) || 0);
+            const token =
+              Number(item.customTokenPerUnit) ||
+              (item.tokenDifficulty === "EXPERT"
+                ? 5
+                : item.tokenDifficulty === "ADVANCED"
+                  ? 4
+                  : item.tokenDifficulty === "HARD" ||
+                      item.tokenDifficulty === "DIFFICULT"
+                    ? 3
+                    : item.tokenDifficulty === "NORMAL" ||
+                        item.tokenDifficulty === "MEDIUM"
+                      ? 2
+                      : 1);
+            return sum + qty * token;
+          }, 0) || 0,
+        );
         return {
           ...order,
           assignedStaffUserId: null,
           assignedStaffName: "",
           productionAssignedAt: null,
+          productionStages: distributeProductionTokens({
+            totalTokens,
+            staffByStage: {
+              listing: null,
+              filling: null,
+              finishing: null,
+            },
+          }),
           statusHistory: appendStatusLog(
             order.statusHistory,
             order.orderStatus,
@@ -1851,18 +1907,69 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
     ) => {
       const nextOrders = orders.map((order) => {
         if (order.id !== id) return order;
-        const totalTokens = summarizeProductionTokensByItems(order.items ?? []);
-        const productionStages = normalizeProductionStageAssignments({
+        const totalTokens = Number(order.items?.reduce((sum, item) => {
+          const qty = Math.max(0, Number(item.quantity) || 0);
+          const token =
+            Number(item.customTokenPerUnit) ||
+            (item.tokenDifficulty === "EXPERT"
+              ? 5
+              : item.tokenDifficulty === "ADVANCED"
+                ? 4
+                : item.tokenDifficulty === "HARD" || item.tokenDifficulty === "DIFFICULT"
+                  ? 3
+                  : item.tokenDifficulty === "NORMAL" || item.tokenDifficulty === "MEDIUM"
+                    ? 2
+                    : 1);
+          return sum + qty * token;
+        }, 0) || 0);
+        const currentByStage = new Map(
+          (order.productionStages ?? []).map((entry) => [entry.stage, entry]),
+        );
+        const productionStages = distributeProductionTokens({
           totalTokens,
-          stages: order.productionStages ?? [],
           staffByStage: {
-            listing: stage === "listing" ? staff?.userId ?? null : undefined,
-            filling: stage === "filling" ? staff?.userId ?? null : undefined,
+            listing:
+              stage === "listing"
+                ? staff?.userId ?? null
+                : currentByStage.get("listing")?.staffId ?? null,
+            filling:
+              stage === "filling"
+                ? staff?.userId ?? null
+                : currentByStage.get("filling")?.staffId ?? null,
             finishing:
-              stage === "finishing" ? staff?.userId ?? null : undefined,
+              stage === "finishing"
+                ? staff?.userId ?? null
+                : currentByStage.get("finishing")?.staffId ?? null,
           },
         });
-        return { ...order, productionStages };
+        const uniqueAssignees = [
+          ...new Set(
+            productionStages
+              .map((entry) => Number(entry.staffId || 0))
+              .filter((staffId) => Number.isInteger(staffId) && staffId > 0),
+          ),
+        ];
+        const nextAssignedStaffUserId =
+          uniqueAssignees.length === 1 ? uniqueAssignees[0] : null;
+        const nextAssignedStaffName =
+          nextAssignedStaffUserId === null
+            ? ""
+            : nextAssignedStaffUserId === staff?.userId
+              ? staff.name
+              : order.assignedStaffUserId === nextAssignedStaffUserId
+                ? order.assignedStaffName || ""
+                : "";
+        const hasAnyStageAssignment = uniqueAssignees.length > 0;
+
+        return {
+          ...order,
+          assignedStaffUserId: nextAssignedStaffUserId,
+          assignedStaffName: nextAssignedStaffName,
+          productionAssignedAt: hasAnyStageAssignment
+            ? order.productionAssignedAt || new Date().toISOString()
+            : null,
+          productionStages,
+        };
       });
 
       persistOrders(nextOrders);
@@ -1881,7 +1988,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       const nextOrders: BakeryOrder[] = orders.map((order) => {
         if (order.id !== id) return order;
         const total = normalizeMoney(order.totalPrice);
-        const suggestedDp = calculateDownPayment(total);
+        const suggestedDp = Math.round(total * (defaultDpPercentage / 100));
         const previousDpPaid = normalizeMoney(order.dpPaidAmount);
         const previousFinalPaid = normalizeMoney(order.finalPaidAmount);
         let dpPaidAmount = previousDpPaid;
@@ -1956,7 +2063,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
           : "Payment status updated",
       );
     },
-    [orders, persistOrders, actorIdentity],
+    [orders, persistOrders, actorIdentity, defaultDpPercentage],
   );
 
   const recordPayment = useCallback(
@@ -2085,7 +2192,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         updatedOrder &&
         isDueForScheduledShipment(updatedOrder, getJakartaTodayIsoDate())
       ) {
-        void createShipmentForOrder(id, { notify: false });
+        void createShipmentForOrder(id);
       }
     },
     [
@@ -2129,7 +2236,10 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       if (!order) return "Order not found.";
 
       const dpAmount =
-        order.downPaymentAmount ?? calculateDownPayment(order.totalPrice ?? 0);
+        order.downPaymentAmount ??
+        Math.round(
+          Math.max(0, Number(order.totalPrice ?? 0)) * (defaultDpPercentage / 100),
+        );
       const remainingBalance =
         order.paymentStatus === "Paid"
           ? 0
@@ -2164,7 +2274,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         fullAddress: resolveFullAddress(order),
       });
     },
-    [orders],
+    [orders, defaultDpPercentage],
   );
 
   const value = useMemo(

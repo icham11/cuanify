@@ -23,17 +23,8 @@ import {
 } from "date-fns";
 import { id as localeId } from "date-fns/locale";
 import "react-big-calendar/lib/css/react-big-calendar.css";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import { type BakeryOrder, useOrders } from "@/components/bakery/store";
-import {
-  CalendarDays,
-  ChevronLeft,
-  ChevronRight,
-  X,
-  Loader2,
-} from "lucide-react";
+import { ChevronLeft, ChevronRight, X, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   DEFAULT_MAX_TOKEN,
@@ -163,18 +154,16 @@ function CalendarEventItem({ event }: EventProps<CalendarOrderEvent>) {
 function CalendarToolbar({
   date,
   onNavigate,
-  onView,
-  view,
 }: ToolbarProps<CalendarOrderEvent, object>) {
   const label = format(date, "MMMM yyyy", { locale: localeId });
 
   return (
-    <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-[#ffd8b7] bg-linear-to-r from-[#fff6e8] via-[#fff1dc] to-[#e9f8ff] p-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="mb-3 flex items-center justify-between gap-3">
       <div className="flex items-center gap-2">
         <button
           type="button"
           onClick={() => onNavigate("PREV")}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-[#ffc894] bg-white text-[#173a7a] transition hover:bg-[#fff1dc]"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-[#e1c5ac] bg-white text-[#7d4b26] transition hover:bg-[#fff0e1]"
           aria-label="Previous month"
         >
           <ChevronLeft className="h-4 w-4" />
@@ -182,46 +171,22 @@ function CalendarToolbar({
         <button
           type="button"
           onClick={() => onNavigate("NEXT")}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-[#ffc894] bg-white text-[#173a7a] transition hover:bg-[#fff1dc]"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-[#e1c5ac] bg-white text-[#7d4b26] transition hover:bg-[#fff0e1]"
           aria-label="Next month"
         >
           <ChevronRight className="h-4 w-4" />
         </button>
-        <button
-          type="button"
-          onClick={() => onNavigate("TODAY")}
-          className="rounded-xl border border-[#ffc894] bg-white px-3 py-2 text-xs font-semibold text-[#173a7a] transition hover:bg-[#fff1dc]"
-        >
-          Today
-        </button>
       </div>
-      <h3 className="text-base font-semibold text-[#173a7a] sm:text-lg">
+      <h3 className="text-lg font-bold text-[#22150d] sm:text-[1.7rem]">
         {label}
       </h3>
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => onView(Views.MONTH)}
-          className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
-            view === Views.MONTH
-              ? "bg-[#173a7a] text-white"
-              : "border border-[#ffc894] bg-white text-[#173a7a] hover:bg-[#fff1dc]"
-          }`}
-        >
-          Month
-        </button>
-        <button
-          type="button"
-          onClick={() => onView(Views.WEEK)}
-          className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
-            view === Views.WEEK
-              ? "bg-[#173a7a] text-white"
-              : "border border-[#ffc894] bg-white text-[#173a7a] hover:bg-[#fff1dc]"
-          }`}
-        >
-          Week
-        </button>
-      </div>
+      <button
+        type="button"
+        onClick={() => onNavigate("TODAY")}
+        className="rounded-full border border-[#df642b] bg-white px-3 py-1.5 text-[11px] font-semibold text-[#df642b] transition hover:bg-[#fff2ea]"
+      >
+        Hari Ini
+      </button>
     </div>
   );
 }
@@ -267,6 +232,7 @@ export default function BakeryCalendarPage() {
   } = useCalendarCapacity(calendarRange.start, calendarRange.end);
   const { settings: bakerySettings } = useBakerySettings();
   const blockedDates = bakerySettings?.blockedDates;
+  const cutoffHour = bakerySettings?.cutoffHour ?? 10;
 
   const capacitySyncKey = useMemo(() => {
     return orders
@@ -303,14 +269,14 @@ export default function BakeryCalendarPage() {
             date: dateKey,
           },
           now,
-          { blockedDates },
+          { blockedDates, cutoffHour },
         );
         result.set(dateKey, status);
       }
       cursor.setDate(cursor.getDate() + 1);
     }
     return result;
-  }, [blockedDates, calendarRange, getCapacity]);
+  }, [blockedDates, cutoffHour, calendarRange, getCapacity]);
 
   const selectedDateKey = selectedDate ? toDateKey(selectedDate) : "";
   const selectedCapacity = selectedDateKey
@@ -558,14 +524,44 @@ export default function BakeryCalendarPage() {
       case "FULL":
         return "Kapasitas penuh — tidak bisa menerima order baru";
       case "CUTOFF":
-        return "Closed (H-1) — cutoff jam 10:00 sudah lewat";
+        return `Closed (H-1) — cutoff jam ${String(cutoffHour).padStart(2, "0")}:00 sudah lewat`;
       case "WARNING":
         return "Hampir penuh — segera capai batas kapasitas";
       case "AVAILABLE":
       default:
         return "Kapasitas masih tersedia";
-    }
-  }, [selectedStatus, selectedCapacity]);
+      }
+  }, [selectedStatus, selectedCapacity, cutoffHour]);
+
+  const selectedUsagePercent = selectedCapacity
+    ? Math.min(
+        100,
+        Math.round(
+          (selectedCapacity.usedToken /
+            (selectedCapacity.maxToken || DEFAULT_MAX_TOKEN)) *
+            100,
+        ),
+      )
+    : 0;
+
+  const activeModeSubtitle =
+    calendarViewMode === "google"
+      ? "Google calendar aktif"
+      : "Order internal aktif";
+
+  void canManageCalendarConnection;
+  void isOAuthLoading;
+  void setCalendarViewMode;
+  void setListFilterMode;
+  void isLoadingGoogleEvents;
+  void oauthStatus;
+  void connectGoogleCalendar;
+  void disconnectGoogleCalendar;
+  void internalTodayCount;
+  void needsSyncCount;
+  void googleTodayCount;
+  void mismatchCount;
+  void activeModeSubtitle;
 
   // ─── Handlers ───────────────────────────────────────────────────────────────
   const openDateOrdersPopup = (date: Date) => {
@@ -616,464 +612,245 @@ export default function BakeryCalendarPage() {
   }
 
   return (
-    <div className="space-y-6 pb-10">
-      <GradientPageHeader
-        title="Delivery Calendar"
-        description="Visual scheduling board for delivery workload, token capacity, and quick booking navigation."
-        icon={CalendarDays}
-      />
+    <div className="mx-auto max-w-[360px] space-y-4 pb-10 text-[#2f1e13]">
+      <div className="flex justify-center">
+        <div className="rounded-full border border-[#d7c1af] bg-[#fff7ef] px-5 py-1 text-[11px] font-semibold uppercase tracking-[0.32em] text-[#5c3b25]">
+          CALENDAR
+        </div>
+      </div>
 
-      {/* Google Calendar Account Card */}
-      <Card className="rounded-3xl bg-[linear-gradient(155deg,rgba(255,255,255,0.96)_0%,rgba(255,247,236,0.92)_58%,rgba(233,248,255,0.9)_100%)] ring-[#ffd8b7]">
-        <CardContent className="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
-          <div className="text-sm">
-            <p className="font-semibold text-gray-900">
-              Google Calendar Account
-            </p>
-            <p className="text-xs text-gray-600">
-              {isOAuthLoading
-                ? "Checking OAuth status..."
-                : oauthStatus.connected
-                  ? `Connected as ${oauthStatus.connectedEmail || "Google user"} (${oauthStatus.calendarId || "primary"})`
-                  : "Not connected via OAuth. Currently using service account fallback."}
+      <div className="rounded-[34px] border border-[#dec8b6] bg-[#fffaf4] p-4 shadow-[0_24px_60px_-38px_rgba(94,53,30,0.45)]">
+        <div className="flex items-start justify-between gap-3 border-b border-[#ead6c8] pb-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-base leading-none text-[#cb6531]">☰</span>
+              <h1 className="text-[1.05rem] font-bold leading-none text-[#1f140d]">
+                Calendar
+              </h1>
+            </div>
+            <p className="mt-1 text-[11px] text-[#b0734d]">
+              Kapasitas {DEFAULT_MAX_TOKEN} tok/hari · 2 staff aktif
             </p>
           </div>
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              variant={calendarViewMode === "internal" ? "default" : "outline"}
-              className={
-                calendarViewMode === "internal"
-                  ? "bg-[#243b5a] text-white hover:bg-[#1f324d]"
-                  : "border-[#dbe2ea] text-[#243b5a] hover:bg-[#fff4ed]"
-              }
-              onClick={() => setCalendarViewMode("internal")}
-            >
-              Internal Orders
-            </Button>
-            <Button
-              type="button"
-              variant={calendarViewMode === "google" ? "default" : "outline"}
-              className={
-                calendarViewMode === "google"
-                  ? "bg-[#243b5a] text-white hover:bg-[#1f324d]"
-                  : "border-[#dbe2ea] text-[#243b5a] hover:bg-[#fff4ed]"
-              }
-              onClick={() => setCalendarViewMode("google")}
-            >
-              Google Events
-            </Button>
-            {canManageCalendarConnection ? (
-              <>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="border-[#dbe2ea] text-[#243b5a] hover:bg-[#fff4ed]"
-                  onClick={connectGoogleCalendar}
-                >
-                  {oauthStatus.connected
-                    ? "Reconnect OAuth"
-                    : "Connect Google OAuth"}
-                </Button>
-                {oauthStatus.connected ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="border-rose-200 text-rose-700 hover:bg-rose-50"
-                    onClick={() => void disconnectGoogleCalendar()}
-                    disabled={isDisconnectingOAuth}
-                  >
-                    {isDisconnectingOAuth ? "Disconnecting..." : "Disconnect"}
-                  </Button>
-                ) : null}
-              </>
-            ) : (
-              <span className="self-center text-[11px] font-medium text-slate-500">
-                Hanya owner/admin yang dapat mengubah koneksi OAuth.
-              </span>
-            )}
-          </div>
-        </CardContent>
-      </Card>
 
-      {/* Stats Bar */}
-      <Card className="rounded-3xl bg-[linear-gradient(155deg,rgba(255,255,255,0.96)_0%,rgba(255,247,236,0.92)_58%,rgba(233,248,255,0.9)_100%)] ring-[#ffd8b7]">
-        <CardContent className="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
-          <div className="flex flex-wrap gap-2 text-xs font-semibold">
-            <span className="rounded-full border border-[#dbe2ea] bg-[#eef2f7] px-3 py-1 text-[#243b5a]">
-              Internal Today: {internalTodayCount}
-            </span>
-            <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-amber-700">
-              Needs Sync: {needsSyncCount}
-            </span>
-            <span className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-sky-700">
-              Google Today: {googleTodayCount}
-            </span>
-            <span className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-rose-700">
-              {mismatchCount === null
-                ? "Mismatch: load Google mode first"
-                : `Mismatch in view: ${mismatchCount}`}
-            </span>
-          </div>
-          <div className="flex gap-2">
-            <Button
+          <div className="inline-flex rounded-full border border-[#e1c9b6] bg-[#fff1e6] p-1">
+            <button
               type="button"
-              variant="outline"
-              className="border-[#dbe2ea] text-[#243b5a] hover:bg-[#fff4ed]"
-              onClick={() => void fetchGoogleEvents(currentDate, currentView)}
-              disabled={isLoadingGoogleEvents}
+              onClick={() => setCurrentView(Views.WEEK)}
+              className={`rounded-full px-3 py-1.5 text-[11px] font-semibold transition ${
+                currentView === Views.WEEK
+                  ? "bg-white text-[#4c2b15] shadow-sm"
+                  : "text-[#ab7757]"
+              }`}
             >
-              {isLoadingGoogleEvents
-                ? "Refreshing..."
-                : "Refresh Google Snapshot"}
-            </Button>
-            <Button
+              Minggu
+            </button>
+            <button
               type="button"
-              variant="outline"
-              className="border-emerald-200 text-emerald-700 hover:bg-emerald-50"
-              onClick={refetchCapacity}
-              disabled={isCapacityLoading}
+              onClick={() => setCurrentView(Views.MONTH)}
+              className={`rounded-full px-3 py-1.5 text-[11px] font-semibold transition ${
+                currentView === Views.MONTH
+                  ? "bg-[#d9692d] text-white shadow-sm"
+                  : "text-[#ab7757]"
+              }`}
             >
-              {isCapacityLoading ? "Loading..." : "Refresh Capacity"}
-            </Button>
+              Bulan
+            </button>
           </div>
-        </CardContent>
-      </Card>
+        </div>
 
-      {/* Capacity Error Banner */}
-      {capacityError ? (
-        <Card className="rounded-3xl border-rose-200 bg-rose-50/95 shadow-[0_14px_30px_-24px_rgba(225,29,72,0.7)]">
-          <CardContent className="px-6 py-3">
-            <p className="text-sm font-medium text-rose-700">
-              Failed to load capacity data: {capacityError}
-            </p>
-            <Button
-              type="button"
-              variant="outline"
-              className="mt-2 border-rose-200 text-rose-700 hover:bg-rose-100"
-              onClick={refetchCapacity}
-            >
-              Retry
-            </Button>
-          </CardContent>
-        </Card>
-      ) : null}
-
-      {/* Quick Navigation + Filters */}
-      <Card className="rounded-3xl bg-[linear-gradient(155deg,rgba(255,255,255,0.96)_0%,rgba(255,247,236,0.92)_58%,rgba(233,248,255,0.9)_100%)] ring-[#ffd8b7]">
-        <CardContent className="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              className="border-[#dbe2ea] text-[#243b5a] hover:bg-[#fff4ed]"
-              onClick={() => setSelectedDate(new Date())}
-            >
-              Today
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className="border-[#dbe2ea] text-[#243b5a] hover:bg-[#fff4ed]"
-              onClick={() => {
-                const tomorrow = new Date();
-                tomorrow.setDate(tomorrow.getDate() + 1);
-                setSelectedDate(tomorrow);
-              }}
-            >
-              Tomorrow
-            </Button>
+        {capacityError ? (
+          <div className="mt-4 rounded-[16px] border border-[#f2b0a7] bg-[#fff1ef] px-4 py-3 text-xs text-[#ba5644]">
+            Failed to load capacity data: {capacityError}
           </div>
-          {calendarViewMode === "internal" ? (
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                variant={listFilterMode === "all" ? "default" : "outline"}
-                className={
-                  listFilterMode === "all"
-                    ? "bg-[#243b5a] text-white hover:bg-[#1f324d]"
-                    : "border-[#dbe2ea] text-[#243b5a] hover:bg-[#fff4ed]"
-                }
-                onClick={() => setListFilterMode("all")}
-              >
-                All
-              </Button>
-              <Button
-                type="button"
-                variant={
-                  listFilterMode === "needs-sync" ? "default" : "outline"
-                }
-                className={
-                  listFilterMode === "needs-sync"
-                    ? "bg-amber-600 text-white hover:bg-amber-700"
-                    : "border-amber-200 text-amber-700 hover:bg-amber-50"
-                }
-                onClick={() => setListFilterMode("needs-sync")}
-              >
-                Needs Sync
-              </Button>
-              <Button
-                type="button"
-                variant={listFilterMode === "synced" ? "default" : "outline"}
-                className={
-                  listFilterMode === "synced"
-                    ? "bg-emerald-600 text-white hover:bg-emerald-700"
-                    : "border-emerald-200 text-emerald-700 hover:bg-emerald-50"
-                }
-                onClick={() => setListFilterMode("synced")}
-              >
-                Synced
-              </Button>
+        ) : null}
+
+        <div className="mt-4 rounded-[20px] border border-[#dec8b6] bg-[#fffdf9] p-3">
+          {isCapacityLoading ? (
+            <div className="flex items-center justify-center gap-2 pb-3 text-xs font-medium text-[#8c5f44]">
+              <Loader2 className="h-4 w-4 animate-spin text-[#cb6531]" />
+              Loading capacity data...
             </div>
           ) : null}
-        </CardContent>
-      </Card>
 
-      {/* Loading State */}
-      {isCapacityLoading ? (
-        <Card className="rounded-3xl bg-[linear-gradient(145deg,#fffaf0_0%,#e9f8ff_100%)] ring-[#ffd8b7]">
-          <CardContent className="flex items-center justify-center gap-3 px-6 py-8">
-            <Loader2 className="h-5 w-5 animate-spin text-[#173a7a]" />
-            <p className="text-sm font-medium text-[#173a7a]">
-              Loading capacity data...
-            </p>
-          </CardContent>
-        </Card>
-      ) : null}
+          <div className={currentView === Views.MONTH ? "h-[360px]" : "h-[540px]"}>
+            <Calendar
+              localizer={localizer}
+              culture="id"
+              events={events}
+              startAccessor="start"
+              endAccessor="end"
+              date={currentDate}
+              view={currentView}
+              defaultView={Views.MONTH}
+              views={[Views.MONTH, Views.WEEK]}
+              selectable
+              popup
+              onNavigate={(newDate) => setCurrentDate(newDate)}
+              onView={(nextView) => setCurrentView(nextView)}
+              onSelectSlot={(slotInfo) => {
+                openDateOrdersPopup(slotInfo.start);
+              }}
+              onSelectEvent={(event) => {
+                if (event.resource.source === "internal") {
+                  router.push(`/bakery/bookings/${event.resource.order.id}`);
+                  return;
+                }
+                if (event.resource.htmlLink) {
+                  window.open(
+                    event.resource.htmlLink,
+                    "_blank",
+                    "noopener,noreferrer",
+                  );
+                }
+              }}
+              eventPropGetter={(event) => ({
+                style: {
+                  backgroundColor:
+                    event.resource.source === "internal"
+                      ? statusColor(event.resource.order.orderStatus)
+                      : "#0ea5e9",
+                  color: "#ffffff",
+                  border: "none",
+                  borderRadius: "6px",
+                  padding: "1px 4px",
+                  fontSize: "10px",
+                },
+              })}
+              dayPropGetter={(date) => {
+                const dateKey = toDateKey(date);
+                const status = statusByDate.get(dateKey) ?? "AVAILABLE";
 
-      {/* Calendar */}
-      <Card className="rounded-3xl bg-[linear-gradient(145deg,#fffaf0_0%,#e9f8ff_100%)] ring-[#ffd8b7]">
-        <CardContent className="px-3 pb-4 pt-4 sm:px-6 sm:pb-6 sm:pt-6">
-          <Calendar
-            localizer={localizer}
-            culture="id"
-            events={events}
-            startAccessor="start"
-            endAccessor="end"
-            date={currentDate}
-            view={currentView}
-            defaultView={Views.MONTH}
-            views={[Views.MONTH, Views.WEEK]}
-            selectable
-            popup
-            onNavigate={(newDate) => setCurrentDate(newDate)}
-            onView={(nextView) => setCurrentView(nextView)}
-            onSelectSlot={(slotInfo) => {
-              openDateOrdersPopup(slotInfo.start);
-            }}
-            onSelectEvent={(event) => {
-              if (event.resource.source === "internal") {
-                router.push(`/bakery/bookings/${event.resource.order.id}`);
-                return;
-              }
-              if (event.resource.htmlLink) {
-                window.open(
-                  event.resource.htmlLink,
-                  "_blank",
-                  "noopener,noreferrer",
-                );
-              }
-            }}
-            eventPropGetter={(event) => ({
-              style: {
-                backgroundColor:
-                  event.resource.source === "internal"
-                    ? statusColor(event.resource.order.orderStatus)
-                    : "#0ea5e9",
-                color: "#ffffff",
-                border: "none",
-                borderRadius: "10px",
-                padding: "2px 6px",
-              },
-            })}
-            dayPropGetter={(date) => {
-              const dateKey = toDateKey(date);
-              const status = statusByDate.get(dateKey) ?? "AVAILABLE";
-
-              if (status === "PAST") return { className: "rbc-day-past" };
-              if (status === "BLOCKED") return { className: "rbc-day-blocked" };
-              if (status === "FULL") return { className: "rbc-day-full" };
-              if (status === "CUTOFF") return { className: "rbc-day-cutoff" };
-              if (status === "WARNING") return { className: "rbc-day-warning" };
-              return { className: "rbc-day-normal" };
-            }}
-            components={{
-              toolbar: CalendarToolbar,
-              event: CalendarEventItem,
-              month: {
-                dateHeader: DateHeader,
-              },
-            }}
-            className="rounded-2xl"
-          />
-
-          {/* Legend */}
-          <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-gray-500">
-            <span className="inline-flex items-center gap-1">
-              <span className="h-2.5 w-2.5 rounded-full bg-gray-400" /> Passed
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <span className="h-2.5 w-2.5 rounded-full bg-rose-300" /> Libur
-              Admin
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />{" "}
-              Available
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <span className="h-2.5 w-2.5 rounded-full bg-amber-400" /> Almost
-              Full (≥80%)
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <span className="h-2.5 w-2.5 rounded-full bg-red-500" /> Full
-              (100%)
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <span className="h-2.5 w-2.5 rounded-full bg-rose-300" /> Closed
-              (H-1)
-            </span>
+                if (status === "PAST") return { className: "rbc-day-past" };
+                if (status === "BLOCKED") return { className: "rbc-day-blocked" };
+                if (status === "FULL") return { className: "rbc-day-full" };
+                if (status === "CUTOFF") return { className: "rbc-day-cutoff" };
+                if (status === "WARNING") return { className: "rbc-day-warning" };
+                return { className: "rbc-day-normal" };
+              }}
+              components={{
+                toolbar: CalendarToolbar,
+                event: CalendarEventItem,
+                month: {
+                  dateHeader: DateHeader,
+                },
+              }}
+            />
           </div>
 
-          <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-gray-500">
+          <div className="mt-3 flex flex-wrap gap-x-3 gap-y-2 rounded-[16px] border border-[#ead6c8] bg-white px-3 py-2 text-[10px] font-medium text-[#8a6a54]">
             <span className="inline-flex items-center gap-1">
-              <span
-                className="h-2.5 w-2.5 rounded-full"
-                style={{ backgroundColor: "#f97316" }}
-              />{" "}
-              In Production
+              <span className="h-2 w-2 rounded-full bg-[#bdb4ae]" /> Passed
             </span>
             <span className="inline-flex items-center gap-1">
-              <span
-                className="h-2.5 w-2.5 rounded-full"
-                style={{ backgroundColor: "#7c3aed" }}
-              />{" "}
-              Ready
+              <span className="h-2 w-2 rounded-full bg-[#ec9e9e]" /> Libur
             </span>
             <span className="inline-flex items-center gap-1">
-              <span
-                className="h-2.5 w-2.5 rounded-full"
-                style={{ backgroundColor: "#16a34a" }}
-              />{" "}
-              Delivered
+              <span className="h-2 w-2 rounded-full bg-[#3d9958]" /> Available
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="h-2 w-2 rounded-full bg-[#d3a423]" /> ≥80% penuh
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="h-2 w-2 rounded-full bg-[#db6b2e]" /> Terlambat
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="h-2 w-2 rounded-full bg-[#d24f40]" /> Closed H-1
             </span>
           </div>
+        </div>
 
-          {calendarViewMode === "google" && isLoadingGoogleEvents ? (
-            <p className="mt-2 text-xs text-[#173a7a]">
-              Loading Google Calendar events...
-            </p>
-          ) : null}
-        </CardContent>
-      </Card>
-
-      {/* Selected Date Detail Panel (Step 7) */}
-      {selectedDate && selectedCapacity && (
-        <Card className="rounded-3xl bg-[linear-gradient(145deg,#fffaf0_0%,#e9f8ff_100%)] ring-[#ffd8b7]">
-          <CardContent className="px-6 py-4">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              {/* Left: date label + status message */}
-              <div className="space-y-1">
-                <p className="text-sm font-semibold text-gray-900">
+        {selectedDate && selectedCapacity ? (
+          <div className="mt-4 overflow-hidden rounded-[20px] border border-[#dd8c5a] bg-[#fffdf9]">
+            <div className="flex items-start justify-between gap-3 border-b border-[#ebc8b0] bg-[#fff1e6] px-4 py-3">
+              <div>
+                <p className="text-lg font-semibold leading-tight text-[#cb6531]">
                   {selectedDateLabel}
                 </p>
                 <p
-                  className={`text-xs font-medium ${
+                  className={`mt-1 text-xs font-medium ${
                     selectedStatus === "PAST"
-                      ? "text-gray-500"
+                      ? "text-[#8d837c]"
                       : selectedStatus === "BLOCKED"
-                        ? "text-rose-600"
+                        ? "text-[#dc6e59]"
                         : selectedStatus === "FULL"
-                          ? "text-red-600"
+                          ? "text-[#d7662d]"
                           : selectedStatus === "WARNING"
-                            ? "text-amber-600"
+                            ? "text-[#a27516]"
                             : selectedStatus === "CUTOFF"
-                              ? "text-rose-600"
-                              : "text-emerald-600"
+                              ? "text-[#d24f40]"
+                              : "text-[#4f8b57]"
                   }`}
                 >
-                  {selectedStatusMessage}
+                  • {selectedStatusMessage}
                 </p>
               </div>
+              <button
+                type="button"
+                onClick={() => router.push("/bakery/bookings/new")}
+                className="rounded-full bg-[#d3662d] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#bc5925]"
+              >
+                + Booking
+              </button>
+            </div>
 
-              {/* Right: capacity numbers */}
-              <div className="flex flex-wrap items-center gap-4 text-xs">
-                <div className="text-center">
-                  <p className="font-semibold text-gray-900 text-sm">
-                    {selectedCapacity.usedToken}
-                  </p>
-                  <p className="text-gray-500">Digunakan</p>
-                </div>
-                <div className="text-center">
-                  <p className="font-semibold text-gray-900 text-sm">
-                    {selectedCapacity.maxToken}
-                  </p>
-                  <p className="text-gray-500">Maks</p>
-                </div>
-                <div className="text-center">
-                  <p
-                    className={`font-semibold text-sm ${
-                      selectedCapacity.maxToken - selectedCapacity.usedToken <=
-                      0
-                        ? "text-red-600"
-                        : selectedCapacity.maxToken -
-                              selectedCapacity.usedToken <=
-                            selectedCapacity.maxToken * 0.2
-                          ? "text-amber-600"
-                          : "text-emerald-600"
-                    }`}
-                  >
-                    {selectedCapacity.maxToken - selectedCapacity.usedToken}
-                  </p>
-                  <p className="text-gray-500">Sisa</p>
-                </div>
-                <div className="text-center">
-                  <p className="font-semibold text-gray-900 text-sm">
-                    {selectedDateOrdersAll.length}
-                  </p>
-                  <p className="text-gray-500">Orders</p>
-                </div>
+            <div className="grid grid-cols-4 gap-2 px-4 py-4 text-center">
+              <div>
+                <p className="text-[2rem] font-bold leading-none text-[#1e140e]">
+                  {selectedCapacity.usedToken}
+                </p>
+                <p className="mt-1 text-[11px] text-[#8a6a54]">Terpakai</p>
+              </div>
+              <div>
+                <p className="text-[2rem] font-bold leading-none text-[#1e140e]">
+                  {selectedCapacity.maxToken}
+                </p>
+                <p className="mt-1 text-[11px] text-[#8a6a54]">Maks</p>
+              </div>
+              <div>
+                <p
+                  className={`text-[2rem] font-bold leading-none ${
+                    selectedCapacity.maxToken - selectedCapacity.usedToken <= 0
+                      ? "text-[#d24f40]"
+                      : selectedCapacity.maxToken - selectedCapacity.usedToken <=
+                          selectedCapacity.maxToken * 0.2
+                        ? "text-[#a27516]"
+                        : "text-[#2d8a55]"
+                  }`}
+                >
+                  {selectedCapacity.maxToken - selectedCapacity.usedToken}
+                </p>
+                <p className="mt-1 text-[11px] text-[#8a6a54]">Sisa</p>
+              </div>
+              <div>
+                <p className="text-[2rem] font-bold leading-none text-[#1e140e]">
+                  {selectedDateOrdersAll.length}
+                </p>
+                <p className="mt-1 text-[11px] text-[#8a6a54]">Orders</p>
               </div>
             </div>
 
-            {/* Progress bar */}
-            <div className="mt-3">
-              <div className="mb-1 flex items-center justify-between text-[11px] text-gray-500">
-                <span>Kapasitas Token</span>
-                <span>
-                  {Math.round(
-                    (selectedCapacity.usedToken /
-                      (selectedCapacity.maxToken || DEFAULT_MAX_TOKEN)) *
-                      100,
-                  )}
-                  %
-                </span>
-              </div>
-              <div className="h-2 w-full overflow-hidden rounded-full bg-gray-200">
+            <div className="px-4 pb-4">
+              <div className="h-2 rounded-full bg-[#eadbcf]">
                 <div
                   className={`h-2 rounded-full transition-all duration-500 ${
                     selectedCapacity.usedToken >= selectedCapacity.maxToken
-                      ? "bg-red-500"
+                      ? "bg-[#d24f40]"
                       : selectedCapacity.usedToken >=
                           selectedCapacity.maxToken * 0.8
-                        ? "bg-amber-400"
-                        : "bg-emerald-500"
+                        ? "bg-[#d3a423]"
+                        : "bg-[#3d9958]"
                   }`}
-                  style={{
-                    width: `${Math.min(
-                      100,
-                      Math.round(
-                        (selectedCapacity.usedToken /
-                          (selectedCapacity.maxToken || DEFAULT_MAX_TOKEN)) *
-                          100,
-                      ),
-                    )}%`,
-                  }}
+                  style={{ width: `${selectedUsagePercent}%` }}
                 />
               </div>
+              <p className="mt-2 text-right text-[11px] text-[#b28061]">
+                {selectedUsagePercent}% kapasitas terpakai
+              </p>
             </div>
-          </CardContent>
-        </Card>
-      )}
+          </div>
+        ) : null}
+      </div>
 
       {/* Date Orders Popup */}
       {isDateOrdersPopupOpen ? (
@@ -1201,17 +978,18 @@ export default function BakeryCalendarPage() {
       <style jsx global>{`
         .rbc-calendar {
           font-family: inherit;
+          color: #2f1e13;
         }
 
         .rbc-header {
-          padding: 0.55rem 0;
-          font-size: 0.75rem;
+          padding: 0.7rem 0;
+          font-size: 0.68rem;
           font-weight: 700;
-          color: #4b5563;
-          border-bottom: 1px solid #e5e7eb;
-          background: #f8fafc;
+          color: #9b775e;
+          border-bottom: 1px solid #ead9cd;
+          background: #fff8f1;
           text-transform: uppercase;
-          letter-spacing: 0.04em;
+          letter-spacing: 0.08em;
         }
 
         .rbc-day-bg {
@@ -1219,43 +997,31 @@ export default function BakeryCalendarPage() {
         }
 
         .rbc-day-normal {
-          background: #ffffff;
+          background: #fffdf9;
         }
 
         .rbc-day-warning {
-          background: #fffbeb;
+          background: #fff8e4;
         }
 
         .rbc-day-past {
-          background: #f3f4f6;
+          background: #f1ece8;
         }
 
         .rbc-day-blocked {
-          background: repeating-linear-gradient(
-            -45deg,
-            #fff1f2,
-            #fff1f2 8px,
-            #ffe4e6 8px,
-            #ffe4e6 16px
-          );
+          background: #fff2f0;
         }
 
         .rbc-day-full {
-          background: #fef2f2;
+          background: #fff1e8;
         }
 
         .rbc-day-cutoff {
-          background: repeating-linear-gradient(
-            -45deg,
-            #fff1f2,
-            #fff1f2 8px,
-            #ffe4e6 8px,
-            #ffe4e6 16px
-          );
+          background: #fff1f0;
         }
 
         .rbc-today {
-          background-color: #eef2ff;
+          background-color: #eefaf3;
         }
 
         .rbc-month-view,
@@ -1267,7 +1033,15 @@ export default function BakeryCalendarPage() {
         .rbc-day-slot .rbc-time-slot,
         .rbc-timeslot-group,
         .rbc-time-gutter {
-          border-color: #e5e7eb;
+          border-color: #ead9cd;
+        }
+
+        .rbc-month-view,
+        .rbc-time-view {
+          border-radius: 18px;
+          overflow: hidden;
+          border: 1px solid #ead9cd;
+          background: #fffdf9;
         }
 
         .rbc-event,
@@ -1276,28 +1050,47 @@ export default function BakeryCalendarPage() {
         }
 
         .rbc-month-row {
-          min-height: 112px;
+          min-height: 88px;
         }
 
         .rbc-date-cell {
-          padding: 4px 6px;
+          padding: 6px 6px 4px;
         }
 
         .rbc-date-cell > a {
-          color: #111827;
+          color: #2f1e13;
           font-weight: 600;
           text-decoration: none;
         }
 
         .rbc-off-range-bg {
-          background: #f9fafb;
+          background: #f7f2ee;
+        }
+
+        .rbc-off-range .rbc-date-cell,
+        .rbc-off-range .rbc-date-cell button,
+        .rbc-off-range .rbc-date-cell span {
+          color: #c2b4a8 !important;
         }
 
         .rbc-show-more {
-          color: #4f46e5;
-          font-size: 0.72rem;
+          color: #cb6531;
+          font-size: 0.65rem;
           font-weight: 600;
           background: transparent;
+        }
+
+        .rbc-row-content {
+          z-index: 3;
+        }
+
+        .rbc-date-cell button:focus-visible {
+          outline: 2px solid #d9692d;
+          outline-offset: 1px;
+        }
+
+        .rbc-toolbar {
+          margin-bottom: 0;
         }
       `}</style>
     </div>

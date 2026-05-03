@@ -1,298 +1,23 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { useEffect, useMemo, useState } from "react";
 import { useBusiness } from "@/context/BusinessContext";
+import { BAKERY_SETTINGS_UPDATED_EVENT } from "@/hooks/useBakerySettings";
 import { apiFetch } from "@/lib/api/client";
-import { toast } from "sonner";
+import type { BakeryBusinessSettings } from "@/lib/bakery/settings";
 import {
-  Building2,
-  MapPin,
-  Calendar,
-  TrendingUp,
-  Package,
-  ShoppingCart,
-  DollarSign,
-  Percent,
-  Edit3,
-  Check,
-  X,
-  Plus,
-  Trash2,
-  BarChart3,
-  Boxes,
+  ChevronDown,
+  Download,
   Loader2,
-  RefreshCw,
-  Star,
-  ArrowRightLeft,
-  AlertTriangle,
-  Smile,
-  CheckCircle2,
-  Lightbulb,
-  ShieldCheck,
-  Flame,
-  Award,
-  // Greeting logic (copied from dashboard)
+  Menu,
+  Trophy,
 } from "lucide-react";
-// import StatTile from "@/app/components/StatTile";
 
-// Greeting logic
-function getGreeting() {
-  const hour = new Date().getHours();
-  if (hour < 12) return "Pagi";
-  if (hour < 18) return "Siang";
-  return "Malam";
-}
-
-// ─── Insight types ──────────────────────────────────────────
-interface InsightItem {
-  type: "positive" | "warning" | "danger" | "info";
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-}
-
-// ─── Redesigned Alert & Insight Modal ──────────────────────
-function InsightModal({
-  alerts,
-  insights,
-  onClose,
-}: {
-  alerts: {
-    expired: { name: string; expirationDate?: string }[];
-    expiring3: { name: string; expirationDate?: string }[];
-    expiring7: { name: string; expirationDate?: string }[];
-    lowStock: { name: string; currentStock?: number; minStock?: number }[];
-  };
-  insights: InsightItem[];
-  onClose: () => void;
-}) {
-  const [tab, setTab] = useState<"insights" | "alerts">("insights");
-  const totalAlertCount =
-    alerts.expired.length +
-    alerts.expiring3.length +
-    alerts.expiring7.length +
-    alerts.lowStock.length;
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden"
-      >
-        {/* Header */}
-        <div className="bg-linear-to-r from-indigo-500 via-indigo-500 to-indigo-500 px-5 py-4 flex items-center justify-between">
-          <h2 className="text-white font-bold text-lg">Ringkasan Hari Ini</h2>
-          <button
-            onClick={onClose}
-            className="text-white/70 hover:text-white p-1 rounded-full hover:bg-white/20 transition"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* Tab Switcher */}
-        <div className="flex border-b border-gray-100">
-          <button
-            onClick={() => setTab("insights")}
-            className={`flex-1 py-3 text-sm font-semibold text-center transition ${
-              tab === "insights"
-                ? "text-indigo-600 border-b-2 border-indigo-500 bg-indigo-50/50"
-                : "text-gray-500 hover:text-gray-700"
-            }`}
-          >
-            <Lightbulb className="w-4 h-4 inline mr-1.5 -mt-0.5" />
-            Insight Positif
-          </button>
-          <button
-            onClick={() => setTab("alerts")}
-            className={`flex-1 py-3 text-sm font-semibold text-center transition relative ${
-              tab === "alerts"
-                ? "text-amber-600 border-b-2 border-amber-500 bg-amber-50/50"
-                : "text-gray-500 hover:text-gray-700"
-            }`}
-          >
-            <AlertTriangle className="w-4 h-4 inline mr-1.5 -mt-0.5" />
-            Peringatan
-            {totalAlertCount > 0 && (
-              <span className="ml-1.5 bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold">
-                {totalAlertCount}
-              </span>
-            )}
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="p-4 max-h-80 overflow-y-auto space-y-3">
-          {tab === "insights" && (
-            <>
-              {insights.length === 0 ? (
-                <div className="text-center text-gray-400 py-8">
-                  <Lightbulb className="w-10 h-10 mx-auto mb-2 text-gray-300" />
-                  <p className="text-sm">Belum ada insight untuk hari ini</p>
-                </div>
-              ) : (
-                insights.map((insight, idx) => {
-                  const colorMap = {
-                    positive:
-                      "bg-emerald-50 border-emerald-200 text-emerald-700",
-                    warning: "bg-amber-50 border-amber-200 text-amber-700",
-                    danger: "bg-red-50 border-red-200 text-red-700",
-                    info: "bg-blue-50 border-blue-200 text-blue-700",
-                  };
-                  return (
-                    <motion.div
-                      key={idx}
-                      initial={{ opacity: 0, y: 5 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: idx * 0.05 }}
-                      className={`flex gap-3 p-3 rounded-xl border ${colorMap[insight.type]}`}
-                    >
-                      <div className="shrink-0 mt-0.5">{insight.icon}</div>
-                      <div>
-                        <p className="font-semibold text-sm">{insight.title}</p>
-                        <p className="text-xs opacity-80 mt-0.5">
-                          {insight.description}
-                        </p>
-                      </div>
-                    </motion.div>
-                  );
-                })
-              )}
-            </>
-          )}
-
-          {tab === "alerts" && (
-            <>
-              {totalAlertCount === 0 ? (
-                <div className="text-center py-8">
-                  <ShieldCheck className="w-10 h-10 mx-auto mb-2 text-emerald-400" />
-                  <p className="text-emerald-600 font-semibold">
-                    Semua stok aman!
-                  </p>
-                  <p className="text-sm text-gray-400 mt-1">
-                    Tidak ada peringatan saat ini
-                  </p>
-                </div>
-              ) : (
-                <>
-                  {alerts.expired.length > 0 && (
-                    <div className="bg-red-50 border border-red-200 rounded-xl p-3">
-                      <p className="font-bold text-red-700 text-sm flex items-center gap-1.5 mb-2">
-                        <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                        Kadaluarsa ({alerts.expired.length})
-                      </p>
-                      <ul className="space-y-1">
-                        {alerts.expired.map((item, idx) => (
-                          <li
-                            key={`exp-${idx}`}
-                            className="text-sm text-red-600 flex items-center gap-2"
-                          >
-                            <span className="w-1 h-1 rounded-full bg-red-400 shrink-0" />
-                            {item.name}
-                            {item.expirationDate && (
-                              <span className="text-xs text-red-400 ml-auto shrink-0">
-                                {formatDate(item.expirationDate)}
-                              </span>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {alerts.expiring3.length > 0 && (
-                    <div className="bg-orange-50 border border-orange-200 rounded-xl p-3">
-                      <p className="font-bold text-orange-700 text-sm flex items-center gap-1.5 mb-2">
-                        <span className="w-2 h-2 rounded-full bg-orange-500" />
-                        Kadaluarsa 3 hari lagi ({alerts.expiring3.length})
-                      </p>
-                      <ul className="space-y-1">
-                        {alerts.expiring3.map((item, idx) => (
-                          <li
-                            key={`exp3-${idx}`}
-                            className="text-sm text-orange-600 flex items-center gap-2"
-                          >
-                            <span className="w-1 h-1 rounded-full bg-orange-400 shrink-0" />
-                            {item.name}
-                            {item.expirationDate && (
-                              <span className="text-xs text-orange-400 ml-auto shrink-0">
-                                {formatDate(item.expirationDate)}
-                              </span>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {alerts.expiring7.length > 0 && (
-                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
-                      <p className="font-bold text-amber-700 text-sm flex items-center gap-1.5 mb-2">
-                        <span className="w-2 h-2 rounded-full bg-amber-500" />
-                        Kadaluarsa 7 hari lagi ({alerts.expiring7.length})
-                      </p>
-                      <ul className="space-y-1">
-                        {alerts.expiring7.map((item, idx) => (
-                          <li
-                            key={`exp7-${idx}`}
-                            className="text-sm text-amber-600 flex items-center gap-2"
-                          >
-                            <span className="w-1 h-1 rounded-full bg-amber-400 shrink-0" />
-                            {item.name}
-                            {item.expirationDate && (
-                              <span className="text-xs text-amber-400 ml-auto shrink-0">
-                                {formatDate(item.expirationDate)}
-                              </span>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {alerts.lowStock.length > 0 && (
-                    <div className="bg-pink-50 border border-pink-200 rounded-xl p-3">
-                      <p className="font-bold text-pink-700 text-sm flex items-center gap-1.5 mb-2">
-                        <span className="w-2 h-2 rounded-full bg-pink-500" />
-                        Stok Rendah ({alerts.lowStock.length})
-                      </p>
-                      <ul className="space-y-1">
-                        {alerts.lowStock.map((item, idx) => (
-                          <li
-                            key={`ls-${idx}`}
-                            className="text-sm text-pink-600 flex items-center gap-2"
-                          >
-                            <span className="w-1 h-1 rounded-full bg-pink-400 shrink-0" />
-                            {item.name}
-                            <span className="text-xs text-pink-400 ml-auto shrink-0">
-                              {item.currentStock ?? "-"} /{" "}
-                              {item.minStock ?? "-"}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </>
-              )}
-            </>
-          )}
-        </div>
-      </motion.div>
-    </div>
-  );
-}
-
-interface BusinessData {
+type BusinessDetail = {
   id: number;
   name: string;
   location: string | null;
-  createdAt: string;
-  updatedAt: string;
   _count: {
-    products: number;
-    ingredients: number;
-    categories: number;
     sales: number;
   };
   stats: {
@@ -302,869 +27,759 @@ interface BusinessData {
     paidSalesCount: number;
     marginAvg: number | null;
   };
-}
+};
 
-function formatRupiah(n: number) {
+type ViewerResponse = {
+  data?: {
+    name?: string;
+    businessName?: string;
+  };
+};
+
+type ProductAnalyticsResponse = {
+  summary?: {
+    totalRevenue?: number;
+    totalCost?: number;
+    totalProfit?: number;
+    totalQuantity?: number;
+  };
+  top?: {
+    byRevenue?: Array<{
+      productId: number | string | null;
+      productName: string;
+      quantitySold: number;
+      revenue: number;
+      cost: number;
+      profit: number;
+      profitMargin: number;
+    }>;
+  };
+};
+
+type OrdersResponse = {
+  data?: {
+    orders?: Array<{
+      id: string;
+      deliveryDate?: string;
+      paymentStatus?: string;
+      totalPrice?: number;
+      totalPaidAmount?: number;
+      orderStatus?: string;
+    }>;
+  };
+};
+
+type StaffResponse = {
+  data?: {
+    members?: Array<{
+      id: number;
+      businessId: number;
+      name: string;
+    }>;
+  };
+};
+
+type BakerySettingsResponse = {
+  data?: BakeryBusinessSettings;
+};
+
+type ViewState = {
+  viewerName: string;
+  businessName: string;
+  businessLocation: string;
+  businessDetail: BusinessDetail | null;
+  currentRevenue: number;
+  currentProfit: number;
+  previousRevenue: number;
+  totalCost: number;
+  avgMargin: number;
+  activeOrders: number;
+  dpOrderCount: number;
+  paidOrderCount: number;
+  topProducts: Array<{
+    productName: string;
+    quantitySold: number;
+    revenue: number;
+  }>;
+  staffNames: string[];
+  bakerySettings: BakeryBusinessSettings | null;
+};
+
+const EMPTY_VIEW_STATE: ViewState = {
+  viewerName: "",
+  businessName: "",
+  businessLocation: "",
+  businessDetail: null,
+  currentRevenue: 0,
+  currentProfit: 0,
+  previousRevenue: 0,
+  totalCost: 0,
+  avgMargin: 0,
+  activeOrders: 0,
+  dpOrderCount: 0,
+  paidOrderCount: 0,
+  topProducts: [],
+  staffNames: [],
+  bakerySettings: null,
+};
+
+function formatCurrency(value: number) {
   return new Intl.NumberFormat("id-ID", {
     style: "currency",
     currency: "IDR",
     minimumFractionDigits: 0,
-  }).format(n);
+  }).format(Math.round(Number(value || 0)));
 }
 
-function formatDate(d: string) {
-  return new Date(d).toLocaleDateString("id-ID", {
-    day: "numeric",
+function formatCompactRupiah(value: number) {
+  const amount = Math.round(Number(value || 0));
+  if (amount >= 1_000_000_000) {
+    return `Rp${(amount / 1_000_000_000).toFixed(1).replace(".0", "")}M`;
+  }
+  if (amount >= 1_000_000) {
+    return `Rp${(amount / 1_000_000).toFixed(1).replace(".0", "")}jt`;
+  }
+  if (amount >= 1_000) {
+    return `Rp${(amount / 1_000).toFixed(0)}rb`;
+  }
+  return `Rp${amount}`;
+}
+
+function formatSignedCurrency(value: number) {
+  const amount = Math.round(Math.abs(Number(value || 0)));
+  return `${value >= 0 ? "+" : "-"}${formatCurrency(amount)}`;
+}
+
+function getMonthKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  return `${year}-${month}`;
+}
+
+function getMonthLabel(monthKey: string) {
+  const [year, month] = monthKey.split("-").map(Number);
+  return new Intl.DateTimeFormat("id-ID", {
     month: "long",
     year: "numeric",
-    timeZone: "Asia/Jakarta",
-  });
+  }).format(new Date(year, month - 1, 1));
+}
+
+function getMonthRange(monthKey: string) {
+  const [year, month] = monthKey.split("-").map(Number);
+  const end = new Date(year, month, 0);
+  return {
+    startDate: `${year}-${String(month).padStart(2, "0")}-01`,
+    endDate: `${year}-${String(month).padStart(2, "0")}-${String(end.getDate()).padStart(2, "0")}`,
+    prevMonthKey: getMonthKey(new Date(year, month - 2, 1)),
+  };
+}
+
+function getInitials(name: string) {
+  return name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part.charAt(0).toUpperCase())
+    .join("");
+}
+
+function normalizeStatus(value?: string) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function isDateWithinRange(value: string | undefined, from: string, to: string) {
+  if (!value) return false;
+  return value >= from && value <= to;
+}
+
+function getRankEmoji(index: number) {
+  if (index === 0) return "#1";
+  if (index === 1) return "#2";
+  if (index === 2) return "#3";
+  return `#${index + 1}`;
+}
+
+function buildExportCsv(args: {
+  monthLabel: string;
+  businessName: string;
+  revenue: number;
+  totalCost: number;
+  profit: number;
+  activeOrders: number;
+  margin: number;
+  topProducts: Array<{ productName: string; quantitySold: number; revenue: number }>;
+}) {
+  const rows = [
+    ["Business", args.businessName],
+    ["Periode", args.monthLabel],
+    ["Revenue", String(args.revenue)],
+    ["COGS/HPP", String(args.totalCost)],
+    ["Profit Bersih", String(args.profit)],
+    ["Order Aktif", String(args.activeOrders)],
+    ["Margin Kotor", String(args.margin)],
+    [],
+    ["Top Produk", "Order", "Revenue"],
+    ...args.topProducts.map((item) => [
+      item.productName,
+      String(item.quantitySold),
+      String(item.revenue),
+    ]),
+  ];
+
+  return rows
+    .map((row) =>
+      row
+        .map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`)
+        .join(","),
+    )
+    .join("\n");
+}
+
+async function safeApiFetch<T>(path: string): Promise<T | null> {
+  try {
+    return (await apiFetch(path)) as T;
+  } catch (error) {
+    console.error(`Failed to fetch ${path}`, error);
+    return null;
+  }
+}
+
+function BreakdownRow({
+  label,
+  note,
+  amount,
+  tone = "negative",
+  children,
+}: {
+  label: string;
+  note?: string;
+  amount: number;
+  tone?: "positive" | "negative" | "profit";
+  children?: React.ReactNode;
+}) {
+  const amountClassName =
+    tone === "positive"
+      ? "text-[#17653d]"
+      : tone === "profit"
+        ? "text-[#17653d] font-extrabold"
+        : "text-[#c85d34]";
+
+  return (
+    <div
+      className={`px-4 py-3 ${
+        tone === "profit" ? "bg-[#e4f4ee]" : "border-b border-[#ead8cb]"
+      }`}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p
+            className={`text-[15px] leading-tight ${
+              tone === "profit" ? "font-bold text-[#17653d]" : "text-[#23150f]"
+            }`}
+          >
+            {label}
+          </p>
+          {note ? (
+            <p className="mt-1 text-[11px] leading-tight text-[#b58872]">{note}</p>
+          ) : null}
+        </div>
+        <p
+          className={`shrink-0 font-mono text-[14px] leading-tight ${amountClassName}`}
+        >
+          {formatSignedCurrency(
+            tone === "positive" || tone === "profit" ? amount : -Math.abs(amount),
+          )}
+        </p>
+      </div>
+      {children ? <div className="mt-2">{children}</div> : null}
+    </div>
+  );
 }
 
 export default function BusinessPage() {
-  const { business, refreshBusiness, switchBusiness } = useBusiness();
-  const [data, setData] = useState<BusinessData | null>(null);
-  const [allBusinesses, setAllBusinesses] = useState<BusinessData[]>([]);
+  const { business, loading: businessLoading } = useBusiness();
+  const [selectedMonth, setSelectedMonth] = useState(getMonthKey(new Date()));
+  const [viewState, setViewState] = useState<ViewState>(EMPTY_VIEW_STATE);
   const [loading, setLoading] = useState(true);
-  const [switching, setSwitching] = useState<number | null>(null);
-  interface AlertItem {
-    name: string;
-    expirationDate?: string;
-    currentStock?: number;
-    minStock?: number;
-  }
+  const [error, setError] = useState<string | null>(null);
 
-  interface InventoryBatch {
-    expirationDate?: string;
-  }
-
-  interface Ingredient {
-    name: string;
-    currentStock: number;
-    minStock: number;
-    inventoryBatches?: InventoryBatch[];
-  }
-
-  const [alerts, setAlerts] = useState({
-    expired: [] as AlertItem[],
-    expiring3: [] as AlertItem[],
-    expiring7: [] as AlertItem[],
-    lowStock: [] as AlertItem[],
-  });
-  const [insights, setInsights] = useState<InsightItem[]>([]);
-  const [isAlertOpen, setIsAlertOpen] = useState(false);
-  const [greeting, setGreeting] = useState("");
-
-  // Compute greeting on client only to avoid SSR/client mismatch
-  useEffect(() => {
-    setGreeting(getGreeting());
-  }, []);
-
-  // Edit states
-  const [editingName, setEditingName] = useState(false);
-  const [editingLocation, setEditingLocation] = useState(false);
-  const [nameVal, setNameVal] = useState("");
-  const [locationVal, setLocationVal] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  // New business form
-  const [showNewForm, setShowNewForm] = useState(false);
-  const [newName, setNewName] = useState("");
-  const [newLocation, setNewLocation] = useState("");
-  const [creating, setCreating] = useState(false);
-
-  const fetchBusiness = useCallback(async () => {
-    try {
-      setLoading(true);
-      let targetBusinessId = business?.id;
-
-      if (!targetBusinessId) {
-        const listRes = await apiFetch("/api/businesses");
-        const firstBusiness = listRes?.data?.[0];
-
-        if (firstBusiness?.id) {
-          targetBusinessId = firstBusiness.id;
-        }
-      }
-
-      if (!targetBusinessId) {
-        setData(null);
-        setNameVal("");
-        setLocationVal("");
-        return;
-      }
-
-      const res = await apiFetch(`/api/businesses/${targetBusinessId}`);
-      if (res.success) {
-        setData(res.data);
-        setNameVal(res.data.name);
-        setLocationVal(res.data.location || "");
-      }
-    } catch {
-      toast.error("Gagal memuat data bisnis");
-    } finally {
-      setLoading(false);
-    }
-  }, [business?.id]);
-
-  const fetchInventoryAlerts = useCallback(async () => {
-    try {
-      const res = await apiFetch("/api/ingredients?withBatches=true");
-      if (!res.success) return;
-
-      const today = new Date();
-      const expired: AlertItem[] = [];
-      const expiring3: AlertItem[] = [];
-      const expiring7: AlertItem[] = [];
-      const lowStock: AlertItem[] = [];
-      let safeCount = 0;
-      let totalIngredients = 0;
-
-      res.data.forEach((ingredient: Ingredient) => {
-        totalIngredients++;
-        const stock = ingredient.currentStock;
-        const min = ingredient.minStock;
-
-        if (stock >= 0 && min >= 0 && stock > min) {
-          safeCount++;
-        }
-
-        if (stock >= 0 && min >= 0 && stock < min) {
-          lowStock.push({
-            name: ingredient.name,
-            currentStock: stock,
-            minStock: min,
-          });
-        }
-
-        ingredient.inventoryBatches?.forEach((batch: InventoryBatch) => {
-          if (!batch.expirationDate) return;
-
-          const expDate = new Date(batch.expirationDate);
-          const diffDays =
-            (expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24);
-
-          if (diffDays < 0)
-            expired.push({
-              name: ingredient.name,
-              expirationDate: batch.expirationDate,
-            });
-          else if (diffDays <= 3)
-            expiring3.push({
-              name: ingredient.name,
-              expirationDate: batch.expirationDate,
-            });
-          else if (diffDays <= 7)
-            expiring7.push({
-              name: ingredient.name,
-              expirationDate: batch.expirationDate,
-            });
-        });
-      });
-
-      setAlerts({ expired, expiring3, expiring7, lowStock });
-
-      // Generate positive insights
-      const positiveInsights: InsightItem[] = [];
-
-      if (safeCount > 0) {
-        positiveInsights.push({
-          type: "positive",
-          icon: <ShieldCheck className="w-5 h-5 text-emerald-600" />,
-          title: `${safeCount} dari ${totalIngredients} bahan baku stok aman`,
-          description:
-            safeCount === totalIngredients
-              ? "Semua bahan baku Anda dalam kondisi stok yang cukup. Mantap!"
-              : `${safeCount} bahan memiliki stok di atas minimum. Pertahankan!`,
-        });
-      }
-
-      if (
-        expired.length === 0 &&
-        expiring3.length === 0 &&
-        expiring7.length === 0
-      ) {
-        positiveInsights.push({
-          type: "positive",
-          icon: <CheckCircle2 className="w-5 h-5 text-emerald-600" />,
-          title: "Tidak ada bahan kadaluarsa",
-          description:
-            "Semua bahan baku fresh dan siap dipakai. Great job mengelola inventory!",
-        });
-      }
-
-      setInsights(positiveInsights);
-    } catch {}
-  }, []);
-
-  const fetchAllBusinesses = useCallback(async () => {
-    try {
-      const res = await apiFetch("/api/businesses");
-      if (res.success) setAllBusinesses(res.data);
-    } catch {
-      /* silent */
-    }
-  }, []);
-
-  const totalAlertCount =
-    alerts.expired.length +
-    alerts.expiring3.length +
-    alerts.expiring7.length +
-    alerts.lowStock.length;
-  const alertPulse = totalAlertCount > 0 ? "animate-pulse" : "";
-
-  useEffect(() => {
-    fetchBusiness();
-    fetchAllBusinesses();
-    fetchInventoryAlerts();
-  }, [fetchBusiness, fetchAllBusinesses, fetchInventoryAlerts]);
-
-  // Generate business-level insights when data changes
-  useEffect(() => {
-    if (!data?.stats) return;
-    const s = data.stats;
-    const c = data._count;
-    const newInsights: InsightItem[] = [];
-
-    // Revenue insight
-    if (s.totalRevenue > 0) {
-      newInsights.push({
-        type: "positive",
-        icon: <Flame className="w-5 h-5 text-emerald-600" />,
-        title: `Total pendapatan ${formatRupiah(s.totalRevenue)}`,
-        description: `Anda sudah menyelesaikan ${s.paidSalesCount} transaksi lunas. Terus tingkatkan!`,
-      });
-    }
-
-    // Margin insight
-    if (s.marginAvg != null && s.marginAvg > 30) {
-      newInsights.push({
-        type: "positive",
-        icon: <Award className="w-5 h-5 text-emerald-600" />,
-        title: `Margin rata-rata ${s.marginAvg.toFixed(1)}% — Sehat!`,
-        description:
-          "Margin di atas 30% menandakan bisnis Anda dalam kondisi sehat.",
-      });
-    } else if (s.marginAvg != null && s.marginAvg > 0 && s.marginAvg <= 30) {
-      newInsights.push({
-        type: "warning",
-        icon: <TrendingUp className="w-5 h-5 text-amber-600" />,
-        title: `Margin rata-rata ${s.marginAvg.toFixed(1)}%`,
-        description:
-          "Margin masih bisa ditingkatkan. Pertimbangkan review harga jual atau efisiensi bahan baku.",
-      });
-    }
-
-    // Product catalog insight
-    if (c.products > 0) {
-      newInsights.push({
-        type: "info",
-        icon: <Package className="w-5 h-5 text-blue-600" />,
-        title: `${c.products} produk aktif, ${c.categories} kategori`,
-        description: `Portfolio produk Anda sudah tersusun rapi dengan ${c.ingredients} bahan baku terdaftar.`,
-      });
-    }
-
-    // Profit insight
-    if (s.totalProfit > 0) {
-      newInsights.push({
-        type: "positive",
-        icon: <DollarSign className="w-5 h-5 text-emerald-600" />,
-        title: `Profit bersih ${formatRupiah(s.totalProfit)}`,
-        description:
-          "Bisnis Anda menghasilkan keuntungan. Pertimbangkan untuk reinvestasi ke pengembangan produk.",
-      });
-    }
-
-    // Merge with inventory insights (already set from fetchInventoryAlerts)
-    setInsights((prev) => {
-      // Keep inventory-related insights (ShieldCheck, CheckCircle2), merge with business ones
-      const inventoryInsights = prev.filter(
-        (i) => i.title.includes("bahan baku") || i.title.includes("kadaluarsa"),
-      );
-      return [...newInsights, ...inventoryInsights];
+  const monthOptions = useMemo(() => {
+    const now = new Date();
+    return Array.from({ length: 12 }, (_, index) => {
+      const date = new Date(now.getFullYear(), now.getMonth() - index, 1);
+      const value = getMonthKey(date);
+      return { value, label: getMonthLabel(value) };
     });
-  }, [data]);
+  }, []);
 
-  async function handleSave(field: "name" | "location") {
-    if (!data) return;
-    setSaving(true);
-    try {
-      const body =
-        field === "name" ? { name: nameVal } : { location: locationVal };
-      const res = await apiFetch(`/api/businesses/${data.id}`, {
-        method: "PATCH",
-        body: JSON.stringify(body),
+  const reloadKey = useMemo(() => BAKERY_SETTINGS_UPDATED_EVENT, []);
+  const [refreshToken, setRefreshToken] = useState(0);
+
+  useEffect(() => {
+    const handleSettingsUpdated = () => {
+      setRefreshToken((current) => current + 1);
+    };
+
+    window.addEventListener(reloadKey, handleSettingsUpdated);
+    return () => {
+      window.removeEventListener(reloadKey, handleSettingsUpdated);
+    };
+  }, [reloadKey]);
+
+  useEffect(() => {
+    if (!business?.id) return;
+
+    let active = true;
+
+    const load = async () => {
+      setLoading(true);
+      setError(null);
+
+      const currentRange = getMonthRange(selectedMonth);
+      const previousRange = getMonthRange(currentRange.prevMonthKey);
+
+      const [
+        viewerPayload,
+        businessPayload,
+        currentProductsPayload,
+        previousProductsPayload,
+        ordersPayload,
+        staffPayload,
+        bakerySettingsPayload,
+      ] = await Promise.all([
+        safeApiFetch<ViewerResponse>("/api/auth/me"),
+        safeApiFetch<{ data?: BusinessDetail }>(`/api/businesses/${business.id}`),
+        safeApiFetch<ProductAnalyticsResponse>(
+          `/api/analytics/products?from=${currentRange.startDate}&to=${currentRange.endDate}`,
+        ),
+        safeApiFetch<ProductAnalyticsResponse>(
+          `/api/analytics/products?from=${previousRange.startDate}&to=${previousRange.endDate}`,
+        ),
+        safeApiFetch<OrdersResponse>("/api/bookings/orders"),
+        safeApiFetch<StaffResponse>("/api/staff"),
+        safeApiFetch<BakerySettingsResponse>("/api/bakery/settings"),
+      ]);
+
+      if (!active) return;
+
+      const viewer = viewerPayload?.data;
+      const businessDetail = businessPayload?.data ?? null;
+      const currentProducts = currentProductsPayload?.summary;
+      const previousProducts = previousProductsPayload?.summary;
+      const orders = ordersPayload?.data?.orders ?? [];
+      const staffMembers =
+        staffPayload?.data?.members?.filter(
+          (member) => String(member.businessId) === String(business.id),
+        ) ?? [];
+
+      const periodOrders = orders.filter((order) =>
+        isDateWithinRange(order.deliveryDate, currentRange.startDate, currentRange.endDate) &&
+        (["dp paid", "paid"].includes(normalizeStatus(order.paymentStatus)) ||
+          Number(order.totalPaidAmount ?? 0) > 0),
+      );
+
+      const activeOrders = periodOrders.filter((order) => {
+        const status = normalizeStatus(order.orderStatus);
+        return !["completed", "delivered", "delivery", "cancelled"].includes(status);
+      }).length;
+
+      const dpOrderCount = periodOrders.filter(
+        (order) => normalizeStatus(order.paymentStatus) === "dp paid",
+      ).length;
+      const paidOrderCount = periodOrders.filter(
+        (order) => normalizeStatus(order.paymentStatus) === "paid",
+      ).length;
+
+      const currentRevenue = Number(currentProducts?.totalRevenue ?? 0);
+      const currentProfit = Number(currentProducts?.totalProfit ?? 0);
+      const previousRevenue = Number(previousProducts?.totalRevenue ?? 0);
+      const totalCost = Number(currentProducts?.totalCost ?? 0);
+      const avgMargin =
+        currentRevenue > 0
+          ? (currentProfit / currentRevenue) * 100
+          : Number(businessDetail?.stats.marginAvg ?? 0) || 0;
+
+      setViewState({
+        viewerName: viewer?.name?.trim() || "",
+        businessName:
+          viewer?.businessName?.trim() ||
+          businessDetail?.name?.trim() ||
+          business.name,
+        businessLocation: businessDetail?.location?.trim() || "",
+        businessDetail,
+        currentRevenue,
+        currentProfit,
+        previousRevenue,
+        totalCost,
+        avgMargin,
+        activeOrders,
+        dpOrderCount,
+        paidOrderCount,
+        topProducts:
+          currentProductsPayload?.top?.byRevenue?.map((item) => ({
+            productName: item.productName,
+            quantitySold: Number(item.quantitySold || 0),
+            revenue: Number(item.revenue || 0),
+          })) ?? [],
+        staffNames: staffMembers.map((member) => member.name).filter(Boolean),
+        bakerySettings: bakerySettingsPayload?.data ?? null,
       });
-      if (res.success) {
-        toast.success(
-          `${field === "name" ? "Nama" : "Lokasi"} bisnis berhasil diperbarui`,
-        );
-        setEditingName(false);
-        setEditingLocation(false);
-        await fetchBusiness();
-        await refreshBusiness();
-      }
-    } catch {
-      toast.error("Gagal menyimpan perubahan");
-    } finally {
-      setSaving(false);
-    }
-  }
 
-  async function handleCreate() {
-    if (!newName.trim()) return toast.error("Nama bisnis wajib diisi");
-    setCreating(true);
-    try {
-      const res = await apiFetch("/api/businesses", {
-        method: "POST",
-        body: JSON.stringify({ name: newName, location: newLocation || null }),
-      });
-      if (res.success) {
-        toast.success("Bisnis baru berhasil ditambahkan!");
-        setShowNewForm(false);
-        setNewName("");
-        setNewLocation("");
-        await fetchAllBusinesses();
-        await refreshBusiness();
-      }
-    } catch {
-      toast.error("Gagal membuat bisnis");
-    } finally {
-      setCreating(false);
-    }
-  }
+      const hasPrimaryData =
+        Boolean(businessDetail) ||
+        currentRevenue > 0 ||
+        currentProfit > 0 ||
+        activeOrders > 0 ||
+        dpOrderCount > 0 ||
+        paidOrderCount > 0 ||
+        (currentProductsPayload?.top?.byRevenue?.length ?? 0) > 0;
 
-  async function handleDelete(id: number, name: string) {
-    if (!confirm(`Hapus bisnis "${name}"? Semua data akan hilang.`)) return;
-    try {
-      const res = await apiFetch(`/api/businesses/${id}`, { method: "DELETE" });
-      if (res.success) {
-        toast.success("Bisnis berhasil dihapus");
-        await fetchAllBusinesses();
-        await refreshBusiness();
-      }
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Gagal menghapus bisnis");
-    }
-  }
+      setError(
+        hasPrimaryData
+          ? null
+          : "Data business belum berhasil dimuat dari backend untuk periode ini.",
+      );
+      setLoading(false);
+    };
 
-  async function handleSwitch(id: number, name: string) {
-    setSwitching(id);
-    try {
-      await switchBusiness(id);
-      toast.success(`Beralih ke "${name}"`);
-      // Re-fetch active business detail
-      await fetchBusiness();
-      await fetchAllBusinesses();
-    } catch {
-      toast.error("Gagal beralih bisnis");
-    } finally {
-      setSwitching(null);
-    }
-  }
+    load();
 
-  if (loading) {
+    return () => {
+      active = false;
+    };
+  }, [business?.id, business?.name, selectedMonth, refreshToken]);
+
+  const monthLabel = useMemo(() => getMonthLabel(selectedMonth), [selectedMonth]);
+  const previousMonthLabel = useMemo(() => {
+    const { prevMonthKey } = getMonthRange(selectedMonth);
+    return getMonthLabel(prevMonthKey);
+  }, [selectedMonth]);
+
+  const revenueGrowth = useMemo(() => {
+    if (viewState.previousRevenue <= 0) {
+      return viewState.currentRevenue > 0 ? 100 : 0;
+    }
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <Loader2 className="w-8 h-8 animate-spin text-indigo-400" />
+      ((viewState.currentRevenue - viewState.previousRevenue) /
+        viewState.previousRevenue) *
+      100
+    );
+  }, [viewState.currentRevenue, viewState.previousRevenue]);
+
+  const selectedMonthExpenses = (viewState.bakerySettings?.monthlyExpenses ?? []).filter(
+    (entry) => entry.monthKey === selectedMonth,
+  );
+  const expenseAmountByCategory = new Map(
+    selectedMonthExpenses.map((entry) => [entry.category, Number(entry.amount || 0)]),
+  );
+  const customExpenses = selectedMonthExpenses.filter(
+    (entry) => entry.category === "custom",
+  );
+  const staffPayrollRows = (viewState.bakerySettings?.staffSettings ?? []).filter(
+    (entry) => entry.isActive,
+  );
+  const staffCost = staffPayrollRows.reduce(
+    (sum, entry) => sum + Number(entry.takeHomePay || 0),
+    0,
+  );
+  const refundCost = Number(expenseAmountByCategory.get("refund") ?? 0);
+  const adsCost = Number(expenseAmountByCategory.get("ads") ?? 0);
+  const customExpenseTotal = customExpenses.reduce(
+    (sum, entry) => sum + Number(entry.amount || 0),
+    0,
+  );
+  const totalOperationalCost =
+    staffCost + refundCost + adsCost + customExpenseTotal;
+  const netProfit = Math.max(0, viewState.currentProfit - totalOperationalCost);
+  const avatarLabel = getInitials(
+    `${viewState.viewerName || "Owner"} ${viewState.businessName || ""}`,
+  );
+
+  const handleExport = () => {
+    const csv = buildExportCsv({
+      monthLabel,
+      businessName: viewState.businessName || "Business",
+      revenue: viewState.currentRevenue,
+      totalCost: viewState.totalCost,
+      profit: netProfit,
+      activeOrders: viewState.activeOrders,
+      margin: viewState.avgMargin,
+      topProducts: viewState.topProducts,
+    });
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `business-${selectedMonth}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  if (businessLoading || loading) {
+    return (
+      <div className="min-h-[60vh] bg-[#f6efe8] px-4 py-6">
+        <div className="mx-auto flex max-w-md items-center justify-center rounded-[28px] border border-[#dac8ba] bg-[#f7efe7] px-6 py-20 shadow-[0_12px_35px_rgba(84,56,36,0.08)]">
+          <Loader2 className="mr-3 h-5 w-5 animate-spin text-[#c86030]" />
+          <span className="text-sm font-medium text-[#6b4a38]">
+            Memuat ringkasan business...
+          </span>
+        </div>
       </div>
     );
   }
 
-  const stats = data?.stats;
-  const counts = data?._count;
-
-  return (
-    <div className="space-y-8">
-      {/* Header */}
-      <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="flex flex-col sm:flex-row sm:items-center justify-between gap-4"
-      >
-        <div>
-          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-900 flex items-center gap-3">
-            <div className="p-2 sm:p-2.5 bg-linear-to-br from-indigo-500 to-indigo-500 rounded-xl text-white">
-              <Building2 className="w-5 h-5 sm:w-7 sm:h-7" />
-            </div>
-            Business
-          </h1>
-          <p className="text-gray-500 mt-1 text-sm">
-            Kelola informasi dan performa bisnis Anda
+  if (!business?.id) {
+    return (
+      <div className="min-h-[60vh] bg-[#f6efe8] px-4 py-6">
+        <div className="mx-auto max-w-md rounded-[28px] border border-[#dac8ba] bg-[#f7efe7] px-6 py-10 text-center shadow-[0_12px_35px_rgba(84,56,36,0.08)]">
+          <p className="text-sm font-semibold text-[#6b4a38]">
+            Tidak ada business aktif.
           </p>
         </div>
-        <button
-          onClick={() => {
-            fetchBusiness();
-            fetchAllBusinesses();
-          }}
-          className="self-start flex items-center gap-2 px-4 py-2 text-sm text-gray-500 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition cursor-pointer"
-        >
-          <RefreshCw className="w-4 h-4" /> Refresh
-        </button>
-      </motion.div>
-      {/* Greeting Banner */}
-      <div className="bg-linear-to-r from-indigo-500 via-indigo-500 to-indigo-400 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 shadow-xl">
-        <h1 className="text-lg sm:text-2xl md:text-3xl font-bold text-white flex items-center gap-3">
-          <Smile className="text-yellow-300 shrink-0" size={24} />
-          Selamat {greeting}, Semangat untuk mengelola bisnis Anda hari ini!
-        </h1>
       </div>
-      {/* Active Business Card */}
-      {data && (
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="relative overflow-hidden bg-white rounded-2xl shadow-lg border border-gray-100"
-        >
-          {/* Decorative gradient bar */}
-          <div className="h-2 bg-linear-to-r from-indigo-500 via-indigo-500 to-pink-500" />
+    );
+  }
 
-          <div className="p-6 sm:p-8">
-            {/* Business badge */}
-            {/* Top Row */}
-            <div className="flex items-start justify-between mb-6 gap-8 flex-col md:flex-row">
-              {/* LEFT: Info bisnis */}
-              <div className="flex flex-col gap-1">
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-50 text-indigo-700 text-xs font-bold rounded-full border border-indigo-100">
-                    <Star className="w-3 h-3" /> Bisnis Aktif
-                  </span>
-                  <span className="text-xs text-gray-400">ID: #{data.id}</span>
-                </div>
-                <div className="flex items-center gap-3 mb-2">
-                  <Building2 className="w-5 h-5 text-indigo-400 shrink-0" />
-                  {editingName ? (
-                    <div className="flex items-center gap-2 flex-1">
-                      <input
-                        value={nameVal}
-                        onChange={(e) => setNameVal(e.target.value)}
-                        className="flex-1 px-3 py-2 border border-indigo-200 rounded-lg text-lg font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                        autoFocus
-                        onKeyDown={(e) =>
-                          e.key === "Enter" && handleSave("name")
-                        }
-                      />
-                      <button
-                        onClick={() => handleSave("name")}
-                        disabled={saving}
-                        className="p-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 cursor-pointer disabled:opacity-50"
-                      >
-                        <Check className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => {
-                          setEditingName(false);
-                          setNameVal(data.name);
-                        }}
-                        className="p-2 bg-gray-100 text-gray-500 rounded-lg hover:bg-gray-200 cursor-pointer"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2 flex-1 group">
-                      <h2 className="text-xl sm:text-2xl font-bold text-gray-900">
-                        {data.name}
-                      </h2>
-                      <button
-                        onClick={() => setEditingName(true)}
-                        className="opacity-0 group-hover:opacity-100 p-1.5 text-gray-400 hover:text-indigo-500 hover:bg-indigo-50 rounded-lg transition-all cursor-pointer"
-                      >
-                        <Edit3 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  )}
-                </div>
-                <div className="flex items-center gap-3 mb-3">
-                  <MapPin className="w-5 h-5 text-pink-400 shrink-0" />
-                  {editingLocation ? (
-                    <div className="flex items-center gap-2 flex-1">
-                      <input
-                        value={locationVal}
-                        onChange={(e) => setLocationVal(e.target.value)}
-                        placeholder="Masukkan lokasi bisnis..."
-                        className="flex-1 px-3 py-2 border border-pink-200 rounded-lg text-gray-700 focus:outline-none focus:ring-2 focus:ring-pink-300"
-                        autoFocus
-                        onKeyDown={(e) =>
-                          e.key === "Enter" && handleSave("location")
-                        }
-                      />
-                      <button
-                        onClick={() => handleSave("location")}
-                        disabled={saving}
-                        className="p-2 bg-pink-500 text-white rounded-lg hover:bg-pink-600 cursor-pointer disabled:opacity-50"
-                      >
-                        <Check className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => {
-                          setEditingLocation(false);
-                          setLocationVal(data.location || "");
-                        }}
-                        className="p-2 bg-gray-100 text-gray-500 rounded-lg hover:bg-gray-200 cursor-pointer"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2 flex-1 group">
-                      <span className="text-gray-600">
-                        {data.location || "Belum diatur"}
-                      </span>
-                      <button
-                        onClick={() => setEditingLocation(true)}
-                        className="opacity-0 group-hover:opacity-100 p-1.5 text-gray-400 hover:text-pink-500 hover:bg-pink-50 rounded-lg transition-all cursor-pointer"
-                      >
-                        <Edit3 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  )}
-                </div>
-                <div className="flex items-center gap-3 text-sm text-gray-400">
-                  <Calendar className="w-5 h-5 shrink-0" />
-                  Bergabung sejak {formatDate(data.createdAt)}
-                </div>
-              </div>
-              {/* RIGHT: Insight & Alert Cards */}
-              <div className="flex flex-col sm:flex-row gap-3 mt-4 md:mt-0 w-full md:w-auto">
-                {/* Positive Insight Card */}
-                <div
-                  className="relative group bg-linear-to-br from-emerald-50 via-emerald-50/50 to-white border border-emerald-200 rounded-2xl p-4 shadow-md cursor-pointer hover:shadow-emerald-200/60 transition flex items-center gap-3 w-full md:w-56"
-                  onClick={() => setIsAlertOpen(true)}
-                >
-                  <span className="rounded-full bg-emerald-100 p-2.5 shadow-sm shrink-0">
-                    <Lightbulb className="text-emerald-600" size={22} />
-                  </span>
-                  <div className="min-w-0">
-                    <p className="font-semibold text-emerald-700 text-sm flex items-center gap-1.5">
-                      Insight Hari Ini
-                      {insights.length > 0 && (
-                        <span className="bg-emerald-500 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold">
-                          {insights.length}
-                        </span>
-                      )}
-                    </p>
-                    <p className="text-xs text-emerald-600 mt-0.5 truncate">
-                      {insights.length > 0
-                        ? insights[0].title
-                        : "Lihat ringkasan bisnis"}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Warning Alert Card */}
-                <div
-                  className={`relative group border rounded-2xl p-4 shadow-md cursor-pointer transition flex items-center gap-3 w-full md:w-56 ${
-                    totalAlertCount > 0
-                      ? "bg-linear-to-br from-red-50 via-amber-50/50 to-white border-amber-200 hover:shadow-amber-200/60"
-                      : "bg-linear-to-br from-emerald-50 via-white to-white border-emerald-200 hover:shadow-emerald-200/60"
-                  }`}
-                  onClick={() => setIsAlertOpen(true)}
-                >
-                  <span
-                    className={`rounded-full p-2.5 shadow-sm shrink-0 ${
-                      totalAlertCount > 0
-                        ? `bg-amber-100 ${alertPulse}`
-                        : "bg-emerald-100"
-                    }`}
-                  >
-                    {totalAlertCount > 0 ? (
-                      <AlertTriangle className="text-amber-600" size={22} />
-                    ) : (
-                      <ShieldCheck className="text-emerald-600" size={22} />
-                    )}
-                  </span>
-                  <div className="min-w-0">
-                    <p
-                      className={`font-semibold text-sm flex items-center gap-1.5 ${
-                        totalAlertCount > 0
-                          ? "text-amber-700"
-                          : "text-emerald-700"
-                      }`}
-                    >
-                      {totalAlertCount > 0 ? "Peringatan Stok" : "Stok Aman"}
-                      {totalAlertCount > 0 && (
-                        <span className="bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold animate-pulse">
-                          {totalAlertCount}
-                        </span>
-                      )}
-                    </p>
-                    <p
-                      className={`text-xs mt-0.5 ${totalAlertCount > 0 ? "text-amber-600" : "text-emerald-600"}`}
-                    >
-                      {totalAlertCount > 0
-                        ? `${totalAlertCount} item perlu dicek`
-                        : "Semua bahan baku aman"}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Financial Stats Grid */}
-            {stats && (
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                <StatTile
-                  icon={DollarSign}
-                  label="Total Pendapatan"
-                  value={formatRupiah(stats.totalRevenue)}
-                  color="emerald"
-                />
-                <StatTile
-                  icon={TrendingUp}
-                  label="Total Profit"
-                  value={formatRupiah(stats.totalProfit)}
-                  color="blue"
-                />
-                <StatTile
-                  icon={ShoppingCart}
-                  label="Transaksi Lunas"
-                  value={String(stats.paidSalesCount)}
-                  color="indigo"
-                />
-                <StatTile
-                  icon={Percent}
-                  label="Margin Rata-rata"
-                  value={
-                    stats.marginAvg != null
-                      ? `${stats.marginAvg.toFixed(1)}%`
-                      : "—"
-                  }
-                  color="amber"
-                />
-              </div>
-            )}
-
-            {/* Operational Stats */}
-            {counts && (
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <MiniStat
-                  icon={Package}
-                  label="Produk"
-                  value={counts.products}
-                />
-                <MiniStat
-                  icon={Boxes}
-                  label="Bahan"
-                  value={counts.ingredients}
-                />
-                <MiniStat
-                  icon={BarChart3}
-                  label="Kategori"
-                  value={counts.categories}
-                />
-                <MiniStat
-                  icon={ShoppingCart}
-                  label="Total Penjualan"
-                  value={counts.sales}
-                />
-              </div>
-            )}
-          </div>
-        </motion.div>
-      )}
-      {isAlertOpen && (
-        <InsightModal
-          alerts={alerts}
-          insights={insights}
-          onClose={() => setIsAlertOpen(false)}
-        />
-      )}
-
-      {/* All Businesses List */}
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2 }}
-        className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden"
-      >
-        <div className="p-6 flex items-center justify-between border-b border-gray-100">
-          <div>
-            <h3 className="text-lg font-bold text-gray-900">Daftar Bisnis</h3>
-            <p className="text-sm text-gray-500">
-              {allBusinesses.length} bisnis terdaftar
+  return (
+    <div className="min-h-screen bg-[#f6efe8] px-3 py-4 text-[#23150f] sm:px-5">
+      <div className="mx-auto max-w-md overflow-hidden rounded-[32px] border border-[#cfbdaf] bg-[#f7efe7] shadow-[0_14px_36px_rgba(84,56,36,0.10)]">
+        <div className="flex items-center gap-3 border-b border-[#e5d4c7] px-5 py-4">
+          <button
+            type="button"
+            className="rounded-full p-2 text-[#7d553f] transition hover:bg-[#efe3d8]"
+            aria-label="Business menu"
+          >
+            <Menu size={18} />
+          </button>
+          <div className="min-w-0 flex-1">
+            <h1 className="text-[26px] font-extrabold leading-none tracking-[-0.03em] text-[#1f120e]">
+              Business
+            </h1>
+            <p className="mt-1 truncate text-[12px] text-[#bf8c73]">
+              {viewState.businessName}
+              {viewState.viewerName ? ` / ${viewState.viewerName}` : ""}
             </p>
           </div>
-          <button
-            onClick={() => setShowNewForm(!showNewForm)}
-            className="flex items-center gap-2 px-4 py-2.5 bg-linear-to-r from-indigo-500 to-indigo-500 text-white rounded-xl text-sm font-semibold hover:from-indigo-600 hover:to-indigo-600 transition shadow-md shadow-indigo-100 active:scale-[0.98] cursor-pointer"
-          >
-            <Plus className="w-4 h-4" /> Tambah Bisnis
-          </button>
+          <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#f0d6c2] text-sm font-bold text-[#a24d22]">
+            {avatarLabel || "BS"}
+          </div>
         </div>
 
-        {/* New Business Form */}
-        <AnimatePresence>
-          {showNewForm && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.25 }}
-              className="overflow-hidden"
+        <div className="space-y-4 px-4 py-4">
+          <div className="flex gap-2">
+            <label className="relative flex-1">
+              <select
+                value={selectedMonth}
+                onChange={(event) => setSelectedMonth(event.target.value)}
+                className="h-11 w-full appearance-none rounded-xl border border-[#dbcabc] bg-white px-3 pr-10 text-sm font-semibold text-[#23150f] shadow-[0_2px_8px_rgba(84,56,36,0.06)] outline-none transition focus:border-[#d88a5d]"
+              >
+                {monthOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown
+                size={16}
+                className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#b58872]"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={handleExport}
+              className="inline-flex h-11 items-center gap-2 rounded-xl bg-[#c86030] px-4 text-sm font-bold text-white shadow-[0_6px_18px_rgba(200,96,48,0.28)] transition hover:bg-[#b85628]"
             >
-              <div className="p-6 bg-indigo-50/50 border-b border-indigo-100">
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <input
-                    value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
-                    placeholder="Nama bisnis *"
-                    className="flex-1 px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                  />
-                  <input
-                    value={newLocation}
-                    onChange={(e) => setNewLocation(e.target.value)}
-                    placeholder="Lokasi (opsional)"
-                    className="flex-1 px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                  />
-                  <button
-                    onClick={handleCreate}
-                    disabled={creating || !newName.trim()}
-                    className="px-6 py-2.5 bg-indigo-500 text-white rounded-xl text-sm font-semibold hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition"
-                  >
-                    {creating ? (
-                      <Loader2 className="w-4 h-4 animate-spin mx-auto" />
-                    ) : (
-                      "Simpan"
-                    )}
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+              <Download size={15} />
+              Export
+            </button>
+          </div>
 
-        {/* Business List */}
-        <div className="divide-y divide-gray-50">
-          {allBusinesses.map((biz, i) => (
-            <motion.div
-              key={biz.id}
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.05 * i }}
-              className={`flex items-center justify-between p-5 hover:bg-gray-50/50 transition ${
-                String(biz.id) === String(business?.id) ? "bg-indigo-50/30" : ""
-              }`}
-            >
-              <div className="flex items-center gap-4">
-                <div
-                  className={`w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm ${
-                    String(biz.id) === String(business?.id)
-                      ? "bg-linear-to-br from-indigo-500 to-indigo-500"
-                      : "bg-gray-300"
+          <section className="overflow-hidden rounded-[18px] border border-[#dbcabc] bg-white shadow-[0_2px_10px_rgba(84,56,36,0.06)]">
+            <div className="grid grid-cols-2 divide-x divide-[#ead8cb] px-4 py-4">
+              <div className="pr-3">
+                <p className="text-[11px] text-[#b58872]">Total Revenue</p>
+                <p className="mt-1 text-[20px] font-extrabold leading-none text-[#1f120e]">
+                  {formatCompactRupiah(viewState.currentRevenue)}
+                </p>
+                <p
+                  className={`mt-2 text-[11px] font-semibold ${
+                    revenueGrowth >= 0 ? "text-[#17653d]" : "text-[#c85d34]"
                   }`}
                 >
-                  {biz.name.charAt(0).toUpperCase()}
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <p className="font-semibold text-gray-900">{biz.name}</p>
-                    {String(biz.id) === String(business?.id) && (
-                      <span className="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full font-bold">
-                        AKTIF
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-gray-400">
-                    {biz.location || "Tidak ada lokasi"}
-                  </p>
-                </div>
+                  {revenueGrowth >= 0 ? "+" : "-"}{" "}
+                  {`${revenueGrowth >= 0 ? "+" : ""}${Math.round(revenueGrowth)}%`} vs{" "}
+                  {previousMonthLabel}
+                </p>
               </div>
-              {allBusinesses.length > 1 &&
-                String(biz.id) !== String(business?.id) && (
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      onClick={() => handleSwitch(biz.id, biz.name)}
-                      disabled={switching === biz.id}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition cursor-pointer disabled:opacity-50"
-                      title="Beralih ke bisnis ini"
-                    >
-                      {switching === biz.id ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <ArrowRightLeft className="w-3.5 h-3.5" />
-                      )}
-                      Switch
-                    </button>
-                    <button
-                      onClick={() => handleDelete(biz.id, biz.name)}
-                      className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition cursor-pointer"
-                      title="Hapus bisnis"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+              <div className="pl-3">
+                <p className="text-[11px] text-[#b58872]">Profit Bersih</p>
+                <p className="mt-1 text-[20px] font-extrabold leading-none text-[#17653d]">
+                  {formatCompactRupiah(netProfit)}
+                </p>
+                <p className="mt-2 text-[11px] text-[#b58872]">
+                  setelah semua biaya yang tersedia
+                </p>
+              </div>
+            </div>
+            <div className="border-t border-[#ead8cb] bg-[#fff8f3] px-4 py-3">
+              <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#7d675a]">
+                <span className="font-semibold text-[#1f120e]">Pembayaran:</span>
+                <span className="rounded-full bg-[#fbf0d8] px-2.5 py-1 font-semibold text-[#9a6b10]">
+                  DP 50% {viewState.dpOrderCount}
+                </span>
+                <span className="rounded-full bg-[#e4f4ee] px-2.5 py-1 font-semibold text-[#17653d]">
+                  Paid Lunas {viewState.paidOrderCount}
+                </span>
+              </div>
+            </div>
+          </section>
+
+          <section>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-[28px] font-extrabold leading-none tracking-[-0.03em] text-[#1f120e]">
+                Rincian Biaya
+              </h2>
+              {viewState.businessLocation ? (
+                <span className="text-[11px] font-medium text-[#bf8c73]">
+                  {viewState.businessLocation}
+                </span>
+              ) : null}
+            </div>
+
+            <div className="overflow-hidden rounded-[18px] border border-[#dbcabc] bg-white shadow-[0_2px_10px_rgba(84,56,36,0.06)]">
+              <BreakdownRow
+                label="Revenue"
+                amount={viewState.currentRevenue}
+                tone="positive"
+              />
+              <BreakdownRow
+                label="COGS / HPP"
+                note="Otomatis dari produk"
+                amount={viewState.totalCost}
+              />
+              <BreakdownRow
+                label="Gaji Staff"
+                note={
+                  staffPayrollRows.length > 0 ? "Payroll bulanan aktif" : "Belum ada payroll aktif"
+                }
+                amount={staffCost}
+              >
+                {staffPayrollRows.length > 0 ? (
+                  <div className="space-y-1 border-l-2 border-[#ead8cb] pl-3">
+                    {staffPayrollRows.slice(0, 4).map((entry) => (
+                      <div
+                        key={entry.userId}
+                        className="flex items-center justify-between gap-3 text-[11px] text-[#7d675a]"
+                      >
+                        <span className="truncate">{entry.name}</span>
+                        <span className="font-mono">
+                          {formatCurrency(Number(entry.takeHomePay || 0))}
+                        </span>
+                      </div>
+                    ))}
                   </div>
-                )}
-            </motion.div>
-          ))}
+                ) : null}
+              </BreakdownRow>
+              <BreakdownRow
+                label="Retur / Refund"
+                note="Input bulanan owner"
+                amount={refundCost}
+              />
+              <BreakdownRow
+                label="Biaya Iklan"
+                note="Input bulanan owner"
+                amount={adsCost}
+              />
+              {customExpenses.length > 0 ? (
+                customExpenses.map((entry) => (
+                  <BreakdownRow
+                    key={entry.id}
+                    label={entry.name}
+                    note={entry.note || "Custom / Input bulanan"}
+                    amount={Number(entry.amount || 0)}
+                  />
+                ))
+              ) : (
+                <BreakdownRow
+                  label="Packaging Tambahan"
+                  note="Custom / Input bulanan"
+                  amount={0}
+                />
+              )}
+              <BreakdownRow
+                label="Profit Bersih"
+                amount={netProfit}
+                tone="profit"
+              />
+            </div>
+          </section>
+
+          <section className="grid grid-cols-2 gap-3">
+            <div className="rounded-[18px] border border-[#dbcabc] bg-white px-4 py-4 shadow-[0_2px_10px_rgba(84,56,36,0.06)]">
+              <p className="text-[11px] text-[#7d675a]">Order Aktif</p>
+              <p className="mt-1 text-[22px] font-extrabold leading-none text-[#1f120e]">
+                {viewState.activeOrders}
+              </p>
+            </div>
+            <div className="rounded-[18px] border border-[#dbcabc] bg-white px-4 py-4 shadow-[0_2px_10px_rgba(84,56,36,0.06)]">
+              <p className="text-[11px] text-[#7d675a]">Margin Kotor</p>
+              <p className="mt-1 text-[22px] font-extrabold leading-none text-[#17653d]">
+                {Math.round(viewState.avgMargin)}%
+              </p>
+            </div>
+          </section>
+
+          <section>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="inline-flex items-center gap-2 text-[28px] font-extrabold leading-none tracking-[-0.03em] text-[#1f120e]">
+                <Trophy size={18} className="text-[#cc8a27]" />
+                Top Produk
+              </h2>
+              <span className="text-[12px] font-semibold text-[#b0663f]">
+                by Revenue
+              </span>
+            </div>
+
+            <div className="overflow-hidden rounded-[18px] border border-[#dbcabc] bg-white shadow-[0_2px_10px_rgba(84,56,36,0.06)]">
+              {viewState.topProducts.length > 0 ? (
+                viewState.topProducts.slice(0, 5).map((item, index) => (
+                  <div
+                    key={`${item.productName}-${index}`}
+                    className={`flex items-center gap-3 px-4 py-3 ${
+                      index < Math.min(viewState.topProducts.length, 5) - 1
+                        ? "border-b border-[#ead8cb]"
+                        : ""
+                    }`}
+                  >
+                    <div className="text-base">{getRankEmoji(index)}</div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[15px] font-bold leading-tight text-[#1f120e]">
+                        {item.productName}
+                      </p>
+                      <p className="mt-1 text-[11px] text-[#7d675a]">
+                        {item.quantitySold} order
+                      </p>
+                    </div>
+                    <p className="shrink-0 font-mono text-[14px] font-bold text-[#c86030]">
+                      {formatCurrency(item.revenue)}
+                    </p>
+                  </div>
+                ))
+              ) : (
+                <div className="px-4 py-8 text-center text-sm text-[#9b7b69]">
+                  Belum ada data produk untuk {monthLabel}.
+                </div>
+              )}
+            </div>
+          </section>
+
+          {error ? (
+            <div className="rounded-2xl border border-[#f1c5b8] bg-[#fff1eb] px-4 py-3 text-sm text-[#a54a2d]">
+              {error}
+            </div>
+          ) : null}
         </div>
-      </motion.div>
-    </div>
-  );
-}
-
-// ─── Sub-components ──────────────────────────────────────────
-
-function StatTile({
-  icon: Icon,
-  label,
-  value,
-  color,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  value: string;
-  color: string;
-}) {
-  const colorMap: Record<string, string> = {
-    emerald:
-      "from-emerald-50 to-emerald-100/50 border-emerald-100 text-emerald-700",
-    blue: "from-blue-50 to-blue-100/50 border-blue-100 text-blue-700",
-    indigo: "from-indigo-50 to-indigo-100/50 border-indigo-100 text-indigo-700",
-    amber: "from-amber-50 to-amber-100/50 border-amber-100 text-amber-700",
-  };
-  const iconColorMap: Record<string, string> = {
-    emerald: "bg-emerald-100 text-emerald-600",
-    blue: "bg-blue-100 text-blue-600",
-    indigo: "bg-indigo-100 text-indigo-600",
-    amber: "bg-amber-100 text-amber-600",
-  };
-
-  return (
-    <div className={`p-4 rounded-xl bg-linear-to-br border ${colorMap[color]}`}>
-      <div
-        className={`w-8 h-8 rounded-lg flex items-center justify-center mb-2 ${iconColorMap[color]}`}
-      >
-        <Icon className="w-4 h-4" />
-      </div>
-      <p className="text-[10px] sm:text-xs text-gray-500 mb-0.5">{label}</p>
-      <p className="text-sm sm:text-base md:text-lg font-bold break-all leading-tight">
-        {value}
-      </p>
-    </div>
-  );
-}
-
-function MiniStat({
-  icon: Icon,
-  label,
-  value,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  value: number;
-}) {
-  return (
-    <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
-      <div className="w-9 h-9 rounded-lg bg-white flex items-center justify-center shadow-sm border border-gray-100">
-        <Icon className="w-4 h-4 text-gray-500" />
-      </div>
-      <div>
-        <p className="text-lg font-bold text-gray-900">{value}</p>
-        <p className="text-xs text-gray-400">{label}</p>
       </div>
     </div>
   );

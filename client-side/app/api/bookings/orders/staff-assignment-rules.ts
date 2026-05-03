@@ -1,5 +1,6 @@
 import { ForbiddenError } from "@/lib/auth/session";
 import { calculateOrderTokenFromItems } from "@/lib/bookings/token-capacity-service";
+import type { ProductionStageAssignment } from "@/lib/bookings/production-stages";
 
 const INACTIVE_STATUSES = ["Cancelled", "Completed", "Delivery", "Delivered"];
 const STAFF_DAILY_TOKEN_LIMIT_MESSAGE =
@@ -18,6 +19,7 @@ export interface StaffValidationOrder {
   orderStatus: string;
   assignedStaffUserId: number | null;
   deliveryDate: string;
+  productionStages?: ProductionStageAssignment[];
   items: JsonRecord[];
 }
 
@@ -61,17 +63,41 @@ function buildStaffDailyTokenMap(
   const usage = new Map<string, number>();
 
   for (const order of orders) {
-    if (!order.assignedStaffUserId || !order.deliveryDate) continue;
+    if (!order.deliveryDate) continue;
     if (INACTIVE_STATUSES.includes(order.orderStatus || "")) continue;
 
-    const token = calculateOrderTokenForLimit(order);
-    if (token <= 0) continue;
-
-    const key = `${order.assignedStaffUserId}:${order.deliveryDate}`;
-    usage.set(key, (usage.get(key) ?? 0) + token);
+    for (const assignment of getOrderStaffTokenAssignmentsForLimit(order)) {
+      if (assignment.token <= 0) continue;
+      const key = `${assignment.staffUserId}:${order.deliveryDate}`;
+      usage.set(key, (usage.get(key) ?? 0) + assignment.token);
+    }
   }
 
   return usage;
+}
+
+function getOrderStaffTokenAssignmentsForLimit(
+  order: Pick<
+    StaffValidationOrder,
+    "assignedStaffUserId" | "items" | "productionStages"
+  >,
+) {
+  const stageAssignments = (order.productionStages ?? [])
+    .filter((stage) => stage.staffId && stage.tokenAmount > 0)
+    .map((stage) => ({
+      staffUserId: Number(stage.staffId),
+      token: Math.max(0, Math.round(Number(stage.tokenAmount) || 0)),
+    }));
+
+  if (stageAssignments.length > 0) return stageAssignments;
+  if (!order.assignedStaffUserId) return [];
+
+  return [
+    {
+      staffUserId: order.assignedStaffUserId,
+      token: calculateOrderTokenForLimit(order),
+    },
+  ];
 }
 
 export function validateAssignmentTransitionRules(params: {
@@ -98,8 +124,10 @@ export function validateAssignmentTransitionRules(params: {
       existing.assigned_staff_user_id,
     );
     const nextAssignee = order.assignedStaffUserId;
+    const nextHasAssignment =
+      getOrderStaffTokenAssignmentsForLimit(order).length > 0;
 
-    if (statusChanged && !nextAssignee && nextStatus !== "Cancelled") {
+    if (statusChanged && !nextHasAssignment && nextStatus !== "Cancelled") {
       throw new ForbiddenError("Order must be assigned before changing status");
     }
 
@@ -107,7 +135,7 @@ export function validateAssignmentTransitionRules(params: {
       continue;
     }
 
-    if (currentAssignee !== null && nextAssignee === null) {
+    if (currentAssignee !== null && nextAssignee === null && !nextHasAssignment) {
       throw new ForbiddenError(
         "Order yang sudah diambil tidak bisa dilepas. Gunakan transfer oleh owner.",
       );
@@ -129,39 +157,60 @@ export function validateAssignmentTransitionRules(params: {
 export function validateProjectedStaffDailyTokenLimit(params: {
   orders: StaffValidationOrder[];
   existingAssignments: ExistingAssignmentState[];
+  existingOrders?: StaffValidationOrder[];
   limit?: number;
 }) {
-  const { orders, existingAssignments, limit = 500 } = params;
+  const { orders, existingAssignments, existingOrders = [], limit = 500 } = params;
   if (limit <= 0) return;
 
   const projectedStaffDailyTokenMap = buildStaffDailyTokenMap(orders);
   const existingAssignmentMap = new Map(
     existingAssignments.map((row) => [row.external_id, row]),
   );
+  const existingOrdersMap = new Map(
+    existingOrders.map((order) => [order.id, order]),
+  );
 
   for (const order of orders) {
     const existing = existingAssignmentMap.get(order.id);
     if (!existing) continue;
 
-    const currentAssignee = asPositiveIntOrNull(
-      existing.assigned_staff_user_id,
-    );
-    const nextAssignee = order.assignedStaffUserId;
-    if (!nextAssignee || currentAssignee === nextAssignee) continue;
-
     if (!order.deliveryDate) continue;
     if (INACTIVE_STATUSES.includes(order.orderStatus || "")) continue;
 
-    const incomingToken = calculateOrderTokenForLimit(order);
-    if (incomingToken <= 0) continue;
+    const previousAssignments = getOrderStaffTokenAssignmentsForLimit(
+      existingOrdersMap.get(order.id) ?? {
+        id: order.id,
+        orderStatus: existing.order_status ?? "",
+        assignedStaffUserId: asPositiveIntOrNull(
+          existing.assigned_staff_user_id,
+        ),
+        deliveryDate: order.deliveryDate,
+        items: order.items,
+        productionStages: [],
+      },
+    );
+    const previousByStaff = new Map<number, number>();
+    for (const assignment of previousAssignments) {
+      previousByStaff.set(
+        assignment.staffUserId,
+        (previousByStaff.get(assignment.staffUserId) ?? 0) + assignment.token,
+      );
+    }
 
-    const staffDayKey = `${nextAssignee}:${order.deliveryDate}`;
-    const projectedToken = projectedStaffDailyTokenMap.get(staffDayKey) ?? 0;
-    const tokenBeforeAssignment = Math.max(0, projectedToken - incomingToken);
+    for (const assignment of getOrderStaffTokenAssignmentsForLimit(order)) {
+      const staffDayKey = `${assignment.staffUserId}:${order.deliveryDate}`;
+      const projectedToken = projectedStaffDailyTokenMap.get(staffDayKey) ?? 0;
+      const previousTokenForStaff =
+        previousByStaff.get(assignment.staffUserId) ?? 0;
+      const incomingDelta = Math.max(0, assignment.token - previousTokenForStaff);
+      if (incomingDelta <= 0) continue;
 
-    if (projectedToken > limit && tokenBeforeAssignment > 0) {
+      const tokenBeforeAssignment = Math.max(0, projectedToken - incomingDelta);
+      if (projectedToken <= limit || tokenBeforeAssignment <= 0) continue;
+
       throw new ForbiddenError(
-        `${STAFF_DAILY_TOKEN_LIMIT_MESSAGE}. Staff ${nextAssignee} pada ${order.deliveryDate}: ${projectedToken}/${limit} token.`,
+        `${STAFF_DAILY_TOKEN_LIMIT_MESSAGE}. Staff ${assignment.staffUserId} pada ${order.deliveryDate}: ${projectedToken}/${limit} token.`,
       );
     }
   }

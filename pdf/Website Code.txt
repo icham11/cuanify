@@ -1,0 +1,2656 @@
+﻿<!DOCTYPE html>
+
+
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Crumbella — Owner Dashboard v3</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:    #F2EAE1;   /* flat warm cream — Crumbella Design System */
+  --w:     #FDFAF7;   /* card white */
+  --p:     #7C3410;   /* primary burnt orange */
+  --pm:    #A84820;   /* primary mid */
+  --pa:    #C86030;   /* primary accent */
+  --pp:    #F5E0D0;   /* primary pale */
+  --t:     #1E120A;   /* text dark */
+  --tm:    #6B4A38;   /* text muted */
+  --tf:    #B89080;   /* text faint */
+  --bd:    #E0D0C4;   /* border */
+  --g:     #2A5C3F;   /* green */
+  --gp:    #E0F0E8;   /* green pale */
+  --red:   #A83030;   /* red */
+  --redp:  #FDEAEA;   /* red pale */
+  --gold:  #9A6B10;   /* gold */
+  --goldp: #FBF0D8;   /* gold pale */
+  --blue:  #1A3D6B;   /* blue */
+  --bluep: #E4EEF8;   /* blue pale */
+  --sh:    rgba(30,18,10,0.06);
+  --ff:    'Plus Jakarta Sans', sans-serif;
+  --fm:    'JetBrains Mono', monospace;
+}
+
+
+- { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+
+
+body {
+font-family: var(–ff);
+background: #C4B4A8;
+min-height: 100vh;
+padding: 28px 16px 60px;
+}
+
+
+/* ── PAGE ── */
+.page-title { text-align:center; font-size:24px; font-weight:800; color:var(–p); margin-bottom:3px; }
+.page-sub { text-align:center; font-size:11px; color:#7A5C44; margin-bottom:32px; }
+.sec-label {
+text-align:center; font-size:13px; font-weight:700; color:#7A5C44;
+margin:28px 0 18px; display:flex; align-items:center; gap:12px;
+letter-spacing:0.06em; text-transform:uppercase;
+}
+.sec-label::before,.sec-label::after { content:’’; flex:1; height:1px; background:rgba(124,52,16,0.15); }
+.row { display:flex; gap:20px; justify-content:center; flex-wrap:wrap; align-items:flex-start; }
+.col { display:flex; flex-direction:column; align-items:center; gap:8px; }
+.col-lbl {
+font-size:9px; font-weight:700; letter-spacing:0.14em; text-transform:uppercase;
+color:#7A5C44; background:rgba(255,255,255,0.4); padding:3px 12px; border-radius:20px;
+}
+
+
+/* ── PHONE SHELL ── */
+.phone {
+width:358px; background:var(–bg); border-radius:44px; overflow:hidden;
+box-shadow: 0 32px 72px rgba(0,0,0,0.18), 0 0 0 1px rgba(0,0,0,0.05), inset 0 1px 0 rgba(255,255,255,0.8);
+flex-shrink:0; position:relative;
+}
+.sbar { display:flex; justify-content:space-between; align-items:center; padding:14px 24px 6px; }
+.sbar-t { font-family:var(–fm); font-size:15px; font-weight:500; color:var(–t); }
+.sbar-i { font-size:12px; color:var(–t); }
+.scr { overflow-y:auto; overflow-x:hidden; scrollbar-width:none; max-height:700px; }
+.scr::-webkit-scrollbar { display:none; }
+
+
+/* ── TOP BAR (Crumbella Design System) ── */
+.topbar {
+display:flex; align-items:center; gap:10px;
+padding:10px 16px 10px; border-bottom:1px solid var(–bd);
+background:var(–bg);
+}
+.topbar-menu { font-size:18px; cursor:pointer; color:var(–tm); }
+.topbar-title { font-size:15px; font-weight:700; color:var(–t); flex:1; }
+.topbar-sub { font-size:10px; color:var(–tf); }
+.topbar-avatar {
+width:32px; height:32px; border-radius:50%;
+background:var(–pp); color:var(–p);
+display:flex; align-items:center; justify-content:center;
+font-weight:800; font-size:11px; flex-shrink:0;
+}
+
+
+/* ── SIDEBAR OVERLAY ── */
+.sidebar-overlay {
+position:absolute; top:0; left:0; right:0; bottom:0;
+background:rgba(30,18,10,0.35); z-index:100;
+display:flex;
+}
+.sidebar {
+width:78%; background:var(–bg); height:100%; overflow-y:auto;
+scrollbar-width:none; box-shadow:4px 0 24px rgba(0,0,0,0.15);
+}
+.sidebar::-webkit-scrollbar { display:none; }
+.sidebar-hdr {
+display:flex; align-items:center; justify-content:space-between;
+padding:18px 18px 14px; border-bottom:1px solid var(–bd);
+}
+.sidebar-brand { font-size:17px; font-weight:800; color:var(–p); }
+.sidebar-close { font-size:20px; color:var(–tf); cursor:pointer; }
+.sidebar-user {
+display:flex; align-items:center; gap:10px;
+padding:14px 18px; border-bottom:1px solid var(–bd);
+background:var(–w);
+}
+.sidebar-av {
+width:36px; height:36px; border-radius:50%;
+background:var(–pp); color:var(–p);
+display:flex; align-items:center; justify-content:center;
+font-weight:800; font-size:13px; flex-shrink:0;
+}
+.sidebar-uname { font-size:13px; font-weight:700; color:var(–t); }
+.sidebar-urole { font-size:10px; color:var(–tf); margin-top:1px; }
+.sidebar-sec { padding:14px 18px 0; }
+.sidebar-sec-lbl {
+font-size:9px; font-weight:700; letter-spacing:0.14em;
+text-transform:uppercase; color:var(–tf); margin-bottom:6px;
+}
+.sidebar-item {
+display:flex; align-items:center; gap:10px;
+padding:10px 10px; border-radius:10px; margin-bottom:1px; cursor:pointer;
+}
+.sidebar-item.active { background:var(–pp); }
+.sidebar-item-i { font-size:16px; width:22px; text-align:center; }
+.sidebar-item-l { font-size:13px; font-weight:500; color:var(–t); }
+.sidebar-item.active .sidebar-item-l { color:var(–p); font-weight:700; }
+.sidebar-logout {
+margin:14px 18px 20px;
+display:flex; align-items:center; gap:8px;
+padding:10px 14px; border-radius:10px;
+border:1.5px solid var(–bd); cursor:pointer;
+font-size:12.5px; font-weight:600; color:var(–pm);
+}
+.sidebar-dismiss { flex:1; }
+
+
+/* ── STAT CARDS (Crumbella Design System — full row with icon) ── */
+.stat-list { padding:0 14px; display:flex; flex-direction:column; gap:8px; margin-top:2px; }
+.stat-row {
+background:var(–w); border-radius:14px; border:1px solid var(–bd);
+padding:13px 16px; display:flex; align-items:center; gap:14px;
+box-shadow:0 1px 4px var(–sh);
+}
+.stat-icon {
+width:40px; height:40px; border-radius:12px;
+display:flex; align-items:center; justify-content:center;
+font-size:18px; flex-shrink:0;
+}
+.stat-lbl { font-size:11px; color:var(–tm); margin-bottom:3px; }
+.stat-val { font-size:22px; font-weight:800; color:var(–t); line-height:1; }
+.stat-sub { font-size:10px; color:var(–tf); margin-top:2px; }
+
+
+/* ── STAT GRID 2-COL (for summary) ── */
+.sgrid { display:grid; grid-template-columns:1fr 1fr; gap:8px; padding:0 14px; margin-top:2px; }
+.sc {
+background:var(–w); border-radius:14px; border:1px solid var(–bd);
+padding:12px 13px; box-shadow:0 1px 4px var(–sh);
+}
+.sc-lbl { font-size:10px; color:var(–tm); margin-bottom:4px; font-weight:500; }
+.sc-val { font-size:22px; font-weight:800; color:var(–t); line-height:1; }
+.sc-sub { font-size:9.5px; color:var(–tf); margin-top:3px; }
+.sc-icon { font-size:16px; margin-bottom:6px; }
+
+
+/* ── SECTION HEADER ── */
+.shdr { display:flex; justify-content:space-between; align-items:center; padding:16px 14px 8px; }
+.shdr-t { font-size:15px; font-weight:700; color:var(–t); }
+.shdr-s { font-size:11px; color:var(–tm); margin-top:1px; }
+.shdr-a { font-size:12px; color:var(–p); font-weight:600; cursor:pointer; }
+
+
+/* ── FILTER CHIPS (Crumbella Design System) ── */
+.chips { display:flex; gap:7px; padding:0 14px; overflow-x:auto; scrollbar-width:none; }
+.chips::-webkit-scrollbar { display:none; }
+.chip {
+flex-shrink:0; padding:7px 14px; border-radius:20px;
+font-size:12px; font-weight:500; border:1.5px solid var(–bd);
+color:var(–tm); background:var(–w); white-space:nowrap; cursor:pointer;
+}
+.chip.on { background:var(–pa); border-color:var(–pa); color:white; font-weight:700; }
+
+
+/* ── CARDS ── */
+.card {
+margin:0 14px 10px; background:var(–w);
+border-radius:14px; border:1px solid var(–bd);
+box-shadow:0 1px 4px var(–sh); overflow:hidden;
+}
+.card-hdr {
+display:flex; align-items:center; gap:8px;
+padding:11px 14px; border-bottom:1px solid var(–bd);
+}
+.card-hdr-t { font-size:14px; font-weight:700; color:var(–t); }
+.card-hdr-s { font-size:11px; color:var(–tf); }
+
+
+/* ── STATUS BADGES ── */
+.sb { display:inline-flex; align-items:center; padding:3px 9px; border-radius:20px; font-size:10px; font-weight:600; }
+.sb-prod { background:var(–goldp); color:var(–gold); }
+.sb-late { background:var(–redp); color:var(–red); }
+.sb-ready { background:var(–gp); color:var(–g); }
+.sb-confirm { background:var(–pp); color:var(–pa); }
+.sb-done { background:var(–bluep); color:var(–blue); }
+
+
+/* ── DIFF BADGES ── */
+.db { display:inline-flex; padding:2px 6px; border-radius:5px; font-size:9px; font-weight:700; }
+.db-s { background:var(–gp); color:var(–g); }
+.db-n { background:var(–bluep); color:var(–blue); }
+.db-h { background:var(–goldp); color:var(–gold); }
+.db-a { background:var(–pp); color:var(–pa); }
+.db-e { background:var(–redp); color:var(–red); }
+
+
+/* ── SEARCH ── */
+.search {
+margin:12px 14px 0; background:var(–w);
+border:1.5px solid var(–bd); border-radius:12px;
+display:flex; align-items:center; gap:8px; padding:10px 13px;
+box-shadow:0 1px 4px var(–sh);
+}
+.search-txt { font-size:12.5px; color:var(–tf); }
+
+
+/* ── CASHFLOW CARD ── */
+.cf-card {
+margin:12px 14px 0; background:var(–w);
+border-radius:14px; border:1px solid var(–bd);
+box-shadow:0 1px 4px var(–sh); overflow:hidden;
+}
+.cf-top {
+display:flex; justify-content:space-between; align-items:center;
+padding:13px 16px; border-bottom:1px solid var(–bd);
+}
+.cf-today-lbl { font-size:11px; color:var(–tm); margin-bottom:3px; }
+.cf-today-val { font-size:24px; font-weight:800; color:var(–t); line-height:1; }
+.cf-date { font-size:10px; color:var(–tf); text-align:right; }
+.cf-icon { width:38px; height:38px; border-radius:11px; background:var(–pp); display:flex; align-items:center; justify-content:center; font-size:18px; }
+.cf-items { padding:4px 0; }
+.cf-item {
+display:flex; align-items:center; gap:10px;
+padding:9px 16px; border-bottom:1px solid var(–bd);
+}
+.cf-item:last-child { border-bottom:none; }
+.cf-item-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+.cf-item-desc { flex:1; font-size:11.5px; color:var(–tm); }
+.cf-item-val { font-family:var(–fm); font-size:11.5px; font-weight:500; color:var(–t); }
+
+
+/* ── ORDER CARD ── */
+.oc {
+margin:0 14px 8px; background:var(–w);
+border-radius:14px; border:1px solid var(–bd);
+box-shadow:0 1px 4px var(–sh); overflow:hidden;
+}
+.oc-top { display:flex; justify-content:space-between; align-items:flex-start; padding:11px 14px 9px; border-bottom:1px solid var(–bd); }
+.oc-name { font-weight:700; font-size:14px; color:var(–t); }
+.oc-id { font-family:var(–fm); font-size:9.5px; color:var(–tf); margin-top:1px; }
+.oc-mid { padding:9px 14px; border-bottom:1px solid var(–bd); }
+.oc-product { font-size:12.5px; color:var(–t); font-weight:500; }
+.oc-sub { font-size:10.5px; color:var(–tm); margin-top:2px; }
+.oc-bot { padding:9px 14px; display:flex; justify-content:space-between; align-items:center; }
+.oc-procs { display:flex; gap:5px; }
+.proc { display:flex; align-items:center; gap:4px; padding:3px 8px; border-radius:20px; font-size:10px; font-weight:500; border:1px solid; }
+.proc.ok { background:var(–gp); border-color:#A8D0B8; color:var(–g); }
+.proc.no { background:var(–bg); border-color:var(–bd); color:var(–tm); }
+.pdot { width:5px; height:5px; border-radius:50%; }
+.pdot-ok { background:var(–g); } .pdot-no { background:var(–bd); }
+
+
+/* ── PROGRESS BAR ── */
+.prog { height:5px; background:var(–bd); border-radius:3px; overflow:hidden; margin-top:7px; }
+.prog-fill { height:100%; border-radius:3px; }
+.pf-o { background:var(–pa); } .pf-g { background:var(–g); } .pf-r { background:var(–red); }
+.prog-row { display:flex; justify-content:space-between; margin-top:5px; }
+
+
+/* ── STAFF CARD (dashboard shortcut) ── */
+.staff-shortcut {
+margin:0 14px 8px; background:var(–w);
+border-radius:14px; border:1px solid var(–bd);
+box-shadow:0 1px 4px var(–sh); overflow:hidden; cursor:pointer;
+}
+.sc-hdr { display:flex; align-items:center; gap:11px; padding:12px 14px; border-bottom:1px solid var(–bd); }
+.sc-av { width:34px; height:34px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:13px; flex-shrink:0; }
+.av-d { background:var(–pp); color:var(–p); }
+.av-m { background:var(–gp); color:var(–g); }
+.av-t { background:var(–bluep); color:var(–blue); }
+.sc-name { font-size:13.5px; font-weight:700; color:var(–t); }
+.sc-role { font-size:10px; color:var(–tf); margin-top:1px; }
+.sc-body { padding:11px 14px; }
+.sc-tok-row { display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:6px; }
+.sc-tok-lbl { font-size:10px; color:var(–tm); }
+.sc-tok-val { font-size:18px; font-weight:800; color:var(–t); line-height:1; font-family:var(–fm); }
+.sc-tok-sisa { font-size:10px; font-weight:600; }
+.assign-chip {
+background:var(–p); color:white; border-radius:8px;
+padding:5px 12px; font-size:10.5px; font-weight:700; cursor:pointer;
+border:none; font-family:var(–ff);
+}
+
+
+/* ── PRODUCTION CARD ── */
+.pcard {
+margin:0 14px 8px; background:var(–w);
+border-radius:14px; border:1px solid var(–bd);
+box-shadow:0 1px 4px var(–sh); overflow:hidden;
+}
+.pc-top { display:flex; justify-content:space-between; align-items:flex-start; padding:11px 14px 9px; border-bottom:1px solid var(–bd); }
+.pc-title { font-size:13px; font-weight:700; color:var(–t); }
+.pc-meta { font-family:var(–fm); font-size:9.5px; color:var(–tf); margin-top:1px; }
+.pc-procs { padding:9px 14px; display:flex; flex-direction:column; gap:5px; }
+.pc-proc {
+display:flex; justify-content:space-between; align-items:center;
+padding:8px 11px; border-radius:10px; border:1px solid;
+}
+.pc-proc.ok { background:var(–gp); border-color:#A8D0B8; }
+.pc-proc.no { background:var(–bg); border-color:var(–bd); }
+.pc-proc-l { display:flex; align-items:center; gap:7px; }
+.pc-proc-dot { width:7px; height:7px; border-radius:50%; }
+.pc-proc-name { font-size:11.5px; font-weight:500; }
+.pc-proc-pct { font-size:9px; opacity:0.6; margin-left:3px; }
+.pc-proc-r { display:flex; align-items:center; gap:6px; }
+.pc-proc-who { font-size:10px; font-weight:600; color:var(–g); }
+.pc-proc-tok { font-family:var(–fm); font-size:10px; color:var(–tm); }
+.pc-foot { padding:9px 14px; display:flex; justify-content:space-between; align-items:center; background:var(–bg); border-top:1px solid var(–bd); }
+
+
+/* ── ASSIGN SCREEN ── */
+.assign-hdr {
+background:var(–w); border-bottom:1px solid var(–bd);
+padding:12px 16px;
+}
+.assign-back { display:flex; align-items:center; gap:8px; margin-bottom:10px; cursor:pointer; }
+.assign-back-icon { font-size:16px; color:var(–tm); }
+.assign-back-lbl { font-size:12px; color:var(–tm); }
+.assign-staff-row { display:flex; align-items:center; gap:10px; }
+.assign-staff-name { font-size:16px; font-weight:800; color:var(–t); }
+.assign-staff-role { font-size:10.5px; color:var(–tf); margin-top:1px; }
+.assign-capacity {
+margin:10px 14px 0; background:var(–w);
+border-radius:12px; border:1px solid var(–bd);
+padding:11px 14px; box-shadow:0 1px 4px var(–sh);
+}
+.ac-row { display:flex; justify-content:space-between; align-items:center; margin-bottom:7px; }
+.ac-lbl { font-size:11px; color:var(–tm); }
+.ac-val { font-family:var(–fm); font-size:13px; font-weight:600; color:var(–t); }
+.ac-note { font-size:10px; color:var(–tf); margin-top:5px; }
+
+
+.ao {
+margin:0 14px 8px; background:var(–w);
+border-radius:14px; border:1px solid var(–bd);
+box-shadow:0 1px 4px var(–sh); overflow:hidden;
+}
+.ao.highlight { border-color:var(–pa); }
+.ao-top { display:flex; justify-content:space-between; align-items:flex-start; padding:11px 14px 9px; border-bottom:1px solid var(–bd); }
+.ao-name { font-size:13.5px; font-weight:700; color:var(–t); }
+.ao-meta { font-size:10px; color:var(–tm); margin-top:2px; }
+.ao-procs { padding:9px 14px; display:flex; flex-direction:column; gap:5px; }
+.ao-proc {
+display:flex; justify-content:space-between; align-items:center;
+padding:8px 11px; border-radius:10px; border:1px solid;
+}
+.ao-proc.free { background:var(–bg); border-color:var(–bd); }
+.ao-proc.taken { background:var(–gp); border-color:#A8D0B8; }
+.ao-proc-l { display:flex; align-items:center; gap:7px; }
+.ao-proc-dot { width:7px; height:7px; border-radius:50%; }
+.ao-proc-name { font-size:11.5px; font-weight:500; }
+.ao-proc-pct { font-size:9px; opacity:0.6; margin-left:3px; }
+.ao-proc-r { display:flex; align-items:center; gap:6px; }
+.ao-who { font-size:10px; font-weight:600; }
+.ao-tok { font-family:var(–fm); font-size:10px; color:var(–tm); }
+.ao-btn {
+background:var(–p); color:white; border:none;
+border-radius:7px; padding:4px 11px; font-size:10px;
+font-weight:700; font-family:var(–ff); cursor:pointer;
+}
+
+
+/* ── DELIVERY ROW ── */
+.deliv {
+margin:0 14px 7px; background:var(–w);
+border-radius:12px; border:1px solid var(–bd);
+padding:11px 14px; display:flex; justify-content:space-between;
+align-items:center; box-shadow:0 1px 4px var(–sh);
+}
+.deliv-l .dn { font-weight:700; font-size:13px; color:var(–t); }
+.deliv-l .di { font-size:10px; color:var(–tm); margin-top:1px; }
+.deliv-l .dc { font-family:var(–fm); font-size:9px; color:var(–tf); margin-top:2px; }
+.deliv-r { text-align:right; }
+.deliv-r .dd { font-size:12px; font-weight:600; color:var(–t); }
+.deliv-r .dt { font-size:10px; color:var(–tm); margin-top:1px; }
+
+
+/* ── ALERT BANNER ── */
+.alert {
+margin:0 14px 10px; background:var(–redp);
+border:1px solid #E8A0A0; border-radius:12px;
+padding:10px 14px; display:flex; align-items:center; gap:9px;
+}
+.alert-t { font-size:12px; font-weight:700; color:var(–red); }
+.alert-s { font-size:10px; color:var(–red); opacity:0.75; margin-top:1px; }
+
+
+/* ── TABLE (Crumbella Design System) ── */
+.tbl { margin:0 14px; background:var(–w); border-radius:14px; border:1px solid var(–bd); overflow:hidden; box-shadow:0 1px 4px var(–sh); }
+.tbl-hdr { display:flex; padding:9px 14px; border-bottom:1.5px solid var(–bd); }
+.tbl-hdr-cell { font-size:10px; font-weight:700; color:var(–tf); text-transform:uppercase; letter-spacing:0.06em; }
+.tbl-row { display:flex; padding:10px 14px; border-bottom:1px solid var(–bd); align-items:center; }
+.tbl-row:last-child { border-bottom:none; }
+.tbl-cell { font-size:12px; color:var(–t); }
+.tbl-cell.muted { color:var(–tm); }
+
+
+/* ── MISC ── */
+.sp8{height:8px} .sp12{height:12px} .sp16{height:16px} .sp20{height:20px}
+.divider { height:1px; background:var(–bd); margin:12px 14px; }
+.tip {
+margin:4px 14px 14px; background:var(–goldp);
+border:1px solid #D8B870; border-radius:10px;
+padding:8px 12px; display:flex; gap:8px; align-items:flex-start;
+}
+.tip-t { font-size:10.5px; color:#7A5000; line-height:1.5; }
+.tip-i { font-size:13px; flex-shrink:0; }
+</style>
+
+
+</head>
+<body>
+
+
+<div class="page-title">Crumbella</div>
+<div class="page-sub">Owner Dashboard v3 · Flat Warm · Slide-in Sidebar</div>
+
+
+<!-- ═══ ROW 1: SIDEBAR + LOGIN ═══ -->
+
+
+<div class="sec-label">Navigation & Entry</div>
+<div class="row">
+
+
+<!-- SCREEN 1: SIDEBAR (slide-in state) -->
+
+
+<div class="col">
+  <div class="col-lbl">☰ Sidebar — Slide In</div>
+  <div class="phone">
+    <div class="sbar"><span class="sbar-t">09.15</span><span class="sbar-i">▲▲▲ 🔋</span></div>
+    <div class="scr" style="position:relative;min-height:700px;background:var(--bg);">
+      <!-- Blurred background content -->
+      <div style="filter:blur(2px);opacity:0.4;padding:10px 16px;">
+        <div style="height:20px;background:var(--bd);border-radius:6px;margin-bottom:10px;"></div>
+        <div style="height:14px;background:var(--bd);border-radius:6px;margin-bottom:20px;width:60%;"></div>
+        <div style="height:60px;background:var(--w);border-radius:14px;margin-bottom:8px;"></div>
+        <div style="height:60px;background:var(--w);border-radius:14px;margin-bottom:8px;"></div>
+        <div style="height:60px;background:var(--w);border-radius:14px;margin-bottom:8px;"></div>
+      </div>
+      <!-- Sidebar overlay -->
+      <div class="sidebar-overlay" style="position:absolute;top:0;left:0;right:0;bottom:0;">
+        <div class="sidebar">
+          <div class="sidebar-hdr">
+            <div class="sidebar-brand">Crumbella</div>
+            <div class="sidebar-close">×</div>
+          </div>
+          <div class="sidebar-user">
+            <div class="sidebar-av">FE</div>
+            <div>
+              <div class="sidebar-uname">Felicia Elvina</div>
+              <div class="sidebar-urole">Owner · Crumbella</div>
+            </div>
+          </div>
+          <div class="sidebar-sec">
+            <div class="sidebar-sec-lbl">Bakery</div>
+            <div class="sidebar-item active"><div class="sidebar-item-i">📊</div><div class="sidebar-item-l">Dashboard</div></div>
+            <div class="sidebar-item"><div class="sidebar-item-i">📋</div><div class="sidebar-item-l">Bookings</div></div>
+            <div class="sidebar-item"><div class="sidebar-item-i">📅</div><div class="sidebar-item-l">Calendar</div></div>
+            <div class="sidebar-item"><div class="sidebar-item-i">🏭</div><div class="sidebar-item-l">Production</div></div>
+            <div class="sidebar-item"><div class="sidebar-item-i">📈</div><div class="sidebar-item-l">Reports</div></div>
+            <div class="sidebar-item"><div class="sidebar-item-i">🗂</div><div class="sidebar-item-l">Catalog</div></div>
+            <div class="sidebar-item"><div class="sidebar-item-i">📉</div><div class="sidebar-item-l">Analytics</div></div>
+          </div>
+          <div class="sidebar-sec" style="margin-top:8px;">
+            <div class="sidebar-sec-lbl">Inventory</div>
+            <div class="sidebar-item"><div class="sidebar-item-i">📦</div><div class="sidebar-item-l">Products</div></div>
+            <div class="sidebar-item"><div class="sidebar-item-i">✨</div><div class="sidebar-item-l">Add On</div></div>
+          </div>
+          <div class="sidebar-sec" style="margin-top:8px;">
+            <div class="sidebar-sec-lbl">Settings</div>
+            <div class="sidebar-item"><div class="sidebar-item-i">🏢</div><div class="sidebar-item-l">Business</div></div>
+            <div class="sidebar-item"><div class="sidebar-item-i">⚙️</div><div class="sidebar-item-l">Bakery Settings</div></div>
+            <div class="sidebar-item"><div class="sidebar-item-i">👤</div><div class="sidebar-item-l">Profile</div></div>
+            <div class="sidebar-item"><div class="sidebar-item-i">👥</div><div class="sidebar-item-l">Staff</div></div>
+          </div>
+          <div class="sidebar-logout">⟵ &nbsp;Logout</div>
+        </div>
+        <div class="sidebar-dismiss"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- SCREEN 2: LOGIN -->
+
+
+<div class="col">
+  <div class="col-lbl">🔐 Login</div>
+  <div class="phone">
+    <div class="sbar"><span class="sbar-t">09.15</span><span class="sbar-i">▲▲▲ 🔋</span></div>
+    <div class="scr" style="background:var(--bg);padding:32px 20px;">
+      <div style="text-align:center;margin-bottom:28px;">
+        <div style="font-size:28px;font-weight:800;color:var(--p);">Crumbella</div>
+        <div style="font-size:11px;color:var(--tm);margin-top:3px;">Internal Dashboard</div>
+      </div>
+      <div style="background:var(--w);border-radius:18px;padding:24px 20px;border:1px solid var(--bd);box-shadow:0 2px 12px var(--sh);">
+        <div style="font-size:20px;font-weight:800;color:var(--t);margin-bottom:4px;">Selamat Datang</div>
+        <div style="font-size:11.5px;color:var(--tm);margin-bottom:22px;line-height:1.5;">Masuk ke dashboard Crumbella untuk kelola operasional harian</div>
+        <div style="font-size:10.5px;font-weight:700;color:var(--t);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:5px;">Email</div>
+        <div style="background:var(--bg);border:1.5px solid var(--bd);border-radius:11px;padding:11px 13px;font-size:13px;color:var(--t);margin-bottom:14px;">feliciaelvina1509@gmail.com</div>
+        <div style="font-size:10.5px;font-weight:700;color:var(--t);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:5px;">Password</div>
+        <div style="background:var(--bg);border:1.5px solid var(--bd);border-radius:11px;padding:11px 13px;font-size:15px;color:var(--t);margin-bottom:20px;display:flex;justify-content:space-between;align-items:center;letter-spacing:3px;">
+          <span>••••••••••</span><span style="font-size:14px;letter-spacing:0;">👁</span>
+        </div>
+        <div style="background:var(--pa);color:white;border-radius:11px;padding:13px;text-align:center;font-size:13.5px;font-weight:700;cursor:pointer;margin-bottom:14px;">Masuk →</div>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+          <div style="flex:1;height:1px;background:var(--bd);"></div>
+          <div style="font-size:11px;color:var(--tf);">atau</div>
+          <div style="flex:1;height:1px;background:var(--bd);"></div>
+        </div>
+        <div style="background:var(--w);border:1.5px solid var(--bd);border-radius:11px;padding:11px;text-align:center;font-size:13px;font-weight:600;color:var(--t);cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;">
+          <span style="font-size:16px;">G</span> Masuk dengan Google
+        </div>
+      </div>
+      <div style="text-align:center;font-size:10.5px;color:var(--tf);margin-top:20px;">© 2026 Crumbella Admin. All rights reserved.</div>
+    </div>
+  </div>
+</div>
+
+
+</div><!-- end row 1 -->
+
+
+<!-- ═══ ROW 2: DASHBOARD ═══ -->
+
+
+<div class="sec-label">Bakery Dashboard</div>
+<div class="row">
+
+
+<!-- SCREEN 3: BAKERY DASHBOARD -->
+
+
+<div class="col">
+  <div class="col-lbl">🏠 Bakery Dashboard</div>
+  <div class="phone">
+    <div class="sbar"><span class="sbar-t">09.15</span><span class="sbar-i">▲▲▲ 🔋</span></div>
+    <div class="scr">
+
+
+```
+  <!-- TOP BAR -->
+  <div class="topbar">
+    <div class="topbar-menu">☰</div>
+    <div>
+      <div class="topbar-title">Dashboard</div>
+      <div class="topbar-sub">Rabu, 29 Apr 2026</div>
+    </div>
+    <div class="topbar-avatar">FE</div>
+  </div>
+
+
+  <!-- CASH FLOW HARI INI - total only -->
+  <div class="cf-card">
+    <div class="cf-top">
+      <div>
+        <div class="cf-today-lbl">💰 Uang Masuk Hari Ini</div>
+        <div class="cf-today-val">Rp4.750.000</div>
+        <div style="font-size:10px;color:var(--tf);margin-top:3px;">Total semua payment diterima hari ini · 3 transaksi</div>
+      </div>
+      <div class="cf-icon">💰</div>
+    </div>
+  </div>
+
+
+  <!-- STAT GRID -->
+  <div class="sp12"></div>
+  <div class="sgrid">
+    <div class="sc"><div class="sc-icon">📦</div><div class="sc-lbl">Order Aktif</div><div class="sc-val">13</div><div class="sc-sub">In production</div></div>
+    <div class="sc"><div class="sc-icon">⚠️</div><div class="sc-lbl">Terlambat</div><div class="sc-val" style="color:var(--red);">2</div><div class="sc-sub">Perlu perhatian</div></div>
+    <div class="sc"><div class="sc-icon">📅</div><div class="sc-lbl">Due Today</div><div class="sc-val">0</div><div class="sc-sub">Hari ini</div></div>
+    <div class="sc"><div class="sc-icon">✅</div><div class="sc-lbl">Selesai</div><div class="sc-val" style="color:var(--g);">3</div><div class="sc-sub">Bulan ini</div></div>
+  </div>
+
+
+  <!-- ALERT -->
+  <div class="sp12"></div>
+  <div class="alert">
+    <div style="font-size:16px;">🚨</div>
+    <div><div class="alert-t">2 order terlambat</div><div class="alert-s">Adina (10 Apr) · Rima (24 Apr)</div></div>
+  </div>
+
+
+  <!-- STAFF CAPACITY -->
+  <div class="shdr">
+    <div><div class="shdr-t">Kapasitas Staff</div><div class="shdr-s">Tap nama untuk assign tugas</div></div>
+  </div>
+
+
+  <div class="staff-shortcut">
+    <div class="sc-hdr">
+      <div class="sc-av av-d">D</div>
+      <div style="flex:1;">
+        <div class="sc-name">Adinda Safitri</div>
+        <div class="sc-role">Decorator · target 250 token/hari</div>
+      </div>
+      <button class="assign-chip">+ Assign</button>
+    </div>
+    <div class="sc-body">
+      <div class="sc-tok-row">
+        <div><div class="sc-tok-lbl">Token hari ini</div><div class="sc-tok-val">180<span style="font-size:13px;color:var(--tf);font-weight:400;"> / 250</span></div></div>
+        <div style="text-align:right;"><div class="sc-tok-lbl">Sisa</div><div class="sc-tok-sisa" style="color:var(--g);font-size:16px;font-weight:700;font-family:var(--fm);">70</div></div>
+      </div>
+      <div class="prog"><div class="prog-fill pf-o" style="width:72%;"></div></div>
+      <div class="prog-row"><div style="font-size:10px;color:var(--pa);font-weight:600;">72% terpakai</div><div style="font-size:10px;color:var(--tf);">28% available</div></div>
+    </div>
+  </div>
+
+
+  <div class="staff-shortcut" style="opacity:0.55;">
+    <div class="sc-hdr">
+      <div class="sc-av av-m">M</div>
+      <div style="flex:1;">
+        <div class="sc-name">Maya Faradilla</div>
+        <div class="sc-role">Produksi & Packing · KPI Kualitatif</div>
+      </div>
+    </div>
+    <div class="sc-body">
+      <div style="font-size:11px;color:var(--tm);font-style:italic;">KPI Maya tidak berbasis token.</div>
+    </div>
+  </div>
+
+
+  <!-- UPCOMING DELIVERIES -->
+  <div class="shdr"><div class="shdr-t">Upcoming Deliveries</div><div class="shdr-a">Lihat semua</div></div>
+  <div class="deliv">
+    <div class="deliv-l"><div class="dn">Adina</div><div class="di">2 item · Mario theme</div><div class="dc">AD-06</div></div>
+    <div class="deliv-r"><div class="dd" style="color:var(--red);">10 Apr 2026</div><div class="dt">10:00 · Pickup</div><div style="margin-top:4px;"><span class="sb sb-late">Terlambat</span></div></div>
+  </div>
+  <div class="deliv">
+    <div class="deliv-l"><div class="dn">Meta</div><div class="di">1 item · Custom Cookies</div><div class="dc">ME533</div></div>
+    <div class="deliv-r"><div class="dd">24 Apr 2026</div><div class="dt">14:00 · Gojek</div><div style="margin-top:4px;"><span class="sb sb-prod">In Production</span></div></div>
+  </div>
+  <div class="deliv">
+    <div class="deliv-l"><div class="dn">Karen</div><div class="di">1 item · Hard Cookies</div><div class="dc">ORD-1776</div></div>
+    <div class="deliv-r"><div class="dd">25 Apr 2026</div><div class="dt">11:00 · Pickup</div><div style="margin-top:4px;"><span class="sb sb-prod">In Production</span></div></div>
+  </div>
+  <div class="sp20"></div>
+</div>
+```
+
+
+  </div>
+</div>
+
+
+<!-- SCREEN 4: BOOKINGS LIST -->
+
+
+<div class="col">
+  <div class="col-lbl">📋 Bookings</div>
+  <div class="phone">
+    <div class="sbar"><span class="sbar-t">09.15</span><span class="sbar-i">▲▲▲ 🔋</span></div>
+    <div class="scr">
+      <div class="topbar">
+        <div class="topbar-menu">☰</div>
+        <div><div class="topbar-title">Bookings</div><div class="topbar-sub">15 order aktif</div></div>
+        <div style="background:var(--pa);color:white;border-radius:20px;padding:6px 13px;font-size:11.5px;font-weight:700;cursor:pointer;">+ Baru</div>
+      </div>
+
+
+```
+  <div class="search"><span>🔍</span><div class="search-txt">Cari customer atau booking ID...</div></div>
+
+
+  <div style="padding:10px 14px 0;">
+    <div class="chips">
+      <div class="chip on">Semua</div>
+      <div class="chip">Hari Ini</div>
+      <div class="chip">Besok</div>
+      <div class="chip">In Production</div>
+      <div class="chip">Terlambat</div>
+    </div>
+  </div>
+
+
+  <div class="shdr"><div class="shdr-t">15 order <span style="font-size:10px;color:var(--tf);font-weight:400;">· <span style="background:#FBF0D8;color:#9A6B10;font-size:9px;font-weight:700;padding:1px 6px;border-radius:10px;">DP</span> = belum lunas</span></div><div class="shdr-a">↕ Sort</div></div>
+
+
+  <div class="oc">
+    <div class="oc-top">
+      <div><div class="oc-name">Adina <span style="background:#FBF0D8;color:#9A6B10;font-size:9px;font-weight:700;padding:2px 7px;border-radius:20px;margin-left:4px;vertical-align:middle;">DP</span></div><div class="oc-id">AD-06</div></div>
+      <div style="text-align:right;"><div style="font-size:11px;color:var(--tm);">Delivery</div><div style="font-size:12px;font-weight:600;color:var(--t);">10 Apr 2026</div><div style="margin-top:3px;"><span class="sb sb-late">⚠ Terlambat</span></div></div>
+    </div>
+    <div class="oc-mid"><div class="oc-product">1× Real Cake + 20× Custom Cookies</div><div class="oc-sub">Mario theme · Pickup 10.00</div></div>
+    <div class="oc-bot">
+      <div class="oc-procs">
+        <div class="proc ok"><div class="pdot pdot-ok"></div>Lining</div>
+        <div class="proc ok"><div class="pdot pdot-ok"></div>Filling</div>
+        <div class="proc no"><div class="pdot pdot-no"></div>Finishing</div>
+      </div>
+      <span class="db db-e">Expert</span>
+    </div>
+  </div>
+
+
+  <div class="oc">
+    <div class="oc-top">
+      <div><div class="oc-name">Meta</div><div class="oc-id">ME533-240426</div></div>
+      <div style="text-align:right;"><div style="font-size:11px;color:var(--tm);">Delivery</div><div style="font-size:12px;font-weight:600;color:var(--t);">24 Apr 2026</div><div style="margin-top:3px;"><span class="sb sb-prod">In Production</span></div></div>
+    </div>
+    <div class="oc-mid"><div class="oc-product">150× Custom Cookies</div><div class="oc-sub">Gojek · 14.00</div></div>
+    <div class="oc-bot">
+      <div class="oc-procs">
+        <div class="proc ok"><div class="pdot pdot-ok"></div>Lining</div>
+        <div class="proc ok"><div class="pdot pdot-ok"></div>Filling</div>
+        <div class="proc ok"><div class="pdot pdot-ok"></div>Finishing</div>
+      </div>
+      <span class="db db-h">Hard</span>
+    </div>
+  </div>
+
+
+  <div class="oc">
+    <div class="oc-top">
+      <div><div class="oc-name">Nazza Putri <span style="background:#FBF0D8;color:#9A6B10;font-size:9px;font-weight:700;padding:2px 7px;border-radius:20px;margin-left:4px;vertical-align:middle;">DP</span></div><div class="oc-id">NA-260426</div></div>
+      <div style="text-align:right;"><div style="font-size:11px;color:var(--tm);">Delivery</div><div style="font-size:12px;font-weight:600;color:var(--t);">26 Apr 2026</div><div style="margin-top:3px;"><span class="sb sb-prod">In Production</span></div></div>
+    </div>
+    <div class="oc-mid"><div class="oc-product">60× Custom Cookies</div><div class="oc-sub">Pickup · 13.00</div></div>
+    <div class="oc-bot">
+      <div class="oc-procs">
+        <div class="proc no"><div class="pdot pdot-no"></div>Lining</div>
+        <div class="proc no"><div class="pdot pdot-no"></div>Filling</div>
+        <div class="proc no"><div class="pdot pdot-no"></div>Finishing</div>
+      </div>
+      <span class="db db-a">Advance</span>
+    </div>
+  </div>
+  <div class="sp20"></div>
+</div>
+```
+
+
+  </div>
+</div>
+
+
+</div><!-- end row 2 -->
+
+
+<!-- ═══ ROW 3: PRODUKSI + ASSIGN ═══ -->
+
+
+<div class="sec-label">Production & Assignment</div>
+<div class="row">
+
+
+<!-- SCREEN 5: PRODUKSI OVERVIEW -->
+
+
+<div class="col">
+  <div class="col-lbl">🏭 Produksi — Owner View</div>
+  <div class="phone">
+    <div class="sbar"><span class="sbar-t">09.15</span><span class="sbar-i">▲▲▲ 🔋</span></div>
+    <div class="scr">
+      <div class="topbar">
+        <div class="topbar-menu">☰</div>
+        <div><div class="topbar-title">Produksi</div><div class="topbar-sub">29 Apr 2026 · Queue aktif</div></div>
+        <div class="topbar-avatar">FE</div>
+      </div>
+
+
+```
+  <!-- STAT SUMMARY -->
+  <div class="sp12"></div>
+  <div class="sgrid">
+    <div class="sc"><div class="sc-icon">🪙</div><div class="sc-lbl">Total Token</div><div class="sc-val">1.407</div><div class="sc-sub">Semua order aktif</div></div>
+    <div class="sc"><div class="sc-icon">⚡</div><div class="sc-lbl">Belum Assign</div><div class="sc-val" style="color:var(--red);">8</div><div class="sc-sub">Proses kosong</div></div>
+    <div class="sc"><div class="sc-icon">📅</div><div class="sc-lbl">Due Today</div><div class="sc-val">0</div><div class="sc-sub">Jatuh tempo</div></div>
+    <div class="sc"><div class="sc-icon">✅</div><div class="sc-lbl">Foto Uploaded</div><div class="sc-val" style="color:var(--g);">3</div><div class="sc-sub">Selesai hari ini</div></div>
+  </div>
+
+
+  <!-- STAFF ASSIGN SHORTCUTS -->
+  <div class="shdr">
+    <div><div class="shdr-t">Assign per Staff</div><div class="shdr-s">Tap nama untuk langsung assign</div></div>
+  </div>
+
+
+  <div class="staff-shortcut">
+    <div class="sc-hdr">
+      <div class="sc-av av-d">D</div>
+      <div style="flex:1;">
+        <div class="sc-name">Adinda Safitri</div>
+        <div class="sc-role">Decorator · 180/250 token hari ini</div>
+      </div>
+      <button class="assign-chip">+ Assign</button>
+    </div>
+    <div class="sc-body">
+      <div class="prog"><div class="prog-fill pf-o" style="width:72%;"></div></div>
+      <div class="prog-row"><div style="font-size:10px;color:var(--pa);font-weight:600;">72% · sisa 70 token</div><div style="font-size:10px;color:var(--tf);">available</div></div>
+    </div>
+  </div>
+
+
+  <div class="staff-shortcut" style="opacity:0.5;">
+    <div class="sc-hdr">
+      <div class="sc-av av-t">T1</div>
+      <div style="flex:1;">
+        <div class="sc-name">Trainee A</div>
+        <div class="sc-role">Decorator Trainee · 60/150 token hari ini</div>
+      </div>
+      <button class="assign-chip">+ Assign</button>
+    </div>
+    <div class="sc-body">
+      <div class="prog"><div class="prog-fill pf-g" style="width:40%;"></div></div>
+      <div class="prog-row"><div style="font-size:10px;color:var(--g);font-weight:600;">40% · sisa 90 token</div><div style="font-size:10px;color:var(--tf);">masih banyak</div></div>
+    </div>
+  </div>
+
+
+  <!-- ORDER QUEUE -->
+  <div class="shdr"><div class="shdr-t">Queue Order</div><div class="shdr-a">Semua →</div></div>
+
+
+  <div class="pcard">
+    <div class="pc-top">
+      <div>
+        <div class="pc-title">Adina — Mario Cookies</div>
+        <div class="pc-meta">AD-06 · Expert · 200 token</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="color:var(--red);font-size:10px;font-weight:700;">⚠ Terlambat</div>
+        <div style="font-size:12px;font-weight:600;color:var(--t);">10 Apr</div>
+      </div>
+    </div>
+    <div class="pc-procs">
+      <div class="pc-proc ok">
+        <div class="pc-proc-l"><div class="pc-proc-dot" style="background:var(--g);"></div><div class="pc-proc-name" style="color:var(--g);">Lining<span class="pc-proc-pct">25%</span></div></div>
+        <div class="pc-proc-r"><div class="pc-proc-who">Adinda</div><div class="pc-proc-tok">50 tok</div></div>
+      </div>
+      <div class="pc-proc ok">
+        <div class="pc-proc-l"><div class="pc-proc-dot" style="background:var(--g);"></div><div class="pc-proc-name" style="color:var(--g);">Filling<span class="pc-proc-pct">25%</span></div></div>
+        <div class="pc-proc-r"><div class="pc-proc-who" style="color:var(--blue);">Trainee A</div><div class="pc-proc-tok">50 tok</div></div>
+      </div>
+      <div class="pc-proc no">
+        <div class="pc-proc-l"><div class="pc-proc-dot" style="background:var(--bd);"></div><div class="pc-proc-name" style="color:var(--tm);">Finishing<span class="pc-proc-pct">50%</span></div></div>
+        <div class="pc-proc-r"><div style="font-size:10px;color:var(--tf);">Belum assigned</div><div class="pc-proc-tok">100 tok</div></div>
+      </div>
+    </div>
+    <div class="pc-foot"><span class="sb sb-prod">In Production</span><span style="font-size:10.5px;color:var(--tm);">2/3 proses</span></div>
+  </div>
+
+
+  <div class="pcard">
+    <div class="pc-top">
+      <div>
+        <div class="pc-title">Nazza Putri — Custom Cookies</div>
+        <div class="pc-meta">NA-260426 · Advance · 240 token</div>
+      </div>
+      <div style="font-size:12px;font-weight:600;color:var(--t);">26 Apr</div>
+    </div>
+    <div class="pc-procs">
+      <div class="pc-proc no">
+        <div class="pc-proc-l"><div class="pc-proc-dot" style="background:var(--bd);"></div><div class="pc-proc-name" style="color:var(--tm);">Lining<span class="pc-proc-pct">25%</span></div></div>
+        <div class="pc-proc-r"><div style="font-size:10px;color:var(--tf);">Belum</div><div class="pc-proc-tok">60 tok</div></div>
+      </div>
+      <div class="pc-proc no">
+        <div class="pc-proc-l"><div class="pc-proc-dot" style="background:var(--bd);"></div><div class="pc-proc-name" style="color:var(--tm);">Filling<span class="pc-proc-pct">25%</span></div></div>
+        <div class="pc-proc-r"><div style="font-size:10px;color:var(--tf);">Belum</div><div class="pc-proc-tok">60 tok</div></div>
+      </div>
+      <div class="pc-proc no">
+        <div class="pc-proc-l"><div class="pc-proc-dot" style="background:var(--bd);"></div><div class="pc-proc-name" style="color:var(--tm);">Finishing<span class="pc-proc-pct">50%</span></div></div>
+        <div class="pc-proc-r"><div style="font-size:10px;color:var(--tf);">Belum</div><div class="pc-proc-tok">120 tok</div></div>
+      </div>
+    </div>
+    <div class="pc-foot"><span class="sb sb-prod">In Production</span><span style="font-size:10.5px;color:var(--red);font-weight:600;">0/3 proses !</span></div>
+  </div>
+  <div class="sp20"></div>
+</div>
+```
+
+
+  </div>
+</div>
+
+
+<!-- SCREEN 6: ASSIGN SCREEN -->
+
+
+<div class="col">
+  <div class="col-lbl">🎯 Assign — Adinda</div>
+  <div class="phone">
+    <div class="sbar"><span class="sbar-t">09.15</span><span class="sbar-i">▲▲▲ 🔋</span></div>
+    <div class="scr">
+
+
+```
+  <!-- HEADER: staff sudah terkunci -->
+  <div class="assign-hdr">
+    <div class="assign-back">
+      <div class="assign-back-icon">←</div>
+      <div class="assign-back-lbl">Kembali ke Produksi</div>
+    </div>
+    <div class="assign-staff-row">
+      <div class="sc-av av-d" style="width:38px;height:38px;">D</div>
+      <div>
+        <div class="assign-staff-name">Adinda Safitri</div>
+        <div class="assign-staff-role">Decorator · Pilih proses yang akan di-assign</div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- CAPACITY INDICATOR -->
+  <div class="assign-capacity">
+    <div class="ac-row">
+      <div class="ac-lbl">Kapasitas hari ini</div>
+      <div class="ac-val">180 / 250 token</div>
+    </div>
+    <div class="prog"><div class="prog-fill pf-o" style="width:72%;"></div></div>
+    <div class="ac-note">Sisa 70 token · Tap Assign untuk tambahkan tugas</div>
+  </div>
+
+
+  <!-- FILTER TABS -->
+  <div style="padding:12px 14px 0;">
+    <div class="chips">
+      <div class="chip on">Belum Assigned</div>
+      <div class="chip">Assignment</div>
+      <div class="chip">Completed</div>
+    </div>
+  </div>
+  <div class="shdr"><div class="shdr-t">Order tersedia untuk di-assign</div></div>
+
+
+  <!-- ORDER 1: ada finishing kosong -->
+  <div class="ao highlight">
+    <div class="ao-top">
+      <div>
+        <div class="ao-name">Adina — Mario Cookies</div>
+        <div class="ao-meta">AD-06 · Expert · 200 token · <span style="color:var(--red);font-weight:700;">Terlambat</span></div>
+      </div>
+      <span class="db db-e">Expert</span>
+    </div>
+    <div class="ao-procs">
+      <div class="ao-proc taken">
+        <div class="ao-proc-l"><div class="ao-proc-dot" style="background:var(--g);"></div><div class="ao-proc-name" style="color:var(--g);">Lining<span class="ao-proc-pct">25%</span></div></div>
+        <div class="ao-proc-r"><div class="ao-who" style="color:var(--g);">Adinda ✓</div><div class="ao-tok">50 tok</div></div>
+      </div>
+      <div class="ao-proc taken">
+        <div class="ao-proc-l"><div class="ao-proc-dot" style="background:var(--blue);"></div><div class="ao-proc-name" style="color:var(--blue);">Filling<span class="ao-proc-pct">25%</span></div></div>
+        <div class="ao-proc-r"><div class="ao-who" style="color:var(--blue);">Trainee A ✓</div><div class="ao-tok">50 tok</div></div>
+      </div>
+      <div class="ao-proc free">
+        <div class="ao-proc-l"><div class="ao-proc-dot" style="background:var(--bd);"></div><div class="ao-proc-name" style="color:var(--tm);">Finishing<span class="ao-proc-pct">50%</span></div></div>
+        <div class="ao-proc-r"><div class="ao-who" style="color:var(--tf);">Kosong</div><div class="ao-tok">100 tok</div><button class="ao-btn">Assign</button></div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ORDER 2: semua kosong -->
+  <div class="ao">
+    <div class="ao-top">
+      <div>
+        <div class="ao-name">Nazza Putri — Custom Cookies</div>
+        <div class="ao-meta">NA-260426 · Advance · 240 token</div>
+      </div>
+      <span class="db db-a">Advance</span>
+    </div>
+    <div class="ao-procs">
+      <div class="ao-proc free">
+        <div class="ao-proc-l"><div class="ao-proc-dot" style="background:var(--bd);"></div><div class="ao-proc-name" style="color:var(--tm);">Lining<span class="ao-proc-pct">25%</span></div></div>
+        <div class="ao-proc-r"><div class="ao-who" style="color:var(--tf);">Kosong</div><div class="ao-tok">60 tok</div><button class="ao-btn">Assign</button></div>
+      </div>
+      <div class="ao-proc free">
+        <div class="ao-proc-l"><div class="ao-proc-dot" style="background:var(--bd);"></div><div class="ao-proc-name" style="color:var(--tm);">Filling<span class="ao-proc-pct">25%</span></div></div>
+        <div class="ao-proc-r"><div class="ao-who" style="color:var(--tf);">Kosong</div><div class="ao-tok">60 tok</div><button class="ao-btn">Assign</button></div>
+      </div>
+      <div class="ao-proc free">
+        <div class="ao-proc-l"><div class="ao-proc-dot" style="background:var(--bd);"></div><div class="ao-proc-name" style="color:var(--tm);">Finishing<span class="ao-proc-pct">50%</span></div></div>
+        <div class="ao-proc-r"><div class="ao-who" style="color:var(--tf);">Kosong</div><div class="ao-tok">120 tok</div><button class="ao-btn">Assign</button></div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ORDER 3 -->
+  <div class="ao">
+    <div class="ao-top">
+      <div>
+        <div class="ao-name">Karen — Hard Cookies</div>
+        <div class="ao-meta">ORD-1776 · Hard · 65 token</div>
+      </div>
+      <span class="db db-h">Hard</span>
+    </div>
+    <div class="ao-procs">
+      <div class="ao-proc taken">
+        <div class="ao-proc-l"><div class="ao-proc-dot" style="background:var(--g);"></div><div class="ao-proc-name" style="color:var(--g);">Lining<span class="ao-proc-pct">25%</span></div></div>
+        <div class="ao-proc-r"><div class="ao-who" style="color:var(--g);">Adinda ✓</div><div class="ao-tok">16 tok</div></div>
+      </div>
+      <div class="ao-proc free">
+        <div class="ao-proc-l"><div class="ao-proc-dot" style="background:var(--bd);"></div><div class="ao-proc-name" style="color:var(--tm);">Filling<span class="ao-proc-pct">25%</span></div></div>
+        <div class="ao-proc-r"><div class="ao-who" style="color:var(--tf);">Kosong</div><div class="ao-tok">16 tok</div><button class="ao-btn">Assign</button></div>
+      </div>
+      <div class="ao-proc free">
+        <div class="ao-proc-l"><div class="ao-proc-dot" style="background:var(--bd);"></div><div class="ao-proc-name" style="color:var(--tm);">Finishing<span class="ao-proc-pct">50%</span></div></div>
+        <div class="ao-proc-r"><div class="ao-who" style="color:var(--tf);">Kosong</div><div class="ao-tok">33 tok</div><button class="ao-btn">Assign</button></div>
+      </div>
+    </div>
+  </div>
+
+
+  <div class="tip">
+    <div class="tip-i">💡</div>
+    <div class="tip-t">Tap <strong>Assign</strong> untuk langsung assign proses ke Adinda. Token otomatis terhitung ke kapasitas hariannya.</div>
+  </div>
+  <div class="sp20"></div>
+</div>
+```
+
+
+  </div>
+</div>
+
+
+</div><!-- end row 3 -->
+
+
+<!-- ═══ NEW BOOKING ═══ -->
+
+
+<div class="sec-label">New Booking</div>
+<div class="row">
+
+
+<!-- SCREEN: NEW BOOKING — STEP 1 PARSER + UPLOAD -->
+
+
+<div class="col">
+  <div class="col-lbl">📝 New Booking — Input & Upload</div>
+  <div class="phone">
+    <div class="sbar"><span class="sbar-t">09.15</span><span class="sbar-i">▲▲▲ 🔋</span></div>
+    <div class="scr">
+
+
+```
+  <div class="topbar">
+    <div style="font-size:18px;color:var(--tm);cursor:pointer;">←</div>
+    <div style="flex:1;margin-left:8px;">
+      <div class="topbar-title">New Booking</div>
+      <div class="topbar-sub">Paste rekap WA lalu klik Parse</div>
+    </div>
+  </div>
+
+
+  <!-- PARSER SECTION -->
+  <div style="margin:12px 14px 0;background:var(--w);border-radius:14px;border:1px solid var(--bd);overflow:hidden;box-shadow:0 1px 4px var(--sh);">
+    <div style="padding:11px 14px;border-bottom:1px solid var(--bd);display:flex;align-items:center;justify-content:space-between;">
+      <div>
+        <div style="font-size:14px;font-weight:700;color:var(--t);">WhatsApp Parser</div>
+        <div style="font-size:10.5px;color:var(--tf);margin-top:1px;">Paste rekap order dari WA customer</div>
+      </div>
+      <div style="background:var(--gp);color:var(--g);font-size:9.5px;font-weight:700;padding:3px 9px;border-radius:20px;">Auto Detect</div>
+    </div>
+    <!-- Paste area -->
+    <div style="margin:12px 14px;background:var(--bg);border:1.5px dashed var(--bd);border-radius:11px;padding:14px;min-height:100px;">
+      <div style="font-size:12px;color:var(--tf);line-height:1.7;">
+        Nama: Adina<br>
+        No HP: 08118402606<br>
+        Produk: Real Cake + 20 cookies<br>
+        Tema: Mario<br>
+        Delivery: 8 April 2026 jam 10.00<br>
+        Metode: Pickup<br>
+        ...
+      </div>
+    </div>
+    <!-- Action buttons -->
+    <div style="padding:0 14px 14px;display:flex;gap:8px;flex-wrap:wrap;">
+      <div style="background:var(--t);color:white;border-radius:10px;padding:9px 16px;font-size:12.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;">⚡ Parse WhatsApp</div>
+      <div style="background:var(--w);border:1.5px solid var(--bd);border-radius:10px;padding:9px 14px;font-size:12.5px;font-weight:600;color:var(--tm);cursor:pointer;">Isi Manual</div>
+      <div style="background:var(--w);border:1.5px solid var(--bd);border-radius:10px;padding:9px 14px;font-size:12.5px;font-weight:600;color:var(--tm);cursor:pointer;">Clear</div>
+    </div>
+  </div>
+
+
+  <!-- UPLOAD GAMBAR REFERENSI -->
+  <div style="margin:10px 14px 0;background:var(--w);border-radius:14px;border:1px solid var(--bd);overflow:hidden;box-shadow:0 1px 4px var(--sh);">
+    <div style="padding:11px 14px;border-bottom:1px solid var(--bd);display:flex;align-items:center;justify-content:space-between;">
+      <div>
+        <div style="font-size:14px;font-weight:700;color:var(--t);">Gambar Referensi</div>
+        <div style="font-size:10.5px;color:var(--tf);margin-top:1px;">Upload gambar desain customer · notes opsional</div>
+      </div>
+      <div style="background:var(--bg);border:1.5px solid var(--bd);border-radius:8px;padding:5px 10px;font-size:11px;font-weight:600;color:var(--tm);">3 gambar</div>
+    </div>
+
+
+    <!-- Gambar 1 -->
+    <div style="padding:11px 14px;border-bottom:1px solid var(--bd);display:flex;gap:10px;align-items:flex-start;">
+      <div style="width:56px;height:56px;border-radius:9px;background:var(--goldp);border:1px solid #D8B870;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">🍪</div>
+      <div style="flex:1;">
+        <div style="font-size:10.5px;font-weight:600;color:var(--tm);margin-bottom:4px;">Gambar 1</div>
+        <div style="background:var(--bg);border:1.5px solid var(--bd);border-radius:8px;padding:7px 10px;font-size:11.5px;color:var(--tf);">3 large cookies — mario topi merah, topi hijau, nama Atlas</div>
+      </div>
+      <div style="font-size:16px;color:var(--tf);cursor:pointer;flex-shrink:0;margin-top:2px;">×</div>
+    </div>
+
+
+    <!-- Gambar 2 -->
+    <div style="padding:11px 14px;border-bottom:1px solid var(--bd);display:flex;gap:10px;align-items:flex-start;">
+      <div style="width:56px;height:56px;border-radius:9px;background:var(--gp);border:1px solid #A8D0B8;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">🦖</div>
+      <div style="flex:1;">
+        <div style="font-size:10.5px;font-weight:600;color:var(--tm);margin-bottom:4px;">Gambar 2</div>
+        <div style="background:var(--bg);border:1.5px solid var(--bd);border-radius:8px;padding:7px 10px;font-size:11.5px;color:var(--tf);">5 medium — dinosaurus, 2 pot bunga, bunga belakang mario</div>
+      </div>
+      <div style="font-size:16px;color:var(--tf);cursor:pointer;flex-shrink:0;margin-top:2px;">×</div>
+    </div>
+
+
+    <!-- Gambar 3 -->
+    <div style="padding:11px 14px;border-bottom:1px solid var(--bd);display:flex;gap:10px;align-items:flex-start;">
+      <div style="width:56px;height:56px;border-radius:9px;background:var(--bluep);border:1px solid #A0B8D8;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">⭐</div>
+      <div style="flex:1;">
+        <div style="font-size:10.5px;font-weight:600;color:var(--tm);margin-bottom:4px;">Gambar 3</div>
+        <div style="background:var(--bg);border:1.5px solid var(--bd);border-radius:8px;padding:7px 10px;font-size:11.5px;color:var(--tf);">Opsional. Tambahkan notes untuk gambar ini...</div>
+      </div>
+      <div style="font-size:16px;color:var(--tf);cursor:pointer;flex-shrink:0;margin-top:2px;">×</div>
+    </div>
+
+
+    <!-- Add gambar -->
+    <div style="padding:11px 14px;display:flex;align-items:center;gap:10px;cursor:pointer;">
+      <div style="width:56px;height:56px;border-radius:9px;border:2px dashed var(--bd);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;color:var(--tf);">+</div>
+      <div style="font-size:12.5px;color:var(--tm);">Tambah gambar referensi</div>
+    </div>
+  </div>
+
+
+  <!-- PARSE BUTTON - CTA -->
+  <div style="padding:14px;">
+    <div style="background:var(--pa);color:white;border-radius:13px;padding:14px;text-align:center;font-size:14px;font-weight:700;cursor:pointer;">Lihat Preview →</div>
+    <div style="text-align:center;font-size:10.5px;color:var(--tf);margin-top:7px;">Pastikan teks sudah di-parse sebelum lanjut</div>
+  </div>
+
+
+  <div class="sp8"></div>
+</div>
+```
+
+
+  </div>
+</div>
+
+
+<!-- SCREEN: NEW BOOKING — STEP 2 PREVIEW -->
+
+
+<div class="col">
+  <div class="col-lbl">✅ New Booking — Preview</div>
+  <div class="phone">
+    <div class="sbar"><span class="sbar-t">09.15</span><span class="sbar-i">▲▲▲ 🔋</span></div>
+    <div class="scr">
+
+
+```
+  <div class="topbar">
+    <div style="font-size:18px;color:var(--tm);cursor:pointer;">←</div>
+    <div style="flex:1;margin-left:8px;">
+      <div class="topbar-title">Preview Booking</div>
+      <div class="topbar-sub">Cek data sebelum membuat booking</div>
+    </div>
+  </div>
+
+
+  <!-- NOTICE: kalau ada yang salah -->
+  <div style="margin:10px 14px 0;background:var(--goldp);border:1px solid #D8B870;border-left:3px solid var(--gold);border-radius:11px;padding:9px 12px;display:flex;gap:8px;align-items:flex-start;">
+    <div style="font-size:13px;flex-shrink:0;">⚠️</div>
+    <div style="font-size:10.5px;color:#7A5000;line-height:1.5;">Ada yang salah? Kembali ke halaman sebelumnya, edit teks WA, lalu parse ulang.</div>
+  </div>
+
+
+  <!-- CUSTOMER -->
+  <div class="card" style="margin-top:10px;">
+    <div style="padding:11px 14px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:10px;">
+      <div style="width:36px;height:36px;border-radius:50%;background:var(--pp);color:var(--p);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;flex-shrink:0;">AD</div>
+      <div>
+        <div style="font-size:14px;font-weight:700;color:var(--t);">Adina</div>
+        <div style="font-size:11.5px;color:var(--tm);">08118402606</div>
+      </div>
+      <span class="sb sb-prod" style="margin-left:auto;">DP 50%</span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;padding:11px 14px;gap:0;">
+      <div style="padding:4px 0;border-right:1px solid var(--bd);padding-right:10px;">
+        <div style="font-size:9px;color:var(--tf);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:2px;">Delivery</div>
+        <div style="font-size:13px;font-weight:600;color:var(--t);">8 Apr 2026</div>
+      </div>
+      <div style="padding:4px 0 4px 10px;">
+        <div style="font-size:9px;color:var(--tf);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:2px;">Jam & Metode</div>
+        <div style="font-size:13px;font-weight:600;color:var(--t);">10:00 · Pickup</div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ORDER ITEMS — hanya yang terisi -->
+  <div class="card">
+    <div class="card-hdr">
+      <div style="font-size:14px;">🍪</div>
+      <div class="card-hdr-t">Produk yang Dipesan</div>
+    </div>
+    <!-- Item 1 -->
+    <div style="padding:10px 14px;border-bottom:1px solid var(--bd);">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+        <div style="font-size:13px;font-weight:600;color:var(--t);">1× Real Cake (Custom)</div>
+        <div style="font-family:var(--fm);font-size:12.5px;color:var(--t);">Rp1.140.000</div>
+      </div>
+      <div style="font-size:10.5px;color:var(--tm);margin-top:3px;">D16 T15 · Double Choco · Mario theme</div>
+      <!-- Add-ons yang dipilih saja -->
+      <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:5px;">
+        <span style="background:var(--pp);color:var(--pm);font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;">3× Large Cookies +Rp210.000</span>
+        <span style="background:var(--pp);color:var(--pm);font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;">5× Medium Cookies +Rp200.000</span>
+        <span style="background:var(--pp);color:var(--pm);font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;">Fondant Decor +Rp100.000</span>
+      </div>
+    </div>
+    <!-- Item 2 -->
+    <div style="padding:10px 14px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+        <div style="font-size:13px;font-weight:600;color:var(--t);">20× Custom Cookies</div>
+        <div style="font-family:var(--fm);font-size:12.5px;color:var(--t);">Rp520.000</div>
+      </div>
+      <div style="font-size:10.5px;color:var(--tm);margin-top:3px;">18 pcs Hard · 2 pcs Expert</div>
+      <div style="margin-top:5px;display:flex;gap:4px;"><span class="db db-h">Hard</span><span class="db db-e">Expert</span></div>
+    </div>
+  </div>
+
+
+  <!-- GAMBAR REFERENSI - thumbnail kecil + label -->
+  <div class="card">
+    <div class="card-hdr">
+      <div style="font-size:14px;">🎨</div>
+      <div class="card-hdr-t">Gambar Referensi · 3 gambar</div>
+    </div>
+    <div style="padding:10px 14px;display:flex;flex-direction:column;gap:8px;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div style="width:44px;height:44px;border-radius:8px;background:var(--goldp);border:1px solid #D8B870;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;">🍪</div>
+        <div style="font-size:11.5px;color:var(--t);line-height:1.5;flex:1;">3 large cookies — mario topi merah, topi hijau, nama Atlas</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div style="width:44px;height:44px;border-radius:8px;background:var(--gp);border:1px solid #A8D0B8;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;">🦖</div>
+        <div style="font-size:11.5px;color:var(--t);line-height:1.5;flex:1;">5 medium — dinosaurus, 2 pot bunga, bunga belakang mario</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div style="width:44px;height:44px;border-radius:8px;background:var(--bluep);border:1px solid #A0B8D8;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;">⭐</div>
+        <div style="font-size:11.5px;color:var(--tf);font-style:italic;flex:1;">Tidak ada notes</div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- DELIVERY + PAYMENT -->
+  <div class="card">
+    <div class="card-hdr">
+      <div style="font-size:14px;">💳</div>
+      <div class="card-hdr-t">Pengiriman & Pembayaran</div>
+    </div>
+    <div style="padding:11px 14px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-size:12px;color:var(--tm);">Metode</div>
+      <div style="font-size:12.5px;font-weight:600;color:var(--t);">Pickup</div>
+    </div>
+    <div style="padding:11px 14px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-size:12px;color:var(--tm);">Ongkir</div>
+      <div style="font-size:12.5px;font-weight:600;color:var(--t);">Rp0</div>
+    </div>
+    <div style="padding:11px 14px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-size:12px;color:var(--tm);">Total Harga</div>
+      <div style="font-family:var(--fm);font-size:13px;font-weight:700;color:var(--t);">Rp1.835.000</div>
+    </div>
+    <div style="padding:11px 14px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-size:12px;color:var(--tm);">Pembayaran</div>
+      <div style="font-size:12.5px;font-weight:600;color:var(--t);">DP 50%</div>
+    </div>
+    <div style="padding:11px 14px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-size:12px;color:var(--tm);">DP</div>
+      <div style="font-family:var(--fm);font-size:13px;font-weight:700;color:var(--g);">Rp917.500</div>
+    </div>
+    <div style="padding:11px 14px;display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-size:12px;color:var(--tm);">Sisa Tagihan</div>
+      <div style="font-family:var(--fm);font-size:13px;font-weight:700;color:var(--red);">Rp917.500</div>
+    </div>
+  </div>
+
+
+  <!-- CTA -->
+  <div style="padding:4px 14px 20px;display:flex;gap:8px;">
+    <div style="flex:1;padding:13px;border-radius:13px;border:1.5px solid var(--bd);background:var(--w);font-size:13px;font-weight:600;color:var(--tm);text-align:center;cursor:pointer;">← Edit</div>
+    <div style="flex:2;padding:13px;border-radius:13px;background:var(--pa);font-size:13px;font-weight:700;color:white;text-align:center;cursor:pointer;">✓ Create Booking</div>
+  </div>
+
+
+</div>
+```
+
+
+  </div>
+</div>
+
+
+</div><!-- end new booking row -->
+
+
+<!-- ═══ BOOKING DETAIL ═══ -->
+
+
+<div class="sec-label">Booking Detail</div>
+<div class="row">
+
+
+<!-- SCREEN: BOOKING DETAIL -->
+
+
+<div class="col">
+  <div class="col-lbl">📄 Booking Detail</div>
+  <div class="phone">
+    <div class="sbar"><span class="sbar-t">09.15</span><span class="sbar-i">▲▲▲ 🔋</span></div>
+    <div class="scr">
+
+
+```
+  <!-- TOP BAR with back -->
+  <div class="topbar">
+    <div style="font-size:18px;color:var(--tm);cursor:pointer;">←</div>
+    <div style="flex:1;margin-left:8px;">
+      <div class="topbar-title">Booking #AD-06</div>
+      <div class="topbar-sub">Dibuat 8 Apr 2026 · 10.52</div>
+    </div>
+    <span class="sb sb-late">Terlambat</span>
+  </div>
+
+
+  <!-- STATUS STEPPER -->
+  <div style="margin:12px 14px 0;background:var(--w);border-radius:14px;border:1px solid var(--bd);padding:14px;box-shadow:0 1px 4px var(--sh);overflow:hidden;">
+    <div style="font-size:11px;font-weight:700;color:var(--tm);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px;">Status Order</div>
+    <!-- Stepper row -->
+    <div style="display:flex;align-items:flex-start;gap:0;position:relative;">
+      <!-- Order Created - DONE -->
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;position:relative;">
+        <div style="width:24px;height:24px;border-radius:50%;background:var(--g);color:white;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;z-index:1;flex-shrink:0;">✓</div>
+        <div style="font-size:8.5px;font-weight:600;color:var(--g);text-align:center;line-height:1.3;">Order<br>Created</div>
+      </div>
+      <div style="height:2px;background:var(--g);flex:1;margin-top:11px;"></div>
+      <!-- In Production - ACTIVE -->
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;">
+        <div style="width:24px;height:24px;border-radius:50%;background:var(--pa);color:white;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;z-index:1;flex-shrink:0;box-shadow:0 0 0 3px var(--pp);">●</div>
+        <div style="font-size:8.5px;font-weight:700;color:var(--pa);text-align:center;line-height:1.3;">In<br>Production</div>
+      </div>
+      <div style="height:2px;background:var(--bd);flex:1;margin-top:11px;"></div>
+      <!-- Ready - FUTURE -->
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;">
+        <div style="width:24px;height:24px;border-radius:50%;background:var(--bd);color:var(--tf);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;z-index:1;flex-shrink:0;">○</div>
+        <div style="font-size:8.5px;font-weight:500;color:var(--tf);text-align:center;line-height:1.3;">Ready</div>
+      </div>
+      <div style="height:2px;background:var(--bd);flex:1;margin-top:11px;"></div>
+      <!-- Delivery - FUTURE -->
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;">
+        <div style="width:24px;height:24px;border-radius:50%;background:var(--bd);color:var(--tf);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;z-index:1;flex-shrink:0;">○</div>
+        <div style="font-size:8.5px;font-weight:500;color:var(--tf);text-align:center;line-height:1.3;">Delivery</div>
+      </div>
+      <div style="height:2px;background:var(--bd);flex:1;margin-top:11px;"></div>
+      <!-- Completed - FUTURE -->
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;">
+        <div style="width:24px;height:24px;border-radius:50%;background:var(--bd);color:var(--tf);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;z-index:1;flex-shrink:0;">○</div>
+        <div style="font-size:8.5px;font-weight:500;color:var(--tf);text-align:center;line-height:1.3;">Completed</div>
+      </div>
+    </div>
+    <!-- Status change -->
+    <div style="margin-top:13px;padding-top:12px;border-top:1px solid var(--bd);display:flex;gap:8px;">
+      <div style="flex:1;background:var(--bg);border:1.5px solid var(--bd);border-radius:9px;padding:8px 12px;font-size:12px;color:var(--tf);">Ubah status...</div>
+      <div style="background:var(--pa);color:white;border-radius:9px;padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer;">Simpan</div>
+    </div>
+  </div>
+
+
+  <!-- DETAIL PESANAN -->
+  <div class="card" style="margin-top:10px;">
+    <div class="card-hdr">
+      <div style="font-size:14px;">📦</div>
+      <div class="card-hdr-t">Detail Pesanan</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;padding:12px 14px;gap:0;">
+      <div style="padding:5px 0;border-right:1px solid var(--bd);padding-right:10px;">
+        <div style="font-size:9px;color:var(--tf);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:2px;">Tanggal</div>
+        <div style="font-size:13px;font-weight:600;color:var(--t);">8 Apr 2026</div>
+      </div>
+      <div style="padding:5px 0 5px 10px;">
+        <div style="font-size:9px;color:var(--tf);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:2px;">Jam</div>
+        <div style="font-size:13px;font-weight:600;color:var(--t);">10:00</div>
+      </div>
+      <div style="padding:5px 0;border-right:1px solid var(--bd);border-top:1px solid var(--bd);padding-right:10px;">
+        <div style="font-size:9px;color:var(--tf);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:2px;">Metode</div>
+        <div style="font-size:13px;font-weight:600;color:var(--t);">Pickup</div>
+      </div>
+      <div style="padding:5px 0 5px 10px;border-top:1px solid var(--bd);">
+        <div style="font-size:9px;color:var(--tf);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:2px;">Kode Booking</div>
+        <div style="font-family:var(--fm);font-size:12px;font-weight:600;color:var(--t);">AD-06</div>
+      </div>
+    </div>
+    <div style="padding:0 14px 12px;border-top:1px solid var(--bd);">
+      <div style="font-size:9px;color:var(--tf);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px;margin-top:8px;">Alamat</div>
+      <div style="font-size:12px;color:var(--t);">Jl. Buncit Persada No.B2, Jakarta Selatan 12740</div>
+    </div>
+  </div>
+
+
+  <!-- CUSTOMER -->
+  <div class="card">
+    <div class="card-hdr">
+      <div style="font-size:14px;">👤</div>
+      <div class="card-hdr-t">Customer</div>
+    </div>
+    <div style="padding:12px 14px;display:flex;align-items:center;gap:12px;">
+      <div style="width:36px;height:36px;border-radius:50%;background:var(--pp);color:var(--p);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;flex-shrink:0;">AD</div>
+      <div style="flex:1;">
+        <div style="font-weight:700;font-size:14px;color:var(--t);">Adina</div>
+        <div style="font-size:11.5px;color:var(--tm);margin-top:1px;">08118402606</div>
+      </div>
+      <div style="font-size:22px;cursor:pointer;">💬</div>
+    </div>
+  </div>
+
+
+  <!-- ORDER ITEMS -->
+  <div class="card">
+    <div class="card-hdr">
+      <div style="font-size:14px;">🍪</div>
+      <div class="card-hdr-t">Order Items</div>
+    </div>
+    <!-- Produk 1 -->
+    <div style="padding:10px 14px;border-bottom:1px solid var(--bd);">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+        <div style="font-size:13px;font-weight:600;color:var(--t);">1× Real Cake (Custom)</div>
+        <div style="font-family:var(--fm);font-size:12.5px;font-weight:500;color:var(--t);">Rp1.140.000</div>
+      </div>
+      <div style="font-size:10.5px;color:var(--tm);margin-top:2px;">Mario theme · Double Choco</div>
+      <div style="font-size:10.5px;color:var(--tm);">Add-on: 3L + 5M + 4S cookies + fondant</div>
+      <div style="margin-top:5px;"><span class="db db-e">Expert</span></div>
+    </div>
+    <!-- Produk 2 -->
+    <div style="padding:10px 14px;border-bottom:1px solid var(--bd);">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+        <div style="font-size:13px;font-weight:600;color:var(--t);">20× Custom Cookies</div>
+        <div style="font-family:var(--fm);font-size:12.5px;font-weight:500;color:var(--t);">Rp520.000</div>
+      </div>
+      <div style="font-size:10.5px;color:var(--tm);margin-top:2px;">18 pcs Hard · 2 pcs Expert</div>
+      <div style="margin-top:5px;display:flex;gap:4px;"><span class="db db-h">Hard</span><span class="db db-e">Expert</span></div>
+    </div>
+    <!-- Total -->
+    <div style="display:flex;justify-content:space-between;padding:11px 14px;">
+      <div style="font-size:13.5px;font-weight:700;color:var(--t);">Total</div>
+      <div style="font-family:var(--fm);font-size:14px;font-weight:700;color:var(--pa);">Rp1.835.000</div>
+    </div>
+  </div>
+
+
+  <!-- PAYMENT STATUS -->
+  <div class="card">
+    <div class="card-hdr">
+      <div style="font-size:14px;">💳</div>
+      <div class="card-hdr-t">Status Pembayaran</div>
+    </div>
+    <div style="padding:12px 14px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--bd);">
+      <div>
+        <div style="font-size:12px;color:var(--tm);">DP Masuk</div>
+        <div style="font-family:var(--fm);font-size:14px;font-weight:700;color:var(--t);">Rp917.500</div>
+      </div>
+      <span class="sb sb-ready">Lunas</span>
+    </div>
+    <div style="padding:12px 14px;display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <div style="font-size:12px;color:var(--tm);">Sisa Tagihan</div>
+        <div style="font-family:var(--fm);font-size:14px;font-weight:700;color:var(--red);">Rp917.500</div>
+      </div>
+      <span class="sb sb-late">Belum Lunas</span>
+    </div>
+  </div>
+
+
+  <!-- DESIGN NOTES PER PRODUK -->
+  <div class="card">
+    <div class="card-hdr">
+      <div style="font-size:14px;">🎨</div>
+      <div class="card-hdr-t">Design Notes</div>
+    </div>
+    <!-- Produk 1 -->
+    <div style="padding:10px 14px 4px;border-bottom:1px solid var(--bd);">
+      <div style="display:flex;align-items:center;gap:7px;margin-bottom:8px;">
+        <div style="background:var(--pa);color:white;border-radius:6px;padding:2px 8px;font-size:9px;font-weight:700;">Produk 1</div>
+        <div style="font-size:12px;font-weight:600;color:var(--t);">Real Cake (Custom)</div>
+      </div>
+      <div style="display:flex;gap:8px;padding:3px 0;"><div style="font-family:var(--fm);font-size:11px;color:var(--pa);width:14px;flex-shrink:0;">1</div><div style="font-size:11.5px;color:var(--t);line-height:1.5;">3 large — mario half body topi merah, full body topi hijau, nama Atlas</div></div>
+      <div style="display:flex;gap:8px;padding:3px 0;"><div style="font-family:var(--fm);font-size:11px;color:var(--pa);width:14px;flex-shrink:0;">2</div><div style="font-size:11.5px;color:var(--t);line-height:1.5;">5 medium — dinosaurus, 2 pot bunga, bunga belakang mario</div></div>
+      <div style="display:flex;gap:8px;padding:3px 0;"><div style="font-family:var(--fm);font-size:11px;color:var(--pa);width:14px;flex-shrink:0;">3</div><div style="font-size:11.5px;color:var(--t);line-height:1.5;">4 small — 3 jamur, angka 8</div></div>
+      <div style="display:flex;gap:8px;padding:3px 0 10px;"><div style="font-family:var(--fm);font-size:11px;color:var(--pa);width:14px;flex-shrink:0;">4</div><div style="font-size:11.5px;color:var(--t);line-height:1.5;">Fondant — awan, bintang sampai belakang</div></div>
+    </div>
+    <!-- Produk 2 -->
+    <div style="padding:10px 14px 12px;">
+      <div style="display:flex;align-items:center;gap:7px;margin-bottom:8px;">
+        <div style="background:var(--tm);color:white;border-radius:6px;padding:2px 8px;font-size:9px;font-weight:700;">Produk 2</div>
+        <div style="font-size:12px;font-weight:600;color:var(--t);">20× Custom Cookies</div>
+      </div>
+      <div style="display:flex;gap:8px;padding:3px 0;"><div style="font-family:var(--fm);font-size:11px;color:var(--pa);width:14px;flex-shrink:0;">1</div><div style="font-size:11.5px;color:var(--t);line-height:1.5;">18 pcs Hard — mario mushroom, bintang kotak</div></div>
+      <div style="display:flex;gap:8px;padding:3px 0;"><div style="font-family:var(--fm);font-size:11px;color:var(--pa);width:14px;flex-shrink:0;">2</div><div style="font-size:11.5px;color:var(--t);line-height:1.5;">2 pcs Expert — mario full body standing, detail tinggi</div></div>
+    </div>
+  </div>
+
+
+  <!-- ACTIONS -->
+  <div style="display:flex;gap:8px;padding:0 14px 10px;">
+    <div style="flex:1;padding:9px 6px;border-radius:10px;border:1.5px solid var(--bd);background:var(--w);font-size:11.5px;font-weight:600;color:var(--tm);text-align:center;cursor:pointer;">🖨 Label</div>
+    <div style="flex:1;padding:9px 6px;border-radius:10px;border:1.5px solid var(--bd);background:var(--w);font-size:11.5px;font-weight:600;color:var(--tm);text-align:center;cursor:pointer;">🧾 Invoice</div>
+    <div style="flex:1;padding:9px 6px;border-radius:10px;background:var(--pa);border:none;font-size:11.5px;font-weight:700;color:white;text-align:center;cursor:pointer;">📦 Kurir</div>
+  </div>
+
+
+  <!-- TIMELINE RIWAYAT -->
+  <div class="card">
+    <div class="card-hdr">
+      <div style="font-size:14px;">🕐</div>
+      <div class="card-hdr-t">Riwayat Status</div>
+    </div>
+    <div style="padding:12px 14px;">
+      <div style="display:flex;gap:10px;padding-bottom:13px;position:relative;">
+        <div style="position:absolute;left:7px;top:16px;width:1px;height:calc(100% - 8px);background:var(--bd);"></div>
+        <div style="width:15px;height:15px;border-radius:50%;background:var(--g);color:white;display:flex;align-items:center;justify-content:center;font-size:7px;flex-shrink:0;margin-top:1px;">✓</div>
+        <div><div style="font-size:12px;font-weight:700;color:var(--t);">Order Created</div><div style="font-size:9.5px;color:var(--tf);margin-top:1px;">8 Apr 2026 · 10.52</div><div style="font-size:11px;color:var(--tm);margin-top:2px;">Booking dibuat oleh Admin</div></div>
+      </div>
+      <div style="display:flex;gap:10px;padding-bottom:13px;position:relative;">
+        <div style="position:absolute;left:7px;top:16px;width:1px;height:calc(100% - 8px);background:var(--bd);"></div>
+        <div style="width:15px;height:15px;border-radius:50%;background:var(--pa);color:white;display:flex;align-items:center;justify-content:center;font-size:7px;flex-shrink:0;margin-top:1px;">●</div>
+        <div><div style="font-size:12px;font-weight:700;color:var(--t);">In Production</div><div style="font-size:9.5px;color:var(--tf);margin-top:1px;">8 Apr 2026 · 10.53</div><div style="font-size:11px;color:var(--tm);margin-top:2px;">Status diubah oleh Admin</div></div>
+      </div>
+      <div style="display:flex;gap:10px;">
+        <div style="width:15px;height:15px;border-radius:50%;background:var(--blue);color:white;display:flex;align-items:center;justify-content:center;font-size:7px;flex-shrink:0;margin-top:1px;">⚡</div>
+        <div><div style="font-size:12px;font-weight:700;color:var(--t);">Automation</div><div style="font-size:9.5px;color:var(--tf);margin-top:1px;">8 Apr 2026 · 10.52</div><div style="font-size:11px;color:var(--tm);margin-top:2px;">WA blast ke grup produksi ✓</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="sp20"></div>
+</div>
+```
+
+
+  </div>
+</div>
+
+
+</div><!-- end booking detail row -->
+
+
+<!-- ═══ CALENDAR ═══ -->
+
+
+<div class="sec-label">Calendar</div>
+<div class="row">
+<div class="col">
+  <div class="col-lbl">📅 Delivery Calendar</div>
+  <div class="phone">
+    <div class="sbar"><span class="sbar-t">09.15</span><span class="sbar-i">▲▲▲ 🔋</span></div>
+    <div class="scr">
+      <div class="topbar">
+        <div class="topbar-menu">☰</div>
+        <div><div class="topbar-title">Calendar</div><div class="topbar-sub">Kapasitas 400 tok/hari · 2 staff aktif</div></div>
+        <div style="display:flex;gap:5px;">
+          <div style="padding:5px 10px;border-radius:20px;border:1.5px solid var(--bd);font-size:10px;font-weight:600;color:var(--tm);cursor:pointer;">Minggu</div>
+          <div style="padding:5px 10px;border-radius:20px;background:var(--pa);font-size:10px;font-weight:600;color:white;cursor:pointer;">Bulan</div>
+        </div>
+      </div>
+      <!-- Nav -->
+      <div style="display:flex;align-items:center;gap:8px;padding:10px 14px 8px;">
+        <div style="width:28px;height:28px;border-radius:8px;border:1.5px solid var(--bd);display:flex;align-items:center;justify-content:center;font-size:13px;cursor:pointer;background:var(--w);">‹</div>
+        <div style="width:28px;height:28px;border-radius:8px;border:1.5px solid var(--bd);display:flex;align-items:center;justify-content:center;font-size:13px;cursor:pointer;background:var(--w);">›</div>
+        <div style="font-size:16px;font-weight:800;color:var(--t);">April 2026</div>
+        <div style="margin-left:auto;padding:4px 10px;border-radius:20px;border:1.5px solid var(--pa);font-size:10px;font-weight:700;color:var(--pa);background:var(--pp);cursor:pointer;">Hari Ini</div>
+      </div>
+      <!-- Grid SEN-SAB -->
+      <div style="margin:0 14px;background:var(--w);border-radius:14px;border:1px solid var(--bd);overflow:hidden;box-shadow:0 1px 4px var(--sh);">
+        <div style="display:grid;grid-template-columns:repeat(6,1fr);border-bottom:1.5px solid var(--bd);">
+          <div style="text-align:center;padding:7px 2px;font-size:9.5px;font-weight:700;color:var(--tf);">SEN</div>
+          <div style="text-align:center;padding:7px 2px;font-size:9.5px;font-weight:700;color:var(--tf);">SEL</div>
+          <div style="text-align:center;padding:7px 2px;font-size:9.5px;font-weight:700;color:var(--tf);">RAB</div>
+          <div style="text-align:center;padding:7px 2px;font-size:9.5px;font-weight:700;color:var(--tf);">KAM</div>
+          <div style="text-align:center;padding:7px 2px;font-size:9.5px;font-weight:700;color:var(--tf);">JUM</div>
+          <div style="text-align:center;padding:7px 2px;font-size:9.5px;font-weight:700;color:var(--tf);">SAB</div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(6,1fr);">
+          <!-- Passed -->
+          <div style="padding:5px 3px;border-right:1px solid var(--bd);border-bottom:1px solid var(--bd);background:#F0EDED;min-height:50px;"><div style="font-size:11px;font-weight:600;color:#BBBBBB;">30</div><div style="font-size:7.5px;color:#BBBBBB;">Passed</div></div>
+          <div style="padding:5px 3px;border-right:1px solid var(--bd);border-bottom:1px solid var(--bd);background:#F0EDED;min-height:50px;"><div style="font-size:11px;font-weight:600;color:#BBBBBB;">31</div></div>
+          <div style="padding:5px 3px;border-right:1px solid var(--bd);border-bottom:1px solid var(--bd);background:#F0EDED;min-height:50px;"><div style="font-size:11px;font-weight:600;color:#BBBBBB;">1</div></div>
+          <div style="padding:5px 3px;border-right:1px solid var(--bd);border-bottom:1px solid var(--bd);background:#F0EDED;min-height:50px;"><div style="font-size:11px;font-weight:600;color:#BBBBBB;">2</div></div>
+          <div style="padding:5px 3px;border-right:1px solid var(--bd);border-bottom:1px solid var(--bd);background:#F0EDED;min-height:50px;"><div style="font-size:11px;font-weight:600;color:#BBBBBB;">3</div></div>
+          <div style="padding:5px 3px;border-bottom:1px solid var(--bd);background:#F0EDED;min-height:50px;"><div style="font-size:11px;font-weight:600;color:#BBBBBB;">4</div></div>
+          <!-- Row 2 -->
+          <div style="padding:5px 3px;border-right:1px solid var(--bd);border-bottom:1px solid var(--bd);background:#F0EDED;min-height:50px;"><div style="font-size:11px;color:#BBBBBB;">7</div></div>
+          <div style="padding:5px 3px;border-right:1px solid var(--bd);border-bottom:1px solid var(--bd);background:#F0EDED;min-height:50px;"><div style="font-size:11px;color:#BBBBBB;">8</div></div>
+          <div style="padding:5px 3px;border-right:1px solid var(--bd);border-bottom:1px solid var(--bd);background:#F0EDED;min-height:50px;"><div style="font-size:11px;color:#BBBBBB;">9</div></div>
+          <!-- 10 Apr: LATE -->
+          <div style="padding:5px 3px;border-right:1px solid var(--bd);border-bottom:1px solid var(--bd);background:var(--redp);min-height:50px;">
+            <div style="font-size:11px;font-weight:700;color:var(--red);">10</div>
+            <div style="font-size:7px;color:var(--red);font-weight:700;">⚠ Late</div>
+            <div style="background:var(--red);border-radius:3px;padding:1px 3px;margin-top:2px;"><div style="font-size:7px;color:white;">Adina</div></div>
+          </div>
+          <div style="padding:5px 3px;border-right:1px solid var(--bd);border-bottom:1px solid var(--bd);background:#F0EDED;min-height:50px;"><div style="font-size:11px;color:#BBBBBB;">11</div></div>
+          <div style="padding:5px 3px;border-bottom:1px solid var(--bd);background:#F0EDED;min-height:50px;"><div style="font-size:11px;color:#BBBBBB;">12</div></div>
+          <!-- Row 3: Libur -->
+          <div style="padding:5px 3px;border-right:1px solid var(--bd);border-bottom:1px solid var(--bd);background:#F0EDED;min-height:50px;"><div style="font-size:11px;color:#BBBBBB;">13</div></div>
+          <div style="padding:5px 3px;border-right:1px solid var(--bd);border-bottom:1px solid var(--bd);background:#FDF0F0;min-height:50px;"><div style="font-size:11px;color:#BBBBBB;">14</div><div style="font-size:7px;color:#F4A0A0;font-weight:600;">Libur</div></div>
+          <div style="padding:5px 3px;border-right:1px solid var(--bd);border-bottom:1px solid var(--bd);background:#FDF0F0;min-height:50px;"><div style="font-size:11px;color:#BBBBBB;">15</div><div style="font-size:7px;color:#F4A0A0;font-weight:600;">Libur</div></div>
+          <div style="padding:5px 3px;border-right:1px solid var(--bd);border-bottom:1px solid var(--bd);background:#FDF0F0;min-height:50px;"><div style="font-size:11px;color:#BBBBBB;">16</div><div style="font-size:7px;color:#F4A0A0;font-weight:600;">Libur</div></div>
+          <div style="padding:5px 3px;border-right:1px solid var(--bd);border-bottom:1px solid var(--bd);background:#FDF0F0;min-height:50px;"><div style="font-size:11px;color:#BBBBBB;">17</div><div style="font-size:7px;color:#F4A0A0;font-weight:600;">Raya</div></div>
+          <div style="padding:5px 3px;border-bottom:1px solid var(--bd);background:#FDF0F0;min-height:50px;"><div style="font-size:11px;color:#BBBBBB;">18</div><div style="font-size:7px;color:#F4A0A0;font-weight:600;">Libur</div></div>
+          <!-- Row 4 -->
+          <div style="padding:5px 3px;border-right:1px solid var(--bd);border-bottom:1px solid var(--bd);background:#F0EDED;min-height:50px;"><div style="font-size:11px;color:#BBBBBB;">21</div></div>
+          <div style="padding:5px 3px;border-right:1px solid var(--bd);border-bottom:1px solid var(--bd);background:#F0EDED;min-height:50px;"><div style="font-size:11px;color:#BBBBBB;">22</div></div>
+          <div style="padding:5px 3px;border-right:1px solid var(--bd);border-bottom:1px solid var(--bd);background:#F0EDED;min-height:50px;"><div style="font-size:11px;color:#BBBBBB;">23</div></div>
+          <!-- 24 Apr: almost full -->
+          <div style="padding:5px 3px;border-right:1px solid var(--bd);border-bottom:1px solid var(--bd);background:var(--goldp);min-height:50px;">
+            <div style="font-size:11px;font-weight:700;color:var(--gold);">24</div>
+            <div style="font-size:7px;color:var(--gold);font-weight:600;">290/400</div>
+            <div style="background:var(--gold);border-radius:3px;padding:1px 3px;margin-top:2px;"><div style="font-size:7px;color:white;">3 order</div></div>
+          </div>
+          <!-- 25: available -->
+          <div style="padding:5px 3px;border-right:1px solid var(--bd);border-bottom:1px solid var(--bd);background:var(--gp);min-height:50px;">
+            <div style="font-size:11px;font-weight:700;color:var(--g);">25</div>
+            <div style="font-size:7px;color:var(--g);font-weight:600;">207/400</div>
+            <div style="background:var(--g);border-radius:3px;padding:1px 3px;margin-top:2px;"><div style="font-size:7px;color:white;">3 order</div></div>
+          </div>
+          <!-- 26: available -->
+          <div style="padding:5px 3px;border-bottom:1px solid var(--bd);background:var(--gp);min-height:50px;">
+            <div style="font-size:11px;font-weight:700;color:var(--g);">26</div>
+            <div style="font-size:7px;color:var(--g);font-weight:600;">350/400</div>
+            <div style="background:var(--g);border-radius:3px;padding:1px 3px;margin-top:2px;"><div style="font-size:7px;color:white;">3 order</div></div>
+          </div>
+          <!-- Row 5 -->
+          <div style="padding:5px 3px;border-right:1px solid var(--bd);background:#F0EDED;min-height:50px;"><div style="font-size:11px;color:#BBBBBB;">28</div></div>
+          <!-- TODAY -->
+          <div style="padding:5px 3px;border-right:1px solid var(--bd);background:var(--pp);border:2px solid var(--pa);min-height:50px;">
+            <div style="font-size:11px;font-weight:800;color:var(--pa);">29</div>
+            <div style="font-size:7px;color:var(--pa);font-weight:600;">0/400</div>
+            <div style="width:5px;height:5px;border-radius:50%;background:var(--pa);margin-top:2px;"></div>
+          </div>
+          <!-- 30: Closed H-1 -->
+          <div style="padding:5px 3px;border-right:1px solid var(--bd);background:#FDF0F0;min-height:50px;">
+            <div style="font-size:11px;font-weight:700;color:#E8888A;">30</div>
+            <div style="font-size:7px;color:#E8888A;font-weight:600;">Closed</div>
+            <div style="background:var(--pm);border-radius:3px;padding:1px 3px;margin-top:2px;"><div style="font-size:7px;color:white;">3 ord</div></div>
+          </div>
+          <div style="padding:5px 3px;border-right:1px solid var(--bd);background:var(--gp);min-height:50px;"><div style="font-size:11px;font-weight:600;color:var(--g);">1</div><div style="font-size:7px;color:var(--g);">0/400</div></div>
+          <div style="padding:5px 3px;border-right:1px solid var(--bd);background:var(--gp);min-height:50px;"><div style="font-size:11px;font-weight:600;color:var(--g);">2</div><div style="font-size:7px;color:var(--g);">0/400</div></div>
+          <div style="padding:5px 3px;background:var(--gp);min-height:50px;"><div style="font-size:11px;font-weight:600;color:var(--g);">3</div><div style="font-size:7px;color:var(--g);">0/400</div></div>
+        </div>
+      </div>
+      <!-- Legend -->
+      <div style="margin:8px 14px 0;background:var(--w);border-radius:12px;border:1px solid var(--bd);padding:9px 13px;">
+        <div style="display:flex;flex-wrap:wrap;gap:8px;">
+          <div style="display:flex;align-items:center;gap:4px;"><div style="width:8px;height:8px;border-radius:50%;background:#BBBBBB;"></div><div style="font-size:9.5px;color:var(--tm);">Passed</div></div>
+          <div style="display:flex;align-items:center;gap:4px;"><div style="width:8px;height:8px;border-radius:50%;background:#F4A0A0;"></div><div style="font-size:9.5px;color:var(--tm);">Libur</div></div>
+          <div style="display:flex;align-items:center;gap:4px;"><div style="width:8px;height:8px;border-radius:50%;background:var(--g);"></div><div style="font-size:9.5px;color:var(--tm);">Available</div></div>
+          <div style="display:flex;align-items:center;gap:4px;"><div style="width:8px;height:8px;border-radius:50%;background:var(--gold);"></div><div style="font-size:9.5px;color:var(--tm);">≥80% penuh</div></div>
+          <div style="display:flex;align-items:center;gap:4px;"><div style="width:8px;height:8px;border-radius:50%;background:var(--red);"></div><div style="font-size:9.5px;color:var(--tm);">Terlambat</div></div>
+          <div style="display:flex;align-items:center;gap:4px;"><div style="width:8px;height:8px;border-radius:50%;background:#E8888A;"></div><div style="font-size:9.5px;color:var(--tm);">Closed H-1</div></div>
+        </div>
+      </div>
+      <!-- Day detail -->
+      <div style="margin:8px 14px 0;background:var(--w);border-radius:13px;border:1.5px solid var(--pa);overflow:hidden;box-shadow:0 1px 4px var(--sh);">
+        <div style="background:var(--pp);padding:9px 13px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;">
+          <div><div style="font-size:13px;font-weight:700;color:var(--pa);">Rabu, 29 April 2026</div><div style="font-size:10px;color:var(--g);font-weight:600;margin-top:2px;">● Kapasitas tersedia</div></div>
+          <div style="background:var(--pa);color:white;border-radius:8px;padding:5px 11px;font-size:11px;font-weight:700;cursor:pointer;">+ Booking</div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);padding:11px 13px;gap:8px;">
+          <div style="text-align:center;"><div style="font-size:18px;font-weight:800;color:var(--t);">0</div><div style="font-size:9px;color:var(--tm);margin-top:2px;">Terpakai</div></div>
+          <div style="text-align:center;"><div style="font-size:18px;font-weight:800;color:var(--t);">400</div><div style="font-size:9px;color:var(--tm);margin-top:2px;">Maks</div></div>
+          <div style="text-align:center;"><div style="font-size:18px;font-weight:800;color:var(--g);">400</div><div style="font-size:9px;color:var(--tm);margin-top:2px;">Sisa</div></div>
+          <div style="text-align:center;"><div style="font-size:18px;font-weight:800;color:var(--t);">0</div><div style="font-size:9px;color:var(--tm);margin-top:2px;">Orders</div></div>
+        </div>
+        <div style="padding:0 13px 11px;">
+          <div style="background:var(--bd);border-radius:3px;height:5px;overflow:hidden;"><div style="width:0%;height:100%;background:var(--g);border-radius:3px;"></div></div>
+          <div style="font-size:9.5px;color:var(--tf);margin-top:4px;text-align:right;">0% kapasitas terpakai</div>
+        </div>
+      </div>
+      <div style="height:20px;"></div>
+    </div>
+  </div>
+</div>
+</div>
+
+
+<!-- ═══ REPORTS ═══ -->
+
+
+<div class="sec-label">Reports</div>
+<div class="row">
+<div class="col">
+  <div class="col-lbl">📊 Reports</div>
+  <div class="phone">
+    <div class="sbar"><span class="sbar-t">09.15</span><span class="sbar-i">▲▲▲ 🔋</span></div>
+    <div class="scr">
+      <div class="topbar">
+        <div class="topbar-menu">☰</div>
+        <div><div class="topbar-title">Reports</div><div class="topbar-sub">Data & Ringkasan Bisnis</div></div>
+        <div class="topbar-avatar">FE</div>
+      </div>
+      <!-- Period selector -->
+      <div style="display:flex;align-items:center;gap:8px;padding:12px 14px 0;">
+        <div style="flex:1;background:var(--w);border:1.5px solid var(--bd);border-radius:10px;padding:8px 12px;font-size:12px;font-weight:600;color:var(--t);display:flex;align-items:center;justify-content:space-between;box-shadow:0 1px 4px var(--sh);">April 2026 <span style="color:var(--tf);">▾</span></div>
+        <div style="background:var(--w);border:1.5px solid var(--bd);border-radius:10px;padding:8px 12px;font-size:12px;font-weight:600;color:var(--tm);cursor:pointer;box-shadow:0 1px 4px var(--sh);">📅 Custom</div>
+        <div style="background:var(--pa);border-radius:10px;padding:8px 14px;font-size:11.5px;font-weight:700;color:white;cursor:pointer;white-space:nowrap;">↓ Export</div>
+      </div>
+
+
+```
+  <!-- FINANCIAL -->
+  <div class="shdr"><div class="shdr-t">💰 Keuangan</div></div>
+  <div style="margin:0 14px;background:var(--w);border-radius:14px;border:1px solid var(--bd);overflow:hidden;box-shadow:0 1px 4px var(--sh);">
+    <div style="padding:10px 14px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-size:12px;color:var(--tm);">Total Revenue</div>
+      <div style="font-family:var(--fm);font-size:14px;font-weight:700;color:var(--t);">Rp80.000.000</div>
+    </div>
+    <div style="padding:10px 14px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-size:12px;color:var(--tm);">Cash Flow In</div>
+      <div style="font-family:var(--fm);font-size:14px;font-weight:700;color:var(--g);">Rp52.000.000</div>
+    </div>
+    <div style="padding:10px 14px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-size:12px;color:var(--tm);">Total Biaya</div>
+      <div style="font-family:var(--fm);font-size:14px;font-weight:700;color:var(--red);">Rp17.600.000</div>
+    </div>
+    <div style="padding:10px 14px;background:var(--gp);display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-size:13px;font-weight:700;color:var(--g);">Profit Bersih</div>
+      <div style="font-family:var(--fm);font-size:15px;font-weight:800;color:var(--g);">Rp62.400.000</div>
+    </div>
+  </div>
+
+
+  <!-- ORDERS -->
+  <div class="shdr"><div class="shdr-t">📦 Orders</div></div>
+  <div style="margin:0 14px;background:var(--w);border-radius:14px;border:1px solid var(--bd);overflow:hidden;box-shadow:0 1px 4px var(--sh);">
+    <div style="padding:10px 14px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-size:12px;color:var(--tm);">Total Order</div>
+      <div style="font-size:14px;font-weight:700;color:var(--t);">15</div>
+    </div>
+    <div style="padding:10px 14px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-size:12px;color:var(--tm);">Order Selesai</div>
+      <div style="font-size:14px;font-weight:700;color:var(--g);">13</div>
+    </div>
+    <div style="padding:10px 14px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-size:12px;color:var(--tm);">Order Terlambat</div>
+      <div style="font-size:14px;font-weight:700;color:var(--red);">2</div>
+    </div>
+    <div style="padding:10px 14px;display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-size:12px;color:var(--tm);">Avg Order Value</div>
+      <div style="font-family:var(--fm);font-size:14px;font-weight:700;color:var(--t);">Rp5.333.000</div>
+    </div>
+  </div>
+
+
+  <!-- TOP PRODUK -->
+  <div class="shdr"><div class="shdr-t">🏆 Produk Terjual</div></div>
+  <div style="margin:0 14px;background:var(--w);border-radius:14px;border:1px solid var(--bd);overflow:hidden;box-shadow:0 1px 4px var(--sh);">
+    <div style="padding:10px 14px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:10px;">
+      <div style="font-size:15px;">🥇</div>
+      <div style="flex:1;"><div style="font-size:12.5px;font-weight:600;color:var(--t);">Custom Cookies (Expert)</div><div style="font-size:10px;color:var(--tm);">12 order</div></div>
+      <div style="font-family:var(--fm);font-size:12px;font-weight:600;color:var(--pa);">Rp6.240.000</div>
+    </div>
+    <div style="padding:10px 14px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:10px;">
+      <div style="font-size:15px;">🥈</div>
+      <div style="flex:1;"><div style="font-size:12.5px;font-weight:600;color:var(--t);">Real Cake (Custom)</div><div style="font-size:10px;color:var(--tm);">4 order</div></div>
+      <div style="font-family:var(--fm);font-size:12px;font-weight:600;color:var(--pa);">Rp4.560.000</div>
+    </div>
+    <div style="padding:10px 14px;display:flex;align-items:center;gap:10px;">
+      <div style="font-size:15px;">🥉</div>
+      <div style="flex:1;"><div style="font-size:12.5px;font-weight:600;color:var(--t);">Hand Bouquet Cookies</div><div style="font-size:10px;color:var(--tm);">3 order</div></div>
+      <div style="font-family:var(--fm);font-size:12px;font-weight:600;color:var(--pa);">Rp1.650.000</div>
+    </div>
+  </div>
+
+
+  <!-- CUSTOMERS -->
+  <div class="shdr"><div class="shdr-t">👥 Customer</div></div>
+  <div style="margin:0 14px;background:var(--w);border-radius:14px;border:1px solid var(--bd);overflow:hidden;box-shadow:0 1px 4px var(--sh);">
+    <div style="padding:10px 14px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-size:12px;color:var(--tm);">Total Customer</div>
+      <div style="font-size:14px;font-weight:700;color:var(--t);">38</div>
+    </div>
+    <div style="padding:10px 14px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-size:12px;color:var(--tm);">New Customer</div>
+      <div style="font-size:14px;font-weight:700;color:var(--blue);">24</div>
+    </div>
+    <div style="padding:10px 14px;display:flex;justify-content:space-between;align-items:center;">
+      <div><div style="font-size:12px;color:var(--tm);">Repeat Customer</div><div style="font-size:9.5px;color:var(--tf);">Order lebih dari 1x</div></div>
+      <div style="text-align:right;"><div style="font-size:14px;font-weight:700;color:var(--g);">14</div><div style="font-size:10px;color:var(--g);font-weight:600;">36.8%</div></div>
+    </div>
+  </div>
+
+
+  <!-- STAFF -->
+  <div class="shdr"><div class="shdr-t">👤 Kinerja Staff</div></div>
+  <div style="margin:0 14px;background:var(--w);border-radius:14px;border:1px solid var(--bd);overflow:hidden;box-shadow:0 1px 4px var(--sh);">
+    <!-- Dinda -->
+    <div style="padding:11px 14px;border-bottom:1px solid var(--bd);">
+      <div style="display:flex;align-items:center;gap:9px;margin-bottom:8px;">
+        <div style="width:28px;height:28px;border-radius:50%;background:var(--pp);color:var(--p);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:11px;flex-shrink:0;">D</div>
+        <div style="flex:1;"><div style="font-size:12.5px;font-weight:700;color:var(--t);">Adinda Safitri</div><div style="font-size:10px;color:var(--tf);">Decorator</div></div>
+        <span class="sb sb-ready">Kalibrasi</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;">
+        <div style="text-align:center;background:var(--bg);border-radius:8px;padding:6px 4px;"><div style="font-size:14px;font-weight:800;color:var(--t);">4.820</div><div style="font-size:9px;color:var(--tm);">Token bulan ini</div></div>
+        <div style="text-align:center;background:var(--bg);border-radius:8px;padding:6px 4px;"><div style="font-size:14px;font-weight:800;color:var(--t);">268</div><div style="font-size:9px;color:var(--tm);">Avg tok/hari</div></div>
+        <div style="text-align:center;background:var(--redp);border-radius:8px;padding:6px 4px;"><div style="font-size:14px;font-weight:800;color:var(--red);">2×</div><div style="font-size:9px;color:var(--red);">Terlambat</div></div>
+      </div>
+    </div>
+    <!-- Maya -->
+    <div style="padding:11px 14px;">
+      <div style="display:flex;align-items:center;gap:9px;margin-bottom:8px;">
+        <div style="width:28px;height:28px;border-radius:50%;background:var(--gp);color:var(--g);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:11px;flex-shrink:0;">M</div>
+        <div style="flex:1;"><div style="font-size:12.5px;font-weight:700;color:var(--t);">Maya Faradilla</div><div style="font-size:10px;color:var(--tf);">Produksi & Packing</div></div>
+        <span class="sb sb-ready">Baik</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;">
+        <div style="text-align:center;background:var(--gp);border-radius:8px;padding:6px 4px;"><div style="font-size:14px;font-weight:800;color:var(--g);">Baik</div><div style="font-size:9px;color:var(--g);">Ketepatan</div></div>
+        <div style="text-align:center;background:var(--gp);border-radius:8px;padding:6px 4px;"><div style="font-size:14px;font-weight:800;color:var(--g);">Baik</div><div style="font-size:9px;color:var(--g);">Kerapihan</div></div>
+        <div style="text-align:center;background:var(--bg);border-radius:8px;padding:6px 4px;"><div style="font-size:14px;font-weight:800;color:var(--t);">0×</div><div style="font-size:9px;color:var(--tm);">Terlambat</div></div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ABSENSI -->
+  <div class="shdr"><div class="shdr-t">🗓 Absensi Staff</div></div>
+  <div style="margin:0 14px;background:var(--w);border-radius:14px;border:1px solid var(--bd);overflow:hidden;box-shadow:0 1px 4px var(--sh);">
+    <div style="padding:10px 14px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:10px;">
+      <div style="width:28px;height:28px;border-radius:50%;background:var(--pp);color:var(--p);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:11px;flex-shrink:0;">D</div>
+      <div style="flex:1;font-size:12.5px;font-weight:600;color:var(--t);">Adinda Safitri</div>
+      <div style="text-align:right;"><div style="font-size:13px;font-weight:700;color:var(--t);">20/26</div><div style="font-size:10px;color:var(--tm);">hari hadir</div></div>
+      <div style="text-align:right;"><div style="font-size:13px;font-weight:700;color:var(--red);">2×</div><div style="font-size:10px;color:var(--red);">telat</div></div>
+    </div>
+    <div style="padding:10px 14px;display:flex;align-items:center;gap:10px;">
+      <div style="width:28px;height:28px;border-radius:50%;background:var(--gp);color:var(--g);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:11px;flex-shrink:0;">M</div>
+      <div style="flex:1;font-size:12.5px;font-weight:600;color:var(--t);">Maya Faradilla</div>
+      <div style="text-align:right;"><div style="font-size:13px;font-weight:700;color:var(--g);">26/26</div><div style="font-size:10px;color:var(--tm);">hari hadir</div></div>
+      <div style="text-align:right;"><div style="font-size:13px;font-weight:700;color:var(--g);">0×</div><div style="font-size:10px;color:var(--g);">telat</div></div>
+    </div>
+  </div>
+  <div style="height:20px;"></div>
+</div>
+```
+
+
+  </div>
+</div>
+</div>
+
+
+<!-- ═══ PRODUCTS + ADD ON ═══ -->
+
+
+<div class="sec-label">Products & Add On</div>
+<div class="row">
+
+
+<!-- PRODUCTS -->
+
+
+<div class="col">
+  <div class="col-lbl">📦 Products</div>
+  <div class="phone">
+    <div class="sbar"><span class="sbar-t">09.15</span><span class="sbar-i">▲▲▲ 🔋</span></div>
+    <div class="scr">
+      <div class="topbar">
+        <div class="topbar-menu">☰</div>
+        <div><div class="topbar-title">Products</div><div class="topbar-sub">194 produk · 10 kategori</div></div>
+        <div style="background:var(--pa);color:white;border-radius:20px;padding:6px 13px;font-size:11.5px;font-weight:700;cursor:pointer;">+ Tambah</div>
+      </div>
+      <!-- Search + Filter -->
+      <div class="search" style="margin-top:12px;"><span>🔍</span><div class="search-txt">Cari nama produk...</div></div>
+      <div style="padding:10px 14px 0;">
+        <div class="chips">
+          <div class="chip on">Semua</div>
+          <div class="chip">Cookies</div>
+          <div class="chip">Cake</div>
+          <div class="chip">Bouquet</div>
+          <div class="chip">Event</div>
+        </div>
+      </div>
+      <div class="shdr"><div class="shdr-t">194 produk</div><div class="shdr-a">↕ Sort</div></div>
+
+
+```
+  <!-- Product card 1 -->
+  <div style="margin:0 14px 8px;background:var(--w);border-radius:14px;border:1px solid var(--bd);overflow:hidden;box-shadow:0 1px 4px var(--sh);">
+    <div style="padding:11px 14px;border-bottom:1px solid var(--bd);display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+      <div style="flex:1;">
+        <div style="font-size:9px;font-weight:700;color:var(--pa);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:2px;">SEASONAL EVENT</div>
+        <div style="font-size:13.5px;font-weight:700;color:var(--t);">3 in 1</div>
+        <div style="font-size:10.5px;color:var(--tm);margin-top:1px;">Sub: Event Cookies</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-shrink:0;">
+        <div style="font-size:16px;cursor:pointer;">✏️</div>
+        <div style="font-size:16px;cursor:pointer;">🗑</div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);padding:9px 14px;gap:0;border-bottom:1px solid var(--bd);">
+      <div style="text-align:center;border-right:1px solid var(--bd);padding-right:4px;">
+        <div style="font-size:9px;color:var(--tf);">Harga</div>
+        <div style="font-size:12px;font-weight:700;color:var(--pa);">30K</div>
+      </div>
+      <div style="text-align:center;border-right:1px solid var(--bd);padding:0 4px;">
+        <div style="font-size:9px;color:var(--tf);">HPP</div>
+        <div style="font-size:12px;font-weight:600;color:var(--t);">2.3K</div>
+      </div>
+      <div style="text-align:center;border-right:1px solid var(--bd);padding:0 4px;">
+        <div style="font-size:9px;color:var(--tf);">Margin</div>
+        <div style="font-size:12px;font-weight:700;color:var(--g);">92%</div>
+      </div>
+      <div style="text-align:center;border-right:1px solid var(--bd);padding:0 4px;">
+        <div style="font-size:9px;color:var(--tf);">Token</div>
+        <div style="font-size:12px;font-weight:600;color:var(--t);">5</div>
+      </div>
+      <div style="text-align:center;padding-left:4px;">
+        <div style="font-size:9px;color:var(--tf);">Stok</div>
+        <div style="font-size:12px;font-weight:600;color:var(--t);">0</div>
+      </div>
+    </div>
+    <div style="padding:7px 14px;display:flex;align-items:center;justify-content:space-between;">
+      <span style="background:var(--gp);color:var(--g);font-size:9.5px;font-weight:700;padding:2px 8px;border-radius:20px;">● Aktif</span>
+      <div style="font-size:10.5px;color:var(--tf);">Diperbarui 2 Apr 2026</div>
+    </div>
+  </div>
+
+
+  <!-- Product card 2 -->
+  <div style="margin:0 14px 8px;background:var(--w);border-radius:14px;border:1px solid var(--bd);overflow:hidden;box-shadow:0 1px 4px var(--sh);">
+    <div style="padding:11px 14px;border-bottom:1px solid var(--bd);display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+      <div style="flex:1;">
+        <div style="font-size:9px;font-weight:700;color:var(--pa);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:2px;">COOKIES</div>
+        <div style="font-size:13.5px;font-weight:700;color:var(--t);">Custom Cookies</div>
+        <div style="font-size:10.5px;color:var(--tm);margin-top:1px;">Sub: Single Cookies · Hard</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-shrink:0;">
+        <div style="font-size:16px;cursor:pointer;">✏️</div>
+        <div style="font-size:16px;cursor:pointer;">🗑</div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);padding:9px 14px;gap:0;border-bottom:1px solid var(--bd);">
+      <div style="text-align:center;border-right:1px solid var(--bd);padding-right:4px;">
+        <div style="font-size:9px;color:var(--tf);">Harga</div>
+        <div style="font-size:12px;font-weight:700;color:var(--pa);">30K</div>
+      </div>
+      <div style="text-align:center;border-right:1px solid var(--bd);padding:0 4px;">
+        <div style="font-size:9px;color:var(--tf);">HPP</div>
+        <div style="font-size:12px;font-weight:600;color:var(--t);">2.1K</div>
+      </div>
+      <div style="text-align:center;border-right:1px solid var(--bd);padding:0 4px;">
+        <div style="font-size:9px;color:var(--tf);">Margin</div>
+        <div style="font-size:12px;font-weight:700;color:var(--g);">93%</div>
+      </div>
+      <div style="text-align:center;border-right:1px solid var(--bd);padding:0 4px;">
+        <div style="font-size:9px;color:var(--tf);">Token</div>
+        <div style="font-size:12px;font-weight:600;color:var(--t);">3</div>
+      </div>
+      <div style="text-align:center;padding-left:4px;">
+        <div style="font-size:9px;color:var(--tf);">Stok</div>
+        <div style="font-size:12px;font-weight:600;color:var(--t);">0</div>
+      </div>
+    </div>
+    <div style="padding:7px 14px;display:flex;align-items:center;justify-content:space-between;">
+      <span style="background:var(--gp);color:var(--g);font-size:9.5px;font-weight:700;padding:2px 8px;border-radius:20px;">● Aktif</span>
+      <div style="font-size:10.5px;color:var(--tf);">Diperbarui 5 Apr 2026</div>
+    </div>
+  </div>
+
+
+  <!-- Product card 3 - inactive -->
+  <div style="margin:0 14px 8px;background:var(--w);border-radius:14px;border:1px solid var(--bd);overflow:hidden;box-shadow:0 1px 4px var(--sh);opacity:0.6;">
+    <div style="padding:11px 14px;border-bottom:1px solid var(--bd);display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+      <div style="flex:1;">
+        <div style="font-size:9px;font-weight:700;color:var(--tf);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:2px;">CAKE</div>
+        <div style="font-size:13.5px;font-weight:700;color:var(--t);">Real Cake One Tier</div>
+        <div style="font-size:10.5px;color:var(--tm);margin-top:1px;">Sub: One Tier Cake</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-shrink:0;">
+        <div style="font-size:16px;cursor:pointer;">✏️</div>
+        <div style="font-size:16px;cursor:pointer;">🗑</div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);padding:9px 14px;gap:0;border-bottom:1px solid var(--bd);">
+      <div style="text-align:center;border-right:1px solid var(--bd);padding-right:4px;"><div style="font-size:9px;color:var(--tf);">Harga</div><div style="font-size:12px;font-weight:700;color:var(--pa);">450K</div></div>
+      <div style="text-align:center;border-right:1px solid var(--bd);padding:0 4px;"><div style="font-size:9px;color:var(--tf);">HPP</div><div style="font-size:12px;font-weight:600;color:var(--t);">45K</div></div>
+      <div style="text-align:center;border-right:1px solid var(--bd);padding:0 4px;"><div style="font-size:9px;color:var(--tf);">Margin</div><div style="font-size:12px;font-weight:700;color:var(--g);">90%</div></div>
+      <div style="text-align:center;border-right:1px solid var(--bd);padding:0 4px;"><div style="font-size:9px;color:var(--tf);">Token</div><div style="font-size:12px;font-weight:600;color:var(--t);">100</div></div>
+      <div style="text-align:center;padding-left:4px;"><div style="font-size:9px;color:var(--tf);">Stok</div><div style="font-size:12px;font-weight:600;color:var(--t);">0</div></div>
+    </div>
+    <div style="padding:7px 14px;display:flex;align-items:center;justify-content:space-between;">
+      <span style="background:var(--redp);color:var(--red);font-size:9.5px;font-weight:700;padding:2px 8px;border-radius:20px;">● Nonaktif</span>
+      <div style="font-size:10.5px;color:var(--tf);">Diperbarui 1 Apr 2026</div>
+    </div>
+  </div>
+  <div style="height:20px;"></div>
+</div>
+```
+
+
+  </div>
+</div>
+
+
+<!-- ADD ON -->
+
+
+<div class="col">
+  <div class="col-lbl">✨ Add On</div>
+  <div class="phone">
+    <div class="sbar"><span class="sbar-t">09.15</span><span class="sbar-i">▲▲▲ 🔋</span></div>
+    <div class="scr">
+      <div class="topbar">
+        <div class="topbar-menu">☰</div>
+        <div><div class="topbar-title">Add On</div><div class="topbar-sub">40 add-on · semua produk</div></div>
+        <div style="background:var(--pa);color:white;border-radius:20px;padding:6px 13px;font-size:11.5px;font-weight:700;cursor:pointer;">+ Tambah</div>
+      </div>
+      <div class="search" style="margin-top:12px;"><span>🔍</span><div class="search-txt">Cari nama add-on...</div></div>
+      <!-- Filter by produk sumber -->
+      <div style="padding:10px 14px 0;">
+        <div class="chips">
+          <div class="chip on">Semua</div>
+          <div class="chip">Real Cake</div>
+          <div class="chip">Cookies</div>
+          <div class="chip">Bouquet</div>
+        </div>
+      </div>
+      <div class="shdr"><div class="shdr-t">40 add-on</div><div class="shdr-a">↕ Sort</div></div>
+
+
+```
+  <!-- Add on card 1 -->
+  <div style="margin:0 14px 8px;background:var(--w);border-radius:14px;border:1px solid var(--bd);overflow:hidden;box-shadow:0 1px 4px var(--sh);">
+    <div style="padding:11px 14px;border-bottom:1px solid var(--bd);display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+      <div style="flex:1;">
+        <div style="font-size:13.5px;font-weight:700;color:var(--t);">Dark Color</div>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:4px;">
+          <span style="background:var(--pp);color:var(--pm);font-size:9.5px;font-weight:700;padding:2px 8px;border-radius:20px;">Real Cake</span>
+          <span style="background:var(--pp);color:var(--pm);font-size:9.5px;font-weight:700;padding:2px 8px;border-radius:20px;">Cookies</span>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-shrink:0;">
+        <div style="font-size:16px;cursor:pointer;">✏️</div>
+        <div style="font-size:16px;cursor:pointer;">🗑</div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;padding:9px 14px;gap:0;border-bottom:1px solid var(--bd);">
+      <div style="text-align:center;border-right:1px solid var(--bd);padding-right:4px;"><div style="font-size:9px;color:var(--tf);">Harga</div><div style="font-size:13px;font-weight:700;color:var(--pa);">Rp50.000</div></div>
+      <div style="text-align:center;border-right:1px solid var(--bd);padding:0 4px;"><div style="font-size:9px;color:var(--tf);">Tipe</div><div style="font-size:12px;font-weight:600;color:var(--t);">Per Item</div></div>
+      <div style="text-align:center;padding-left:4px;"><div style="font-size:9px;color:var(--tf);">Status</div><div style="font-size:11px;font-weight:700;color:var(--g);">Aktif</div></div>
+    </div>
+    <div style="padding:7px 14px;"><div style="font-size:10.5px;color:var(--tf);">Berlaku untuk: Real Cake, Custom Cookies</div></div>
+  </div>
+
+
+  <!-- Add on card 2 -->
+  <div style="margin:0 14px 8px;background:var(--w);border-radius:14px;border:1px solid var(--bd);overflow:hidden;box-shadow:0 1px 4px var(--sh);">
+    <div style="padding:11px 14px;border-bottom:1px solid var(--bd);display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+      <div style="flex:1;">
+        <div style="font-size:13.5px;font-weight:700;color:var(--t);">Fondant Name</div>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:4px;">
+          <span style="background:var(--pp);color:var(--pm);font-size:9.5px;font-weight:700;padding:2px 8px;border-radius:20px;">Real Cake</span>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-shrink:0;">
+        <div style="font-size:16px;cursor:pointer;">✏️</div>
+        <div style="font-size:16px;cursor:pointer;">🗑</div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;padding:9px 14px;gap:0;border-bottom:1px solid var(--bd);">
+      <div style="text-align:center;border-right:1px solid var(--bd);padding-right:4px;"><div style="font-size:9px;color:var(--tf);">Harga</div><div style="font-size:13px;font-weight:700;color:var(--pa);">Rp20.000</div></div>
+      <div style="text-align:center;border-right:1px solid var(--bd);padding:0 4px;"><div style="font-size:9px;color:var(--tf);">Tipe</div><div style="font-size:12px;font-weight:600;color:var(--t);">Per Item</div></div>
+      <div style="text-align:center;padding-left:4px;"><div style="font-size:9px;color:var(--tf);">Status</div><div style="font-size:11px;font-weight:700;color:var(--g);">Aktif</div></div>
+    </div>
+    <div style="padding:7px 14px;"><div style="font-size:10.5px;color:var(--tf);">Berlaku untuk: Real Cake saja</div></div>
+  </div>
+
+
+  <!-- Add on card 3 -->
+  <div style="margin:0 14px 8px;background:var(--w);border-radius:14px;border:1px solid var(--bd);overflow:hidden;box-shadow:0 1px 4px var(--sh);">
+    <div style="padding:11px 14px;border-bottom:1px solid var(--bd);display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+      <div style="flex:1;">
+        <div style="font-size:13.5px;font-weight:700;color:var(--t);">Additional Cookies Small</div>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:4px;">
+          <span style="background:var(--pp);color:var(--pm);font-size:9.5px;font-weight:700;padding:2px 8px;border-radius:20px;">Real Cake</span>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-shrink:0;">
+        <div style="font-size:16px;cursor:pointer;">✏️</div>
+        <div style="font-size:16px;cursor:pointer;">🗑</div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;padding:9px 14px;gap:0;border-bottom:1px solid var(--bd);">
+      <div style="text-align:center;border-right:1px solid var(--bd);padding-right:4px;"><div style="font-size:9px;color:var(--tf);">Harga</div><div style="font-size:13px;font-weight:700;color:var(--pa);">Rp20.000</div></div>
+      <div style="text-align:center;border-right:1px solid var(--bd);padding:0 4px;"><div style="font-size:9px;color:var(--tf);">Tipe</div><div style="font-size:12px;font-weight:600;color:var(--t);">Per Qty</div></div>
+      <div style="text-align:center;padding-left:4px;"><div style="font-size:9px;color:var(--tf);">Status</div><div style="font-size:11px;font-weight:700;color:var(--g);">Aktif</div></div>
+    </div>
+    <div style="padding:7px 14px;"><div style="font-size:10.5px;color:var(--tf);">Berlaku untuk: Real Cake saja · 4–6cm</div></div>
+  </div>
+  <div style="height:20px;"></div>
+</div>
+```
+
+
+  </div>
+</div>
+
+
+</div>
+
+
+<!-- ═══ BUSINESS + BAKERY SETTINGS ═══ -->
+
+
+<div class="sec-label">Business & Bakery Settings</div>
+<div class="row">
+
+
+<!-- BUSINESS -->
+
+
+<div class="col">
+  <div class="col-lbl">🏢 Business</div>
+  <div class="phone">
+    <div class="sbar"><span class="sbar-t">09.15</span><span class="sbar-i">▲▲▲ 🔋</span></div>
+    <div class="scr">
+      <div class="topbar">
+        <div class="topbar-menu">☰</div>
+        <div><div class="topbar-title">Business</div><div class="topbar-sub">Crumbella · Felicia Elvina</div></div>
+        <div class="topbar-avatar">FE</div>
+      </div>
+      <!-- Period + Export -->
+      <div style="display:flex;align-items:center;gap:8px;padding:12px 14px 0;">
+        <div style="flex:1;background:var(--w);border:1.5px solid var(--bd);border-radius:10px;padding:8px 12px;font-size:12px;font-weight:600;color:var(--t);display:flex;align-items:center;justify-content:space-between;box-shadow:0 1px 4px var(--sh);">April 2026 <span style="color:var(--tf);">▾</span></div>
+        <div style="background:var(--pa);border-radius:10px;padding:8px 14px;font-size:11.5px;font-weight:700;color:white;cursor:pointer;white-space:nowrap;">↓ Export</div>
+      </div>
+      <!-- Hero -->
+      <div style="margin:10px 14px 0;background:var(--w);border-radius:14px;border:1px solid var(--bd);overflow:hidden;box-shadow:0 1px 4px var(--sh);">
+        <div style="padding:14px;display:flex;gap:0;">
+          <div style="flex:1;border-right:1px solid var(--bd);padding-right:12px;">
+            <div style="font-size:10px;color:var(--tf);margin-bottom:3px;">Total Revenue</div>
+            <div style="font-size:22px;font-weight:800;color:var(--t);line-height:1;">Rp80jt</div>
+            <div style="font-size:10px;color:var(--g);font-weight:600;margin-top:4px;">↑ +12% vs Mar</div>
+          </div>
+          <div style="flex:1;padding-left:12px;">
+            <div style="font-size:10px;color:var(--tf);margin-bottom:3px;">Profit Bersih</div>
+            <div style="font-size:22px;font-weight:800;color:var(--g);line-height:1;">Rp62.4jt</div>
+            <div style="font-size:10px;color:var(--tf);margin-top:4px;">setelah semua biaya</div>
+          </div>
+        </div>
+      </div>
+      <!-- Breakdown -->
+      <div class="shdr"><div class="shdr-t">Rincian Biaya</div></div>
+      <div style="margin:0 14px;background:var(--w);border-radius:14px;border:1px solid var(--bd);overflow:hidden;box-shadow:0 1px 4px var(--sh);">
+        <div style="padding:9px 14px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;">
+          <div style="font-size:12.5px;font-weight:600;color:var(--t);">Revenue</div>
+          <div style="font-family:var(--fm);font-size:12.5px;font-weight:600;color:var(--g);">+Rp80.000.000</div>
+        </div>
+        <div style="padding:9px 14px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;">
+          <div><div style="font-size:12.5px;color:var(--t);">COGS / HPP</div><div style="font-size:9.5px;color:var(--tf);">Otomatis dari produk</div></div>
+          <div style="font-family:var(--fm);font-size:12.5px;color:var(--red);">-Rp12.000.000</div>
+        </div>
+        <div style="padding:9px 14px;border-bottom:1px solid var(--bd);">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
+            <div style="font-size:12.5px;color:var(--t);">Gaji Staff</div>
+            <div style="font-family:var(--fm);font-size:12.5px;color:var(--red);">-Rp5.000.000</div>
+          </div>
+          <div style="padding-left:10px;border-left:2px solid var(--bd);">
+            <div style="display:flex;justify-content:space-between;padding:2px 0;"><div style="font-size:10px;color:var(--tm);">Adinda Safitri</div><div style="font-family:var(--fm);font-size:10px;color:var(--tm);">Rp2.800.000</div></div>
+            <div style="display:flex;justify-content:space-between;padding:2px 0;"><div style="font-size:10px;color:var(--tm);">Maya Faradilla</div><div style="font-family:var(--fm);font-size:10px;color:var(--tm);">Rp2.800.000</div></div>
+          </div>
+        </div>
+        <!-- Custom biaya rows -->
+        <div style="padding:9px 14px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;">
+          <div><div style="font-size:12.5px;color:var(--t);">Retur / Refund</div><div style="font-size:9.5px;color:var(--tf);">Input manual</div></div>
+          <div style="font-family:var(--fm);font-size:12.5px;color:var(--red);">-Rp0</div>
+        </div>
+        <div style="padding:9px 14px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;">
+          <div><div style="font-size:12.5px;color:var(--t);">Biaya Iklan</div><div style="font-size:9.5px;color:var(--tf);">Meta Ads</div></div>
+          <div style="font-family:var(--fm);font-size:12.5px;color:var(--red);">-Rp500.000</div>
+        </div>
+        <!-- Custom biaya yang bisa dinamai sendiri -->
+        <div style="padding:9px 14px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;">
+          <div><div style="font-size:12.5px;color:var(--t);">Packaging Tambahan</div><div style="font-size:9.5px;color:var(--tf);">Custom · Input manual</div></div>
+          <div style="font-family:var(--fm);font-size:12.5px;color:var(--red);">-Rp100.000</div>
+        </div>
+        <!-- Total -->
+        <div style="padding:10px 14px;background:var(--gp);display:flex;justify-content:space-between;align-items:center;">
+          <div style="font-size:13px;font-weight:700;color:var(--g);">Profit Bersih</div>
+          <div style="font-family:var(--fm);font-size:15px;font-weight:800;color:var(--g);">Rp62.400.000</div>
+        </div>
+      </div>
+      <!-- Stats -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:10px 14px 0;">
+        <div style="background:var(--w);border-radius:13px;border:1px solid var(--bd);padding:11px 12px;box-shadow:0 1px 4px var(--sh);"><div style="font-size:10px;color:var(--tm);margin-bottom:4px;">Order Aktif</div><div style="font-size:22px;font-weight:800;color:var(--t);">13</div></div>
+        <div style="background:var(--w);border-radius:13px;border:1px solid var(--bd);padding:11px 12px;box-shadow:0 1px 4px var(--sh);"><div style="font-size:10px;color:var(--tm);margin-bottom:4px;">Margin Kotor</div><div style="font-size:22px;font-weight:800;color:var(--g);">85%</div></div>
+      </div>
+      <!-- Top 3 -->
+      <div class="shdr"><div class="shdr-t">🏆 Top Produk</div><div class="shdr-a">by Revenue</div></div>
+      <div style="margin:0 14px;background:var(--w);border-radius:14px;border:1px solid var(--bd);overflow:hidden;box-shadow:0 1px 4px var(--sh);">
+        <div style="padding:9px 14px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:10px;"><div style="font-size:15px;">🥇</div><div style="flex:1;"><div style="font-size:12px;font-weight:600;color:var(--t);">Custom Cookies (Expert)</div><div style="font-size:9.5px;color:var(--tm);">12 order</div></div><div style="font-family:var(--fm);font-size:12px;font-weight:700;color:var(--pa);">Rp6.240.000</div></div>
+        <div style="padding:9px 14px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:10px;"><div style="font-size:15px;">🥈</div><div style="flex:1;"><div style="font-size:12px;font-weight:600;color:var(--t);">Real Cake (Custom)</div><div style="font-size:9.5px;color:var(--tm);">4 order</div></div><div style="font-family:var(--fm);font-size:12px;font-weight:700;color:var(--pa);">Rp4.560.000</div></div>
+        <div style="padding:9px 14px;display:flex;align-items:center;gap:10px;"><div style="font-size:15px;">🥉</div><div style="flex:1;"><div style="font-size:12px;font-weight:600;color:var(--t);">Hand Bouquet Cookies</div><div style="font-size:9.5px;color:var(--tm);">3 order</div></div><div style="font-family:var(--fm);font-size:12px;font-weight:700;color:var(--pa);">Rp1.650.000</div></div>
+      </div>
+      <div style="height:20px;"></div>
+    </div>
+  </div>
+</div>
+
+
+<!-- BAKERY SETTINGS -->
+
+
+<div class="col">
+  <div class="col-lbl">⚙️ Bakery Settings</div>
+  <div class="phone">
+    <div class="sbar"><span class="sbar-t">09.15</span><span class="sbar-i">▲▲▲ 🔋</span></div>
+    <div class="scr">
+      <div class="topbar">
+        <div class="topbar-menu">☰</div>
+        <div><div class="topbar-title">Bakery Settings</div><div class="topbar-sub">Pengaturan operasional</div></div>
+      </div>
+
+
+```
+  <!-- STAFF TOKEN + GAJI -->
+  <div class="shdr"><div class="shdr-t">👤 Token & Gaji per Staff</div><div class="shdr-a">+ Tambah</div></div>
+  <div style="margin:0 14px;background:var(--w);border-radius:14px;border:1px solid var(--bd);overflow:hidden;box-shadow:0 1px 4px var(--sh);">
+    <!-- Dinda -->
+    <div style="padding:10px 14px;border-bottom:1px solid var(--bd);">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <div style="width:28px;height:28px;border-radius:50%;background:var(--pp);color:var(--p);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:11px;flex-shrink:0;">D</div>
+        <div><div style="font-size:12px;font-weight:700;color:var(--t);">Adinda Safitri</div><div style="font-size:9px;color:var(--tf);">Decorator · Kontrak aktif</div></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+        <div><div style="font-size:9px;color:var(--tf);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;">Token/hari</div><div style="background:var(--bg);border:1.5px solid var(--bd);border-radius:8px;padding:7px 10px;font-family:var(--fm);font-size:14px;font-weight:700;color:var(--t);">250</div></div>
+        <div><div style="font-size:9px;color:var(--tf);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;">Gaji/bulan</div><div style="background:var(--bg);border:1.5px solid var(--bd);border-radius:8px;padding:7px 10px;font-family:var(--fm);font-size:12px;font-weight:600;color:var(--t);">2.500.000</div></div>
+        <div><div style="font-size:9px;color:var(--tf);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;">Tunjangan Makan</div><div style="background:var(--bg);border:1.5px solid var(--bd);border-radius:8px;padding:7px 10px;font-family:var(--fm);font-size:12px;font-weight:600;color:var(--t);">300.000</div></div>
+        <div><div style="font-size:9px;color:var(--tf);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;">Take-home</div><div style="background:var(--gp);border:1.5px solid #A8D0B8;border-radius:8px;padding:7px 10px;font-family:var(--fm);font-size:12px;font-weight:700;color:var(--g);">2.800.000</div></div>
+      </div>
+    </div>
+    <!-- Maya -->
+    <div style="padding:10px 14px;border-bottom:1px solid var(--bd);">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <div style="width:28px;height:28px;border-radius:50%;background:var(--gp);color:var(--g);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:11px;flex-shrink:0;">M</div>
+        <div><div style="font-size:12px;font-weight:700;color:var(--t);">Maya Faradilla</div><div style="font-size:9px;color:var(--tf);">Produksi & Packing · Kontrak aktif</div></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+        <div><div style="font-size:9px;color:var(--tf);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;">Token/hari</div><div style="background:var(--bg);border:1.5px solid var(--bd);border-radius:8px;padding:7px 10px;font-size:11px;color:var(--tf);font-style:italic;">N/A</div></div>
+        <div><div style="font-size:9px;color:var(--tf);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;">Gaji/bulan</div><div style="background:var(--bg);border:1.5px solid var(--bd);border-radius:8px;padding:7px 10px;font-family:var(--fm);font-size:12px;font-weight:600;color:var(--t);">2.500.000</div></div>
+        <div><div style="font-size:9px;color:var(--tf);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;">Tunjangan Makan</div><div style="background:var(--bg);border:1.5px solid var(--bd);border-radius:8px;padding:7px 10px;font-family:var(--fm);font-size:12px;font-weight:600;color:var(--t);">300.000</div></div>
+        <div><div style="font-size:9px;color:var(--tf);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;">Take-home</div><div style="background:var(--gp);border:1.5px solid #A8D0B8;border-radius:8px;padding:7px 10px;font-family:var(--fm);font-size:12px;font-weight:700;color:var(--g);">2.800.000</div></div>
+      </div>
+    </div>
+    <div style="padding:9px 14px;background:var(--pp);display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-size:11px;font-weight:700;color:var(--p);">Total Gaji Bulan Ini</div>
+      <div style="font-family:var(--fm);font-size:14px;font-weight:800;color:var(--p);">Rp5.600.000</div>
+    </div>
+  </div>
+
+
+  <!-- OPERASIONAL SETTINGS -->
+  <div class="shdr"><div class="shdr-t">⚙️ Pengaturan Operasional</div></div>
+  <div style="margin:0 14px;background:var(--w);border-radius:14px;border:1px solid var(--bd);overflow:hidden;box-shadow:0 1px 4px var(--sh);">
+    <div style="padding:10px 14px;border-bottom:1px solid var(--bd);">
+      <div style="font-size:10.5px;font-weight:700;color:var(--t);margin-bottom:5px;">Cut-off Time Order (H-1)</div>
+      <div style="background:var(--bg);border:1.5px solid var(--bd);border-radius:8px;padding:7px 10px;font-size:13px;font-weight:600;color:var(--t);display:flex;justify-content:space-between;">17.00 WIB <span style="color:var(--tf);font-size:11px;">▾</span></div>
+      <div style="font-size:9.5px;color:var(--tf);margin-top:4px;">Order H-1 hanya bisa masuk sebelum jam ini</div>
+    </div>
+    <div style="padding:10px 14px;border-bottom:1px solid var(--bd);">
+      <div style="font-size:10.5px;font-weight:700;color:var(--t);margin-bottom:5px;">Default DP (%)</div>
+      <div style="background:var(--bg);border:1.5px solid var(--bd);border-radius:8px;padding:7px 10px;font-size:13px;font-weight:600;color:var(--t);">50%</div>
+      <div style="font-size:9.5px;color:var(--tf);margin-top:4px;">Bisa di-override per booking</div>
+    </div>
+    <div style="padding:10px 14px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;">
+      <div><div style="font-size:10.5px;font-weight:700;color:var(--t);">Notifikasi WA Produksi</div><div style="font-size:9.5px;color:var(--tf);margin-top:2px;">Blast otomatis ke grup saat order Confirmed</div></div>
+      <div style="width:40px;height:22px;border-radius:20px;background:var(--g);position:relative;cursor:pointer;"><div style="width:18px;height:18px;border-radius:50%;background:white;position:absolute;right:2px;top:2px;box-shadow:0 1px 3px rgba(0,0,0,0.2);"></div></div>
+    </div>
+    <!-- Override Calendar Lock -->
+    <div style="padding:10px 14px;display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
+      <div style="flex:1;">
+        <div style="display:flex;align-items:center;gap:7px;margin-bottom:3px;">
+          <div style="font-size:10.5px;font-weight:700;color:var(--t);">Override Calendar Lock</div>
+          <span style="background:var(--redp);color:var(--red);font-size:8.5px;font-weight:700;padding:1px 6px;border-radius:10px;">Hati-hati</span>
+        </div>
+        <div style="font-size:9.5px;color:var(--tf);line-height:1.5;">Buka tanggal yang sudah closed — untuk input order lama sebelum sistem aktif</div>
+      </div>
+      <div style="width:40px;height:22px;border-radius:20px;background:var(--bd);position:relative;cursor:pointer;flex-shrink:0;margin-top:2px;"><div style="width:18px;height:18px;border-radius:50%;background:white;position:absolute;left:2px;top:2px;box-shadow:0 1px 3px rgba(0,0,0,0.2);"></div></div>
+    </div>
+  </div>
+
+
+  <!-- BIAYA OPERASIONAL BULANAN -->
+  <div class="shdr"><div class="shdr-t">💸 Biaya Operasional Bulanan</div><div class="shdr-a">+ Tambah</div></div>
+  <div style="margin:0 14px;background:var(--w);border-radius:14px;border:1px solid var(--bd);overflow:hidden;box-shadow:0 1px 4px var(--sh);">
+    <div style="padding:10px 14px;border-bottom:1px solid var(--bd);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;"><div style="font-size:12.5px;font-weight:600;color:var(--t);">Retur / Refund</div><div style="font-size:16px;color:var(--tf);cursor:pointer;">×</div></div>
+      <div style="background:var(--bg);border:1.5px solid var(--bd);border-radius:8px;padding:7px 11px;font-family:var(--fm);font-size:13px;font-weight:600;color:var(--t);">0</div>
+    </div>
+    <div style="padding:10px 14px;border-bottom:1px solid var(--bd);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;"><div style="font-size:12.5px;font-weight:600;color:var(--t);">Biaya Iklan</div><div style="font-size:16px;color:var(--tf);cursor:pointer;">×</div></div>
+      <div style="background:var(--bg);border:1.5px solid var(--bd);border-radius:8px;padding:7px 11px;font-family:var(--fm);font-size:13px;font-weight:600;color:var(--t);">500.000</div>
+    </div>
+    <!-- Custom biaya dengan nama sendiri -->
+    <div style="padding:10px 14px;border-bottom:1px solid var(--bd);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
+        <div style="background:var(--bg);border:1.5px solid var(--bd);border-radius:8px;padding:5px 10px;font-size:12px;color:var(--t);flex:1;margin-right:8px;">Packaging Tambahan</div>
+        <div style="font-size:16px;color:var(--tf);cursor:pointer;">×</div>
+      </div>
+      <div style="background:var(--bg);border:1.5px solid var(--bd);border-radius:8px;padding:7px 11px;font-family:var(--fm);font-size:13px;font-weight:600;color:var(--t);">100.000</div>
+      <div style="font-size:9.5px;color:var(--tf);margin-top:3px;">Nama biaya bisa diedit langsung</div>
+    </div>
+    <div style="padding:10px 14px;background:var(--bg);display:flex;align-items:center;gap:8px;cursor:pointer;">
+      <div style="width:20px;height:20px;border-radius:6px;background:var(--bd);display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--tm);">+</div>
+      <div style="font-size:12px;color:var(--tm);">Tambah biaya lain dengan nama custom...</div>
+    </div>
+  </div>
+
+
+  <!-- KALENDER LIBUR -->
+  <div class="shdr"><div class="shdr-t">📅 Kalender Libur</div><div class="shdr-a">+ Tambah</div></div>
+  <div style="margin:0 14px;background:var(--w);border-radius:14px;border:1px solid var(--bd);overflow:hidden;box-shadow:0 1px 4px var(--sh);">
+    <div style="padding:9px 14px;border-bottom:1px solid var(--bd);background:var(--bg);">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <div style="flex:1;background:var(--w);border:1.5px solid var(--bd);border-radius:9px;padding:8px 12px;font-size:12px;color:var(--tf);">Pilih tanggal...</div>
+        <div style="background:var(--pa);color:white;border-radius:9px;padding:8px 14px;font-size:12px;font-weight:700;cursor:pointer;">Tambah</div>
+      </div>
+      <div style="font-size:9.5px;color:var(--tf);margin-top:5px;">Tap untuk pilih tanggal, bukan ketik manual</div>
+    </div>
+    <div style="padding:5px 0;">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 14px;border-bottom:1px solid var(--bd);">
+        <div><div style="font-size:12.5px;font-weight:600;color:var(--t);">17 April 2026</div><div style="font-size:9.5px;color:var(--tm);">Jumat · Lebaran</div></div>
+        <div style="display:flex;align-items:center;gap:8px;"><span class="sb sb-prod" style="font-size:9px;">Hari Raya</span><div style="font-size:16px;color:var(--tm);cursor:pointer;">×</div></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 14px;">
+        <div><div style="font-size:12.5px;font-weight:600;color:var(--t);">18 April 2026</div><div style="font-size:9.5px;color:var(--tm);">Sabtu</div></div>
+        <div style="display:flex;align-items:center;gap:8px;"><span class="sb sb-late" style="font-size:9px;">Libur</span><div style="font-size:16px;color:var(--tm);cursor:pointer;">×</div></div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- SAVE -->
+  <div style="padding:14px 14px 24px;">
+    <div style="background:var(--pa);color:white;border-radius:13px;padding:13px;text-align:center;font-size:14px;font-weight:700;cursor:pointer;">Simpan Pengaturan</div>
+    <div style="text-align:center;font-size:10.5px;color:var(--tf);margin-top:7px;">Perubahan langsung berlaku di seluruh sistem</div>
+  </div>
+</div>
+```
+
+
+  </div>
+</div>
+
+
+</div>
+
+
+<!-- ═══ CUSTOMER ═══ -->
+
+
+<div class="sec-label">Customer</div>
+<div class="row">
+
+
+<!-- SCREEN: CUSTOMER LIST -->
+
+
+<div class="col">
+  <div class="col-lbl">👥 Customer List</div>
+  <div class="phone">
+    <div class="sbar"><span class="sbar-t">09.15</span><span class="sbar-i">▲▲▲ 🔋</span></div>
+    <div class="scr">
+      <div class="topbar">
+        <div class="topbar-menu">☰</div>
+        <div><div class="topbar-title">Customer</div><div class="topbar-sub">38 customer · 14 repeat</div></div>
+        <div class="topbar-avatar">FE</div>
+      </div>
+
+
+```
+  <div class="search" style="margin-top:12px;"><span>🔍</span><div class="search-txt">Cari nama, no HP, atau alamat...</div></div>
+
+
+  <div style="padding:10px 14px 0;">
+    <div class="chips">
+      <div class="chip on">Semua</div>
+      <div class="chip">Repeat</div>
+      <div class="chip">New</div>
+    </div>
+  </div>
+
+
+  <div class="shdr"><div class="shdr-t">38 customer</div><div class="shdr-a">↕ Sort</div></div>
+
+
+  <!-- Customer 1 - Repeat -->
+  <div style="margin:0 14px 8px;background:var(--w);border-radius:14px;border:1px solid var(--bd);overflow:hidden;box-shadow:0 1px 4px var(--sh);cursor:pointer;">
+    <div style="padding:11px 14px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:11px;">
+      <div style="width:38px;height:38px;border-radius:50%;background:var(--pp);color:var(--p);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;flex-shrink:0;">AD</div>
+      <div style="flex:1;">
+        <div style="display:flex;align-items:center;gap:7px;">
+          <div style="font-size:14px;font-weight:700;color:var(--t);">Adina</div>
+          <span style="background:var(--gp);color:var(--g);font-size:9px;font-weight:700;padding:2px 7px;border-radius:20px;">Repeat</span>
+        </div>
+        <div style="font-size:11px;color:var(--tm);margin-top:1px;">08118402606</div>
+      </div>
+      <div style="font-size:16px;color:var(--tf);">→</div>
+    </div>
+    <div style="padding:9px 14px;display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-size:11px;color:var(--tm);">Jl. Buncit Persada No.B2, Jaksel</div>
+      <div style="font-size:10px;color:var(--tf);">3 order</div>
+    </div>
+  </div>
+
+
+  <!-- Customer 2 - Repeat -->
+  <div style="margin:0 14px 8px;background:var(--w);border-radius:14px;border:1px solid var(--bd);overflow:hidden;box-shadow:0 1px 4px var(--sh);cursor:pointer;">
+    <div style="padding:11px 14px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:11px;">
+      <div style="width:38px;height:38px;border-radius:50%;background:var(--pp);color:var(--p);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;flex-shrink:0;">NA</div>
+      <div style="flex:1;">
+        <div style="display:flex;align-items:center;gap:7px;">
+          <div style="font-size:14px;font-weight:700;color:var(--t);">Nazza Putri</div>
+          <span style="background:var(--gp);color:var(--g);font-size:9px;font-weight:700;padding:2px 7px;border-radius:20px;">Repeat</span>
+        </div>
+        <div style="font-size:11px;color:var(--tm);margin-top:1px;">08123456789</div>
+      </div>
+      <div style="font-size:16px;color:var(--tf);">→</div>
+    </div>
+    <div style="padding:9px 14px;display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-size:11px;color:var(--tm);">Jl. Kemang Raya No.12, Jaksel</div>
+      <div style="font-size:10px;color:var(--tf);">2 order</div>
+    </div>
+  </div>
+
+
+  <!-- Customer 3 - New -->
+  <div style="margin:0 14px 8px;background:var(--w);border-radius:14px;border:1px solid var(--bd);overflow:hidden;box-shadow:0 1px 4px var(--sh);cursor:pointer;">
+    <div style="padding:11px 14px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:11px;">
+      <div style="width:38px;height:38px;border-radius:50%;background:var(--bluep);color:var(--blue);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;flex-shrink:0;">ME</div>
+      <div style="flex:1;">
+        <div style="display:flex;align-items:center;gap:7px;">
+          <div style="font-size:14px;font-weight:700;color:var(--t);">Meta</div>
+          <span style="background:var(--bluep);color:var(--blue);font-size:9px;font-weight:700;padding:2px 7px;border-radius:20px;">New</span>
+        </div>
+        <div style="font-size:11px;color:var(--tm);margin-top:1px;">08198765432</div>
+      </div>
+      <div style="font-size:16px;color:var(--tf);">→</div>
+    </div>
+    <div style="padding:9px 14px;display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-size:11px;color:var(--tm);">Jl. Sudirman No.88, Jakarta Pusat</div>
+      <div style="font-size:10px;color:var(--tf);">1 order</div>
+    </div>
+  </div>
+
+
+  <!-- Customer 4 - New -->
+  <div style="margin:0 14px 8px;background:var(--w);border-radius:14px;border:1px solid var(--bd);overflow:hidden;box-shadow:0 1px 4px var(--sh);cursor:pointer;">
+    <div style="padding:11px 14px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:11px;">
+      <div style="width:38px;height:38px;border-radius:50%;background:var(--bluep);color:var(--blue);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;flex-shrink:0;">KA</div>
+      <div style="flex:1;">
+        <div style="display:flex;align-items:center;gap:7px;">
+          <div style="font-size:14px;font-weight:700;color:var(--t);">Karen</div>
+          <span style="background:var(--bluep);color:var(--blue);font-size:9px;font-weight:700;padding:2px 7px;border-radius:20px;">New</span>
+        </div>
+        <div style="font-size:11px;color:var(--tm);margin-top:1px;">08112345678</div>
+      </div>
+      <div style="font-size:16px;color:var(--tf);">→</div>
+    </div>
+    <div style="padding:9px 14px;display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-size:11px;color:var(--tm);">Pickup — tidak ada alamat</div>
+      <div style="font-size:10px;color:var(--tf);">1 order</div>
+    </div>
+  </div>
+
+
+  <div style="height:20px;"></div>
+</div>
+```
+
+
+  </div>
+</div>
+
+
+<!-- SCREEN: CUSTOMER DETAIL -->
+
+
+<div class="col">
+  <div class="col-lbl">👤 Customer Detail — Adina</div>
+  <div class="phone">
+    <div class="sbar"><span class="sbar-t">09.15</span><span class="sbar-i">▲▲▲ 🔋</span></div>
+    <div class="scr">
+      <div class="topbar">
+        <div style="font-size:18px;color:var(--tm);cursor:pointer;">←</div>
+        <div style="flex:1;margin-left:8px;">
+          <div class="topbar-title">Detail Customer</div>
+        </div>
+        <div style="font-size:22px;cursor:pointer;">💬</div>
+      </div>
+
+
+```
+  <!-- PROFILE -->
+  <div style="margin:12px 14px 0;background:var(--w);border-radius:14px;border:1px solid var(--bd);overflow:hidden;box-shadow:0 1px 4px var(--sh);">
+    <div style="padding:16px 14px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:13px;">
+      <div style="width:48px;height:48px;border-radius:50%;background:var(--pp);color:var(--p);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:17px;flex-shrink:0;">AD</div>
+      <div style="flex:1;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="font-size:17px;font-weight:800;color:var(--t);">Adina</div>
+          <span style="background:var(--gp);color:var(--g);font-size:9.5px;font-weight:700;padding:3px 9px;border-radius:20px;">⭐ Repeat Customer</span>
+        </div>
+        <div style="font-size:11.5px;color:var(--tm);margin-top:2px;">08118402606</div>
+      </div>
+    </div>
+    <!-- Info rows -->
+    <div style="padding:10px 14px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-size:11.5px;color:var(--tm);">Alamat Terakhir</div>
+      <div style="font-size:12px;font-weight:600;color:var(--t);text-align:right;max-width:60%;">Jl. Buncit Persada No.B2, Jaksel</div>
+    </div>
+    <div style="padding:10px 14px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-size:11.5px;color:var(--tm);">Total Order</div>
+      <div style="font-size:13px;font-weight:800;color:var(--t);">3 order</div>
+    </div>
+    <div style="padding:10px 14px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-size:11.5px;color:var(--tm);">Total Belanja</div>
+      <div style="font-family:var(--fm);font-size:13px;font-weight:700;color:var(--pa);">Rp5.505.000</div>
+    </div>
+    <div style="padding:10px 14px;display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-size:11.5px;color:var(--tm);">Customer Sejak</div>
+      <div style="font-size:12px;font-weight:600;color:var(--t);">Januari 2026</div>
+    </div>
+  </div>
+
+
+  <!-- HISTORY PEMESANAN -->
+  <div class="shdr"><div class="shdr-t">Riwayat Pemesanan</div></div>
+
+
+  <!-- Order 1 -->
+  <div style="margin:0 14px 8px;background:var(--w);border-radius:14px;border:1px solid var(--bd);overflow:hidden;box-shadow:0 1px 4px var(--sh);">
+    <div style="padding:10px 14px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;">
+      <div><div style="font-family:var(--fm);font-size:10px;color:var(--tf);">AD-06</div><div style="font-size:12px;font-weight:700;color:var(--t);margin-top:1px;">8 Apr 2026</div></div>
+      <span class="sb sb-late">Terlambat</span>
+    </div>
+    <div style="padding:9px 14px;border-bottom:1px solid var(--bd);">
+      <div style="font-size:12px;color:var(--t);">1× Real Cake + 20× Custom Cookies</div>
+      <div style="font-size:10.5px;color:var(--tm);margin-top:2px;">Mario theme · Pickup</div>
+    </div>
+    <div style="padding:8px 14px;display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-size:11px;color:var(--tm);">Total</div>
+      <div style="font-family:var(--fm);font-size:13px;font-weight:700;color:var(--pa);">Rp1.835.000</div>
+    </div>
+  </div>
+
+
+  <!-- Order 2 -->
+  <div style="margin:0 14px 8px;background:var(--w);border-radius:14px;border:1px solid var(--bd);overflow:hidden;box-shadow:0 1px 4px var(--sh);">
+    <div style="padding:10px 14px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;">
+      <div><div style="font-family:var(--fm);font-size:10px;color:var(--tf);">AD-03</div><div style="font-size:12px;font-weight:700;color:var(--t);margin-top:1px;">15 Feb 2026</div></div>
+      <span class="sb sb-done">Completed</span>
+    </div>
+    <div style="padding:9px 14px;border-bottom:1px solid var(--bd);">
+      <div style="font-size:12px;color:var(--t);">50× Custom Cookies</div>
+      <div style="font-size:10.5px;color:var(--tm);margin-top:2px;">Floral theme · Gojek</div>
+    </div>
+    <div style="padding:8px 14px;display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-size:11px;color:var(--tm);">Total</div>
+      <div style="font-family:var(--fm);font-size:13px;font-weight:700;color:var(--pa);">Rp1.750.000</div>
+    </div>
+  </div>
+
+
+  <!-- Order 3 -->
+  <div style="margin:0 14px 8px;background:var(--w);border-radius:14px;border:1px solid var(--bd);overflow:hidden;box-shadow:0 1px 4px var(--sh);">
+    <div style="padding:10px 14px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;">
+      <div><div style="font-family:var(--fm);font-size:10px;color:var(--tf);">AD-01</div><div style="font-size:12px;font-weight:700;color:var(--t);margin-top:1px;">3 Jan 2026</div></div>
+      <span class="sb sb-done">Completed</span>
+    </div>
+    <div style="padding:9px 14px;border-bottom:1px solid var(--bd);">
+      <div style="font-size:12px;color:var(--t);">1× Real Cake + 12× Custom Cookies</div>
+      <div style="font-size:10.5px;color:var(--tm);margin-top:2px;">Birthday theme · Pickup</div>
+    </div>
+    <div style="padding:8px 14px;display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-size:11px;color:var(--tm);">Total</div>
+      <div style="font-family:var(--fm);font-size:13px;font-weight:700;color:var(--pa);">Rp1.920.000</div>
+    </div>
+  </div>
+
+
+  <div style="height:20px;"></div>
+</div>
+```
+
+
+  </div>
+</div>
+
+
+</div><!-- end customer row -->
+
+
+<!-- DEVELOPER NOTES -->
+
+
+<div style="text-align:center;margin-top:36px;padding:20px;background:rgba(255,255,255,0.3);border-radius:16px;max-width:900px;margin-left:auto;margin-right:auto;">
+  <div style="font-size:15px;font-weight:800;color:var(--p,#7C3410);margin-bottom:12px;">📋 Catatan Developer — v3</div>
+  <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;font-size:11px;color:#7A5C44;">
+    <span style="background:white;padding:4px 12px;border-radius:20px;border:1px solid #E0D0C4;">✅ Background flat warm cream — no gradient sama sekali</span>
+    <span style="background:white;padding:4px 12px;border-radius:20px;border:1px solid #E0D0C4;">✅ Sidebar slide-in dari kiri, overlay gelap di kanan bisa di-dismiss</span>
+    <span style="background:white;padding:4px 12px;border-radius:20px;border:1px solid #E0D0C4;">✅ Top bar: hamburger + judul halaman + avatar, no bottom nav</span>
+    <span style="background:white;padding:4px 12px;border-radius:20px;border:1px solid #E0D0C4;">✅ Cash flow hari ini: total saja, tidak ada rincian breakdown</span>
+    <span style="background:white;padding:4px 12px;border-radius:20px;border:1px solid #E0D0C4;">✅ Assign tabs: Belum Assigned | Assignment (sedang dikerjakan) | Completed (staff klik Done)</span>
+    <span style="background:white;padding:4px 12px;border-radius:20px;border:1px solid #E0D0C4;">✅ Bookings: badge DP untuk order belum lunas, tidak ada badge kalau sudah full/lunas</span>
+    <span style="background:white;padding:4px 12px;border-radius:20px;border:1px solid #E0D0C4;">✅ Staff card: tap "+ Assign" → langsung ke assign screen staff tersebut</span>
+    <span style="background:white;padding:4px 12px;border-radius:20px;border:1px solid #E0D0C4;">✅ Assign screen: nama staff terkunci di header, pilih order + proses saja</span>
+    <span style="background:white;padding:4px 12px;border-radius:20px;border:1px solid #E0D0C4;">✅ Cards: putih bersih, shadow minimal, border subtle — Crumbella Design System</span>
+  </div>
+</div>
+
+
+</body>
+</html>

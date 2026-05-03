@@ -42,6 +42,7 @@ export interface DateBlockingContext {
   deliveryMethod?: string;
   items?: BookingItemForOperations[];
   blockedDates?: readonly string[];
+  cutoffHour?: number;
 }
 
 export type SlotOrderType = "CUSTOM" | "SEASONAL";
@@ -262,23 +263,10 @@ function parseLocalDateOnly(value: string): Date | null {
   return parseSafeDate(value);
 }
 
-function isCookiesPickupHolidayException(
-  context?: DateBlockingContext,
-): boolean {
-  if (!context) return false;
-
-  const deliveryMethod = (context.deliveryMethod || "").toUpperCase();
-  if (deliveryMethod !== "PICKUP") return false;
-
-  const items = context.items ?? [];
-  if (!items.length) return false;
-
-  return items.every((item) => isCookieLikeCategory(item.category));
-}
-
 export function isNextDayCutoffBlocked(
   deliveryDate: string,
   now: Date = new Date(),
+  cutoffHour: number = H_MINUS_1_CUTOFF_HOUR,
 ): boolean {
   if (!deliveryDate) return false;
 
@@ -287,9 +275,19 @@ export function isNextDayCutoffBlocked(
 
   const cutoffDate = new Date(targetDate);
   cutoffDate.setDate(cutoffDate.getDate() - 1);
-  cutoffDate.setHours(H_MINUS_1_CUTOFF_HOUR, 0, 0, 0);
+  cutoffDate.setHours(cutoffHour, 0, 0, 0);
 
   return now.getTime() > cutoffDate.getTime();
+}
+
+export function isOrderingBlockedToday(
+  now: Date = new Date(),
+  blockedDates: readonly string[] = BAKERY_BLOCKED_DATES,
+): boolean {
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return blockedDates.includes(`${year}-${month}-${day}`);
 }
 
 export function isDateBlockedForOrdering(
@@ -302,11 +300,14 @@ export function isDateBlockedForOrdering(
 
   const blockedDates = context?.blockedDates ?? BAKERY_BLOCKED_DATES;
 
-  if (blockedDates.includes(normalized)) {
-    if (isCookiesPickupHolidayException(context)) return false;
+  if (isOrderingBlockedToday(now, blockedDates)) {
     return true;
   }
-  return isNextDayCutoffBlocked(normalized, now);
+  return isNextDayCutoffBlocked(
+    normalized,
+    now,
+    context?.cutoffHour ?? H_MINUS_1_CUTOFF_HOUR,
+  );
 }
 
 export function getDeliverySlotsForDate(

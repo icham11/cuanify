@@ -38,7 +38,7 @@ function getTokenTextColor(status: CalendarStatus): string {
   if (status === "FULL") return "text-red-600";
   if (status === "WARNING") return "text-amber-700";
   if (status === "CUTOFF") return "text-rose-500";
-  return "text-gray-400";
+  return "text-[#8a6a54]";
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -72,6 +72,7 @@ export default function CalendarCell({
   const barColor = getBarColor(ratio);
   const remaining = safeMax - usedToken;
   const tooltipText = `Digunakan: ${usedToken} / ${safeMax} — Sisa: ${remaining}`;
+  const orderLabel = `${orderCount} order`;
 
   const handleClick = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -81,70 +82,64 @@ export default function CalendarCell({
   };
 
   return (
-    <div className="flex flex-col gap-0.5">
-      {/* Date number */}
+    <div className="flex min-h-[58px] flex-col gap-1">
       <button
         type="button"
         onClick={handleClick}
         disabled={isDisabled}
         title={tooltipText}
-        className={`w-fit rounded px-1 text-xs font-semibold transition ${
+        className={`w-fit rounded-md px-1.5 text-left text-[13px] font-semibold leading-none transition ${
           isDisabled
-            ? "cursor-not-allowed text-gray-400"
-            : "text-gray-700 hover:bg-indigo-50 hover:text-indigo-700"
+            ? "cursor-not-allowed text-[#b7aea6]"
+            : "text-[#2f1e13] hover:bg-[#fff0de]"
         }`}
       >
         {label}
       </button>
 
-      {/* Status badge */}
-      {ui.label && (
+      {ui.label ? (
         <span
-          className={`inline-block w-fit rounded-sm px-1 py-px text-[9px] font-bold leading-tight ${
+          className={`inline-flex w-fit rounded-md px-1.5 py-0.5 text-[9px] font-bold leading-none ${
             status === "PAST"
-              ? "bg-gray-200 text-gray-600"
+              ? "bg-[#ece7e2] text-[#8d837c]"
               : status === "BLOCKED"
-                ? "bg-rose-200 text-rose-700"
+                ? "bg-[#ffe4e4] text-[#dc6e59]"
                 : status === "FULL"
-                  ? "bg-red-500 text-white"
+                  ? "bg-[#ffedd6] text-[#d7662d]"
                   : status === "CUTOFF"
-                    ? "bg-rose-200 text-rose-700"
-                    : status === "WARNING"
-                      ? "bg-amber-200 text-amber-800"
-                      : ""
+                    ? "bg-[#ffdede] text-[#d24f40]"
+                    : "bg-[#fff0c9] text-[#9c6a12]"
           }`}
         >
           {ui.label}
         </span>
-      )}
+      ) : null}
 
-      {/* Token progress bar */}
-      {status !== "PAST" && (
+      {status !== "PAST" ? (
         <div
-          className="h-1 w-full overflow-hidden rounded-full bg-gray-200"
+          className="h-1.5 w-full overflow-hidden rounded-full bg-[#eadbcf]"
           title={tooltipText}
         >
           <div
-            className={`h-1 rounded-full transition-all duration-300 ${barColor}`}
+            className={`h-1.5 rounded-full transition-all duration-300 ${barColor}`}
             style={{ width: `${Math.round(ratio * 100)}%` }}
           />
         </div>
-      )}
+      ) : null}
 
-      {/* Token usage info */}
-      <span
-        className={`text-[9px] font-medium leading-tight ${getTokenTextColor(status)}`}
-        title={tooltipText}
-      >
-        {usedToken} / {safeMax}
-      </span>
-
-      {/* Order count */}
-      {orderCount > 0 && (
-        <span className="text-[10px] font-semibold text-indigo-600">
-          {orderCount} orders
+      <div className="mt-auto flex items-end justify-between gap-1">
+        <span
+          className={`text-[9px] font-semibold leading-none ${getTokenTextColor(status)}`}
+          title={tooltipText}
+        >
+          {usedToken}/{safeMax}
         </span>
-      )}
+        {orderCount > 0 ? (
+          <span className="inline-flex rounded-md bg-[#5b3a23] px-1.5 py-0.5 text-[9px] font-bold leading-none text-white">
+            {orderLabel}
+          </span>
+        ) : null}
+      </div>
     </div>
   );
 }

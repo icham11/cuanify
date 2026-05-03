@@ -1,0 +1,19 @@
+{
+  "cssPeek.peekToExclude": [
+    "**/node_modules/**",
+    "**/bower_components/**",
+    "**/.next/**",
+    "**/playwright-report/**",
+    "**/test-results/**"
+  ],
+  "files.watcherExclude": {
+    "**/.next/**": true,
+    "**/playwright-report/**": true,
+    "**/test-results/**": true
+  },
+  "search.exclude": {
+    "**/.next/**": true,
+    "**/playwright-report/**": true,
+    "**/test-results/**": true
+  }
+}

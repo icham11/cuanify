@@ -196,6 +196,34 @@ describe("Orders API staff assignment and status transition rules", () => {
       userId: 22,
     });
   });
+
+  it("allows status change when order is assigned through production stages", () => {
+    const orders = [
+      makeOrder({
+        orderStatus: "Ready",
+        assignedStaffUserId: null,
+        productionStages: [
+          { stage: "listing", staffId: 22, tokenAmount: 25, percentage: 25 },
+          { stage: "filling", staffId: null, tokenAmount: 25, percentage: 25 },
+          { stage: "finishing", staffId: null, tokenAmount: 50, percentage: 50 },
+        ],
+      }),
+    ];
+
+    const existingAssignments = [
+      makeExistingAssignment({
+        order_status: "In Production",
+        assigned_staff_user_id: null,
+      }),
+    ];
+
+    validateAssignmentTransitionRules({
+      orders,
+      existingAssignments,
+      roleName: "Owner",
+      userId: 1,
+    });
+  });
 });
 
 describe("Orders API projected daily token limit for staff assignment", () => {
@@ -303,5 +331,55 @@ describe("Orders API projected daily token limit for staff assignment", () => {
       existingAssignments,
       limit: 500,
     });
+  });
+
+  it("counts staged assignments toward projected limit", () => {
+    const orders = [
+      makeOrder({
+        id: "ORD-1",
+        assignedStaffUserId: null,
+        deliveryDate: "2026-04-10",
+        productionStages: [
+          { stage: "listing", staffId: 22, tokenAmount: 250, percentage: 25 },
+          { stage: "filling", staffId: null, tokenAmount: 250, percentage: 25 },
+          { stage: "finishing", staffId: null, tokenAmount: 500, percentage: 50 },
+        ],
+        items: [{ category: "Cake", quantity: 1000, tokenDifficulty: "simple" }],
+      }),
+      makeOrder({
+        id: "ORD-2",
+        assignedStaffUserId: null,
+        deliveryDate: "2026-04-10",
+        productionStages: [
+          { stage: "listing", staffId: 22, tokenAmount: 260, percentage: 25 },
+          { stage: "filling", staffId: null, tokenAmount: 260, percentage: 25 },
+          { stage: "finishing", staffId: null, tokenAmount: 520, percentage: 50 },
+        ],
+        items: [{ category: "Cake", quantity: 1040, tokenDifficulty: "simple" }],
+      }),
+    ];
+
+    const existingAssignments = [
+      makeExistingAssignment({
+        external_id: "ORD-1",
+        assigned_staff_user_id: null,
+      }),
+      makeExistingAssignment({
+        external_id: "ORD-2",
+        assigned_staff_user_id: null,
+      }),
+    ];
+
+    expect(() =>
+      validateProjectedStaffDailyTokenLimit({
+        orders,
+        existingAssignments,
+        existingOrders: [
+          makeOrder({ id: "ORD-1" }),
+          makeOrder({ id: "ORD-2" }),
+        ],
+        limit: 500,
+      }),
+    ).toThrow("Token harian staff melebihi limit");
   });
 });

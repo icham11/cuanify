@@ -1,29 +1,17 @@
 "use client";
 
-import { useMemo, useState, useEffect, useRef } from "react";
+import { useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Plus,
   Search,
-  Sparkles,
   Trash2,
-  Edit3,
+  Pencil,
   X,
   Loader2,
-  AlertTriangle,
-  CheckCircle2,
-  Package,
-  TrendingUp,
-  ChevronUp,
-  ChevronDown,
-  Tag,
-  DownloadCloud,
+  ArrowUpDown,
 } from "lucide-react";
-import {
-  makeAddOnKey,
-  useCatalogAdminState,
-} from "@/lib/bookings/catalog-admin";
-import { toast } from "sonner";
+import { makeAddOnKey, useCatalogAdminState } from "@/lib/bookings/catalog-admin";
 
 function normalizeId(value: string): string {
   return value
@@ -40,162 +28,121 @@ const formatCurrency = (value: number) =>
     minimumFractionDigits: 0,
   }).format(value);
 
-// --- Modals ---
-
-interface AddOnRow {
-  category: string;
+type GroupedAddOnRow = {
+  key: string;
   id: string;
   label: string;
   price: number;
+  categories: string[];
+};
+
+type SortOption = {
+  label: string;
+  compare: (left: GroupedAddOnRow, right: GroupedAddOnRow) => number;
+};
+
+const SORT_OPTIONS: SortOption[] = [
+  {
+    label: "Nama A-Z",
+    compare: (left, right) => left.label.localeCompare(right.label, "id"),
+  },
+  {
+    label: "Nama Z-A",
+    compare: (left, right) => right.label.localeCompare(left.label, "id"),
+  },
+  {
+    label: "Harga Tertinggi",
+    compare: (left, right) => right.price - left.price,
+  },
+  {
+    label: "Harga Terendah",
+    compare: (left, right) => left.price - right.price,
+  },
+];
+
+function inferAddOnType(row: GroupedAddOnRow): string {
+  const text = `${row.id} ${row.label}`.toLowerCase();
+  return /(additional|extra|qty|flower|small|medium|large)/.test(text)
+    ? "Per Qty"
+    : "Per Item";
 }
 
-function AddEditAddOnModal({
+function AddOnModal({
+  mode,
   open,
-  editData,
+  loading,
+  error,
+  title,
+  children,
   onClose,
-  onSave,
+  onSubmit,
 }: {
+  mode: "add" | "edit";
   open: boolean;
-  editData: AddOnRow | null;
+  loading?: boolean;
+  error?: string | null;
+  title: string;
+  children: React.ReactNode;
   onClose: () => void;
-  onSave: (data: AddOnRow) => void;
+  onSubmit: () => void;
 }) {
-  const [category, setCategory] = useState("");
-  const [label, setLabel] = useState("");
-  const [id, setId] = useState("");
-  const [price, setPrice] = useState(0);
-  const [error, setError] = useState<string | null>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (editData) {
-      setCategory(editData.category);
-      setLabel(editData.label);
-      setId(editData.id);
-      setPrice(editData.price);
-    } else {
-      setCategory("");
-      setLabel("");
-      setId("");
-      setPrice(0);
-    }
-    setError(null);
-  }, [editData, open]);
-
-  const handleSave = () => {
-    if (!category.trim() || !label.trim()) {
-      setError("Kategori dan Nama wajib diisi.");
-      return;
-    }
-    const nextId = id.trim() || normalizeId(label);
-    onSave({
-      category: category.trim(),
-      id: nextId,
-      label: label.trim(),
-      price: Math.max(0, Math.round(price)),
-    });
-    onClose();
-  };
-
-  if (!open) return null;
+  if (!open || typeof document === "undefined") return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/45 p-0 backdrop-blur-sm sm:items-center sm:p-4">
-      <div className="w-full max-h-[92dvh] overflow-y-auto rounded-t-3xl border border-orange-100 bg-white shadow-2xl outline-none sm:max-w-md sm:rounded-3xl">
-        <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-orange-100 bg-white/95 px-5 py-4 backdrop-blur sm:px-6">
-          <div className="flex items-start gap-3">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-orange-100 text-orange-700">
-              {editData ? <Edit3 size={20} /> : <Plus size={20} />}
-            </div>
-            <div>
-              <p className="text-xs font-bold uppercase tracking-wide text-orange-700">
-                {editData ? "Edit Add-on" : "Tambah Add-on"}
-              </p>
-              <h2 className="text-lg font-extrabold text-slate-900">
-                {editData ? "Ubah Detail Add-on" : "Add-on Baru"}
-              </h2>
-            </div>
+    <div
+      ref={overlayRef}
+      className="fixed inset-0 z-[200] flex items-end justify-center bg-black/35 p-0 sm:items-center sm:p-4"
+      onMouseDown={(event) =>
+        event.target === overlayRef.current ? onClose() : undefined
+      }
+    >
+      <div className="w-full overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:max-w-md sm:rounded-3xl">
+        <div className="flex justify-center pt-3 sm:hidden">
+          <div className="h-1 w-10 rounded-full bg-gray-200" />
+        </div>
+        <div className="flex items-start justify-between border-b border-[#ead8cb] bg-[#fff8f3] px-5 py-4">
+          <div>
+            <h2 className="text-base font-extrabold text-[#7c3410]">{title}</h2>
+            <p className="mt-1 text-xs text-[#b89080]">
+              {mode === "add"
+                ? "Tambah add-on baru ke katalog aktif."
+                : "Ubah harga add-on tanpa mengubah backend utama."}
+            </p>
           </div>
           <button
             onClick={onClose}
-            className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+            className="rounded-full p-1.5 text-gray-400 transition hover:bg-gray-100"
           >
             <X size={18} />
           </button>
         </div>
 
-        <div className="space-y-4 px-5 py-5 sm:px-6">
-          {error && (
-            <div className="flex items-start gap-2 rounded-xl bg-red-50 p-3 text-sm text-red-600">
-              <AlertTriangle size={15} className="mt-0.5 shrink-0" />
-              <span>{error}</span>
+        <div className="space-y-4 px-5 py-5">
+          {children}
+          {error ? (
+            <div className="rounded-xl bg-red-50 px-3 py-2 text-xs text-red-600">
+              {error}
             </div>
-          )}
+          ) : null}
 
-          <div className="space-y-4">
-            <div>
-              <label className="text-xs font-bold text-gray-600 uppercase tracking-wide">
-                Kategori
-              </label>
-              <input
-                placeholder="cth. Cake / Cookies"
-                className="mt-1.5 w-full border border-orange-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-orange-300 outline-none transition"
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="text-xs font-bold text-gray-600 uppercase tracking-wide">
-                Nama Add-on
-              </label>
-              <input
-                placeholder="cth. Lilin Angka"
-                className="mt-1.5 w-full border border-orange-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-orange-300 outline-none transition"
-                value={label}
-                onChange={(e) => {
-                  setLabel(e.target.value);
-                  if (!id && !editData) setId(normalizeId(e.target.value));
-                }}
-              />
-            </div>
-            <div>
-              <label className="text-xs font-bold text-gray-600 uppercase tracking-wide">
-                ID (Slug)
-              </label>
-              <input
-                placeholder="cth. lilin-angka"
-                disabled={!!editData}
-                className="mt-1.5 w-full border border-orange-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-orange-300 outline-none transition disabled:bg-gray-50 disabled:text-gray-400"
-                value={id}
-                onChange={(e) => setId(normalizeId(e.target.value))}
-              />
-            </div>
-            <div>
-              <label className="text-xs font-bold text-gray-600 uppercase tracking-wide">
-                Harga (Rp)
-              </label>
-              <input
-                type="number"
-                min={0}
-                className="mt-1.5 w-full border border-orange-200 rounded-xl px-4 py-2.5 text-sm font-bold focus:ring-2 focus:ring-orange-300 outline-none transition"
-                value={price}
-                onChange={(e) => setPrice(Number(e.target.value) || 0)}
-              />
-            </div>
-          </div>
-
-          <div className="flex gap-3 pt-4">
+          <div className="flex gap-3">
             <button
+              type="button"
               onClick={onClose}
-              className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50 transition"
+              className="flex-1 rounded-xl border border-[#e0d0c4] px-4 py-2.5 text-sm font-semibold text-[#6b4a38]"
             >
               Batal
             </button>
             <button
-              onClick={handleSave}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-orange-600 text-white font-bold text-sm rounded-xl hover:bg-orange-700 transition"
+              type="button"
+              onClick={onSubmit}
+              disabled={loading}
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#c86030] px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50"
             >
-              <CheckCircle2 size={16} />
-              Simpan
+              {loading ? <Loader2 size={16} className="animate-spin" /> : null}
+              {mode === "add" ? "Tambah" : "Simpan"}
             </button>
           </div>
         </div>
@@ -204,136 +151,106 @@ function AddEditAddOnModal({
     document.body,
   );
 }
-
-function DeleteConfirmModal({
-  open,
-  data,
-  onClose,
-  onConfirm,
-}: {
-  open: boolean;
-  data: AddOnRow | null;
-  onClose: () => void;
-  onConfirm: () => void;
-}) {
-  if (!open || !data) return null;
-
-  return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden border border-orange-100">
-        <div className="px-6 py-8 text-center space-y-4">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-red-100 text-red-600">
-            <Trash2 size={24} />
-          </div>
-          <div>
-            <h2 className="text-lg font-extrabold text-slate-900">
-              Hapus Add-on?
-            </h2>
-            <p className="text-sm text-slate-500 mt-1">
-              Add-on <span className="font-bold text-slate-800">{data.label}</span> akan disembunyikan dari sistem booking. Tindakan ini bisa dibatalkan nanti.
-            </p>
-          </div>
-          <div className="flex gap-3 pt-2">
-            <button
-              onClick={onClose}
-              className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50 transition"
-            >
-              Batal
-            </button>
-            <button
-              onClick={() => {
-                onConfirm();
-                onClose();
-              }}
-              className="flex-1 px-4 py-2.5 bg-red-600 text-white font-bold text-sm rounded-xl hover:bg-red-700 transition"
-            >
-              Hapus
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>,
-    document.body,
-  );
-}
-
-// --- Main Component ---
 
 export default function AddOnsPage() {
-  const { addOnCatalog, setCatalogAdminState, syncStatus, retrySync } = useCatalogAdminState();
-  const [searchInput, setSearchInput] = useState("");
+  const { addOnCatalog, syncStatus, setCatalogAdminState } = useCatalogAdminState();
   const [search, setSearch] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState("");
-  const [sortBy, setSortBy] = useState<"label" | "price" | "category">("label");
-  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+  const [selectedCategory, setSelectedCategory] = useState("");
+  const [sortIndex, setSortIndex] = useState(0);
+  const [addOpen, setAddOpen] = useState(false);
+  const [editRow, setEditRow] = useState<GroupedAddOnRow | null>(null);
+  const [formCategory, setFormCategory] = useState("");
+  const [formLabel, setFormLabel] = useState("");
+  const [formId, setFormId] = useState("");
+  const [formPrice, setFormPrice] = useState(0);
+  const [modalError, setModalError] = useState<string | null>(null);
 
-  // Modals state
-  const [addEditModalOpen, setAddEditModalOpen] = useState(false);
-  const [editData, setEditData] = useState<AddOnRow | null>(null);
-  const [deleteData, setDeleteData] = useState<AddOnRow | null>(null);
+  const categoryOptions = useMemo(
+    () => Object.keys(addOnCatalog).sort((a, b) => a.localeCompare(b, "id")),
+    [addOnCatalog],
+  );
 
-  // Debounce search
-  useEffect(() => {
-    const timer = setTimeout(() => setSearch(searchInput), 400);
-    return () => clearTimeout(timer);
-  }, [searchInput]);
+  const groupedRows = useMemo(() => {
+    const grouped = new Map<string, GroupedAddOnRow>();
 
-  const rows = useMemo(() => {
-    const list = Object.entries(addOnCatalog).flatMap(([group, items]) =>
-      items.map((item) => ({
-        category: group,
-        id: item.id,
-        label: item.label,
-        price: Number(item.price || 0),
-      })),
-    );
+    Object.entries(addOnCatalog).forEach(([category, items]) => {
+      items.forEach((item) => {
+        const key = `${item.id.toLowerCase()}||${item.label.toLowerCase()}`;
+        const current = grouped.get(key);
+        if (!current) {
+          grouped.set(key, {
+            key,
+            id: item.id,
+            label: item.label,
+            price: Number(item.price || 0),
+            categories: [category],
+          });
+          return;
+        }
 
-    let filtered = list;
-
-    // Search
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
-      filtered = filtered.filter(
-        (item) =>
-          item.label.toLowerCase().includes(q) ||
-          item.id.toLowerCase().includes(q) ||
-          item.category.toLowerCase().includes(q),
-      );
-    }
-
-    // Category filter
-    if (categoryFilter) {
-      filtered = filtered.filter((item) => item.category === categoryFilter);
-    }
-
-    // Sort
-    return filtered.sort((a, b) => {
-      let comparison = 0;
-      if (sortBy === "price") {
-        comparison = a.price - b.price;
-      } else {
-        comparison = a[sortBy].localeCompare(b[sortBy], "id");
-      }
-      return sortOrder === "asc" ? comparison : -comparison;
+        if (!current.categories.includes(category)) {
+          current.categories.push(category);
+          current.categories.sort((left, right) => left.localeCompare(right, "id"));
+        }
+      });
     });
-  }, [addOnCatalog, search, categoryFilter, sortBy, sortOrder]);
 
-  const categories = useMemo(() => {
-    return Array.from(new Set(Object.keys(addOnCatalog))).sort();
-  }, [addOnCatalog]);
+    const q = search.trim().toLowerCase();
+    const filtered = Array.from(grouped.values()).filter((row) => {
+      if (
+        selectedCategory &&
+        !row.categories.some(
+          (category) => category.toLowerCase() === selectedCategory.toLowerCase(),
+        )
+      ) {
+        return false;
+      }
+      if (!q) return true;
+      return (
+        row.label.toLowerCase().includes(q) ||
+        row.id.toLowerCase().includes(q) ||
+        row.categories.some((category) => category.toLowerCase().includes(q))
+      );
+    });
 
-  const avgPrice = useMemo(() => {
-    if (rows.length === 0) return 0;
-    return rows.reduce((sum, r) => sum + r.price, 0) / rows.length;
-  }, [rows]);
+    return filtered.sort(SORT_OPTIONS[sortIndex]?.compare ?? SORT_OPTIONS[0].compare);
+  }, [addOnCatalog, search, selectedCategory, sortIndex]);
 
-  const handleSaveAddOn = (data: AddOnRow) => {
-    const nextCategory = data.category;
-    const nextLabel = data.label;
-    const nextId = data.id;
+  const cycleSort = () => {
+    setSortIndex((current) => (current + 1) % SORT_OPTIONS.length);
+  };
+
+  const resetAddForm = () => {
+    setFormCategory(categoryOptions[0] ?? "");
+    setFormLabel("");
+    setFormId("");
+    setFormPrice(0);
+    setModalError(null);
+  };
+
+  const openAddModal = () => {
+    resetAddForm();
+    setEditRow(null);
+    setAddOpen(true);
+  };
+
+  const openEditModal = (row: GroupedAddOnRow) => {
+    setEditRow(row);
+    setFormPrice(row.price);
+    setModalError(null);
+  };
+
+  const handleAdd = () => {
+    const nextCategory = formCategory.trim();
+    const nextLabel = formLabel.trim();
+    const nextId = normalizeId(formId || formLabel);
+
+    if (!nextCategory || !nextLabel || !nextId) {
+      setModalError("Kategori, nama add-on, dan ID wajib diisi.");
+      return;
+    }
 
     setCatalogAdminState((prev) => {
-      // Check if it's in customAddOns
       const exists = prev.customAddOns.some(
         (entry) =>
           entry.category.toLowerCase() === nextCategory.toLowerCase() &&
@@ -344,7 +261,11 @@ export default function AddOnsPage() {
         ? prev.customAddOns.map((entry) =>
             entry.category.toLowerCase() === nextCategory.toLowerCase() &&
             entry.id.toLowerCase() === nextId.toLowerCase()
-              ? { ...entry, label: nextLabel, price: data.price }
+              ? {
+                  ...entry,
+                  label: nextLabel,
+                  price: Math.max(0, Math.round(Number(formPrice || 0))),
+                }
               : entry,
           )
         : [
@@ -353,277 +274,336 @@ export default function AddOnsPage() {
               category: nextCategory,
               id: nextId,
               label: nextLabel,
-              price: data.price,
+              price: Math.max(0, Math.round(Number(formPrice || 0))),
             },
           ];
 
       const key = makeAddOnKey(nextCategory, nextId);
+
       return {
         ...prev,
         customAddOns: nextCustomAddOns,
         addOnPriceOverrides: {
           ...prev.addOnPriceOverrides,
-          [key]: data.price,
+          [key]: Math.max(0, Math.round(Number(formPrice || 0))),
         },
         inactiveAddOns: prev.inactiveAddOns.filter((entry) => entry !== key),
       };
     });
 
-    toast.success(editData ? "Add-on berhasil diperbarui" : "Add-on berhasil ditambahkan");
+    setAddOpen(false);
+    resetAddForm();
   };
 
-  const handleDelete = (row: AddOnRow) => {
-    const key = makeAddOnKey(row.category, row.id);
+  const handlePriceUpdate = () => {
+    if (!editRow) return;
+    setCatalogAdminState((prev) => {
+      const nextOverrides = { ...prev.addOnPriceOverrides };
+      editRow.categories.forEach((category) => {
+        nextOverrides[makeAddOnKey(category, editRow.id)] = Math.max(
+          0,
+          Math.round(Number(formPrice || 0)),
+        );
+      });
+      return {
+        ...prev,
+        addOnPriceOverrides: nextOverrides,
+      };
+    });
+    setEditRow(null);
+  };
+
+  const handleDelete = (row: GroupedAddOnRow) => {
     setCatalogAdminState((prev) => ({
       ...prev,
-      inactiveAddOns: prev.inactiveAddOns.includes(key)
-        ? prev.inactiveAddOns
-        : [...prev.inactiveAddOns, key],
+      inactiveAddOns: Array.from(
+        new Set([
+          ...prev.inactiveAddOns,
+          ...row.categories.map((category) => makeAddOnKey(category, row.id)),
+        ]),
+      ),
     }));
-    toast.success(`Add-on "${row.label}" berhasil disembunyikan`);
-  };
-
-  const handleSortClick = (field: typeof sortBy) => {
-    if (sortBy === field) {
-      setSortOrder(sortOrder === "asc" ? "desc" : "asc");
-    } else {
-      setSortBy(field);
-      setSortOrder("asc");
-    }
   };
 
   return (
-    <div className="space-y-8">
-      {/* HEADER */}
-      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 bg-linear-to-r from-orange-500 via-orange-500 to-amber-400 rounded-2xl p-5 sm:p-7 shadow-xl">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-white flex items-center gap-3">
-            <Sparkles className="w-6 h-6 sm:w-8 sm:h-8 shrink-0" />
-            Add-ons
-          </h1>
-          <p className="text-orange-50 text-sm mt-1 font-medium">
-            Kelola extra detail, flavor, dan dekorasi booking Anda.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-           {syncStatus === "error" && (
-            <button
-              onClick={retrySync}
-              className="flex items-center gap-2 px-4 py-2 bg-red-100 text-red-700 font-bold rounded-xl text-sm hover:bg-red-200 transition"
-            >
-              <AlertTriangle size={16} /> Retry Sync
-            </button>
-          )}
+    <div className="mx-auto max-w-6xl space-y-5 text-[#1e120a]">
+      <section className="overflow-hidden rounded-[30px] border border-[#d9cabc] bg-[#f2eae1] shadow-[0_24px_60px_-40px_rgba(30,18,10,0.35)]">
+        <div className="flex items-center justify-between gap-3 border-b border-[#e0d0c4] px-4 py-4 sm:px-5">
+          <div className="min-w-0">
+            <h1 className="text-lg font-bold text-[#1e120a] sm:text-xl">
+              Add On
+            </h1>
+            <p className="mt-0.5 text-xs text-[#b89080]">
+              {groupedRows.length} add-on · semua produk
+            </p>
+          </div>
           <button
-            onClick={() => {
-              setEditData(null);
-              setAddEditModalOpen(true);
-            }}
-            className="flex items-center justify-center gap-2 px-5 py-2.5 bg-white text-orange-700 font-bold rounded-xl shadow-lg hover:bg-orange-50 transition text-sm sm:text-base"
+            onClick={openAddModal}
+            className="inline-flex items-center gap-1 rounded-full bg-[#c86030] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-[#a84820]"
           >
-            <Plus size={20} />
-            Tambah Add-on
+            <Plus size={16} />
+            Tambah
           </button>
         </div>
-      </div>
 
-      {/* STATS */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-white rounded-2xl p-4 border border-orange-100 shadow-sm flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center shrink-0">
-            <Package size={24} />
+        <div className="space-y-4 px-4 py-4 sm:px-5">
+          <div className="flex items-center gap-3 rounded-[18px] border border-[#e0d0c4] bg-[#fdfaf7] px-4 py-3 shadow-[0_1px_4px_rgba(30,18,10,0.06)]">
+            <Search size={18} className="shrink-0 text-[#c86030]" />
+            <input
+              placeholder="Cari nama add-on..."
+              className="h-6 w-full bg-transparent text-sm text-[#1e120a] outline-none placeholder:text-[#b89080]"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
           </div>
-          <div>
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Total Add-on</p>
-            <p className="text-xl font-extrabold text-slate-800">{rows.length}</p>
-          </div>
-        </div>
-        <div className="bg-white rounded-2xl p-4 border border-orange-100 shadow-sm flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
-            <Tag size={24} />
-          </div>
-          <div>
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Kategori</p>
-            <p className="text-xl font-extrabold text-slate-800">{categories.length}</p>
-          </div>
-        </div>
-        <div className="bg-white rounded-2xl p-4 border border-orange-100 shadow-sm flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
-            <TrendingUp size={24} />
-          </div>
-          <div>
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Avg. Harga</p>
-            <p className="text-xl font-extrabold text-slate-800">{formatCurrency(avgPrice)}</p>
-          </div>
-        </div>
-      </div>
 
-      {/* FILTERS */}
-      <div className="flex flex-col md:flex-row gap-4">
-        <div className="relative flex-1 group">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-orange-500 transition" size={18} />
-          <input
-            placeholder="Cari nama add-on, kategori, atau ID..."
-            className="w-full h-12 pl-12 pr-4 bg-white border border-gray-200 rounded-2xl focus:ring-2 focus:ring-orange-300 focus:border-orange-400 outline-none transition shadow-sm"
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-          />
+          <div className="-mx-1 overflow-x-auto">
+            <div className="flex min-w-max gap-2 px-1">
+              <button
+                type="button"
+                onClick={() => setSelectedCategory("")}
+                className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
+                  !selectedCategory
+                    ? "border-[#c86030] bg-[#c86030] text-white"
+                    : "border-[#e0d0c4] bg-[#fdfaf7] text-[#6b4a38]"
+                }`}
+              >
+                Semua
+              </button>
+              {categoryOptions.map((category) => (
+                <button
+                  key={category}
+                  type="button"
+                  onClick={() => setSelectedCategory(category)}
+                  className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
+                    selectedCategory === category
+                      ? "border-[#c86030] bg-[#c86030] text-white"
+                      : "border-[#e0d0c4] bg-[#fdfaf7] text-[#6b4a38]"
+                  }`}
+                >
+                  {category}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <select
-            className="h-12 px-4 bg-white border border-gray-200 rounded-2xl focus:ring-2 focus:ring-orange-300 outline-none transition shadow-sm font-semibold text-sm text-slate-700 min-w-[160px]"
-            value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value)}
+      </section>
+
+      <section className="space-y-4">
+        <div className="flex items-center justify-between gap-3 px-1">
+          <div>
+            <h2 className="text-[1.55rem] font-bold text-[#1e120a]">
+              {groupedRows.length} add-on
+            </h2>
+            <p className="text-xs text-[#8d6a55]">
+              Status sinkron: {syncStatus}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={cycleSort}
+            className="inline-flex items-center gap-1 text-sm font-semibold text-[#7c3410] transition hover:text-[#a84820]"
           >
-            <option value="">Semua Kategori</option>
-            {categories.map((c) => (
-              <option key={c} value={c}>{c}</option>
+            <ArrowUpDown size={14} />
+            Sort
+          </button>
+        </div>
+
+        <p className="px-1 text-xs text-[#b89080]">
+          Urutan aktif: {SORT_OPTIONS[sortIndex]?.label}
+        </p>
+
+        {groupedRows.length === 0 ? (
+          <div className="rounded-[24px] border border-[#e0d0c4] bg-[#fdfaf7] px-6 py-14 text-center text-[#8d6a55]">
+            <p className="text-base font-bold text-[#1e120a]">
+              Add-on tidak ditemukan
+            </p>
+            <p className="mt-1 text-sm">
+              Coba ubah pencarian atau tambahkan add-on baru.
+            </p>
+          </div>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {groupedRows.map((row) => (
+              <article
+                key={row.key}
+                className="overflow-hidden rounded-[20px] border border-[#e0d0c4] bg-[#fdfaf7] shadow-[0_1px_4px_rgba(30,18,10,0.06)]"
+              >
+                <div className="flex items-start justify-between gap-3 border-b border-[#e0d0c4] px-4 py-3">
+                  <div className="min-w-0 flex-1">
+                    <h3 className="line-clamp-2 text-[1rem] font-bold text-[#1e120a]">
+                      {row.label}
+                    </h3>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {row.categories.map((category) => (
+                        <span
+                          key={`${row.key}-${category}`}
+                          className="rounded-full bg-[#f5e0d0] px-2.5 py-1 text-[10px] font-bold text-[#a84820]"
+                        >
+                          {category}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => openEditModal(row)}
+                      className="rounded-full p-1.5 text-[#f06b2b] transition hover:bg-[#fff0e7]"
+                      title="Edit add-on"
+                    >
+                      <Pencil size={15} />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(row)}
+                      className="rounded-full p-1.5 text-[#6f6f8f] transition hover:bg-[#f5f2ef]"
+                      title="Hapus add-on"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 border-b border-[#e0d0c4] px-3 py-3">
+                  <div className="border-r border-[#e0d0c4] px-1 text-center">
+                    <p className="text-[10px] text-[#b89080]">Harga</p>
+                    <p className="mt-1 text-sm font-bold text-[#c86030]">
+                      {formatCurrency(row.price)}
+                    </p>
+                  </div>
+                  <div className="border-r border-[#e0d0c4] px-1 text-center">
+                    <p className="text-[10px] text-[#b89080]">Tipe</p>
+                    <p className="mt-1 text-sm font-semibold text-[#1e120a]">
+                      {inferAddOnType(row)}
+                    </p>
+                  </div>
+                  <div className="px-1 text-center">
+                    <p className="text-[10px] text-[#b89080]">Status</p>
+                    <p className="mt-1 text-sm font-bold text-[#2a5c3f]">
+                      Aktif
+                    </p>
+                  </div>
+                </div>
+
+                <div className="px-4 py-2.5">
+                  <p className="text-[10px] text-[#b89080]">
+                    Berlaku untuk: {row.categories.join(", ")}
+                  </p>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <AddOnModal
+        mode="add"
+        open={addOpen}
+        title="Tambah Add-On"
+        error={modalError}
+        onClose={() => {
+          setAddOpen(false);
+          setModalError(null);
+        }}
+        onSubmit={handleAdd}
+      >
+        <div className="space-y-3">
+          <label className="block text-xs font-bold uppercase tracking-wide text-[#8d6a55]">
+            Kategori Produk
+          </label>
+          <select
+            className="h-11 w-full rounded-xl border border-[#e0d0c4] px-3 text-sm outline-none"
+            value={formCategory}
+            onChange={(event) => setFormCategory(event.target.value)}
+          >
+            <option value="">Pilih kategori</option>
+            {categoryOptions.map((category) => (
+              <option key={category} value={category}>
+                {category}
+              </option>
             ))}
           </select>
         </div>
-      </div>
 
-      {/* TABLE */}
-      <div className="bg-white rounded-3xl border border-orange-100 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm text-left">
-            <thead>
-              <tr className="bg-orange-50 text-orange-800 border-b border-orange-100">
-                <th
-                  className="px-6 py-4 font-bold cursor-pointer hover:bg-orange-100/50 transition uppercase tracking-wider text-xs"
-                  onClick={() => handleSortClick("label")}
-                >
-                  <div className="flex items-center gap-1">
-                    Nama Add-on
-                    {sortBy === "label" && (sortOrder === "asc" ? <ChevronUp size={14} /> : <ChevronDown size={14} />)}
-                  </div>
-                </th>
-                <th
-                  className="px-6 py-4 font-bold cursor-pointer hover:bg-orange-100/50 transition uppercase tracking-wider text-xs"
-                  onClick={() => handleSortClick("category")}
-                >
-                  <div className="flex items-center gap-1">
-                    Kategori
-                    {sortBy === "category" && (sortOrder === "asc" ? <ChevronUp size={14} /> : <ChevronDown size={14} />)}
-                  </div>
-                </th>
-                <th className="px-6 py-4 font-bold uppercase tracking-wider text-xs text-gray-400">ID</th>
-                <th
-                  className="px-6 py-4 font-bold text-right cursor-pointer hover:bg-orange-100/50 transition uppercase tracking-wider text-xs"
-                  onClick={() => handleSortClick("price")}
-                >
-                  <div className="flex items-center justify-end gap-1">
-                    Harga
-                    {sortBy === "price" && (sortOrder === "asc" ? <ChevronUp size={14} /> : <ChevronDown size={14} />)}
-                  </div>
-                </th>
-                <th className="px-6 py-4 font-bold text-center uppercase tracking-wider text-xs">Aksi</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {rows.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center text-gray-400 italic">
-                    {search ? "Tidak ada add-on yang cocok dengan pencarian Anda." : "Belum ada add-on yang terdaftar."}
-                  </td>
-                </tr>
-              ) : (
-                rows.map((row) => (
-                  <tr key={`${row.category}-${row.id}`} className="hover:bg-orange-50/30 transition group">
-                    <td className="px-6 py-4 font-extrabold text-slate-800">{row.label}</td>
-                    <td className="px-6 py-4">
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-orange-100 text-orange-700 border border-orange-200">
-                        {row.category}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-xs font-mono text-gray-400">{row.id}</td>
-                    <td className="px-6 py-4 text-right font-extrabold text-slate-900">
-                      {formatCurrency(row.price)}
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center justify-center gap-2">
-                        <button
-                          onClick={() => {
-                            setEditData(row);
-                            setAddEditModalOpen(true);
-                          }}
-                          className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-xl transition"
-                          title="Edit"
-                        >
-                          <Edit3 size={16} />
-                        </button>
-                        <button
-                          onClick={() => setDeleteData(row)}
-                          className="p-2 text-red-500 hover:bg-red-50 rounded-xl transition"
-                          title="Hapus"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+        <div className="space-y-3">
+          <label className="block text-xs font-bold uppercase tracking-wide text-[#8d6a55]">
+            Nama Add-On
+          </label>
+          <input
+            className="h-11 w-full rounded-xl border border-[#e0d0c4] px-3 text-sm outline-none"
+            value={formLabel}
+            onChange={(event) => {
+              setFormLabel(event.target.value);
+              if (!formId) {
+                setFormId(normalizeId(event.target.value));
+              }
+            }}
+            placeholder="Contoh: Dark Color"
+          />
         </div>
-      </div>
 
-      {/* MOBILE LIST */}
-      <div className="space-y-3 md:hidden">
-         {rows.map((row) => (
-           <div key={`${row.category}-${row.id}`} className="bg-white rounded-2xl border border-orange-100 p-4 shadow-sm space-y-3">
-             <div className="flex justify-between items-start">
-               <div>
-                 <p className="font-extrabold text-slate-800">{row.label}</p>
-                 <span className="text-[10px] font-bold uppercase text-orange-600 bg-orange-50 px-2 py-0.5 rounded-full">{row.category}</span>
-               </div>
-               <div className="flex gap-1">
-                  <button
-                    onClick={() => {
-                      setEditData(row);
-                      setAddEditModalOpen(true);
-                    }}
-                    className="p-2 text-indigo-600 bg-indigo-50 rounded-lg"
-                  >
-                    <Edit3 size={16} />
-                  </button>
-                  <button
-                    onClick={() => setDeleteData(row)}
-                    className="p-2 text-red-500 bg-red-50 rounded-lg"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-               </div>
-             </div>
-             <div className="flex justify-between items-center pt-2 border-t border-gray-50">
-                <span className="text-xs font-mono text-gray-400">#{row.id}</span>
-                <span className="font-extrabold text-slate-900">{formatCurrency(row.price)}</span>
-             </div>
-           </div>
-         ))}
-      </div>
+        <div className="space-y-3">
+          <label className="block text-xs font-bold uppercase tracking-wide text-[#8d6a55]">
+            ID
+          </label>
+          <input
+            className="h-11 w-full rounded-xl border border-[#e0d0c4] px-3 text-sm outline-none"
+            value={formId}
+            onChange={(event) => setFormId(event.target.value)}
+            placeholder="dark-color"
+          />
+        </div>
 
-      {/* FOOTER HINT */}
-      <div className="flex items-center justify-center gap-2 py-4 text-gray-400">
-        <DownloadCloud size={16} />
-        <p className="text-xs font-medium">Data disinkronkan secara real-time dengan Booking Catalog</p>
-      </div>
+        <div className="space-y-3">
+          <label className="block text-xs font-bold uppercase tracking-wide text-[#8d6a55]">
+            Harga
+          </label>
+          <input
+            type="number"
+            min={0}
+            className="h-11 w-full rounded-xl border border-[#e0d0c4] px-3 text-sm outline-none"
+            value={formPrice}
+            onChange={(event) =>
+              setFormPrice(Math.max(0, Number(event.target.value) || 0))
+            }
+          />
+        </div>
+      </AddOnModal>
 
-      {/* MODALS */}
-      <AddEditAddOnModal
-        open={addEditModalOpen}
-        editData={editData}
-        onClose={() => setAddEditModalOpen(false)}
-        onSave={handleSaveAddOn}
-      />
+      <AddOnModal
+        mode="edit"
+        open={Boolean(editRow)}
+        title={editRow ? `Edit ${editRow.label}` : "Edit Add-On"}
+        error={modalError}
+        onClose={() => {
+          setEditRow(null);
+          setModalError(null);
+        }}
+        onSubmit={handlePriceUpdate}
+      >
+        <div className="rounded-2xl border border-[#ead8cb] bg-[#fff8f3] px-4 py-3">
+          <p className="text-sm font-bold text-[#1e120a]">
+            {editRow?.categories.join(", ")}
+          </p>
+          <p className="mt-1 text-xs text-[#b89080]">
+            ID: {editRow?.id} · Tipe: {editRow ? inferAddOnType(editRow) : "-"}
+          </p>
+        </div>
 
-      <DeleteConfirmModal
-        open={!!deleteData}
-        data={deleteData}
-        onClose={() => setDeleteData(null)}
-        onConfirm={() => deleteData && handleDelete(deleteData)}
-      />
+        <div className="space-y-3">
+          <label className="block text-xs font-bold uppercase tracking-wide text-[#8d6a55]">
+            Harga Baru
+          </label>
+          <input
+            type="number"
+            min={0}
+            className="h-11 w-full rounded-xl border border-[#e0d0c4] px-3 text-sm outline-none"
+            value={formPrice}
+            onChange={(event) =>
+              setFormPrice(Math.max(0, Number(event.target.value) || 0))
+            }
+          />
+        </div>
+      </AddOnModal>
     </div>
   );
 }

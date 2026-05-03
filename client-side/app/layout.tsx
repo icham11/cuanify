@@ -1,11 +1,11 @@
 import type { Metadata, Viewport } from "next";
 import Script from "next/script";
-import { Toaster } from "sonner";
+import { JetBrains_Mono, Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
+import NumericZeroInputBehavior from "@/app/components/NumericZeroInputBehavior";
 import AppProviders from "@/context/AppProviders";
 import PWAProvider from "@/app/components/PWAProvider";
 
-// Initialize auto-cleanup scheduler for ImageKit (server only)
 if (
   typeof window === "undefined" &&
   process.env.NODE_ENV === "production" &&
@@ -27,6 +27,18 @@ const midtransIsProduction = explicitMidtransProd ?? false;
 const midtransSnapScriptSrc = midtransIsProduction
   ? "https://app.midtrans.com/snap/snap.js"
   : "https://app.sandbox.midtrans.com/snap/snap.js";
+
+const crumbellaSans = Plus_Jakarta_Sans({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700", "800"],
+  variable: "--font-crumbella-sans",
+});
+
+const crumbellaMono = JetBrains_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500"],
+  variable: "--font-crumbella-mono",
+});
 
 export const viewport: Viewport = {
   themeColor: "#173a7a",
@@ -70,16 +82,12 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head />
-      <body className="antialiased">
+      <body
+        className={`${crumbellaSans.variable} ${crumbellaMono.variable} antialiased`}
+      >
+        <NumericZeroInputBehavior />
         <AppProviders>{children}</AppProviders>
-
-        {/* PWA: Service Worker + Offline Detection + Install Prompt */}
         <PWAProvider />
-
-        {/* 🔥 Toast System */}
-        <Toaster richColors position="top-right" />
-
-        {/* Midtrans Script */}
         <Script
           src={midtransSnapScriptSrc}
           data-client-key={midtransClientKey}
