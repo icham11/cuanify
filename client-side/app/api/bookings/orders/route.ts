@@ -2112,10 +2112,10 @@ export async function POST(request: NextRequest) {
 
     const roleName = role as unknown as string;
     const isStaffRequest = roleName === "Staff";
+    const isPrivilegedRequest = roleName === "Owner" || roleName === "Admin";
     const bakerySettings = await getBakeryBusinessSettings(businessId);
     const canBackfillPastOrders =
-      !bakerySettings.cutoffEnabled &&
-      (role === "Owner" || role === "Admin");
+      !bakerySettings.cutoffEnabled && isPrivilegedRequest;
     const shouldSendWhatsAppNotification =
       !skipWhatsAppNotification && bakerySettings.notifyProductionWhatsapp;
     let existingOrders: ParsedOrder[] = [];

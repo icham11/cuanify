@@ -194,6 +194,7 @@ export default function OrderDetailPage() {
     printWindow.document.close();
   };
   const handleChatAndCopy = async () => {
+    if (!order) return;
     try {
       await navigator.clipboard.writeText(messagePreview);
       const rawPhone = (order.customerPhone || "").replace(/\D/g, "");
