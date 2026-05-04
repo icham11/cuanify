@@ -285,6 +285,8 @@ const bookingSchema = z
     deliveryAddresses: z
       .array(addressSchema)
       .min(1, "At least one address is required"),
+    isManualShippingOverride: z.boolean().default(false),
+    manualShippingFee: z.number().default(0),
   })
   .superRefine((values, ctx) => {
     values.deliveryAddresses.forEach((address, index) => {
@@ -2089,14 +2091,35 @@ function getDraftItemPriceBreakdown(args: {
   if (hasParsedRecapPrice) {
     const totalAmount =
       recapTotalOverride ?? Math.max(0, Math.round(baseBeforeSplit));
-    const addOnAmount = Math.min(
-      totalAmount,
-      Math.max(
-        0,
-        Math.round(addOnFromSelection + customCookieAdditionalDesignCharge),
-      ),
-    );
-    const baseAmount = Math.max(0, totalAmount - addOnAmount);
+
+    // Try to find a clean catalog base price to avoid messy splits
+    const catalogUnitPrice = getUnitPriceFromCatalog(catalog, {
+      category: item.category,
+      subcategory: item.subcategory,
+      productName: item.productName,
+      size: item.size,
+    });
+    const catalogBaseTotal = Math.max(0, Math.round(catalogUnitPrice * quantity));
+
+    let baseAmount: number;
+    let addOnAmount: number;
+
+    if (catalogBaseTotal > 0 && catalogBaseTotal <= totalAmount) {
+      // Use catalog price as base, rest as add-ons
+      baseAmount = Math.round(catalogBaseTotal);
+      addOnAmount = totalAmount - baseAmount;
+    } else {
+      // Fallback: use calculated add-ons, rest as base
+      addOnAmount = Math.min(
+        totalAmount,
+        Math.max(
+          0,
+          Math.round(addOnFromSelection + customCookieAdditionalDesignCharge),
+        ),
+      );
+      baseAmount = Math.max(0, totalAmount - addOnAmount);
+    }
+
     return {
       categoryLabel,
       groupLabel,
@@ -2667,6 +2690,10 @@ export default function BookingForm() {
   const manualAdjustment = useWatch({ control, name: "manualAdjustment" }) ?? 0;
   const selectedPaymentStatus =
     useWatch({ control, name: "paymentStatus" }) ?? "DP Paid";
+  const isManualShippingOverride =
+    useWatch({ control, name: "isManualShippingOverride" }) ?? false;
+  const manualShippingFee =
+    useWatch({ control, name: "manualShippingFee" }) ?? 0;
 
   const clearParsedPricingOverride = useCallback(
     (itemIndex: number) => {
@@ -3428,11 +3455,13 @@ export default function BookingForm() {
     return null;
   }, [shippingDistanceKm, selectedShippingQuote]);
 
-  const deliveryFee = shouldUseShippingEngine
-    ? (selectedShippingQuote?.priceWithoutInsurance ??
-        selectedShippingQuote?.price ??
-        0)
-    : 0;
+  const deliveryFee = isManualShippingOverride
+    ? manualShippingFee
+    : shouldUseShippingEngine
+      ? (selectedShippingQuote?.priceWithoutInsurance ??
+          selectedShippingQuote?.price ??
+          0)
+      : 0;
   const insuranceFeeFromShipping = shouldUseShippingEngine
     ? (selectedShippingQuote?.insuranceFee ?? 0)
     : 0;
@@ -8335,6 +8364,46 @@ export default function BookingForm() {
             paymentPaidAmount={totalPaid}
             paymentRemainingAmount={remainingBalance}
           />
+
+          {(isOwner || isAdmin) && (
+            <div className="rounded-[24px] border border-[var(--crumbella-border)] bg-[#fcf9f6] p-4 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div className="space-y-0.5">
+                  <p className="text-sm font-bold text-[var(--foreground)]">Override Ongkir</p>
+                  <p className="text-[10px] leading-tight text-[var(--crumbella-muted)]">
+                    Edit ongkir secara manual jika hitungan sistem otomatis tidak sesuai.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setValue("isManualShippingOverride", !isManualShippingOverride)}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                    isManualShippingOverride ? "bg-[var(--crumbella-primary)]" : "bg-gray-300"
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                      isManualShippingOverride ? "translate-x-5" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {isManualShippingOverride && (
+                <div className="mt-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-[var(--crumbella-muted)]">Rp</span>
+                    <Input
+                      type="number"
+                      placeholder="0"
+                      className="h-11 pl-10 rounded-xl border-[var(--crumbella-border)] bg-white text-base font-bold focus:ring-[var(--crumbella-primary)]"
+                      {...register("manualShippingFee", { valueAsNumber: true })}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
         </>

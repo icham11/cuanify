@@ -193,9 +193,21 @@ export default function OrderDetailPage() {
     `);
     printWindow.document.close();
   };
-  const handleCopyMessage = async () => {
+  const handleChatAndCopy = async () => {
     try {
       await navigator.clipboard.writeText(messagePreview);
+      const rawPhone = (order.customerPhone || "").replace(/\D/g, "");
+      if (rawPhone) {
+        const normalized = rawPhone.startsWith("62")
+          ? rawPhone
+          : rawPhone.startsWith("0")
+            ? `62${rawPhone.slice(1)}`
+            : rawPhone.startsWith("8")
+              ? `62${rawPhone}`
+              : rawPhone;
+        const url = `https://wa.me/${normalized}?text=${encodeURIComponent(messagePreview)}`;
+        window.open(url, "_blank");
+      }
     } catch {}
   };
 
@@ -551,8 +563,9 @@ export default function OrderDetailPage() {
               </div>
               <button
                 type="button"
-                onClick={handleCopyMessage}
+                onClick={handleChatAndCopy}
                 className="flex h-10 w-10 items-center justify-center rounded-full bg-[#efe7fb] text-[#9a7acd]"
+                title="Chat & Copy Message"
               >
                 <MessageCircle className="h-4 w-4" />
               </button>
@@ -698,6 +711,39 @@ export default function OrderDetailPage() {
               ))}
             </CardContent>
           </Card>
+          
+          {(order.automationLogs ?? []).length > 0 && (
+            <Card className="overflow-hidden rounded-[24px] border-[var(--crumbella-border)] shadow-none">
+              <CardHeader className="border-b border-[var(--crumbella-border)] px-4 py-4">
+                <CardTitle className="flex items-center gap-2 text-[1.2rem] text-[var(--foreground)]">
+                  <MessageCircle className="h-4 w-4 text-[var(--crumbella-primary)]" />
+                  Riwayat Automasi
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4 px-4 py-4">
+                {(order.automationLogs ?? []).slice().reverse().map((log) => (
+                  <div key={log.id} className="grid grid-cols-[20px_1fr] gap-3">
+                    <div className="flex justify-center pt-1">
+                      {log.success ? (
+                        <CircleCheckBig className="h-5 w-5 text-[#2d6d48]" />
+                      ) : (
+                        <Circle className="h-3 w-3 fill-rose-500 text-rose-500 mt-1" />
+                      )}
+                    </div>
+                    <div>
+                      <p className={`font-semibold ${log.success ? "text-[var(--foreground)]" : "text-rose-600"}`}>
+                        {log.eventType.replace(/_/g, " ").toUpperCase()}
+                      </p>
+                      <p className="text-xs text-[var(--crumbella-muted)]">
+                        {new Date(log.timestamp).toLocaleString("id-ID")}
+                      </p>
+                      <p className="text-sm text-[#7e6655]">{log.summary || "-"}</p>
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
 
         </div>
       </div>

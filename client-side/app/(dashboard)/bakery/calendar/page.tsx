@@ -677,7 +677,7 @@ export default function BakeryCalendarPage() {
             <Calendar
               localizer={localizer}
               culture="id"
-              events={events}
+              events={currentView === Views.MONTH ? [] : events}
               startAccessor="start"
               endAccessor="end"
               date={currentDate}

@@ -1331,7 +1331,7 @@ function validateAssignmentTransitionRules(params: {
     const nextHasAssignment =
       getOrderStaffTokenAssignmentsForLimit(order).length > 0;
 
-    if (statusChanged && !nextHasAssignment && nextStatus !== "Cancelled") {
+    if (statusChanged && !nextHasAssignment && nextStatus !== "Cancelled" && !isPrivilegedRequest) {
       throw new ForbiddenError("Order must be assigned before changing status");
     }
 
@@ -1367,14 +1367,18 @@ function validateProjectedStaffDailyTokenLimit(params: {
   existingOrders: StaffValidationOrder[];
   limit?: number;
   limitByStaffUserId?: Map<number, number>;
+  staffNamesById?: Map<number, string>;
+  isPrivilegedRequest?: boolean;
 }) {
   const {
     orders,
     existingOrders,
     limit = STAFF_DAILY_TOKEN_LIMIT,
     limitByStaffUserId,
+    staffNamesById,
+    isPrivilegedRequest = false,
   } = params;
-  if (limit <= 0) return;
+  if (limit <= 0 || isPrivilegedRequest) return;
 
   const projectedStaffDailyTokenMap = buildStaffDailyTokenMap(orders);
   const existingOrdersMap = new Map(
@@ -1417,8 +1421,11 @@ function validateProjectedStaffDailyTokenLimit(params: {
       if (projectedToken > effectiveLimit) {
         // Only block if staff has previous work OR this is not their first task
         if (tokenBeforeAssignment > 0 || previousTokenForStaff > 0) {
+          const staffName =
+            staffNamesById?.get(assignment.staffUserId) ??
+            `Staff ${assignment.staffUserId}`;
           throw new ForbiddenError(
-            `${STAFF_DAILY_TOKEN_LIMIT_MESSAGE}. Staff ${assignment.staffUserId} pada ${order.deliveryDate}: ${projectedToken}/${effectiveLimit} token.`,
+            `${STAFF_DAILY_TOKEN_LIMIT_MESSAGE}. ${staffName} pada ${order.deliveryDate}: ${projectedToken}/${effectiveLimit} token.`,
           );
         }
       }
@@ -2443,11 +2450,18 @@ export async function POST(request: NextRequest) {
       }),
     }));
 
+    const staffNamesById = new Map<number, string>();
+    bakerySettings.staffSettings.forEach((s) =>
+      staffNamesById.set(s.userId, s.name),
+    );
+
     validateProjectedStaffDailyTokenLimit({
       orders,
       existingOrders,
       limit: bakerySettings.staffDailyTokenLimit,
       limitByStaffUserId: staffLimitByUserId,
+      staffNamesById,
+      isPrivilegedRequest,
     });
 
     const tokenValidation = validateDailyTokenCapacity(orders);
@@ -3155,6 +3169,10 @@ export async function POST(request: NextRequest) {
           },
           { status: 400 },
         );
+      }
+
+      if (rowError instanceof ForbiddenError) {
+        return NextResponse.json({ error: rowError.message }, { status: 403 });
       }
 
       const detail = extractErrorDetails(rowError);

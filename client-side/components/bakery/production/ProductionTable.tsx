@@ -1110,6 +1110,7 @@ export default function ProductionTable() {
       staffDailyTokenLimit)
     : staffDailyTokenLimit;
   const selectedTransferOverLimit =
+    !isPrivilegedManager &&
     transferCandidates.length > 0 &&
     isStaffDailyTokenAssignmentBlocked({
       currentToken: selectedTransferBaselineToken,
