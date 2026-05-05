@@ -749,6 +749,8 @@ function buildAutomationPayload(
       area: address.area,
       addressLine: address.addressLine,
     })),
+    imageUrl: order.whatsAppParsedData?.imageUrl,
+    imageUrls: order.whatsAppParsedData?.uploadedImageUrls,
   };
 }
 

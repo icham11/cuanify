@@ -61,6 +61,8 @@ export interface BookingAutomationOrderPayload {
   notes?: string;
   items: BookingAutomationItem[];
   deliveryAddresses: BookingAutomationAddress[];
+  imageUrl?: string;
+  imageUrls?: string[];
 }
 
 export interface BookingAutomationRequest {
