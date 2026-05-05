@@ -104,7 +104,7 @@ const STAFF_ALLOWED_API_RULES: Array<{
   { prefix: "/api/bookings/automations", methods: ["GET", "POST"] },
 
   // Staff tokens — untuk tracking token produksi harian Staff
-  { prefix: "/api/bakery/production/staff-tokens", methods: ["GET"] },
+  { prefix: "/api/bakery/production/staff-tokens", methods: ["GET", "POST"] },
   { prefix: "/api/bakery/attendance", methods: ["GET", "POST"] },
 ];
 

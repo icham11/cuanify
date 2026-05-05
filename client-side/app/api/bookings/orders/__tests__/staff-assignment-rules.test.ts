@@ -176,6 +176,32 @@ describe("Orders API staff assignment and status transition rules", () => {
     });
   });
 
+  it("allows owner to fully unassign a claimed order", () => {
+    const orders = [
+      makeOrder({
+        assignedStaffUserId: null,
+        productionStages: [
+          { stage: "lining", staffId: null, tokenAmount: 25, percentage: 25 },
+          { stage: "filling", staffId: null, tokenAmount: 25, percentage: 25 },
+          { stage: "finishing", staffId: null, tokenAmount: 50, percentage: 50 },
+        ],
+      }),
+    ];
+
+    const existingAssignments = [
+      makeExistingAssignment({
+        assigned_staff_user_id: 22,
+      }),
+    ];
+
+    validateAssignmentTransitionRules({
+      orders,
+      existingAssignments,
+      roleName: "Owner",
+      userId: 1,
+    });
+  });
+
   it("allows staff to claim unassigned order for self", () => {
     const orders = [
       makeOrder({

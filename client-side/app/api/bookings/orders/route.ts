@@ -1351,7 +1351,8 @@ function validateAssignmentTransitionRules(params: {
     if (
       currentAssignee !== null &&
       nextAssignee === null &&
-      !nextHasAssignment
+      !nextHasAssignment &&
+      !isPrivilegedRequest
     ) {
       throw new ForbiddenError(
         "Order yang sudah diambil tidak bisa dilepas. Gunakan transfer oleh owner.",

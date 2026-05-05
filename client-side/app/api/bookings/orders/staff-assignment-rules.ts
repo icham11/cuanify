@@ -135,7 +135,12 @@ export function validateAssignmentTransitionRules(params: {
       continue;
     }
 
-    if (currentAssignee !== null && nextAssignee === null && !nextHasAssignment) {
+    if (
+      currentAssignee !== null &&
+      nextAssignee === null &&
+      !nextHasAssignment &&
+      !isPrivilegedRequest
+    ) {
       throw new ForbiddenError(
         "Order yang sudah diambil tidak bisa dilepas. Gunakan transfer oleh owner.",
       );

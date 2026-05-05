@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import {
   AuthError,
   ForbiddenError,
   requireAuth,
 } from "@/lib/auth/session";
+import { staffUuid } from "@/lib/bookings/order-api-helpers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,6 +17,10 @@ interface TokenResetRow {
   baseline_token: number;
   reset_at: Date;
   updated_by_user_id: number;
+}
+
+interface CountRow {
+  count: bigint | number;
 }
 
 function toMonthKey(value: string | null): string {
@@ -108,8 +114,6 @@ export async function POST(request: NextRequest) {
       throw new ForbiddenError("Akses ditolak.");
     }
 
-    await ensureStaffTokenResetTable();
-
     const body = (await request.json().catch(() => ({}))) as {
       staffUserId?: unknown;
       monthKey?: unknown;
@@ -121,11 +125,80 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "staffUserId tidak valid" }, { status: 400 });
     }
 
+    await ensureStaffTokenResetTable();
+
     const monthKey = toMonthKey(
       typeof body.monthKey === "string" ? body.monthKey : null,
     );
+    const baselineToken = Math.max(
+      0,
+      Math.round(Number(body.baselineToken ?? 0)),
+    );
+    const targetStaffUuid = staffUuid(staffUserId);
 
-    const baselineToken = Math.max(0, Math.round(Number(body.baselineToken ?? 0)));
+    const affectedOrderRows = await prisma.$queryRaw<Array<{ external_id: string }>>`
+      SELECT DISTINCT bo.external_id
+      FROM bakery_orders bo
+      LEFT JOIN production_tasks pt
+        ON pt.order_id = bo.order_uuid
+      WHERE bo.business_id = ${auth.businessId}
+        AND COALESCE(bo.order_status, '') NOT IN ('Cancelled', 'Completed', 'Delivery', 'Delivered')
+        AND (
+          bo.assigned_staff_user_id = ${staffUserId}
+          OR pt.staff_id = ${targetStaffUuid}::uuid
+        )
+    `;
+
+    const affectedOrderIds = affectedOrderRows
+      .map((row) => row.external_id)
+      .filter((id) => typeof id === "string" && id.trim().length > 0);
+    const affectedOrderCount = affectedOrderIds.length;
+
+    let clearedStageCount = 0;
+    if (targetStaffUuid) {
+      const clearedStageRows = await prisma.$queryRaw<CountRow[]>`
+        WITH cleared AS (
+          UPDATE production_tasks pt
+          SET staff_id = NULL
+          FROM bakery_orders bo
+          WHERE bo.business_id = ${auth.businessId}
+            AND bo.order_uuid = pt.order_id
+            AND COALESCE(bo.order_status, '') NOT IN ('Cancelled', 'Completed', 'Delivery', 'Delivered')
+            AND pt.staff_id = ${targetStaffUuid}::uuid
+          RETURNING 1
+        )
+        SELECT COUNT(*)::bigint AS count FROM cleared
+      `;
+      clearedStageCount = Number(clearedStageRows[0]?.count ?? 0);
+    }
+
+    if (affectedOrderIds.length > 0) {
+      await prisma.$executeRaw`
+        UPDATE bakery_orders bo
+        SET assigned_staff_user_id = CASE
+              WHEN bo.assigned_staff_user_id = ${staffUserId} THEN NULL
+              ELSE bo.assigned_staff_user_id
+            END,
+            assigned_staff_name = CASE
+              WHEN bo.assigned_staff_user_id = ${staffUserId} THEN NULL
+              ELSE bo.assigned_staff_name
+            END,
+            production_assigned_at = CASE
+              WHEN bo.assigned_staff_user_id = ${staffUserId}
+                OR NOT EXISTS (
+                  SELECT 1
+                  FROM production_tasks remaining
+                  WHERE remaining.order_id = bo.order_uuid
+                    AND remaining.staff_id IS NOT NULL
+                )
+              THEN NULL
+              ELSE bo.production_assigned_at
+            END,
+            updated_at = NOW()
+        WHERE bo.business_id = ${auth.businessId}
+          AND bo.external_id IN (${Prisma.join(affectedOrderIds)})
+      `;
+    }
 
     await prisma.$executeRaw`
       INSERT INTO bakery_staff_monthly_token_resets (
@@ -159,6 +232,8 @@ export async function POST(request: NextRequest) {
         staffUserId,
         monthKey,
         baselineToken,
+        affectedOrderCount,
+        clearedStageCount,
       },
     });
   } catch (error) {

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, Search, Sparkles, X } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import StatusDropdown from "@/components/bakery/production/StatusDropdown";
 import { useOrders, type BakeryOrder } from "@/components/bakery/store";
 import { useRole } from "@/context/RoleContext";
@@ -36,13 +37,6 @@ interface ViewerIdentity {
   role: "Owner" | "Admin" | "Cashier" | "Staff";
   name: string;
   businessName: string;
-}
-
-interface StaffTokenReset {
-  staffUserId: number;
-  monthKey: string;
-  baselineToken: number;
-  resetAt: string;
 }
 
 const MONTH_OPTIONS = [
@@ -144,12 +138,6 @@ function isOrderFullyUnassigned(order: BakeryOrder): boolean {
   return getOrderClaimedStaffIds(order).length === 0;
 }
 
-function monthKeyOf(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  return `${year}-${month}`;
-}
-
 function parseNumericId(value: unknown): number | null {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
@@ -216,6 +204,7 @@ export default function ProductionTable() {
     updateOrderStatus,
     assignProductionStageStaff,
     assignProductionStagesStaff,
+    resetStaffAssignments,
   } = useOrders();
   const { isOwner, isAdmin, isStaff, role, userName } = useRole();
   const isPrivilegedManager = isOwner || isAdmin;
@@ -253,7 +242,6 @@ export default function ProductionTable() {
   const [activeTab, setActiveTab] = useState<"active" | "ready">("active");
   const [viewer, setViewer] = useState<ViewerIdentity | null>(null);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
-  const [resetMap, setResetMap] = useState<Record<number, StaffTokenReset>>({});
   const [resettingUserId, setResettingUserId] = useState<number | null>(null);
   const [loadingMeta, setLoadingMeta] = useState(true);
   const [filterMonth, setFilterMonth] = useState<string>("all");
@@ -276,12 +264,6 @@ export default function ProductionTable() {
   const [stageStaffSelections, setStageStaffSelections] = useState<
     Record<ProductionStage, string>
   >(EMPTY_STAGE_STAFF_SELECTIONS);
-
-  const fallbackMonthKey = useMemo(() => monthKeyOf(new Date()), []);
-  const selectedMonthKey = useMemo(() => {
-    if (filterMonth === "all" || filterYear === "all") return fallbackMonthKey;
-    return `${filterYear}-${filterMonth}`;
-  }, [filterMonth, filterYear, fallbackMonthKey]);
 
   const normalizedQuery = useMemo(() => query.trim().toLowerCase(), [query]);
   const todayDateKey = useMemo(() => toLocalDateKey(new Date()), []);
@@ -432,40 +414,6 @@ export default function ProductionTable() {
           }
         }
 
-        const resetRes = await fetch(
-          `/api/bakery/production/staff-tokens?month=${selectedMonthKey}`,
-          { cache: "no-store" },
-        );
-
-        if (resetRes.ok && active) {
-          const resetPayload = (await resetRes.json()) as {
-            data?: Array<{
-              staffUserId?: unknown;
-              monthKey?: unknown;
-              baselineToken?: unknown;
-              resetAt?: unknown;
-            }>;
-          };
-
-          const nextMap: Record<number, StaffTokenReset> = {};
-          for (const row of resetPayload.data ?? []) {
-            const staffUserId = parseNumericId(row.staffUserId);
-            if (!staffUserId) continue;
-            nextMap[staffUserId] = {
-              staffUserId,
-              monthKey:
-                typeof row.monthKey === "string"
-                  ? row.monthKey
-                  : selectedMonthKey,
-              baselineToken: Math.max(0, Number(row.baselineToken ?? 0)),
-              resetAt:
-                typeof row.resetAt === "string"
-                  ? row.resetAt
-                  : new Date().toISOString(),
-            };
-          }
-          setResetMap(nextMap);
-        }
       } catch {
         // Ignore metadata fetch failure. Main table can still render from local store.
       } finally {
@@ -479,7 +427,7 @@ export default function ProductionTable() {
     return () => {
       active = false;
     };
-  }, [selectedMonthKey]);
+  }, []);
 
   const activeOrders = useMemo(() => {
     return orders
@@ -603,8 +551,6 @@ export default function ProductionTable() {
       });
     }
 
-    const applyMonthlyBaseline = filterMonth !== "all" && filterYear !== "all";
-
     for (const order of orders) {
       if (!matchesDateFilter(order.deliveryDate)) continue;
 
@@ -634,9 +580,6 @@ export default function ProductionTable() {
 
     return Array.from(statsMap.values())
       .map((entry) => {
-        const baseline = applyMonthlyBaseline
-          ? (resetMap[entry.userId]?.baselineToken ?? 0)
-          : 0;
         const dailyToken = usesExplicitDailyDate
           ? (staffDailyTokenByDate.get(
               `${entry.userId}:${staffDailyIndicatorDateKey}`,
@@ -646,8 +589,7 @@ export default function ProductionTable() {
           staffTokenLimitByUserId.get(entry.userId) ?? staffDailyTokenLimit;
         return {
           ...entry,
-          baseline,
-          doneVisible: Math.max(0, entry.doneRaw - baseline),
+          doneVisible: entry.doneRaw,
           dailyToken,
           limit,
           dailyTokenPercentage:
@@ -659,12 +601,9 @@ export default function ProductionTable() {
       .sort((a, b) => b.assignedActive - a.assignedActive);
   }, [
     orders,
-    resetMap,
     staffDailyTokenByDate,
     staffDailyIndicatorDateKey,
     trackedStaff,
-    filterMonth,
-    filterYear,
     usesExplicitDailyDate,
     matchesDateFilter,
     staffDailyTokenLimit,
@@ -681,7 +620,6 @@ export default function ProductionTable() {
         doneRaw: 0,
         doneVisible: 0,
         inProgress: 0,
-        baseline: 0,
         dailyToken: 0,
         limit:
           staffTokenLimitByUserId.get(viewer.userId) ?? staffDailyTokenLimit,
@@ -1062,37 +1000,69 @@ export default function ProductionTable() {
     closeStageAssignmentModal();
   };
 
-  const handleResetStaffMonth = async (
-    staffUserId: number,
-    doneRaw: number,
-  ) => {
+  const handleResetStaffMonth = (staffUserId: number) => {
     setResettingUserId(staffUserId);
-    try {
-      const response = await fetch("/api/bakery/production/staff-tokens", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          staffUserId,
-          monthKey: selectedMonthKey,
-          baselineToken: doneRaw,
-        }),
-      });
+    void (async () => {
+      try {
+        const changedCount = resetStaffAssignments(staffUserId, {
+          syncToServer: false,
+        });
 
-      if (!response.ok) return;
-      setResetMap((prev) => ({
-        ...prev,
-        [staffUserId]: {
-          staffUserId,
-          monthKey: selectedMonthKey,
-          baselineToken: doneRaw,
-          resetAt: new Date().toISOString(),
-        },
-      }));
-    } finally {
-      setResettingUserId(null);
-    }
+        const response = await fetch("/api/bakery/production/staff-tokens", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            staffUserId,
+          }),
+        });
+
+        const payload = (await response.json().catch(() => ({}))) as {
+          error?: string;
+          data?: {
+            affectedOrderCount?: unknown;
+            clearedStageCount?: unknown;
+          };
+        };
+
+        if (!response.ok) {
+          throw new Error(payload.error || "Gagal mereset token staff.");
+        }
+
+        const affectedOrderCount = Math.max(
+          0,
+          Number(payload.data?.affectedOrderCount ?? 0),
+        );
+        const clearedStageCount = Math.max(
+          0,
+          Number(payload.data?.clearedStageCount ?? 0),
+        );
+
+        if (
+          changedCount <= 0 &&
+          affectedOrderCount <= 0 &&
+          clearedStageCount <= 0
+        ) {
+          toast.message("Tidak ada assignment aktif yang perlu di-reset.");
+          return;
+        }
+
+        toast.success(
+          changedCount > 0
+            ? `${changedCount} order assignment berhasil dilepas dan token staff di-reset.`
+            : `${affectedOrderCount} order dan ${clearedStageCount} proses berhasil di-reset.`,
+        );
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Gagal mereset token staff.",
+        );
+      } finally {
+        setResettingUserId(null);
+      }
+    })();
   };
 
   const resetFilters = () => {
@@ -1799,7 +1769,7 @@ export default function ProductionTable() {
                         <button
                           type="button"
                           onClick={() =>
-                            handleResetStaffMonth(staff.userId, staff.doneRaw)
+                            handleResetStaffMonth(staff.userId)
                           }
                           disabled={resettingUserId === staff.userId}
                           className="shrink-0 rounded-full border border-[var(--crumbella-border)] bg-[var(--crumbella-accent-soft)] px-3 py-1.5 text-[11px] font-semibold text-[var(--crumbella-primary)] transition hover:bg-[#f6dcc8] disabled:cursor-not-allowed disabled:opacity-60"
