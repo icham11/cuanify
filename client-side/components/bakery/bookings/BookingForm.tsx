@@ -2400,7 +2400,7 @@ function findFirstFormErrorMessage(error: unknown): string | null {
 }
 
 export default function BookingForm() {
-  const { addOrder, orders } = useOrders();
+  const { addOrder, orders, getCustomerMessagePreview } = useOrders();
   const { isOwner, isAdmin, loading: isRoleLoading } = useRole();
   const { productCatalog, addOnCatalog } = useCatalogAdminState();
   const [composerStep, setComposerStep] = useState<"input" | "preview">(
@@ -2436,8 +2436,10 @@ export default function BookingForm() {
   const [submitError, setSubmitError] = useState("");
   const [submitSuccess, setSubmitSuccess] = useState("");
   const [submitSuccessMeta, setSubmitSuccessMeta] = useState<{
+    id: string;
     bookingCode: string;
     submittedAt: string;
+    phoneNumber: string;
   } | null>(null);
   const [isManualSubmitInFlight, setIsManualSubmitInFlight] = useState(false);
   const [isBookingCreationInFlight, setIsBookingCreationInFlight] =
@@ -4575,12 +4577,15 @@ export default function BookingForm() {
       const shouldRedirectToOrders =
         submitFlowSourceRef.current === "duplicate-warning";
       setIsBookingCreationInFlight(true);
-      await addOrder(submissionPayload);
+      const newOrderId = await addOrder(submissionPayload);
+      const phoneNumber = values.phoneNumber;
       resetBookingDraftState();
       setSubmitSuccess("Booking berhasil disimpan ke server.");
       setSubmitSuccessMeta({
+        id: newOrderId,
         bookingCode: predictedBookingCode,
         submittedAt: new Date().toISOString(),
+        phoneNumber,
       });
 
       if (shouldRedirectToOrders) {
@@ -4656,6 +4661,29 @@ export default function BookingForm() {
       setIsManualSubmitInFlight(false);
       submitFlowSourceRef.current = "form";
     });
+  };
+
+  const handleSendWhatsAppFromSuccess = async () => {
+    if (!submitSuccessMeta) return;
+    const { id, phoneNumber } = submitSuccessMeta;
+    const message = getCustomerMessagePreview(id);
+    const rawPhone = (phoneNumber || "").replace(/\D/g, "");
+    if (!rawPhone) return;
+
+    try {
+      await navigator.clipboard.writeText(message);
+      const normalized = rawPhone.startsWith("62")
+        ? rawPhone
+        : rawPhone.startsWith("0")
+          ? `62${rawPhone.slice(1)}`
+          : rawPhone.startsWith("8")
+            ? `62${rawPhone}`
+            : rawPhone;
+      const url = `https://wa.me/${normalized}?text=${encodeURIComponent(message)}`;
+      window.open(url, "_blank");
+    } catch (err) {
+      console.error("Failed to copy/send WA:", err);
+    }
   };
 
   const closeSubmitConfirmationReminder = () => {
@@ -8366,6 +8394,21 @@ export default function BookingForm() {
                       Waktu Submit:{" "}
                       {formatSubmitTimestamp(submitSuccessMeta.submittedAt)}
                     </p>
+                    <div className="flex gap-2 pt-2">
+                      <Button
+                        size="sm"
+                        className="bg-[#25D366] font-bold text-white hover:bg-[#20bd5a]"
+                        onClick={handleSendWhatsAppFromSuccess}
+                      >
+                        Kirim Rekap WA
+                      </Button>
+                      <NextLink
+                        href={`/bakery/bookings/${submitSuccessMeta.id}`}
+                        className="inline-flex h-8 items-center justify-center rounded-xl border border-emerald-200 bg-white px-3 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50"
+                      >
+                        Lihat Detail
+                      </NextLink>
+                    </div>
                   </div>
                 ) : null}
               </div>
@@ -8393,101 +8436,98 @@ export default function BookingForm() {
       </div>
         </>
       ) : (
-        <div className="space-y-4 pb-4">
-          <Card className="overflow-hidden rounded-[30px] border-[var(--crumbella-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(251,246,240,0.96)_100%)] shadow-[0_24px_40px_-30px_rgba(30,18,10,0.45)]">
-            <CardHeader className="border-b border-[var(--crumbella-border)] px-5 pb-3 pt-5">
-              <div className="flex items-start gap-3">
+        <div className="space-y-3 pb-4">
+          <Card className="overflow-hidden rounded-[22px] border-[var(--crumbella-border)] bg-white shadow-[0_18px_30px_-24px_rgba(30,18,10,0.4)]">
+            <CardHeader className="border-b border-[var(--crumbella-border)] px-4 pb-3 pt-4">
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setComposerStep("input")}
-                  className="flex h-10 w-10 items-center justify-center rounded-2xl border border-[var(--crumbella-border)] bg-white text-[var(--crumbella-primary)]"
+                  className="flex h-8 w-8 items-center justify-center rounded-xl text-lg text-[var(--crumbella-muted)]"
                 >
-                  <ArrowLeft className="h-4 w-4" />
+                  ←
                 </button>
                 <div>
-                  <p className="text-sm text-[var(--crumbella-muted)]">
+                  <p className="text-[14px] font-bold text-[var(--foreground)]">
+                    Preview Booking
+                  </p>
+                  <p className="text-[11px] text-[var(--crumbella-muted)]">
                     Cek data sebelum membuat booking
                   </p>
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="space-y-4 px-5 py-4">
-              <div className="flex gap-3 rounded-[18px] border border-[#efc15d] bg-[#fff6dc] px-4 py-3 text-sm text-[#7a5a21]">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                <p>{previewAlertMessage}</p>
+            <CardContent className="space-y-0 p-0">
+              {/* Warning notice */}
+              <div className="mx-[14px] mt-[10px] flex items-start gap-2 rounded-[11px] border border-[#D8B870] border-l-[3px] border-l-[#C9A84C] bg-[#FFF8E1] px-3 py-[9px]">
+                <span className="shrink-0 text-[13px]">⚠️</span>
+                <p className="text-[10.5px] leading-[1.5] text-[#7A5000]">{previewAlertMessage}</p>
               </div>
 
-              <div className="rounded-[22px] border border-[var(--crumbella-border)] bg-white shadow-[0_12px_24px_-26px_rgba(30,18,10,0.45)]">
-                <div className="flex items-center gap-3 px-4 py-4">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--crumbella-accent-soft)] text-sm font-semibold text-[var(--crumbella-primary)]">
+              {/* Customer card */}
+              <div className="mx-[14px] mt-[10px] rounded-[16px] border border-[var(--crumbella-border)] bg-white">
+                <div className="flex items-center gap-[10px] border-b border-[var(--crumbella-border)] px-[14px] py-[11px]">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--crumbella-accent-soft)] text-[13px] font-extrabold text-[var(--crumbella-primary)]">
                     {(watchedValues.customerName || "AD").slice(0, 2).toUpperCase()}
                   </div>
                   <div className="min-w-0">
-                    <p className="truncate text-xl font-semibold text-[var(--foreground)]">
+                    <p className="truncate text-[14px] font-bold text-[var(--foreground)]">
                       {watchedValues.customerName || "Customer"}
                     </p>
-                    <p className="text-sm text-[var(--crumbella-muted)]">
+                    <p className="text-[11.5px] text-[var(--crumbella-muted)]">
                       {watchedValues.phoneNumber || "-"}
                     </p>
                   </div>
-                  <span className="ml-auto rounded-full bg-[#fff1d9] px-3 py-1 text-xs font-semibold text-[var(--crumbella-primary)]">
+                  <span className="ml-auto shrink-0 rounded-full bg-[#fff1d9] px-[10px] py-[3px] text-[10px] font-semibold text-[var(--crumbella-primary)]">
                     {selectedPaymentStatus === "Paid"
                       ? "Lunas"
                       : `DP ${defaultDpPercentage}%`}
                   </span>
                 </div>
-
-                <div className="grid grid-cols-2 border-t border-[var(--crumbella-border)]">
-                  <div className="px-4 py-3">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--crumbella-muted)]">
-                      Delivery
-                    </p>
-                    <p className="mt-1 text-lg font-semibold text-[var(--foreground)]">
+                <div className="grid grid-cols-2 px-[14px] py-[11px]">
+                  <div className="border-r border-[var(--crumbella-border)] pr-[10px] py-1">
+                    <p className="text-[9px] uppercase tracking-[0.06em] text-[var(--crumbella-muted)]">Delivery</p>
+                    <p className="mt-[2px] text-[13px] font-semibold text-[var(--foreground)]">
                       {normalizedDeliveryDate
                         ? formatDuplicateWarningDate(normalizedDeliveryDate)
                         : "-"}
                     </p>
                   </div>
-                  <div className="border-l border-[var(--crumbella-border)] px-4 py-3">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--crumbella-muted)]">
-                      Jam & Metode
-                    </p>
-                    <p className="mt-1 text-lg font-semibold text-[var(--foreground)]">
-                      {(watchedValues.deliverySlot || "-").replace(":", ".")} •{" "}
-                      {deliveryMethodLabel}
+                  <div className="py-1 pl-[10px]">
+                    <p className="text-[9px] uppercase tracking-[0.06em] text-[var(--crumbella-muted)]">Jam & Metode</p>
+                    <p className="mt-[2px] text-[13px] font-semibold text-[var(--foreground)]">
+                      {(watchedValues.deliverySlot || "-").replace(":", ".")} · {deliveryMethodLabel}
                     </p>
                   </div>
                 </div>
               </div>
 
-              <div className="rounded-[22px] border border-[var(--crumbella-border)] bg-white shadow-[0_12px_24px_-26px_rgba(30,18,10,0.45)]">
-                <div className="border-b border-[var(--crumbella-border)] px-4 py-4">
-                  <p className="text-xl font-semibold text-[var(--foreground)]">
-                    Produk yang Dipesan
-                  </p>
+              {/* Produk yang Dipesan */}
+              <div className="mx-[14px] mt-[10px] rounded-[16px] border border-[var(--crumbella-border)] bg-white">
+                <div className="flex items-center gap-[10px] border-b border-[var(--crumbella-border)] px-[14px] py-[10px]">
+                  <span className="text-[14px]">🍪</span>
+                  <p className="text-[13px] font-bold text-[var(--foreground)]">Produk yang Dipesan</p>
                 </div>
                 <div className="divide-y divide-[var(--crumbella-border)]">
                   {itemPriceBreakdowns.map((item, index) => (
-                    <div key={`${item.itemLabel}-${index}`} className="px-4 py-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="text-lg font-semibold text-[var(--foreground)]">
-                            {item.quantity}x {item.itemLabel}
-                          </p>
-                          <p className="mt-1 text-sm text-[var(--crumbella-muted)]">
-                            {getReadableVariantLabel(watchedItems[index] as BookingItemInput)}
-                          </p>
-                        </div>
-                        <p className="shrink-0 text-lg font-semibold text-[var(--foreground)]">
+                    <div key={`${item.itemLabel}-${index}`} className="px-[14px] py-[10px]">
+                      <div className="flex items-start justify-between">
+                        <p className="text-[13px] font-semibold text-[var(--foreground)]">
+                          {item.quantity}× {item.itemLabel}
+                        </p>
+                        <p className="shrink-0 text-[12.5px] font-medium text-[var(--foreground)]">
                           {formatCurrency(item.totalAmount)}
                         </p>
                       </div>
+                      <p className="mt-[3px] text-[10.5px] text-[var(--crumbella-muted)]">
+                        {getReadableVariantLabel(watchedItems[index] as BookingItemInput)}
+                      </p>
                       {item.addOnDetails.length > 0 ? (
-                        <div className="mt-2 flex flex-wrap gap-2">
+                        <div className="mt-[6px] flex flex-wrap gap-[5px]">
                           {item.addOnDetails.map((detail, detailIndex) => (
                             <span
                               key={`${detail}-${detailIndex}`}
-                              className="rounded-full bg-[#fff1e6] px-2.5 py-1 text-[11px] font-medium text-[#b8532f]"
+                              className="rounded-full bg-[var(--crumbella-accent-soft)] px-2 py-[2px] text-[10px] font-semibold text-[var(--crumbella-primary)]"
                             >
                               {detail}
                             </span>
@@ -8499,101 +8539,106 @@ export default function BookingForm() {
                 </div>
               </div>
 
-              <div className="rounded-[22px] border border-[var(--crumbella-border)] bg-white shadow-[0_12px_24px_-26px_rgba(30,18,10,0.45)]">
-                <div className="border-b border-[var(--crumbella-border)] px-4 py-4">
-                  <p className="text-xl font-semibold text-[var(--foreground)]">
+              {/* Gambar Referensi */}
+              <div className="mx-[14px] mt-[10px] rounded-[16px] border border-[var(--crumbella-border)] bg-white">
+                <div className="flex items-center gap-[10px] border-b border-[var(--crumbella-border)] px-[14px] py-[10px]">
+                  <span className="text-[14px]">🎨</span>
+                  <p className="text-[13px] font-bold text-[var(--foreground)]">
                     Gambar Referensi · {previewReferenceImages.length} gambar
                   </p>
                 </div>
-                <div className="space-y-3 px-4 py-4">
+                <div className="flex flex-col gap-2 px-[14px] py-[10px]">
                   {previewReferenceImages.length > 0 ? (
-                    previewReferenceImages.map((image, index) => (
-                      <div key={`${image.label}-${index}`} className="flex items-start gap-3">
-                        <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-[#f2d9b5] bg-[#fff4e8] text-base">
-                          {index === 0 ? "🍪" : index === 1 ? "🦖" : "⭐"}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-[var(--foreground)]">
-                            {image.label}
+                    previewReferenceImages.map((image, index) => {
+                      const iconEmojis = ["🍪", "🦖", "⭐", "🎂", "🌸"];
+                      const bgColors = ["#FFF8E1", "#E8F5E9", "#E3F2FD", "#FFF3E0", "#FCE4EC"];
+                      const borderColors = ["#D8B870", "#A8D0B8", "#A0B8D8", "#FFCC80", "#F48FB1"];
+                      return (
+                        <div key={`${image.label}-${index}`} className="flex items-center gap-[10px]">
+                          <div
+                            className="flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-lg border text-[18px]"
+                            style={{ background: bgColors[index % bgColors.length], borderColor: borderColors[index % borderColors.length] }}
+                          >
+                            {iconEmojis[index % iconEmojis.length]}
+                          </div>
+                          <p className={`flex-1 text-[11.5px] leading-[1.5] ${image.note ? "text-[var(--foreground)]" : "italic text-[var(--crumbella-muted)]"}`}>
+                            {image.label}{image.note ? ` — ${image.note}` : " — Tidak ada notes"}
                           </p>
-                          <p className="mt-1 text-sm text-[var(--crumbella-muted)]">
-                            {image.note || "Tidak ada notes"}
-                          </p>
                         </div>
-                      </div>
-                    ))
+                      );
+                    })
                   ) : (
-                    <p className="text-sm text-[var(--crumbella-muted)]">
+                    <p className="text-[11.5px] italic text-[var(--crumbella-muted)]">
                       Belum ada gambar referensi.
                     </p>
                   )}
                 </div>
               </div>
 
-              <div className="rounded-[22px] border border-[var(--crumbella-border)] bg-white shadow-[0_12px_24px_-26px_rgba(30,18,10,0.45)]">
-                <div className="border-b border-[var(--crumbella-border)] px-4 py-4">
-                  <p className="text-xl font-semibold text-[var(--foreground)]">
-                    Pengiriman & Pembayaran
-                  </p>
+              {/* Pengiriman & Pembayaran */}
+              <div className="mx-[14px] mt-[10px] rounded-[16px] border border-[var(--crumbella-border)] bg-white">
+                <div className="flex items-center gap-[10px] border-b border-[var(--crumbella-border)] px-[14px] py-[10px]">
+                  <span className="text-[14px]">💳</span>
+                  <p className="text-[13px] font-bold text-[var(--foreground)]">Pengiriman & Pembayaran</p>
                 </div>
-                <div className="space-y-0">
-                  <div className="flex items-center justify-between border-b border-[var(--crumbella-border)] px-4 py-3 text-sm">
-                    <span className="text-[var(--crumbella-muted)]">Metode</span>
-                    <span className="font-semibold text-[var(--foreground)]">{deliveryMethodLabel}</span>
+                <div>
+                  <div className="flex items-center justify-between border-b border-[var(--crumbella-border)] px-[14px] py-[11px]">
+                    <span className="text-[12px] text-[var(--crumbella-muted)]">Metode</span>
+                    <span className="text-[12.5px] font-semibold text-[var(--foreground)]">{deliveryMethodLabel}</span>
                   </div>
-                  <div className="flex items-center justify-between border-b border-[var(--crumbella-border)] px-4 py-3 text-sm">
-                    <span className="text-[var(--crumbella-muted)]">Ongkir</span>
-                    <span className="font-semibold text-[var(--foreground)]">{formatCurrency(deliveryFee)}</span>
+                  <div className="flex items-center justify-between border-b border-[var(--crumbella-border)] px-[14px] py-[11px]">
+                    <span className="text-[12px] text-[var(--crumbella-muted)]">Ongkir</span>
+                    <span className="text-[12.5px] font-semibold text-[var(--foreground)]">{formatCurrency(deliveryFee)}</span>
                   </div>
                   {insuranceFee > 0 ? (
-                    <div className="flex items-center justify-between border-b border-[var(--crumbella-border)] px-4 py-3 text-sm">
-                      <span className="text-[var(--crumbella-muted)]">Insurance JNE/JNT</span>
-                      <span className="font-semibold text-[var(--foreground)]">{formatCurrency(insuranceFee)}</span>
+                    <div className="flex items-center justify-between border-b border-[var(--crumbella-border)] px-[14px] py-[11px]">
+                      <span className="text-[12px] text-[var(--crumbella-muted)]">Insurance</span>
+                      <span className="text-[12.5px] font-semibold text-[var(--foreground)]">{formatCurrency(insuranceFee)}</span>
                     </div>
                   ) : null}
                   {serviceCharge > 0 ? (
-                    <div className="flex items-center justify-between border-b border-[var(--crumbella-border)] px-4 py-3 text-sm">
-                      <span className="text-[var(--crumbella-muted)]">Biaya Admin Pesan Ongkir</span>
-                      <span className="font-semibold text-[var(--foreground)]">{formatCurrency(serviceCharge)}</span>
+                    <div className="flex items-center justify-between border-b border-[var(--crumbella-border)] px-[14px] py-[11px]">
+                      <span className="text-[12px] text-[var(--crumbella-muted)]">Biaya Admin</span>
+                      <span className="text-[12.5px] font-semibold text-[var(--foreground)]">{formatCurrency(serviceCharge)}</span>
                     </div>
                   ) : null}
                   {Number(manualAdjustment || 0) !== 0 ? (
-                    <div className="flex items-center justify-between border-b border-[var(--crumbella-border)] px-4 py-3 text-sm">
-                      <span className="text-[var(--crumbella-muted)]">Adjustment</span>
-                      <span className="font-semibold text-[var(--foreground)]">{formatCurrency(Number(manualAdjustment || 0))}</span>
+                    <div className="flex items-center justify-between border-b border-[var(--crumbella-border)] px-[14px] py-[11px]">
+                      <span className="text-[12px] text-[var(--crumbella-muted)]">Adjustment</span>
+                      <span className="text-[12.5px] font-semibold text-[var(--foreground)]">{formatCurrency(Number(manualAdjustment || 0))}</span>
                     </div>
                   ) : null}
-                  <div className="flex items-center justify-between border-b border-[var(--crumbella-border)] px-4 py-3 text-sm">
-                    <span className="text-[var(--crumbella-muted)]">Total Harga</span>
-                    <span className="text-lg font-semibold text-[var(--foreground)]">{formatCurrency(totalPrice)}</span>
+                  <div className="flex items-center justify-between border-b border-[var(--crumbella-border)] px-[14px] py-[11px]">
+                    <span className="text-[12px] text-[var(--crumbella-muted)]">Total Harga</span>
+                    <span className="text-[13px] font-bold text-[var(--foreground)]">{formatCurrency(totalPrice)}</span>
                   </div>
-                  <div className="flex items-center justify-between border-b border-[var(--crumbella-border)] px-4 py-3 text-sm">
-                    <span className="text-[var(--crumbella-muted)]">Pembayaran</span>
-                    <span className="font-semibold text-[var(--foreground)]">{selectedPaymentStatus === "Paid" ? "Lunas" : `DP ${defaultDpPercentage}%`}</span>
+                  <div className="flex items-center justify-between border-b border-[var(--crumbella-border)] px-[14px] py-[11px]">
+                    <span className="text-[12px] text-[var(--crumbella-muted)]">Pembayaran</span>
+                    <span className="text-[12.5px] font-semibold text-[var(--foreground)]">{selectedPaymentStatus === "Paid" ? "Lunas" : `DP ${defaultDpPercentage}%`}</span>
                   </div>
-                  <div className="flex items-center justify-between border-b border-[var(--crumbella-border)] px-4 py-3 text-sm">
-                    <span className="text-[var(--crumbella-muted)]">DP</span>
-                    <span className="font-semibold text-[#1f6a43]">{formatCurrency(totalPaid)}</span>
+                  <div className="flex items-center justify-between border-b border-[var(--crumbella-border)] px-[14px] py-[11px]">
+                    <span className="text-[12px] text-[var(--crumbella-muted)]">DP</span>
+                    <span className="text-[13px] font-bold text-[#1f6a43]">{formatCurrency(totalPaid)}</span>
                   </div>
-                  <div className="flex items-center justify-between px-4 py-3 text-sm">
-                    <span className="text-[var(--crumbella-muted)]">Sisa Tagihan</span>
-                    <span className="font-semibold text-[#b53b2c]">{formatCurrency(remainingBalance)}</span>
+                  <div className="flex items-center justify-between px-[14px] py-[11px]">
+                    <span className="text-[12px] text-[var(--crumbella-muted)]">Sisa Tagihan</span>
+                    <span className="text-[13px] font-bold text-[#b53b2c]">{formatCurrency(remainingBalance)}</span>
                   </div>
                 </div>
               </div>
 
-              <div className="flex gap-3 pt-2">
-                <Button
+              {/* CTA Buttons */}
+              <div className="flex gap-2 px-[14px] pb-5 pt-1">
+                <button
                   type="button"
-                  variant="outline"
-                  className="h-12 flex-1 rounded-2xl border-[var(--crumbella-border)] text-[var(--crumbella-primary)]"
                   onClick={() => setComposerStep("input")}
+                  className="flex-1 rounded-[13px] border-[1.5px] border-[var(--crumbella-border)] bg-white px-3 py-[13px] text-center text-[13px] font-semibold text-[var(--crumbella-muted)] transition hover:bg-gray-50"
                 >
-                  Edit
-                </Button>
+                  ← Edit
+                </button>
                 <Button
                   type="button"
-                  className="h-12 flex-[1.3] rounded-2xl bg-[var(--crumbella-accent)] text-white hover:bg-[var(--crumbella-accent-strong)]"
+                  className="h-auto flex-[2] rounded-[13px] bg-[var(--crumbella-accent)] px-3 py-[13px] text-[13px] font-bold text-white hover:bg-[var(--crumbella-accent-strong)]"
                   disabled={
                     isSubmitting ||
                     isBookingCreationInFlight ||
@@ -8607,8 +8652,8 @@ export default function BookingForm() {
                   isBookingCreationInFlight
                     ? "Saving Booking..."
                     : isCapacityValidating
-                      ? "Validating Capacity..."
-                      : "Create Booking"}
+                      ? "Validating..."
+                      : "✓ Create Booking"}
                 </Button>
               </div>
               {submitFeedback}

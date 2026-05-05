@@ -224,7 +224,7 @@ export interface NewOrderInput {
 
 interface OrdersContextValue {
   orders: BakeryOrder[];
-  addOrder: (order: NewOrderInput) => Promise<void>;
+  addOrder: (order: NewOrderInput) => Promise<string>;
   updateOrderStatus: (id: string, status: OrderStatus) => Promise<void>;
   assignOrderToStaff: (
     id: string,
@@ -1799,7 +1799,7 @@ export function OrdersProvider({
         toast.message(
           "Booking backfill historis disimpan. Laporan dan kalender internal akan ikut terbarui tanpa trigger operasional baru.",
         );
-        return;
+        return id;
       }
       if (isScheduledShipmentOrder(newOrder)) {
         const todayJakarta = getJakartaTodayIsoDate();
@@ -1814,6 +1814,7 @@ export function OrdersProvider({
         void createShipmentForOrder(id);
       }
       void runAutomationsForOrder("order_confirmed", id);
+      return id;
     },
     [
       orders,

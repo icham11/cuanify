@@ -275,12 +275,16 @@ export async function proxy(request: NextRequest) {
 
   // ── Check Authentication ──
   const jwtToken = request.cookies.get("token")?.value;
-  const nextAuthToken = await getToken({
-    req: request,
-    secret: process.env.NEXTAUTH_SECRET,
-  });
+  let nextAuthToken = null;
+  let isAuthenticated = !!jwtToken;
 
-  const isAuthenticated = !!jwtToken || !!nextAuthToken;
+  if (!isAuthenticated) {
+    nextAuthToken = await getToken({
+      req: request,
+      secret: process.env.NEXTAUTH_SECRET,
+    });
+    isAuthenticated = !!nextAuthToken;
+  }
 
   // Not logged in → let API route decide, page route redirects to /login.
   if (!isAuthenticated) {

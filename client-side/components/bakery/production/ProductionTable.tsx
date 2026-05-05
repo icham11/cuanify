@@ -27,7 +27,7 @@ import { getStaffTokenLimitForUser } from "@/lib/bakery/token-limits";
 interface TeamMember {
   userId: number;
   name: string;
-  role: "Cashier" | "Staff";
+  role: "Owner" | "Admin" | "Cashier" | "Staff";
   businessId: number;
 }
 
@@ -360,6 +360,7 @@ export default function ProductionTable() {
           if (staffRes.ok) {
             const staffPayload = (await staffRes.json()) as {
               data?: {
+                owner?: { id?: unknown; name?: unknown };
                 members?: Array<{
                   userId?: unknown;
                   role?: unknown;
@@ -374,7 +375,7 @@ export default function ProductionTable() {
                 const memberUserId = parseNumericId(member.userId);
                 const memberBusinessId = parseNumericId(member.businessId);
                 const memberRole =
-                  member.role === "Cashier" || member.role === "Staff"
+                  member.role === "Cashier" || member.role === "Staff" || member.role === "Admin" || member.role === "Owner"
                     ? member.role
                     : null;
                 const memberName =
@@ -396,8 +397,21 @@ export default function ProductionTable() {
                   name: memberName,
                 };
               })
-              .filter((member): member is TeamMember => Boolean(member))
-              .filter((member) => member.role === "Staff");
+              .filter((member): member is TeamMember => Boolean(member));
+
+            // Tambahkan owner ke daftar team members jika mereka adalah owner
+            const ownerPayload = staffPayload.data?.owner as { id?: number; name?: string } | undefined;
+            if (ownerPayload?.id && parsedBusinessId) {
+              const ownerUserId = parseNumericId(ownerPayload.id);
+              if (ownerUserId && !allStaffMembers.some(m => m.userId === ownerUserId)) {
+                allStaffMembers.unshift({
+                  userId: ownerUserId,
+                  businessId: parsedBusinessId,
+                  role: "Owner",
+                  name: ownerPayload.name?.trim() ? `${ownerPayload.name.trim()} (Owner)` : "Owner",
+                });
+              }
+            }
 
             const currentBusinessStaff = allStaffMembers.filter(
               (member) => member.businessId === parsedBusinessId,

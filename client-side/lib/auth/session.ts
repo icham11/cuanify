@@ -1,3 +1,4 @@
+import { cache } from "react"
 import { cookies, headers } from "next/headers"
 import { getServerSession } from "next-auth"
 import { getToken } from "next-auth/jwt"
@@ -141,18 +142,18 @@ async function resolveUserIdFromNextAuthJwt(): Promise<number | undefined> {
   return undefined
 }
 
-export async function requireAuth(): Promise<AuthResult> {
+export const requireAuth = cache(async (): Promise<AuthResult> => {
   const cookieStore = await cookies()
   const headerList = await headers()
   const customAuth = await resolveUserIdFromCustomJwt(cookieStore, headerList)
 
-  let userId = await resolveUserIdFromNextAuthJwt()
+  let userId: number | undefined = customAuth?.userId
+  if (!userId) {
+    userId = await resolveUserIdFromNextAuthJwt()
+  }
+  
   const jwtBusinessId: number | undefined = customAuth?.businessId
   const jwtRole: UserRole | undefined = customAuth?.role
-
-  if (!userId && customAuth) {
-    userId = customAuth.userId
-  }
 
   if (!userId) {
     const hasNextAuth =
@@ -280,7 +281,7 @@ export async function requireAuth(): Promise<AuthResult> {
     businessId: business.id,
     role: "Owner" as UserRole,
   }
-}
+})
 
 export function requireRole(auth: AuthResult, ...allowedRoles: UserRole[]): void {
   if (!allowedRoles.includes(auth.role)) {
