@@ -5,6 +5,8 @@ import {
 } from "@/lib/whatsapp/generateOrderImage";
 import {
   buildOrderDeliveryDetailsWhatsAppText,
+  formatWhatsAppDeliveryDate,
+  formatWhatsAppDeliveryTime,
   type WhatsAppRecapItem,
 } from "@/lib/bookings/whatsapp-message-template";
 import { uploadToCloudinary } from "@/lib/whatsapp/uploadToCloudinary";
@@ -39,7 +41,7 @@ function buildProductionCaption(order: SendOrderToWhatsAppInput): string {
   lines.push(formatWhatsAppDeliveryDate(order.deliveryDate));
   lines.push("");
   
-  lines.push(`KODE BOOKING : ${order.bookingCode || order.id || "-"}`);
+  lines.push(`KODE BOOKING : ${order.bookingCode || "-"}`);
   lines.push("");
   
   lines.push("Order :");
