@@ -259,7 +259,7 @@ const ORDERS_SYNC_ENDPOINT = NORMALIZED_BOOKINGS_API_BASE
   : "/api/bookings/orders";
 const INITIAL_SNAPSHOT = JSON.stringify(initialOrders);
 const SERVER_SYNC_POLL_INTERVAL_MS = 30000;
-const LOCAL_WRITE_STALE_GUARD_MS = 2500;
+const LOCAL_WRITE_STALE_GUARD_MS = 10000;
 const SHIPMENT_RETRY_BACKOFF_MS = 5 * 60 * 1000;
 const SHIPMENT_WARNING_COOLDOWN_MS = 10 * 60 * 1000;
 
@@ -1069,9 +1069,23 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       if (typeof window === "undefined") return;
       const previousSnapshot =
         window.localStorage.getItem(STORAGE_KEY) ?? INITIAL_SNAPSHOT;
+      const previousOrders = parseSnapshot(previousSnapshot);
+
       lastLocalWriteAtRef.current = Date.now();
       writeOrdersSnapshot(nextOrders);
-      void syncOrdersToServer(nextOrders).catch((error) => {
+
+      // Compute delta: only send orders that actually changed.
+      const changedOrders = nextOrders.filter((nextOrder) => {
+        const prevOrder = previousOrders.find((p) => p.id === nextOrder.id);
+        if (!prevOrder) return true;
+        return JSON.stringify(nextOrder) !== JSON.stringify(prevOrder);
+      });
+
+      if (changedOrders.length === 0) {
+        return; // Nothing to sync
+      }
+
+      void syncOrdersToServer(changedOrders).catch((error) => {
         const message =
           error instanceof Error
             ? error.message
