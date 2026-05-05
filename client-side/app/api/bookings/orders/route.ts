@@ -3234,33 +3234,36 @@ export async function POST(request: NextRequest) {
           },
         );
       } else if (createdOrdersForWhatsApp.length > 0) {
-        void Promise.all(
-          createdOrdersForWhatsApp.map((orderPayload) =>
-            sendOrderToWhatsApp(orderPayload),
-          ),
-        )
-          .then((waResults) => {
-            const waFailures = waResults.filter((result) => !result.ok);
-            if (waFailures.length > 0) {
-              console.warn("[api/bookings/orders] WA notification failures", {
-                businessId,
-                userId,
-                total: waResults.length,
-                failures: waFailures.map((result: SendOrderToWhatsAppResult) => ({
-                  stage: result.stage,
-                  message: result.message,
-                })),
-              });
-            }
-          })
-          .catch((waError) => {
+        console.info(`[api/bookings/orders] Awaiting ${createdOrdersForWhatsApp.length} WA notifications...`);
+        try {
+          const waResults = await Promise.all(
+            createdOrdersForWhatsApp.map((orderPayload) =>
+              sendOrderToWhatsApp(orderPayload),
+            ),
+          );
+          
+          const waFailures = waResults.filter((result) => !result.ok);
+          if (waFailures.length > 0) {
+            console.warn("[api/bookings/orders] WA notification failures", {
+              businessId,
+              userId,
+              total: waResults.length,
+              failures: waFailures.map((result: SendOrderToWhatsAppResult) => ({
+                stage: result.stage,
+                message: result.message,
+              })),
+            });
+          } else {
+            console.info("[api/bookings/orders] All WA notifications sent successfully.");
+          }
+        } catch (waError) {
             console.warn("[api/bookings/orders] WA notification dispatch failed", {
               businessId,
               userId,
               message:
                 waError instanceof Error ? waError.message : String(waError),
             });
-          });
+        }
       }
 
       return NextResponse.json({
