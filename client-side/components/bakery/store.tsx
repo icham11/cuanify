@@ -1796,9 +1796,6 @@ export function OrdersProvider({
       await syncOrdersToServer(nextOrders);
       writeOrdersSnapshot(nextOrders);
 
-      // Trigger automation untuk order baru
-      void runAutomationsForOrder("order_created", id);
-
       toast.success(`Booking masuk produksi: ${bookingCode}`);
       if (isHistoricalBackfill) {
         toast.message(

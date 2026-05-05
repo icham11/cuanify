@@ -161,40 +161,50 @@ export async function sendOrderToWhatsApp(
   }
 
   let generatedOrderImageUrl = "";
-  let generatedBuffer: Buffer;
+  let generatedBuffer: Buffer | null = null;
 
-  try {
-    generatedBuffer = await generateOrderImage(payload);
-  } catch (error) {
-    return {
-      ok: false,
-      stage: "generate",
-      message:
-        error instanceof Error
-          ? error.message
-          : "Failed to generate WhatsApp order image.",
-    };
-  }
+  // Cek apakah ada gambar asli yang diupload (selain placeholder)
+  const originalImageUrl = selectedImageUrls.find(url => url && !url.includes("via.placeholder.com"));
 
-  try {
-    const imageUrl = await uploadToCloudinary(generatedBuffer, {
-      folder: "orders/generated",
-    });
-
-    if (!imageUrl || !imageUrl.trim()) {
-      throw new Error("Image URL is missing.");
+  if (originalImageUrl) {
+    // Jika ada gambar asli, gunakan langsung tanpa generate template
+    generatedOrderImageUrl = originalImageUrl;
+    console.info("[sendOrderToWhatsApp] Menggunakan gambar asli yang diupload:", originalImageUrl);
+  } else {
+    // Jika tidak ada gambar asli, baru generate dari template
+    try {
+      generatedBuffer = await generateOrderImage(payload);
+    } catch (error) {
+      return {
+        ok: false,
+        stage: "generate",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Failed to generate WhatsApp order image.",
+      };
     }
 
-    generatedOrderImageUrl = imageUrl;
-  } catch (error) {
-    return {
-      ok: false,
-      stage: "upload",
-      message:
-        error instanceof Error
-          ? error.message
-          : "Failed to upload WhatsApp order image.",
-    };
+    try {
+      const imageUrl = await uploadToCloudinary(generatedBuffer, {
+        folder: "orders/generated",
+      });
+
+      if (!imageUrl || !imageUrl.trim()) {
+        throw new Error("Image URL is missing.");
+      }
+
+      generatedOrderImageUrl = imageUrl;
+    } catch (error) {
+      return {
+        ok: false,
+        stage: "upload",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Failed to upload WhatsApp order image.",
+      };
+    }
   }
 
   try {
