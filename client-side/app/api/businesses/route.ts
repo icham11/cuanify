@@ -29,11 +29,13 @@ function getUserIdFromJwt(req: NextRequest): number | undefined {
  */
 export async function GET(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    let userId = session?.user?.id
-
-    // Fallback ke JWT (login email/password)
-    if (!userId) userId = getUserIdFromJwt(req)
+    let userId = getUserIdFromJwt(req)
+    
+    // Fallback ke NextAuth
+    if (!userId) {
+      const session = await getServerSession(authOptions)
+      userId = session?.user?.id
+    }
 
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -84,11 +86,13 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    let userId = session?.user?.id
-
-    // Fallback ke JWT (login email/password)
-    if (!userId) userId = getUserIdFromJwt(req)
+    let userId = getUserIdFromJwt(req)
+    
+    // Fallback ke NextAuth
+    if (!userId) {
+      const session = await getServerSession(authOptions)
+      userId = session?.user?.id
+    }
 
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

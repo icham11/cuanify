@@ -137,12 +137,12 @@ export async function requireAuth(): Promise<AuthResult> {
   const headerList = await headers()
   const customAuth = await resolveUserIdFromCustomJwt(cookieStore, headerList)
 
-  let userId = await resolveUserIdFromNextAuthJwt()
+  let userId: number | undefined = customAuth?.userId
   let jwtBusinessId: number | undefined = customAuth?.businessId
   let jwtRole: UserRole | undefined = customAuth?.role
 
-  if (!userId && customAuth) {
-    userId = customAuth.userId
+  if (!userId) {
+    userId = await resolveUserIdFromNextAuthJwt()
   }
 
   if (!userId) {

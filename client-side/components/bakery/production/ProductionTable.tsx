@@ -1353,7 +1353,7 @@ export default function ProductionTable() {
               >
                 {normalizedOrderStatus}
               </span>
-              {canOwnerAssignOrTransfer && !hasMixedStageAssignees ? (
+              {canOwnerAssignOrTransfer ? (
                 <button
                   type="button"
                   onClick={(event) => {
@@ -1362,8 +1362,9 @@ export default function ProductionTable() {
                   }}
                   disabled={ownerActionCandidates.length === 0}
                   className="rounded-full border border-[var(--crumbella-border)] bg-[var(--crumbella-accent-soft)] px-3 py-1 text-[11px] font-semibold text-[var(--crumbella-primary)] transition hover:bg-[#f6dcc8] disabled:cursor-not-allowed disabled:opacity-50"
+                  title="Override assign/transfer order (Admin)"
                 >
-                  {isUnassigned ? "Assign" : "Transfer"}
+                  {isUnassigned ? "Assign" : "Transfer All"}
                 </button>
               ) : null}
             </div>
@@ -1394,12 +1395,6 @@ export default function ProductionTable() {
               {statusDisabledMessage}
             </p>
           )}
-          {hasMixedStageAssignees && canOwnerAssignOrTransfer ? (
-            <p className="text-[11px] text-[var(--crumbella-muted)]">
-              Order ini sudah dibagi ke beberapa staff. Ubah assignment per
-              stage dari detail order.
-            </p>
-          ) : null}
         </div>
       </div>
     );

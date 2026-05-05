@@ -1218,8 +1218,12 @@ function toTokenOpsOrders(orders: NormalizedOrder[]) {
   });
 }
 
-function validateDailyTokenCapacity(orders: NormalizedOrder[]) {
+function validateDailyTokenCapacity(
+  orders: NormalizedOrder[],
+  existingOrders: ParsedOrder[] = [],
+) {
   const tokenOrders = toTokenOpsOrders(orders);
+  const existingTokenOrders = toTokenOpsOrders(existingOrders);
   const activeDates = Array.from(
     new Set(
       tokenOrders
@@ -1242,11 +1246,25 @@ function validateDailyTokenCapacity(orders: NormalizedOrder[]) {
         incomingItems: [],
       });
 
+      const existingCapacity = evaluateProductionTokenCapacity({
+        orders: existingTokenOrders,
+        deliveryDate,
+        incomingItems: [],
+      });
+
+      // Only overflow if we are over the limit AND we actually increased the usage.
+      // This allows editing/assigning orders on days that are already full.
+      const isOverLimit = capacity.usedToday > capacity.allowed;
+      const didIncrease = capacity.usedToday > existingCapacity.usedToday;
+      const overflowAmount = isOverLimit && didIncrease 
+        ? Math.max(0, capacity.usedToday - capacity.allowed)
+        : 0;
+
       return {
         deliveryDate,
         used: capacity.usedToday,
         allowed: capacity.allowed,
-        overflow: Math.max(0, capacity.usedToday - capacity.allowed),
+        overflow: overflowAmount,
       };
     })
     .filter((entry) => entry.overflow > 0);
@@ -2464,7 +2482,7 @@ export async function POST(request: NextRequest) {
       isPrivilegedRequest,
     });
 
-    const tokenValidation = validateDailyTokenCapacity(orders);
+    const tokenValidation = validateDailyTokenCapacity(orders, existingOrders);
     if (!tokenValidation.isValid) {
       return NextResponse.json(
         {
