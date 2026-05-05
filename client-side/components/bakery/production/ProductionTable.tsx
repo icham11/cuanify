@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Search, Sparkles, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import StatusDropdown from "@/components/bakery/production/StatusDropdown";
@@ -996,6 +996,54 @@ export default function ProductionTable() {
     });
   };
 
+  /**
+   * State untuk melacak dropdown inline assign-per-stage (Owner/Admin only).
+   * Format key: `${orderId}:${stage}`
+   */
+  const [activeStageDropdown, setActiveStageDropdown] = useState<string | null>(null);
+  const stageDropdownRef = useRef<HTMLDivElement | null>(null);
+
+  // Tutup dropdown ketika klik di luar area dropdown
+  useEffect(() => {
+    if (!activeStageDropdown) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        stageDropdownRef.current &&
+        !stageDropdownRef.current.contains(event.target as Node)
+      ) {
+        setActiveStageDropdown(null);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [activeStageDropdown]);
+
+  /**
+   * Handler untuk Owner/Admin assign staff ke stage tertentu secara inline.
+   * Jika staffUserId null → unassign (kosongkan stage).
+   */
+  const handleOwnerAssignStage = useCallback(
+    (
+      orderId: string,
+      stage: "listing" | "filling" | "finishing",
+      staffUserId: number | null,
+    ) => {
+      if (staffUserId === null) {
+        // Unassign: kosongkan stage
+        assignProductionStageStaff(orderId, stage, null);
+      } else {
+        const member = teamMembers.find((m) => m.userId === staffUserId);
+        if (!member) return;
+        assignProductionStageStaff(orderId, stage, {
+          userId: member.userId,
+          name: member.name,
+        });
+      }
+      setActiveStageDropdown(null);
+    },
+    [assignProductionStageStaff, teamMembers],
+  );
+
   const handleOpenTransferModal = (orderId: string) => {
     const order = orders.find((entry) => entry.id === orderId);
     if (!order) return;
@@ -1314,10 +1362,70 @@ export default function ProductionTable() {
                   </div>
 
                   {isClaimed ? (
-                    <span className="text-xs font-semibold text-current">
-                      {stageToken} tok
-                    </span>
+                    // Stage sudah diisi: tampilkan token
+                    // Owner/Admin bisa klik untuk unassign atau ganti staff
+                    isPrivilegedManager ? (
+                      <div className="relative" ref={activeStageDropdown === `${order.id}:${stage}` ? stageDropdownRef : null}>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            const key = `${order.id}:${stage}`;
+                            setActiveStageDropdown(prev => prev === key ? null : key);
+                          }}
+                          className="flex items-center gap-1 rounded-full border border-current/30 px-2 py-1 text-[11px] font-semibold text-current transition hover:bg-current/10"
+                          title="Klik untuk ganti atau lepas staff"
+                        >
+                          {stageToken} tok ▾
+                        </button>
+                        {activeStageDropdown === `${order.id}:${stage}` && (
+                          <div
+                            className="absolute right-0 top-full z-50 mt-1 min-w-[160px] rounded-xl border border-slate-200 bg-white shadow-xl"
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            {/* Opsi unassign */}
+                            <button
+                              type="button"
+                              onClick={() => handleOwnerAssignStage(order.id, stage, null)}
+                              className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-rose-600 transition hover:bg-rose-50"
+                            >
+                              ✕ Lepas Assignment
+                            </button>
+                            <div className="mx-2 my-1 border-t border-slate-100" />
+                            {/* Daftar staff untuk ganti */}
+                            {teamMembers.map((member) => {
+                              const memberDailyToken = orderDateKey
+                                ? (staffDailyTokenByDate.get(`${member.userId}:${orderDateKey}`) ?? 0)
+                                : 0;
+                              const projected = memberDailyToken + stageToken;
+                              const memberLimit = staffTokenLimitByUserId.get(member.userId) ?? staffDailyTokenLimit;
+                              const isCurrentStaff = stageData?.staffId === member.userId;
+                              return (
+                                <button
+                                  key={member.userId}
+                                  type="button"
+                                  onClick={() => handleOwnerAssignStage(order.id, stage, member.userId)}
+                                  className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs transition hover:bg-[var(--crumbella-accent-soft)] ${
+                                    isCurrentStaff ? "font-bold text-[var(--crumbella-primary)]" : "font-medium text-slate-700"
+                                  }`}
+                                >
+                                  <span>{member.name}{isCurrentStaff ? " ✓" : ""}</span>
+                                  <span className={`shrink-0 text-[10px] ${projected > memberLimit ? "text-rose-500" : "text-slate-400"}`}>
+                                    {projected}/{memberLimit}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-xs font-semibold text-current">
+                        {stageToken} tok
+                      </span>
+                    )
                   ) : canStaffClaimStage ? (
+                    // Staff: tombol klaim langsung
                     <button
                       type="button"
                       onClick={(event) => {
@@ -1334,7 +1442,58 @@ export default function ProductionTable() {
                     >
                       Assign
                     </button>
+                  ) : isPrivilegedManager ? (
+                    // Owner/Admin: inline dropdown assign untuk stage yang kosong
+                    <div className="relative" ref={activeStageDropdown === `${order.id}:${stage}` ? stageDropdownRef : null}>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          const key = `${order.id}:${stage}`;
+                          setActiveStageDropdown(prev => prev === key ? null : key);
+                        }}
+                        className="rounded-full border border-[var(--crumbella-primary)]/40 bg-[var(--crumbella-accent-soft)] px-3 py-1.5 text-[11px] font-semibold text-[var(--crumbella-primary)] transition hover:bg-[var(--crumbella-primary)]/10"
+                        title="Assign staff ke tahap ini"
+                      >
+                        + Assign ▾
+                      </button>
+                      {activeStageDropdown === `${order.id}:${stage}` && (
+                        <div
+                          className="absolute right-0 top-full z-50 mt-1 min-w-[170px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          <p className="border-b border-slate-100 px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                            Pilih Staff
+                          </p>
+                          {teamMembers.length === 0 ? (
+                            <p className="px-3 py-2 text-xs text-slate-400">Belum ada staff</p>
+                          ) : (
+                            teamMembers.map((member) => {
+                              const memberDailyToken = orderDateKey
+                                ? (staffDailyTokenByDate.get(`${member.userId}:${orderDateKey}`) ?? 0)
+                                : 0;
+                              const projected = memberDailyToken + stageToken;
+                              const memberLimit = staffTokenLimitByUserId.get(member.userId) ?? staffDailyTokenLimit;
+                              return (
+                                <button
+                                  key={member.userId}
+                                  type="button"
+                                  onClick={() => handleOwnerAssignStage(order.id, stage, member.userId)}
+                                  className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs font-medium text-slate-700 transition hover:bg-[var(--crumbella-accent-soft)]"
+                                >
+                                  <span>{member.name}</span>
+                                  <span className={`shrink-0 text-[10px] ${projected > memberLimit ? "text-rose-500" : "text-slate-400"}`}>
+                                    {projected}/{memberLimit}
+                                  </span>
+                                </button>
+                              );
+                            })
+                          )}
+                        </div>
+                      )}
+                    </div>
                   ) : (
+                    // Tampilan default jika tidak ada aksi tersedia
                     <span className="text-xs font-semibold text-current/80">
                       {stageToken} tok
                     </span>
