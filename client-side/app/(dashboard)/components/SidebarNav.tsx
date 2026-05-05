@@ -44,7 +44,6 @@ export default function SidebarNav() {
 
   return (
     <nav className="space-y-7">
-      {/* Role Mode Banner */}
       {(isCashier || isStaff) && (
         <div
           className={`rounded-2xl border p-3.5 shadow-sm ${
@@ -53,15 +52,15 @@ export default function SidebarNav() {
               : "border-amber-200 bg-linear-to-r from-amber-50 via-[#fff9df] to-orange-50"
           }`}
         >
-          <div className="flex items-center gap-2 mb-1">
+          <div className="mb-1 flex items-center gap-2">
             <span className="relative flex h-2.5 w-2.5">
               <span
-                className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-75 ${
                   isStaff ? "bg-sky-500" : "bg-amber-500"
                 }`}
               />
               <span
-                className={`relative inline-flex rounded-full h-2.5 w-2.5 ${
+                className={`relative inline-flex h-2.5 w-2.5 rounded-full ${
                   isStaff ? "bg-sky-500" : "bg-amber-500"
                 }`}
               />
@@ -74,43 +73,24 @@ export default function SidebarNav() {
             <p
               className={`truncate pl-4.5 text-[11px] font-medium ${isStaff ? "text-sky-700" : "text-amber-700"}`}
             >
-              👤 {userName}
+              {userName}
             </p>
           )}
         </div>
       )}
 
-      {/* Dashboard — Owner only */}
-      {isOwner && (
-        <div>
-          <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5f78a1]">
-            Dashboard
-          </p>
-          {/*<SidebarLink href="/dashboard" icon={BarChart3} label="Overview" active={isActive("/dashboard") && pathname === "/dashboard"} />*/}
-          <SidebarLink
-            href="/analytics"
-            icon={BarChart3}
-            label="Analytics"
-            active={isActive("/analytics")}
-          />
-        </div>
-      )}
-
-      {/* Bakery — Owner/Admin + Staff */}
       {(isBakeryManager || isStaff) && (
         <div>
           <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5f78a1]">
             Bakery
           </p>
           {isOwner && (
-            <>
-              <SidebarLink
-                href="/bakery/dashboard"
-                icon={BarChart3}
-                label="Dashboard"
-                active={isActive("/bakery/dashboard")}
-              />
-            </>
+            <SidebarLink
+              href="/bakery/dashboard"
+              icon={BarChart3}
+              label="Dashboard"
+              active={isActive("/bakery/dashboard")}
+            />
           )}
           {isBakeryManager && (
             <>
@@ -157,12 +137,6 @@ export default function SidebarNav() {
                 active={isActive("/bakery/reports")}
               />
               <SidebarLink
-                href="/bakery/catalog"
-                icon={Settings2}
-                label="Catalog"
-                active={isActive("/bakery/catalog")}
-              />
-              <SidebarLink
                 href="/bakery/customers"
                 icon={ContactRound}
                 label="Customers"
@@ -173,7 +147,6 @@ export default function SidebarNav() {
         </div>
       )}
 
-      {/* AI Tools — Owner only */}
       {isOwner && (
         <div>
           <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5f78a1]">
@@ -188,7 +161,6 @@ export default function SidebarNav() {
         </div>
       )}
 
-      {/* Inventory — Owner/Admin */}
       {isBakeryManager && (
         <div>
           <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5f78a1]">
@@ -209,7 +181,6 @@ export default function SidebarNav() {
         </div>
       )}
 
-      {/* Settings — Owner only */}
       {isOwner && (
         <div>
           <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-[#5f78a1]">

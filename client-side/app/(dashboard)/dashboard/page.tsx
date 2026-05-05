@@ -95,7 +95,7 @@ export default function DashboardPage() {
         setLoading(true);
 
         const { start, end } = getDateRange(range);
-        const salesUrl = new URL("/api/analytics/dashboard", window.location.origin);
+        const salesUrl = new URL("/api/sales", window.location.origin);
         if (start) salesUrl.searchParams.set("startDate", start.toISOString());
         if (end) salesUrl.searchParams.set("endDate", end.toISOString());
 
@@ -108,9 +108,10 @@ export default function DashboardPage() {
         const ingredientData = await ingredientRes.json();
 
         if (salesRes.ok && salesData.success) {
-          setTodayRevenue(Number(salesData.data.totalRevenue || 0));
-          setTodayTransactions(Number(salesData.data.transactionCount || 0));
-          setMonthProfit(Number(salesData.data.totalProfit || 0));
+          const summary = salesData.data?.summary ?? {};
+          setTodayRevenue(Number(summary.totalRevenue || 0));
+          setTodayTransactions(Number(summary.transactionCount || 0));
+          setMonthProfit(Number(summary.totalProfit || 0));
         }
 
         if (ingredientRes.ok && ingredientData.success) {

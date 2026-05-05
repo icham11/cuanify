@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireAuth, requireRole, AuthError, ForbiddenError } from "@/lib/auth/session";
+import {
+  isPrismaConnectionTimeout,
+  prismaConnectionErrorResponse,
+} from "@/lib/prisma-errors";
 
 export const dynamic = "force-dynamic";
 
@@ -10,12 +14,17 @@ type ManagedMemberRole = (typeof ALLOWED_MEMBER_ROLES)[number];
 /**
  * GET /api/staff — List team members.
  * - Owner: across all owned businesses
- * - Admin: active business only
+ * - Admin/Staff/Cashier: active business only
  */
 export async function GET() {
   try {
     const auth = await requireAuth();
-    if (auth.role !== "Owner" && auth.role !== "Admin") {
+    if (
+      auth.role !== "Owner" &&
+      auth.role !== "Admin" &&
+      auth.role !== "Staff" &&
+      auth.role !== "Cashier"
+    ) {
       throw new ForbiddenError("Akses ditolak.");
     }
 
@@ -76,6 +85,9 @@ export async function GET() {
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ error: error.message }, { status: 401 });
     if (error instanceof ForbiddenError) return NextResponse.json({ error: error.message }, { status: 403 });
+    if (isPrismaConnectionTimeout(error)) {
+      return prismaConnectionErrorResponse("Koneksi database timeout saat memuat anggota tim.");
+    }
     console.error("GET /api/staff error:", error);
     return NextResponse.json({ error: "Gagal memuat data anggota tim" }, { status: 500 });
   }
@@ -165,6 +177,9 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ error: error.message }, { status: 401 });
     if (error instanceof ForbiddenError) return NextResponse.json({ error: error.message }, { status: 403 });
+    if (isPrismaConnectionTimeout(error)) {
+      return prismaConnectionErrorResponse("Koneksi database timeout saat menambahkan anggota tim.");
+    }
     console.error("POST /api/staff error:", error);
     return NextResponse.json({ error: "Gagal menambahkan anggota tim" }, { status: 500 });
   }

@@ -25,6 +25,13 @@ export interface SendOrderToWhatsAppInput extends WhatsAppOrderImagePayload {
   captionItems?: WhatsAppRecapItem[];
 }
 
+export interface SendOrderToWhatsAppResult {
+  ok: boolean;
+  stage: "preflight" | "generate" | "upload" | "send";
+  message: string;
+  imageUrl?: string;
+}
+
 function buildProductionCaption(order: SendOrderToWhatsAppInput): string {
   const captionItems =
     order.captionItems && order.captionItems.length > 0
@@ -58,10 +65,7 @@ function normalizeReferenceImageUrl(url?: string): string | null {
 
   try {
     const parsed = new URL(trimmed);
-    const isGeneratedOrderImage =
-      parsed.pathname.includes("/orders/generated/");
-
-    if (isGeneratedOrderImage) {
+    if (parsed.pathname.includes("/orders/generated/")) {
       return null;
     }
     return parsed.toString();
@@ -128,14 +132,10 @@ function normalizeStructuredReferenceImages(
 
 export async function sendOrderToWhatsApp(
   order: SendOrderToWhatsAppInput,
-): Promise<void> {
-  console.log("🚀 START WA FLOW");
-
+): Promise<SendOrderToWhatsAppResult> {
   const selectedImageUrls = normalizeReferenceImageUrls(order);
   const structuredReferenceImages = normalizeStructuredReferenceImages(order);
   const productImageUrl = selectedImageUrls[0] || FALLBACK_IMAGE_URL;
-
-  console.log("🖼️ Product image used:", productImageUrl);
 
   const payload: SendOrderToWhatsAppInput = {
     ...order,
@@ -144,47 +144,80 @@ export async function sendOrderToWhatsApp(
     referenceImages: structuredReferenceImages,
   };
 
+  if (!process.env.FONNTE_TOKEN) {
+    return {
+      ok: false,
+      stage: "preflight",
+      message: "Missing FONNTE_TOKEN env variable.",
+    };
+  }
+
+  if (!process.env.FONNTE_PRODUCTION_TARGET) {
+    return {
+      ok: false,
+      stage: "preflight",
+      message: "Missing FONNTE_PRODUCTION_TARGET env variable.",
+    };
+  }
+
   let generatedOrderImageUrl = "";
+  let generatedBuffer: Buffer;
 
   try {
-    console.log("📸 Generating image...");
-    const buffer = await generateOrderImage(payload);
+    generatedBuffer = await generateOrderImage(payload);
+  } catch (error) {
+    return {
+      ok: false,
+      stage: "generate",
+      message:
+        error instanceof Error
+          ? error.message
+          : "Failed to generate WhatsApp order image.",
+    };
+  }
 
-    console.log("✅ Image generated. Buffer size:", buffer?.length);
-
-    console.log("☁️ Uploading to Cloudinary...");
-    const imageUrl = await uploadToCloudinary(buffer, {
+  try {
+    const imageUrl = await uploadToCloudinary(generatedBuffer, {
       folder: "orders/generated",
     });
 
-    console.log("✅ Uploaded image URL:", imageUrl);
-
     if (!imageUrl || !imageUrl.trim()) {
-      throw new Error("Image URL is missing");
+      throw new Error("Image URL is missing.");
     }
 
     generatedOrderImageUrl = imageUrl;
   } catch (error) {
-    console.error("❌ ERROR during image generation/upload:", error);
-  }
-
-  if (!generatedOrderImageUrl) {
-    console.error("❌ STOP: No image URL, skipping WA send");
-    return;
+    return {
+      ok: false,
+      stage: "upload",
+      message:
+        error instanceof Error
+          ? error.message
+          : "Failed to upload WhatsApp order image.",
+    };
   }
 
   try {
-    console.log("📤 Sending to WA:", generatedOrderImageUrl);
-
     await sendWhatsAppImage(
       generatedOrderImageUrl,
       buildProductionCaption(payload),
     );
 
-    console.log("✅ WA Image sent successfully");
+    return {
+      ok: true,
+      stage: "send",
+      message: "WhatsApp production notification sent successfully.",
+      imageUrl: generatedOrderImageUrl,
+    };
   } catch (error) {
-    console.error("❌ ERROR sending to WA:", error);
+    return {
+      ok: false,
+      stage: "send",
+      message:
+        error instanceof Error
+          ? error.message
+          : "Failed to send WhatsApp production notification.",
+      imageUrl: generatedOrderImageUrl,
+    };
   }
-
-  console.log("🏁 END WA FLOW");
 }

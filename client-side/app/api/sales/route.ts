@@ -13,6 +13,155 @@ import { deductProductionBatch } from "@/lib/inventory/production-engine";
 
 export const runtime = "nodejs";
 
+const salesListSelect = {
+  id: true,
+  transactionNumber: true,
+  totalRevenue: true,
+  totalCost: true,
+  paymentMethod: true,
+  paymentStatus: true,
+  customerName: true,
+  customerEmail: true,
+  customerPhone: true,
+  createdAt: true,
+  saleItems: {
+    select: {
+      id: true,
+      quantity: true,
+      priceAtSale: true,
+      costAtSale: true,
+      product: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+    },
+  },
+} as const;
+
+const salesCompactSelect = {
+  totalRevenue: true,
+  totalCost: true,
+  paymentMethod: true,
+  saleItems: {
+    select: {
+      quantity: true,
+      priceAtSale: true,
+      product: {
+        select: {
+          name: true,
+        },
+      },
+    },
+  },
+} as const;
+
+const salesSummaryOnlySelect = {
+  totalRevenue: true,
+  totalCost: true,
+  paymentMethod: true,
+} as const;
+
+const salesListSelectFallback = {
+  id: true,
+  transactionNumber: true,
+  totalRevenue: true,
+  paymentMethod: true,
+  createdAt: true,
+  saleItems: {
+    select: {
+      id: true,
+      quantity: true,
+      priceAtSale: true,
+      product: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+    },
+  },
+} as const;
+
+const salesCompactSelectFallback = {
+  totalRevenue: true,
+  paymentMethod: true,
+  saleItems: {
+    select: {
+      quantity: true,
+      priceAtSale: true,
+      product: {
+        select: {
+          name: true,
+        },
+      },
+    },
+  },
+} as const;
+
+const salesSummaryOnlySelectFallback = {
+  totalRevenue: true,
+  paymentMethod: true,
+} as const;
+
+function isMissingColumnError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "P2022"
+  );
+}
+
+async function findSalesWithFallback(args: {
+  whereWithChannel: {
+    businessId: number;
+    createdAt?: { gte?: Date; lte?: Date };
+    paymentMethod?: PaymentMethod;
+    sales_channel: SalesChannel;
+  };
+  baseWhere: {
+    businessId: number;
+    createdAt?: { gte?: Date; lte?: Date };
+    paymentMethod?: PaymentMethod;
+  };
+  select:
+    | typeof salesListSelect
+    | typeof salesCompactSelect
+    | typeof salesSummaryOnlySelect;
+  fallbackSelect:
+    | typeof salesListSelectFallback
+    | typeof salesCompactSelectFallback
+    | typeof salesSummaryOnlySelectFallback;
+}) {
+  try {
+    return await prisma.sale.findMany({
+      where: args.whereWithChannel,
+      orderBy: { createdAt: "desc" },
+      select: args.select,
+    });
+  } catch (error) {
+    if (!isMissingColumnError(error)) throw error;
+  }
+
+  try {
+    return await prisma.sale.findMany({
+      where: args.baseWhere,
+      orderBy: { createdAt: "desc" },
+      select: args.select,
+    });
+  } catch (error) {
+    if (!isMissingColumnError(error)) throw error;
+  }
+
+  return prisma.sale.findMany({
+    where: args.baseWhere,
+    orderBy: { createdAt: "desc" },
+    select: args.fallbackSelect,
+  });
+}
+
 // ---------- GET ----------
 
 /**
@@ -38,7 +187,7 @@ export const runtime = "nodejs";
  *           "product": { "id": 1, "name": "Kopi Susu", "categoryId": 1 }
  *         }]
  *       }],
- *       "analytics": {
+ *       "summary": {
  *         "totalRevenue": 500000,
  *         "totalCost": 200000,
  *         "totalProfit": 300000,
@@ -65,12 +214,14 @@ export async function GET(request: NextRequest) {
     const endDate = url.searchParams.get("endDate");
     const paymentMethod = url.searchParams.get("paymentMethod");
     const sales_channel = url.searchParams.get("sales_channel");
+    const compact = url.searchParams.get("compact") === "1";
+    const summaryOnly = url.searchParams.get("summaryOnly") === "1";
     const effectiveSalesChannel =
       sales_channel === "tokopedia" || sales_channel === "shopee"
         ? sales_channel
         : "direct";
 
-    const where = {
+    const baseWhere = {
       businessId,
       ...(startDate || endDate
         ? {
@@ -81,30 +232,39 @@ export async function GET(request: NextRequest) {
           }
         : {}),
       ...(paymentMethod ? { paymentMethod: paymentMethod as PaymentMethod } : {}),
+    };
+    const whereWithChannel = {
+      ...baseWhere,
       sales_channel: effectiveSalesChannel as SalesChannel,
     };
 
-    const sales = await prisma.sale.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-      include: {
-        saleItems: {
-          include: {
-            product: {
-              select: {
-                id: true,
-                name: true,
-                categoryId: true,
-              },
-            },
-          },
-        },
-      },
+    const select = summaryOnly
+      ? salesSummaryOnlySelect
+      : compact
+        ? salesCompactSelect
+        : salesListSelect;
+    const fallbackSelect = summaryOnly
+      ? salesSummaryOnlySelectFallback
+      : compact
+        ? salesCompactSelectFallback
+        : salesListSelectFallback;
+    const sales = await findSalesWithFallback({
+      whereWithChannel,
+      baseWhere,
+      select,
+      fallbackSelect,
     });
 
-    // Calculate analytics
+    // Calculate summary metrics
     const totalRevenue = sales.reduce((sum, s) => sum + Number(s.totalRevenue), 0);
-    const totalCost = sales.reduce((sum, s) => sum + Number(s.totalCost), 0);
+    const totalCost = sales.reduce(
+      (sum, s) =>
+        sum +
+        Number(
+          "totalCost" in s && s.totalCost !== undefined ? s.totalCost : 0,
+        ),
+      0,
+    );
     const totalProfit = totalRevenue - totalCost;
     const avgMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
 
@@ -122,7 +282,7 @@ export async function GET(request: NextRequest) {
       {} as Record<string, { method: PaymentMethod; count: number; revenue: number }>,
     );
 
-    const analytics = {
+    const summary = {
       totalRevenue,
       totalCost,
       totalProfit,
@@ -133,7 +293,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      data: { sales, analytics, totalRevenue, totalCost },
+      data: { sales, summary, totalRevenue, totalCost },
     });
   } catch (error: unknown) {
     if (isAuthError(error)) {

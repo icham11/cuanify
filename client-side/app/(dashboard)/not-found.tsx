@@ -5,7 +5,6 @@ import {
   Home,
   ShoppingCart,
   Package,
-  BarChart3,
   MapPin,
 } from "lucide-react";
 
@@ -13,14 +12,12 @@ const quickLinks = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, color: "blue" },
   { href: "/pos", label: "POS / Kasir", icon: ShoppingCart, color: "green" },
   { href: "/dashboard/products", label: "Produk", icon: Package, color: "purple" },
-  { href: "/dashboard/analytics", label: "Analitik", icon: BarChart3, color: "orange" },
 ];
 
 const colorMap: Record<string, string> = {
   blue: "bg-indigo-50 text-indigo-600 border-indigo-100 hover:bg-indigo-100",
   green: "bg-emerald-50 text-emerald-600 border-emerald-100 hover:bg-emerald-100",
   purple: "bg-purple-50 text-purple-600 border-purple-100 hover:bg-purple-100",
-  orange: "bg-amber-50 text-amber-600 border-amber-100 hover:bg-amber-100",
 };
 
 export default function DashboardNotFound() {

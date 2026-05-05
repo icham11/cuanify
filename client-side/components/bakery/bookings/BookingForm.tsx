@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ChangeEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import NextLink from "next/link";
 import { startOfDay } from "date-fns";
 import {
@@ -37,7 +44,6 @@ import {
 } from "lucide-react";
 import {
   buildWhatsAppTemplate,
-  getDisplayFields,
   type BookingFormAutoFill,
   type ParsedWhatsAppDetectedItem,
   type ParsedWhatsAppOrder,
@@ -609,6 +615,10 @@ function parseEtaToHours(etaText: string): number {
   return minValue;
 }
 
+function getShippingQuoteDisplayPrice(quote: ShippingQuote): number {
+  return Math.max(0, quote.priceWithoutInsurance ?? quote.price ?? 0);
+}
+
 interface ParseWhatsAppApiResponse {
   success: boolean;
   parsed: ParsedWhatsAppOrder;
@@ -672,10 +682,6 @@ const whatsappOrderTypeOptions: Array<{
   { value: "buket", label: WHATSAPP_ORDER_LABELS.buket },
   { value: "cookies_tower", label: WHATSAPP_ORDER_LABELS.cookies_tower },
 ];
-const specificWhatsappOrderTypeOptions = whatsappOrderTypeOptions.filter(
-  (option) => option.value !== "unknown",
-);
-
 function normalizeReferenceLabelInput(value: string): string[] {
   const labels: string[] = [];
   const seen = new Set<string>();
@@ -2377,6 +2383,22 @@ function formatTemplateSimilarityLabel(
   return `Sangat mirip (${Math.round(score * 100)}%)`;
 }
 
+function findFirstFormErrorMessage(error: unknown): string | null {
+  if (!error || typeof error !== "object") return null;
+
+  const record = error as Record<string, unknown>;
+  if (typeof record.message === "string" && record.message.trim()) {
+    return record.message.trim();
+  }
+
+  for (const value of Object.values(record)) {
+    const nestedMessage = findFirstFormErrorMessage(value);
+    if (nestedMessage) return nestedMessage;
+  }
+
+  return null;
+}
+
 export default function BookingForm() {
   const { addOrder, orders } = useOrders();
   const { isOwner, isAdmin, loading: isRoleLoading } = useRole();
@@ -2393,7 +2415,6 @@ export default function BookingForm() {
     useState<ParsedWhatsAppOrder | null>(null);
   const [productionPreviewImageUrl, setProductionPreviewImageUrl] =
     useState("");
-  const [visionRawOutput, setVisionRawOutput] = useState("");
   const [draftImported, setDraftImported] = useState(false);
   const [referenceImageFiles, setReferenceImageFiles] = useState<File[]>([]);
   const [referenceFilesChangedSinceParse, setReferenceFilesChangedSinceParse] =
@@ -2440,6 +2461,7 @@ export default function BookingForm() {
   const duplicateWarningPrimaryButtonRef = useRef<HTMLButtonElement | null>(
     null,
   );
+  const submitFeedbackRef = useRef<HTMLDivElement | null>(null);
   const shouldRequireSubmitConfirmation =
     !isRoleLoading && (isOwner || isAdmin);
   const canWarnDuplicateTemplate = !isRoleLoading && (isOwner || isAdmin);
@@ -2449,11 +2471,8 @@ export default function BookingForm() {
 
   useEffect(() => {
     let cancelled = false;
-    let inFlight = false;
 
     const refreshTokenMap = async () => {
-      if (inFlight) return;
-      inFlight = true;
       try {
         const response = await fetch("/api/products/token-map", {
           cache: "no-store",
@@ -2476,31 +2495,12 @@ export default function BookingForm() {
         setProductTokenByName(tokenMap);
       } catch {
         // fallback to calculator path only
-      } finally {
-        inFlight = false;
       }
     };
 
     void refreshTokenMap();
-    const intervalId = window.setInterval(() => {
-      void refreshTokenMap();
-    }, 10_000);
-    const onFocus = () => {
-      void refreshTokenMap();
-    };
-    const onVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        void refreshTokenMap();
-      }
-    };
-
-    window.addEventListener("focus", onFocus);
-    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       cancelled = true;
-      window.clearInterval(intervalId);
-      window.removeEventListener("focus", onFocus);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, []);
 
@@ -2549,6 +2549,7 @@ export default function BookingForm() {
       deliveryDate: "",
       deliverySlot: "10:00",
       deliveryMethod: "REGULAR_JNE_JNT",
+      sales_channel: "direct",
       customNotes: "",
       paymentStatus: "DP Paid",
       dpPaidAmount: 0,
@@ -2667,6 +2668,63 @@ export default function BookingForm() {
   const manualAdjustment = useWatch({ control, name: "manualAdjustment" }) ?? 0;
   const selectedPaymentStatus =
     useWatch({ control, name: "paymentStatus" }) ?? "DP Paid";
+  const fragileOrderReasons = useMemo(
+    () => getGrabCarOnlyReasons(watchedItems),
+    [watchedItems],
+  );
+  const isFragileOrder = fragileOrderReasons.length > 0;
+  const selectableDeliveryMethodOptions = useMemo(
+    () =>
+      isFragileOrder
+        ? DELIVERY_METHOD_OPTIONS.filter((option) =>
+            FRAGILE_ORDER_ALLOWED_METHODS.includes(
+              option.value as DeliveryMethod,
+            ),
+          )
+        : DELIVERY_METHOD_OPTIONS,
+    [isFragileOrder],
+  );
+  const watchedDeliveryMethod = deliveryMethod as DeliveryMethod;
+  const effectiveDeliveryMethod =
+    selectableDeliveryMethodOptions.some(
+      (option) => option.value === watchedDeliveryMethod,
+    )
+      ? watchedDeliveryMethod
+      : (selectableDeliveryMethodOptions[0]?.value ?? "PICKUP");
+  const deliveryMethodField = register("deliveryMethod");
+
+  const handleDeliveryMethodChange = useCallback(
+    (event: ChangeEvent<HTMLSelectElement>) => {
+      const nextMethod = event.target.value as BookingFormValues["deliveryMethod"];
+      setValue("deliveryMethod", nextMethod, {
+        shouldDirty: true,
+        shouldTouch: true,
+        shouldValidate: true,
+      });
+      setSubmitError("");
+      setShippingWarning("");
+      setShippingQuotes([]);
+      setSelectedShippingQuoteId("");
+      setShippingDistanceKm(null);
+      setShippingDistanceSource(undefined);
+    },
+    [setValue],
+  );
+
+  useEffect(() => {
+    if (deliveryMethod === effectiveDeliveryMethod) return;
+
+    setValue("deliveryMethod", effectiveDeliveryMethod, {
+      shouldDirty: true,
+      shouldTouch: true,
+      shouldValidate: true,
+    });
+    setShippingWarning("");
+    setShippingQuotes([]);
+    setSelectedShippingQuoteId("");
+    setShippingDistanceKm(null);
+    setShippingDistanceSource(undefined);
+  }, [deliveryMethod, effectiveDeliveryMethod, setValue]);
 
   const clearParsedPricingOverride = useCallback(
     (itemIndex: number) => {
@@ -2819,20 +2877,26 @@ export default function BookingForm() {
           normalizedReferenceImageLabels[index] ||
           `Gambar ${index + 1}`,
         note: entry.label?.trim() || normalizedReferenceImageLabels[index] || "",
+        url: entry.url?.trim() || "",
       }));
     }
 
     return referenceImageFiles.map((file, index) => ({
       label: normalizedReferenceImageLabels[index] || `Gambar ${index + 1}`,
       note: normalizedReferenceImageLabels[index] || "",
+      url: "",
     }));
   }, [normalizedReferenceImageLabels, parsedPreview?.referenceImages, referenceImageFiles]);
+  const previewAlertMessage = parsedPreview
+    ? "Ada yang salah? Kembali ke halaman sebelumnya, edit teks WA, lalu parse ulang."
+    : "Ada yang salah? Kembali ke halaman sebelumnya dan cek lagi data booking sebelum disimpan.";
 
   const deliveryMethodLabel = useMemo(
     () =>
-      DELIVERY_METHOD_OPTIONS.find((option) => option.value === deliveryMethod)
-        ?.label || deliveryMethod,
-    [deliveryMethod],
+      DELIVERY_METHOD_OPTIONS.find(
+        (option) => option.value === effectiveDeliveryMethod,
+      )?.label || effectiveDeliveryMethod,
+    [effectiveDeliveryMethod],
   );
 
   const basePrice = useMemo(() => {
@@ -2842,7 +2906,7 @@ export default function BookingForm() {
   }, [itemPriceBreakdowns]);
 
   useEffect(() => {
-    if (deliveryMethod !== "ASSISTED_PAXEL") return;
+    if (effectiveDeliveryMethod !== "ASSISTED_PAXEL") return;
 
     watchedItems.forEach((item, index) => {
       if ((item.category || "") !== "Buket") return;
@@ -2870,7 +2934,7 @@ export default function BookingForm() {
     });
   }, [
     clearParsedPricingOverride,
-    deliveryMethod,
+    effectiveDeliveryMethod,
     watchedItems,
     productCatalog,
     setValue,
@@ -3042,12 +3106,13 @@ export default function BookingForm() {
   }, [watchedItems]);
 
   const shouldUseShippingEngine = useMemo(
-    () => usesShippingEngine(deliveryMethod as DeliveryMethod),
-    [deliveryMethod],
+    () => usesShippingEngine(effectiveDeliveryMethod),
+    [effectiveDeliveryMethod],
   );
-  const isPickupMethod = deliveryMethod === "PICKUP";
+  const isPickupMethod = effectiveDeliveryMethod === "PICKUP";
   const isCarRideHailingMethod =
-    deliveryMethod === "ASSISTED_GOCAR" || deliveryMethod === "ASSISTED_GRAB";
+    effectiveDeliveryMethod === "ASSISTED_GOCAR" ||
+    effectiveDeliveryMethod === "ASSISTED_GRAB";
   const hasBouquetItems = useMemo(
     () => watchedItems.some((item) => isBouquetItem(item)),
     [watchedItems],
@@ -3119,14 +3184,14 @@ export default function BookingForm() {
         quote.provider === "PAXEL",
     );
 
-    if (deliveryMethod === "ASSISTED_PAXEL") {
+    if (effectiveDeliveryMethod === "ASSISTED_PAXEL") {
       const paxelQuotes = shippingQuotes.filter(
         (quote) => quote.provider === "PAXEL",
       );
       return paxelQuotes;
     }
 
-    if (deliveryMethod === "ASSISTED_GRAB") {
+    if (effectiveDeliveryMethod === "ASSISTED_GRAB") {
       if (grabQuotes.length > 0) {
         return grabQuotes;
       }
@@ -3146,7 +3211,7 @@ export default function BookingForm() {
       return gojekQuotes;
     }
 
-    if (deliveryMethod === "ASSISTED_GOSEND") {
+    if (effectiveDeliveryMethod === "ASSISTED_GOSEND") {
       const gojekBikeQuotes = gojekQuotes.filter(isBikeService);
       if (gojekBikeQuotes.length > 0) {
         return gojekBikeQuotes;
@@ -3160,7 +3225,7 @@ export default function BookingForm() {
       return sameDayQuotes;
     }
 
-    if (deliveryMethod === "ASSISTED_GOCAR") {
+    if (effectiveDeliveryMethod === "ASSISTED_GOCAR") {
       const gojekCarQuotes = gojekQuotes.filter(isCarService);
       if (gojekCarQuotes.length > 0) {
         return gojekCarQuotes;
@@ -3188,7 +3253,7 @@ export default function BookingForm() {
       return gojekQuotes;
     }
 
-    if (deliveryMethod === "REGULAR_JNE_JNT") {
+    if (effectiveDeliveryMethod === "REGULAR_JNE_JNT") {
       const regularQuotes = shippingQuotes.filter(
         (quote) => quote.provider === "JNE" || quote.provider === "JNT",
       );
@@ -3204,7 +3269,7 @@ export default function BookingForm() {
       return bouquetSafeRegularQuotes;
     }
 
-    if (deliveryMethod === "ASSISTED_SAME_DAY") {
+    if (effectiveDeliveryMethod === "ASSISTED_SAME_DAY") {
       return shippingQuotes.filter(
         (quote) =>
           quote.provider === "GOJEK" ||
@@ -3215,18 +3280,18 @@ export default function BookingForm() {
 
     return shippingQuotes;
   }, [
-    deliveryMethod,
+    effectiveDeliveryMethod,
     hasBouquetItems,
     shippingQuotes,
     shouldUseShippingEngine,
   ]);
 
   const isStrictDeliveryMethod =
-    deliveryMethod === "ASSISTED_PAXEL" ||
-    deliveryMethod === "ASSISTED_GOSEND" ||
-    deliveryMethod === "ASSISTED_GRAB" ||
-    deliveryMethod === "ASSISTED_GOCAR" ||
-    deliveryMethod === "REGULAR_JNE_JNT";
+    effectiveDeliveryMethod === "ASSISTED_PAXEL" ||
+    effectiveDeliveryMethod === "ASSISTED_GOSEND" ||
+    effectiveDeliveryMethod === "ASSISTED_GRAB" ||
+    effectiveDeliveryMethod === "ASSISTED_GOCAR" ||
+    effectiveDeliveryMethod === "REGULAR_JNE_JNT";
 
   const isShippingFallbackActive =
     shouldUseShippingEngine &&
@@ -3239,12 +3304,19 @@ export default function BookingForm() {
     for (const quote of methodSpecificShippingQuotes) {
       const key = `${quote.provider}:${quote.courierCode}:${quote.courierServiceCode}`;
       const existing = bestByService.get(key);
-      if (!existing || quote.price < existing.price) {
+      if (
+        !existing ||
+        getShippingQuoteDisplayPrice(quote) <
+          getShippingQuoteDisplayPrice(existing)
+      ) {
         bestByService.set(key, quote);
       }
     }
 
-    return Array.from(bestByService.values()).sort((a, b) => a.price - b.price);
+    return Array.from(bestByService.values()).sort(
+      (a, b) =>
+        getShippingQuoteDisplayPrice(a) - getShippingQuoteDisplayPrice(b),
+    );
   }, [methodSpecificShippingQuotes]);
 
   const cheapestShippingQuote = filteredShippingQuotes[0] ?? null;
@@ -3261,7 +3333,11 @@ export default function BookingForm() {
         continue;
       }
 
-      if (etaHours === bestEtaHours && quote.price < bestQuote.price) {
+      if (
+        etaHours === bestEtaHours &&
+        getShippingQuoteDisplayPrice(quote) <
+          getShippingQuoteDisplayPrice(bestQuote)
+      ) {
         bestQuote = quote;
       }
     }
@@ -3279,26 +3355,26 @@ export default function BookingForm() {
   const shippingFallbackMessage = useMemo(() => {
     if (!isShippingFallbackActive) return "";
 
-    if (deliveryMethod === "ASSISTED_PAXEL") {
+    if (effectiveDeliveryMethod === "ASSISTED_PAXEL") {
       return "Layanan Paxel belum tersedia untuk alamat ini. Pilih metode lain atau ubah alamat penerima.";
     }
-    if (deliveryMethod === "ASSISTED_GRAB") {
+    if (effectiveDeliveryMethod === "ASSISTED_GRAB") {
       return "Layanan Grab belum tersedia untuk alamat ini. Pilih metode lain atau ubah alamat penerima.";
     }
-    if (deliveryMethod === "ASSISTED_GOSEND") {
+    if (effectiveDeliveryMethod === "ASSISTED_GOSEND") {
       return "Layanan GoSend belum tersedia untuk alamat ini. Pilih metode lain atau ubah alamat penerima.";
     }
-    if (deliveryMethod === "ASSISTED_GOCAR") {
+    if (effectiveDeliveryMethod === "ASSISTED_GOCAR") {
       return "Layanan GoCar belum tersedia untuk alamat ini. Pilih metode lain atau ubah alamat penerima.";
     }
-    if (deliveryMethod === "REGULAR_JNE_JNT") {
+    if (effectiveDeliveryMethod === "REGULAR_JNE_JNT") {
       if (hasBouquetItems) {
         return "Untuk bouquet, layanan reguler yang aman belum tersedia untuk alamat ini. Coba metode lain atau ubah alamat penerima.";
       }
       return "Layanan JNE/J&T belum tersedia untuk alamat ini. Pilih metode lain atau ubah alamat penerima.";
     }
     return "Layanan kurir pada metode terpilih belum tersedia. Pilih metode lain atau ubah alamat penerima.";
-  }, [deliveryMethod, hasBouquetItems, isShippingFallbackActive]);
+  }, [effectiveDeliveryMethod, hasBouquetItems, isShippingFallbackActive]);
 
   const selectedShippingQuote = useMemo(
     () =>
@@ -3309,18 +3385,18 @@ export default function BookingForm() {
   );
 
   const shouldAutoSwitchGoSendToSameDay =
-    deliveryMethod === "ASSISTED_GOSEND" &&
+    effectiveDeliveryMethod === "ASSISTED_GOSEND" &&
     filteredShippingQuotes.length > 0 &&
     !filteredShippingQuotes.some((quote) => quote.provider === "GOJEK");
 
   const shouldAutoSwitchGoCarToGrab =
-    deliveryMethod === "ASSISTED_GOCAR" &&
+    effectiveDeliveryMethod === "ASSISTED_GOCAR" &&
     filteredShippingQuotes.length > 0 &&
     !filteredShippingQuotes.some((quote) => quote.provider === "GOJEK") &&
     filteredShippingQuotes.some((quote) => quote.provider === "GRAB");
 
   const shouldAutoSwitchGrabToGoCar =
-    deliveryMethod === "ASSISTED_GRAB" &&
+    effectiveDeliveryMethod === "ASSISTED_GRAB" &&
     filteredShippingQuotes.length > 0 &&
     !filteredShippingQuotes.some((quote) => quote.provider === "GRAB") &&
     filteredShippingQuotes.some((quote) => quote.provider === "GOJEK");
@@ -3377,30 +3453,14 @@ export default function BookingForm() {
     );
   }, [setValue, shouldAutoSwitchGrabToGoCar]);
 
-  const fragileOrderReasons = useMemo(
-    () => getGrabCarOnlyReasons(watchedItems),
-    [watchedItems],
-  );
-  const isFragileOrder = fragileOrderReasons.length > 0;
   const isAllowedFragileOrderMethod = FRAGILE_ORDER_ALLOWED_METHODS.includes(
-    deliveryMethod as DeliveryMethod,
-  );
-  const selectableDeliveryMethodOptions = useMemo(
-    () =>
-      isFragileOrder
-        ? DELIVERY_METHOD_OPTIONS.filter((option) =>
-            FRAGILE_ORDER_ALLOWED_METHODS.includes(
-              option.value as DeliveryMethod,
-            ),
-          )
-        : DELIVERY_METHOD_OPTIONS,
-    [isFragileOrder],
+    effectiveDeliveryMethod,
   );
 
   useEffect(() => {
     if (!isFragileOrder) return;
     if (
-      FRAGILE_ORDER_ALLOWED_METHODS.includes(deliveryMethod as DeliveryMethod)
+      FRAGILE_ORDER_ALLOWED_METHODS.includes(effectiveDeliveryMethod)
     ) {
       return;
     }
@@ -3408,7 +3468,7 @@ export default function BookingForm() {
     setValue("deliveryMethod", "PICKUP", {
       shouldValidate: true,
     });
-  }, [isFragileOrder, deliveryMethod, setValue]);
+  }, [isFragileOrder, effectiveDeliveryMethod, setValue]);
 
   const primaryAddressLine = watchedAddresses[0]?.addressLine?.trim() || "";
   const isAddressTooShortForShipping =
@@ -3436,9 +3496,12 @@ export default function BookingForm() {
   const insuranceFeeFromShipping = shouldUseShippingEngine
     ? (selectedShippingQuote?.insuranceFee ?? 0)
     : 0;
-  const serviceCharge = resolveAdminServiceCharge(deliveryMethod);
+  const serviceCharge = resolveAdminServiceCharge(effectiveDeliveryMethod);
 
-  const isJneJnt = deliveryMethod === "REGULAR_JNE_JNT" || selectedShippingQuote?.provider === "JNE" || selectedShippingQuote?.provider === "JNT";
+  const isJneJnt =
+    effectiveDeliveryMethod === "REGULAR_JNE_JNT" ||
+    selectedShippingQuote?.provider === "JNE" ||
+    selectedShippingQuote?.provider === "JNT";
   const itemsSubtotal = basePrice + addOnTotal;
   const requiresInsurance = isJneJnt && itemsSubtotal > 2000000;
   const insuranceFeeByRule = requiresInsurance
@@ -3486,7 +3549,7 @@ export default function BookingForm() {
   const deliverySlots = useMemo(
     () =>
       getDeliverySlotsForDate(deliveryDate, undefined, {
-        deliveryMethod,
+        deliveryMethod: effectiveDeliveryMethod,
         items: watchedItems,
         blockedDates,
         cutoffHour: canBackfillPastOrders ? 99 : cutoffHour,
@@ -3494,7 +3557,7 @@ export default function BookingForm() {
       }),
     [
       deliveryDate,
-      deliveryMethod,
+      effectiveDeliveryMethod,
       watchedItems,
       blockedDates,
       cutoffHour,
@@ -3518,7 +3581,7 @@ export default function BookingForm() {
     deliveryDate &&
     (!canBackfillPastOrders &&
       isDateBlockedForOrdering(deliveryDate, undefined, {
-        deliveryMethod,
+        deliveryMethod: effectiveDeliveryMethod,
         items: watchedItems,
         blockedDates,
         cutoffHour,
@@ -3547,7 +3610,7 @@ export default function BookingForm() {
         const status = checkSlotAvailability(deliveryDate, slot, draftOrderType, {
           orders,
           dateContext: {
-            deliveryMethod,
+            deliveryMethod: effectiveDeliveryMethod,
             items: watchedItems,
             blockedDates,
             cutoffHour: canBackfillPastOrders ? 99 : cutoffHour,
@@ -3565,7 +3628,7 @@ export default function BookingForm() {
     deliveryDate,
     deliverySlots,
     draftOrderType,
-    deliveryMethod,
+    effectiveDeliveryMethod,
     watchedItems,
     blockedDates,
     cutoffHour,
@@ -3640,7 +3703,7 @@ export default function BookingForm() {
         // Skip past, blocked dates, and cutoff
         if (
           !isDateBlockedForOrdering(dateKey, now, {
-            deliveryMethod,
+            deliveryMethod: effectiveDeliveryMethod,
             items: watchedItems,
             blockedDates,
             cutoffHour: canBackfillPastOrders ? 99 : cutoffHour,
@@ -3672,7 +3735,7 @@ export default function BookingForm() {
     recommendationWindowStart,
     recommendationWindowEnd,
     getRecommendationCapacity,
-    deliveryMethod,
+    effectiveDeliveryMethod,
     watchedItems,
     blockedDates,
     cutoffHour,
@@ -3825,9 +3888,10 @@ export default function BookingForm() {
           warning: payload.warning || undefined,
         }));
 
-        const sortedQuotes = enrichedQuotes
-          .slice()
-          .sort((a, b) => a.price - b.price);
+        const sortedQuotes = enrichedQuotes.slice().sort(
+          (a, b) =>
+            getShippingQuoteDisplayPrice(a) - getShippingQuoteDisplayPrice(b),
+        );
         setShippingQuotes(sortedQuotes);
         setSelectedShippingQuoteId((current) => {
           if (current && sortedQuotes.some((quote) => quote.id === current))
@@ -3859,10 +3923,30 @@ export default function BookingForm() {
     };
   }, [shippingQuoteSignature]);
 
-  const onSubmit: SubmitHandler<BookingFormValues> = async (values) => {
+  const showSubmitFeedback = useCallback((message: string) => {
+    setSubmitError(message);
+    toast.error(message);
+
+    window.requestAnimationFrame(() => {
+      submitFeedbackRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    });
+  }, []);
+
+  const onSubmit: SubmitHandler<BookingFormValues> = async (rawValues) => {
+    const values =
+      rawValues.deliveryMethod === effectiveDeliveryMethod
+        ? rawValues
+        : {
+            ...rawValues,
+            deliveryMethod: effectiveDeliveryMethod,
+          };
     setSubmitError("");
     setSubmitSuccess("");
     setSubmitSuccessMeta(null);
+    const isPreviewSubmit = composerStep === "preview";
 
     const skipSubmitConfirmation = skipSubmitConfirmationRef.current;
     if (skipSubmitConfirmation) {
@@ -3876,21 +3960,21 @@ export default function BookingForm() {
     }
 
     if (isCheckingShipping) {
-      toast.error(
+      showSubmitFeedback(
         "Ongkir masih dihitung otomatis. Tunggu beberapa detik lalu submit ulang.",
       );
       return;
     }
 
     if (isFragileOrder && !isAllowedFragileOrderMethod) {
-      toast.error(
+      showSubmitFeedback(
         `Produk ${fragileOrderReasons.join(", ")} hanya bisa ${FRAGILE_ORDER_ALLOWED_METHODS_TEXT}`,
       );
       return;
     }
 
     if (shouldUseShippingEngine && !selectedShippingQuote) {
-      toast.error(
+      showSubmitFeedback(
         shippingFallbackMessage ||
           "Ongkir live belum tersedia. Lengkapi alamat/item lalu pilih layanan kurir.",
       );
@@ -3898,25 +3982,25 @@ export default function BookingForm() {
     }
 
     if (isBlockedDate) {
-      toast.error(
+      showSubmitFeedback(
         "Tanggal dipilih tidak tersedia. H-1 hanya bisa booking sampai jam 10:00 pagi atau tanggal sedang diblokir admin.",
       );
       return;
     }
 
     if (isCalendarDateInvalid) {
-      toast.error(calendarDateError || "Tanggal dipilih tidak tersedia.");
+      showSubmitFeedback(calendarDateError || "Tanggal dipilih tidak tersedia.");
       return;
     }
 
     const normalizedDeliveryDate = normalizeDateInput(values.deliveryDate);
     if (!normalizedDeliveryDate) {
-      toast.error("Format tanggal tidak valid. Gunakan YYYY-MM-DD.");
+      showSubmitFeedback("Format tanggal tidak valid. Gunakan YYYY-MM-DD.");
       return;
     }
 
     if (!canBackfillPastOrders && isPastDate(normalizedDeliveryDate)) {
-      toast.error("Tanggal sudah terlewat");
+      showSubmitFeedback("Tanggal sudah terlewat");
       return;
     }
 
@@ -3934,7 +4018,7 @@ export default function BookingForm() {
         },
       )
     ) {
-      toast.error(
+      showSubmitFeedback(
         "Selected slot is outside business hours (Mon-Sat 10:00-22:00, Sun 10:00-15:00).",
       );
       return;
@@ -4002,7 +4086,7 @@ export default function BookingForm() {
         error instanceof Error
           ? error.message
           : "Gagal validasi kapasitas produksi.";
-      toast.error(message);
+      showSubmitFeedback(message);
       return;
     } finally {
       setIsCapacityValidating(false);
@@ -4010,7 +4094,7 @@ export default function BookingForm() {
 
     const plannedTokens = validatedUsedTokens + incomingTokens;
     if (plannedTokens > validatedMaxTokens) {
-      toast.error(
+      showSubmitFeedback(
         `Token produksi harian terlampaui (${plannedTokens}/${validatedMaxTokens}). Pilih tanggal lain atau sederhanakan item difficulty tinggi.`,
       );
       return;
@@ -4024,7 +4108,7 @@ export default function BookingForm() {
         (typeof quantityRule.max === "number" && quantity > quantityRule.max);
       if (isOutOfRange) {
         const productLabel = item.productName || item.category || "Item";
-        toast.error(
+        showSubmitFeedback(
           `${productLabel}: ${getQuantityRuleViolationMessage(quantityRule)}`,
         );
         return;
@@ -4035,7 +4119,7 @@ export default function BookingForm() {
         item.category === "Buket" &&
         isMediumVariantLabel(item.size || "")
       ) {
-        toast.error(
+        showSubmitFeedback(
           "Untuk bouquet via Paxel, varian Medium tidak didukung. Pilih varian Large/XL.",
         );
         return;
@@ -4045,14 +4129,14 @@ export default function BookingForm() {
 
       const bouquetType = detectBouquetTypeFromItem(item);
       if (!bouquetType) {
-        toast.error(
+        showSubmitFeedback(
           "Tipe bouquet belum terbaca. Gunakan product Hand Bouquet atau Standing Bouquet.",
         );
         return;
       }
 
       if (!isValidBouquetQuantity(quantity, bouquetType)) {
-        toast.error(
+        showSubmitFeedback(
           `${bouquetType === "HAND" ? "Hand" : "Standing"} bouquet wajib qty ${getBouquetQtyRangeLabel(bouquetType)} cookies.`,
         );
         return;
@@ -4067,7 +4151,7 @@ export default function BookingForm() {
       totalCustomCookieQty > 0 &&
       totalCustomCookieQty < COOKIE_CUSTOM_TOTAL_MIN_QTY
     ) {
-      toast.error(
+      showSubmitFeedback(
         `Total Custom Cookies minimal ${COOKIE_CUSTOM_TOTAL_MIN_QTY} pcs. Saat ini ${totalCustomCookieQty} pcs.`,
       );
       return;
@@ -4078,7 +4162,7 @@ export default function BookingForm() {
       const designCount = normalizeCookieDesignCount(item.designCount);
       if (!designCount) {
         const productLabel = item.productName || item.category || "Item";
-        toast.error(
+        showSubmitFeedback(
           `${productLabel}: isi jumlah design cookies supaya surcharge design tambahan bisa dihitung otomatis.`,
         );
         return;
@@ -4093,7 +4177,7 @@ export default function BookingForm() {
         ).length;
         if (selectedFlavorCount > 1) {
           const productLabel = item.productName || item.category || "Item";
-          toast.error(`${productLabel}: pilih maksimal 1 rasa.`);
+          showSubmitFeedback(`${productLabel}: pilih maksimal 1 rasa.`);
           return;
         }
       }
@@ -4104,16 +4188,24 @@ export default function BookingForm() {
         ).length;
         if (selectedCookieAddOnCount > 1) {
           const productLabel = item.productName || item.category || "Item";
-          toast.error(`${productLabel}: pilih maksimal 1 add-on cookie.`);
+          showSubmitFeedback(`${productLabel}: pilih maksimal 1 add-on cookie.`);
           return;
         }
       }
     }
 
     if (referenceFilesChangedSinceParse) {
-      toast.error(
+      showSubmitFeedback(
         "Referensi gambar atau label desain baru saja diubah. Klik Parse WhatsApp lagi supaya versi terbaru ikut tersimpan ke booking dan template produksi.",
       );
+      return;
+    }
+
+    if (!isPreviewSubmit) {
+      setShowSubmitConfirmation(false);
+      pendingSubmitConfirmationRef.current = null;
+      setComposerStep("preview");
+      window.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
 
@@ -4458,16 +4550,21 @@ export default function BookingForm() {
       }
     }
 
-    if (!skipSubmitConfirmation && shouldRequireSubmitConfirmation) {
+    if (
+      !skipSubmitConfirmation &&
+      shouldRequireSubmitConfirmation &&
+      isPreviewSubmit
+    ) {
       pendingSubmitConfirmationRef.current = values;
       setShowSubmitConfirmation(true);
       return;
     }
 
     if (bookingCreateInFlightRef.current) {
-      toast.warning(
-        "Submit booking sebelumnya masih diproses. Tunggu sampai selesai.",
-      );
+      const message =
+        "Submit booking sebelumnya masih diproses. Tunggu sampai selesai.";
+      setSubmitError(message);
+      toast.warning(message);
       return;
     }
 
@@ -4479,33 +4576,12 @@ export default function BookingForm() {
         submitFlowSourceRef.current === "duplicate-warning";
       setIsBookingCreationInFlight(true);
       await addOrder(submissionPayload);
+      resetBookingDraftState();
       setSubmitSuccess("Booking berhasil disimpan ke server.");
       setSubmitSuccessMeta({
         bookingCode: predictedBookingCode,
         submittedAt: new Date().toISOString(),
       });
-
-      setDraftImported(false);
-      setQuickPaste("");
-      setSelectedOrderType("unknown");
-      setShowOrderTypeSelector(false);
-      setParsedPreview(null);
-      setProductionPreviewImageUrl("");
-      setVisionRawOutput("");
-      setReferenceImageFiles([]);
-      setReferenceFilesChangedSinceParse(false);
-      setReferenceImageLabelsInput("");
-      setReferenceFileInputKey((current) => current + 1);
-      setShippingQuotes([]);
-      setSelectedShippingQuoteId("");
-      setShippingDistanceKm(null);
-      setShippingDistanceSource(undefined);
-      setShippingWarning("");
-      setShowSubmitConfirmation(false);
-      pendingSubmitConfirmationRef.current = null;
-      skipSubmitConfirmationRef.current = false;
-      skipDuplicateTemplateWarningRef.current = false;
-      reset();
 
       if (shouldRedirectToOrders) {
         toast.success(
@@ -4520,13 +4596,22 @@ export default function BookingForm() {
         error instanceof Error
           ? error.message
           : "Gagal menyimpan booking ke server.";
-      setSubmitError(message);
-      toast.error(message);
+      showSubmitFeedback(message);
     } finally {
       bookingCreateInFlightRef.current = false;
       setIsBookingCreationInFlight(false);
     }
   };
+
+  const onInvalidSubmit = (invalidErrors: unknown) => {
+    const firstErrorMessage = findFirstFormErrorMessage(invalidErrors);
+    showSubmitFeedback(
+      firstErrorMessage
+        ? `Masih ada field wajib yang belum lengkap: ${firstErrorMessage}`
+        : "Masih ada field wajib yang belum lengkap. Cek bagian form yang bertanda merah.",
+    );
+  };
+  const submitBookingForm = handleSubmit(onSubmit, onInvalidSubmit);
 
   const continueDuplicateTemplateSubmission = () => {
     if (manualSubmitInFlightRef.current) return;
@@ -4580,6 +4665,35 @@ export default function BookingForm() {
   };
 
   const closeDuplicateTemplateWarning = () => {
+    setDuplicateTemplateWarning(null);
+    pendingDuplicateSubmissionRef.current = null;
+    skipDuplicateTemplateWarningRef.current = false;
+  };
+
+  const resetBookingDraftState = () => {
+    reset();
+    setComposerStep("input");
+    setSubmitError("");
+    setSubmitSuccess("");
+    setSubmitSuccessMeta(null);
+    setQuickPaste("");
+    setSelectedOrderType("unknown");
+    setShowOrderTypeSelector(false);
+    setParsedPreview(null);
+    setProductionPreviewImageUrl("");
+    setDraftImported(false);
+    setReferenceImageFiles([]);
+    setReferenceFilesChangedSinceParse(false);
+    setReferenceImageLabelsInput("");
+    setReferenceFileInputKey((current) => current + 1);
+    setShippingQuotes([]);
+    setSelectedShippingQuoteId("");
+    setShippingDistanceKm(null);
+    setShippingDistanceSource(undefined);
+    setShippingWarning("");
+    setShowSubmitConfirmation(false);
+    pendingSubmitConfirmationRef.current = null;
+    skipSubmitConfirmationRef.current = false;
     setDuplicateTemplateWarning(null);
     pendingDuplicateSubmissionRef.current = null;
     skipDuplicateTemplateWarningRef.current = false;
@@ -4927,8 +5041,12 @@ export default function BookingForm() {
         }
       }
       if (draft.deliverySlot) setValue("deliverySlot", draft.deliverySlot);
-      if (draft.deliveryMethod)
-        setValue("deliveryMethod", draft.deliveryMethod);
+      if (draft.deliveryMethod) {
+        setValue("deliveryMethod", draft.deliveryMethod, {
+          shouldDirty: true,
+          shouldValidate: true,
+        });
+      }
       if (draft.customNotes) setValue("customNotes", draft.customNotes);
       setValue("paymentStatus", draft.paymentStatus, {
         shouldValidate: true,
@@ -5290,7 +5408,6 @@ export default function BookingForm() {
 
       setParsedPreview(enrichedParsedPreview);
       setProductionPreviewImageUrl(payload.productionPreviewImageUrl ?? "");
-      setVisionRawOutput(payload.visionRawOutput ?? "");
       setDraftImported(true);
       setReferenceFilesChangedSinceParse(false);
       setShowOrderTypeSelector(false);
@@ -5329,8 +5446,19 @@ export default function BookingForm() {
     );
   };
 
+  const submitFeedback = submitError ? (
+    <div
+      ref={submitFeedbackRef}
+      role="alert"
+      className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"
+    >
+      <p className="font-semibold">Booking belum bisa dilanjutkan</p>
+      <p className="mt-1">{submitError}</p>
+    </div>
+  ) : null;
+
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+    <form onSubmit={submitBookingForm} className="space-y-6">
       {composerStep === "input" ? (
         <>
       <Card className="overflow-hidden rounded-[32px] border-[var(--crumbella-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(250,244,237,0.95)_100%)] shadow-[0_24px_40px_-30px_rgba(30,18,10,0.5)]">
@@ -5341,10 +5469,7 @@ export default function BookingForm() {
                 <ArrowLeft className="h-4 w-4" />
               </div>
               <div>
-                <CardTitle className="text-[1.8rem] leading-none text-[var(--foreground)]">
-                  ✨ New Booking
-                </CardTitle>
-                <p className="mt-1 text-sm text-[var(--crumbella-muted)]">
+                <p className="text-sm text-[var(--crumbella-muted)]">
                   Paste rekap WA lalu klik Parse
                 </p>
               </div>
@@ -5546,7 +5671,6 @@ export default function BookingForm() {
                 setShowOrderTypeSelector(false);
                 setParsedPreview(null);
                 setProductionPreviewImageUrl("");
-                setVisionRawOutput("");
                 setDraftImported(false);
                 setReferenceImageFiles([]);
                 setReferenceFilesChangedSinceParse(false);
@@ -5564,125 +5688,72 @@ export default function BookingForm() {
             </div>
           )}
 
-          {parsedPreview && (
-            <div className="space-y-3 rounded-[20px] border border-[#ebe0d3] bg-[#fffaf4] p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--crumbella-muted)]">
-                  Preview Hasil Parser
-                </p>
-                <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-semibold text-emerald-700">
-                  {WHATSAPP_ORDER_LABELS[parsedPreview.orderType]}
-                  {Array.isArray(parsedPreview.detectedItems) &&
-                  parsedPreview.detectedItems.length > 1
-                    ? ` • ${parsedPreview.detectedItems.length} item`
-                    : ""}
-                </span>
+          {productionPreviewImageUrl ? (
+            <div className="space-y-3 rounded-[20px] border border-[#d7efe4] bg-[#f7fffb] p-4">
+              <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-700">
+                Template produksi siap direview sebelum booking dibuat.
               </div>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {getDisplayFields(parsedPreview).map((field, index) => (
-                    <div
-                      key={`${field.label}-${index}`}
-                      className="rounded-lg border border-gray-200 bg-white px-3 py-2"
-                    >
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                        {field.label}
-                      </p>
-                    <p className="text-sm text-gray-800">
-                      {field.value || "-"}
-                    </p>
-                  </div>
-                ))}
+              <div className="rounded-lg border border-emerald-200 bg-white p-3">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+                    Preview Template Produksi
+                  </p>
+                  <a
+                    href={productionPreviewImageUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs font-medium text-emerald-700 underline underline-offset-2"
+                  >
+                    Buka file Cloudinary
+                  </a>
+                </div>
+                {/* Using a plain img keeps arbitrary Cloudinary preview URLs simple in the admin form. */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={productionPreviewImageUrl}
+                  alt="Preview template produksi"
+                  className="w-full rounded-lg border border-gray-200 bg-gray-50 object-contain"
+                />
               </div>
-              {parsedPreview.missingFields.length > 0 && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                  Field yang perlu dicek manual:{" "}
-                  {parsedPreview.missingFields.join(", ")}
-                </div>
-              )}
-              {selectedOrderType === "unknown" &&
-                parsedPreview.missingFields.length > 0 && (
-                  <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
-                    <p className="font-semibold">
-                      Parser butuh konfirmasi jenis order. Pilih cepat lalu
-                      parse ulang:
-                    </p>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {specificWhatsappOrderTypeOptions.map((option) => (
-                        <Button
-                          key={`quick-order-type-${option.value}`}
-                          type="button"
-                          variant="outline"
-                          className="h-7 border-indigo-200 px-2 text-[11px] text-indigo-700 hover:bg-indigo-100"
-                          onClick={() => {
-                            setSelectedOrderType(
-                              option.value as ParserOrderType,
-                            );
-                            void importDraft({
-                              orderType: option.value as ParserOrderType,
-                              successMessage: `Parse ulang dengan jenis order ${option.label}.`,
-                            });
-                          }}
-                        >
-                          {option.label}
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              {parsedPreview.sourceType === "image" &&
-                visionRawOutput && (
-                  <details className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-700">
-                    <summary className="cursor-pointer font-semibold text-gray-600">
-                      Lihat hasil ekstraksi AI
-                    </summary>
-                    <pre className="mt-2 whitespace-pre-wrap font-mono text-[11px] text-gray-700">
-                      {visionRawOutput}
-                    </pre>
-                  </details>
-                )}
-              {Array.isArray(parsedPreview.referenceImages) &&
-                parsedPreview.referenceImages.length > 0 && (
-                  <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-700">
-                    Template produksi akan memakai{" "}
-                    {parsedPreview.referenceImages.length} gambar referensi.
-                    {Array.isArray(parsedPreview.requestedImageLabels) &&
-                    parsedPreview.requestedImageLabels.length > 0
-                      ? ` Label aktif: ${parsedPreview.requestedImageLabels.join(", ")}`
-                      : ""}
-                  </div>
-                )}
-              {productionPreviewImageUrl && (
-                <div className="rounded-lg border border-emerald-200 bg-white p-3">
-                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
-                      Preview Template Produksi
-                    </p>
-                    <a
-                      href={productionPreviewImageUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-xs font-medium text-emerald-700 underline underline-offset-2"
-                    >
-                      Buka file Cloudinary
-                    </a>
-                  </div>
-                  {/* Using a plain img keeps arbitrary Cloudinary preview URLs simple in the admin form. */}
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={productionPreviewImageUrl}
-                    alt="Preview template produksi"
-                    className="w-full rounded-lg border border-gray-200 bg-gray-50 object-contain"
-                  />
-                </div>
-              )}
             </div>
-          )}
+          ) : previewReferenceImages.some((image) => image.url) ? (
+            <div className="space-y-3 rounded-[20px] border border-[#f4dfc7] bg-[#fffaf5] p-4">
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                Preview template produksi belum muncul. Sementara tampilkan gambar referensi hasil parse yang sudah diinput admin.
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {previewReferenceImages
+                  .filter((image) => image.url)
+                  .map((image, index) => (
+                    <div
+                      key={`${image.label}-${index}`}
+                      className="rounded-lg border border-[var(--crumbella-border)] bg-white p-3"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={image.url}
+                        alt={image.label}
+                        className="h-40 w-full rounded-lg border border-gray-200 bg-gray-50 object-contain"
+                      />
+                      <p className="mt-2 text-sm font-medium text-[var(--foreground)]">
+                        {image.label}
+                      </p>
+                      {image.note ? (
+                        <p className="mt-1 text-xs text-[var(--crumbella-muted)]">
+                          {image.note}
+                        </p>
+                      ) : null}
+                    </div>
+                  ))}
+              </div>
+            </div>
+          ) : null}
 
           <div className="px-1 pt-1">
             <Button
               type="button"
               className="h-14 w-full rounded-[18px] bg-[var(--crumbella-accent)] text-base font-semibold text-white hover:bg-[var(--crumbella-accent-strong)]"
-              disabled={!parsedPreview || isParsingWhatsApp}
+              disabled={isParsingWhatsApp}
               onClick={() => {
                 if (!parsedPreview) {
                   toast.error("Pastikan teks sudah di-parse sebelum lanjut ke preview.");
@@ -6103,7 +6174,7 @@ export default function BookingForm() {
                       isCustomCookieSharingBoxItem(bouquetProbeItem);
                     const isTwoTierCake = isTwoTierCakeItem(bouquetProbeItem);
                     const allowedVariants =
-                      deliveryMethod === "ASSISTED_PAXEL" && isBouquet
+                      effectiveDeliveryMethod === "ASSISTED_PAXEL" && isBouquet
                         ? variants.filter(
                             (variant) => !isMediumVariantLabel(variant.label),
                           )
@@ -6874,7 +6945,7 @@ export default function BookingForm() {
                                 {getReadableVariantLabel(bouquetProbeItem)}
                               </div>
                             )}
-                            {deliveryMethod === "ASSISTED_PAXEL" &&
+                            {effectiveDeliveryMethod === "ASSISTED_PAXEL" &&
                               isBouquet && (
                                 <span className="text-[11px] font-normal leading-4 text-gray-500">
                                   Paxel untuk bouquet hanya mendukung varian
@@ -7972,7 +8043,13 @@ export default function BookingForm() {
 
                 <label className="grid gap-2 text-sm font-medium text-gray-700">
                   Metode Pengiriman
-                  <Select {...register("deliveryMethod")}>
+                  <Select
+                    name={deliveryMethodField.name}
+                    ref={deliveryMethodField.ref}
+                    onBlur={deliveryMethodField.onBlur}
+                    value={effectiveDeliveryMethod}
+                    onChange={handleDeliveryMethodChange}
+                  >
                     {selectableDeliveryMethodOptions.map((option) => (
                       <option key={option.value} value={option.value}>
                         {option.label}
@@ -7984,7 +8061,7 @@ export default function BookingForm() {
                 <p className="text-xs text-gray-500">
                   {
                     DELIVERY_METHOD_OPTIONS.find(
-                      (option) => option.value === deliveryMethod,
+                      (option) => option.value === effectiveDeliveryMethod,
                     )?.description
                   }
                 </p>
@@ -8127,13 +8204,18 @@ export default function BookingForm() {
                               )}
                             </span>
                             <span className="font-semibold">
-                              {formatCurrency(quote.price)}
+                              {formatCurrency(getShippingQuoteDisplayPrice(quote))}
                             </span>
                           </div>
                           <p className="text-xs">
                             ETA {quote.eta} | Jarak {quote.distanceKm} km |
                             Source: API Kurir
                           </p>
+                          {quote.insuranceFee ? (
+                            <p className="mt-1 text-[11px] text-amber-700">
+                              + Asuransi {formatCurrency(quote.insuranceFee)}
+                            </p>
+                          ) : null}
                         </button>
                       );
                     })}
@@ -8233,18 +8315,15 @@ export default function BookingForm() {
 
             <div className="flex flex-wrap gap-3">
               <Button
-                type="submit"
-                className="gap-2 bg-indigo-600 text-white hover:bg-indigo-700 focus-visible:ring-indigo-500"
+                type="button"
+                className="gap-2 bg-[var(--crumbella-accent)] text-white hover:bg-[var(--crumbella-accent-strong)] focus-visible:ring-[var(--crumbella-accent)]"
                 disabled={
                   isSubmitting ||
                   isBookingCreationInFlight ||
                   isManualSubmitInFlight ||
-                  isCapacityValidating ||
-                  isCheckingShipping ||
-                  isBlockedDate ||
-                  isCalendarDateInvalid ||
-                  dbWillExceed
+                  isCapacityValidating
                 }
+                onClick={() => void submitBookingForm()}
               >
                 {isSubmitting ||
                 isManualSubmitInFlight ||
@@ -8252,35 +8331,12 @@ export default function BookingForm() {
                   ? "Saving Booking..."
                   : isCapacityValidating
                     ? "Validating Capacity..."
-                    : "Create Booking"}
+                    : "Preview Booking"}
               </Button>
               <Button
                 variant="outline"
                 type="button"
-                onClick={() => {
-                  reset();
-                  setSubmitError("");
-                  setSubmitSuccess("");
-                  setSubmitSuccessMeta(null);
-                  setQuickPaste("");
-                  setSelectedOrderType("unknown");
-                  setShowOrderTypeSelector(false);
-                  setParsedPreview(null);
-                  setProductionPreviewImageUrl("");
-                  setVisionRawOutput("");
-                  setDraftImported(false);
-                  setShippingQuotes([]);
-                  setSelectedShippingQuoteId("");
-                  setShippingDistanceKm(null);
-                  setShippingDistanceSource(undefined);
-                  setShippingWarning("");
-                  setShowSubmitConfirmation(false);
-                  pendingSubmitConfirmationRef.current = null;
-                  skipSubmitConfirmationRef.current = false;
-                  setDuplicateTemplateWarning(null);
-                  pendingDuplicateSubmissionRef.current = null;
-                  skipDuplicateTemplateWarningRef.current = false;
-                }}
+                onClick={resetBookingDraftState}
                 className="border-indigo-200 text-indigo-700 hover:bg-indigo-50"
                 disabled={
                   isSubmitting ||
@@ -8291,9 +8347,7 @@ export default function BookingForm() {
                 Reset Form
               </Button>
             </div>
-            {submitError ? (
-              <p className="text-sm font-medium text-rose-600">{submitError}</p>
-            ) : null}
+            {submitFeedback}
             {submitSuccess ? (
               <div className="space-y-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
                 <p className="font-semibold">{submitSuccess}</p>
@@ -8339,8 +8393,8 @@ export default function BookingForm() {
       </div>
         </>
       ) : (
-        <div className="space-y-4">
-          <Card className="overflow-hidden rounded-[28px] border-[var(--crumbella-border)] bg-white shadow-[0_18px_30px_-24px_rgba(30,18,10,0.35)]">
+        <div className="space-y-4 pb-4">
+          <Card className="overflow-hidden rounded-[30px] border-[var(--crumbella-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(251,246,240,0.96)_100%)] shadow-[0_24px_40px_-30px_rgba(30,18,10,0.45)]">
             <CardHeader className="border-b border-[var(--crumbella-border)] px-5 pb-3 pt-5">
               <div className="flex items-start gap-3">
                 <button
@@ -8351,9 +8405,6 @@ export default function BookingForm() {
                   <ArrowLeft className="h-4 w-4" />
                 </button>
                 <div>
-                  <CardTitle className="text-[1.4rem] text-[var(--foreground)]">
-                    👀 Preview Booking
-                  </CardTitle>
                   <p className="text-sm text-[var(--crumbella-muted)]">
                     Cek data sebelum membuat booking
                   </p>
@@ -8361,15 +8412,12 @@ export default function BookingForm() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4 px-5 py-4">
-              <div className="flex gap-3 rounded-2xl border border-[#f0c96a] bg-[#fff7e6] px-4 py-3 text-sm text-[#7a5a21]">
+              <div className="flex gap-3 rounded-[18px] border border-[#efc15d] bg-[#fff6dc] px-4 py-3 text-sm text-[#7a5a21]">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                <p>
-                  Ada yang salah? Kembali ke halaman sebelumnya, edit teks WA,
-                  lalu parse ulang.
-                </p>
+                <p>{previewAlertMessage}</p>
               </div>
 
-              <div className="rounded-[22px] border border-[var(--crumbella-border)] bg-white">
+              <div className="rounded-[22px] border border-[var(--crumbella-border)] bg-white shadow-[0_12px_24px_-26px_rgba(30,18,10,0.45)]">
                 <div className="flex items-center gap-3 px-4 py-4">
                   <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--crumbella-accent-soft)] text-sm font-semibold text-[var(--crumbella-primary)]">
                     {(watchedValues.customerName || "AD").slice(0, 2).toUpperCase()}
@@ -8383,7 +8431,9 @@ export default function BookingForm() {
                     </p>
                   </div>
                   <span className="ml-auto rounded-full bg-[#fff1d9] px-3 py-1 text-xs font-semibold text-[var(--crumbella-primary)]">
-                    {selectedPaymentStatus === "Paid" ? "Lunas" : "DP 50%"}
+                    {selectedPaymentStatus === "Paid"
+                      ? "Lunas"
+                      : `DP ${defaultDpPercentage}%`}
                   </span>
                 </div>
 
@@ -8410,10 +8460,10 @@ export default function BookingForm() {
                 </div>
               </div>
 
-              <div className="rounded-[22px] border border-[var(--crumbella-border)] bg-white">
+              <div className="rounded-[22px] border border-[var(--crumbella-border)] bg-white shadow-[0_12px_24px_-26px_rgba(30,18,10,0.45)]">
                 <div className="border-b border-[var(--crumbella-border)] px-4 py-4">
                   <p className="text-xl font-semibold text-[var(--foreground)]">
-                    🍪 Produk yang Dipesan
+                    Produk yang Dipesan
                   </p>
                 </div>
                 <div className="divide-y divide-[var(--crumbella-border)]">
@@ -8425,7 +8475,7 @@ export default function BookingForm() {
                             {item.quantity}x {item.itemLabel}
                           </p>
                           <p className="mt-1 text-sm text-[var(--crumbella-muted)]">
-                            {watchedItems[index]?.productName || watchedItems[index]?.category}
+                            {getReadableVariantLabel(watchedItems[index] as BookingItemInput)}
                           </p>
                         </div>
                         <p className="shrink-0 text-lg font-semibold text-[var(--foreground)]">
@@ -8449,10 +8499,10 @@ export default function BookingForm() {
                 </div>
               </div>
 
-              <div className="rounded-[22px] border border-[var(--crumbella-border)] bg-white">
+              <div className="rounded-[22px] border border-[var(--crumbella-border)] bg-white shadow-[0_12px_24px_-26px_rgba(30,18,10,0.45)]">
                 <div className="border-b border-[var(--crumbella-border)] px-4 py-4">
                   <p className="text-xl font-semibold text-[var(--foreground)]">
-                    🎨 Gambar Referensi · {previewReferenceImages.length} gambar
+                    Gambar Referensi · {previewReferenceImages.length} gambar
                   </p>
                 </div>
                 <div className="space-y-3 px-4 py-4">
@@ -8480,10 +8530,10 @@ export default function BookingForm() {
                 </div>
               </div>
 
-              <div className="rounded-[22px] border border-[var(--crumbella-border)] bg-white">
+              <div className="rounded-[22px] border border-[var(--crumbella-border)] bg-white shadow-[0_12px_24px_-26px_rgba(30,18,10,0.45)]">
                 <div className="border-b border-[var(--crumbella-border)] px-4 py-4">
                   <p className="text-xl font-semibold text-[var(--foreground)]">
-                    💳 Pengiriman & Pembayaran
+                    Pengiriman & Pembayaran
                   </p>
                 </div>
                 <div className="space-y-0">
@@ -8497,13 +8547,13 @@ export default function BookingForm() {
                   </div>
                   {insuranceFee > 0 ? (
                     <div className="flex items-center justify-between border-b border-[var(--crumbella-border)] px-4 py-3 text-sm">
-                      <span className="text-[var(--crumbella-muted)]">🛡️ Insurance JNE/JNT</span>
+                      <span className="text-[var(--crumbella-muted)]">Insurance JNE/JNT</span>
                       <span className="font-semibold text-[var(--foreground)]">{formatCurrency(insuranceFee)}</span>
                     </div>
                   ) : null}
                   {serviceCharge > 0 ? (
                     <div className="flex items-center justify-between border-b border-[var(--crumbella-border)] px-4 py-3 text-sm">
-                      <span className="text-[var(--crumbella-muted)]">📦 Biaya Admin Pesan Ongkir</span>
+                      <span className="text-[var(--crumbella-muted)]">Biaya Admin Pesan Ongkir</span>
                       <span className="font-semibold text-[var(--foreground)]">{formatCurrency(serviceCharge)}</span>
                     </div>
                   ) : null}
@@ -8539,21 +8589,18 @@ export default function BookingForm() {
                   className="h-12 flex-1 rounded-2xl border-[var(--crumbella-border)] text-[var(--crumbella-primary)]"
                   onClick={() => setComposerStep("input")}
                 >
-                  ← Edit
+                  Edit
                 </Button>
                 <Button
-                  type="submit"
+                  type="button"
                   className="h-12 flex-[1.3] rounded-2xl bg-[var(--crumbella-accent)] text-white hover:bg-[var(--crumbella-accent-strong)]"
                   disabled={
                     isSubmitting ||
                     isBookingCreationInFlight ||
                     isManualSubmitInFlight ||
-                    isCapacityValidating ||
-                    isCheckingShipping ||
-                    isBlockedDate ||
-                    isCalendarDateInvalid ||
-                    dbWillExceed
+                    isCapacityValidating
                   }
+                  onClick={() => void submitBookingForm()}
                 >
                   {isSubmitting ||
                   isManualSubmitInFlight ||
@@ -8561,9 +8608,10 @@ export default function BookingForm() {
                     ? "Saving Booking..."
                     : isCapacityValidating
                       ? "Validating Capacity..."
-                      : "✓ Create Booking"}
+                      : "Create Booking"}
                 </Button>
               </div>
+              {submitFeedback}
             </CardContent>
           </Card>
         </div>

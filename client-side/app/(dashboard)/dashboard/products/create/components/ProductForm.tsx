@@ -16,7 +16,11 @@ import {
   recommendPrice,
 } from "@/lib/api/products";
 import type { DraftRecipeRow } from "@/types/product";
-import type { CatalogAdminState, CustomProductEntry } from "@/lib/bookings/catalog-admin";
+import {
+  broadcastCatalogAdminState,
+  type CatalogAdminState,
+  type CustomProductEntry,
+} from "@/lib/bookings/catalog-admin";
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat("id-ID", {
@@ -39,6 +43,7 @@ interface Props {
 const EMPTY_CATALOG_STATE: CatalogAdminState = {
   productVariantPriceOverrides: {},
   addOnPriceOverrides: {},
+  addOnCogsOverrides: {},
   inactiveProducts: [],
   inactiveAddOns: [],
   customProducts: [],
@@ -83,6 +88,7 @@ function normalizeCatalogState(input: unknown): CatalogAdminState {
   return {
     productVariantPriceOverrides: record.productVariantPriceOverrides ?? {},
     addOnPriceOverrides: record.addOnPriceOverrides ?? {},
+    addOnCogsOverrides: record.addOnCogsOverrides ?? {},
     inactiveProducts: Array.isArray(record.inactiveProducts)
       ? record.inactiveProducts
       : [],
@@ -165,6 +171,8 @@ async function syncToBookingCatalog(entry: CustomProductEntry): Promise<void> {
     };
     throw new Error(payload.error || "Gagal sinkron produk ke catalog booking.");
   }
+
+  broadcastCatalogAdminState(nextState);
 }
 
 export default function ProductForm({ initialDraft, onSuccess }: Props) {

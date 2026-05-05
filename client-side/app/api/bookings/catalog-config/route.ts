@@ -17,6 +17,7 @@ export const dynamic = "force-dynamic";
 const catalogStateSchema = z.object({
   productVariantPriceOverrides: z.record(z.string(), z.number()),
   addOnPriceOverrides: z.record(z.string(), z.number()),
+  addOnCogsOverrides: z.record(z.string(), z.number()).default({}),
   inactiveProducts: z.array(z.string()),
   inactiveAddOns: z.array(z.string()),
   customProducts: z.array(
@@ -34,6 +35,7 @@ const catalogStateSchema = z.object({
       id: z.string(),
       label: z.string(),
       price: z.number(),
+      cogs: z.number().optional(),
     }),
   ),
 });

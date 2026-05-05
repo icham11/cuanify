@@ -12,6 +12,10 @@ import {
   type BakeryOperationalExpenseSetting,
   type BakeryStaffSetting,
 } from "@/lib/bakery/settings";
+import {
+  normalizeProductionStageProfiles,
+  type ProductionStageCategoryProfile,
+} from "@/lib/bookings/production-stages";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -77,6 +81,12 @@ function normalizeMonthlyExpensesInput(
       };
     })
     .filter((entry): entry is BakeryOperationalExpenseSetting => Boolean(entry));
+}
+
+function normalizeProductionStageProfilesInput(
+  value: unknown,
+): ProductionStageCategoryProfile[] {
+  return normalizeProductionStageProfiles(value);
 }
 
 export async function GET() {
@@ -148,6 +158,10 @@ export async function PATCH(request: NextRequest) {
         monthlyExpenses:
           body.monthlyExpenses !== undefined
             ? normalizeMonthlyExpensesInput(body.monthlyExpenses)
+            : undefined,
+        productionStageProfiles:
+          body.productionStageProfiles !== undefined
+            ? normalizeProductionStageProfilesInput(body.productionStageProfiles)
             : undefined,
       },
     });

@@ -5,6 +5,10 @@ import prisma from "@/lib/prisma";
 import { createShippingResi } from "@/lib/bookings/shipping-service";
 import { inferScheduledProviderFromQuote } from "@/lib/bookings/shipping-schedule";
 import { calculateShippingInsuranceFee } from "@/lib/bookings/shipping-insurance";
+import {
+  isPrismaConnectionTimeout,
+  prismaConnectionErrorResponse,
+} from "@/lib/prisma-errors";
 import type {
   ShippingResiRequest,
   ShippingShipment,
@@ -195,6 +199,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { success: false, error: error.message },
         { status: 401 },
+      );
+    }
+
+    if (isPrismaConnectionTimeout(error)) {
+      return prismaConnectionErrorResponse(
+        "Koneksi database timeout saat membuat resi pengiriman.",
       );
     }
 

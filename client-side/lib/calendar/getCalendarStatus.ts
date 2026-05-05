@@ -100,14 +100,12 @@ export function isPastDate(dateStr: string, now: Date = new Date()): boolean {
  *
  * Uses local date comparison to avoid timezone shift issues.
  */
-function isOrderingBlockedToday(
+function isBlockedDate(
+  dateStr: string,
   blockedDates: readonly string[] | undefined,
-  now: Date = new Date(),
 ): boolean {
   const activeBlockedDates = blockedDates ?? BAKERY_BLOCKED_DATES;
-  const nowParts = getDatePartsInTimeZone(now, BUSINESS_TIME_ZONE);
-  const today = `${nowParts.year}-${String(nowParts.month).padStart(2, "0")}-${String(nowParts.day).padStart(2, "0")}`;
-  return activeBlockedDates.includes(today);
+  return activeBlockedDates.includes(dateStr);
 }
 
 function isCutoff(
@@ -164,7 +162,7 @@ export function getCalendarStatus(
   // Priority 2: BLOCKED
   const blockedDates = options?.blockedDates ?? BAKERY_BLOCKED_DATES;
 
-  if (isOrderingBlockedToday(blockedDates, now)) {
+  if (isBlockedDate(date, blockedDates)) {
     return "BLOCKED";
   }
 

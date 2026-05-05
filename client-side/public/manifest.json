@@ -1,7 +1,7 @@
 {
   "name": "Crumbella",
   "short_name": "Crumbella",
-  "description": "Platform cerdas untuk UMKM Indonesia — POS, inventori, kasbon, AI assistant, dan analytics",
+  "description": "Platform cerdas untuk UMKM Indonesia — POS, inventori, kasbon, dan AI assistant",
   "start_url": "/dashboard",
   "display": "standalone",
   "background_color": "#f5f7fa",

@@ -6,6 +6,7 @@ export type ShippingDistanceSource =
   | "nominatim_with_area"
   | "biteship_area"
   | "ai_fallback";
+export type ShippingQuoteRateType = "coordinate" | "postal";
 
 export interface ShippingQuoteItemInput {
   name: string;
@@ -35,6 +36,7 @@ export interface ShippingQuote {
   price: number;
   priceWithoutInsurance?: number;
   insuranceFee?: number;
+  rateType?: ShippingQuoteRateType;
   eta: string;
   distanceKm: number;
   source: ShippingDataSource;

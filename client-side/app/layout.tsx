@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import Script from "next/script";
 import { JetBrains_Mono, Plus_Jakarta_Sans } from "next/font/google";
+import { Toaster } from "sonner";
 import "./globals.css";
 import NumericZeroInputBehavior from "@/app/components/NumericZeroInputBehavior";
 import AppProviders from "@/context/AppProviders";
@@ -87,6 +88,7 @@ export default function RootLayout({
       >
         <NumericZeroInputBehavior />
         <AppProviders>{children}</AppProviders>
+        <Toaster position="top-center" richColors />
         <PWAProvider />
         <Script
           src={midtransSnapScriptSrc}

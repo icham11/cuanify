@@ -10,14 +10,22 @@ function createPrismaClient() {
   // Strip sslmode from connection string — we configure SSL via the Pool object
   const rawUrl = process.env.DATABASE_URL ?? "";
   const cleanUrl = rawUrl.replace(/[?&]sslmode=[^&]*/g, "").replace(/\?$/, "");
+  const isProduction = process.env.NODE_ENV === "production";
+  const poolMax = Number(process.env.PGPOOL_MAX ?? (isProduction ? 10 : 15));
+  const connectionTimeoutMillis = Number(
+    process.env.PGPOOL_CONNECTION_TIMEOUT_MS ?? 15000,
+  );
+  const idleTimeoutMillis = Number(
+    process.env.PGPOOL_IDLE_TIMEOUT_MS ?? 10000,
+  );
 
   const pool = new Pool({
     connectionString: cleanUrl,
     ssl: { rejectUnauthorized: false },  // Supabase pooler requires this
-    max: 3,                              // Serverless environment = max 3-5
+    max: poolMax,                        // Avoid pool starvation during concurrent API calls
     min: 0,                              // Jangan menahan idle connection
-    idleTimeoutMillis: 10000,            // Tutup koneksi yang idle dalam 10 detik
-    connectionTimeoutMillis: 5000,       // Timeout jika pool penuh dalam 5 detik
+    idleTimeoutMillis,                   // Tutup koneksi yang idle dalam 10 detik
+    connectionTimeoutMillis,             // Tunggu koneksi lebih lama saat startup / burst traffic
   });
   const adapter = new PrismaPg(pool);
   return new PrismaClient({

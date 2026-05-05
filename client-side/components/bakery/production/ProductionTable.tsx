@@ -5,14 +5,22 @@ import { Loader2, Search, Sparkles, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import StatusDropdown from "@/components/bakery/production/StatusDropdown";
 import { useOrders, type BakeryOrder } from "@/components/bakery/store";
-import { useBusiness } from "@/context/BusinessContext";
 import { useRole } from "@/context/RoleContext";
 import { summarizeProductionTokensByItems } from "@/lib/bookings/operations";
 import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 import { BAKERY_STAFF_DAILY_TOKEN_LIMIT } from "@/lib/bookings/config";
 import { DEFAULT_MAX_TOKEN } from "@/lib/calendar/getCalendarStatus";
 import { useBakerySettings } from "@/hooks/useBakerySettings";
-import { distributeProductionTokens } from "@/lib/bookings/production-stages";
+import {
+  distributeProductionTokens,
+  getProductionStageLabels,
+  getProductionStagePercentagesFromTemplates,
+  PRODUCTION_STAGE_ORDER,
+  resolvePrimaryProductionCategory,
+  resolveProductionStageTemplatesForCategory,
+  type ProductionStage,
+  type ProductionStageCategoryProfile,
+} from "@/lib/bookings/production-stages";
 import { getStaffTokenLimitForUser } from "@/lib/bakery/token-limits";
 
 interface TeamMember {
@@ -53,6 +61,11 @@ const MONTH_OPTIONS = [
 ] as const;
 
 const STAFF_DAILY_TOKEN_LIMIT_FALLBACK = BAKERY_STAFF_DAILY_TOKEN_LIMIT;
+const EMPTY_STAGE_STAFF_SELECTIONS: Record<ProductionStage, string> = {
+  lining: "",
+  filling: "",
+  finishing: "",
+};
 
 function isStaffDailyTokenAssignmentBlocked(params: {
   currentToken: number;
@@ -98,17 +111,20 @@ function getOrderStaffTokenAssignments(order: BakeryOrder): Array<{
   ];
 }
 
-function getSingleOrderAssignee(order: BakeryOrder): number | null {
-  const claimedStaffIds = getOrderClaimedStaffIds(order);
-  return claimedStaffIds.length === 1 ? claimedStaffIds[0] : null;
-}
-
-function getEffectiveProductionStages(order: BakeryOrder) {
+function getEffectiveProductionStages(
+  order: BakeryOrder,
+  profiles?: ProductionStageCategoryProfile[],
+) {
   const existingStages = order.productionStages ?? [];
   if (existingStages.length > 0) return existingStages;
 
+  const templates = resolveProductionStageTemplatesForCategory({
+    category: resolvePrimaryProductionCategory(order.items ?? []),
+    profiles,
+  });
   return distributeProductionTokens({
     totalTokens: summarizeProductionTokensByItems(order.items ?? []),
+    percentages: getProductionStagePercentagesFromTemplates(templates),
   });
 }
 
@@ -195,12 +211,11 @@ function statusBadgeClass(status: string): string {
 
 export default function ProductionTable() {
   const router = useRouter();
-  const { business, businesses, switchBusiness } = useBusiness();
   const {
     orders,
     updateOrderStatus,
-    assignOrderToStaff,
     assignProductionStageStaff,
+    assignProductionStagesStaff,
   } = useOrders();
   const { isOwner, isAdmin, isStaff, role, userName } = useRole();
   const isPrivilegedManager = isOwner || isAdmin;
@@ -226,6 +241,7 @@ export default function ProductionTable() {
               holidayEntries: [],
               staffSettings: [],
               monthlyExpenses: [],
+              productionStageProfiles: [],
             },
             userId: entry.userId,
           }),
@@ -254,9 +270,12 @@ export default function ProductionTable() {
   const [selectedDatePopupKey, setSelectedDatePopupKey] = useState<
     string | null
   >(null);
-  const [transferOrderId, setTransferOrderId] = useState<string | null>(null);
-  const [transferStaffUserId, setTransferStaffUserId] = useState<string>("");
-  const [switchingBusinessId, setSwitchingBusinessId] = useState<string>("");
+  const [stageAssignmentOrderId, setStageAssignmentOrderId] = useState<
+    string | null
+  >(null);
+  const [stageStaffSelections, setStageStaffSelections] = useState<
+    Record<ProductionStage, string>
+  >(EMPTY_STAGE_STAFF_SELECTIONS);
 
   const fallbackMonthKey = useMemo(() => monthKeyOf(new Date()), []);
   const selectedMonthKey = useMemo(() => {
@@ -924,33 +943,27 @@ export default function ProductionTable() {
     return "Kapasitas masih tersedia";
   }, [selectedDateCapacity]);
 
-  const transferOrder = useMemo(() => {
-    if (!transferOrderId) return null;
-    return orders.find((order) => order.id === transferOrderId) ?? null;
-  }, [orders, transferOrderId]);
+  const stageAssignmentOrder = useMemo(() => {
+    if (!stageAssignmentOrderId) return null;
+    return orders.find((order) => order.id === stageAssignmentOrderId) ?? null;
+  }, [orders, stageAssignmentOrderId]);
 
-  const transferCandidates = useMemo(() => {
-    if (!transferOrder) return [] as TeamMember[];
-    if (isOrderFullyUnassigned(transferOrder)) return teamMembers;
-    const singleAssignee = getSingleOrderAssignee(transferOrder);
-    if (!singleAssignee) return [] as TeamMember[];
-    return teamMembers.filter((member) => member.userId !== singleAssignee);
-  }, [teamMembers, transferOrder]);
-
-  useEffect(() => {
-    if (!transferOrderId) return;
-    if (transferCandidates.length === 0) {
-      setTransferStaffUserId("");
-      return;
-    }
-
-    const selectedExists = transferCandidates.some(
-      (member) => String(member.userId) === transferStaffUserId,
+  const stageAssignmentStages = useMemo(() => {
+    if (!stageAssignmentOrder) return [];
+    return getEffectiveProductionStages(
+      stageAssignmentOrder,
+      bakerySettings?.productionStageProfiles,
     );
-    if (!selectedExists) {
-      setTransferStaffUserId(String(transferCandidates[0].userId));
-    }
-  }, [transferCandidates, transferOrderId, transferStaffUserId]);
+  }, [bakerySettings?.productionStageProfiles, stageAssignmentOrder]);
+
+  const stageAssignmentOrderToken = useMemo(
+    () =>
+      stageAssignmentStages.reduce(
+        (sum, stage) => sum + Math.max(0, Math.round(Number(stage.tokenAmount) || 0)),
+        0,
+      ),
+    [stageAssignmentStages],
+  );
 
   const updateStatus = (id: string, status: string) => {
     updateOrderStatus(
@@ -987,7 +1000,7 @@ export default function ProductionTable() {
 
   const handleClaimStage = (
     orderId: string,
-    stage: "listing" | "filling" | "finishing",
+    stage: ProductionStage,
   ) => {
     if (!viewer?.userId) return;
     assignProductionStageStaff(orderId, stage, {
@@ -996,50 +1009,57 @@ export default function ProductionTable() {
     });
   };
 
-  const handleOpenTransferModal = (orderId: string) => {
+  const handleOpenStageAssignmentModal = (orderId: string) => {
     const order = orders.find((entry) => entry.id === orderId);
     if (!order) return;
-    const singleAssignee = getSingleOrderAssignee(order);
+    const stages = getEffectiveProductionStages(
+      order,
+      bakerySettings?.productionStageProfiles,
+    );
+    const nextSelections = PRODUCTION_STAGE_ORDER.reduce((acc, stage) => {
+      const staffId = parseNumericId(
+        stages.find((entry) => entry.stage === stage)?.staffId,
+      );
+      acc[stage] = staffId ? String(staffId) : "";
+      return acc;
+    }, { ...EMPTY_STAGE_STAFF_SELECTIONS });
 
-    const candidate = singleAssignee
-      ? teamMembers.find((member) => member.userId !== singleAssignee)
-      : teamMembers[0];
-
-    setTransferOrderId(orderId);
-    setTransferStaffUserId(candidate ? String(candidate.userId) : "");
+    setStageAssignmentOrderId(orderId);
+    setStageStaffSelections(nextSelections);
   };
 
-  const handleTransferOrder = () => {
-    if (!transferOrderId) return;
-    const targetStaffId = Number(transferStaffUserId);
-    if (!Number.isInteger(targetStaffId) || targetStaffId <= 0) return;
-
-    const member = teamMembers.find((entry) => entry.userId === targetStaffId);
-    if (!member) return;
-
-    assignOrderToStaff(transferOrderId, {
-      userId: member.userId,
-      name: member.name,
-    });
-
-    setTransferOrderId(null);
-    setTransferStaffUserId("");
+  const closeStageAssignmentModal = () => {
+    setStageAssignmentOrderId(null);
+    setStageStaffSelections(EMPTY_STAGE_STAFF_SELECTIONS);
   };
 
-  const handleSwitchBusiness = async (nextBusinessId: string) => {
-    const normalized = String(nextBusinessId || "").trim();
-    if (!normalized) return;
-    if (!isPrivilegedManager) return;
-    if (String(viewer?.businessId ?? "") === normalized) return;
+  const handleConfirmStageAssignments = () => {
+    if (!stageAssignmentOrderId) return;
 
-    setSwitchingBusinessId(normalized);
-    try {
-      await switchBusiness(normalized);
-      router.refresh();
-      window.location.reload();
-    } finally {
-      setSwitchingBusinessId("");
-    }
+    const assignments = PRODUCTION_STAGE_ORDER.reduce(
+      (acc, stage) => {
+        const staffId = parseNumericId(stageStaffSelections[stage]);
+        if (!staffId) {
+          acc[stage] = null;
+          return acc;
+        }
+
+        const member = teamMembers.find((entry) => entry.userId === staffId);
+        if (member) {
+          acc[stage] = {
+            userId: member.userId,
+            name: member.name,
+          };
+        }
+        return acc;
+      },
+      {} as Partial<
+        Record<ProductionStage, { userId: number; name: string } | null>
+      >,
+    );
+
+    assignProductionStagesStaff(stageAssignmentOrderId, assignments);
+    closeStageAssignmentModal();
   };
 
   const handleResetStaffMonth = async (
@@ -1083,44 +1103,101 @@ export default function ProductionTable() {
     setQuickFilter("all");
   };
 
-  const transferOrderToken = useMemo(() => {
-    if (!transferOrder) return 0;
-    if (isOrderFullyUnassigned(transferOrder)) {
-      return summarizeProductionTokensByItems(transferOrder.items ?? []);
-    }
-    const singleAssignee = getSingleOrderAssignee(transferOrder);
-    if (!singleAssignee) return 0;
+  const stageAssignmentProjectionByStage = useMemo(() => {
+    const result = new Map<
+      ProductionStage,
+      {
+        projectedToken: number;
+        limit: number;
+        overLimit: boolean;
+      }
+    >();
 
-    return getOrderStaffTokenAssignments(transferOrder)
-      .filter((assignment) => assignment.staffUserId === singleAssignee)
-      .reduce((sum, assignment) => sum + assignment.token, 0);
-  }, [transferOrder]);
-  const transferOrderDateKey = (transferOrder?.deliveryDate || "").trim();
-  const selectedTransferTargetId = Number(transferStaffUserId);
-  const selectedTransferBaselineToken =
-    transferOrderDateKey && Number.isInteger(selectedTransferTargetId)
-      ? (staffDailyTokenByDate.get(
-          `${selectedTransferTargetId}:${transferOrderDateKey}`,
-        ) ?? 0)
-      : 0;
-  const selectedTransferProjectedToken =
-    selectedTransferBaselineToken + transferOrderToken;
-  const selectedTransferLimit = Number.isInteger(selectedTransferTargetId)
-    ? (staffTokenLimitByUserId.get(selectedTransferTargetId) ??
-      staffDailyTokenLimit)
-    : staffDailyTokenLimit;
-  const selectedTransferOverLimit =
-    transferCandidates.length > 0 &&
-    isStaffDailyTokenAssignmentBlocked({
-      currentToken: selectedTransferBaselineToken,
-      incomingToken: transferOrderToken,
-      limit: selectedTransferLimit,
-    });
+    if (!stageAssignmentOrder) return result;
+
+    const orderDateKey = (stageAssignmentOrder.deliveryDate || "").trim();
+    const stageTokenByStage = new Map(
+      stageAssignmentStages.map((stage) => [
+        stage.stage,
+        Math.max(0, Math.round(Number(stage.tokenAmount) || 0)),
+      ]),
+    );
+    const previousTokenByStaff = new Map<number, number>();
+    const nextTokenByStaff = new Map<number, number>();
+
+    for (const stage of stageAssignmentStages) {
+      const staffId = parseNumericId(stage.staffId);
+      if (!staffId) continue;
+      previousTokenByStaff.set(
+        staffId,
+        (previousTokenByStaff.get(staffId) ?? 0) +
+          Math.max(0, Math.round(Number(stage.tokenAmount) || 0)),
+      );
+    }
+
+    for (const stage of PRODUCTION_STAGE_ORDER) {
+      const staffId = parseNumericId(stageStaffSelections[stage]);
+      if (!staffId) continue;
+      nextTokenByStaff.set(
+        staffId,
+        (nextTokenByStaff.get(staffId) ?? 0) +
+          (stageTokenByStage.get(stage) ?? 0),
+      );
+    }
+
+    for (const stage of PRODUCTION_STAGE_ORDER) {
+      const staffId = parseNumericId(stageStaffSelections[stage]);
+      if (!staffId) continue;
+      const currentToken = orderDateKey
+        ? (staffDailyTokenByDate.get(`${staffId}:${orderDateKey}`) ?? 0)
+        : 0;
+      const adjustedCurrentToken = Math.max(
+        0,
+        currentToken - (previousTokenByStaff.get(staffId) ?? 0),
+      );
+      const incomingToken = nextTokenByStaff.get(staffId) ?? 0;
+      const limit = staffTokenLimitByUserId.get(staffId) ?? staffDailyTokenLimit;
+      const projectedToken = adjustedCurrentToken + incomingToken;
+
+      result.set(stage, {
+        projectedToken,
+        limit,
+        overLimit: isStaffDailyTokenAssignmentBlocked({
+          currentToken: adjustedCurrentToken,
+          incomingToken,
+          limit,
+        }),
+      });
+    }
+
+    return result;
+  }, [
+    staffDailyTokenByDate,
+    staffDailyTokenLimit,
+    staffTokenLimitByUserId,
+    stageAssignmentOrder,
+    stageAssignmentStages,
+    stageStaffSelections,
+  ]);
+
+  const stageAssignmentHasOverLimit = Array.from(
+    stageAssignmentProjectionByStage.values(),
+  ).some((entry) => entry.overLimit);
 
   const renderOrderRow = (order: (typeof orders)[number]) => {
     const normalizedOrderStatus = normalizeOrderStatus(order.orderStatus);
     const orderToken = summarizeProductionTokensByItems(order.items ?? []);
-    const effectiveStages = getEffectiveProductionStages(order);
+    const stageTemplates = resolveProductionStageTemplatesForCategory({
+      category: resolvePrimaryProductionCategory(order.items ?? []),
+      profiles: bakerySettings?.productionStageProfiles,
+    });
+    const stageLabels = getProductionStageLabels(stageTemplates);
+    const stagePercentages =
+      getProductionStagePercentagesFromTemplates(stageTemplates);
+    const effectiveStages = getEffectiveProductionStages(
+      order,
+      bakerySettings?.productionStageProfiles,
+    );
     const difficultyLabel = inferDifficultyLabel(order);
     const orderQty = (order.items ?? []).reduce(
       (sum, item) => sum + Math.max(0, Number(item.quantity || 0)),
@@ -1134,7 +1211,6 @@ export default function ProductionTable() {
     const orderDateKey = (order.deliveryDate || "").trim();
     const claimedStaffIds = getOrderClaimedStaffIds(order);
     const isUnassigned = claimedStaffIds.length === 0;
-    const singleAssignee = getSingleOrderAssignee(order);
     const hasMixedStageAssignees = claimedStaffIds.length > 1;
     const isStaffViewer = isStaff || viewer?.role === "Staff";
     const viewerUserId = viewer?.userId ?? null;
@@ -1149,9 +1225,6 @@ export default function ProductionTable() {
     ).length;
 
     const canOwnerAssignOrTransfer = isPrivilegedManager;
-    const ownerActionCandidates = canOwnerAssignOrTransfer
-      ? teamMembers.filter((member) => member.userId !== singleAssignee)
-      : [];
 
     let statusDisabledMessage = "";
     if (claimedStaffIds.length === 0) {
@@ -1233,7 +1306,7 @@ export default function ProductionTable() {
           </div>
 
           <div className="space-y-2">
-            {(["listing", "filling", "finishing"] as const).map((stage) => {
+            {PRODUCTION_STAGE_ORDER.map((stage) => {
               const stageData = effectiveStages.find((s) => s.stage === stage);
               const isClaimed = !!stageData?.staffId;
               const stageToken = Math.max(
@@ -1254,13 +1327,8 @@ export default function ProductionTable() {
                 }
               }
 
-              const stageLabel =
-                stage === "listing"
-                  ? "Lining"
-                  : stage === "filling"
-                    ? "Filling"
-                    : "Finishing";
-              const tokenPercent = stage === "finishing" ? "50%" : "25%";
+              const stageLabel = stageLabels[stage];
+              const tokenPercent = `${stagePercentages[stage]}%`;
               const canStaffClaimStage =
                 isStaffViewer && !isClaimed && Boolean(viewer?.userId);
               const currentStaffDailyToken =
@@ -1352,17 +1420,17 @@ export default function ProductionTable() {
               >
                 {normalizedOrderStatus}
               </span>
-              {canOwnerAssignOrTransfer && !hasMixedStageAssignees ? (
+              {canOwnerAssignOrTransfer ? (
                 <button
                   type="button"
                   onClick={(event) => {
                     event.stopPropagation();
-                    handleOpenTransferModal(order.id);
+                    handleOpenStageAssignmentModal(order.id);
                   }}
-                  disabled={ownerActionCandidates.length === 0}
+                  disabled={teamMembers.length === 0}
                   className="rounded-full border border-[var(--crumbella-border)] bg-[var(--crumbella-accent-soft)] px-3 py-1 text-[11px] font-semibold text-[var(--crumbella-primary)] transition hover:bg-[#f6dcc8] disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {isUnassigned ? "Assign" : "Transfer"}
+                  {isUnassigned ? "Assign" : "Assign Proses"}
                 </button>
               ) : null}
             </div>
@@ -1395,8 +1463,8 @@ export default function ProductionTable() {
           )}
           {hasMixedStageAssignees && canOwnerAssignOrTransfer ? (
             <p className="text-[11px] text-[var(--crumbella-muted)]">
-              Order ini sudah dibagi ke beberapa staff. Ubah assignment per
-              stage dari detail order.
+              Order ini dibagi ke beberapa staff. Gunakan Assign Proses untuk
+              mengatur Lining, Filling, dan Finishing satu per satu.
             </p>
           ) : null}
         </div>
@@ -1414,43 +1482,6 @@ export default function ProductionTable() {
 
   return (
     <div className="space-y-6">
-      {isPrivilegedManager ? (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-          <p className="text-xs font-medium text-slate-600">
-            Business aktif:{" "}
-            <span className="font-semibold text-slate-900">
-              {viewer?.businessName || business?.name || "-"}
-            </span>
-          </p>
-
-          {businesses.length > 1 ? (
-            <div className="inline-flex items-center gap-2">
-              <label
-                htmlFor="production-business-switcher"
-                className="text-[11px] font-semibold uppercase tracking-wide text-slate-500"
-              >
-                Switch Business
-              </label>
-              <select
-                id="production-business-switcher"
-                value={String(viewer?.businessId ?? business?.id ?? "")}
-                onChange={(event) => {
-                  void handleSwitchBusiness(event.target.value);
-                }}
-                disabled={Boolean(switchingBusinessId)}
-                className="h-8 rounded-md border border-slate-300 bg-white px-2 text-xs font-medium text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {businesses.map((entry) => (
-                  <option key={String(entry.id)} value={String(entry.id)}>
-                    {entry.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
       {isStaff ? (
         <div className="space-y-4 rounded-[28px] border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] p-4 shadow-[0_16px_30px_-24px_rgba(30,18,10,0.45)]">
           <div className="flex items-start justify-between gap-3">
@@ -1970,145 +2001,135 @@ export default function ProductionTable() {
         </p>
       )}
 
-      {transferOrderId && transferOrder ? (
+      {stageAssignmentOrderId && stageAssignmentOrder ? (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4"
           role="dialog"
           aria-modal="true"
-          aria-labelledby="transfer-order-modal-title"
-          onClick={() => {
-            setTransferOrderId(null);
-            setTransferStaffUserId("");
-          }}
+          aria-labelledby="stage-assignment-modal-title"
+          onClick={closeStageAssignmentModal}
         >
           <div
-            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl"
+            className="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
-                {(() => {
-                  const isWholeOrderUnassigned =
-                    isOrderFullyUnassigned(transferOrder);
-                  const singleAssignee = getSingleOrderAssignee(transferOrder);
-                  const isTransferable =
-                    !isWholeOrderUnassigned && Boolean(singleAssignee);
-                  return (
-                    <>
-                      <h3
-                        id="transfer-order-modal-title"
-                        className="text-base font-semibold text-slate-900"
-                      >
-                        {isTransferable ? "Transfer Order" : "Assign Order"}
-                      </h3>
-                      <p className="mt-1 text-xs text-slate-500">
-                        {isTransferable
-                          ? "Pindahkan order ke staff lain."
-                          : "Assign order ke staff untuk mulai produksi."}{" "}
-                        Token order: {transferOrderToken}
-                      </p>
-                    </>
-                  );
-                })()}
+                <h3
+                  id="stage-assignment-modal-title"
+                  className="text-base font-semibold text-slate-900"
+                >
+                  Assign Proses Produksi
+                </h3>
+                <p className="mt-1 text-xs text-slate-500">
+                  Pilih staff untuk Lining, Filling, dan Finishing. Token order:{" "}
+                  {stageAssignmentOrderToken}
+                </p>
               </div>
               <button
                 type="button"
-                aria-label="Tutup modal transfer"
-                onClick={() => {
-                  setTransferOrderId(null);
-                  setTransferStaffUserId("");
-                }}
+                aria-label="Tutup modal assign proses"
+                onClick={closeStageAssignmentModal}
                 className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-600 transition hover:bg-slate-100"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
-            {transferCandidates.length === 0 ? (
+            {teamMembers.length === 0 ? (
               <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                {isOrderFullyUnassigned(transferOrder)
-                  ? "Belum ada staff tersedia untuk assignment."
-                  : getSingleOrderAssignee(transferOrder)
-                    ? "Tidak ada staff lain yang tersedia untuk transfer."
-                    : "Order ini sudah dibagi ke beberapa staff. Ubah assignment per stage dari detail order."}
+                Belum ada staff tersedia untuk assignment.
               </div>
             ) : (
               <div className="space-y-3">
-                <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Pilih staff tujuan
-                </label>
-                <select
-                  value={transferStaffUserId}
-                  onChange={(event) =>
-                    setTransferStaffUserId(event.target.value)
-                  }
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
-                >
-                  {transferCandidates.map((member) => {
-                    const baselineDailyToken = transferOrderDateKey
-                      ? (staffDailyTokenByDate.get(
-                          `${member.userId}:${transferOrderDateKey}`,
-                        ) ?? 0)
-                      : 0;
-                    const projected = baselineDailyToken + transferOrderToken;
-                    const memberLimit =
-                      staffTokenLimitByUserId.get(member.userId) ??
-                      staffDailyTokenLimit;
-                    const overLimit = isStaffDailyTokenAssignmentBlocked({
-                      currentToken: baselineDailyToken,
-                      incomingToken: transferOrderToken,
-                      limit: memberLimit,
-                    });
+                {PRODUCTION_STAGE_ORDER.map((stage) => {
+                  const stageData = stageAssignmentStages.find(
+                    (entry) => entry.stage === stage,
+                  );
+                  const stageTemplates = resolveProductionStageTemplatesForCategory({
+                    category: resolvePrimaryProductionCategory(
+                      stageAssignmentOrder.items ?? [],
+                    ),
+                    profiles: bakerySettings?.productionStageProfiles,
+                  });
+                  const stageLabels = getProductionStageLabels(stageTemplates);
+                  const projection = stageAssignmentProjectionByStage.get(stage);
+                  const stageToken = Math.max(
+                    0,
+                    Math.round(Number(stageData?.tokenAmount ?? 0)),
+                  );
 
-                    return (
-                      <option key={member.userId} value={String(member.userId)}>
-                        {member.name} ({projected}/{memberLimit}
-                        {overLimit ? " - melebihi batas" : ""})
-                      </option>
-                    );
-                  })}
-                </select>
+                  return (
+                    <div
+                      key={`${stageAssignmentOrder.id}-${stage}`}
+                      className="rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-3"
+                    >
+                      <div className="mb-2 flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-slate-900">
+                            {stageLabels[stage]}
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            {stageData?.percentage ?? 0}% - {stageToken} token
+                          </p>
+                        </div>
+                        {projection ? (
+                          <span
+                            className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                              projection.overLimit
+                                ? "bg-rose-100 text-rose-700"
+                                : "bg-emerald-100 text-emerald-700"
+                            }`}
+                          >
+                            {projection.projectedToken}/{projection.limit} tok
+                          </span>
+                        ) : null}
+                      </div>
+                      <select
+                        value={stageStaffSelections[stage]}
+                        onChange={(event) =>
+                          setStageStaffSelections((current) => ({
+                            ...current,
+                            [stage]: event.target.value,
+                          }))
+                        }
+                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                      >
+                        <option value="">Kosong</option>
+                        {teamMembers.map((member) => (
+                          <option key={member.userId} value={String(member.userId)}>
+                            {member.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                })}
 
-                <p
-                  className={`text-xs ${
-                    selectedTransferOverLimit
-                      ? "text-rose-600"
-                      : "text-slate-500"
-                  }`}
-                >
-                  Proyeksi token harian: {selectedTransferProjectedToken}/
-                  {selectedTransferLimit}
-                  {selectedTransferOverLimit ? " (melebihi batas)" : ""}
-                </p>
+                {stageAssignmentHasOverLimit ? (
+                  <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                    Ada staff yang melebihi batas token harian. Kurangi proses
+                    atau pilih staff lain.
+                  </p>
+                ) : null}
               </div>
             )}
 
             <div className="mt-5 flex items-center justify-end gap-2">
               <button
                 type="button"
-                onClick={() => {
-                  setTransferOrderId(null);
-                  setTransferStaffUserId("");
-                }}
+                onClick={closeStageAssignmentModal}
                 className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-100"
               >
                 Batal
               </button>
               <button
                 type="button"
-                onClick={handleTransferOrder}
-                disabled={
-                  !transferStaffUserId ||
-                  transferCandidates.length === 0 ||
-                  selectedTransferOverLimit
-                }
+                onClick={handleConfirmStageAssignments}
+                disabled={teamMembers.length === 0 || stageAssignmentHasOverLimit}
                 className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {isOrderFullyUnassigned(transferOrder)
-                  ? "Konfirmasi Assign"
-                  : getSingleOrderAssignee(transferOrder)
-                    ? "Konfirmasi Transfer"
-                    : "Atur di Detail"}
+                Simpan Assignment
               </button>
             </div>
           </div>

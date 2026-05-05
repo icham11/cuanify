@@ -24,7 +24,7 @@ import {
   LogOut,
   DollarSign,
 } from "lucide-react";
-import { useShift } from "@/context/ShiftContext";
+import { ShiftProvider, useShift } from "@/context/ShiftContext";
 
 // ─── Types ───
 interface RecipeIngredient {
@@ -172,6 +172,14 @@ function formatTime(date: Date): string {
 
 // ─── Main Component ───
 export default function POSPage() {
+  return (
+    <ShiftProvider>
+      <POSPageContent />
+    </ShiftProvider>
+  );
+}
+
+function POSPageContent() {
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [searchQuery, setSearchQuery] = useState("");

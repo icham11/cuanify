@@ -2,6 +2,12 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { requireAuth, isAuthError } from "@/lib/auth/session";
+import {
+  DatabaseTemporarilyUnavailableError,
+  isPrismaConnectionTimeout,
+  prismaConnectionErrorResponse,
+  throwIfPrismaTimeoutCooldownActive,
+} from "@/lib/prisma-errors";
 
 export const runtime = "nodejs";
 
@@ -13,6 +19,7 @@ export const runtime = "nodejs";
  */
 export async function GET() {
   try {
+    throwIfPrismaTimeoutCooldownActive();
     const auth = await requireAuth();
 
     const shift = await prisma.cashierShift.findFirst({
@@ -87,6 +94,12 @@ export async function GET() {
   } catch (error) {
     if (isAuthError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (error instanceof DatabaseTemporarilyUnavailableError) {
+      return prismaConnectionErrorResponse("Koneksi database timeout saat memuat shift aktif.");
+    }
+    if (isPrismaConnectionTimeout(error)) {
+      return prismaConnectionErrorResponse("Koneksi database timeout saat memuat shift aktif.");
     }
     console.error("GET /api/cashier-shift/current error:", error);
     return NextResponse.json({ error: "Gagal memuat shift" }, { status: 500 });

@@ -1,0 +1,13 @@
+
+> client-side@0.1.0 dev
+> node ./scripts/clean-next-dev-cache.mjs && next dev --hostname localhost --port 3000 --webpack
+
+[dev-cache] Cleared local and parent Next/Turbo caches
+▲ Next.js 16.1.6 (webpack)
+- Local:         http://localhost:3000
+- Network:       http://localhost:3000
+- Environments: .env
+
+✓ Starting...
+✓ Ready in 1943ms
+[?25h

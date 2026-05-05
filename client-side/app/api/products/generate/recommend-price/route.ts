@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
             take: 15,
           });
 
-    // ── Server-side analytics for richer prompt context ──────────────────
+    // ── Server-side sales summary for richer prompt context ──────────────
     const prices = contextProducts.map((p) => Number(p.sellingPrice)).filter((p) => p > 0);
     const avgPrice = prices.length > 0 ? Math.round(prices.reduce((a, b) => a + b, 0) / prices.length) : 0;
     const minPrice = prices.length > 0 ? Math.min(...prices) : 0;

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
   BarChart3,
@@ -8,6 +9,7 @@ import {
   CheckSquare,
   Clock3,
   Package2,
+  Search,
   Wallet,
 } from "lucide-react";
 import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
@@ -15,24 +17,31 @@ import { type BakeryOrder, useOrders } from "@/components/bakery/store";
 import { useBusiness } from "@/context/BusinessContext";
 import { useBakerySettings } from "@/hooks/useBakerySettings";
 import { BAKERY_STAFF_DAILY_TOKEN_LIMIT } from "@/lib/bookings/config";
+import { getStaffTokenLimitForUser } from "@/lib/bakery/token-limits";
 import { summarizeProductionTokensByItems } from "@/lib/bookings/operations";
 import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 import { getJakartaTodayIsoDate } from "@/lib/bookings/shipping-schedule";
+import { TEAM_MEMBERS_UPDATED_EVENT } from "@/lib/staff/events";
 
 type TeamMember = {
   userId: number;
   name: string;
-  role: "Cashier" | "Staff";
+  email: string;
+  role: "Admin" | "Staff";
   businessId: number;
+  businessName: string;
 };
 
 type StaffStat = {
   userId: number;
   name: string;
-  role: "Cashier" | "Staff";
+  email: string;
+  role: "Admin" | "Staff";
+  businessNames: string[];
   todayToken: number;
   activeOrders: number;
   completedToday: number;
+  dailyTokenLimit: number;
 };
 
 function formatRupiah(value: number) {
@@ -100,36 +109,42 @@ function getOrderStaffTokenAssignments(order: BakeryOrder): Array<{
 }
 
 export default function BakeryDashboardPage() {
+  const router = useRouter();
   const { orders } = useOrders();
   const { business } = useBusiness();
   const { settings: bakerySettings } = useBakerySettings();
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [isTeamLoading, setIsTeamLoading] = useState(true);
+  const [staffRoleFilter, setStaffRoleFilter] = useState<"all" | "staff" | "admin">("all");
+  const [staffSearch, setStaffSearch] = useState("");
 
   const today = getJakartaTodayIsoDate();
   const staffDailyTokenLimit =
     bakerySettings?.staffDailyTokenLimit ?? BAKERY_STAFF_DAILY_TOKEN_LIMIT;
+  const settingsStaffByUserId = useMemo(
+    () =>
+      new Map(
+        (bakerySettings?.staffSettings ?? []).map((entry) => [entry.userId, entry]),
+      ),
+    [bakerySettings?.staffSettings],
+  );
 
-  useEffect(() => {
-    let active = true;
-
-    const loadTeamMembers = async () => {
+  const loadTeamMembers = useCallback(
+    async (options?: { silent?: boolean }) => {
       if (!business?.id) {
-        if (active) {
-          setTeamMembers([]);
-          setIsTeamLoading(false);
-        }
+        setTeamMembers([]);
+        setIsTeamLoading(false);
         return;
       }
 
-      setIsTeamLoading(true);
+      if (!options?.silent) {
+        setIsTeamLoading(true);
+      }
 
       try {
         const response = await fetch("/api/staff", { cache: "no-store" });
         if (!response.ok) {
-          if (active) {
-            setTeamMembers([]);
-          }
+          setTeamMembers([]);
           return;
         }
 
@@ -139,61 +154,86 @@ export default function BakeryDashboardPage() {
               userId?: unknown;
               role?: unknown;
               businessId?: unknown;
+              businessName?: unknown;
               name?: unknown;
+              email?: unknown;
             }>;
           };
         };
 
-        const currentBusinessId = Number(business.id);
-        const nextMembers = (payload.data?.members ?? [])
-          .map((member) => {
-            const userId = parseNumericId(member.userId);
-            const businessId = parseNumericId(member.businessId);
-            const role =
-              member.role === "Cashier" || member.role === "Staff"
-                ? member.role
-                : null;
-            const name =
-              typeof member.name === "string" ? member.name.trim() : "";
+        const dedupedMembers = new Map<number, TeamMember>();
 
-            if (!userId || !businessId || !role || !name) {
-              return null;
-            }
+        for (const member of payload.data?.members ?? []) {
+          const userId = parseNumericId(member.userId);
+          const businessId = parseNumericId(member.businessId);
+          const role =
+            member.role === "Admin" || member.role === "Staff"
+              ? member.role
+              : null;
+          const name = typeof member.name === "string" ? member.name.trim() : "";
+          const email =
+            typeof member.email === "string" ? member.email.trim() : "";
+          const businessName =
+            typeof member.businessName === "string"
+              ? member.businessName.trim()
+              : "";
 
-            return {
-              userId,
-              businessId,
-              role,
-              name,
-            };
-          })
-          .filter((member): member is TeamMember => Boolean(member))
-          .filter(
-            (member) =>
-              member.role === "Staff" && member.businessId === currentBusinessId,
-          )
-          .sort((left, right) => left.name.localeCompare(right.name, "id"));
+          if (!userId || !businessId || !role || !name) {
+            continue;
+          }
 
-        if (active) {
-          setTeamMembers(nextMembers);
+          const current = dedupedMembers.get(userId);
+          const nextBusinessName = businessName || current?.businessName || "";
+
+          dedupedMembers.set(userId, {
+            userId,
+            businessId: current?.businessId ?? businessId,
+            businessName: nextBusinessName,
+            role: current?.role === "Admin" || role === "Admin" ? "Admin" : "Staff",
+            name,
+            email,
+          });
         }
+
+        setTeamMembers(
+          Array.from(dedupedMembers.values()).sort((left, right) =>
+            left.name.localeCompare(right.name, "id"),
+          ),
+        );
       } catch {
-        if (active) {
-          setTeamMembers([]);
-        }
+        setTeamMembers([]);
       } finally {
-        if (active) {
-          setIsTeamLoading(false);
-        }
+        setIsTeamLoading(false);
+      }
+    },
+    [business?.id],
+  );
+
+  useEffect(() => {
+    void loadTeamMembers();
+  }, [loadTeamMembers]);
+
+  useEffect(() => {
+    const handleRefresh = () => {
+      void loadTeamMembers({ silent: true });
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void loadTeamMembers({ silent: true });
       }
     };
 
-    void loadTeamMembers();
+    window.addEventListener(TEAM_MEMBERS_UPDATED_EVENT, handleRefresh);
+    window.addEventListener("focus", handleRefresh);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
-      active = false;
+      window.removeEventListener(TEAM_MEMBERS_UPDATED_EVENT, handleRefresh);
+      window.removeEventListener("focus", handleRefresh);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [business?.id]);
+  }, [loadTeamMembers]);
 
   const activeOrders = useMemo(
     () =>
@@ -278,11 +318,17 @@ export default function BakeryDashboardPage() {
     for (const order of orders) {
       for (const assignment of getOrderStaffTokenAssignments(order)) {
         if (!byUserId.has(assignment.staffUserId)) {
+          const settingsMember = settingsStaffByUserId.get(assignment.staffUserId);
           byUserId.set(assignment.staffUserId, {
             userId: assignment.staffUserId,
             businessId: Number(business?.id || 0),
-            role: "Staff",
-            name: assignment.staffName || `Staff #${assignment.staffUserId}`,
+            businessName: "",
+            role: settingsMember?.role === "Admin" ? "Admin" : "Staff",
+            name:
+              settingsMember?.name ||
+              assignment.staffName ||
+              `Staff #${assignment.staffUserId}`,
+            email: "",
           });
         }
       }
@@ -291,7 +337,7 @@ export default function BakeryDashboardPage() {
     return Array.from(byUserId.values()).sort((left, right) =>
       left.name.localeCompare(right.name, "id"),
     );
-  }, [business?.id, orders, teamMembers]);
+  }, [business?.id, orders, settingsStaffByUserId, teamMembers]);
 
   const staffStats = useMemo<StaffStat[]>(() => {
     const statMap = new Map<
@@ -299,7 +345,9 @@ export default function BakeryDashboardPage() {
       {
         userId: number;
         name: string;
-        role: "Cashier" | "Staff";
+        email: string;
+        role: "Admin" | "Staff";
+        businessNames: Set<string>;
         todayToken: number;
         activeOrderIds: Set<string>;
         completedOrderIds: Set<string>;
@@ -310,7 +358,9 @@ export default function BakeryDashboardPage() {
       statMap.set(member.userId, {
         userId: member.userId,
         name: member.name,
+        email: member.email,
         role: member.role,
+        businessNames: new Set(member.businessName ? [member.businessName] : []),
         todayToken: 0,
         activeOrderIds: new Set<string>(),
         completedOrderIds: new Set<string>(),
@@ -325,7 +375,9 @@ export default function BakeryDashboardPage() {
         const current = statMap.get(assignment.staffUserId) ?? {
           userId: assignment.staffUserId,
           name: assignment.staffName || `Staff #${assignment.staffUserId}`,
+          email: "",
           role: "Staff" as const,
+          businessNames: new Set<string>(),
           todayToken: 0,
           activeOrderIds: new Set<string>(),
           completedOrderIds: new Set<string>(),
@@ -348,10 +400,20 @@ export default function BakeryDashboardPage() {
       .map((entry) => ({
         userId: entry.userId,
         name: entry.name,
+        email: entry.email,
         role: entry.role,
+        businessNames: Array.from(entry.businessNames).sort((left, right) =>
+          left.localeCompare(right, "id"),
+        ),
         todayToken: entry.todayToken,
         activeOrders: entry.activeOrderIds.size,
         completedToday: entry.completedOrderIds.size,
+        dailyTokenLimit: bakerySettings
+          ? getStaffTokenLimitForUser({
+              settings: bakerySettings,
+              userId: entry.userId,
+            })
+          : staffDailyTokenLimit,
       }))
       .sort((left, right) => {
         if (right.todayToken !== left.todayToken) {
@@ -362,7 +424,26 @@ export default function BakeryDashboardPage() {
         }
         return left.name.localeCompare(right.name, "id");
       });
-  }, [orders, today, trackedStaff]);
+  }, [bakerySettings, orders, staffDailyTokenLimit, today, trackedStaff]);
+
+  const filteredStaffStats = useMemo(() => {
+    const keyword = staffSearch.trim().toLowerCase();
+
+    return staffStats.filter((staff) => {
+      const matchesRole =
+        staffRoleFilter === "all" ||
+        (staffRoleFilter === "staff" && staff.role === "Staff") ||
+        (staffRoleFilter === "admin" && staff.role === "Admin");
+      const matchesKeyword =
+        keyword.length === 0 ||
+        staff.name.toLowerCase().includes(keyword) ||
+        staff.email.toLowerCase().includes(keyword) ||
+        staff.businessNames.some((name) => name.toLowerCase().includes(keyword)) ||
+        staff.role.toLowerCase().includes(keyword);
+
+      return matchesRole && matchesKeyword;
+    });
+  }, [staffRoleFilter, staffSearch, staffStats]);
 
   const summaryCards = [
     {
@@ -438,7 +519,28 @@ export default function BakeryDashboardPage() {
           return (
             <div
               key={card.key}
-              className="rounded-[22px] border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] p-3.5 shadow-[0_10px_18px_-20px_rgba(30,18,10,0.7)]"
+              role={card.key === "late" ? "button" : undefined}
+              tabIndex={card.key === "late" ? 0 : undefined}
+              onClick={
+                card.key === "late"
+                  ? () => router.push("/bakery/bookings")
+                  : undefined
+              }
+              onKeyDown={
+                card.key === "late"
+                  ? (event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        router.push("/bakery/bookings");
+                      }
+                    }
+                  : undefined
+              }
+              className={`rounded-[22px] border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] p-3.5 shadow-[0_10px_18px_-20px_rgba(30,18,10,0.7)] ${
+                card.key === "late"
+                  ? "cursor-pointer transition hover:border-[#e8a0a0] hover:bg-[#fff6f6]"
+                  : ""
+              }`}
             >
               <div className={`mb-3 inline-flex h-9 w-9 items-center justify-center rounded-2xl ${card.tone}`}>
                 <Icon className="h-4.5 w-4.5" />
@@ -454,7 +556,18 @@ export default function BakeryDashboardPage() {
       </section>
 
       {lateOrders.length > 0 ? (
-        <div className="rounded-[22px] border border-[#e8a0a0] bg-[#fdeaea] px-4 py-3 shadow-[0_12px_24px_-22px_rgba(168,48,48,0.6)]">
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => router.push("/bakery/bookings")}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              router.push("/bakery/bookings");
+            }
+          }}
+          className="cursor-pointer rounded-[22px] border border-[#e8a0a0] bg-[#fdeaea] px-4 py-3 shadow-[0_12px_24px_-22px_rgba(168,48,48,0.6)] transition hover:bg-[#fff1f1]"
+        >
           <p className="flex items-center gap-2 text-[12px] font-semibold text-[#a83030]">
             <Clock3 className="h-4 w-4" />
             {lateOrders.length} order terlambat
@@ -474,23 +587,60 @@ export default function BakeryDashboardPage() {
             Kapasitas Staff
           </p>
           <p className="mt-1 text-[11px] text-[var(--crumbella-muted)]">
-            Mengikuti anggota staff dari business aktif dan assignment order hari ini
+            Tampilkan semua admin dan staff yang terdaftar di owner ini untuk assignment tugas
           </p>
         </div>
 
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <label className="flex min-w-0 flex-1 items-center gap-2 rounded-2xl border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] px-3 py-2.5 shadow-[0_10px_20px_-24px_rgba(30,18,10,0.6)]">
+            <Search className="h-4 w-4 shrink-0 text-[var(--crumbella-muted)]" />
+            <input
+              value={staffSearch}
+              onChange={(event) => setStaffSearch(event.target.value)}
+              placeholder="Cari nama staff atau admin..."
+              className="w-full bg-transparent text-sm text-[var(--foreground)] outline-none placeholder:text-[var(--crumbella-muted)]"
+            />
+          </label>
+
+          <div className="grid grid-cols-3 gap-2 sm:w-auto">
+            {[
+              { key: "all", label: "Semua" },
+              { key: "staff", label: "Staff" },
+              { key: "admin", label: "Admin" },
+            ].map((option) => (
+              <button
+                key={option.key}
+                type="button"
+                onClick={() =>
+                  setStaffRoleFilter(option.key as "all" | "staff" | "admin")
+                }
+                className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
+                  staffRoleFilter === option.key
+                    ? "bg-[var(--crumbella-primary)] text-white"
+                    : "border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] text-[var(--foreground)]"
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div className="space-y-2">
-          {staffStats.length === 0 ? (
+          {filteredStaffStats.length === 0 ? (
             <div className="rounded-[24px] border border-dashed border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] px-4 py-5 text-sm text-[var(--crumbella-muted)]">
               {isTeamLoading
                 ? "Memuat data staff..."
-                : "Belum ada staff pada business aktif atau belum ada assignment hari ini."}
+                : staffStats.length === 0
+                  ? "Belum ada admin/staff yang terdaftar pada owner ini atau belum ada assignment hari ini."
+                  : "Tidak ada hasil yang cocok dengan filter pencarian."}
             </div>
           ) : (
-            staffStats.map((staff) => {
-              const remainingToken = Math.max(0, staffDailyTokenLimit - staff.todayToken);
+            filteredStaffStats.map((staff) => {
+              const remainingToken = Math.max(0, staff.dailyTokenLimit - staff.todayToken);
               const usagePercent =
-                staffDailyTokenLimit > 0
-                  ? Math.min(100, Math.round((staff.todayToken / staffDailyTokenLimit) * 100))
+                staff.dailyTokenLimit > 0
+                  ? Math.min(100, Math.round((staff.todayToken / staff.dailyTokenLimit) * 100))
                   : 0;
               const usageTone =
                 usagePercent >= 80
@@ -498,6 +648,8 @@ export default function BakeryDashboardPage() {
                   : usagePercent >= 55
                     ? "text-[var(--crumbella-primary)]"
                     : "text-[var(--crumbella-success)]";
+              const roleLabel = staff.role === "Admin" ? "Admin" : "Staff";
+              const businessLabel = staff.businessNames.join(", ");
 
               return (
                 <div
@@ -513,8 +665,15 @@ export default function BakeryDashboardPage() {
                         <p className="truncate text-[13px] font-semibold text-[var(--foreground)]">
                           {staff.name}
                         </p>
-                        <p className="text-[10px] text-[var(--crumbella-muted)]">
-                          {staff.role} - {staff.activeOrders} order aktif hari ini
+                        <p className="truncate text-[10px] text-[var(--crumbella-muted)]">
+                          {[
+                            roleLabel,
+                            staff.email,
+                            businessLabel,
+                            `target ${staff.dailyTokenLimit} token/hari`,
+                          ]
+                            .filter((value) => Boolean(value))
+                            .join(" - ")}
                         </p>
                       </div>
                     </div>
@@ -533,7 +692,7 @@ export default function BakeryDashboardPage() {
                         <p className="text-[1.6rem] font-extrabold leading-none text-[var(--foreground)] sm:text-[1.8rem]">
                           {staff.todayToken}{" "}
                           <span className="text-sm font-medium text-[var(--crumbella-muted)]">
-                            / {staffDailyTokenLimit}
+                            / {staff.dailyTokenLimit}
                           </span>
                         </p>
                       </div>
@@ -555,7 +714,9 @@ export default function BakeryDashboardPage() {
                     <div className="flex justify-between text-[10px]">
                       <span className={usageTone}>{usagePercent}% terpakai</span>
                       <span className="text-[var(--crumbella-muted)]">
-                        {staff.activeOrders > 0 ? `${staff.activeOrders} order berjalan` : "Belum ada tugas"}
+                        {staff.activeOrders > 0
+                          ? `${staff.activeOrders} order berjalan`
+                          : "Belum ada tugas"}
                       </span>
                     </div>
                   </div>

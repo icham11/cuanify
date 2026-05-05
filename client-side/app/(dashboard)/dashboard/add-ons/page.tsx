@@ -33,6 +33,8 @@ type GroupedAddOnRow = {
   id: string;
   label: string;
   price: number;
+  cogs: number;
+  margin: number;
   categories: string[];
 };
 
@@ -65,6 +67,11 @@ function inferAddOnType(row: GroupedAddOnRow): string {
   return /(additional|extra|qty|flower|small|medium|large)/.test(text)
     ? "Per Qty"
     : "Per Item";
+}
+
+function formatPercent(value: number): string {
+  const normalized = Number.isFinite(value) ? value : 0;
+  return `${normalized.toFixed(normalized % 1 === 0 ? 0 : 1)}%`;
 }
 
 function AddOnModal({
@@ -163,6 +170,7 @@ export default function AddOnsPage() {
   const [formLabel, setFormLabel] = useState("");
   const [formId, setFormId] = useState("");
   const [formPrice, setFormPrice] = useState(0);
+  const [formCogs, setFormCogs] = useState(0);
   const [modalError, setModalError] = useState<string | null>(null);
 
   const categoryOptions = useMemo(
@@ -175,14 +183,18 @@ export default function AddOnsPage() {
 
     Object.entries(addOnCatalog).forEach(([category, items]) => {
       items.forEach((item) => {
-        const key = `${item.id.toLowerCase()}||${item.label.toLowerCase()}`;
+        const price = Number(item.price || 0);
+        const cogs = Number(item.cogs || 0);
+        const key = `${item.id.toLowerCase()}||${item.label.toLowerCase()}||${price}||${cogs}`;
         const current = grouped.get(key);
         if (!current) {
           grouped.set(key, {
             key,
             id: item.id,
             label: item.label,
-            price: Number(item.price || 0),
+            price,
+            cogs,
+            margin: price > 0 ? ((price - cogs) / price) * 100 : 0,
             categories: [category],
           });
           return;
@@ -225,6 +237,7 @@ export default function AddOnsPage() {
     setFormLabel("");
     setFormId("");
     setFormPrice(0);
+    setFormCogs(0);
     setModalError(null);
   };
 
@@ -237,6 +250,7 @@ export default function AddOnsPage() {
   const openEditModal = (row: GroupedAddOnRow) => {
     setEditRow(row);
     setFormPrice(row.price);
+    setFormCogs(row.cogs);
     setModalError(null);
   };
 
@@ -265,6 +279,7 @@ export default function AddOnsPage() {
                   ...entry,
                   label: nextLabel,
                   price: Math.max(0, Math.round(Number(formPrice || 0))),
+                  cogs: Math.max(0, Math.round(Number(formCogs || 0))),
                 }
               : entry,
           )
@@ -275,6 +290,7 @@ export default function AddOnsPage() {
               id: nextId,
               label: nextLabel,
               price: Math.max(0, Math.round(Number(formPrice || 0))),
+              cogs: Math.max(0, Math.round(Number(formCogs || 0))),
             },
           ];
 
@@ -286,6 +302,10 @@ export default function AddOnsPage() {
         addOnPriceOverrides: {
           ...prev.addOnPriceOverrides,
           [key]: Math.max(0, Math.round(Number(formPrice || 0))),
+        },
+        addOnCogsOverrides: {
+          ...prev.addOnCogsOverrides,
+          [key]: Math.max(0, Math.round(Number(formCogs || 0))),
         },
         inactiveAddOns: prev.inactiveAddOns.filter((entry) => entry !== key),
       };
@@ -299,15 +319,21 @@ export default function AddOnsPage() {
     if (!editRow) return;
     setCatalogAdminState((prev) => {
       const nextOverrides = { ...prev.addOnPriceOverrides };
+      const nextCogsOverrides = { ...prev.addOnCogsOverrides };
       editRow.categories.forEach((category) => {
         nextOverrides[makeAddOnKey(category, editRow.id)] = Math.max(
           0,
           Math.round(Number(formPrice || 0)),
         );
+        nextCogsOverrides[makeAddOnKey(category, editRow.id)] = Math.max(
+          0,
+          Math.round(Number(formCogs || 0)),
+        );
       });
       return {
         ...prev,
         addOnPriceOverrides: nextOverrides,
+        addOnCogsOverrides: nextCogsOverrides,
       };
     });
     setEditRow(null);
@@ -471,22 +497,22 @@ export default function AddOnsPage() {
                     </p>
                   </div>
                   <div className="border-r border-[#e0d0c4] px-1 text-center">
-                    <p className="text-[10px] text-[#b89080]">Tipe</p>
+                    <p className="text-[10px] text-[#b89080]">COGS / HPP</p>
                     <p className="mt-1 text-sm font-semibold text-[#1e120a]">
-                      {inferAddOnType(row)}
+                      {formatCurrency(row.cogs)}
                     </p>
                   </div>
                   <div className="px-1 text-center">
-                    <p className="text-[10px] text-[#b89080]">Status</p>
+                    <p className="text-[10px] text-[#b89080]">Margin</p>
                     <p className="mt-1 text-sm font-bold text-[#2a5c3f]">
-                      Aktif
+                      {formatPercent(row.margin)}
                     </p>
                   </div>
                 </div>
 
                 <div className="px-4 py-2.5">
                   <p className="text-[10px] text-[#b89080]">
-                    Berlaku untuk: {row.categories.join(", ")}
+                    Berlaku untuk: {row.categories.join(", ")} · Tipe: {inferAddOnType(row)}
                   </p>
                 </div>
               </article>
@@ -567,6 +593,20 @@ export default function AddOnsPage() {
             }
           />
         </div>
+        <div className="space-y-3">
+          <label className="block text-xs font-bold uppercase tracking-wide text-[#8d6a55]">
+            COGS / HPP
+          </label>
+          <input
+            type="number"
+            min={0}
+            className="h-11 w-full rounded-xl border border-[#e0d0c4] px-3 text-sm outline-none"
+            value={formCogs}
+            onChange={(event) =>
+              setFormCogs(Math.max(0, Number(event.target.value) || 0))
+            }
+          />
+        </div>
       </AddOnModal>
 
       <AddOnModal
@@ -589,19 +629,35 @@ export default function AddOnsPage() {
           </p>
         </div>
 
-        <div className="space-y-3">
-          <label className="block text-xs font-bold uppercase tracking-wide text-[#8d6a55]">
-            Harga Baru
-          </label>
-          <input
-            type="number"
-            min={0}
-            className="h-11 w-full rounded-xl border border-[#e0d0c4] px-3 text-sm outline-none"
-            value={formPrice}
-            onChange={(event) =>
-              setFormPrice(Math.max(0, Number(event.target.value) || 0))
-            }
-          />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-3">
+            <label className="block text-xs font-bold uppercase tracking-wide text-[#8d6a55]">
+              Harga Baru
+            </label>
+            <input
+              type="number"
+              min={0}
+              className="h-11 w-full rounded-xl border border-[#e0d0c4] px-3 text-sm outline-none"
+              value={formPrice}
+              onChange={(event) =>
+                setFormPrice(Math.max(0, Number(event.target.value) || 0))
+              }
+            />
+          </div>
+          <div className="space-y-3">
+            <label className="block text-xs font-bold uppercase tracking-wide text-[#8d6a55]">
+              COGS / HPP
+            </label>
+            <input
+              type="number"
+              min={0}
+              className="h-11 w-full rounded-xl border border-[#e0d0c4] px-3 text-sm outline-none"
+              value={formCogs}
+              onChange={(event) =>
+                setFormCogs(Math.max(0, Number(event.target.value) || 0))
+              }
+            />
+          </div>
         </div>
       </AddOnModal>
     </div>

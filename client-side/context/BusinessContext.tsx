@@ -8,7 +8,6 @@ import {
   useCallback,
 } from "react";
 import {
-  getCurrentBusiness,
   getAllBusinesses,
   switchBusiness as switchBusinessApi,
   type Business,
@@ -37,19 +36,23 @@ export function BusinessProvider({ children }: { children: React.ReactNode }) {
 
   const fetchBusiness = useCallback(async () => {
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      const all = await getAllBusinesses();
+      setBusinesses(all);
 
-      try {
-        const [current, all] = await Promise.all([
-          getCurrentBusiness(),
-          getAllBusinesses(),
-        ]);
-        setBusiness(current);
-        setBusinesses(all);
-      } finally {
-        clearTimeout(timeoutId);
+      const activeIdMatch = document.cookie.match(
+        /(?:^|;\s*)active_business_id=([^;]*)/,
+      );
+      const activeId = activeIdMatch
+        ? decodeURIComponent(activeIdMatch[1] || "")
+        : "";
+      const current =
+        all.find((b) => String(b.id) === activeId) ?? all[0] ?? null;
+
+      if (current && !activeId) {
+        switchBusinessApi(current.id);
       }
+
+      setBusiness(current);
     } catch (error) {
       console.error("Failed to fetch business:", error);
     } finally {

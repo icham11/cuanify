@@ -9,7 +9,10 @@ export default function AIChatWidgetLoader() {
   const pathname = usePathname();
   const hideWidget =
     pathname === "/dashboard/ai-analysis" ||
-    (pathname ? pathname.startsWith("/dashboard/ai-analysis/") : false);
+    (pathname ? pathname.startsWith("/dashboard/ai-analysis/") : false) ||
+    pathname === "/bakery/bookings/new" ||
+    pathname === "/bakery/bookings/new/review" ||
+    (pathname ? pathname.startsWith("/bakery/bookings/new/") : false);
 
   if (hideWidget) {
     return null;

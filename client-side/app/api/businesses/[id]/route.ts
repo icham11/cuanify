@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireAuth, AuthError } from "@/lib/auth/session";
 import { getBusinessOverviewSummary } from "@/lib/bookings/business-overview";
+import {
+  isPrismaConnectionTimeout,
+  prismaConnectionErrorResponse,
+} from "@/lib/prisma-errors";
 
 export const runtime = "nodejs";
 
@@ -51,6 +55,9 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   } catch (error) {
     if (error instanceof AuthError) {
       return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+    if (isPrismaConnectionTimeout(error)) {
+      return prismaConnectionErrorResponse("Koneksi database timeout saat memuat detail bisnis.");
     }
     return NextResponse.json({ error: "Failed to fetch business" }, { status: 500 });
   }
@@ -107,6 +114,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (error instanceof AuthError) {
       return NextResponse.json({ error: error.message }, { status: 401 });
     }
+    if (isPrismaConnectionTimeout(error)) {
+      return prismaConnectionErrorResponse("Koneksi database timeout saat mengubah bisnis.");
+    }
     return NextResponse.json({ error: "Failed to update business" }, { status: 500 });
   }
 }
@@ -142,6 +152,9 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
   } catch (error) {
     if (error instanceof AuthError) {
       return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+    if (isPrismaConnectionTimeout(error)) {
+      return prismaConnectionErrorResponse("Koneksi database timeout saat menghapus bisnis.");
     }
     return NextResponse.json({ error: "Failed to delete business" }, { status: 500 });
   }

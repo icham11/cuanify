@@ -1,6 +1,10 @@
 import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import {
+  normalizeProductionStageProfiles,
+  type ProductionStageCategoryProfile,
+} from "@/lib/bookings/production-stages";
+import {
   BAKERY_BLOCKED_DATES,
   BAKERY_DAILY_PRODUCTION_TOKEN_LIMIT,
   BAKERY_H_MINUS_1_CUTOFF_HOUR,
@@ -53,6 +57,7 @@ export interface BakeryBusinessSettings {
   holidayEntries: BakeryHolidaySetting[];
   staffSettings: BakeryStaffSetting[];
   monthlyExpenses: BakeryOperationalExpenseSetting[];
+  productionStageProfiles: ProductionStageCategoryProfile[];
 }
 
 function clampDailyTokenLimit(value: unknown): number {
@@ -227,6 +232,7 @@ export function getDefaultBakerySettings(): BakeryBusinessSettings {
     holidayEntries,
     staffSettings: [],
     monthlyExpenses: [],
+    productionStageProfiles: [],
   };
 }
 
@@ -255,6 +261,9 @@ function parseMetadataToSettings(metadata: unknown): BakeryBusinessSettings {
     holidayEntries,
     staffSettings: normalizeStaffSettings(record.staffSettings),
     monthlyExpenses: normalizeMonthlyExpenses(record.monthlyExpenses),
+    productionStageProfiles: normalizeProductionStageProfiles(
+      record.productionStageProfiles,
+    ),
   };
 }
 
@@ -330,6 +339,10 @@ export async function upsertBakeryBusinessSettings(args: {
       args.input.monthlyExpenses !== undefined
         ? normalizeMonthlyExpenses(args.input.monthlyExpenses)
         : current.monthlyExpenses,
+    productionStageProfiles:
+      args.input.productionStageProfiles !== undefined
+        ? normalizeProductionStageProfiles(args.input.productionStageProfiles)
+        : current.productionStageProfiles,
   };
 
   const metadata = JSON.parse(

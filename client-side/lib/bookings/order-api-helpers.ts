@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { normalizeDateInput } from "@/lib/helpers/date-normalization";
 import type { ProductionStageAssignment, ProductionStage } from "@/lib/bookings/production-stages";
+import {
+  normalizeProductionStageKey,
+  PRODUCTION_STAGE_ORDER,
+} from "@/lib/bookings/production-stages";
 import type { SendOrderToWhatsAppInput } from "@/lib/whatsapp/sendOrderToWhatsApp";
 import { calculateShippingInsuranceFee } from "@/lib/bookings/shipping-insurance";
 import { detailFieldDefinitions, type WhatsAppOrderType } from "@/lib/bookings/whatsapp-parser";
@@ -177,7 +181,7 @@ export const normalizedOrderSchema = z.object({
   paymentTransactions: z.array(z.record(z.string(), z.unknown())),
   productionStages: z.array(
     z.object({
-      stage: z.enum(["listing", "filling", "finishing"]),
+      stage: z.enum(PRODUCTION_STAGE_ORDER),
       staffId: z.number().int().positive().nullable(),
       tokenAmount: z.number().finite().min(0),
       percentage: z.number().finite().min(0).max(100),
@@ -322,10 +326,8 @@ export function normalizeProductionStages(value: unknown): ProductionStageAssign
     .map((entry) => {
       const record = asRecord(entry);
       if (!record) return null;
-      const stage = asString(record.stage).toLowerCase();
-      if (stage !== "listing" && stage !== "filling" && stage !== "finishing") {
-        return null;
-      }
+      const stage = normalizeProductionStageKey(record.stage);
+      if (!stage) return null;
 
       return {
         stage,

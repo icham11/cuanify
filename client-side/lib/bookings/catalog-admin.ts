@@ -21,11 +21,13 @@ export interface CustomAddOnEntry {
   id: string;
   label: string;
   price: number;
+  cogs?: number;
 }
 
 export interface CatalogAdminState {
   productVariantPriceOverrides: Record<string, number>;
   addOnPriceOverrides: Record<string, number>;
+  addOnCogsOverrides: Record<string, number>;
   inactiveProducts: string[];
   inactiveAddOns: string[];
   customProducts: CustomProductEntry[];
@@ -43,6 +45,7 @@ const SERVER_REVALIDATE_STALE_GUARD_MS = 3000;
 const EMPTY_STATE: CatalogAdminState = {
   productVariantPriceOverrides: {},
   addOnPriceOverrides: {},
+  addOnCogsOverrides: {},
   inactiveProducts: [],
   inactiveAddOns: [],
   customProducts: [],
@@ -64,6 +67,7 @@ function readStateFromStorage(): CatalogAdminState {
     return {
       productVariantPriceOverrides: parsed.productVariantPriceOverrides ?? {},
       addOnPriceOverrides: parsed.addOnPriceOverrides ?? {},
+      addOnCogsOverrides: parsed.addOnCogsOverrides ?? {},
       inactiveProducts: Array.isArray(parsed.inactiveProducts)
         ? parsed.inactiveProducts
         : [],
@@ -86,6 +90,10 @@ function writeStateToStorage(next: CatalogAdminState) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
   window.dispatchEvent(new Event(STORAGE_EVENT));
+}
+
+export function broadcastCatalogAdminState(next: CatalogAdminState) {
+  writeStateToStorage(next);
 }
 
 function isCatalogStateEqual(
@@ -284,6 +292,7 @@ function buildEffectiveAddOnCatalog(
       id: entry.id,
       label: entry.label,
       price: normalizeMoney(entry.price),
+      cogs: normalizeMoney(entry.cogs ?? 0),
     });
     next[entry.category] = list;
   });
@@ -297,9 +306,14 @@ function buildEffectiveAddOnCatalog(
       .map((item) => {
         const key = makeAddOnKey(category, item.id);
         const override = state.addOnPriceOverrides[key];
+        const cogsOverride = state.addOnCogsOverrides[key];
         return {
           ...item,
           price: override !== undefined ? normalizeMoney(override) : item.price,
+          cogs:
+            cogsOverride !== undefined
+              ? normalizeMoney(cogsOverride)
+              : normalizeMoney(item.cogs ?? 0),
         };
       });
   });

@@ -27,6 +27,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { useRole } from "@/context/RoleContext";
+import { TEAM_MEMBERS_UPDATED_EVENT } from "@/lib/staff/events";
 
 interface BusinessInfo {
   id: number;
@@ -101,6 +102,10 @@ export default function StaffPage() {
   // Filter
   const [filterBusinessId, setFilterBusinessId] = useState<number | "all">("all");
 
+  const notifyTeamMembersUpdated = useCallback(() => {
+    window.dispatchEvent(new Event(TEAM_MEMBERS_UPDATED_EVENT));
+  }, []);
+
   // ── Fetch Staff ──
   const fetchStaff = useCallback(async () => {
     try {
@@ -110,6 +115,7 @@ export default function StaffPage() {
         setOwner(data.data.owner);
         setMembers(data.data.members);
         setBusinesses(data.data.businesses || []);
+        notifyTeamMembersUpdated();
         // Set default business for register forms
         if (data.data.businesses?.length > 0) {
           setRegBusinessId((prev) => prev || data.data.businesses[0].id);
@@ -121,7 +127,7 @@ export default function StaffPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [notifyTeamMembersUpdated]);
 
   useEffect(() => {
     if (isRoleLoading) return;

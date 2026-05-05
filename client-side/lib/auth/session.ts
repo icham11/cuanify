@@ -4,6 +4,11 @@ import { getToken } from "next-auth/jwt"
 import { authOptions } from "@/lib/auth"
 import { verifyToken } from "@/lib/auth/jwt"
 import prisma from "@/lib/prisma"
+import {
+  isPrismaConnectionTimeout,
+  isPrismaTimeoutCooldownActive,
+  DatabaseTemporarilyUnavailableError,
+} from "@/lib/prisma-errors"
 import type { UserRole } from "@prisma/client"
 
 export class AuthError extends Error {}
@@ -34,11 +39,6 @@ function normalizeNumericId(value: unknown): number | undefined {
     }
   }
   return undefined
-}
-
-function isPrismaConnectionTimeout(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error)
-  return message.toLowerCase().includes("timeout exceeded when trying to connect")
 }
 
 async function resolveUserIdFromCustomJwt(
@@ -89,12 +89,13 @@ async function resolveUserIdFromNextAuthJwt(): Promise<number | undefined> {
 
     const cookieStore = await cookies()
     const headerList = await headers()
+    const tokenRequest = {
+      headers: Object.fromEntries(headerList.entries()),
+      cookies: Object.fromEntries(cookieStore.getAll().map((c) => [c.name, c.value])),
+    } as NonNullable<Parameters<typeof getToken>[0]["req"]>
 
     const token = await getToken({
-      req: {
-        headers: Object.fromEntries(headerList.entries()),
-        cookies: Object.fromEntries(cookieStore.getAll().map((c) => [c.name, c.value])),
-      } as any,
+      req: tokenRequest,
       secret: process.env.NEXTAUTH_SECRET,
       secureCookie:
         process.env.NODE_ENV === "production" ||
@@ -109,6 +110,10 @@ async function resolveUserIdFromNextAuthJwt(): Promise<number | undefined> {
 
       if (directId) return directId
 
+      if (isPrismaTimeoutCooldownActive()) {
+        return undefined
+      }
+
       if (typeof token.email === "string" && token.email.trim() !== "") {
         const dbUser = await prisma.user.findUnique({
           where: { email: token.email },
@@ -116,6 +121,10 @@ async function resolveUserIdFromNextAuthJwt(): Promise<number | undefined> {
         })
         if (dbUser) return dbUser.id
       }
+    }
+
+    if (isPrismaTimeoutCooldownActive()) {
+      return undefined
     }
 
     if (session?.user?.email) {
@@ -138,8 +147,8 @@ export async function requireAuth(): Promise<AuthResult> {
   const customAuth = await resolveUserIdFromCustomJwt(cookieStore, headerList)
 
   let userId = await resolveUserIdFromNextAuthJwt()
-  let jwtBusinessId: number | undefined = customAuth?.businessId
-  let jwtRole: UserRole | undefined = customAuth?.role
+  const jwtBusinessId: number | undefined = customAuth?.businessId
+  const jwtRole: UserRole | undefined = customAuth?.role
 
   if (!userId && customAuth) {
     userId = customAuth.userId
@@ -181,6 +190,18 @@ export async function requireAuth(): Promise<AuthResult> {
       businessId: jwtBusinessId,
       role: jwtRole,
     }
+  }
+
+  if (isPrismaTimeoutCooldownActive()) {
+    if (jwtBusinessId && jwtRole) {
+      return {
+        userId: Number(userId),
+        businessId: jwtBusinessId,
+        role: jwtRole,
+      }
+    }
+
+    throw new DatabaseTemporarilyUnavailableError()
   }
 
   let business = null

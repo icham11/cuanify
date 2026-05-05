@@ -39,6 +39,7 @@ export interface CatalogAddOn {
   id: string;
   label: string;
   price: number;
+  cogs?: number;
 }
 
 function variant(

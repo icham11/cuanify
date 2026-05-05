@@ -10,6 +10,12 @@ import {
   getDefaultBakerySettings,
 } from "@/lib/bakery/settings";
 import { normalizeDateInput } from "@/lib/helpers/date-normalization";
+import {
+  DatabaseTemporarilyUnavailableError,
+  isPrismaConnectionTimeout,
+  prismaConnectionErrorResponse,
+  throwIfPrismaTimeoutCooldownActive,
+} from "@/lib/prisma-errors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,6 +37,7 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(request: NextRequest) {
   try {
+    throwIfPrismaTimeoutCooldownActive();
     const { businessId } = await requireAuth();
     const settings = await getBakeryBusinessSettings(businessId).catch((error) => {
       const message =
@@ -135,6 +142,15 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     if (error instanceof AuthError) {
       return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+
+    if (
+      error instanceof DatabaseTemporarilyUnavailableError ||
+      isPrismaConnectionTimeout(error)
+    ) {
+      return prismaConnectionErrorResponse(
+        "Koneksi database timeout saat memuat kapasitas produksi.",
+      );
     }
 
     const message = error instanceof Error ? error.message : "Unknown error";

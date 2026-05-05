@@ -18,11 +18,13 @@ export interface CustomAddOnEntry {
   id: string;
   label: string;
   price: number;
+  cogs?: number;
 }
 
 export interface CatalogAdminState {
   productVariantPriceOverrides: Record<string, number>;
   addOnPriceOverrides: Record<string, number>;
+  addOnCogsOverrides: Record<string, number>;
   inactiveProducts: string[];
   inactiveAddOns: string[];
   customProducts: CustomProductEntry[];
@@ -32,6 +34,7 @@ export interface CatalogAdminState {
 export const EMPTY_CATALOG_ADMIN_STATE: CatalogAdminState = {
   productVariantPriceOverrides: {},
   addOnPriceOverrides: {},
+  addOnCogsOverrides: {},
   inactiveProducts: [],
   inactiveAddOns: [],
   customProducts: [],
@@ -73,6 +76,7 @@ export function normalizeCatalogAdminState(
       value.productVariantPriceOverrides,
     ),
     addOnPriceOverrides: normalizeNumberRecord(value.addOnPriceOverrides),
+    addOnCogsOverrides: normalizeNumberRecord(value.addOnCogsOverrides),
     inactiveProducts: normalizeStringList(value.inactiveProducts),
     inactiveAddOns: normalizeStringList(value.inactiveAddOns),
     customProducts: Array.isArray(value.customProducts)
@@ -101,6 +105,7 @@ export function normalizeCatalogAdminState(
             id: String(entry.id || ""),
             label: String(entry.label || ""),
             price: normalizeMoney(entry.price),
+            cogs: normalizeMoney(entry.cogs),
           }))
           .filter((entry) => entry.category && entry.id && entry.label)
       : [],
@@ -262,6 +267,7 @@ export function buildEffectiveAddOnCatalog(
       id: entry.id,
       label: entry.label,
       price: normalizeMoney(entry.price),
+      cogs: normalizeMoney(entry.cogs ?? 0),
     });
     next[entry.category] = list;
   });
@@ -275,9 +281,14 @@ export function buildEffectiveAddOnCatalog(
       .map((item) => {
         const key = makeAddOnKey(category, item.id);
         const override = state.addOnPriceOverrides[key];
+        const cogsOverride = state.addOnCogsOverrides[key];
         return {
           ...item,
           price: override !== undefined ? normalizeMoney(override) : item.price,
+          cogs:
+            cogsOverride !== undefined
+              ? normalizeMoney(cogsOverride)
+              : normalizeMoney(item.cogs ?? 0),
         };
       });
   });

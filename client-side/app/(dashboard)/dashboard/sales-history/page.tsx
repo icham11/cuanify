@@ -91,7 +91,7 @@ export default function SalesHistoryPage() {
       const data = await response.json();
 
       if (data.success && data.data) {
-        // API returns: { success: true, data: { sales: [...], analytics: {...} } }
+        // API returns: { success: true, data: { sales: [...], summary: {...} } }
         if (Array.isArray(data.data.sales)) {
           setSales(data.data.sales);
         } else if (Array.isArray(data.data)) {

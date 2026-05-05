@@ -19,6 +19,7 @@ import {
   ClipboardList,
   Factory,
   Settings2,
+  ContactRound,
 } from "lucide-react";
 
 import { useRole } from "@/context/RoleContext";
@@ -155,28 +156,22 @@ export default function MobileNav({ jwtUserName, jwtUserEmail }: MobileNavProps)
                         active={isActive("/bakery/reports")}
                         onClick={() => setIsDrawerOpen(false)}
                       />
-                      <NavLink
-                        href="/bakery/catalog"
-                        icon={Settings2}
-                        label="Catalog"
-                        active={isActive("/bakery/catalog")}
-                        onClick={() => setIsDrawerOpen(false)}
-                      />
                     </>
+                  ) : null}
+                  {isBakeryManager ? (
+                    <NavLink
+                      href="/bakery/customers"
+                      icon={ContactRound}
+                      label="Customers"
+                      active={isActive("/bakery/customers")}
+                      onClick={() => setIsDrawerOpen(false)}
+                    />
                   ) : null}
                 </>
               )}
 
               {isOwner ? (
                 <>
-                  <SectionLabel label="Dashboard" />
-                  <NavLink
-                    href="/analytics"
-                    icon={BarChart3}
-                    label="Analytics"
-                    active={isActive("/analytics")}
-                    onClick={() => setIsDrawerOpen(false)}
-                  />
                   <SectionLabel label="AI Tools" />
                   <NavLink
                     href="/dashboard/ai-analysis"

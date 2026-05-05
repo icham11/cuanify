@@ -421,13 +421,20 @@ export default function DeliverySection({
                       )}
                     </span>
                     <span className="font-semibold">
-                      {formatCurrency(quote.price)}
+                      {formatCurrency(
+                        quote.priceWithoutInsurance ?? quote.price,
+                      )}
                     </span>
                   </div>
                   <p className="text-xs">
                     ETA {quote.eta} | Jarak {quote.distanceKm} km |
                     Source: API Kurir
                   </p>
+                  {quote.insuranceFee ? (
+                    <p className="mt-1 text-[11px] text-amber-700">
+                      + Asuransi {formatCurrency(quote.insuranceFee)}
+                    </p>
+                  ) : null}
                 </button>
               );
             })}

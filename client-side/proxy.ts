@@ -57,7 +57,6 @@ const PUBLIC_PAGE_PREFIXES = ["/login", "/register", "/offline"];
 
 const CASHIER_BLOCKED_PATHS = [
   "/home",
-  "/dashboard/analytics",
   "/dashboard/products",
   "/dashboard/ingredients",
   "/dashboard/recipes",

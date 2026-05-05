@@ -451,6 +451,7 @@ export default function BakeryCalendarPage() {
 
   const events =
     calendarViewMode === "google" ? googleCalendarEvents : internalEvents;
+  const visibleEvents = currentView === Views.MONTH ? [] : events;
 
   const ordersByDate = useMemo(() => {
     const result = new Map<string, BakeryOrder[]>();
@@ -565,15 +566,6 @@ export default function BakeryCalendarPage() {
 
   // ─── Handlers ───────────────────────────────────────────────────────────────
   const openDateOrdersPopup = (date: Date) => {
-    const dateKey = toDateKey(date);
-    const status = statusByDate.get(dateKey) ?? "AVAILABLE";
-    if (
-      status === "PAST" ||
-      status === "BLOCKED" ||
-      status === "FULL" ||
-      status === "CUTOFF"
-    )
-      return;
     setSelectedDate(date);
     setIsDateOrdersPopupOpen(true);
   };
@@ -613,12 +605,6 @@ export default function BakeryCalendarPage() {
 
   return (
     <div className="mx-auto max-w-[360px] space-y-4 pb-10 text-[#2f1e13]">
-      <div className="flex justify-center">
-        <div className="rounded-full border border-[#d7c1af] bg-[#fff7ef] px-5 py-1 text-[11px] font-semibold uppercase tracking-[0.32em] text-[#5c3b25]">
-          CALENDAR
-        </div>
-      </div>
-
       <div className="rounded-[34px] border border-[#dec8b6] bg-[#fffaf4] p-4 shadow-[0_24px_60px_-38px_rgba(94,53,30,0.45)]">
         <div className="flex items-start justify-between gap-3 border-b border-[#ead6c8] pb-4">
           <div className="min-w-0">
@@ -673,11 +659,11 @@ export default function BakeryCalendarPage() {
             </div>
           ) : null}
 
-          <div className={currentView === Views.MONTH ? "h-[360px]" : "h-[540px]"}>
+          <div className={currentView === Views.MONTH ? "h-[392px]" : "h-[540px]"}>
             <Calendar
               localizer={localizer}
               culture="id"
-              events={events}
+              events={visibleEvents}
               startAccessor="start"
               endAccessor="end"
               date={currentDate}
@@ -733,6 +719,7 @@ export default function BakeryCalendarPage() {
                 event: CalendarEventItem,
                 month: {
                   dateHeader: DateHeader,
+                  offRangeHeader: DateHeader,
                 },
               }}
             />
@@ -1050,11 +1037,31 @@ export default function BakeryCalendarPage() {
         }
 
         .rbc-month-row {
-          min-height: 88px;
+          min-height: 96px;
         }
 
         .rbc-date-cell {
-          padding: 6px 6px 4px;
+          padding: 3px 4px 2px;
+          overflow: hidden;
+        }
+
+        .rbc-month-view .rbc-row-content {
+          pointer-events: none;
+          overflow: hidden;
+        }
+
+        .rbc-month-view .rbc-date-cell {
+          pointer-events: auto;
+        }
+
+        .rbc-month-view .rbc-row {
+          overflow: hidden;
+        }
+
+        .rbc-month-view .rbc-date-cell > div,
+        .rbc-month-view .rbc-date-cell > span,
+        .rbc-month-view .rbc-date-cell > button {
+          max-width: 100%;
         }
 
         .rbc-date-cell > a {

@@ -5,7 +5,12 @@ import type { DraftRecipeRow } from "@/types/product";
 import IngredientSelectorRow from "../products/create/components/IngredientSelectorRow";
 import { getIngredientOptions } from "@/lib/api/products";
 import type { IngredientOption } from "@/lib/api/products";
-import { makeVariantKey, type CatalogAdminState, type CustomProductEntry } from "@/lib/bookings/catalog-admin";
+import {
+  broadcastCatalogAdminState,
+  makeVariantKey,
+  type CatalogAdminState,
+  type CustomProductEntry,
+} from "@/lib/bookings/catalog-admin";
 import { BOOKING_PRODUCT_CATALOG } from "@/lib/bookings/pricelist";
 import { Plus, X, Loader2, CheckCircle2, AlertTriangle } from "lucide-react";
 
@@ -15,6 +20,7 @@ type DraftRecipeRowWithClientId = DraftRecipeRow & { _clientId: string };
 const EMPTY_CATALOG_STATE: CatalogAdminState = {
   productVariantPriceOverrides: {},
   addOnPriceOverrides: {},
+  addOnCogsOverrides: {},
   inactiveProducts: [],
   inactiveAddOns: [],
   customProducts: [],
@@ -59,6 +65,7 @@ function normalizeCatalogState(input: unknown): CatalogAdminState {
   return {
     productVariantPriceOverrides: record.productVariantPriceOverrides ?? {},
     addOnPriceOverrides: record.addOnPriceOverrides ?? {},
+    addOnCogsOverrides: record.addOnCogsOverrides ?? {},
     inactiveProducts: Array.isArray(record.inactiveProducts)
       ? record.inactiveProducts
       : [],
@@ -194,6 +201,8 @@ async function syncToBookingCatalogPrice(
     };
     throw new Error(payload.error || "Gagal sinkron produk ke catalog booking.");
   }
+
+  broadcastCatalogAdminState(nextState);
 }
 
 function buildDashboardProductName(args: {

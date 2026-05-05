@@ -3,6 +3,10 @@ import crypto from "crypto";
 import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { AuthError, ForbiddenError, requireAuth } from "@/lib/auth/session";
+import {
+  isPrismaConnectionTimeout,
+  prismaConnectionErrorResponse,
+} from "@/lib/prisma-errors";
 import { evaluateProductionTokenCapacity } from "@/lib/bookings/operations";
 import { z } from "zod";
 import {
@@ -21,6 +25,7 @@ import {
 import { normalizeDateInput } from "@/lib/helpers/date-normalization";
 import {
   sendOrderToWhatsApp,
+  type SendOrderToWhatsAppResult,
   type SendOrderToWhatsAppInput,
 } from "@/lib/whatsapp/sendOrderToWhatsApp";
 import { syncBakeryOrderInventory } from "@/lib/bookings/inventory-sync";
@@ -35,6 +40,11 @@ import {
 import { calculateShippingInsuranceFee } from "@/lib/bookings/shipping-insurance";
 import {
   distributeProductionTokens,
+  getProductionStagePercentagesFromTemplates,
+  normalizeProductionStageKey,
+  PRODUCTION_STAGE_ORDER,
+  resolvePrimaryProductionCategory,
+  resolveProductionStageTemplatesForCategory,
   type ProductionStageAssignment,
   type ProductionStage,
 } from "@/lib/bookings/production-stages";
@@ -225,6 +235,7 @@ interface StaffValidationOrder {
 
 type SnapshotSource = "rows" | "snapshot-fallback" | "snapshot-newer-than-rows";
 type SnapshotStore = Pick<typeof prisma, "businessDocument">;
+let bakeryTablesEnsuredPromise: Promise<void> | null = null;
 
 const normalizedOrderSchema = z.object({
   id: z.string().trim().min(1, "id is required"),
@@ -265,7 +276,7 @@ const normalizedOrderSchema = z.object({
   paymentTransactions: z.array(z.record(z.string(), z.unknown())),
   productionStages: z.array(
     z.object({
-      stage: z.enum(["listing", "filling", "finishing"]),
+      stage: z.enum(PRODUCTION_STAGE_ORDER),
       staffId: z.number().int().positive().nullable(),
       tokenAmount: z.number().finite().min(0),
       percentage: z.number().finite().min(0).max(100),
@@ -399,10 +410,8 @@ function normalizeProductionStages(
     .map((entry) => {
       const record = asRecord(entry);
       if (!record) return null;
-      const stage = asString(record.stage).toLowerCase();
-      if (stage !== "listing" && stage !== "filling" && stage !== "finishing") {
-        return null;
-      }
+      const stage = normalizeProductionStageKey(record.stage);
+      if (!stage) return null;
 
       return {
         stage,
@@ -1567,6 +1576,12 @@ function normalizeOrder(raw: unknown, index: number): NormalizedOrder | null {
 }
 
 async function ensureBakeryTables() {
+  if (bakeryTablesEnsuredPromise) {
+    await bakeryTablesEnsuredPromise;
+    return;
+  }
+
+  bakeryTablesEnsuredPromise = (async () => {
   await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS bakery_orders (
       id BIGSERIAL PRIMARY KEY,
@@ -1716,15 +1731,59 @@ async function ensureBakeryTables() {
   `);
 
   await prisma.$executeRawUnsafe(`
+    DO $$
+    BEGIN
+      IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'production_stage') THEN
+        IF EXISTS (
+          SELECT 1
+          FROM pg_enum e
+          JOIN pg_type t ON t.oid = e.enumtypid
+          WHERE t.typname = 'production_stage'
+            AND e.enumlabel = 'listing'
+        ) AND NOT EXISTS (
+          SELECT 1
+          FROM pg_enum e
+          JOIN pg_type t ON t.oid = e.enumtypid
+          WHERE t.typname = 'production_stage'
+            AND e.enumlabel = 'lining'
+        ) THEN
+          ALTER TYPE production_stage RENAME VALUE 'listing' TO 'lining';
+        ELSIF NOT EXISTS (
+          SELECT 1
+          FROM pg_enum e
+          JOIN pg_type t ON t.oid = e.enumtypid
+          WHERE t.typname = 'production_stage'
+            AND e.enumlabel = 'lining'
+        ) THEN
+          ALTER TYPE production_stage ADD VALUE 'lining';
+        END IF;
+      END IF;
+    END $$;
+  `);
+
+  await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS production_tasks (
       id UUID PRIMARY KEY,
       order_id UUID NOT NULL,
-      stage TEXT NOT NULL CHECK (stage IN ('listing', 'filling', 'finishing')),
+      stage TEXT NOT NULL CHECK (stage IN ('lining', 'filling', 'finishing')),
       staff_id UUID,
       token_amount DECIMAL(10,2) NOT NULL,
       created_at TIMESTAMP NOT NULL DEFAULT NOW(),
       UNIQUE (order_id, stage)
     );
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE production_tasks
+      DROP CONSTRAINT IF EXISTS production_tasks_stage_check;
+
+    UPDATE production_tasks
+    SET stage = 'lining'
+    WHERE stage::text = 'listing';
+
+    ALTER TABLE production_tasks
+      ADD CONSTRAINT production_tasks_stage_check
+      CHECK (stage::text IN ('lining', 'filling', 'finishing'));
   `);
 
   await prisma.$executeRawUnsafe(`
@@ -1755,6 +1814,14 @@ async function ensureBakeryTables() {
 
   // ── Ensure production_capacity table exists ──
   await ensureCapacityTable();
+  })();
+
+  try {
+    await bakeryTablesEnsuredPromise;
+  } catch (error) {
+    bakeryTablesEnsuredPromise = null;
+    throw error;
+  }
 }
 
 export async function GET() {
@@ -1810,6 +1877,7 @@ export async function GET() {
       `;
 
       if (orderRows.length > 0) {
+        const bakerySettings = await getBakeryBusinessSettings(businessId);
         const itemRows = await prisma.$queryRaw<DbItemRow[]>`
           SELECT order_external_id, item_index, payload
           FROM bakery_order_items
@@ -1868,60 +1936,79 @@ export async function GET() {
         for (const row of stageRows) {
           const externalId = orderExternalByUuid.get(row.order_id);
           if (!externalId) continue;
+          const stage = normalizeProductionStageKey(row.stage);
+          if (!stage) continue;
           const current = stagesMap.get(externalId) ?? [];
           current.push({
-            stage: row.stage,
+            stage,
             staffId: row.staff_id
               ? (staffIdByUuid.get(row.staff_id) ?? null)
               : null,
             tokenAmount: asNumber(row.token_amount),
-            percentage: row.stage === "finishing" ? 50 : 25,
+            percentage: 0,
           });
           stagesMap.set(externalId, current);
         }
 
-        const orders = orderRows.map((row) => ({
-          id: row.external_id,
-          bookingCode: row.booking_code ?? "",
-          resi: row.resi ?? "",
-          customerName: row.customer_name ?? "",
-          customerPhone: row.customer_phone ?? "",
-          customerAddress: row.customer_address ?? "",
-          deliveryDate:
-            normalizeDateInput(row.delivery_date ?? "") ??
-            row.delivery_date ??
-            "",
-          deliverySlot: row.delivery_slot ?? "",
-          notes: row.notes ?? "",
-          basePrice: asNumber(row.base_price),
-          addOnTotal: asNumber(row.add_on_total),
-          deliveryFee: asNumber(row.delivery_fee),
-          manualAdjustment: asNumber(row.manual_adjustment),
-          dpPaidAmount: asNumber(row.dp_paid_amount),
-          finalPaidAmount: asNumber(row.final_paid_amount),
-          totalPaidAmount: asNumber(row.total_paid_amount),
-          downPaymentAmount: asNumber(row.down_payment_amount),
-          remainingBalance: asNumber(row.remaining_balance),
-          product: row.product ?? "",
-          totalPrice: asNumber(row.total_price),
-          insuranceFee: asNumber(row.insurance_fee),
-          sales_channel: normalizeSalesChannel(row.sales_channel),
-          paymentStatus: row.payment_status ?? "Pending",
-          orderStatus: row.order_status ?? "Inquiry",
-          assignedStaffUserId: asPositiveIntOrNull(row.assigned_staff_user_id),
-          assignedStaffName: row.assigned_staff_name ?? "",
-          productionAssignedAt: toIsoOrNull(row.production_assigned_at),
-          shippingQuote: parseJsonField(row.shipping_quote),
-          shipment: parseJsonField(row.shipment),
-          simulations: parseJsonField(row.simulations),
-          whatsAppParsedData: parseJsonField(row.whatsapp_parsed_data),
-          statusHistory: parseJsonField(row.status_history) ?? [],
-          automationLogs: parseJsonField(row.automation_logs) ?? [],
-          paymentTransactions: parseJsonField(row.payment_transactions) ?? [],
-          productionStages: stagesMap.get(row.external_id) ?? [],
-          items: itemsMap.get(row.external_id) ?? [],
-          deliveryAddresses: addressesMap.get(row.external_id) ?? [],
-        }));
+        const orders = orderRows.map((row) => {
+          const items = itemsMap.get(row.external_id) ?? [];
+          const stagePercentages = getProductionStagePercentagesFromTemplates(
+            resolveProductionStageTemplatesForCategory({
+              category: resolvePrimaryProductionCategory(items),
+              profiles: bakerySettings.productionStageProfiles,
+            }),
+          );
+
+          return {
+            id: row.external_id,
+            bookingCode: row.booking_code ?? "",
+            resi: row.resi ?? "",
+            customerName: row.customer_name ?? "",
+            customerPhone: row.customer_phone ?? "",
+            customerAddress: row.customer_address ?? "",
+            deliveryDate:
+              normalizeDateInput(row.delivery_date ?? "") ??
+              row.delivery_date ??
+              "",
+            deliverySlot: row.delivery_slot ?? "",
+            notes: row.notes ?? "",
+            basePrice: asNumber(row.base_price),
+            addOnTotal: asNumber(row.add_on_total),
+            deliveryFee: asNumber(row.delivery_fee),
+            manualAdjustment: asNumber(row.manual_adjustment),
+            dpPaidAmount: asNumber(row.dp_paid_amount),
+            finalPaidAmount: asNumber(row.final_paid_amount),
+            totalPaidAmount: asNumber(row.total_paid_amount),
+            downPaymentAmount: asNumber(row.down_payment_amount),
+            remainingBalance: asNumber(row.remaining_balance),
+            product: row.product ?? "",
+            totalPrice: asNumber(row.total_price),
+            insuranceFee: asNumber(row.insurance_fee),
+            sales_channel: normalizeSalesChannel(row.sales_channel),
+            paymentStatus: row.payment_status ?? "Pending",
+            orderStatus: row.order_status ?? "Inquiry",
+            assignedStaffUserId: asPositiveIntOrNull(
+              row.assigned_staff_user_id,
+            ),
+            assignedStaffName: row.assigned_staff_name ?? "",
+            productionAssignedAt: toIsoOrNull(row.production_assigned_at),
+            shippingQuote: parseJsonField(row.shipping_quote),
+            shipment: parseJsonField(row.shipment),
+            simulations: parseJsonField(row.simulations),
+            whatsAppParsedData: parseJsonField(row.whatsapp_parsed_data),
+            statusHistory: parseJsonField(row.status_history) ?? [],
+            automationLogs: parseJsonField(row.automation_logs) ?? [],
+            paymentTransactions: parseJsonField(row.payment_transactions) ?? [],
+            productionStages: (stagesMap.get(row.external_id) ?? []).map(
+              (stage) => ({
+                ...stage,
+                percentage: stagePercentages[stage.stage] ?? stage.percentage,
+              }),
+            ),
+            items,
+            deliveryAddresses: addressesMap.get(row.external_id) ?? [],
+          };
+        });
 
         const snapshot = await readOrdersSnapshot(businessId);
         const snapshotSource = getSnapshotSource(snapshot?.metadata);
@@ -1967,6 +2054,12 @@ export async function GET() {
         });
       }
     } catch (rowError) {
+      if (isPrismaConnectionTimeout(rowError)) {
+        return prismaConnectionErrorResponse(
+          "Koneksi database timeout saat memuat daftar order bakery.",
+        );
+      }
+
       rowReadFailed = true;
       const detail = extractErrorDetails(rowError);
       console.warn(
@@ -1992,6 +2085,12 @@ export async function GET() {
   } catch (error) {
     if (error instanceof AuthError) {
       return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+
+    if (isPrismaConnectionTimeout(error)) {
+      return prismaConnectionErrorResponse(
+        "Koneksi database timeout saat memuat daftar order bakery.",
+      );
     }
 
     return NextResponse.json(
@@ -2239,62 +2338,81 @@ export async function POST(request: NextRequest) {
       for (const row of stageRows) {
         const externalId = orderExternalByUuid.get(row.order_id);
         if (!externalId) continue;
+        const stage = normalizeProductionStageKey(row.stage);
+        if (!stage) continue;
         const current = stagesMap.get(externalId) ?? [];
         current.push({
-          stage: row.stage,
+          stage,
           staffId: row.staff_id
             ? (staffIdByUuid.get(row.staff_id) ?? null)
             : null,
           tokenAmount: asNumber(row.token_amount),
-          percentage: row.stage === "finishing" ? 50 : 25,
+          percentage: 0,
         });
         stagesMap.set(externalId, current);
       }
 
-      existingOrders = existingRows.map((row) => ({
-        id: row.external_id,
-        bookingCode: row.booking_code ?? "",
-        resi: row.resi ?? "",
-        customerName: row.customer_name ?? "",
-        customerPhone: row.customer_phone ?? "",
-        customerAddress: row.customer_address ?? "",
-        deliveryDate:
-          normalizeDateInput(row.delivery_date ?? "") ??
-          row.delivery_date ??
-          "",
-        deliverySlot: row.delivery_slot ?? "",
-        notes: row.notes ?? "",
-        basePrice: asNumber(row.base_price),
-        addOnTotal: asNumber(row.add_on_total),
-        deliveryFee: asNumber(row.delivery_fee),
-        manualAdjustment: asNumber(row.manual_adjustment),
-        dpPaidAmount: asNumber(row.dp_paid_amount),
-        finalPaidAmount: asNumber(row.final_paid_amount),
-        totalPaidAmount: asNumber(row.total_paid_amount),
-        downPaymentAmount: asNumber(row.down_payment_amount),
-        remainingBalance: asNumber(row.remaining_balance),
-        product: row.product ?? "",
-        totalPrice: asNumber(row.total_price),
-        insuranceFee: asNumber(row.insurance_fee),
-        sales_channel: normalizeSalesChannel(row.sales_channel),
-        paymentStatus: row.payment_status ?? "Pending",
-        orderStatus: row.order_status ?? "Inquiry",
-        assignedStaffUserId: asPositiveIntOrNull(row.assigned_staff_user_id),
-        assignedStaffName: row.assigned_staff_name ?? "",
-        productionAssignedAt: toIsoOrNull(row.production_assigned_at),
-        shippingQuote: parseJsonField(row.shipping_quote),
-        shipment: parseJsonField(row.shipment),
-        simulations: parseJsonField(row.simulations),
-        whatsAppParsedData: parseJsonField(row.whatsapp_parsed_data),
-        statusHistory: asArrayOfRecords(parseJsonField(row.status_history)),
-        automationLogs: asArrayOfRecords(parseJsonField(row.automation_logs)),
-        paymentTransactions: asArrayOfRecords(
-          parseJsonField(row.payment_transactions),
-        ),
-        productionStages: stagesMap.get(row.external_id) ?? [],
-        items: itemsMap.get(row.external_id) ?? [],
-        deliveryAddresses: addressesMap.get(row.external_id) ?? [],
-      }));
+      existingOrders = existingRows.map((row) => {
+        const items = itemsMap.get(row.external_id) ?? [];
+        const stagePercentages = getProductionStagePercentagesFromTemplates(
+          resolveProductionStageTemplatesForCategory({
+            category: resolvePrimaryProductionCategory(items),
+            profiles: bakerySettings.productionStageProfiles,
+          }),
+        );
+
+        return {
+          id: row.external_id,
+          bookingCode: row.booking_code ?? "",
+          resi: row.resi ?? "",
+          customerName: row.customer_name ?? "",
+          customerPhone: row.customer_phone ?? "",
+          customerAddress: row.customer_address ?? "",
+          deliveryDate:
+            normalizeDateInput(row.delivery_date ?? "") ??
+            row.delivery_date ??
+            "",
+          deliverySlot: row.delivery_slot ?? "",
+          notes: row.notes ?? "",
+          basePrice: asNumber(row.base_price),
+          addOnTotal: asNumber(row.add_on_total),
+          deliveryFee: asNumber(row.delivery_fee),
+          manualAdjustment: asNumber(row.manual_adjustment),
+          dpPaidAmount: asNumber(row.dp_paid_amount),
+          finalPaidAmount: asNumber(row.final_paid_amount),
+          totalPaidAmount: asNumber(row.total_paid_amount),
+          downPaymentAmount: asNumber(row.down_payment_amount),
+          remainingBalance: asNumber(row.remaining_balance),
+          product: row.product ?? "",
+          totalPrice: asNumber(row.total_price),
+          insuranceFee: asNumber(row.insurance_fee),
+          sales_channel: normalizeSalesChannel(row.sales_channel),
+          paymentStatus: row.payment_status ?? "Pending",
+          orderStatus: row.order_status ?? "Inquiry",
+          assignedStaffUserId: asPositiveIntOrNull(
+            row.assigned_staff_user_id,
+          ),
+          assignedStaffName: row.assigned_staff_name ?? "",
+          productionAssignedAt: toIsoOrNull(row.production_assigned_at),
+          shippingQuote: parseJsonField(row.shipping_quote),
+          shipment: parseJsonField(row.shipment),
+          simulations: parseJsonField(row.simulations),
+          whatsAppParsedData: parseJsonField(row.whatsapp_parsed_data),
+          statusHistory: asArrayOfRecords(parseJsonField(row.status_history)),
+          automationLogs: asArrayOfRecords(parseJsonField(row.automation_logs)),
+          paymentTransactions: asArrayOfRecords(
+            parseJsonField(row.payment_transactions),
+          ),
+          productionStages: (stagesMap.get(row.external_id) ?? []).map(
+            (stage) => ({
+              ...stage,
+              percentage: stagePercentages[stage.stage] ?? stage.percentage,
+            }),
+          ),
+          items,
+          deliveryAddresses: addressesMap.get(row.external_id) ?? [],
+        };
+      });
 
       const existingById = new Map(
         existingOrders.map((order) => [order.id, order]),
@@ -2542,9 +2660,15 @@ export async function POST(request: NextRequest) {
                 stage.staffId ?? order.assignedStaffUserId ?? null,
               ]),
             ) as Partial<Record<ProductionStage, number | null>>;
+            const stageTemplates = resolveProductionStageTemplatesForCategory({
+              category: resolvePrimaryProductionCategory(orderItems),
+              profiles: bakerySettings.productionStageProfiles,
+            });
             const productionStages = distributeProductionTokens({
               totalTokens: tokenForOrder,
               staffByStage,
+              percentages:
+                getProductionStagePercentagesFromTemplates(stageTemplates),
             });
             const insuranceFee = computeInsuranceFee({
               shippingQuote: order.shippingQuote,
@@ -3060,13 +3184,34 @@ export async function POST(request: NextRequest) {
             eligibleCount: createdOrdersForWhatsApp.length,
           },
         );
-      } else {
-        // Wait for WA delivery so image generation/upload/send is not cut off by serverless teardown.
-        await Promise.allSettled(
+      } else if (createdOrdersForWhatsApp.length > 0) {
+        void Promise.all(
           createdOrdersForWhatsApp.map((orderPayload) =>
             sendOrderToWhatsApp(orderPayload),
           ),
-        );
+        )
+          .then((waResults) => {
+            const waFailures = waResults.filter((result) => !result.ok);
+            if (waFailures.length > 0) {
+              console.warn("[api/bookings/orders] WA notification failures", {
+                businessId,
+                userId,
+                total: waResults.length,
+                failures: waFailures.map((result: SendOrderToWhatsAppResult) => ({
+                  stage: result.stage,
+                  message: result.message,
+                })),
+              });
+            }
+          })
+          .catch((waError) => {
+            console.warn("[api/bookings/orders] WA notification dispatch failed", {
+              businessId,
+              userId,
+              message:
+                waError instanceof Error ? waError.message : String(waError),
+            });
+          });
       }
 
       return NextResponse.json({
@@ -3077,12 +3222,13 @@ export async function POST(request: NextRequest) {
           durationMs,
           ...summaryStats,
           waNotificationMode: shouldSendWhatsAppNotification
-            ? "sent"
+            ? "queued"
             : "skipped",
           waNotificationEligible: createdOrdersForWhatsApp.length,
           waNotificationQueued: shouldSendWhatsAppNotification
             ? createdOrdersForWhatsApp.length
             : 0,
+          waNotificationResults: [],
           skipWhatsAppNotification: !shouldSendWhatsAppNotification,
         },
       });
@@ -3132,6 +3278,12 @@ export async function POST(request: NextRequest) {
             details: `Tanggal ${rowError.date} berada di masa lalu.`,
           },
           { status: 400 },
+        );
+      }
+
+      if (isPrismaConnectionTimeout(rowError)) {
+        return prismaConnectionErrorResponse(
+          "Koneksi database timeout saat menyimpan order bakery.",
         );
       }
 
@@ -3215,6 +3367,12 @@ export async function POST(request: NextRequest) {
           details: `Tanggal ${error.date} berada di masa lalu.`,
         },
         { status: 400 },
+      );
+    }
+
+    if (isPrismaConnectionTimeout(error)) {
+      return prismaConnectionErrorResponse(
+        "Koneksi database timeout saat menyimpan order bakery.",
       );
     }
 

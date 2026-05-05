@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useBusiness } from "@/context/BusinessContext";
+import { useRole } from "@/context/RoleContext";
 import { BAKERY_SETTINGS_UPDATED_EVENT } from "@/hooks/useBakerySettings";
 import { apiFetch } from "@/lib/api/client";
 import type { BakeryBusinessSettings } from "@/lib/bakery/settings";
@@ -23,59 +24,31 @@ type BusinessDetail = {
   };
 };
 
-type ViewerResponse = {
-  data?: {
-    name?: string;
-    businessName?: string;
-  };
-};
-
-type ProductAnalyticsResponse = {
-  summary?: {
-    totalRevenue?: number;
-    totalCost?: number;
-    totalProfit?: number;
-    totalQuantity?: number;
-  };
-  top?: {
-    byRevenue?: Array<{
-      productId: number | string | null;
-      productName: string;
-      quantitySold: number;
-      revenue: number;
-      cost: number;
-      profit: number;
-      profitMargin: number;
-    }>;
-  };
-};
-
-type OrdersResponse = {
-  data?: {
-    orders?: Array<{
-      id: string;
-      deliveryDate?: string;
-      paymentStatus?: string;
-      totalPrice?: number;
-      totalPaidAmount?: number;
-      orderStatus?: string;
-    }>;
-  };
-};
-
-type StaffResponse = {
-  data?: {
-    members?: Array<{
-      id: number;
-      businessId: number;
-      name: string;
-    }>;
-  };
-};
-
 type BakerySettingsResponse = {
   data?: BakeryBusinessSettings;
 };
+
+type SalesSummaryResponse = {
+  data?: {
+    summary?: {
+      totalRevenue?: number;
+      totalCost?: number;
+      totalProfit?: number;
+    };
+    sales?: Array<{
+      saleItems?: Array<{
+        quantity: number;
+        priceAtSale: number;
+        product?: {
+          id: number;
+          name: string;
+        } | null;
+      }>;
+    }>;
+  };
+};
+
+type SalesList = NonNullable<SalesSummaryResponse["data"]>["sales"];
 
 type ViewState = {
   viewerName: string;
@@ -87,15 +60,13 @@ type ViewState = {
   previousRevenue: number;
   totalCost: number;
   avgMargin: number;
-  activeOrders: number;
-  dpOrderCount: number;
-  paidOrderCount: number;
+  totalSalesCount: number;
+  paidSalesCount: number;
   topProducts: Array<{
     productName: string;
     quantitySold: number;
     revenue: number;
   }>;
-  staffNames: string[];
   bakerySettings: BakeryBusinessSettings | null;
 };
 
@@ -109,13 +80,16 @@ const EMPTY_VIEW_STATE: ViewState = {
   previousRevenue: 0,
   totalCost: 0,
   avgMargin: 0,
-  activeOrders: 0,
-  dpOrderCount: 0,
-  paidOrderCount: 0,
+  totalSalesCount: 0,
+  paidSalesCount: 0,
   topProducts: [],
-  staffNames: [],
   bakerySettings: null,
 };
+
+const BUSINESS_VIEW_CACHE = new Map<
+  string,
+  { value: ViewState; cachedAt: number }
+>();
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat("id-ID", {
@@ -177,26 +151,34 @@ function getInitials(name: string) {
     .join("");
 }
 
-function normalizeStatus(value?: string) {
-  return String(value || "")
-    .trim()
-    .toLowerCase();
-}
-
-function isDateWithinRange(
-  value: string | undefined,
-  from: string,
-  to: string,
-) {
-  if (!value) return false;
-  return value >= from && value <= to;
-}
-
 function getRankEmoji(index: number) {
   if (index === 0) return "#1";
   if (index === 1) return "#2";
   if (index === 2) return "#3";
   return `#${index + 1}`;
+}
+
+function buildTopProducts(sales: SalesList) {
+  const map = new Map<string, { productName: string; quantitySold: number; revenue: number }>();
+
+  for (const sale of sales ?? []) {
+    for (const item of sale.saleItems ?? []) {
+      const productName = item.product?.name?.trim() || "Produk";
+      const quantitySold = Number(item.quantity || 0);
+      const revenue = Number(item.priceAtSale || 0) * quantitySold;
+      const current = map.get(productName) ?? {
+        productName,
+        quantitySold: 0,
+        revenue: 0,
+      };
+
+      current.quantitySold += quantitySold;
+      current.revenue += revenue;
+      map.set(productName, current);
+    }
+  }
+
+  return Array.from(map.values()).sort((a, b) => b.revenue - a.revenue);
 }
 
 function buildExportCsv(args: {
@@ -237,6 +219,10 @@ function buildExportCsv(args: {
         .join(","),
     )
     .join("\n");
+}
+
+function didRequestFail(payload: unknown): boolean {
+  return payload === null;
 }
 
 async function safeApiFetch<T>(
@@ -313,6 +299,7 @@ function BreakdownRow({
 
 export default function BusinessPage() {
   const { business, loading: businessLoading } = useBusiness();
+  const { userName } = useRole();
   const [selectedMonth, setSelectedMonth] = useState(getMonthKey(new Date()));
   const [viewState, setViewState] = useState<ViewState>(EMPTY_VIEW_STATE);
   const [loading, setLoading] = useState(true);
@@ -347,86 +334,63 @@ export default function BusinessPage() {
     let active = true;
 
     const load = async () => {
-      setLoading(true);
+      const cacheKey = `${business.id}:${selectedMonth}`;
+      const cachedEntry = BUSINESS_VIEW_CACHE.get(cacheKey);
+
+      if (cachedEntry) {
+        setViewState(cachedEntry.value);
+        setLoading(false);
+      } else {
+        setLoading(true);
+      }
       setError(null);
 
       const currentRange = getMonthRange(selectedMonth);
       const previousRange = getMonthRange(currentRange.prevMonthKey);
 
+      const bakerySettingsPromise = safeApiFetch<BakerySettingsResponse>(
+        "/api/bakery/settings",
+      );
+
       const [
-        viewerPayload,
         businessPayload,
-        currentProductsPayload,
-        previousProductsPayload,
-        ordersPayload,
-        staffPayload,
-        bakerySettingsPayload,
+        currentSalesPayload,
+        previousSalesPayload,
       ] = await Promise.all([
-        safeApiFetch<ViewerResponse>("/api/auth/me"),
         safeApiFetch<{ data?: BusinessDetail }>(
           `/api/businesses/${business.id}`,
         ),
-        safeApiFetch<ProductAnalyticsResponse>(
-          `/api/analytics/products?from=${currentRange.startDate}&to=${currentRange.endDate}`,
+        safeApiFetch<SalesSummaryResponse>(
+          `/api/sales?startDate=${currentRange.startDate}&endDate=${currentRange.endDate}&compact=1`,
         ),
-        safeApiFetch<ProductAnalyticsResponse>(
-          `/api/analytics/products?from=${previousRange.startDate}&to=${previousRange.endDate}`,
+        safeApiFetch<SalesSummaryResponse>(
+          `/api/sales?startDate=${previousRange.startDate}&endDate=${previousRange.endDate}&summaryOnly=1`,
         ),
-        safeApiFetch<OrdersResponse>("/api/bookings/orders"),
-        safeApiFetch<StaffResponse>("/api/staff"),
-        safeApiFetch<BakerySettingsResponse>("/api/bakery/settings"),
       ]);
 
       if (!active) return;
 
-      const viewer = viewerPayload?.data;
+      const businessRequestFailed = didRequestFail(businessPayload);
+      const currentSalesRequestFailed = didRequestFail(currentSalesPayload);
+      const previousSalesRequestFailed = didRequestFail(previousSalesPayload);
+
       const businessDetail = businessPayload?.data ?? null;
-      const currentProducts = currentProductsPayload?.summary;
-      const previousProducts = previousProductsPayload?.summary;
-      const orders = ordersPayload?.data?.orders ?? [];
-      const staffMembers =
-        staffPayload?.data?.members?.filter(
-          (member) => String(member.businessId) === String(business.id),
-        ) ?? [];
+      const currentSummary = currentSalesPayload?.data?.summary;
+      const previousSummary = previousSalesPayload?.data?.summary;
+      const currentSales = currentSalesPayload?.data?.sales ?? [];
 
-      const periodOrders = orders.filter(
-        (order) =>
-          isDateWithinRange(
-            order.deliveryDate,
-            currentRange.startDate,
-            currentRange.endDate,
-          ) &&
-          (["dp paid", "paid"].includes(normalizeStatus(order.paymentStatus)) ||
-            Number(order.totalPaidAmount ?? 0) > 0),
-      );
-
-      const activeOrders = periodOrders.filter((order) => {
-        const status = normalizeStatus(order.orderStatus);
-        return !["completed", "delivered", "delivery", "cancelled"].includes(
-          status,
-        );
-      }).length;
-
-      const dpOrderCount = periodOrders.filter(
-        (order) => normalizeStatus(order.paymentStatus) === "dp paid",
-      ).length;
-      const paidOrderCount = periodOrders.filter(
-        (order) => normalizeStatus(order.paymentStatus) === "paid",
-      ).length;
-
-      const currentRevenue = Number(currentProducts?.totalRevenue ?? 0);
-      const currentProfit = Number(currentProducts?.totalProfit ?? 0);
-      const previousRevenue = Number(previousProducts?.totalRevenue ?? 0);
-      const totalCost = Number(currentProducts?.totalCost ?? 0);
+      const currentRevenue = Number(currentSummary?.totalRevenue ?? 0);
+      const currentProfit = Number(currentSummary?.totalProfit ?? 0);
+      const previousRevenue = Number(previousSummary?.totalRevenue ?? 0);
+      const totalCost = Number(currentSummary?.totalCost ?? 0);
       const avgMargin =
         currentRevenue > 0
           ? (currentProfit / currentRevenue) * 100
           : Number(businessDetail?.stats.marginAvg ?? 0) || 0;
 
-      setViewState({
-        viewerName: viewer?.name?.trim() || "",
+      const nextViewState: ViewState = {
+        viewerName: userName?.trim() || "",
         businessName:
-          viewer?.businessName?.trim() ||
           businessDetail?.name?.trim() ||
           business.name,
         businessLocation: businessDetail?.location?.trim() || "",
@@ -436,42 +400,58 @@ export default function BusinessPage() {
         previousRevenue,
         totalCost,
         avgMargin,
-        activeOrders,
-        dpOrderCount,
-        paidOrderCount,
-        topProducts:
-          currentProductsPayload?.top?.byRevenue?.map((item) => ({
-            productName: item.productName,
-            quantitySold: Number(item.quantitySold || 0),
-            revenue: Number(item.revenue || 0),
-          })) ?? [],
-        staffNames: staffMembers.map((member) => member.name).filter(Boolean),
-        bakerySettings: bakerySettingsPayload?.data ?? null,
+        totalSalesCount: Number(businessDetail?._count?.sales ?? 0),
+        paidSalesCount: Number(businessDetail?.stats?.paidSalesCount ?? 0),
+        topProducts: buildTopProducts(currentSales),
+        bakerySettings: null,
+      };
+      BUSINESS_VIEW_CACHE.set(cacheKey, {
+        value: nextViewState,
+        cachedAt: Date.now(),
       });
+      setViewState(nextViewState);
 
       const hasPrimaryData =
         Boolean(businessDetail) ||
         currentRevenue > 0 ||
         currentProfit > 0 ||
-        activeOrders > 0 ||
-        dpOrderCount > 0 ||
-        paidOrderCount > 0 ||
-        (currentProductsPayload?.top?.byRevenue?.length ?? 0) > 0;
+        Number(businessDetail?._count?.sales ?? 0) > 0 ||
+        Number(businessDetail?.stats?.paidSalesCount ?? 0) > 0 ||
+        currentSales.length > 0;
+      const hasBackendFailure =
+        businessRequestFailed ||
+        currentSalesRequestFailed ||
+        previousSalesRequestFailed;
 
       setError(
-        hasPrimaryData
-          ? null
-          : "Data business belum berhasil dimuat dari backend untuk periode ini.",
+        hasBackendFailure && !hasPrimaryData
+          ? "Data business belum berhasil dimuat dari backend untuk periode ini."
+          : null,
       );
       setLoading(false);
+
+      const bakerySettingsPayload = await bakerySettingsPromise;
+      if (!active || !bakerySettingsPayload?.data) return;
+
+      setViewState((current) => {
+        const enrichedState = {
+          ...current,
+          bakerySettings: bakerySettingsPayload.data ?? null,
+        };
+        BUSINESS_VIEW_CACHE.set(cacheKey, {
+          value: enrichedState,
+          cachedAt: Date.now(),
+        });
+        return enrichedState;
+      });
     };
 
-    load();
+    void load();
 
     return () => {
       active = false;
     };
-  }, [business?.id, business?.name, selectedMonth, refreshToken]);
+  }, [business?.id, business?.name, selectedMonth, refreshToken, userName]);
 
   const monthLabel = useMemo(
     () => getMonthLabel(selectedMonth),
@@ -532,7 +512,7 @@ export default function BusinessPage() {
       revenue: viewState.currentRevenue,
       totalCost: viewState.totalCost,
       profit: netProfit,
-      activeOrders: viewState.activeOrders,
+      activeOrders: viewState.paidSalesCount,
       margin: viewState.avgMargin,
       topProducts: viewState.topProducts,
     });
@@ -655,13 +635,13 @@ export default function BusinessPage() {
             <div className="border-t border-[#ead8cb] bg-[#fff8f3] px-4 py-3">
               <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#7d675a]">
                 <span className="font-semibold text-[#1f120e]">
-                  Pembayaran:
+                  Sales:
                 </span>
                 <span className="rounded-full bg-[#fbf0d8] px-2.5 py-1 font-semibold text-[#9a6b10]">
-                  DP 50% {viewState.dpOrderCount}
+                  Total {viewState.totalSalesCount}
                 </span>
                 <span className="rounded-full bg-[#e4f4ee] px-2.5 py-1 font-semibold text-[#17653d]">
-                  Paid Lunas {viewState.paidOrderCount}
+                  Paid {viewState.paidSalesCount}
                 </span>
               </div>
             </div>
@@ -751,9 +731,9 @@ export default function BusinessPage() {
 
           <section className="grid grid-cols-2 gap-3">
             <div className="rounded-[18px] border border-[#dbcabc] bg-white px-4 py-4 shadow-[0_2px_10px_rgba(84,56,36,0.06)]">
-              <p className="text-[11px] text-[#7d675a]">Order Aktif</p>
+              <p className="text-[11px] text-[#7d675a]">Sales Tercatat</p>
               <p className="mt-1 text-[22px] font-extrabold leading-none text-[#1f120e]">
-                {viewState.activeOrders}
+                {viewState.totalSalesCount}
               </p>
             </div>
             <div className="rounded-[18px] border border-[#dbcabc] bg-white px-4 py-4 shadow-[0_2px_10px_rgba(84,56,36,0.06)]">

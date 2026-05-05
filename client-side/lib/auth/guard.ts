@@ -90,13 +90,6 @@ export function withAuthRole(allowedRoles: UserRole[], handler: AuthenticatedHan
  * ║  GET/POST  /api/sales                                         ║
  * ║  POST      /api/sales/midtrans-token                          ║
  * ║  GET       /api/sales/[saleId]/invoice                        ║
- * ║  GET       /api/analytics/dashboard                           ║
- * ║  GET       /api/analytics/monthly                             ║
- * ║  GET       /api/analytics/growth                              ║
- * ║  GET       /api/analytics/waste                               ║
- * ║  GET       /api/analytics/insight                             ║
- * ║  GET       /api/analytics/top-products                        ║
- * ║  GET       /api/analytics/products                            ║
  * ║  POST      /api/ai/chat                                       ║
  * ║  GET       /api/ai/chat (history)                             ║
  * ║  POST      /api/ai/insights                                   ║
@@ -104,7 +97,6 @@ export function withAuthRole(allowedRoles: UserRole[], handler: AuthenticatedHan
  * ║  POST      /api/ai/rag/search                                 ║
  * ║  GET/POST  /api/ai/sessions                                   ║
  * ║  POST      /api/analyze-image              ← FIXED            ║
- * ║  POST/GET  /api/business-analytics          ← FIXED           ║
  * ║  GET/POST  /api/businesses                 (own JWT check)    ║
  * ║                                                               ║
  * ║  🔓 PUBLIC (intentionally unauthenticated)                    ║
@@ -113,7 +105,6 @@ export function withAuthRole(allowedRoles: UserRole[], handler: AuthenticatedHan
  * ║  POST      /api/auth/register                                 ║
  * ║  *         /api/auth/[...nextauth]                            ║
  * ║  GET       /api/analyze-image              (health check)     ║
- * ║  GET       /api/business-analytics         (health check)     ║
  * ║                                                               ║
  * ║  🔑 SPECIAL AUTH                                              ║
  * ║  ─────────────────────────────────────────                    ║

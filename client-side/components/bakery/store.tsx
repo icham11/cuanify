@@ -28,7 +28,10 @@ import type {
   ShippingResiResponse,
   ShippingShipment,
 } from "@/lib/bookings/shipping-types";
-import { isWithinBusinessHours } from "@/lib/bookings/operations";
+import {
+  isWithinBusinessHours,
+  summarizeProductionTokensByItems,
+} from "@/lib/bookings/operations";
 import {
   estimateOperationalWeightGram,
   parseServiceChargeFromNotes,
@@ -46,6 +49,12 @@ import { normalizeDateInput } from "@/lib/helpers/date-normalization";
 import { useBakerySettings } from "@/hooks/useBakerySettings";
 import {
   distributeProductionTokens,
+  getProductionStagePercentagesFromTemplates,
+  normalizeProductionStageAssignments,
+  PRODUCTION_STAGE_ORDER,
+  resolvePrimaryProductionCategory,
+  resolveProductionStageTemplatesForCategory,
+  type ProductionStage,
   type ProductionStageAssignment,
 } from "@/lib/bookings/production-stages";
 
@@ -226,6 +235,12 @@ interface OrdersContextValue {
     stage: ProductionStageAssignment["stage"],
     staff: { userId: number; name: string } | null,
   ) => void;
+  assignProductionStagesStaff: (
+    id: string,
+    assignments: Partial<
+      Record<ProductionStage, { userId: number; name: string } | null>
+    >,
+  ) => void;
   clearOrderAssignee: (id: string) => void;
   updatePaymentStatus: (id: string, status: PaymentStatus) => void;
   recordPayment: (
@@ -258,8 +273,8 @@ const ORDERS_SYNC_ENDPOINT = NORMALIZED_BOOKINGS_API_BASE
   ? `${NORMALIZED_BOOKINGS_API_BASE}/api/bookings/orders`
   : "/api/bookings/orders";
 const INITIAL_SNAPSHOT = JSON.stringify(initialOrders);
-const SERVER_SYNC_POLL_INTERVAL_MS = 30000;
 const LOCAL_WRITE_STALE_GUARD_MS = 2500;
+const ORDERS_SYNC_DEBOUNCE_MS = 450;
 const SHIPMENT_RETRY_BACKOFF_MS = 5 * 60 * 1000;
 const SHIPMENT_WARNING_COOLDOWN_MS = 10 * 60 * 1000;
 
@@ -795,7 +810,14 @@ function getServerSnapshot() {
 function parseSnapshot(snapshot: string): BakeryOrder[] {
   try {
     const parsed = JSON.parse(snapshot) as BakeryOrder[];
-    return Array.isArray(parsed) ? parsed : initialOrders;
+    if (!Array.isArray(parsed)) return initialOrders;
+    return parsed.map((order) => ({
+      ...order,
+      productionStages: normalizeProductionStageAssignments({
+        totalTokens: summarizeProductionTokensByItems(order.items ?? []),
+        stages: order.productionStages ?? [],
+      }),
+    }));
   } catch {
     return initialOrders;
   }
@@ -807,6 +829,38 @@ function areOrdersSnapshotsEqual(
 ): boolean {
   if (left.length !== right.length) return false;
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function getLatestOrderActivityTimestamp(order: BakeryOrder): number {
+  const candidates = [
+    ...(order.statusHistory ?? []).map((entry) => Date.parse(entry.timestamp)),
+    ...(order.paymentTransactions ?? []).map((entry) =>
+      Date.parse(entry.timestamp),
+    ),
+    ...(order.automationLogs ?? []).map((entry) => Date.parse(entry.timestamp)),
+    Date.parse(order.productionAssignedAt ?? ""),
+  ];
+
+  return candidates.reduce((latest, current) => {
+    return Number.isFinite(current) ? Math.max(latest, current) : latest;
+  }, 0);
+}
+
+function mergeOrdersPreferLatestLocal(
+  localOrders: BakeryOrder[],
+  serverOrders: BakeryOrder[],
+): BakeryOrder[] {
+  const localById = new Map(localOrders.map((order) => [order.id, order]));
+
+  return serverOrders.map((serverOrder) => {
+    const localOrder = localById.get(serverOrder.id);
+    if (!localOrder) return serverOrder;
+
+    const localLatest = getLatestOrderActivityTimestamp(localOrder);
+    const serverLatest = getLatestOrderActivityTimestamp(serverOrder);
+
+    return localLatest > serverLatest ? localOrder : serverOrder;
+  });
 }
 
 function writeOrdersSnapshot(nextOrders: BakeryOrder[]) {
@@ -829,7 +883,13 @@ function parseOrdersSyncError(
   return fallback;
 }
 
-export function OrdersProvider({ children }: { children: React.ReactNode }) {
+export function OrdersProvider({
+  children,
+  enabled = true,
+}: {
+  children: React.ReactNode;
+  enabled?: boolean;
+}) {
   const { settings: bakerySettings } = useBakerySettings();
   const blockedDates = bakerySettings?.blockedDates;
   const cutoffEnabled = bakerySettings?.cutoffEnabled ?? true;
@@ -852,7 +912,10 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
   });
   const hydrationInFlightRef = useRef(false);
   const lastLocalWriteAtRef = useRef(0);
-  const scheduledShipmentRunInFlightRef = useRef(false);
+  const syncDebounceTimerRef = useRef<number | null>(null);
+  const syncQueuedOrdersRef = useRef<BakeryOrder[] | null>(null);
+  const syncRollbackSnapshotRef = useRef<string | null>(null);
+  const syncInFlightRef = useRef(false);
   const processingShipmentIdsRef = useRef<Set<string>>(new Set());
   const shipmentRetryBackoffUntilRef = useRef<Map<string, number>>(new Map());
   const shipmentWarningStateRef = useRef<
@@ -860,14 +923,16 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
   >(new Map());
 
   useEffect(() => {
+    if (!enabled) return;
     if (typeof window === "undefined") return;
     if (!hasHydrated) {
       hasHydrated = true;
       window.dispatchEvent(new Event(STORAGE_EVENT));
     }
-  }, []);
+  }, [enabled]);
 
   useEffect(() => {
+    if (!enabled) return;
     if (typeof window === "undefined") return;
     let isMounted = true;
 
@@ -894,7 +959,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [enabled]);
 
   const syncOrdersToServer = useCallback(async (nextOrders: BakeryOrder[]) => {
     if (typeof window === "undefined") {
@@ -980,6 +1045,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
 
   const hydrateOrdersFromServer = useCallback(
     async (force = false) => {
+      if (!enabled) return;
       if (typeof window === "undefined") return;
       if (hydrationInFlightRef.current) return;
 
@@ -1010,8 +1076,13 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
               LOCAL_WRITE_STALE_GUARD_MS;
           if (recentlyChangedLocally) return;
 
-          if (!areOrdersSnapshotsEqual(localOrders, serverOrders)) {
-            writeOrdersSnapshot(serverOrders);
+          const mergedOrders = mergeOrdersPreferLatestLocal(
+            localOrders,
+            serverOrders,
+          );
+
+          if (!areOrdersSnapshotsEqual(localOrders, mergedOrders)) {
+            writeOrdersSnapshot(mergedOrders);
           }
           return;
         }
@@ -1030,60 +1101,100 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         hydrationInFlightRef.current = false;
       }
     },
-    [syncOrdersToServer],
+    [enabled, syncOrdersToServer],
   );
 
   useEffect(() => {
+    if (!enabled) return;
     void hydrateOrdersFromServer();
-  }, [hydrateOrdersFromServer]);
+  }, [enabled, hydrateOrdersFromServer]);
 
   useEffect(() => {
+    if (!enabled) return;
     if (typeof window === "undefined") return;
 
-    const pollId = window.setInterval(() => {
-      void hydrateOrdersFromServer();
-    }, SERVER_SYNC_POLL_INTERVAL_MS);
-
-    const handleFocus = () => {
-      void hydrateOrdersFromServer();
-    };
-
-    const handleVisibility = () => {
-      if (document.visibilityState === "visible") {
-        void hydrateOrdersFromServer();
+    return () => {
+      if (syncDebounceTimerRef.current) {
+        window.clearTimeout(syncDebounceTimerRef.current);
+        syncDebounceTimerRef.current = null;
       }
     };
+  }, [enabled]);
 
-    window.addEventListener("focus", handleFocus);
-    document.addEventListener("visibilitychange", handleVisibility);
+  const flushQueuedOrdersSync = useCallback(async () => {
+    if (typeof window === "undefined") return;
+    if (syncInFlightRef.current) return;
 
-    return () => {
-      window.clearInterval(pollId);
-      window.removeEventListener("focus", handleFocus);
-      document.removeEventListener("visibilitychange", handleVisibility);
-    };
-  }, [hydrateOrdersFromServer]);
+    const queuedOrders = syncQueuedOrdersRef.current;
+    if (!queuedOrders) return;
+
+    const rollbackSnapshot =
+      syncRollbackSnapshotRef.current ??
+      window.localStorage.getItem(STORAGE_KEY) ??
+      INITIAL_SNAPSHOT;
+
+    syncQueuedOrdersRef.current = null;
+    syncRollbackSnapshotRef.current = null;
+    syncInFlightRef.current = true;
+
+    try {
+      await syncOrdersToServer(queuedOrders);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Gagal sinkron perubahan booking ke server.";
+
+      if (!syncQueuedOrdersRef.current) {
+        const rollbackOrders = parseSnapshot(rollbackSnapshot);
+        writeOrdersSnapshot(rollbackOrders);
+        lastLocalWriteAtRef.current = 0;
+        void hydrateOrdersFromServer(true);
+      }
+
+      console.warn("[bookings][frontend] persist sync failed", {
+        endpoint: ORDERS_SYNC_ENDPOINT,
+        message,
+      });
+
+      if (!(error instanceof CapacityFullSyncError)) {
+        toast.error(`Perubahan dibatalkan karena sinkron gagal: ${message}`);
+      }
+    } finally {
+      syncInFlightRef.current = false;
+
+      if (syncQueuedOrdersRef.current) {
+        void flushQueuedOrdersSync();
+      }
+    }
+  }, [hydrateOrdersFromServer, syncOrdersToServer]);
 
   const persistOrders = useCallback(
-    (nextOrders: BakeryOrder[]) => {
+    (
+      nextOrders: BakeryOrder[],
+      options?: { syncToServer?: boolean },
+    ) => {
       if (typeof window === "undefined") return;
+      const shouldSyncToServer = options?.syncToServer !== false;
       const previousSnapshot =
         window.localStorage.getItem(STORAGE_KEY) ?? INITIAL_SNAPSHOT;
       lastLocalWriteAtRef.current = Date.now();
       writeOrdersSnapshot(nextOrders);
-      void syncOrdersToServer(nextOrders).catch((error) => {
-        const message =
-          error instanceof Error
-            ? error.message
-            : "Gagal sinkron perubahan booking ke server.";
+      if (!shouldSyncToServer) return;
+      syncQueuedOrdersRef.current = nextOrders;
+      syncRollbackSnapshotRef.current = previousSnapshot;
 
-        // Revert optimistic local state so role-based guardrail failures
-        // do not leave this browser out of sync from server truth.
-        const rollbackOrders = parseSnapshot(previousSnapshot);
-        writeOrdersSnapshot(rollbackOrders);
-        lastLocalWriteAtRef.current = 0;
-        void hydrateOrdersFromServer(true);
+      if (syncDebounceTimerRef.current) {
+        window.clearTimeout(syncDebounceTimerRef.current);
+      }
 
+      syncDebounceTimerRef.current = window.setTimeout(() => {
+        syncDebounceTimerRef.current = null;
+        void flushQueuedOrdersSync();
+      }, ORDERS_SYNC_DEBOUNCE_MS);
+
+
+      /*
         console.warn("[bookings][frontend] persist sync failed", {
           endpoint: ORDERS_SYNC_ENDPOINT,
           message,
@@ -1097,8 +1208,9 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
 
         toast.error(`Perubahan dibatalkan karena sinkron gagal: ${message}`);
       });
+      */
     },
-    [hydrateOrdersFromServer, syncOrdersToServer],
+    [flushQueuedOrdersSync],
   );
 
   const runAutomationsForOrder = useCallback(
@@ -1283,7 +1395,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
                   }
                 : entry,
             );
-            persistOrders(updatedOrders);
+            persistOrders(updatedOrders, { syncToServer: false });
           }
 
           const fallbackPostalCode =
@@ -1427,7 +1539,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
                   }
                 : entry,
             );
-            persistOrders(ordersWithRefreshedQuote);
+            persistOrders(ordersWithRefreshedQuote, { syncToServer: false });
 
             return refreshedQuote;
           };
@@ -1520,55 +1632,6 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
     },
     [persistOrders],
   );
-
-  const runScheduledShipmentCreation = useCallback(async () => {
-    if (typeof window === "undefined") return;
-    if (scheduledShipmentRunInFlightRef.current) return;
-
-    scheduledShipmentRunInFlightRef.current = true;
-    try {
-      const currentSnapshot =
-        window.localStorage.getItem(STORAGE_KEY) ?? INITIAL_SNAPSHOT;
-      const currentOrders = parseSnapshot(currentSnapshot);
-      const todayJakarta = getJakartaTodayIsoDate();
-
-      const dueOrderIds = currentOrders
-        .filter((order) => isDueForScheduledShipment(order, todayJakarta))
-        .map((order) => order.id);
-
-      for (const dueOrderId of dueOrderIds) {
-        await createShipmentForOrder(dueOrderId);
-      }
-    } finally {
-      scheduledShipmentRunInFlightRef.current = false;
-    }
-  }, [createShipmentForOrder]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const run = () => {
-      void runScheduledShipmentCreation();
-    };
-
-    run();
-    const intervalId = window.setInterval(run, 60000);
-    const handleFocus = () => run();
-    const handleVisibility = () => {
-      if (document.visibilityState === "visible") {
-        run();
-      }
-    };
-
-    window.addEventListener("focus", handleFocus);
-    document.addEventListener("visibilitychange", handleVisibility);
-
-    return () => {
-      window.clearInterval(intervalId);
-      window.removeEventListener("focus", handleFocus);
-      document.removeEventListener("visibilitychange", handleVisibility);
-    };
-  }, [runScheduledShipmentCreation]);
 
   const addOrder = useCallback(
     async (order: NewOrderInput) => {
@@ -1729,7 +1792,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       toast.success(`Booking masuk produksi: ${bookingCode}`);
       if (isHistoricalBackfill) {
         toast.message(
-          "Booking backfill historis disimpan. Laporan, kalender internal, dan analytics akan ikut terbarui tanpa trigger operasional baru.",
+          "Booking backfill historis disimpan. Laporan dan kalender internal akan ikut terbarui tanpa trigger operasional baru.",
         );
         return;
       }
@@ -1840,32 +1903,19 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       const nowIso = new Date().toISOString();
       const nextOrders = orders.map((order) => {
         if (order.id !== id) return order;
-        const totalTokens = Number(
-          order.items?.reduce((sum, item) => {
-            const qty = Math.max(0, Number(item.quantity) || 0);
-            const token =
-              Number(item.customTokenPerUnit) ||
-              (item.tokenDifficulty === "EXPERT"
-                ? 5
-                : item.tokenDifficulty === "ADVANCED"
-                  ? 4
-                  : item.tokenDifficulty === "HARD" ||
-                      item.tokenDifficulty === "DIFFICULT"
-                    ? 3
-                    : item.tokenDifficulty === "NORMAL" ||
-                        item.tokenDifficulty === "MEDIUM"
-                      ? 2
-                      : 1);
-            return sum + qty * token;
-          }, 0) || 0,
-        );
+        const totalTokens = summarizeProductionTokensByItems(order.items ?? []);
+        const stageTemplates = resolveProductionStageTemplatesForCategory({
+          category: resolvePrimaryProductionCategory(order.items ?? []),
+          profiles: bakerySettings?.productionStageProfiles,
+        });
         const productionStages = distributeProductionTokens({
           totalTokens,
           staffByStage: {
-            listing: staff.userId,
+            lining: staff.userId,
             filling: staff.userId,
             finishing: staff.userId,
           },
+          percentages: getProductionStagePercentagesFromTemplates(stageTemplates),
         });
         return {
           ...order,
@@ -1889,7 +1939,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         toast.success(`Order di-assign ke ${staff.name}`);
       }
     },
-    [orders, persistOrders, actorIdentity],
+    [orders, persistOrders, actorIdentity, bakerySettings?.productionStageProfiles],
   );
 
   const clearOrderAssignee = useCallback(
@@ -1899,25 +1949,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
 
       const nextOrders = orders.map((order) => {
         if (order.id !== id) return order;
-        const totalTokens = Number(
-          order.items?.reduce((sum, item) => {
-            const qty = Math.max(0, Number(item.quantity) || 0);
-            const token =
-              Number(item.customTokenPerUnit) ||
-              (item.tokenDifficulty === "EXPERT"
-                ? 5
-                : item.tokenDifficulty === "ADVANCED"
-                  ? 4
-                  : item.tokenDifficulty === "HARD" ||
-                      item.tokenDifficulty === "DIFFICULT"
-                    ? 3
-                    : item.tokenDifficulty === "NORMAL" ||
-                        item.tokenDifficulty === "MEDIUM"
-                      ? 2
-                      : 1);
-            return sum + qty * token;
-          }, 0) || 0,
-        );
+        const totalTokens = summarizeProductionTokensByItems(order.items ?? []);
         return {
           ...order,
           assignedStaffUserId: null,
@@ -1926,10 +1958,16 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
           productionStages: distributeProductionTokens({
             totalTokens,
             staffByStage: {
-              listing: null,
+              lining: null,
               filling: null,
               finishing: null,
             },
+            percentages: getProductionStagePercentagesFromTemplates(
+              resolveProductionStageTemplatesForCategory({
+                category: resolvePrimaryProductionCategory(order.items ?? []),
+                profiles: bakerySettings?.productionStageProfiles,
+              }),
+            ),
           }),
           statusHistory: appendStatusLog(
             order.statusHistory,
@@ -1943,55 +1981,43 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       persistOrders(nextOrders);
       toast.message("Assignment staff dilepas");
     },
-    [orders, persistOrders, actorIdentity],
+    [orders, persistOrders, actorIdentity, bakerySettings?.productionStageProfiles],
   );
 
-  const assignProductionStageStaff = useCallback(
+  const assignProductionStagesStaff = useCallback(
     (
       id: string,
-      stage: ProductionStageAssignment["stage"],
-      staff: { userId: number; name: string } | null,
+      assignments: Partial<
+        Record<ProductionStage, { userId: number; name: string } | null>
+      >,
     ) => {
       const nextOrders = orders.map((order) => {
         if (order.id !== id) return order;
-        const totalTokens = Number(
-          order.items?.reduce((sum, item) => {
-            const qty = Math.max(0, Number(item.quantity) || 0);
-            const token =
-              Number(item.customTokenPerUnit) ||
-              (item.tokenDifficulty === "EXPERT"
-                ? 5
-                : item.tokenDifficulty === "ADVANCED"
-                  ? 4
-                  : item.tokenDifficulty === "HARD" ||
-                      item.tokenDifficulty === "DIFFICULT"
-                    ? 3
-                    : item.tokenDifficulty === "NORMAL" ||
-                        item.tokenDifficulty === "MEDIUM"
-                      ? 2
-                      : 1);
-            return sum + qty * token;
-          }, 0) || 0,
-        );
+        const totalTokens = summarizeProductionTokensByItems(order.items ?? []);
         const currentByStage = new Map(
           (order.productionStages ?? []).map((entry) => [entry.stage, entry]),
         );
+        const staffByStage = PRODUCTION_STAGE_ORDER.reduce(
+          (acc, stageKey) => {
+            if (Object.prototype.hasOwnProperty.call(assignments, stageKey)) {
+              acc[stageKey] = assignments[stageKey]?.userId ?? null;
+              return acc;
+            }
+
+            acc[stageKey] = currentByStage.get(stageKey)?.staffId ?? null;
+            return acc;
+          },
+          {} as Record<ProductionStage, number | null>,
+        );
         const productionStages = distributeProductionTokens({
           totalTokens,
-          staffByStage: {
-            listing:
-              stage === "listing"
-                ? (staff?.userId ?? null)
-                : (currentByStage.get("listing")?.staffId ?? null),
-            filling:
-              stage === "filling"
-                ? (staff?.userId ?? null)
-                : (currentByStage.get("filling")?.staffId ?? null),
-            finishing:
-              stage === "finishing"
-                ? (staff?.userId ?? null)
-                : (currentByStage.get("finishing")?.staffId ?? null),
-          },
+          staffByStage,
+          percentages: getProductionStagePercentagesFromTemplates(
+            resolveProductionStageTemplatesForCategory({
+              category: resolvePrimaryProductionCategory(order.items ?? []),
+              profiles: bakerySettings?.productionStageProfiles,
+            }),
+          ),
         });
         const uniqueAssignees = [
           ...new Set(
@@ -2005,8 +2031,11 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
         // Determine staff name: prefer new staff, fallback to existing, handle multi-stage assignments
         let nextAssignedStaffName = "";
         if (nextAssignedStaffUserId !== null) {
-          if (nextAssignedStaffUserId === staff?.userId) {
-            nextAssignedStaffName = staff.name;
+          const assignedStaffFromPayload = Object.values(assignments).find(
+            (entry) => entry?.userId === nextAssignedStaffUserId,
+          );
+          if (assignedStaffFromPayload) {
+            nextAssignedStaffName = assignedStaffFromPayload.name;
           } else if (
             order.assignedStaffUserId === nextAssignedStaffUserId &&
             order.assignedStaffName
@@ -2032,13 +2061,20 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       });
 
       persistOrders(nextOrders);
-      toast.success(
-        staff
-          ? `${stage} di-assign ke ${staff.name}`
-          : `${stage} assignment dilepas`,
-      );
+      toast.success("Assignment proses berhasil diperbarui");
     },
-    [orders, persistOrders],
+    [orders, persistOrders, bakerySettings?.productionStageProfiles],
+  );
+
+  const assignProductionStageStaff = useCallback(
+    (
+      id: string,
+      stage: ProductionStageAssignment["stage"],
+      staff: { userId: number; name: string } | null,
+    ) => {
+      assignProductionStagesStaff(id, { [stage]: staff });
+    },
+    [assignProductionStagesStaff],
   );
 
   const updatePaymentStatus = useCallback(
@@ -2362,6 +2398,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       updateOrderStatus,
       assignOrderToStaff,
       assignProductionStageStaff,
+      assignProductionStagesStaff,
       clearOrderAssignee,
       updatePaymentStatus,
       recordPayment,
@@ -2376,6 +2413,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
       updateOrderStatus,
       assignOrderToStaff,
       assignProductionStageStaff,
+      assignProductionStagesStaff,
       clearOrderAssignee,
       updatePaymentStatus,
       recordPayment,

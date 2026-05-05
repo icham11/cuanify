@@ -2,6 +2,7 @@ import type {
   ShippingDistanceSource,
   ShippingProvider,
   ShippingQuote,
+  ShippingQuoteRateType,
   ShippingQuoteRequest,
   ShippingQuoteResponse,
   ShippingResiRequest,
@@ -90,6 +91,11 @@ interface TimedCacheEntry<T> {
   value: T;
 }
 
+interface CourierAttemptPlan {
+  coordinate: string[];
+  postal: string[];
+}
+
 const BITESHIP_BASE_URL = "https://api.biteship.com/v1";
 const EXTERNAL_REQUEST_TIMEOUT_MS = parseNumber(
   process.env.SHIPPING_EXTERNAL_TIMEOUT_MS,
@@ -156,6 +162,9 @@ const FALLBACK_CAR_BASE_FEE = 18000;
 const FALLBACK_CAR_PER_KM_FEE = 3500;
 const FALLBACK_CAR_MIN_FEE = 25000;
 const FALLBACK_CAR_MAX_FEE = 95000;
+const COORDINATE_ONLY_COURIERS = ["gojek", "grab"];
+const HYBRID_COURIERS = ["paxel"];
+const POSTAL_ONLY_COURIERS = ["jne", "jnt"];
 
 function parseNumber(value: string | undefined, fallback: number): number {
   if (!value) return fallback;
@@ -1092,6 +1101,83 @@ function uniqueByKey<T>(items: T[], getKey: (item: T) => string): T[] {
   return result;
 }
 
+function getQuoteServiceKey(quote: ShippingQuote): string {
+  return `${quote.provider}:${quote.courierCode}:${quote.courierServiceCode}`;
+}
+
+function getQuoteComparablePrice(quote: ShippingQuote): number {
+  return Math.max(0, quote.priceWithoutInsurance ?? quote.price ?? 0);
+}
+
+function buildCourierAttemptPlan(
+  mode: RateDestination["mode"],
+): CourierAttemptPlan {
+  if (mode === "coordinate") {
+    return {
+      coordinate: [
+        [...COORDINATE_ONLY_COURIERS, ...HYBRID_COURIERS].join(","),
+        COORDINATE_ONLY_COURIERS.join(","),
+        HYBRID_COURIERS.join(","),
+      ].filter(Boolean),
+      postal: [],
+    };
+  }
+
+  return {
+    coordinate: [],
+    postal: [
+      [...POSTAL_ONLY_COURIERS, ...HYBRID_COURIERS].join(","),
+      POSTAL_ONLY_COURIERS.join(","),
+      HYBRID_COURIERS.join(","),
+    ].filter(Boolean),
+  };
+}
+
+function isPreferredPostalRegularQuote(quote: ShippingQuote): boolean {
+  return (
+    (quote.provider === "JNE" || quote.provider === "JNT") &&
+    quote.rateType === "postal"
+  );
+}
+
+function mergeQuotesByPreferredService(quotes: ShippingQuote[]): ShippingQuote[] {
+  const merged = new Map<string, ShippingQuote>();
+
+  for (const quote of quotes) {
+    const key = getQuoteServiceKey(quote);
+    const existing = merged.get(key);
+
+    if (!existing) {
+      merged.set(key, quote);
+      continue;
+    }
+
+    const existingPrefersPostal = isPreferredPostalRegularQuote(existing);
+    const candidatePrefersPostal = isPreferredPostalRegularQuote(quote);
+
+    if (existingPrefersPostal !== candidatePrefersPostal) {
+      if (candidatePrefersPostal) {
+        merged.set(key, quote);
+      }
+      continue;
+    }
+
+    const existingPrice = getQuoteComparablePrice(existing);
+    const candidatePrice = getQuoteComparablePrice(quote);
+
+    if (candidatePrice < existingPrice) {
+      merged.set(key, quote);
+      continue;
+    }
+
+    if (candidatePrice === existingPrice && quote.price < existing.price) {
+      merged.set(key, quote);
+    }
+  }
+
+  return Array.from(merged.values());
+}
+
 async function getBiteshipRates(args: {
   destination: RateDestination;
   items: ShippingQuoteRequest["items"];
@@ -1126,12 +1212,11 @@ async function getBiteshipRates(args: {
     }),
   };
 
-  const courierAttempts = [
-    "jne,jnt,paxel,gojek,grab",
-    "jne,jnt,paxel,gosend,grab",
-    "jne,jnt,paxel",
-    "",
-  ];
+  const courierPlan = buildCourierAttemptPlan(args.destination.mode);
+  const courierAttempts =
+    args.destination.mode === "coordinate"
+      ? courierPlan.coordinate
+      : courierPlan.postal;
 
   const attemptErrors: string[] = [];
 
@@ -1226,6 +1311,8 @@ async function getBiteshipRates(args: {
     );
 
     if (uniqueMapped.length > 0) {
+      const rateType: ShippingQuoteRateType = args.destination.mode;
+
       return uniqueMapped.map((entry) =>
         applyShippingInsuranceToQuote(
           {
@@ -1238,6 +1325,7 @@ async function getBiteshipRates(args: {
             eta: entry.eta,
             distanceKm: 0,
             source: "biteship" as const,
+            rateType,
           },
           args.totalValue,
         ),
@@ -1410,11 +1498,7 @@ export async function getShippingQuote(
 
   await Promise.all(quoteTasks);
 
-  const biteshipQuotes = uniqueByKey(
-    collectedQuotes,
-    (entry) =>
-      `${entry.provider}:${entry.courierCode}:${entry.courierServiceCode}:${entry.price}`,
-  );
+  const biteshipQuotes = mergeQuotesByPreferredService(collectedQuotes);
 
   const fallbackQuotes =
     biteshipQuotes.length === 0

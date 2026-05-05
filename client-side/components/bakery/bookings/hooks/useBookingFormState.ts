@@ -194,6 +194,10 @@ import { BookingItemInput, ParserSource, ParserOrderType, EMPTY_ITEMS, EMPTY_ADD
 
 // ── Custom Hook: Logika bisnis BookingForm ─────────────────────────────────
 // Diekstrak otomatis dari BookingForm.tsx untuk mengurangi ukuran komponen.
+function getShippingQuoteDisplayPrice(quote: ShippingQuote): number {
+  return Math.max(0, quote.priceWithoutInsurance ?? quote.price ?? 0);
+}
+
 export function useBookingFormState() {
   const { addOrder, orders } = useOrders();
   const { isOwner, isAdmin, loading: isRoleLoading } = useRole();
@@ -984,12 +988,19 @@ export function useBookingFormState() {
     for (const quote of methodSpecificShippingQuotes) {
       const key = `${quote.provider}:${quote.courierCode}:${quote.courierServiceCode}`;
       const existing = bestByService.get(key);
-      if (!existing || quote.price < existing.price) {
+      if (
+        !existing ||
+        getShippingQuoteDisplayPrice(quote) <
+          getShippingQuoteDisplayPrice(existing)
+      ) {
         bestByService.set(key, quote);
       }
     }
 
-    return Array.from(bestByService.values()).sort((a, b) => a.price - b.price);
+    return Array.from(bestByService.values()).sort(
+      (a, b) =>
+        getShippingQuoteDisplayPrice(a) - getShippingQuoteDisplayPrice(b),
+    );
   }, [methodSpecificShippingQuotes]);
 
   const cheapestShippingQuote = filteredShippingQuotes[0] ?? null;
@@ -1006,7 +1017,11 @@ export function useBookingFormState() {
         continue;
       }
 
-      if (etaHours === bestEtaHours && quote.price < bestQuote.price) {
+      if (
+        etaHours === bestEtaHours &&
+        getShippingQuoteDisplayPrice(quote) <
+          getShippingQuoteDisplayPrice(bestQuote)
+      ) {
         bestQuote = quote;
       }
     }
@@ -1547,9 +1562,10 @@ export function useBookingFormState() {
           warning: payload.warning || undefined,
         }));
 
-        const sortedQuotes = enrichedQuotes
-          .slice()
-          .sort((a, b) => a.price - b.price);
+        const sortedQuotes = enrichedQuotes.slice().sort(
+          (a, b) =>
+            getShippingQuoteDisplayPrice(a) - getShippingQuoteDisplayPrice(b),
+        );
         setShippingQuotes(sortedQuotes);
         setSelectedShippingQuoteId((current) => {
           if (current && sortedQuotes.some((quote) => quote.id === current))

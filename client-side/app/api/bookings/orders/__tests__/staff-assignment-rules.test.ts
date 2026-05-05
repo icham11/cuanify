@@ -203,7 +203,7 @@ describe("Orders API staff assignment and status transition rules", () => {
         orderStatus: "Ready",
         assignedStaffUserId: null,
         productionStages: [
-          { stage: "listing", staffId: 22, tokenAmount: 25, percentage: 25 },
+          { stage: "lining", staffId: 22, tokenAmount: 25, percentage: 25 },
           { stage: "filling", staffId: null, tokenAmount: 25, percentage: 25 },
           { stage: "finishing", staffId: null, tokenAmount: 50, percentage: 50 },
         ],
@@ -340,7 +340,7 @@ describe("Orders API projected daily token limit for staff assignment", () => {
         assignedStaffUserId: null,
         deliveryDate: "2026-04-10",
         productionStages: [
-          { stage: "listing", staffId: 22, tokenAmount: 250, percentage: 25 },
+          { stage: "lining", staffId: 22, tokenAmount: 250, percentage: 25 },
           { stage: "filling", staffId: null, tokenAmount: 250, percentage: 25 },
           { stage: "finishing", staffId: null, tokenAmount: 500, percentage: 50 },
         ],
@@ -351,7 +351,7 @@ describe("Orders API projected daily token limit for staff assignment", () => {
         assignedStaffUserId: null,
         deliveryDate: "2026-04-10",
         productionStages: [
-          { stage: "listing", staffId: 22, tokenAmount: 260, percentage: 25 },
+          { stage: "lining", staffId: 22, tokenAmount: 260, percentage: 25 },
           { stage: "filling", staffId: null, tokenAmount: 260, percentage: 25 },
           { stage: "finishing", staffId: null, tokenAmount: 520, percentage: 50 },
         ],

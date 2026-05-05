@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { DateRangeProvider } from "@/context/DateRangeContext";
-import { ShiftProvider } from "@/context/ShiftContext";
 
 export default function DashboardClientLayout({
   children,
@@ -28,7 +27,7 @@ export default function DashboardClientLayout({
 
   return (
     <DateRangeProvider>
-      <ShiftProvider>{children}</ShiftProvider>
+      {children}
     </DateRangeProvider>
   );
 }

@@ -1,6 +1,10 @@
 import prisma from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { buildDashboardProductName } from "@/lib/products/dashboard-name";
+import {
+  buildEffectiveAddOnCatalog,
+  normalizeCatalogAdminState,
+} from "@/lib/bookings/catalog-state";
 
 interface BakeryOrderRow {
   external_id: string;
@@ -15,9 +19,13 @@ interface BakeryOrderItemRow {
 }
 
 interface ParsedBakeryOrderItem {
+  category: string;
   productName: string;
   size: string;
   quantity: number;
+  addOns: string[];
+  addOnQuantities: Record<string, number>;
+  customAddOns: Array<{ label: string; cogs: number; quantity: number }>;
 }
 
 export interface BusinessOverviewCounts {
@@ -70,9 +78,35 @@ function parseBakeryOrderItem(payload: unknown): ParsedBakeryOrderItem | null {
   if (!productName) return null;
 
   return {
+    category: asString(record.category).trim(),
     productName,
     size: asString(record.size).trim(),
     quantity: Math.max(0, toNumber(record.quantity)),
+    addOns: Array.isArray(record.addOns)
+      ? record.addOns.filter((entry): entry is string => typeof entry === "string")
+      : [],
+    addOnQuantities:
+      asRecord(record.addOnQuantities)
+        ? Object.fromEntries(
+            Object.entries(asRecord(record.addOnQuantities) ?? {}).map(([key, value]) => [
+              key,
+              Math.max(1, toNumber(value)),
+            ]),
+          )
+        : {},
+    customAddOns: Array.isArray(record.customAddOns)
+      ? record.customAddOns
+          .map((entry) => {
+            const row = asRecord(entry);
+            if (!row) return null;
+            return {
+              label: asString(row.label).trim(),
+              cogs: Math.max(0, toNumber(row.cogs)),
+              quantity: Math.max(1, toNumber(row.quantity) || 1),
+            };
+          })
+          .filter((entry): entry is { label: string; cogs: number; quantity: number } => Boolean(entry))
+      : [],
   };
 }
 
@@ -172,6 +206,27 @@ async function getBakeryOverview(
       `
     : [];
 
+  const configRows = await prisma.$queryRaw<Array<{ metadata: unknown }>>`
+    SELECT metadata
+    FROM "BusinessDocument"
+    WHERE "businessId" = ${businessId}
+      AND "sourceType" = 'bakery_catalog_config'
+    ORDER BY "updatedAt" DESC
+    LIMIT 1
+  `;
+  const addOnCatalog = buildEffectiveAddOnCatalog(
+    normalizeCatalogAdminState(configRows[0]?.metadata ?? {}),
+  );
+  const addOnCostMap = new Map<string, number>();
+  Object.entries(addOnCatalog).forEach(([category, addOns]) => {
+    addOns.forEach((addOn) => {
+      addOnCostMap.set(
+        `${normalizeText(category)}||${normalizeText(addOn.id)}`,
+        toNumber(addOn.cogs),
+      );
+    });
+  });
+
   const products = await prisma.product.findMany({
     where: { businessId },
     select: {
@@ -201,6 +256,20 @@ async function getBakeryOverview(
         .find((value) => typeof value === "number") ?? 0;
 
     totalCost += productCost * item.quantity;
+
+    const normalizedCategory = normalizeText(item.category);
+    item.addOns.forEach((addOnId) => {
+      const units = Math.max(1, toNumber(item.addOnQuantities[addOnId]) || 1);
+      const addOnCost =
+        addOnCostMap.get(
+          `${normalizedCategory}||${normalizeText(addOnId)}`,
+        ) ?? 0;
+      totalCost += addOnCost * units;
+    });
+
+    item.customAddOns.forEach((addOn) => {
+      totalCost += Math.max(0, addOn.cogs) * Math.max(1, addOn.quantity);
+    });
   });
 
   const paidOrders = bakeryOrderRows.filter(

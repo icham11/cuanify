@@ -84,6 +84,7 @@ interface CapacityRow {
 // ─── Table Setup ─────────────────────────────────────────────────────────────
 
 let _tableEnsured = false;
+let _tableEnsuredPromise: Promise<void> | null = null;
 
 /**
  * Creates the production_capacity table if it does not exist.
@@ -91,26 +92,39 @@ let _tableEnsured = false;
  */
 export async function ensureCapacityTable(): Promise<void> {
   if (_tableEnsured) return;
+  if (_tableEnsuredPromise) {
+    await _tableEnsuredPromise;
+    return;
+  }
 
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS production_capacity (
-      id BIGSERIAL PRIMARY KEY,
-      business_id INTEGER NOT NULL,
-      date DATE NOT NULL,
-      max_token INTEGER NOT NULL DEFAULT ${DEFAULT_MAX_TOKEN},
-      used_token INTEGER NOT NULL DEFAULT 0,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      UNIQUE (business_id, date)
-    );
-  `);
+  _tableEnsuredPromise = (async () => {
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS production_capacity (
+        id BIGSERIAL PRIMARY KEY,
+        business_id INTEGER NOT NULL,
+        date DATE NOT NULL,
+        max_token INTEGER NOT NULL DEFAULT ${DEFAULT_MAX_TOKEN},
+        used_token INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (business_id, date)
+      );
+    `);
 
-  await prisma.$executeRawUnsafe(`
-    CREATE INDEX IF NOT EXISTS idx_production_capacity_biz_date
-    ON production_capacity (business_id, date);
-  `);
+    await prisma.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS idx_production_capacity_biz_date
+      ON production_capacity (business_id, date);
+    `);
 
-  _tableEnsured = true;
+    _tableEnsured = true;
+  })();
+
+  try {
+    await _tableEnsuredPromise;
+  } catch (error) {
+    _tableEnsuredPromise = null;
+    throw error;
+  }
 }
 
 // ─── Helper ──────────────────────────────────────────────────────────────────

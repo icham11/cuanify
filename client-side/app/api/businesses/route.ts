@@ -4,6 +4,12 @@ import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
 import { verifyToken } from "@/lib/auth/jwt"
 import { ensureOwnerDefaultProducts } from "@/lib/bookings/owner-product-bootstrap"
+import {
+  DatabaseTemporarilyUnavailableError,
+  isPrismaConnectionTimeout,
+  prismaConnectionErrorResponse,
+  throwIfPrismaTimeoutCooldownActive,
+} from "@/lib/prisma-errors"
 
 function getUserIdFromJwt(req: NextRequest): number | undefined {
   const token = req.cookies.get("token")?.value
@@ -29,6 +35,7 @@ function getUserIdFromJwt(req: NextRequest): number | undefined {
  */
 export async function GET(req: NextRequest) {
   try {
+    throwIfPrismaTimeoutCooldownActive()
     const session = await getServerSession(authOptions)
     let userId = session?.user?.id
 
@@ -61,6 +68,12 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ success: true, data: allBusinesses })
   } catch (e) {
+    if (e instanceof DatabaseTemporarilyUnavailableError) {
+      return prismaConnectionErrorResponse("Koneksi database timeout saat memuat daftar bisnis.")
+    }
+    if (isPrismaConnectionTimeout(e)) {
+      return prismaConnectionErrorResponse("Koneksi database timeout saat memuat daftar bisnis.")
+    }
     return NextResponse.json(
         { error: "Failed to fetch businesses" },
         { status: 500 },
@@ -84,6 +97,7 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   try {
+    throwIfPrismaTimeoutCooldownActive()
     const session = await getServerSession(authOptions)
     let userId = session?.user?.id
 
@@ -117,6 +131,12 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, data: business }, { status: 201 })
   } catch (e) {
+    if (e instanceof DatabaseTemporarilyUnavailableError) {
+      return prismaConnectionErrorResponse("Koneksi database timeout saat membuat bisnis.")
+    }
+    if (isPrismaConnectionTimeout(e)) {
+      return prismaConnectionErrorResponse("Koneksi database timeout saat membuat bisnis.")
+    }
     return NextResponse.json(
         { error: "Failed to create business" },
         { status: 500 },

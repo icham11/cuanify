@@ -1,18 +1,26 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { MessageCircle, Pencil } from "lucide-react";
 
 import OrderHighlightBadge from "@/components/bakery/bookings/OrderHighlightBadge";
-import SkeletonBlock from "@/components/bakery/shared/SkeletonBlock";
 import { type BakeryOrder, useOrders } from "@/components/bakery/store";
+import { BOOKING_STATUS_OPTIONS } from "@/lib/bookings/order-status";
 import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 import {
   isGrabOrGojekOrder,
   resolveShippingProvider,
 } from "@/lib/bookings/shipping-schedule";
+import { useBakerySettings } from "@/hooks/useBakerySettings";
+import {
+  getProductionStageLabels,
+  normalizeProductionStageKey,
+  PRODUCTION_STAGE_ORDER,
+  resolvePrimaryProductionCategory,
+  resolveProductionStageTemplatesForCategory,
+} from "@/lib/bookings/production-stages";
 
 interface OrderTableProps {
   orders: BakeryOrder[];
@@ -21,12 +29,6 @@ interface OrderTableProps {
 type Highlight = {
   label: string;
   tone: "warning" | "danger" | "info";
-};
-
-const STAGE_LABELS: Record<string, string> = {
-  listing: "Lining",
-  filling: "Filling",
-  finishing: "Finishing",
 };
 
 function compactText(value: string): string {
@@ -117,14 +119,16 @@ function stagePillClass(isAssigned: boolean): string {
 }
 
 export default function OrderTable({ orders }: OrderTableProps) {
-  const { getCustomerMessagePreview } = useOrders();
+  const { settings } = useBakerySettings();
+  const { getCustomerMessagePreview, updateOrderStatus, updatePaymentStatus } =
+    useOrders();
   const router = useRouter();
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    const timer = setTimeout(() => setIsLoading(false), 180);
-    return () => clearTimeout(timer);
-  }, [orders.length]);
+  const [pendingStatusOrderId, setPendingStatusOrderId] = useState<
+    string | null
+  >(null);
+  const [pendingPaymentOrderId, setPendingPaymentOrderId] = useState<
+    string | null
+  >(null);
 
   const highlightMap = useMemo<Map<string, Highlight>>(() => {
     const today = new Date().toISOString().slice(0, 10);
@@ -145,23 +149,6 @@ export default function OrderTable({ orders }: OrderTableProps) {
       }),
     );
   }, [orders]);
-
-  if (isLoading) {
-    return (
-      <div className="space-y-3">
-        {[1, 2, 3].map((row) => (
-          <div
-            key={row}
-            className="rounded-[24px] border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] p-4"
-          >
-            <SkeletonBlock className="h-4 w-1/3" />
-            <SkeletonBlock className="mt-3 h-3 w-2/3" />
-            <SkeletonBlock className="mt-5 h-10 w-full" />
-          </div>
-        ))}
-      </div>
-    );
-  }
 
   if (orders.length === 0) {
     return (
@@ -191,14 +178,22 @@ export default function OrderTable({ orders }: OrderTableProps) {
           : compactText(order.product || "Custom Cake");
         const normalizedStatus = normalizeOrderStatus(order.orderStatus);
         const difficultyLabel = inferDifficultyLabel(order);
+        const stageLabels = getProductionStageLabels(
+          resolveProductionStageTemplatesForCategory({
+            category: resolvePrimaryProductionCategory(order.items ?? []),
+            profiles: settings?.productionStageProfiles,
+          }),
+        );
+        const isUpdatingStatus = pendingStatusOrderId === order.id;
+        const isUpdatingPayment = pendingPaymentOrderId === order.id;
         const stageEntries =
           order.productionStages && order.productionStages.length > 0
             ? order.productionStages
-            : [
-                { stage: "listing", staffId: null, tokenAmount: 0 },
-                { stage: "filling", staffId: null, tokenAmount: 0 },
-                { stage: "finishing", staffId: null, tokenAmount: 0 },
-              ];
+            : PRODUCTION_STAGE_ORDER.map((stage) => ({
+                stage,
+                staffId: null,
+                tokenAmount: 0,
+              }));
 
         return (
           <div
@@ -262,9 +257,12 @@ export default function OrderTable({ orders }: OrderTableProps) {
             <div className="flex items-center justify-between gap-3 border-t border-[var(--crumbella-border)] px-4 py-3">
               <div className="flex flex-wrap gap-2">
                 {stageEntries.map((stage) => {
-                  const stageKey = typeof stage.stage === "string" ? stage.stage : "";
-                  const stageLabel = STAGE_LABELS[stageKey] || stageKey;
-                  const isAssigned = Boolean(stage.staffId) || Number(stage.tokenAmount || 0) > 0;
+                  const stageKey = normalizeProductionStageKey(stage.stage);
+                  const stageLabel =
+                    stageKey
+                      ? stageLabels[stageKey]
+                      : String(stage.stage || "");
+                  const isAssigned = Boolean(stage.staffId);
 
                   return (
                     <span
@@ -289,6 +287,72 @@ export default function OrderTable({ orders }: OrderTableProps) {
             </div>
 
             <div className="flex flex-wrap items-center gap-2 border-t border-[var(--crumbella-border)] px-4 py-3">
+              <label
+                className="flex items-center gap-2"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <span className="text-[10px] font-semibold text-[var(--crumbella-muted)]">
+                  Bayar
+                </span>
+                <select
+                  value={order.paymentStatus}
+                  disabled={isUpdatingPayment}
+                  onChange={async (event) => {
+                    event.stopPropagation();
+                    const nextStatus = event.target.value as
+                      | "Pending"
+                      | "DP Paid"
+                      | "Paid";
+                    if (nextStatus === order.paymentStatus) return;
+                    setPendingPaymentOrderId(order.id);
+                    try {
+                      updatePaymentStatus(order.id, nextStatus);
+                    } finally {
+                      setPendingPaymentOrderId(null);
+                    }
+                  }}
+                  className="h-8 rounded-xl border border-[var(--crumbella-border)] bg-white px-2 text-[11px] font-semibold text-[var(--foreground)]"
+                >
+                  <option value="Pending">Pending</option>
+                  <option value="DP Paid">DP</option>
+                  <option value="Paid">Lunas</option>
+                </select>
+              </label>
+              <label
+                className="flex items-center gap-2"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <span className="text-[10px] font-semibold text-[var(--crumbella-muted)]">
+                  Produksi
+                </span>
+                <select
+                  value={normalizedStatus}
+                  disabled={isUpdatingStatus}
+                  onChange={async (event) => {
+                    event.stopPropagation();
+                    const nextStatus = event.target.value as
+                      | "In Production"
+                      | "Ready"
+                      | "Delivery"
+                      | "Completed"
+                      | "Cancelled";
+                    if (nextStatus === normalizedStatus) return;
+                    setPendingStatusOrderId(order.id);
+                    try {
+                      await updateOrderStatus(order.id, nextStatus);
+                    } finally {
+                      setPendingStatusOrderId(null);
+                    }
+                  }}
+                  className="h-8 rounded-xl border border-[var(--crumbella-border)] bg-white px-2 text-[11px] font-semibold text-[var(--foreground)]"
+                >
+                  {BOOKING_STATUS_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <Link
                 href={`/bakery/bookings/${order.id}`}
                 onClick={(event) => event.stopPropagation()}

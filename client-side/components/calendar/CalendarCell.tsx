@@ -5,26 +5,15 @@ import {
   getCalendarStatusUI,
 } from "@/lib/calendar/getCalendarStatus";
 
-// ─── Types ───────────────────────────────────────────────────────────────────
-
 export interface CalendarCellProps {
-  /** The date label (day number) from react-big-calendar */
   label: string;
-  /** The Date object for this cell */
   date: Date;
-  /** Token usage for this date */
   usedToken: number;
-  /** Max token capacity for this date */
   maxToken: number;
-  /** Computed calendar status */
   status: CalendarStatus;
-  /** Number of orders on this date */
   orderCount: number;
-  /** Callback when the date is clicked */
   onDateClick?: (date: Date) => void;
 }
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function getBarColor(ratio: number): string {
   if (ratio >= 1) return "bg-red-500";
@@ -41,21 +30,32 @@ function getTokenTextColor(status: CalendarStatus): string {
   return "text-[#8a6a54]";
 }
 
-// ─── Component ───────────────────────────────────────────────────────────────
+function getOrderIndicatorColor(status: CalendarStatus): string {
+  if (status === "PAST") return "bg-[#cfc7c1]";
+  if (status === "BLOCKED") return "bg-[#f0a6a0]";
+  if (status === "FULL") return "bg-[#d7662d]";
+  if (status === "WARNING") return "bg-[#d3a423]";
+  if (status === "CUTOFF") return "bg-[#d24f40]";
+  return "bg-[#cb6531]";
+}
 
-/**
- * CalendarCell renders a single date cell in the calendar.
- *
- * Displays:
- * - Date number
- * - Status badge (Passed / Full / Almost Full / Closed H-1)
- * - Token progress bar with color coding
- * - Token usage info (e.g., "480 / 500")
- * - Remaining token count
- * - Order count
- *
- * Disables interaction for PAST, FULL and CUTOFF statuses.
- */
+function getCompactStatusLabel(status: CalendarStatus): string {
+  switch (status) {
+    case "PAST":
+      return "Lewat";
+    case "BLOCKED":
+      return "Libur";
+    case "FULL":
+      return "Penuh";
+    case "CUTOFF":
+      return "H-1";
+    case "WARNING":
+      return "80%+";
+    default:
+      return "";
+  }
+}
+
 export default function CalendarCell({
   label,
   date,
@@ -66,79 +66,103 @@ export default function CalendarCell({
   onDateClick,
 }: CalendarCellProps) {
   const ui = getCalendarStatusUI(status);
-  const isDisabled = ui.disabled;
   const safeMax = maxToken > 0 ? maxToken : 500;
   const ratio = Math.min(1, usedToken / safeMax);
   const barColor = getBarColor(ratio);
   const remaining = safeMax - usedToken;
-  const tooltipText = `Digunakan: ${usedToken} / ${safeMax} — Sisa: ${remaining}`;
-  const orderLabel = `${orderCount} order`;
+  const tooltipText = `Digunakan: ${usedToken} / ${safeMax} | Sisa: ${remaining}`;
+  const orderLabel = orderCount === 1 ? "1 order" : `${orderCount} order`;
+  const compactStatusLabel = getCompactStatusLabel(status);
 
   const handleClick = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (isDisabled || !onDateClick) return;
+    if (!onDateClick) return;
     onDateClick(date);
   };
 
   return (
-    <div className="flex min-h-[58px] flex-col gap-1">
-      <button
-        type="button"
-        onClick={handleClick}
-        disabled={isDisabled}
-        title={tooltipText}
-        className={`w-fit rounded-md px-1.5 text-left text-[13px] font-semibold leading-none transition ${
-          isDisabled
-            ? "cursor-not-allowed text-[#b7aea6]"
-            : "text-[#2f1e13] hover:bg-[#fff0de]"
-        }`}
-      >
-        {label}
-      </button>
-
-      {ui.label ? (
-        <span
-          className={`inline-flex w-fit rounded-md px-1.5 py-0.5 text-[9px] font-bold leading-none ${
-            status === "PAST"
-              ? "bg-[#ece7e2] text-[#8d837c]"
-              : status === "BLOCKED"
-                ? "bg-[#ffe4e4] text-[#dc6e59]"
-                : status === "FULL"
-                  ? "bg-[#ffedd6] text-[#d7662d]"
-                  : status === "CUTOFF"
-                    ? "bg-[#ffdede] text-[#d24f40]"
-                    : "bg-[#fff0c9] text-[#9c6a12]"
+    <div className="flex min-h-[64px] w-full flex-col overflow-hidden rounded-md border border-transparent px-1 py-1">
+      <div className="flex items-start justify-between gap-1">
+        <button
+          type="button"
+          onClick={handleClick}
+          title={tooltipText}
+          className={`rounded-md px-1 text-left text-[13px] font-semibold leading-none transition ${
+            ui.disabled
+              ? "text-[#8d837c] hover:bg-[#f3ece7]"
+              : "text-[#2f1e13] hover:bg-[#fff0de]"
           }`}
         >
-          {ui.label}
-        </span>
-      ) : null}
+          {label}
+        </button>
+      </div>
 
-      {status !== "PAST" ? (
-        <div
-          className="h-1.5 w-full overflow-hidden rounded-full bg-[#eadbcf]"
-          title={tooltipText}
-        >
+      <div className="mt-0.5 min-h-[16px]">
+        {orderCount > 0 ? (
+          <span
+            className="inline-flex h-4 min-w-[16px] items-center justify-center gap-1 rounded-full border border-white/70 bg-white/95 px-1 text-[8px] font-bold leading-none text-[#5b3a23] shadow-[0_1px_3px_rgba(47,30,19,0.12)]"
+            title={orderLabel}
+          >
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${getOrderIndicatorColor(status)}`}
+            />
+            {orderCount > 1 ? orderCount : null}
+          </span>
+        ) : (
+          <span className="block h-4" aria-hidden="true" />
+        )}
+      </div>
+
+      <div className="mt-0.5 min-h-[16px]">
+        {ui.label ? (
+          <span
+            className={`inline-flex max-w-full items-center rounded-md px-1.5 py-0.5 text-[8px] font-bold leading-none ${
+              status === "PAST"
+                ? "bg-[#ece7e2] text-[#8d837c]"
+                : status === "BLOCKED"
+                  ? "bg-[#ffe4e4] text-[#dc6e59]"
+                  : status === "FULL"
+                    ? "bg-[#ffedd6] text-[#d7662d]"
+                    : status === "CUTOFF"
+                      ? "bg-[#ffdede] text-[#d24f40]"
+                      : "bg-[#fff0c9] text-[#9c6a12]"
+            }`}
+          >
+            {compactStatusLabel}
+          </span>
+        ) : null}
+      </div>
+
+      <div className="mt-auto space-y-1">
+        {status !== "PAST" ? (
           <div
-            className={`h-1.5 rounded-full transition-all duration-300 ${barColor}`}
-            style={{ width: `${Math.round(ratio * 100)}%` }}
-          />
-        </div>
-      ) : null}
+            className="h-1 w-full overflow-hidden rounded-full bg-[#eadbcf]"
+            title={tooltipText}
+          >
+            <div
+              className={`h-1 rounded-full transition-all duration-300 ${barColor}`}
+              style={{ width: `${Math.round(ratio * 100)}%` }}
+            />
+          </div>
+        ) : (
+          <div
+            className="h-1 w-full overflow-hidden rounded-full bg-[#e9e2dc]"
+            title={tooltipText}
+          >
+            <div
+              className="h-1 rounded-full bg-[#b7aea6]"
+              style={{ width: `${Math.round(ratio * 100)}%` }}
+            />
+          </div>
+        )}
 
-      <div className="mt-auto flex items-end justify-between gap-1">
         <span
-          className={`text-[9px] font-semibold leading-none ${getTokenTextColor(status)}`}
+          className={`block truncate text-[8px] font-semibold leading-none ${getTokenTextColor(status)}`}
           title={tooltipText}
         >
           {usedToken}/{safeMax}
         </span>
-        {orderCount > 0 ? (
-          <span className="inline-flex rounded-md bg-[#5b3a23] px-1.5 py-0.5 text-[9px] font-bold leading-none text-white">
-            {orderLabel}
-          </span>
-        ) : null}
       </div>
     </div>
   );

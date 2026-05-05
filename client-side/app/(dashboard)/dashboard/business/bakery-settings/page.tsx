@@ -14,6 +14,11 @@ import type {
   BakeryOperationalExpenseSetting,
   BakeryStaffSetting,
 } from "@/lib/bakery/settings";
+import type { ProductionStageCategoryProfile } from "@/lib/bookings/production-stages";
+import {
+  getDefaultProductionStageTemplates,
+  PRODUCTION_STAGE_ORDER,
+} from "@/lib/bookings/production-stages";
 
 type StaffApiResponse = {
   data?: {
@@ -33,6 +38,7 @@ type StaffApiResponse = {
 type EditableExpense = BakeryOperationalExpenseSetting;
 type EditableHoliday = BakeryHolidaySetting;
 type EditableStaff = BakeryStaffSetting;
+type EditableProductionStageProfile = ProductionStageCategoryProfile;
 type StaffRoleFilter = "Semua" | "Admin" | "Cashier" | "Staff";
 
 function formatMoneyInput(value: number) {
@@ -151,6 +157,13 @@ function getHolidayBadge(entry: EditableHoliday) {
   return entry.tag || "Libur";
 }
 
+function createDefaultStageProfile(category = ""): EditableProductionStageProfile {
+  return {
+    category,
+    stages: getDefaultProductionStageTemplates(),
+  };
+}
+
 export default function BakerySettingsPage() {
   const { settings, isLoading } = useBakerySettings();
   const { isOwner, loading: roleLoading } = useRole();
@@ -176,6 +189,9 @@ export default function BakerySettingsPage() {
   const [holidayEntries, setHolidayEntries] = useState<EditableHoliday[]>([]);
   const [newHolidayDate, setNewHolidayDate] = useState("");
   const [newHolidayLabel, setNewHolidayLabel] = useState("");
+  const [productionStageProfiles, setProductionStageProfiles] = useState<
+    EditableProductionStageProfile[]
+  >([]);
 
   useEffect(() => {
     let active = true;
@@ -216,6 +232,7 @@ export default function BakerySettingsPage() {
     setDefaultDpPercentage(settings.defaultDpPercentage);
     setNotifyProductionWhatsapp(settings.notifyProductionWhatsapp);
     setHolidayEntries(settings.holidayEntries);
+    setProductionStageProfiles(settings.productionStageProfiles);
 
     const monthExpenses = settings.monthlyExpenses.filter(
       (entry) => entry.monthKey === currentMonthKey,
@@ -322,10 +339,78 @@ export default function BakerySettingsPage() {
     toast.success("Tanggal libur dihapus dari draft pengaturan.");
   };
 
+  const addProductionStageProfile = () => {
+    setProductionStageProfiles((current) => [
+      ...current,
+      createDefaultStageProfile(""),
+    ]);
+  };
+
+  const updateProductionStageProfile = (
+    profileIndex: number,
+    patch: Partial<EditableProductionStageProfile>,
+  ) => {
+    setProductionStageProfiles((current) =>
+      current.map((entry, index) =>
+        index === profileIndex ? { ...entry, ...patch } : entry,
+      ),
+    );
+  };
+
+  const updateProductionStageRow = (
+    profileIndex: number,
+    stageKey: (typeof PRODUCTION_STAGE_ORDER)[number],
+    patch: { label?: string; percentage?: number },
+  ) => {
+    setProductionStageProfiles((current) =>
+      current.map((entry, index) => {
+        if (index !== profileIndex) return entry;
+        return {
+          ...entry,
+          stages: entry.stages.map((stage) =>
+            stage.stage === stageKey
+              ? {
+                  ...stage,
+                  ...patch,
+                  percentage:
+                    patch.percentage !== undefined
+                      ? Math.max(0, Math.min(100, Math.round(patch.percentage)))
+                      : stage.percentage,
+                }
+              : stage,
+          ),
+        };
+      }),
+    );
+  };
+
+  const removeProductionStageProfile = (profileIndex: number) => {
+    setProductionStageProfiles((current) =>
+      current.filter((_, index) => index !== profileIndex),
+    );
+  };
+
   const handleSave = async () => {
     if (!isOwner) {
       toast.error("Hanya owner yang dapat menyimpan pengaturan.");
       return;
+    }
+
+    for (const profile of productionStageProfiles) {
+      if (!profile.category.trim()) {
+        toast.error("Kategori besar pada profile proses produksi wajib diisi.");
+        return;
+      }
+      const total = profile.stages.reduce(
+        (sum, stage) => sum + Number(stage.percentage || 0),
+        0,
+      );
+      if (total !== 100) {
+        toast.error(
+          `Total persentase proses untuk kategori ${profile.category} harus tepat 100%.`,
+        );
+        return;
+      }
     }
 
     setIsSaving(true);
@@ -346,6 +431,7 @@ export default function BakerySettingsPage() {
             takeHomePay: toTakeHome(entry.monthlySalary, entry.mealAllowance),
           })),
           monthlyExpenses,
+          productionStageProfiles,
         }),
       });
 
@@ -713,6 +799,114 @@ export default function BakerySettingsPage() {
               />
             </label>
           </div>
+        </div>
+      </section>
+
+      <section className="overflow-hidden rounded-[24px] border border-[#ddcbbb] bg-[#f4e9dc] shadow-[0_16px_30px_-26px_rgba(52,31,20,0.35)]">
+        <div className="flex items-center justify-between border-b border-[#e8d6c8] px-4 py-3">
+          <div>
+            <h2 className="text-lg font-bold">🧩 Proses Produksi per Kategori</h2>
+            <p className="text-xs text-[#b58872]">
+              Ubah label proses dan persentase token untuk kategori besar seperti Bouquet atau Cupcakes.
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={!isOwner}
+            onClick={addProductionStageProfile}
+            className="inline-flex items-center gap-1 rounded-full border border-[#cb6837] bg-[#fff0df] px-3 py-1.5 text-xs font-bold text-[#cb6837] disabled:opacity-50"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Tambah
+          </button>
+        </div>
+        <div className="space-y-3 px-4 py-4">
+          {productionStageProfiles.length === 0 ? (
+            <div className="rounded-[18px] border border-dashed border-[#dcc7b8] px-4 py-6 text-center text-sm text-[#8a6047]">
+              Belum ada profile kategori khusus. Sistem akan pakai default Lining 25%, Filling 25%, Finishing 50%.
+            </div>
+          ) : (
+            productionStageProfiles.map((profile, profileIndex) => {
+              const totalPercentage = profile.stages.reduce(
+                (sum, stage) => sum + Number(stage.percentage || 0),
+                0,
+              );
+
+              return (
+                <div
+                  key={`stage-profile-${profileIndex}`}
+                  className="rounded-[20px] border border-[#e2d1c3] bg-[#f8efe6] p-4"
+                >
+                  <div className="mb-3 flex items-center gap-3">
+                    <input
+                      type="text"
+                      value={profile.category}
+                      disabled={!isOwner}
+                      onChange={(event) =>
+                        updateProductionStageProfile(profileIndex, {
+                          category: event.target.value,
+                        })
+                      }
+                      placeholder="Contoh: Bouquet"
+                      className="h-10 flex-1 rounded-2xl border border-[#dcc7b8] bg-[#fbf4ed] px-3 text-sm font-semibold outline-none"
+                    />
+                    <button
+                      type="button"
+                      disabled={!isOwner}
+                      onClick={() => removeProductionStageProfile(profileIndex)}
+                      className="rounded-full p-2 text-[#c86030] disabled:opacity-40"
+                      aria-label={`Hapus profile ${profile.category || profileIndex + 1}`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+
+                  <div className="space-y-3">
+                    {profile.stages.map((stage) => (
+                      <div
+                        key={`${profile.category}-${stage.stage}`}
+                        className="grid grid-cols-1 gap-3 sm:grid-cols-[1.4fr_1fr]"
+                      >
+                        <input
+                          type="text"
+                          value={stage.label}
+                          disabled={!isOwner}
+                          onChange={(event) =>
+                            updateProductionStageRow(profileIndex, stage.stage, {
+                              label: event.target.value,
+                            })
+                          }
+                          className="h-11 rounded-2xl border border-[#dcc7b8] bg-[#fbf4ed] px-3 text-sm font-semibold outline-none"
+                        />
+                        <div className="relative">
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            value={stage.percentage}
+                            disabled={!isOwner}
+                            onChange={(event) =>
+                              updateProductionStageRow(profileIndex, stage.stage, {
+                                percentage: Number(event.target.value || 0),
+                              })
+                            }
+                            className="h-11 w-full rounded-2xl border border-[#dcc7b8] bg-[#fbf4ed] px-3 pr-10 text-sm font-semibold outline-none"
+                          />
+                          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-[#8a6047]">
+                            %
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <p className="mt-3 text-xs text-[#b58872]">
+                    Total persentase: {totalPercentage}% · Slot stage backend saat ini tetap 3 proses.
+                  </p>
+                </div>
+              );
+            })
+          )}
         </div>
       </section>
 

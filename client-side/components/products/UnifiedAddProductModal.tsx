@@ -19,6 +19,7 @@ interface Props {
 const EMPTY_CATALOG_STATE: CatalogAdminState = {
   productVariantPriceOverrides: {},
   addOnPriceOverrides: {},
+  addOnCogsOverrides: {},
   inactiveProducts: [],
   inactiveAddOns: [],
   customProducts: [],
@@ -71,6 +72,7 @@ function normalizeCatalogState(input: unknown): CatalogAdminState {
   return {
     productVariantPriceOverrides: record.productVariantPriceOverrides ?? {},
     addOnPriceOverrides: record.addOnPriceOverrides ?? {},
+    addOnCogsOverrides: record.addOnCogsOverrides ?? {},
     inactiveProducts: Array.isArray(record.inactiveProducts)
       ? record.inactiveProducts
       : [],

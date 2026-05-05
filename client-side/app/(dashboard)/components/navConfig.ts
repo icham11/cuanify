@@ -14,7 +14,6 @@ import {
   Clock,
   Factory,
   FileText,
-  Settings2,
   ContactRound,
 } from "lucide-react";
 
@@ -34,17 +33,6 @@ export interface NavSection {
 }
 
 export const navSections: NavSection[] = [
-  {
-    title: "Dashboard",
-    ownerOnly: true,
-    items: [
-      {
-        label: "Analytics",
-        href: "/analytics",
-        icon: BarChart3,
-      },
-    ],
-  },
   {
     title: "Bakery",
     items: [
@@ -77,11 +65,6 @@ export const navSections: NavSection[] = [
         label: "Reports",
         href: "/bakery/reports",
         icon: FileText,
-      },
-      {
-        label: "Catalog",
-        href: "/bakery/catalog",
-        icon: Settings2,
       },
       {
         label: "Customers",
