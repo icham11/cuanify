@@ -1908,14 +1908,35 @@ export function getDraftItemPriceBreakdown(args: {
   if (hasParsedRecapPrice) {
     const totalAmount =
       recapTotalOverride ?? Math.max(0, Math.round(baseBeforeSplit));
-    const addOnAmount = Math.min(
-      totalAmount,
-      Math.max(
-        0,
-        Math.round(addOnFromSelection + customCookieAdditionalDesignCharge),
-      ),
-    );
-    const baseAmount = Math.max(0, totalAmount - addOnAmount);
+    
+    // Try to find a clean catalog base price to avoid messy splits
+    const catalogUnit = getUnitPriceFromCatalog(catalog, {
+      category: item.category,
+      subcategory: item.subcategory,
+      productName: item.productName,
+      size: item.size,
+    });
+    const catalogBase = catalogUnit * quantity;
+
+    let baseAmount: number;
+    let addOnAmount: number;
+
+    if (catalogBase > 0 && catalogBase <= totalAmount) {
+      // Use catalog price as base, rest as add-ons
+      baseAmount = Math.round(catalogBase);
+      addOnAmount = totalAmount - baseAmount;
+    } else {
+      // Fallback to previous logic: use calculated add-ons, rest as base
+      addOnAmount = Math.min(
+        totalAmount,
+        Math.max(
+          0,
+          Math.round(addOnFromSelection + customCookieAdditionalDesignCharge),
+        ),
+      );
+      baseAmount = Math.max(0, totalAmount - addOnAmount);
+    }
+
     return {
       categoryLabel,
       groupLabel,

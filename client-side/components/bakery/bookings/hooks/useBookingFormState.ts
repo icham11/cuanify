@@ -486,6 +486,10 @@ export function useBookingFormState() {
   const manualAdjustment = useWatch({ control, name: "manualAdjustment" }) ?? 0;
   const selectedPaymentStatus =
     useWatch({ control, name: "paymentStatus" }) ?? "DP Paid";
+  const isManualShippingOverride =
+    useWatch({ control, name: "isManualShippingOverride" }) ?? false;
+  const manualShippingFee =
+    useWatch({ control, name: "manualShippingFee" }) ?? 0;
 
   const clearParsedPricingOverride = useCallback(
     (itemIndex: number) => {
@@ -1188,11 +1192,13 @@ export function useBookingFormState() {
     return null;
   }, [shippingDistanceKm, selectedShippingQuote]);
 
-  const deliveryFee = shouldUseShippingEngine
-    ? (selectedShippingQuote?.priceWithoutInsurance ??
-        selectedShippingQuote?.price ??
-        0)
-    : 0;
+  const deliveryFee = isManualShippingOverride
+    ? manualShippingFee
+    : shouldUseShippingEngine
+      ? (selectedShippingQuote?.priceWithoutInsurance ??
+          selectedShippingQuote?.price ??
+          0)
+      : 0;
   const insuranceFeeFromShipping = shouldUseShippingEngine
     ? (selectedShippingQuote?.insuranceFee ?? 0)
     : 0;
@@ -3163,12 +3169,14 @@ export function useBookingFormState() {
     isCheckingShipping,
     isFetchingMarketplaceEmail,
     isFragileOrder,
+    isManualShippingOverride,
     isManualSubmitInFlight,
     isParsingWhatsApp,
     isRecommendationLoading,
     isSubmitting,
     itemFields,
     manualAdjustment,
+    manualShippingFee,
     onSubmit,
     openDetectedDuplicateBooking,
     orderItemGroupingSummary,

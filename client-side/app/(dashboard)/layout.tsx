@@ -18,12 +18,15 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  // 1) Check NextAuth session
-  const session = await getServerSession(authOptions);
-
-  // 2) Check custom JWT (email/password)
+  // 1) Check custom JWT (email/password) first
   const token = (await cookies()).get("token")?.value;
   const jwtDecoded = token ? verifyToken(token) : null;
+
+  // 2) Check NextAuth session only if custom JWT is not present
+  let session = null;
+  if (!jwtDecoded) {
+    session = await getServerSession(authOptions);
+  }
 
   if (!session && !jwtDecoded) {
     console.warn("[DashboardLayout] No session found, redirecting to /login");
@@ -33,17 +36,16 @@ export default async function DashboardLayout({
   // 3) Get userId from either auth system
   let userId: number | null = null;
 
-  if (session?.user?.id) {
-    userId = Number(session.user.id);
-  }
-
   if (
-    !userId &&
     jwtDecoded &&
     typeof jwtDecoded === "object" &&
     "userId" in jwtDecoded
   ) {
     userId = Number((jwtDecoded as { userId: number }).userId);
+  }
+
+  if (!userId && session?.user?.id) {
+    userId = Number(session.user.id);
   }
 
   if (!userId) {
