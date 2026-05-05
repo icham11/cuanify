@@ -719,7 +719,6 @@ export default function BakeryCalendarPage() {
                 event: CalendarEventItem,
                 month: {
                   dateHeader: DateHeader,
-                  offRangeHeader: DateHeader,
                 },
               }}
             />
