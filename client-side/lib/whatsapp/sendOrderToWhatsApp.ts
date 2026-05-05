@@ -33,26 +33,37 @@ export interface SendOrderToWhatsAppResult {
 }
 
 function buildProductionCaption(order: SendOrderToWhatsAppInput): string {
-  const captionItems =
-    order.captionItems && order.captionItems.length > 0
-      ? order.captionItems
-      : [
-          {
-            productName: order.item || "-",
-            quantity: 1,
-          },
-        ];
-
-  return buildOrderDeliveryDetailsWhatsAppText({
-    items: captionItems,
-    deliveryDate: order.deliveryDate,
-    bookingCode: order.bookingCode,
-    deliveryTime: order.deliveryTime,
-    shippingMethod: order.shippingMethod,
-    recipientName: order.recipientName || order.customerName,
-    recipientPhone: order.recipientPhone || order.phone,
-    fullAddress: order.fullAddress || order.address,
-  });
+  const lines: string[] = [];
+  
+  lines.push("Tanggal Pengiriman :");
+  lines.push(formatWhatsAppDeliveryDate(order.deliveryDate));
+  lines.push("");
+  
+  lines.push(`KODE BOOKING : ${order.bookingCode || order.id || "-"}`);
+  lines.push("");
+  
+  lines.push("Order :");
+  const itemSummary = (order.captionItems ?? [])
+    .map(it => it.productName)
+    .join(", ") || order.item || "-";
+  lines.push(itemSummary);
+  lines.push("");
+  
+  if (order.designNotes || order.customerNotes) {
+    const notes = (order.designNotes || order.customerNotes || "").trim();
+    if (notes) {
+      lines.push(`Design cake : ${notes}`);
+      lines.push("");
+    }
+  }
+  
+  lines.push(`Jam Pengiriman: ${formatWhatsAppDeliveryTime(order.deliveryTime)}`);
+  lines.push(`Metode Pengiriman : ${order.shippingMethod || "-"}`);
+  lines.push(`Nama penerima : ${order.recipientName || order.customerName || "-"}`);
+  lines.push(`No. telp penerima : ${order.recipientPhone || order.phone || "-"}`);
+  lines.push(`Alamat lengkap : ${order.fullAddress || order.address || "-"}`);
+  
+  return lines.join("\n");
 }
 
 function normalizeReferenceImageUrl(url?: string): string | null {
@@ -135,7 +146,21 @@ export async function sendOrderToWhatsApp(
 ): Promise<SendOrderToWhatsAppResult> {
   const selectedImageUrls = normalizeReferenceImageUrls(order);
   const structuredReferenceImages = normalizeStructuredReferenceImages(order);
-  const productImageUrl = selectedImageUrls[0] || FALLBACK_IMAGE_URL;
+  
+  // Ambil semua kandidat gambar yang bukan template dan bukan placeholder
+  const sourceImageCandidates = [
+    ...selectedImageUrls,
+    ...structuredReferenceImages.map(r => r.url)
+  ].filter(url => url && !url.includes("/orders/generated/") && !url.includes("via.placeholder.com"));
+
+  console.info("[sendOrderToWhatsApp] Image candidates:", {
+    inputImageUrl: order.imageUrl,
+    inputImageUrlsCount: order.imageUrls?.length,
+    selectedImageUrlsCount: selectedImageUrls.length,
+    sourceImageCandidatesCount: sourceImageCandidates.length,
+  });
+
+  const productImageUrl = sourceImageCandidates[0] || selectedImageUrls[0] || FALLBACK_IMAGE_URL;
 
   const payload: SendOrderToWhatsAppInput = {
     ...order,
@@ -163,14 +188,15 @@ export async function sendOrderToWhatsApp(
   let generatedOrderImageUrl = "";
   let generatedBuffer: Buffer | null = null;
 
-  // Cek apakah ada gambar asli yang diupload (selain placeholder)
-  const originalImageUrl = selectedImageUrls.find(url => url && !url.includes("via.placeholder.com"));
+  // Cek apakah ada gambar asli yang diupload (selain placeholder dan template)
+  const originalImageUrl = sourceImageCandidates[0];
 
   if (originalImageUrl) {
     // Jika ada gambar asli, gunakan langsung tanpa generate template
     generatedOrderImageUrl = originalImageUrl;
-    console.info("[sendOrderToWhatsApp] Menggunakan gambar asli yang diupload:", originalImageUrl);
+    console.info("[sendOrderToWhatsApp] MENGGUNAKAN GAMBAR ASLI:", originalImageUrl);
   } else {
+    console.info("[sendOrderToWhatsApp] TIDAK ADA GAMBAR ASLI, GENERATING TEMPLATE...");
     // Jika tidak ada gambar asli, baru generate dari template
     try {
       generatedBuffer = await generateOrderImage(payload);
