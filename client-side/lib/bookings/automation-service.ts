@@ -1,5 +1,6 @@
 import { createSign } from "crypto";
 import prisma from "@/lib/prisma";
+import { sendOrderToWhatsApp } from "@/lib/whatsapp/sendOrderToWhatsApp";
 import type {
   AutomationActionResult,
   BookingAutomationEvent,
@@ -679,20 +680,44 @@ export async function runBookingAutomations(
             : "Failed to send WhatsApp produksi.",
       }));
     } else {
+      // Trigger notifikasi gambar sebagai pengganti teks
+      const result = await sendOrderToWhatsApp({
+        ...order,
+        item: getItemsSummary(order),
+        phone: order.customerPhone,
+        address: getPrimaryAddress(order),
+      });
+
       fonnteProduction = {
-        ok: false,
-        skipped: true,
-        message:
-          "Skipped: text WA produksi on order_confirmed disabled; image notification handled by sendOrderToWhatsApp.",
+        ok: result.ok,
+        skipped: false,
+        message: result.message,
       };
     }
   } else if (eventType === "order_created") {
-    fonnteProduction = {
-      ok: false,
-      skipped: true,
-      message:
-        "Skipped: text WA on order_created disabled; image notification handled by sendOrderToWhatsApp.",
-    };
+    const shouldSendOnCreate =
+      String(process.env.FONNTE_SEND_PRODUCTION_ON_CREATE || "true") === "true";
+
+    if (shouldSendOnCreate) {
+      const result = await sendOrderToWhatsApp({
+        ...order,
+        item: getItemsSummary(order),
+        phone: order.customerPhone,
+        address: getPrimaryAddress(order),
+      });
+
+      fonnteProduction = {
+        ok: result.ok,
+        skipped: false,
+        message: result.message,
+      };
+    } else {
+      fonnteProduction = {
+        ok: false,
+        skipped: true,
+        message: "Skipped: FONNTE_SEND_PRODUCTION_ON_CREATE bukan true.",
+      };
+    }
   }
 
   if (eventType === "order_confirmed") {
