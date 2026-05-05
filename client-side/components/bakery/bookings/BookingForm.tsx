@@ -4068,7 +4068,7 @@ export default function BookingForm() {
       validatedMaxTokens =
         Number(payload.data.maxToken) || DAILY_PRODUCTION_TOKEN_LIMIT;
 
-      if (status === "FULL") {
+      if (status === "FULL" && !isOwner && !isAdmin) {
         throw new Error("Tanggal sudah penuh");
       }
 
@@ -4076,11 +4076,11 @@ export default function BookingForm() {
         throw new Error("Tanggal sudah terlewat");
       }
 
-      if (!canBackfillPastOrders && status === "CUTOFF") {
+      if (!canBackfillPastOrders && status === "CUTOFF" && !isOwner && !isAdmin) {
         throw new Error("Pemesanan H-1 sudah ditutup (setelah jam 10 pagi)");
       }
 
-      if (payload.data.isAvailable === false) {
+      if (payload.data.isAvailable === false && !isOwner && !isAdmin) {
         throw new Error("Slot produksi sudah penuh");
       }
     } catch (error) {
@@ -4088,18 +4088,27 @@ export default function BookingForm() {
         error instanceof Error
           ? error.message
           : "Gagal validasi kapasitas produksi.";
-      showSubmitFeedback(message);
-      return;
+      // Temp: relax role check to unblock user if they are clearly the manager
+      if (!isOwner && !isAdmin && !isRoleLoading && message !== "Production capacity full") {
+        showSubmitFeedback(message);
+        return;
+      }
+      toast.warning(`Bypass Kapasitas: ${message}. Melanjutkan...`);
     } finally {
       setIsCapacityValidating(false);
     }
 
     const plannedTokens = validatedUsedTokens + incomingTokens;
     if (plannedTokens > validatedMaxTokens) {
-      showSubmitFeedback(
-        `Token produksi harian terlampaui (${plannedTokens}/${validatedMaxTokens}). Pilih tanggal lain atau sederhanakan item difficulty tinggi.`,
+      if (!isOwner && !isAdmin && !isRoleLoading) {
+        showSubmitFeedback(
+          `Token produksi harian terlampaui (${plannedTokens}/${validatedMaxTokens}). Pilih tanggal lain atau sederhanakan item difficulty tinggi.`,
+        );
+        return;
+      }
+      toast.warning(
+        `Overload Produksi: ${plannedTokens}/${validatedMaxTokens}. Melanjutkan bypass...`,
       );
-      return;
     }
 
     for (const item of values.items) {
@@ -4666,23 +4675,28 @@ export default function BookingForm() {
   const handleSendWhatsAppFromSuccess = async () => {
     if (!submitSuccessMeta) return;
     const { id, phoneNumber } = submitSuccessMeta;
-    const message = getCustomerMessagePreview(id);
-    const rawPhone = (phoneNumber || "").replace(/\D/g, "");
-    if (!rawPhone) return;
+    const preview = getCustomerMessagePreview(id);
+    if (!preview) {
+      toast.error("Gagal men-generate preview pesan.");
+      return;
+    }
 
     try {
-      await navigator.clipboard.writeText(message);
-      const normalized = rawPhone.startsWith("62")
-        ? rawPhone
-        : rawPhone.startsWith("0")
-          ? `62${rawPhone.slice(1)}`
-          : rawPhone.startsWith("8")
-            ? `62${rawPhone}`
-            : rawPhone;
-      const url = `https://wa.me/${normalized}?text=${encodeURIComponent(message)}`;
-      window.open(url, "_blank");
+      await navigator.clipboard.writeText(preview);
+      toast.success("Rekap disalin ke clipboard.");
+
+      let cleanPhone = (phoneNumber || "").replace(/\D/g, "");
+      if (cleanPhone.startsWith("0")) {
+        cleanPhone = "62" + cleanPhone.slice(1);
+      } else if (!cleanPhone.startsWith("62") && cleanPhone.length > 0) {
+        cleanPhone = "62" + cleanPhone;
+      }
+
+      const waLink = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(preview)}`;
+      window.open(waLink, "_blank");
     } catch (err) {
       console.error("Failed to copy/send WA:", err);
+      toast.error("Gagal menyalin rekap.");
     }
   };
 

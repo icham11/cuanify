@@ -28,6 +28,12 @@ export async function sendWhatsAppImage(
     throw new Error("Missing FONNTE_PRODUCTION_TARGET env variable.");
   }
 
+  console.info("[sendWhatsAppImage] Attempting to send WhatsApp image:", {
+    target,
+    imageUrl: imageUrl.substring(0, 50) + "...",
+    caption: caption.substring(0, 30) + "..."
+  });
+
   const body = new FormData();
   body.set("target", target);
   body.set("url", imageUrl);
@@ -43,6 +49,8 @@ export async function sendWhatsAppImage(
   });
 
   const rawText = await response.text();
+  console.info("[sendWhatsAppImage] Fonnte Response:", rawText);
+
   if (!response.ok) {
     throw new Error(`Fonnte error: ${rawText}`);
   }
@@ -50,8 +58,10 @@ export async function sendWhatsAppImage(
   try {
     const payload = JSON.parse(rawText) as { status?: boolean; reason?: string };
     if (payload.status === false) {
+      console.error("[sendWhatsAppImage] Fonnte rejected message:", payload.reason);
       throw new Error(`Fonnte error: ${payload.reason || rawText}`);
     }
+    console.info("[sendWhatsAppImage] Fonnte Success:", payload);
   } catch (error) {
     if (error instanceof Error && error.message.startsWith("Fonnte error:")) {
       throw error;

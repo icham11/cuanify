@@ -348,12 +348,21 @@ async function sendFonnteMessage(
   };
 
   if (!response.ok || data.status === false) {
+    console.error("[automation-service] Fonnte API Error:", {
+      status: response.status,
+      data,
+      target
+    });
     return {
       ok: false,
       message: data.reason || data.detail || `Fonnte error ${response.status}`,
     };
   }
 
+  console.info("[automation-service] Fonnte API Success:", {
+    id: data.id,
+    target
+  });
   return {
     ok: true,
     message: "WhatsApp terkirim.",

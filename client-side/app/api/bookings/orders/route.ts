@@ -2233,7 +2233,18 @@ export async function POST(request: NextRequest) {
       !bakerySettings.cutoffEnabled &&
       (role === "Owner" || role === "Admin");
     const shouldSendWhatsAppNotification =
-      !skipWhatsAppNotification && bakerySettings.notifyProductionWhatsapp;
+      !skipWhatsAppNotification && (bakerySettings.notifyProductionWhatsapp || isPrivilegedRequest);
+
+    if (!shouldSendWhatsAppNotification) {
+      console.info("[api/bookings/orders] WA notification will be skipped:", {
+        skipWhatsAppNotification,
+        notifyProductionWhatsapp: bakerySettings.notifyProductionWhatsapp,
+        isPrivilegedRequest,
+        businessId
+      });
+    } else if (isPrivilegedRequest && !bakerySettings.notifyProductionWhatsapp) {
+      console.info("[api/bookings/orders] WA notification forced via Admin Bypass", { businessId });
+    }
     let existingOrders: ParsedOrder[] = [];
     const staffLimitByUserId = new Map<number, number>(
       bakerySettings.staffSettings.map((entry) => [
@@ -2854,16 +2865,28 @@ export async function POST(request: NextRequest) {
                     tx,
                   );
                   if (!consumeResult.success) {
-                    // Kapasitas penuh — tolak seluruh sync ini
-                    throw new CapacityFullError(
-                      `Production capacity full for ${order.deliveryDate}. ` +
-                        `Used: ${consumeResult.usedToken}/${consumeResult.maxToken}, ` +
-                        `Needed: ${tokenForOrder} for order ${order.id}.`,
-                      order.deliveryDate,
-                      consumeResult.usedToken,
-                      consumeResult.maxToken,
-                      tokenForOrder,
-                    );
+                    if (isPrivilegedRequest) {
+                      // Admin/Owner bypass: force consume tokens even if it exceeds max_token
+                      await tx.$executeRaw`
+                        UPDATE production_capacity
+                        SET 
+                          used_token = used_token + ${tokenForOrder},
+                          updated_at = NOW()
+                        WHERE business_id = ${businessId}
+                          AND date = ${order.deliveryDate}::date
+                      `;
+                    } else {
+                      // Kapasitas penuh — tolak seluruh sync ini
+                      throw new CapacityFullError(
+                        `Production capacity full for ${order.deliveryDate}. ` +
+                          `Used: ${consumeResult.usedToken}/${consumeResult.maxToken}, ` +
+                          `Needed: ${tokenForOrder} for order ${order.id}.`,
+                        order.deliveryDate,
+                        consumeResult.usedToken,
+                        consumeResult.maxToken,
+                        tokenForOrder,
+                      );
+                    }
                   }
                   finalTokenUsed = tokenForOrder;
                 }
