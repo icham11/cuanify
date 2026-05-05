@@ -420,30 +420,41 @@ function mergeStaffClaimableProductionStages(params: {
   userId: number;
 }) {
   const { existingStages, incomingStages, userId } = params;
-  const fallbackStages =
-    existingStages.length > 0 ? existingStages : incomingStages;
-  const incomingByStage = new Map(
-    incomingStages.map((stage) => [stage.stage, stage]),
+  
+  const existingByStage = new Map(
+    existingStages.map((stage) => [stage.stage, stage]),
   );
+
   let claimedByUser = false;
 
-  const mergedStages = fallbackStages.map((stage) => {
-    const incoming = incomingByStage.get(stage.stage);
-    if (!incoming) return stage;
-
-    const currentStaffId = asPositiveIntOrNull(stage.staffId);
+  const mergedStages = incomingStages.map((incoming) => {
+    const existing = existingByStage.get(incoming.stage);
+    const currentStaffId = existing ? asPositiveIntOrNull(existing.staffId) : null;
     const nextStaffId = asPositiveIntOrNull(incoming.staffId);
-    const canClaimOwnUnassignedStage =
-      currentStaffId === null && nextStaffId === userId;
 
-    if (!canClaimOwnUnassignedStage) {
-      return stage;
+    // Kasus 1: Staff mengambil stage yang masih kosong (unassigned)
+    if (currentStaffId === null && nextStaffId === userId) {
+      claimedByUser = true;
+      return {
+        ...incoming,
+        staffId: userId,
+      };
     }
 
-    claimedByUser = true;
+    // Kasus 2: Staff melepas stage miliknya sendiri
+    if (currentStaffId === userId && nextStaffId === null) {
+      claimedByUser = true;
+      return {
+        ...incoming,
+        staffId: null,
+      };
+    }
+
+    // Default: pertahankan status kepemilikan dari database (server truth)
+    // Jangan izinkan staff merebut stage orang lain atau mengubah stage yang bukan miliknya.
     return {
-      ...stage,
-      staffId: userId,
+      ...incoming,
+      staffId: currentStaffId,
     };
   });
 

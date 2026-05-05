@@ -1089,9 +1089,9 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
           message,
         });
 
-        // Kapasitas produksi penuh — ini kondisi valid dari sistem, bukan error user.
-        // Tidak perlu toast.error agar halaman marketplace/production tidak spam notif.
+        // Tampilkan notifikasi agar user tahu kenapa aksinya di-rollback (lepas sendiri)
         if (error instanceof CapacityFullSyncError) {
+          toast.error(`Aksi dibatalkan: ${message}`, { duration: 6000 });
           return;
         }
 
