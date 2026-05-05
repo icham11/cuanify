@@ -1502,7 +1502,13 @@ export default function ProductionTable() {
                             Pilih Staff
                           </p>
                           {teamMembers.length === 0 ? (
-                            <p className="px-3 py-2 text-xs text-slate-400">Belum ada staff</p>
+                            <button
+                              type="button"
+                              onClick={() => { setActiveStageDropdown(null); router.push("/dashboard/staff"); }}
+                              className="w-full px-3 py-3 text-center text-xs text-[var(--crumbella-primary)] font-semibold hover:bg-[var(--crumbella-accent-soft)] transition"
+                            >
+                              + Tambah Staff Dulu
+                            </button>
                           ) : (
                             teamMembers.map((member) => {
                               const memberDailyToken = orderDateKey
@@ -1865,9 +1871,21 @@ export default function ProductionTable() {
 
           <div className="space-y-3">
             {staffStats.length === 0 ? (
-              <p className="rounded-[20px] border border-dashed border-[var(--crumbella-border)] bg-white px-4 py-5 text-sm text-[var(--crumbella-muted)]">
-                Belum ada data token staff.
-              </p>
+              <div className="rounded-[20px] border border-dashed border-[var(--crumbella-border)] bg-white px-4 py-5 text-center">
+                <p className="text-sm font-medium text-[var(--crumbella-muted)]">
+                  Belum ada staff yang terdaftar di bisnis ini.
+                </p>
+                <p className="mt-1 text-xs text-[var(--crumbella-muted)]">
+                  Daftarkan staff terlebih dahulu agar bisa di-assign ke proses produksi.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => router.push("/dashboard/staff")}
+                  className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-[var(--crumbella-primary)] px-4 py-2 text-xs font-semibold text-white transition hover:bg-[var(--crumbella-primary-strong)]"
+                >
+                  + Tambah Staff
+                </button>
+              </div>
             ) : (
               staffStats.map((staff) => {
                 const totalWork = staff.doneVisible + staff.inProgress;
@@ -2165,8 +2183,17 @@ export default function ProductionTable() {
             </div>
 
             {teamMembers.length === 0 ? (
-              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                Belum ada staff tersedia untuk assignment.
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-4 text-center">
+                <p className="text-xs font-medium text-amber-700">
+                  Belum ada staff yang terdaftar di bisnis ini.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => { closeStageAssignmentModal(); router.push("/dashboard/staff"); }}
+                  className="mt-2 inline-flex items-center gap-1 rounded-full bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-amber-700"
+                >
+                  + Tambah Staff Dulu
+                </button>
               </div>
             ) : (
               <div className="space-y-3">
