@@ -49,19 +49,25 @@ export async function sendWhatsAppImage(
   });
 
   const rawText = await response.text();
-  console.info("[sendWhatsAppImage] Fonnte Response:", rawText);
-
+  
   if (!response.ok) {
-    throw new Error(`Fonnte error: ${rawText}`);
+    console.error("[sendWhatsAppImage] Fonnte HTTP Error:", {
+      status: response.status,
+      statusText: response.statusText,
+      body: rawText
+    });
+    throw new Error(`Fonnte error (${response.status}): ${rawText}`);
   }
+
+  console.info("[sendWhatsAppImage] Fonnte Response:", rawText);
 
   try {
     const payload = JSON.parse(rawText) as { status?: boolean; reason?: string };
     if (payload.status === false) {
-      console.error("[sendWhatsAppImage] Fonnte rejected message:", payload.reason);
-      throw new Error(`Fonnte error: ${payload.reason || rawText}`);
+      console.error("[sendWhatsAppImage] Fonnte rejected message logic:", payload.reason);
+      throw new Error(`Fonnte rejection: ${payload.reason || rawText}`);
     }
-    console.info("[sendWhatsAppImage] Fonnte Success:", payload);
+    console.info("[sendWhatsAppImage] Fonnte Success Payload:", payload);
   } catch (error) {
     if (error instanceof Error && error.message.startsWith("Fonnte error:")) {
       throw error;

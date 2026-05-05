@@ -2232,18 +2232,37 @@ export async function POST(request: NextRequest) {
     const canBackfillPastOrders =
       !bakerySettings.cutoffEnabled &&
       (role === "Owner" || role === "Admin");
+
+    // Root Cause: Staff was previously skipped if notifyProductionWhatsapp was false.
+    // Solution: Allow Staff to bypass the setting just like Admin/Owner, or at least ensure they are considered.
     const shouldSendWhatsAppNotification =
-      !skipWhatsAppNotification && (bakerySettings.notifyProductionWhatsapp || isPrivilegedRequest);
+      !skipWhatsAppNotification && 
+      (bakerySettings.notifyProductionWhatsapp || isPrivilegedRequest || isStaffRequest);
+
+    // Logging environment variables for debugging production issues
+    if (shouldSendWhatsAppNotification) {
+      const missingVars = [];
+      if (!process.env.FONNTE_TOKEN) missingVars.push("FONNTE_TOKEN");
+      if (!process.env.FONNTE_PRODUCTION_TARGET) missingVars.push("FONNTE_PRODUCTION_TARGET");
+      if (!process.env.CLOUDINARY_URL && (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY)) {
+        missingVars.push("CLOUDINARY_VARS");
+      }
+      
+      if (missingVars.length > 0) {
+        console.error("[api/bookings/orders] WA Notification requested but missing env vars:", missingVars);
+      }
+    }
 
     if (!shouldSendWhatsAppNotification) {
       console.info("[api/bookings/orders] WA notification will be skipped:", {
         skipWhatsAppNotification,
         notifyProductionWhatsapp: bakerySettings.notifyProductionWhatsapp,
         isPrivilegedRequest,
+        isStaffRequest,
         businessId
       });
-    } else if (isPrivilegedRequest && !bakerySettings.notifyProductionWhatsapp) {
-      console.info("[api/bookings/orders] WA notification forced via Admin Bypass", { businessId });
+    } else if ((isPrivilegedRequest || isStaffRequest) && !bakerySettings.notifyProductionWhatsapp) {
+      console.info("[api/bookings/orders] WA notification forced via Role Bypass", { role, businessId });
     }
     let existingOrders: ParsedOrder[] = [];
     const staffLimitByUserId = new Map<number, number>(
@@ -3120,8 +3139,12 @@ export async function POST(request: NextRequest) {
               );
             });
 
-            const isNewOrder = !existingOrder;
-            if (isNewOrder && isActiveStatus) {
+            // Root Cause: Strict !existingOrder check prevented WA for revived/updated orders.
+            // Solution: Send WA if order is becoming active (was inactive/new and is now active).
+            const wasInactive = !existingOrder || INACTIVE_STATUSES.includes(existingOrder.order_status || "");
+            const isBecomingActive = wasInactive && isActiveStatus;
+            
+            if (isBecomingActive) {
               createdOrdersForWhatsApp.push(toWhatsAppPayload(order));
             }
 
@@ -3235,35 +3258,29 @@ export async function POST(request: NextRequest) {
         );
       } else if (createdOrdersForWhatsApp.length > 0) {
         console.info(`[api/bookings/orders] Awaiting ${createdOrdersForWhatsApp.length} WA notifications...`);
-        try {
-          const waResults = await Promise.all(
-            createdOrdersForWhatsApp.map((orderPayload) =>
-              sendOrderToWhatsApp(orderPayload),
-            ),
-          );
+        const waResults = await Promise.all(
+          createdOrdersForWhatsApp.map((orderPayload) =>
+            sendOrderToWhatsApp(orderPayload),
+          ),
+        );
+        
+        const waFailures = waResults.filter((result) => !result.ok);
+        if (waFailures.length > 0) {
+          const firstError = waFailures[0];
+          const errorMessage = `WA Produksi Gagal (${firstError.stage}): ${firstError.message}`;
+          console.error("[api/bookings/orders] " + errorMessage);
           
-          const waFailures = waResults.filter((result) => !result.ok);
-          if (waFailures.length > 0) {
-            console.warn("[api/bookings/orders] WA notification failures", {
-              businessId,
-              userId,
-              total: waResults.length,
-              failures: waFailures.map((result: SendOrderToWhatsAppResult) => ({
-                stage: result.stage,
-                message: result.message,
-              })),
-            });
-          } else {
-            console.info("[api/bookings/orders] All WA notifications sent successfully.");
-          }
-        } catch (waError) {
-            console.warn("[api/bookings/orders] WA notification dispatch failed", {
-              businessId,
-              userId,
-              message:
-                waError instanceof Error ? waError.message : String(waError),
-            });
+          // MELEMPAR ERROR KE UI AGAR TERLIHAT OLEH USER
+          return NextResponse.json(
+            { 
+              success: false, 
+              error: { message: errorMessage } 
+            },
+            { status: 500 }
+          );
         }
+        
+        console.info("[api/bookings/orders] All WA notifications sent successfully.");
       }
 
       return NextResponse.json({
