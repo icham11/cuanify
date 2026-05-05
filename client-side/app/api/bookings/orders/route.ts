@@ -2667,20 +2667,8 @@ export async function POST(request: NextRequest) {
               SELECT pg_advisory_xact_lock(hashtext(${orderLockKey}))
             `;
 
-            const lockedExistingRows = await tx.$queryRaw<
-              {
-                external_id: string;
-                delivery_date: string | null;
-                token_used: number;
-                order_status: string | null;
-              }[]
-            >`
-              SELECT external_id, delivery_date, token_used, order_status
-              FROM bakery_orders
-              WHERE business_id = ${businessId}
-                AND external_id = ${order.id}
-              FOR UPDATE
-            `;
+            // REMOVED redundant FOR UPDATE query inside loop to speed up bulk upserts.
+            // Data is already available in existingOrderMap and protected by advisory lock.
 
             // ── Token capacity: calculate tokens for this order ──
             const orderItems = (order.items || []).map((item) => ({
@@ -2745,8 +2733,7 @@ export async function POST(request: NextRequest) {
             }
 
             // ── Handle token changes for existing orders ──
-            const existingOrder =
-              lockedExistingRows[0] ?? existingOrderMap.get(order.id);
+            const existingOrder = existingOrderMap.get(order.id);
             const isActiveStatus = !INACTIVE_STATUSES.includes(
               order.orderStatus || "",
             );
@@ -3228,8 +3215,8 @@ export async function POST(request: NextRequest) {
           };
         },
         {
-          maxWait: 10_000,
-          timeout: 30_000,
+          maxWait: 30_000,
+          timeout: 90_000,
         },
       );
 
