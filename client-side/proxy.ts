@@ -253,8 +253,18 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // Dev-login endpoint (development only): bisa diakses role apapun.
+  if (pathname.startsWith("/api/dev-login")) {
+    return NextResponse.next();
+  }
+
   // Always allow auth self-check endpoint to avoid proxy recursion.
   if (pathname === "/api/auth/me") {
+    return NextResponse.next();
+  }
+
+  // Allow signout for any role so users can always logout.
+  if (pathname === "/api/auth/signout") {
     return NextResponse.next();
   }
 

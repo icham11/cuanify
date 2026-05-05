@@ -427,8 +427,14 @@ function mergeStaffClaimableProductionStages(params: {
   existingStages: ProductionStageAssignment[];
   incomingStages: ProductionStageAssignment[];
   userId: number;
+  isPrivilegedRequest?: boolean;
 }) {
-  const { existingStages, incomingStages, userId } = params;
+  const {
+    existingStages,
+    incomingStages,
+    userId,
+    isPrivilegedRequest = false,
+  } = params;
   const fallbackStages =
     existingStages.length > 0 ? existingStages : incomingStages;
   const incomingByStage = new Map(
@@ -437,22 +443,38 @@ function mergeStaffClaimableProductionStages(params: {
   let claimedByUser = false;
 
   const mergedStages = fallbackStages.map((stage) => {
-    const incoming = incomingByStage.get(stage.stage);
-    if (!incoming) return stage;
+    const incoming = incomingByStage.get(stage.stage) ?? stage;
 
     const currentStaffId = asPositiveIntOrNull(stage.staffId);
     const nextStaffId = asPositiveIntOrNull(incoming.staffId);
-    const canClaimOwnUnassignedStage =
-      currentStaffId === null && nextStaffId === userId;
 
-    if (!canClaimOwnUnassignedStage) {
-      return stage;
+    if (isPrivilegedRequest) {
+      claimedByUser = true;
+      return {
+        ...incoming,
+        staffId: nextStaffId,
+      };
     }
 
-    claimedByUser = true;
+    if (currentStaffId === null && nextStaffId === userId) {
+      claimedByUser = true;
+      return {
+        ...incoming,
+        staffId: userId,
+      };
+    }
+
+    if (currentStaffId === userId && nextStaffId === null) {
+      claimedByUser = true;
+      return {
+        ...incoming,
+        staffId: null,
+      };
+    }
+
     return {
-      ...stage,
-      staffId: userId,
+      ...incoming,
+      staffId: currentStaffId,
     };
   });
 
@@ -2205,6 +2227,7 @@ export async function POST(request: NextRequest) {
 
     const roleName = role as unknown as string;
     const isStaffRequest = roleName === "Staff";
+    const isPrivilegedRequest = roleName === "Owner" || roleName === "Admin";
     const bakerySettings = await getBakeryBusinessSettings(businessId);
     const canBackfillPastOrders =
       !bakerySettings.cutoffEnabled &&
@@ -2454,6 +2477,7 @@ export async function POST(request: NextRequest) {
             existingStages: existingOrder.productionStages,
             incomingStages: incomingOrder.productionStages,
             userId,
+            isPrivilegedRequest,
           });
         const viewerOwnsAnyStage = mergedStages.some(
           (stage) => stage.staffId === userId,
@@ -2468,6 +2492,7 @@ export async function POST(request: NextRequest) {
         // Staff payload can be stale for unrelated orders; keep server truth
         // and only apply changes that are explicitly allowed.
         if (
+          !isPrivilegedRequest &&
           !sameAssignee &&
           !staffClaimingUnassignedOwnOrder &&
           !staffClaimingOwnProductionStage
