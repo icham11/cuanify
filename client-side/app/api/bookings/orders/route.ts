@@ -418,8 +418,9 @@ function mergeStaffClaimableProductionStages(params: {
   existingStages: ProductionStageAssignment[];
   incomingStages: ProductionStageAssignment[];
   userId: number;
+  isPrivilegedRequest?: boolean;
 }) {
-  const { existingStages, incomingStages, userId } = params;
+  const { existingStages, incomingStages, userId, isPrivilegedRequest = false } = params;
   
   const existingByStage = new Map(
     existingStages.map((stage) => [stage.stage, stage]),
@@ -431,6 +432,15 @@ function mergeStaffClaimableProductionStages(params: {
     const existing = existingByStage.get(incoming.stage);
     const currentStaffId = existing ? asPositiveIntOrNull(existing.staffId) : null;
     const nextStaffId = asPositiveIntOrNull(incoming.staffId);
+
+    // Kasus 0: Owner/Admin bebas mengatur assignment siapa saja
+    if (isPrivilegedRequest) {
+      claimedByUser = true;
+      return {
+        ...incoming,
+        staffId: nextStaffId,
+      };
+    }
 
     // Kasus 1: Staff mengambil stage yang masih kosong (unassigned)
     if (currentStaffId === null && nextStaffId === userId) {
@@ -2391,6 +2401,7 @@ export async function POST(request: NextRequest) {
             existingStages: existingOrder.productionStages,
             incomingStages: incomingOrder.productionStages,
             userId,
+            isPrivilegedRequest,
           });
         const viewerOwnsAnyStage = mergedStages.some(
           (stage) => stage.staffId === userId,
@@ -2405,6 +2416,7 @@ export async function POST(request: NextRequest) {
         // Staff payload can be stale for unrelated orders; keep server truth
         // and only apply changes that are explicitly allowed.
         if (
+          !isPrivilegedRequest &&
           !sameAssignee &&
           !staffClaimingUnassignedOwnOrder &&
           !staffClaimingOwnProductionStage
