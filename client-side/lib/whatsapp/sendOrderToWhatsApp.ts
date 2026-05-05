@@ -36,21 +36,22 @@ export interface SendOrderToWhatsAppResult {
 
 function buildProductionCaption(order: SendOrderToWhatsAppInput): string {
   const lines: string[] = [];
-  
+
   lines.push("Tanggal Pengiriman :");
   lines.push(formatWhatsAppDeliveryDate(order.deliveryDate));
   lines.push("");
-  
+
   lines.push(`KODE BOOKING : ${order.bookingCode || "-"}`);
   lines.push("");
-  
+
   lines.push("Order :");
-  const itemSummary = (order.captionItems ?? [])
-    .map(it => it.productName)
-    .join(", ") || order.item || "-";
+  const itemSummary =
+    (order.captionItems ?? []).map((it) => it.productName).join(", ") ||
+    order.item ||
+    "-";
   lines.push(itemSummary);
   lines.push("");
-  
+
   if (order.designNotes || order.customerNotes) {
     const notes = (order.designNotes || order.customerNotes || "").trim();
     if (notes) {
@@ -58,13 +59,19 @@ function buildProductionCaption(order: SendOrderToWhatsAppInput): string {
       lines.push("");
     }
   }
-  
-  lines.push(`Jam Pengiriman: ${formatWhatsAppDeliveryTime(order.deliveryTime)}`);
+
+  lines.push(
+    `Jam Pengiriman: ${formatWhatsAppDeliveryTime(order.deliveryTime)}`,
+  );
   lines.push(`Metode Pengiriman : ${order.shippingMethod || "-"}`);
-  lines.push(`Nama penerima : ${order.recipientName || order.customerName || "-"}`);
-  lines.push(`No. telp penerima : ${order.recipientPhone || order.phone || "-"}`);
+  lines.push(
+    `Nama penerima : ${order.recipientName || order.customerName || "-"}`,
+  );
+  lines.push(
+    `No. telp penerima : ${order.recipientPhone || order.phone || "-"}`,
+  );
   lines.push(`Alamat lengkap : ${order.fullAddress || order.address || "-"}`);
-  
+
   return lines.join("\n");
 }
 
@@ -148,12 +155,17 @@ export async function sendOrderToWhatsApp(
 ): Promise<SendOrderToWhatsAppResult> {
   const selectedImageUrls = normalizeReferenceImageUrls(order);
   const structuredReferenceImages = normalizeStructuredReferenceImages(order);
-  
+
   // Ambil semua kandidat gambar yang bukan template dan bukan placeholder
   const sourceImageCandidates = [
     ...selectedImageUrls,
-    ...structuredReferenceImages.map(r => r.url)
-  ].filter(url => url && !url.includes("/orders/generated/") && !url.includes("via.placeholder.com"));
+    ...structuredReferenceImages.map((r) => r.url),
+  ].filter(
+    (url) =>
+      url &&
+      !url.includes("/orders/generated/") &&
+      !url.includes("via.placeholder.com"),
+  );
 
   console.info("[sendOrderToWhatsApp] Image candidates:", {
     inputImageUrl: order.imageUrl,
@@ -162,7 +174,8 @@ export async function sendOrderToWhatsApp(
     sourceImageCandidatesCount: sourceImageCandidates.length,
   });
 
-  const productImageUrl = sourceImageCandidates[0] || selectedImageUrls[0] || FALLBACK_IMAGE_URL;
+  const productImageUrl =
+    sourceImageCandidates[0] || selectedImageUrls[0] || FALLBACK_IMAGE_URL;
 
   const payload: SendOrderToWhatsAppInput = {
     ...order,
@@ -190,15 +203,22 @@ export async function sendOrderToWhatsApp(
   let generatedOrderImageUrl = "";
   let generatedBuffer: Buffer | null = null;
 
-  // Cek apakah ada gambar asli yang diupload (selain placeholder dan template)
-  const originalImageUrl = sourceImageCandidates[0];
+  // Cek apakah ada gambar asli yang diupload (hanya HTTP/HTTPS, bukan template/data URI)
+  const originalImageUrl = sourceImageCandidates.find((u) =>
+    /^https?:\/\//i.test(String(u)),
+  );
 
   if (originalImageUrl) {
     // Jika ada gambar asli, gunakan langsung tanpa generate template
     generatedOrderImageUrl = originalImageUrl;
-    console.info("[sendOrderToWhatsApp] MENGGUNAKAN GAMBAR ASLI:", originalImageUrl);
+    console.info(
+      "[sendOrderToWhatsApp] MENGGUNAKAN GAMBAR ASLI:",
+      originalImageUrl,
+    );
   } else {
-    console.info("[sendOrderToWhatsApp] TIDAK ADA GAMBAR ASLI, GENERATING TEMPLATE...");
+    console.info(
+      "[sendOrderToWhatsApp] TIDAK ADA GAMBAR ASLI, GENERATING TEMPLATE...",
+    );
     // Jika tidak ada gambar asli, baru generate dari template
     try {
       generatedBuffer = await generateOrderImage(payload);
