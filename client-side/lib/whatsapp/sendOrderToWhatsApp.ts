@@ -172,14 +172,18 @@ export async function sendOrderToWhatsApp(
   const userUploadedImages = [
     ...selectedImageUrls,
     ...structuredReferenceImages.map((r) => r.url),
-  ].filter(
-    (url) =>
+  ].filter((url) => {
+    return (
       url &&
       /^https?:\/\//i.test(url) &&
       !url.includes("/orders/generated/") &&
-      !url.includes("via.placeholder.com"),
+      !url.includes("via.placeholder.com")
+    );
+  });
+  const dedupedUserUploadedImages = Array.from(
+    new Set(userUploadedImages),
   );
-  console.info("[WA DEBUG] userUploadedImages:", userUploadedImages);
+  console.info("[WA DEBUG] userUploadedImages:", dedupedUserUploadedImages);
 
   if (!process.env.FONNTE_TOKEN) {
     return {
@@ -198,7 +202,7 @@ export async function sendOrderToWhatsApp(
   }
 
   // Jika tidak ada gambar user-upload, fallback ke template lama (generate template)
-  if (userUploadedImages.length === 0) {
+  if (dedupedUserUploadedImages.length === 0) {
     // ...existing code for template generation...
     let generatedOrderImageUrl = "";
     let generatedBuffer: Buffer | null = null;
@@ -321,8 +325,8 @@ export async function sendOrderToWhatsApp(
   }
 
   // 2. Kirim satu per satu gambar user-upload, caption = detail gambar dari parser
-  for (let i = 0; i < userUploadedImages.length; i++) {
-    const imgUrl = userUploadedImages[i];
+  for (let i = 0; i < dedupedUserUploadedImages.length; i++) {
+    const imgUrl = dedupedUserUploadedImages[i];
     let caption = "";
     // Ambil label/notes dari referenceImages jika ada, jika tidak dari captionItems
     if (order.referenceImages && order.referenceImages[i]?.label) {

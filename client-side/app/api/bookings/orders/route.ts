@@ -3477,85 +3477,105 @@ export async function POST(request: NextRequest) {
         );
       } else if (createdOrdersForWhatsApp.length > 0) {
         console.info(
-          `[api/bookings/orders] Queueing ${createdOrdersForWhatsApp.length} WA notifications in background...`,
+          `[api/bookings/orders] Awaiting ${createdOrdersForWhatsApp.length} WA notifications...`,
         );
       }
 
-      const response = NextResponse.json({
+      if (
+        shouldSendWhatsAppNotification &&
+        createdOrdersForWhatsApp.length > 0
+      ) {
+        const waSettledResults = await Promise.allSettled(
+          createdOrdersForWhatsApp.map((orderPayload) =>
+            sendOrderToWhatsApp(orderPayload),
+          ),
+        );
+        const waNotificationResults = waSettledResults
+          .filter(
+            (
+              result,
+            ): result is PromiseFulfilledResult<SendOrderToWhatsAppResult> =>
+              result.status === "fulfilled",
+          )
+          .map((result) => result.value);
+        const failedResults = waNotificationResults.filter((result) => !result.ok);
+        const rejectedResults = waSettledResults.filter(
+          (result): result is PromiseRejectedResult =>
+            result.status === "rejected",
+        );
+
+        if (failedResults.length > 0 || rejectedResults.length > 0) {
+          console.error("[api/bookings/orders] WA notification failures", {
+            businessId,
+            userId,
+            failureCount: failedResults.length,
+            rejectedCount: rejectedResults.length,
+            failures: failedResults.map((failure) => ({
+              stage: failure.stage,
+              message: failure.message,
+            })),
+            rejected: rejectedResults.map((failure) =>
+              failure.reason instanceof Error
+                ? failure.reason.message
+                : String(failure.reason),
+            ),
+          });
+
+          const firstFailedResult = failedResults[0];
+          const firstRejectedResult = rejectedResults[0];
+          const errorMessage =
+            firstFailedResult?.message ||
+            (firstRejectedResult?.reason instanceof Error
+              ? firstRejectedResult.reason.message
+              : firstRejectedResult
+                ? String(firstRejectedResult.reason)
+                : "WA Produksi gagal dikirim.");
+
+          return NextResponse.json(
+            {
+              success: false,
+              error: { message: `WA Produksi Gagal: ${errorMessage}` },
+            },
+            { status: 500 },
+          );
+        }
+
+        console.info("[api/bookings/orders] WA notifications sent successfully.", {
+          businessId,
+          userId,
+          count: waNotificationResults.length,
+        });
+
+        return NextResponse.json({
+          success: true,
+          data: {
+            mode: "rows",
+            itemCount: orders.length,
+            durationMs,
+            ...summaryStats,
+            waNotificationMode: "sent",
+            waNotificationEligible: createdOrdersForWhatsApp.length,
+            waNotificationQueued: createdOrdersForWhatsApp.length,
+            waNotificationResults,
+            skipWhatsAppNotification: false,
+          },
+        });
+      }
+
+      return NextResponse.json({
         success: true,
         data: {
           mode: "rows",
           itemCount: orders.length,
           durationMs,
           ...summaryStats,
-          waNotificationMode: shouldSendWhatsAppNotification
-            ? "queued"
-            : "skipped",
+          waNotificationMode: "skipped",
           waNotificationEligible: createdOrdersForWhatsApp.length,
-          waNotificationQueued: shouldSendWhatsAppNotification
-            ? createdOrdersForWhatsApp.length
-            : 0,
+          waNotificationQueued: 0,
           waNotificationResults: [],
-          skipWhatsAppNotification: !shouldSendWhatsAppNotification,
+          skipWhatsAppNotification: true,
         },
       });
-
-      if (
-        shouldSendWhatsAppNotification &&
-        createdOrdersForWhatsApp.length > 0
-      ) {
-        void Promise.allSettled(
-          createdOrdersForWhatsApp.map((orderPayload) =>
-            sendOrderToWhatsApp(orderPayload),
-          ),
-        ).then((results) => {
-          const failedResults = results
-            .filter(
-              (
-                result,
-              ): result is PromiseFulfilledResult<SendOrderToWhatsAppResult> =>
-                result.status === "fulfilled" && !result.value.ok,
-            )
-            .map((result) => result.value);
-          const rejectedResults = results.filter(
-            (result): result is PromiseRejectedResult =>
-              result.status === "rejected",
-          );
-
-          if (failedResults.length > 0 || rejectedResults.length > 0) {
-            console.error(
-              "[api/bookings/orders] Background WA notification failures",
-              {
-                businessId,
-                userId,
-                failureCount: failedResults.length,
-                rejectedCount: rejectedResults.length,
-                failures: failedResults.map((failure) => ({
-                  stage: failure.stage,
-                  message: failure.message,
-                })),
-                rejected: rejectedResults.map((failure) =>
-                  failure.reason instanceof Error
-                    ? failure.reason.message
-                    : String(failure.reason),
-                ),
-              },
-            );
-            return;
-          }
-
-          console.info(
-            "[api/bookings/orders] Background WA notifications sent successfully.",
-            {
-              businessId,
-              userId,
-              count: createdOrdersForWhatsApp.length,
-            },
-          );
-        });
-      }
-
-      return response;
     } catch (rowError) {
       // ── Handle capacity-full errors with 409 ──
       if (rowError instanceof CapacityFullError) {

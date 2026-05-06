@@ -77,9 +77,7 @@ import {
   type SlotAvailabilityStatus,
   type SlotOrderType,
 } from "@/lib/bookings/operations";
-import {
-  BAKERY_BLOCKED_DATES,
-} from "@/lib/bookings/config";
+import { BAKERY_BLOCKED_DATES } from "@/lib/bookings/config";
 import { calculateOrderTokenFromItems } from "@/lib/bookings/order-token-calculator";
 import { buildDashboardProductName } from "@/lib/products/dashboard-name";
 import {
@@ -331,9 +329,7 @@ const bookingSchema = z
     values.deliveryAddresses.forEach((address, index) => {
       const addressLine = (address.addressLine || "").trim();
       const postalCode = sanitizePostalCodeInput(address.postalCode || "");
-      const embeddedPostalCode = extractPostalCodeFromAddress(
-        addressLine,
-      );
+      const embeddedPostalCode = extractPostalCodeFromAddress(addressLine);
       const requiresPrimaryAddress = values.deliveryMethod !== "PICKUP";
       const shouldValidateAddressDetails =
         index === 0 ? requiresPrimaryAddress : addressLine.length > 0;
@@ -1948,10 +1944,7 @@ function getItemProductionToken(item: BookingItemInput): number {
 }
 
 function normalizeTokenLookupKey(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim();
+  return value.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
 function toDashboardProductNameFromItem(item: BookingItemInput): string {
@@ -2505,9 +2498,9 @@ export default function BookingForm() {
   const shouldRequireSubmitConfirmation =
     !isRoleLoading && (isOwner || isAdmin);
   const canWarnDuplicateTemplate = !isRoleLoading && (isOwner || isAdmin);
-  const [productTokenByName, setProductTokenByName] = useState<Map<string, number>>(
-    new Map(),
-  );
+  const [productTokenByName, setProductTokenByName] = useState<
+    Map<string, number>
+  >(new Map());
 
   useEffect(() => {
     let cancelled = false;
@@ -2676,7 +2669,9 @@ export default function BookingForm() {
     setProductionPreviewImageUrl(snapshot.productionPreviewImageUrl);
     setDraftImported(snapshot.draftImported);
     setReferenceImageLabelsInput(snapshot.referenceImageLabelsInput);
-    setReferenceFilesChangedSinceParse(snapshot.referenceFilesChangedSinceParse);
+    setReferenceFilesChangedSinceParse(
+      snapshot.referenceFilesChangedSinceParse,
+    );
     setReferenceImageFiles([]);
     setComposerStep(isReviewPage ? "preview" : "input");
   }, [isReviewPage, reset, router]);
@@ -2781,17 +2776,17 @@ export default function BookingForm() {
     [isFragileOrder],
   );
   const watchedDeliveryMethod = deliveryMethod as DeliveryMethod;
-  const effectiveDeliveryMethod =
-    selectableDeliveryMethodOptions.some(
-      (option) => option.value === watchedDeliveryMethod,
-    )
-      ? watchedDeliveryMethod
-      : (selectableDeliveryMethodOptions[0]?.value ?? "PICKUP");
+  const effectiveDeliveryMethod = selectableDeliveryMethodOptions.some(
+    (option) => option.value === watchedDeliveryMethod,
+  )
+    ? watchedDeliveryMethod
+    : (selectableDeliveryMethodOptions[0]?.value ?? "PICKUP");
   const deliveryMethodField = register("deliveryMethod");
 
   const handleDeliveryMethodChange = useCallback(
     (event: ChangeEvent<HTMLSelectElement>) => {
-      const nextMethod = event.target.value as BookingFormValues["deliveryMethod"];
+      const nextMethod = event.target
+        .value as BookingFormValues["deliveryMethod"];
       setValue("deliveryMethod", nextMethod, {
         shouldDirty: true,
         shouldTouch: true,
@@ -2966,13 +2961,17 @@ export default function BookingForm() {
   }, [watchedItems, productCatalog, addOnCatalog]);
 
   const previewReferenceImages = useMemo(() => {
-    if (Array.isArray(parsedPreview?.referenceImages) && parsedPreview.referenceImages.length > 0) {
+    if (
+      Array.isArray(parsedPreview?.referenceImages) &&
+      parsedPreview.referenceImages.length > 0
+    ) {
       return parsedPreview.referenceImages.map((entry, index) => ({
         label:
           entry.label?.trim() ||
           normalizedReferenceImageLabels[index] ||
           `Gambar ${index + 1}`,
-        note: entry.label?.trim() || normalizedReferenceImageLabels[index] || "",
+        note:
+          entry.label?.trim() || normalizedReferenceImageLabels[index] || "",
         url: entry.url?.trim() || "",
       }));
     }
@@ -2982,7 +2981,11 @@ export default function BookingForm() {
       note: normalizedReferenceImageLabels[index] || "",
       url: "",
     }));
-  }, [normalizedReferenceImageLabels, parsedPreview?.referenceImages, referenceImageFiles]);
+  }, [
+    normalizedReferenceImageLabels,
+    parsedPreview?.referenceImages,
+    referenceImageFiles,
+  ]);
   const previewAlertMessage = parsedPreview
     ? "Ada yang salah? Kembali ke halaman sebelumnya, edit teks WA, lalu parse ulang."
     : "Ada yang salah? Kembali ke halaman sebelumnya dan cek lagi data booking sebelum disimpan.";
@@ -3555,9 +3558,7 @@ export default function BookingForm() {
 
   useEffect(() => {
     if (!isFragileOrder) return;
-    if (
-      FRAGILE_ORDER_ALLOWED_METHODS.includes(effectiveDeliveryMethod)
-    ) {
+    if (FRAGILE_ORDER_ALLOWED_METHODS.includes(effectiveDeliveryMethod)) {
       return;
     }
 
@@ -3586,8 +3587,8 @@ export default function BookingForm() {
 
   const deliveryFee = shouldUseShippingEngine
     ? (selectedShippingQuote?.priceWithoutInsurance ??
-        selectedShippingQuote?.price ??
-        0)
+      selectedShippingQuote?.price ??
+      0)
     : 0;
   const insuranceFeeFromShipping = shouldUseShippingEngine
     ? (selectedShippingQuote?.insuranceFee ?? 0)
@@ -3675,14 +3676,14 @@ export default function BookingForm() {
   );
   const isBlockedDate = Boolean(
     deliveryDate &&
-    (!canBackfillPastOrders &&
-      isDateBlockedForOrdering(deliveryDate, undefined, {
-        deliveryMethod: effectiveDeliveryMethod,
-        items: watchedItems,
-        blockedDates,
-        cutoffHour,
-        allowHistoricalBackfill: allowHistoricalBackfillForSelectedDate,
-      })),
+    !canBackfillPastOrders &&
+    isDateBlockedForOrdering(deliveryDate, undefined, {
+      deliveryMethod: effectiveDeliveryMethod,
+      items: watchedItems,
+      blockedDates,
+      cutoffHour,
+      allowHistoricalBackfill: allowHistoricalBackfillForSelectedDate,
+    }),
   );
 
   useEffect(() => {
@@ -3703,16 +3704,16 @@ export default function BookingForm() {
         deliverySlot: slot,
         orderType: draftOrderType,
       });
-        const status = checkSlotAvailability(deliveryDate, slot, draftOrderType, {
-          orders,
-          dateContext: {
-            deliveryMethod: effectiveDeliveryMethod,
-            items: watchedItems,
-            blockedDates,
-            cutoffHour: canBackfillPastOrders ? 99 : cutoffHour,
-            allowHistoricalBackfill: allowHistoricalBackfillForSelectedDate,
-          },
-        });
+      const status = checkSlotAvailability(deliveryDate, slot, draftOrderType, {
+        orders,
+        dateContext: {
+          deliveryMethod: effectiveDeliveryMethod,
+          items: watchedItems,
+          blockedDates,
+          cutoffHour: canBackfillPastOrders ? 99 : cutoffHour,
+          allowHistoricalBackfill: allowHistoricalBackfillForSelectedDate,
+        },
+      });
       return {
         slot,
         used,
@@ -3803,7 +3804,8 @@ export default function BookingForm() {
             items: watchedItems,
             blockedDates,
             cutoffHour: canBackfillPastOrders ? 99 : cutoffHour,
-            allowHistoricalBackfill: canBackfillPastOrders && isPastDate(dateKey),
+            allowHistoricalBackfill:
+              canBackfillPastOrders && isPastDate(dateKey),
           })
         ) {
           const cap = getRecommendationCapacity(dateKey);
@@ -3984,10 +3986,12 @@ export default function BookingForm() {
           warning: payload.warning || undefined,
         }));
 
-        const sortedQuotes = enrichedQuotes.slice().sort(
-          (a, b) =>
-            getShippingQuoteDisplayPrice(a) - getShippingQuoteDisplayPrice(b),
-        );
+        const sortedQuotes = enrichedQuotes
+          .slice()
+          .sort(
+            (a, b) =>
+              getShippingQuoteDisplayPrice(a) - getShippingQuoteDisplayPrice(b),
+          );
         setShippingQuotes(sortedQuotes);
         setSelectedShippingQuoteId((current) => {
           if (current && sortedQuotes.some((quote) => quote.id === current))
@@ -4085,7 +4089,9 @@ export default function BookingForm() {
     }
 
     if (isCalendarDateInvalid) {
-      showSubmitFeedback(calendarDateError || "Tanggal dipilih tidak tersedia.");
+      showSubmitFeedback(
+        calendarDateError || "Tanggal dipilih tidak tersedia.",
+      );
       return;
     }
 
@@ -4170,7 +4176,12 @@ export default function BookingForm() {
         throw new Error("Tanggal sudah terlewat");
       }
 
-      if (!canBackfillPastOrders && status === "CUTOFF" && !isOwner && !isAdmin) {
+      if (
+        !canBackfillPastOrders &&
+        status === "CUTOFF" &&
+        !isOwner &&
+        !isAdmin
+      ) {
         throw new Error("Pemesanan H-1 sudah ditutup (setelah jam 10 pagi)");
       }
 
@@ -4183,7 +4194,12 @@ export default function BookingForm() {
           ? error.message
           : "Gagal validasi kapasitas produksi.";
       // Temp: relax role check to unblock user if they are clearly the manager
-      if (!isOwner && !isAdmin && !isRoleLoading && message !== "Production capacity full") {
+      if (
+        !isOwner &&
+        !isAdmin &&
+        !isRoleLoading &&
+        message !== "Production capacity full"
+      ) {
         showSubmitFeedback(message);
         return;
       }
@@ -4293,7 +4309,9 @@ export default function BookingForm() {
         ).length;
         if (selectedCookieAddOnCount > 1) {
           const productLabel = item.productName || item.category || "Item";
-          showSubmitFeedback(`${productLabel}: pilih maksimal 1 add-on cookie.`);
+          showSubmitFeedback(
+            `${productLabel}: pilih maksimal 1 add-on cookie.`,
+          );
           return;
         }
       }
@@ -5608,1160 +5626,1020 @@ export default function BookingForm() {
     <form onSubmit={submitBookingForm} className="space-y-6">
       {composerStep === "input" ? (
         <>
-      <Card className="overflow-hidden rounded-[32px] border-[var(--crumbella-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(250,244,237,0.95)_100%)] shadow-[0_24px_40px_-30px_rgba(30,18,10,0.5)]">
-        <CardHeader className="space-y-4 border-b border-[var(--crumbella-border)] px-5 pb-4 pt-5 sm:px-6">
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex items-start gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-[var(--crumbella-border)] bg-white text-[var(--crumbella-primary)] shadow-[0_10px_18px_-16px_rgba(30,18,10,0.8)]">
-                <ArrowLeft className="h-4 w-4" />
+          <Card className="overflow-hidden rounded-[32px] border-[var(--crumbella-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(250,244,237,0.95)_100%)] shadow-[0_24px_40px_-30px_rgba(30,18,10,0.5)]">
+            <CardHeader className="space-y-4 border-b border-[var(--crumbella-border)] px-5 pb-4 pt-5 sm:px-6">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-[var(--crumbella-border)] bg-white text-[var(--crumbella-primary)] shadow-[0_10px_18px_-16px_rgba(30,18,10,0.8)]">
+                    <ArrowLeft className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <p className="text-3xl font-semibold leading-none text-[var(--foreground)]">
+                      New Booking
+                    </p>
+                    <p className="text-sm text-[var(--crumbella-muted)]">
+                      Paste rekap WA lalu klik Parse
+                    </p>
+                  </div>
+                </div>
+                <div className="rounded-full border border-[#d9e7ca] bg-[#f2faeb] px-3 py-1 text-[11px] font-semibold text-[#64833e]">
+                  {selectedOrderType === "unknown"
+                    ? "✨ Auto Detect"
+                    : WHATSAPP_ORDER_LABELS[selectedOrderType]}
+                </div>
               </div>
-              <div>
-                <p className="text-3xl font-semibold leading-none text-[var(--foreground)]">
-                  New Booking
-                </p>
-                <p className="text-sm text-[var(--crumbella-muted)]">
-                  Paste rekap WA lalu klik Parse
-                </p>
-              </div>
-            </div>
-            <div className="rounded-full border border-[#d9e7ca] bg-[#f2faeb] px-3 py-1 text-[11px] font-semibold text-[#64833e]">
-              {selectedOrderType === "unknown"
-                ? "✨ Auto Detect"
-                : WHATSAPP_ORDER_LABELS[selectedOrderType]}
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              className="h-8 rounded-full border-[var(--crumbella-border)] px-3 text-[11px] text-[var(--crumbella-primary)]"
-              onClick={() => setShowOrderTypeSelector((current) => !current)}
-            >
-              {showOrderTypeSelector ? "Sembunyikan Jenis Order" : "Ubah Jenis Order"}
-            </Button>
-            {selectedOrderType !== "unknown" && (
-              <Button
-                type="button"
-                variant="outline"
-                className="h-8 rounded-full border-[var(--crumbella-border)] px-3 text-[11px] text-[var(--crumbella-muted)]"
-                onClick={() => {
-                  setSelectedOrderType("unknown");
-                  setShowOrderTypeSelector(false);
-                }}
-              >
-                Kembali ke Auto Detect
-              </Button>
-            )}
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4 px-4 py-4 sm:px-5 sm:py-5">
-          <div className="rounded-[24px] border border-[var(--crumbella-border)] bg-[#fff8f1] px-4 py-3 text-xs text-[var(--crumbella-primary)]">
-            <p>
-              Default parser: <span className="font-semibold">✨ Auto Detect</span>
-              . Cukup paste chat lalu klik Parse WhatsApp.
-            </p>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <span className="rounded-md border border-indigo-200 bg-white px-2 py-1 font-semibold text-indigo-700">
-                Mode aktif:{" "}
-                {selectedOrderType === "unknown"
-                  ? "Auto Detect"
-                  : WHATSAPP_ORDER_LABELS[selectedOrderType]}
-              </span>
-              <Button
-                type="button"
-                variant="outline"
-                className="h-7 border-indigo-200 px-2 text-[11px] text-indigo-700 hover:bg-indigo-100"
-                onClick={() => setShowOrderTypeSelector((current) => !current)}
-              >
-                {showOrderTypeSelector
-                  ? "Sembunyikan Jenis Order"
-                  : "Ubah Jenis Order"}
-              </Button>
-              {selectedOrderType !== "unknown" && (
+              <div className="flex flex-wrap items-center gap-2">
                 <Button
                   type="button"
                   variant="outline"
-                  className="h-7 border-gray-200 px-2 text-[11px] text-gray-700 hover:bg-gray-100"
-                  onClick={() => {
-                    setSelectedOrderType("unknown");
-                    setShowOrderTypeSelector(false);
-                  }}
-                >
-                  Kembali ke Auto Detect
-                </Button>
-              )}
-            </div>
-          </div>
-
-          {showOrderTypeSelector && (
-            <label className="grid gap-2 text-sm font-medium text-[var(--foreground)]">
-              Jenis Order (Override)
-              <Select
-                value={selectedOrderType}
-                onChange={(event) =>
-                  setSelectedOrderType(event.target.value as ParserOrderType)
-                }
-              >
-                {whatsappOrderTypeOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </Select>
-            </label>
-          )}
-
-          <Textarea
-            value={quickPaste}
-            onChange={(event) => setQuickPaste(event.target.value)}
-            placeholder={"Nama: Adina\nNo HP: 0811xxxxxxx\nProduk: Real Cake + 20 cookies\nTema: Mario\nDelivery: 8 April 2026 jam 10.00\nMetode: Pickup"}
-            className="min-h-32 rounded-[20px] border-[1.5px] border-dashed border-[#e6cfbc] bg-[#fdf7f0] px-4 py-3 text-sm leading-7 text-[var(--foreground)] placeholder:text-[#c58a61]"
-          />
-
-          <div className="grid gap-4 rounded-[24px] border border-[var(--crumbella-border)] bg-white p-4 shadow-[0_14px_24px_-24px_rgba(30,18,10,0.6)]">
-            <div className="flex items-start justify-between gap-3 border-b border-[var(--crumbella-border)] pb-3">
-              <div>
-                <p className="text-xl font-semibold text-[var(--foreground)]">
-                  🎨 Gambar Referensi
-                </p>
-                <p className="mt-1 text-sm text-[var(--crumbella-muted)]">
-                  Upload gambar desain customer, notes opsional
-                </p>
-              </div>
-              <div className="rounded-2xl border border-[var(--crumbella-border)] bg-[#fdf7f0] px-3 py-1.5 text-xs font-semibold text-[var(--foreground)]">
-                {referenceImageFiles.length} gambar
-              </div>
-            </div>
-            <label className="grid gap-2 text-sm font-medium text-[var(--foreground)]">
-              Gambar Referensi Customer
-              <Input
-                key={referenceFileInputKey}
-                type="file"
-                accept="image/*"
-                multiple
-                onChange={(event) => {
-                  setReferenceImageFiles(Array.from(event.target.files ?? []));
-                  setReferenceFilesChangedSinceParse(true);
-                }}
-              />
-              <span className="text-xs font-normal text-[var(--crumbella-muted)]">
-                Upload gambar yang dipilih customer. Bisa satu gambar crop per
-                desain, atau satu sheet gambar bertanda merah. Jika file diubah,
-                klik Parse WhatsApp lagi supaya referensinya ter-upload.
-              </span>
-            </label>
-
-            <label className="grid gap-2 text-sm font-medium text-[var(--foreground)]">
-              Label Desain per Gambar
-              <Textarea
-                value={referenceImageLabelsInput}
-                onChange={(event) => {
-                  setReferenceImageLabelsInput(event.target.value);
-                  if (draftImported) {
-                    setReferenceFilesChangedSinceParse(true);
+                  className="h-8 rounded-full border-[var(--crumbella-border)] px-3 text-[11px] text-[var(--crumbella-primary)]"
+                  onClick={() =>
+                    setShowOrderTypeSelector((current) => !current)
                   }
-                }}
-                placeholder={
-                  "Opsional. Isi satu label per baris sesuai urutan upload.\nContoh:\nPikachu\nBulbasaur\nPiplup"
-                }
-                className="min-h-24 rounded-[18px] border-[#e6cfbc] bg-[#fdf7f0]"
-              />
-              <span className="text-xs font-normal text-[var(--crumbella-muted)]">
-                Dipakai untuk mencocokkan gambar ke slot/template produk.
-              </span>
-            </label>
-
-            {referenceImageFiles.length > 0 && (
-              <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600">
-                {referenceImageFiles.length} gambar siap dipakai:{" "}
-                {referenceImageFiles.map((file) => file.name).join(", ")}
-              </div>
-            )}
-
-            {referenceFilesChangedSinceParse &&
-              referenceImageFiles.length > 0 && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                  Referensi gambar atau label desain berubah. Klik{" "}
-                  <span className="font-semibold">Parse WhatsApp</span> lagi
-                  supaya versi terbaru ikut tersimpan ke booking dan dipakai
-                  template produksi.
-                </div>
-              )}
-          </div>
-
-          <div className="flex flex-wrap gap-3">
-            <Button
-              type="button"
-              className="h-11 rounded-2xl bg-[#2c160d] px-4 text-sm font-semibold text-white hover:bg-[#422318]"
-              onClick={() => void importDraft()}
-              disabled={isParsingWhatsApp}
-            >
-              <Sparkles className="mr-2 h-4 w-4" />
-              {isParsingWhatsApp
-                ? "Parsing & Preview..."
-                : referenceFilesChangedSinceParse || draftImported
-                  ? "Parse Ulang WhatsApp"
-                  : "Parse WhatsApp"}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className="h-11 rounded-2xl border-[var(--crumbella-border)] px-4 text-sm text-[var(--foreground)]"
-              onClick={fillManualTemplate}
-            >
-              📝 Isi Manual
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className="h-11 rounded-2xl border-[var(--crumbella-border)] px-4 text-sm text-[var(--crumbella-muted)]"
-              onClick={() => {
-                setQuickPaste("");
-                setSelectedOrderType("unknown");
-                setShowOrderTypeSelector(false);
-                setParsedPreview(null);
-                setProductionPreviewImageUrl("");
-                setDraftImported(false);
-                setReferenceImageFiles([]);
-                setReferenceFilesChangedSinceParse(false);
-                setReferenceImageLabelsInput("");
-                setReferenceFileInputKey((current) => current + 1);
-              }}
-            >
-              🧹 Clear
-            </Button>
-          </div>
-
-          {draftImported && (
-            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-              Draft berhasil di-auto populate. Cek ulang semua data sebelum create booking.
-            </div>
-          )}
-
-          {(productionPreviewImageUrl ||
-            previewReferenceImages.some((image) => image.url)) && (
-            <div className="rounded-2xl border border-dashed border-[var(--crumbella-border)] bg-white/70 px-4 py-3 text-center text-xs text-[var(--crumbella-muted)]">
-              Preview template produksi disembunyikan di halaman ini. Untuk
-              melihatnya, klik <span className="font-semibold">Preview Booking</span>{" "}
-              di atas Price Summary.
-            </div>
-          )}
-
-          <div className="px-1 pt-1">
-            <Button
-              type="button"
-              className="h-14 w-full rounded-[18px] bg-[var(--crumbella-accent)] text-base font-semibold text-white hover:bg-[var(--crumbella-accent-strong)]"
-              disabled={isParsingWhatsApp}
-              onClick={() => {
-                if (!parsedPreview) {
-                  toast.error("Pastikan teks sudah di-parse sebelum lanjut ke preview.");
-                  return;
-                }
-                openPreviewPage();
-              }}
-            >
-              👀 Lihat Preview
-              <ChevronRight className="ml-2 h-4 w-4" />
-            </Button>
-            <p className="mt-2 text-center text-xs text-[var(--crumbella-muted)]">
-              Pastikan teks sudah di-parse sebelum lanjut
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="grid gap-6 lg:grid-cols-[2fr,1fr]">
-        <Card className="rounded-xl shadow-sm">
-          <CardHeader className="p-6 pb-2">
-            <CardTitle>Booking Details</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-6 px-6 pb-6 pt-0">
-            <div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="grid gap-2 text-sm font-medium text-gray-700">
-                  Customer Name
-                  <Input
-                    placeholder="Nadia Pratama"
-                    {...register("customerName")}
-                  />
-                  {errors.customerName && (
-                    <span className="text-xs text-rose-500">
-                      {errors.customerName.message}
-                    </span>
-                  )}
-                </label>
-                <label className="grid gap-2 text-sm font-medium text-gray-700">
-                  Phone Number
-                  <Input
-                    placeholder="08xxxxxxxxxx"
-                    {...register("phoneNumber")}
-                  />
-                  {errors.phoneNumber && (
-                    <span className="text-xs text-rose-500">
-                      {errors.phoneNumber.message}
-                    </span>
-                  )}
-                </label>
-                <label className="grid gap-2 text-sm font-medium text-gray-700">
-                  Delivery Date
-                  <Input type="date" {...register("deliveryDate")} />
-                  {errors.deliveryDate && (
-                    <span className="text-xs text-rose-500">
-                      {errors.deliveryDate.message}
-                    </span>
-                  )}
-                  {deliveryDate && isCalendarCapacityLoading ? (
-                    <span className="text-xs text-slate-500">
-                      Mengecek kapasitas produksi...
-                    </span>
-                  ) : null}
-                  {deliveryDate && calendarDateError ? (
-                    <span className="text-xs font-medium text-rose-600">
-                      {calendarDateError}
-                    </span>
-                  ) : null}
-                  {deliveryDate && calendarDateNotice ? (
-                    <span className="text-xs font-medium text-amber-700">
-                      {calendarDateNotice}
-                    </span>
-                  ) : null}
-                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-2">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">
-                      Kalender Libur
-                    </p>
-                    <div className="mt-1 flex flex-wrap gap-1.5">
-                      {blockedDates.map((blockedDate) => {
-                        const active = deliveryDate === blockedDate;
-                        return (
-                          <button
-                            key={blockedDate}
-                            type="button"
-                            onClick={() =>
-                              setValue("deliveryDate", blockedDate, {
-                                shouldValidate: true,
-                              })
-                            }
-                            className={`rounded-md border px-2 py-1 text-[11px] ${
-                              active
-                                ? "border-rose-300 bg-rose-100 text-rose-700"
-                                : "border-amber-200 bg-white text-amber-700"
-                            }`}
-                          >
-                            {formatIsoDateToIdLabel(blockedDate)}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </label>
-                <label className="grid gap-2 text-sm font-medium text-gray-700">
-                  Delivery Slot
-                  <Select {...register("deliverySlot")}>
-                    <option value="">Select hour</option>
-                    {deliverySlots.map((slot) => {
-                      const status = slotStatusByTime.get(slot) ?? "AVAILABLE";
-                      return (
-                        <option key={slot} value={slot}>
-                          {slot} - {slotStatusLabel(status)}
-                        </option>
-                      );
-                    })}
-                  </Select>
-                  {errors.deliverySlot && (
-                    <span className="text-xs text-rose-500">
-                      {errors.deliverySlot.message}
-                    </span>
-                  )}
-                </label>
-              </div>
-
-              {isBlockedDate && (
-                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-                  Tanggal tidak tersedia (libur admin atau cutoff H-1 jam 10:00
-                  sudah lewat).
-                </div>
-              )}
-
-              {deliveryDate && (
-                <div className="space-y-2 rounded-xl border border-gray-200 bg-gray-50/60 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    Slot Availability ({deliveryDate}) - {slotProfileLabel}{" "}
-                    Limit {slotLimitPerHour}/hour
-                  </p>
-                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                    {slotAvailability.map((entry) => (
-                      <div
-                        key={entry.slot}
-                        className={`rounded-lg border px-3 py-2 text-xs font-semibold ${
-                          entry.status === "FULL"
-                            ? "border-rose-200 bg-rose-50 text-rose-700"
-                            : entry.status === "ALMOST_FULL"
-                              ? "border-amber-200 bg-amber-50 text-amber-700"
-                              : "border-emerald-200 bg-emerald-50 text-emerald-700"
-                        }`}
-                      >
-                        <div>{entry.slot}</div>
-                        <div className="font-normal">
-                          {entry.status === "FULL"
-                            ? "🔴 FULL"
-                            : entry.status === "ALMOST_FULL"
-                              ? `🟡 ALMOST_FULL (${entry.used}/${slotLimitPerHour})`
-                              : `🟢 AVAILABLE (${entry.used}/${slotLimitPerHour})`}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {deliveryDate && (
-                <div className="space-y-2 rounded-xl border border-gray-200 bg-gray-50/60 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    Capacity Check ({deliveryDate})
-                  </p>
-                  {/* ── Smart Date Recommendations ── */}
-                  {shouldShowDateRecommendations && (
-                    <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 px-3 py-2 text-xs">
-                      <p className="font-semibold text-rose-600">
-                        {dbWillExceed
-                          ? "Kapasitas tidak mencukupi untuk tanggal ini"
-                          : calendarDateError ||
-                            "Tanggal dipilih tidak tersedia"}
-                      </p>
-
-                      {isRecommendationLoading ? (
-                        <p className="mt-1 text-indigo-500">Mencari tanggal…</p>
-                      ) : suggestedDates.length > 0 ? (
-                        <>
-                          <p className="mt-1 font-medium text-indigo-700">
-                            Tanggal tersedia:
-                          </p>
-                          <div className="mt-1.5 flex flex-wrap gap-2">
-                            {suggestedDates.map(({ dateKey, remaining }) => (
-                              <button
-                                key={dateKey}
-                                type="button"
-                                onClick={() => handleSuggestionClick(dateKey)}
-                                className="rounded-md border border-indigo-300 bg-white px-2 py-1 font-medium text-indigo-700 shadow-[0_0_0_0_rgba(99,102,241,0.35)] transition-all duration-300 hover:-translate-y-0.5 hover:border-indigo-500 hover:bg-indigo-100 hover:shadow-[0_0_0_4px_rgba(99,102,241,0.18)]"
-                                title={`Sisa kapasitas: ${remaining} token`}
-                              >
-                                {formatIsoDateToIdLabel(dateKey)}
-                                <span className="ml-1 text-indigo-400">
-                                  ({remaining} sisa)
-                                </span>
-                              </button>
-                            ))}
-                          </div>
-                        </>
-                      ) : (
-                        <p className="mt-1 font-medium text-rose-600">
-                          Semua tanggal dalam 30 hari penuh
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    Order Items
-                  </p>
+                >
+                  {showOrderTypeSelector
+                    ? "Sembunyikan Jenis Order"
+                    : "Ubah Jenis Order"}
+                </Button>
+                {selectedOrderType !== "unknown" && (
                   <Button
                     type="button"
                     variant="outline"
-                    className="h-8 gap-1 border-indigo-200 text-indigo-700"
+                    className="h-8 rounded-full border-[var(--crumbella-border)] px-3 text-[11px] text-[var(--crumbella-muted)]"
                     onClick={() => {
-                      const nextDefault =
-                        getDefaultSelectionFromCatalog(productCatalog);
-                      const nextTokenDifficulty =
-                        nextDefault.category === "Cookies"
-                          ? "SIMPLE"
-                          : undefined;
-                      const autoQuantity =
-                        getAutoQuantityForItem({
-                          category: nextDefault.category,
-                          subcategory: nextDefault.subcategory,
-                          productName: nextDefault.productName,
-                          size: nextDefault.size,
-                          quantity: 1,
-                          tokenDifficulty: nextTokenDifficulty,
-                          customTokenPerUnit: undefined,
-                          bouquetPriceOverride: undefined,
-                          sharingBoxPriceOverride: undefined,
-                          cookiePrice: undefined,
-                          addOns: [],
-                          addOnQuantities: {},
-                          addOnPriceOverrides: {},
-                          customAddOns: [],
-                          greetingCard: "",
-                          bouquetPaperColor: "",
-                          ribbon: "",
-                          flowerCount: "",
-                          flowerColor: "",
-                          ribbonColor: "",
-                          notes: "",
-                        }) ?? 1;
-                      appendItem({
-                        category: nextDefault.category,
-                        subcategory: nextDefault.subcategory,
-                        productName: nextDefault.productName,
-                        size: nextDefault.size,
-                        quantity: autoQuantity,
-                        tokenDifficulty: nextTokenDifficulty,
-                        customTokenPerUnit: undefined,
-                        bouquetPriceOverride: undefined,
-                        sharingBoxPriceOverride: undefined,
-                        cookiePrice: undefined,
-                        addOns: [],
-                        addOnQuantities: {},
-                        addOnPriceOverrides: {},
-                        customAddOns: [],
-                        darkColorButtercreamColors: [],
-                        parsedUnitPrice: undefined,
-                        parsedSubtotal: undefined,
-                        pricingSource: undefined,
-                        greetingCard: "",
-                        bouquetPaperColor: "",
-                        ribbon: "",
-                        flowerCount: "",
-                        flowerColor: "",
-                        ribbonColor: "",
-                        notes: "",
-                      });
+                      setSelectedOrderType("unknown");
+                      setShowOrderTypeSelector(false);
                     }}
                   >
-                    <Plus size={14} />
-                    Add Item
+                    Kembali ke Auto Detect
                   </Button>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2 text-[11px] font-medium">
-                  <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-slate-700">
-                    Custom: {orderItemGroupingSummary.customCount}
+                )}
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4 px-4 py-4 sm:px-5 sm:py-5">
+              <div className="rounded-[24px] border border-[var(--crumbella-border)] bg-[#fff8f1] px-4 py-3 text-xs text-[var(--crumbella-primary)]">
+                <p>
+                  Default parser:{" "}
+                  <span className="font-semibold">✨ Auto Detect</span>. Cukup
+                  paste chat lalu klik Parse WhatsApp.
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <span className="rounded-md border border-indigo-200 bg-white px-2 py-1 font-semibold text-indigo-700">
+                    Mode aktif:{" "}
+                    {selectedOrderType === "unknown"
+                      ? "Auto Detect"
+                      : WHATSAPP_ORDER_LABELS[selectedOrderType]}
                   </span>
-                  <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-amber-700">
-                    Seasonal/Event: {orderItemGroupingSummary.seasonalCount}
-                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-7 border-indigo-200 px-2 text-[11px] text-indigo-700 hover:bg-indigo-100"
+                    onClick={() =>
+                      setShowOrderTypeSelector((current) => !current)
+                    }
+                  >
+                    {showOrderTypeSelector
+                      ? "Sembunyikan Jenis Order"
+                      : "Ubah Jenis Order"}
+                  </Button>
+                  {selectedOrderType !== "unknown" && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-7 border-gray-200 px-2 text-[11px] text-gray-700 hover:bg-gray-100"
+                      onClick={() => {
+                        setSelectedOrderType("unknown");
+                        setShowOrderTypeSelector(false);
+                      }}
+                    >
+                      Kembali ke Auto Detect
+                    </Button>
+                  )}
                 </div>
+              </div>
 
-                <div className="space-y-3">
-                  {itemFields.map((field, index) => {
-                    const item = watchedItems[index];
-                    const normalizedSelection = ensureSelectionFromCatalog(
-                      productCatalog,
-                      {
-                        category: item?.category,
-                        subcategory: item?.subcategory,
-                        productName: item?.productName,
-                        size: item?.size,
-                      },
-                    );
-                    const categoryData = productCatalog.find(
-                      (entry) =>
-                        entry.category === normalizedSelection.category,
-                    );
-                    const subcategories = categoryData?.subcategories ?? [];
-                    const subcategoryData =
-                      subcategories.find(
-                        (entry) =>
-                          entry.name === normalizedSelection.subcategory,
-                      ) ?? subcategories[0];
-                    const products = subcategoryData?.products ?? [];
-                    const variants = getVariantsFromCatalog(
-                      productCatalog,
-                      normalizedSelection,
-                    );
-                    const addOns = getCategoryAddOnsFromCatalog(
-                      addOnCatalog,
-                      normalizedSelection.category,
-                    );
-                    const flavorOptions = getFlavorOptionsForCategory(
-                      normalizedSelection.category,
-                    );
-                    const selectedFlavorId = getSelectedFlavorIdFromItem({
-                      category: normalizedSelection.category,
-                      subcategory: normalizedSelection.subcategory,
-                      productName: normalizedSelection.productName,
-                      size: normalizedSelection.size,
-                      quantity: Number(item?.quantity) || 0,
-                      tokenDifficulty: item?.tokenDifficulty,
-                      customTokenPerUnit:
-                        Number(item?.customTokenPerUnit) > 0
-                          ? Number(item?.customTokenPerUnit)
-                          : undefined,
-                      cookiePrice:
-                        Number(item?.cookiePrice) > 0
-                          ? Number(item?.cookiePrice)
-                          : undefined,
-                      addOns: item?.addOns ?? [],
-                      notes: item?.notes ?? "",
-                    });
-                    const nonFlavorAddOns = getNonFlavorAddOnsForCategory({
-                      addOns,
-                      category: normalizedSelection.category,
-                    });
-                    const regularFlavorOptions = flavorOptions.filter(
-                      (option) => !option.premium,
-                    );
-                    const premiumFlavorOptions = flavorOptions.filter(
-                      (option) => option.premium,
-                    );
-                    const premiumFlavorSurcharges = premiumFlavorOptions
-                      .map((option) => option.price)
-                      .filter((price) => price > 0);
-                    const premiumFlavorMinSurcharge =
-                      premiumFlavorSurcharges.length > 0
-                        ? Math.min(...premiumFlavorSurcharges)
-                        : 0;
-                    const premiumFlavorMaxSurcharge =
-                      premiumFlavorSurcharges.length > 0
-                        ? Math.max(...premiumFlavorSurcharges)
-                        : 0;
-                    const flavorGuideText =
-                      normalizedSelection.category === "Cake"
-                        ? `Cake flavor: ${regularFlavorOptions.length} regular + ${premiumFlavorOptions.length} premium. Pilih 1 rasa per item cake.${premiumFlavorMaxSurcharge > 0 ? ` Premium surcharge ${premiumFlavorMinSurcharge === premiumFlavorMaxSurcharge ? formatCurrency(premiumFlavorMaxSurcharge) : `${formatCurrency(premiumFlavorMinSurcharge)} - ${formatCurrency(premiumFlavorMaxSurcharge)}`} / cake.` : ""}`
-                        : "Cupcake flavor: pilih 1 rasa untuk item cupcakes ini.";
-                    const bouquetProbeItem: BookingItemInput = {
-                      category: normalizedSelection.category,
-                      subcategory: normalizedSelection.subcategory,
-                      productName: normalizedSelection.productName,
-                      size: normalizedSelection.size,
-                      quantity: Number(item?.quantity) || 0,
-                      tokenDifficulty: item?.tokenDifficulty,
-                      customTokenPerUnit:
-                        Number(item?.customTokenPerUnit) > 0
-                          ? Number(item?.customTokenPerUnit)
-                          : undefined,
-                      bouquetPriceOverride:
-                        Number(item?.bouquetPriceOverride) > 0
-                          ? Number(item?.bouquetPriceOverride)
-                          : undefined,
-                      sharingBoxPriceOverride:
-                        Number(item?.sharingBoxPriceOverride) > 0
-                          ? Number(item?.sharingBoxPriceOverride)
-                          : undefined,
-                      cookiePrice:
-                        Number(item?.cookiePrice) > 0
-                          ? Number(item?.cookiePrice)
-                          : undefined,
-                      addOns: item?.addOns ?? [],
-                      notes: item?.notes ?? "",
-                    };
-                    const bouquetType =
-                      detectBouquetTypeFromItem(bouquetProbeItem);
-                    const isBouquet = normalizedSelection.category === "Buket";
-                    const isCupcakes =
-                      normalizedSelection.category === "Cupcakes";
-                    const isCookies =
-                      normalizedSelection.category === "Cookies";
-                    const isCustomCookiesItem =
-                      isCookies && isCustomCookieItem(bouquetProbeItem);
-                    const itemGroupLabel = getBookingItemGroupLabel({
-                      category: normalizedSelection.category,
-                      subcategory: normalizedSelection.subcategory,
-                      productName: normalizedSelection.productName,
-                      size: normalizedSelection.size,
-                      quantity: Number(item?.quantity) || 0,
-                    });
-                    const isSeasonalEventItem =
-                      itemGroupLabel === "SEASONAL_EVENT";
-                    const isCustomCookieSharingBox =
-                      isCookies &&
-                      isCustomCookieSharingBoxItem(bouquetProbeItem);
-                    const isTwoTierCake = isTwoTierCakeItem(bouquetProbeItem);
-                    const allowedVariants =
-                      effectiveDeliveryMethod === "ASSISTED_PAXEL" && isBouquet
-                        ? variants.filter(
-                            (variant) => !isMediumVariantLabel(variant.label),
-                          )
-                        : variants;
-                    const displayVariants =
-                      allowedVariants.length > 0 ? allowedVariants : variants;
-                    const supportsDifficulty = isCookies;
-                    const bouquetLineTotal = getBouquetLineTotal(
-                      productCatalog,
-                      bouquetProbeItem,
-                    );
-                    const itemGrabCarOnly = isGrabCarOnlyItem(bouquetProbeItem);
-                    const quantityRule = getItemQuantityRule(bouquetProbeItem);
-                    const itemTokenPreview = getItemProductionTokenSynced(
-                      bouquetProbeItem,
-                      productTokenByName,
-                    );
-                    const bouquetPriceOverride = isBouquet
-                      ? normalizeBouquetPriceOverrideValue(
-                          item?.bouquetPriceOverride,
-                        )
-                      : undefined;
-                    const hasParsedRecapPrice = hasParsedPricingOverride(item);
-                    const parsedUnitPrice = getParsedUnitPriceOverride(item);
-                    const parsedSubtotal = getParsedSubtotalOverride(item);
-                    const sharingBoxUnitPriceOverride = isCustomCookieSharingBox
-                      ? normalizeSharingBoxPriceOverrideValue(
-                          item?.sharingBoxPriceOverride,
-                        )
-                      : undefined;
-                    const cookieDifficultyBreakdown =
-                      extractCookieDifficultyBreakdown(item);
-                    const cookieDifficultyRowsFromNotes =
-                      parseCookieDifficultyRows(
-                        String(cookieDifficultyBreakdown || ""),
+              {showOrderTypeSelector && (
+                <label className="grid gap-2 text-sm font-medium text-[var(--foreground)]">
+                  Jenis Order (Override)
+                  <Select
+                    value={selectedOrderType}
+                    onChange={(event) =>
+                      setSelectedOrderType(
+                        event.target.value as ParserOrderType,
+                      )
+                    }
+                  >
+                    {whatsappOrderTypeOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </Select>
+                </label>
+              )}
+
+              <Textarea
+                value={quickPaste}
+                onChange={(event) => setQuickPaste(event.target.value)}
+                placeholder={
+                  "Nama: Adina\nNo HP: 0811xxxxxxx\nProduk: Real Cake + 20 cookies\nTema: Mario\nDelivery: 8 April 2026 jam 10.00\nMetode: Pickup"
+                }
+                className="min-h-32 rounded-[20px] border-[1.5px] border-dashed border-[#e6cfbc] bg-[#fdf7f0] px-4 py-3 text-sm leading-7 text-[var(--foreground)] placeholder:text-[#c58a61]"
+              />
+
+              <div className="grid gap-4 rounded-[24px] border border-[var(--crumbella-border)] bg-white p-4 shadow-[0_14px_24px_-24px_rgba(30,18,10,0.6)]">
+                <div className="flex items-start justify-between gap-3 border-b border-[var(--crumbella-border)] pb-3">
+                  <div>
+                    <p className="text-xl font-semibold text-[var(--foreground)]">
+                      🎨 Gambar Referensi
+                    </p>
+                    <p className="mt-1 text-sm text-[var(--crumbella-muted)]">
+                      Upload gambar desain customer, notes opsional
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-[var(--crumbella-border)] bg-[#fdf7f0] px-3 py-1.5 text-xs font-semibold text-[var(--foreground)]">
+                    {referenceImageFiles.length} gambar
+                  </div>
+                </div>
+                <label className="grid gap-2 text-sm font-medium text-[var(--foreground)]">
+                  Gambar Referensi Customer
+                  <Input
+                    key={referenceFileInputKey}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(event) => {
+                      setReferenceImageFiles(
+                        Array.from(event.target.files ?? []),
                       );
-                    const cookieDifficultyRows: CookieDifficultyRow[] =
-                      cookieDifficultyRowsFromNotes.length > 0
-                        ? cookieDifficultyRowsFromNotes
-                        : [
-                            {
-                              difficulty: normalizeTokenDifficultyValue(
-                                item?.tokenDifficulty || "SIMPLE",
-                              ),
-                              quantity: Math.max(
-                                1,
-                                Number(item?.quantity) || 1,
-                              ),
-                            },
-                          ];
-                    const hasCustomTokenOverride =
-                      Number(item?.customTokenPerUnit) > 0;
-                    const quantityError = errors.items?.[index]?.quantity
-                      ?.message as string | undefined;
-                    const hasDarkColorButtercream =
-                      isCupcakes &&
-                      (item?.addOns?.includes(
-                        DARK_COLOR_BUTTERCREAM_ADDON_ID,
-                      ) ??
-                        false);
-                    const cookieCatalogMode = resolveCookieCatalogMode({
-                      category: normalizedSelection.category,
-                      subcategory: normalizedSelection.subcategory,
-                    });
-                    const selectedDarkButtercreamColors =
-                      normalizeDarkButtercreamColors(
-                        item?.darkColorButtercreamColors ?? [],
+                      setReferenceFilesChangedSinceParse(true);
+                    }}
+                  />
+                  <span className="text-xs font-normal text-[var(--crumbella-muted)]">
+                    Upload gambar yang dipilih customer. Bisa satu gambar crop
+                    per desain, atau satu sheet gambar bertanda merah. Jika file
+                    diubah, klik Parse WhatsApp lagi supaya referensinya
+                    ter-upload.
+                  </span>
+                </label>
+
+                <label className="grid gap-2 text-sm font-medium text-[var(--foreground)]">
+                  Label Desain per Gambar
+                  <Textarea
+                    value={referenceImageLabelsInput}
+                    onChange={(event) => {
+                      setReferenceImageLabelsInput(event.target.value);
+                      if (draftImported) {
+                        setReferenceFilesChangedSinceParse(true);
+                      }
+                    }}
+                    placeholder={
+                      "Opsional. Isi satu label per baris sesuai urutan upload.\nContoh:\nPikachu\nBulbasaur\nPiplup"
+                    }
+                    className="min-h-24 rounded-[18px] border-[#e6cfbc] bg-[#fdf7f0]"
+                  />
+                  <span className="text-xs font-normal text-[var(--crumbella-muted)]">
+                    Dipakai untuk mencocokkan gambar ke slot/template produk.
+                  </span>
+                </label>
+
+                {referenceImageFiles.length > 0 && (
+                  <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600">
+                    {referenceImageFiles.length} gambar siap dipakai:{" "}
+                    {referenceImageFiles.map((file) => file.name).join(", ")}
+                  </div>
+                )}
+
+                {referenceFilesChangedSinceParse &&
+                  referenceImageFiles.length > 0 && (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                      Referensi gambar atau label desain berubah. Klik{" "}
+                      <span className="font-semibold">Parse WhatsApp</span> lagi
+                      supaya versi terbaru ikut tersimpan ke booking dan dipakai
+                      template produksi.
+                    </div>
+                  )}
+              </div>
+
+              <div className="flex flex-wrap gap-3">
+                <Button
+                  type="button"
+                  className="h-11 rounded-2xl bg-[#2c160d] px-4 text-sm font-semibold text-white hover:bg-[#422318]"
+                  onClick={() => void importDraft()}
+                  disabled={isParsingWhatsApp}
+                >
+                  <Sparkles className="mr-2 h-4 w-4" />
+                  {isParsingWhatsApp
+                    ? "Parsing & Preview..."
+                    : referenceFilesChangedSinceParse || draftImported
+                      ? "Parse Ulang WhatsApp"
+                      : "Parse WhatsApp"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-11 rounded-2xl border-[var(--crumbella-border)] px-4 text-sm text-[var(--foreground)]"
+                  onClick={fillManualTemplate}
+                >
+                  📝 Isi Manual
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-11 rounded-2xl border-[var(--crumbella-border)] px-4 text-sm text-[var(--crumbella-muted)]"
+                  onClick={() => {
+                    setQuickPaste("");
+                    setSelectedOrderType("unknown");
+                    setShowOrderTypeSelector(false);
+                    setParsedPreview(null);
+                    setProductionPreviewImageUrl("");
+                    setDraftImported(false);
+                    setReferenceImageFiles([]);
+                    setReferenceFilesChangedSinceParse(false);
+                    setReferenceImageLabelsInput("");
+                    setReferenceFileInputKey((current) => current + 1);
+                  }}
+                >
+                  🧹 Clear
+                </Button>
+              </div>
+
+              {draftImported && (
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                  Draft berhasil di-auto populate. Cek ulang semua data sebelum
+                  create booking.
+                </div>
+              )}
+
+              {(productionPreviewImageUrl ||
+                previewReferenceImages.some((image) => image.url)) && (
+                <div className="rounded-2xl border border-dashed border-[var(--crumbella-border)] bg-white/70 px-4 py-3 text-center text-xs text-[var(--crumbella-muted)]">
+                  Preview template produksi disembunyikan di halaman ini. Untuk
+                  melihatnya, klik{" "}
+                  <span className="font-semibold">Preview Booking</span> di atas
+                  Price Summary.
+                </div>
+              )}
+
+              <div className="px-1 pt-1">
+                <Button
+                  type="button"
+                  className="h-14 w-full rounded-[18px] bg-[var(--crumbella-accent)] text-base font-semibold text-white hover:bg-[var(--crumbella-accent-strong)]"
+                  disabled={isParsingWhatsApp}
+                  onClick={() => {
+                    if (!parsedPreview) {
+                      toast.error(
+                        "Pastikan teks sudah di-parse sebelum lanjut ke preview.",
                       );
-                    const hasMultipleSubcategories = subcategories.length > 1;
-                    const hasMultipleProducts = products.length > 1;
-                    const hasMultipleVariants = displayVariants.length > 1;
-                    const quantityValue = Number(item?.quantity) || 0;
-                    const normalizedAddOnQuantities = normalizeAddOnQuantities(
-                      item?.addOnQuantities,
-                    );
-                    const normalizedAddOnPriceOverrides =
-                      normalizeAddOnPriceOverrides(item?.addOnPriceOverrides);
-                    const customAddOns = normalizeCustomAddOns(
-                      item?.customAddOns,
-                    );
-                    const selectedNonFlavorAddOns = nonFlavorAddOns.filter(
-                      (addon) => item?.addOns?.includes(addon.id) ?? false,
-                    );
-                    // Separate flowers from other add-ons for proper pricing calculation
-                    const selectedFlowerAddOns = selectedNonFlavorAddOns.filter(
-                      (addon) => isBouquetFlowerAddOnId(addon.id),
-                    );
-                    const selectedOtherAddOns = selectedNonFlavorAddOns.filter(
-                      (addon) => !isBouquetFlowerAddOnId(addon.id),
-                    );
+                      return;
+                    }
+                    openPreviewPage();
+                  }}
+                >
+                  👀 Lihat Preview
+                  <ChevronRight className="ml-2 h-4 w-4" />
+                </Button>
+                <p className="mt-2 text-center text-xs text-[var(--crumbella-muted)]">
+                  Pastikan teks sudah di-parse sebelum lanjut
+                </p>
+              </div>
+            </CardContent>
+          </Card>
 
-                    // Calculate flower add-ons (fixed, no quantity multiplier)
-                    const selectedFlowerAddOnTotal =
-                      selectedFlowerAddOns.reduce((sum, addon) => {
-                        const overriddenPrice =
-                          normalizedAddOnPriceOverrides[addon.id];
-                        const unitPrice =
-                          overriddenPrice !== undefined
-                            ? overriddenPrice
-                            : (getBouquetFlowerAddOnUnitPrice({
-                                addonId: addon.id,
-                                bouquetType,
-                              }) ?? addon.price);
-                        return sum + unitPrice;
-                      }, 0);
+          <div className="grid gap-6 lg:grid-cols-[2fr,1fr]">
+            <Card className="rounded-xl shadow-sm">
+              <CardHeader className="p-6 pb-2">
+                <CardTitle>Booking Details</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-6 px-6 pb-6 pt-0">
+                <div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="grid gap-2 text-sm font-medium text-gray-700">
+                      Customer Name
+                      <Input
+                        placeholder="Nadia Pratama"
+                        {...register("customerName")}
+                      />
+                      {errors.customerName && (
+                        <span className="text-xs text-rose-500">
+                          {errors.customerName.message}
+                        </span>
+                      )}
+                    </label>
+                    <label className="grid gap-2 text-sm font-medium text-gray-700">
+                      Phone Number
+                      <Input
+                        placeholder="08xxxxxxxxxx"
+                        {...register("phoneNumber")}
+                      />
+                      {errors.phoneNumber && (
+                        <span className="text-xs text-rose-500">
+                          {errors.phoneNumber.message}
+                        </span>
+                      )}
+                    </label>
+                    <label className="grid gap-2 text-sm font-medium text-gray-700">
+                      Delivery Date
+                      <Input type="date" {...register("deliveryDate")} />
+                      {errors.deliveryDate && (
+                        <span className="text-xs text-rose-500">
+                          {errors.deliveryDate.message}
+                        </span>
+                      )}
+                      {deliveryDate && isCalendarCapacityLoading ? (
+                        <span className="text-xs text-slate-500">
+                          Mengecek kapasitas produksi...
+                        </span>
+                      ) : null}
+                      {deliveryDate && calendarDateError ? (
+                        <span className="text-xs font-medium text-rose-600">
+                          {calendarDateError}
+                        </span>
+                      ) : null}
+                      {deliveryDate && calendarDateNotice ? (
+                        <span className="text-xs font-medium text-amber-700">
+                          {calendarDateNotice}
+                        </span>
+                      ) : null}
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 p-2">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">
+                          Kalender Libur
+                        </p>
+                        <div className="mt-1 flex flex-wrap gap-1.5">
+                          {blockedDates.map((blockedDate) => {
+                            const active = deliveryDate === blockedDate;
+                            return (
+                              <button
+                                key={blockedDate}
+                                type="button"
+                                onClick={() =>
+                                  setValue("deliveryDate", blockedDate, {
+                                    shouldValidate: true,
+                                  })
+                                }
+                                className={`rounded-md border px-2 py-1 text-[11px] ${
+                                  active
+                                    ? "border-rose-300 bg-rose-100 text-rose-700"
+                                    : "border-amber-200 bg-white text-amber-700"
+                                }`}
+                              >
+                                {formatIsoDateToIdLabel(blockedDate)}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </label>
+                    <label className="grid gap-2 text-sm font-medium text-gray-700">
+                      Delivery Slot
+                      <Select {...register("deliverySlot")}>
+                        <option value="">Select hour</option>
+                        {deliverySlots.map((slot) => {
+                          const status =
+                            slotStatusByTime.get(slot) ?? "AVAILABLE";
+                          return (
+                            <option key={slot} value={slot}>
+                              {slot} - {slotStatusLabel(status)}
+                            </option>
+                          );
+                        })}
+                      </Select>
+                      {errors.deliverySlot && (
+                        <span className="text-xs text-rose-500">
+                          {errors.deliverySlot.message}
+                        </span>
+                      )}
+                    </label>
+                  </div>
 
-                    // Calculate other add-ons (scaled by quantity)
-                    const selectedOtherAddOnTotal =
-                      selectedOtherAddOns.reduce((sum, addon) => {
-                        const multiplier = getAddOnUnitMultiplier({
-                          category: normalizedSelection.category,
-                          addonId: addon.id,
-                          addOnQuantities: normalizedAddOnQuantities,
-                        });
-                        const overriddenPrice =
-                          normalizedAddOnPriceOverrides[addon.id];
-                        const unitPrice =
-                          overriddenPrice !== undefined
-                            ? overriddenPrice
-                            : addon.price;
-                        return sum + unitPrice * multiplier;
-                      }, 0) * Math.max(1, quantityValue);
+                  {isBlockedDate && (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                      Tanggal tidak tersedia (libur admin atau cutoff H-1 jam
+                      10:00 sudah lewat).
+                    </div>
+                  )}
 
-                    const selectedNonFlavorAddOnTotal =
-                      selectedFlowerAddOnTotal + selectedOtherAddOnTotal;
+                  {deliveryDate && (
+                    <div className="space-y-2 rounded-xl border border-gray-200 bg-gray-50/60 p-4">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        Slot Availability ({deliveryDate}) - {slotProfileLabel}{" "}
+                        Limit {slotLimitPerHour}/hour
+                      </p>
+                      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                        {slotAvailability.map((entry) => (
+                          <div
+                            key={entry.slot}
+                            className={`rounded-lg border px-3 py-2 text-xs font-semibold ${
+                              entry.status === "FULL"
+                                ? "border-rose-200 bg-rose-50 text-rose-700"
+                                : entry.status === "ALMOST_FULL"
+                                  ? "border-amber-200 bg-amber-50 text-amber-700"
+                                  : "border-emerald-200 bg-emerald-50 text-emerald-700"
+                            }`}
+                          >
+                            <div>{entry.slot}</div>
+                            <div className="font-normal">
+                              {entry.status === "FULL"
+                                ? "🔴 FULL"
+                                : entry.status === "ALMOST_FULL"
+                                  ? `🟡 ALMOST_FULL (${entry.used}/${slotLimitPerHour})`
+                                  : `🟢 AVAILABLE (${entry.used}/${slotLimitPerHour})`}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
-                    // Calculate total add-ons properly handling flowers
-                    const flowerAddOnsPrice = (item?.addOns ?? [])
-                      .filter((id) => isBouquetFlowerAddOnId(id))
-                      .reduce((sum, addonId) => {
-                        const addon = addOns.find((a) => a.id === addonId);
-                        if (!addon) return sum;
-                        const overriddenPrice =
-                          normalizedAddOnPriceOverrides[addonId];
-                        const unitPrice =
-                          overriddenPrice !== undefined
-                            ? overriddenPrice
-                            : (getBouquetFlowerAddOnUnitPrice({
-                                addonId,
-                                bouquetType,
-                              }) ?? addon.price);
-                        return sum + unitPrice;
-                      }, 0);
+                  {deliveryDate && (
+                    <div className="space-y-2 rounded-xl border border-gray-200 bg-gray-50/60 p-4">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        Capacity Check ({deliveryDate})
+                      </p>
+                      {/* ── Smart Date Recommendations ── */}
+                      {shouldShowDateRecommendations && (
+                        <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 px-3 py-2 text-xs">
+                          <p className="font-semibold text-rose-600">
+                            {dbWillExceed
+                              ? "Kapasitas tidak mencukupi untuk tanggal ini"
+                              : calendarDateError ||
+                                "Tanggal dipilih tidak tersedia"}
+                          </p>
 
-                    const nonFlowerAddOnsPrice =
-                      calculatePerUnitAddOnPrice({
-                        category: normalizedSelection.category,
-                        bouquetType,
-                        selectedAddOnIds: (item?.addOns ?? []).filter(
-                          (id) => !isBouquetFlowerAddOnId(id),
-                        ),
-                        addOnQuantities: normalizedAddOnQuantities,
-                        addOnPriceOverrides: normalizedAddOnPriceOverrides,
-                        addOnCatalogEntries: addOns,
-                        itemSelection: {
+                          {isRecommendationLoading ? (
+                            <p className="mt-1 text-indigo-500">
+                              Mencari tanggal…
+                            </p>
+                          ) : suggestedDates.length > 0 ? (
+                            <>
+                              <p className="mt-1 font-medium text-indigo-700">
+                                Tanggal tersedia:
+                              </p>
+                              <div className="mt-1.5 flex flex-wrap gap-2">
+                                {suggestedDates.map(
+                                  ({ dateKey, remaining }) => (
+                                    <button
+                                      key={dateKey}
+                                      type="button"
+                                      onClick={() =>
+                                        handleSuggestionClick(dateKey)
+                                      }
+                                      className="rounded-md border border-indigo-300 bg-white px-2 py-1 font-medium text-indigo-700 shadow-[0_0_0_0_rgba(99,102,241,0.35)] transition-all duration-300 hover:-translate-y-0.5 hover:border-indigo-500 hover:bg-indigo-100 hover:shadow-[0_0_0_4px_rgba(99,102,241,0.18)]"
+                                      title={`Sisa kapasitas: ${remaining} token`}
+                                    >
+                                      {formatIsoDateToIdLabel(dateKey)}
+                                      <span className="ml-1 text-indigo-400">
+                                        ({remaining} sisa)
+                                      </span>
+                                    </button>
+                                  ),
+                                )}
+                              </div>
+                            </>
+                          ) : (
+                            <p className="mt-1 font-medium text-rose-600">
+                              Semua tanggal dalam 30 hari penuh
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        Order Items
+                      </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-8 gap-1 border-indigo-200 text-indigo-700"
+                        onClick={() => {
+                          const nextDefault =
+                            getDefaultSelectionFromCatalog(productCatalog);
+                          const nextTokenDifficulty =
+                            nextDefault.category === "Cookies"
+                              ? "SIMPLE"
+                              : undefined;
+                          const autoQuantity =
+                            getAutoQuantityForItem({
+                              category: nextDefault.category,
+                              subcategory: nextDefault.subcategory,
+                              productName: nextDefault.productName,
+                              size: nextDefault.size,
+                              quantity: 1,
+                              tokenDifficulty: nextTokenDifficulty,
+                              customTokenPerUnit: undefined,
+                              bouquetPriceOverride: undefined,
+                              sharingBoxPriceOverride: undefined,
+                              cookiePrice: undefined,
+                              addOns: [],
+                              addOnQuantities: {},
+                              addOnPriceOverrides: {},
+                              customAddOns: [],
+                              greetingCard: "",
+                              bouquetPaperColor: "",
+                              ribbon: "",
+                              flowerCount: "",
+                              flowerColor: "",
+                              ribbonColor: "",
+                              notes: "",
+                            }) ?? 1;
+                          appendItem({
+                            category: nextDefault.category,
+                            subcategory: nextDefault.subcategory,
+                            productName: nextDefault.productName,
+                            size: nextDefault.size,
+                            quantity: autoQuantity,
+                            tokenDifficulty: nextTokenDifficulty,
+                            customTokenPerUnit: undefined,
+                            bouquetPriceOverride: undefined,
+                            sharingBoxPriceOverride: undefined,
+                            cookiePrice: undefined,
+                            addOns: [],
+                            addOnQuantities: {},
+                            addOnPriceOverrides: {},
+                            customAddOns: [],
+                            darkColorButtercreamColors: [],
+                            parsedUnitPrice: undefined,
+                            parsedSubtotal: undefined,
+                            pricingSource: undefined,
+                            greetingCard: "",
+                            bouquetPaperColor: "",
+                            ribbon: "",
+                            flowerCount: "",
+                            flowerColor: "",
+                            ribbonColor: "",
+                            notes: "",
+                          });
+                        }}
+                      >
+                        <Plus size={14} />
+                        Add Item
+                      </Button>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 text-[11px] font-medium">
+                      <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-slate-700">
+                        Custom: {orderItemGroupingSummary.customCount}
+                      </span>
+                      <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-amber-700">
+                        Seasonal/Event: {orderItemGroupingSummary.seasonalCount}
+                      </span>
+                    </div>
+
+                    <div className="space-y-3">
+                      {itemFields.map((field, index) => {
+                        const item = watchedItems[index];
+                        const normalizedSelection = ensureSelectionFromCatalog(
+                          productCatalog,
+                          {
+                            category: item?.category,
+                            subcategory: item?.subcategory,
+                            productName: item?.productName,
+                            size: item?.size,
+                          },
+                        );
+                        const categoryData = productCatalog.find(
+                          (entry) =>
+                            entry.category === normalizedSelection.category,
+                        );
+                        const subcategories = categoryData?.subcategories ?? [];
+                        const subcategoryData =
+                          subcategories.find(
+                            (entry) =>
+                              entry.name === normalizedSelection.subcategory,
+                          ) ?? subcategories[0];
+                        const products = subcategoryData?.products ?? [];
+                        const variants = getVariantsFromCatalog(
+                          productCatalog,
+                          normalizedSelection,
+                        );
+                        const addOns = getCategoryAddOnsFromCatalog(
+                          addOnCatalog,
+                          normalizedSelection.category,
+                        );
+                        const flavorOptions = getFlavorOptionsForCategory(
+                          normalizedSelection.category,
+                        );
+                        const selectedFlavorId = getSelectedFlavorIdFromItem({
                           category: normalizedSelection.category,
                           subcategory: normalizedSelection.subcategory,
                           productName: normalizedSelection.productName,
                           size: normalizedSelection.size,
-                        },
-                      }) * Math.max(1, quantityValue);
-
-                    const selectedAllAddOnTotal =
-                      flowerAddOnsPrice + nonFlowerAddOnsPrice;
-                    const customAddOnTotal = getCustomAddOnTotal(
-                      customAddOns,
-                      quantityValue,
-                    );
-                    const cookieBreakdownSubtotal = isCustomCookiesItem
-                      ? cookieDifficultyRows.reduce((sum, row) => {
-                          const rowDifficulty = getTokenDifficultyOption(
-                            row.difficulty,
+                          quantity: Number(item?.quantity) || 0,
+                          tokenDifficulty: item?.tokenDifficulty,
+                          customTokenPerUnit:
+                            Number(item?.customTokenPerUnit) > 0
+                              ? Number(item?.customTokenPerUnit)
+                              : undefined,
+                          cookiePrice:
+                            Number(item?.cookiePrice) > 0
+                              ? Number(item?.cookiePrice)
+                              : undefined,
+                          addOns: item?.addOns ?? [],
+                          notes: item?.notes ?? "",
+                        });
+                        const nonFlavorAddOns = getNonFlavorAddOnsForCategory({
+                          addOns,
+                          category: normalizedSelection.category,
+                        });
+                        const regularFlavorOptions = flavorOptions.filter(
+                          (option) => !option.premium,
+                        );
+                        const premiumFlavorOptions = flavorOptions.filter(
+                          (option) => option.premium,
+                        );
+                        const premiumFlavorSurcharges = premiumFlavorOptions
+                          .map((option) => option.price)
+                          .filter((price) => price > 0);
+                        const premiumFlavorMinSurcharge =
+                          premiumFlavorSurcharges.length > 0
+                            ? Math.min(...premiumFlavorSurcharges)
+                            : 0;
+                        const premiumFlavorMaxSurcharge =
+                          premiumFlavorSurcharges.length > 0
+                            ? Math.max(...premiumFlavorSurcharges)
+                            : 0;
+                        const flavorGuideText =
+                          normalizedSelection.category === "Cake"
+                            ? `Cake flavor: ${regularFlavorOptions.length} regular + ${premiumFlavorOptions.length} premium. Pilih 1 rasa per item cake.${premiumFlavorMaxSurcharge > 0 ? ` Premium surcharge ${premiumFlavorMinSurcharge === premiumFlavorMaxSurcharge ? formatCurrency(premiumFlavorMaxSurcharge) : `${formatCurrency(premiumFlavorMinSurcharge)} - ${formatCurrency(premiumFlavorMaxSurcharge)}`} / cake.` : ""}`
+                            : "Cupcake flavor: pilih 1 rasa untuk item cupcakes ini.";
+                        const bouquetProbeItem: BookingItemInput = {
+                          category: normalizedSelection.category,
+                          subcategory: normalizedSelection.subcategory,
+                          productName: normalizedSelection.productName,
+                          size: normalizedSelection.size,
+                          quantity: Number(item?.quantity) || 0,
+                          tokenDifficulty: item?.tokenDifficulty,
+                          customTokenPerUnit:
+                            Number(item?.customTokenPerUnit) > 0
+                              ? Number(item?.customTokenPerUnit)
+                              : undefined,
+                          bouquetPriceOverride:
+                            Number(item?.bouquetPriceOverride) > 0
+                              ? Number(item?.bouquetPriceOverride)
+                              : undefined,
+                          sharingBoxPriceOverride:
+                            Number(item?.sharingBoxPriceOverride) > 0
+                              ? Number(item?.sharingBoxPriceOverride)
+                              : undefined,
+                          cookiePrice:
+                            Number(item?.cookiePrice) > 0
+                              ? Number(item?.cookiePrice)
+                              : undefined,
+                          addOns: item?.addOns ?? [],
+                          notes: item?.notes ?? "",
+                        };
+                        const bouquetType =
+                          detectBouquetTypeFromItem(bouquetProbeItem);
+                        const isBouquet =
+                          normalizedSelection.category === "Buket";
+                        const isCupcakes =
+                          normalizedSelection.category === "Cupcakes";
+                        const isCookies =
+                          normalizedSelection.category === "Cookies";
+                        const isCustomCookiesItem =
+                          isCookies && isCustomCookieItem(bouquetProbeItem);
+                        const itemGroupLabel = getBookingItemGroupLabel({
+                          category: normalizedSelection.category,
+                          subcategory: normalizedSelection.subcategory,
+                          productName: normalizedSelection.productName,
+                          size: normalizedSelection.size,
+                          quantity: Number(item?.quantity) || 0,
+                        });
+                        const isSeasonalEventItem =
+                          itemGroupLabel === "SEASONAL_EVENT";
+                        const isCustomCookieSharingBox =
+                          isCookies &&
+                          isCustomCookieSharingBoxItem(bouquetProbeItem);
+                        const isTwoTierCake =
+                          isTwoTierCakeItem(bouquetProbeItem);
+                        const allowedVariants =
+                          effectiveDeliveryMethod === "ASSISTED_PAXEL" &&
+                          isBouquet
+                            ? variants.filter(
+                                (variant) =>
+                                  !isMediumVariantLabel(variant.label),
+                              )
+                            : variants;
+                        const displayVariants =
+                          allowedVariants.length > 0
+                            ? allowedVariants
+                            : variants;
+                        const supportsDifficulty = isCookies;
+                        const bouquetLineTotal = getBouquetLineTotal(
+                          productCatalog,
+                          bouquetProbeItem,
+                        );
+                        const itemGrabCarOnly =
+                          isGrabCarOnlyItem(bouquetProbeItem);
+                        const quantityRule =
+                          getItemQuantityRule(bouquetProbeItem);
+                        const itemTokenPreview = getItemProductionTokenSynced(
+                          bouquetProbeItem,
+                          productTokenByName,
+                        );
+                        const bouquetPriceOverride = isBouquet
+                          ? normalizeBouquetPriceOverrideValue(
+                              item?.bouquetPriceOverride,
+                            )
+                          : undefined;
+                        const hasParsedRecapPrice =
+                          hasParsedPricingOverride(item);
+                        const parsedUnitPrice =
+                          getParsedUnitPriceOverride(item);
+                        const parsedSubtotal = getParsedSubtotalOverride(item);
+                        const sharingBoxUnitPriceOverride =
+                          isCustomCookieSharingBox
+                            ? normalizeSharingBoxPriceOverrideValue(
+                                item?.sharingBoxPriceOverride,
+                              )
+                            : undefined;
+                        const cookieDifficultyBreakdown =
+                          extractCookieDifficultyBreakdown(item);
+                        const cookieDifficultyRowsFromNotes =
+                          parseCookieDifficultyRows(
+                            String(cookieDifficultyBreakdown || ""),
                           );
-                          return (
-                            sum +
-                            Math.max(0, row.quantity) *
-                              rowDifficulty.cookiePrice
-                          );
-                        }, 0)
-                      : 0;
-                    const cookieBreakdownUnitPrice =
-                      quantityValue > 0 && cookieBreakdownSubtotal > 0
-                        ? Math.round(cookieBreakdownSubtotal / quantityValue)
-                        : 0;
-                    const customCookieAdditionalDesignCount =
-                      isCustomCookiesItem
-                        ? getCookieAdditionalDesignCountFromItem({
-                            designCount: item?.designCount,
-                            additionalDesignCount: item?.additionalDesignCount,
-                          })
-                        : 0;
-                    const customCookieAdditionalDesignUnitPrice =
-                      isCustomCookiesItem
-                        ? getCookieAdditionalDesignUnitPrice({
-                            categoryAddOns: addOns,
-                            item: {
-                              addOnPriceOverrides: item?.addOnPriceOverrides,
-                            },
-                          })
-                        : COOKIE_ADDITIONAL_DESIGN_PRICE;
-                    const customCookieAdditionalDesignCharge =
-                      customCookieAdditionalDesignCount *
-                      customCookieAdditionalDesignUnitPrice;
-                    const parsedSubtotalWithDesignCharge =
-                      hasParsedRecapPrice && parsedSubtotal
-                        ? parsedSubtotal + customCookieAdditionalDesignCharge
-                        : parsedSubtotal;
-                    const cookieSubtotalWithDesignCharge =
-                      isCustomCookiesItem && cookieBreakdownSubtotal > 0
-                        ? cookieBreakdownSubtotal +
-                          customCookieAdditionalDesignCharge
-                        : undefined;
-                    const displayUnitPrice =
-                      hasParsedRecapPrice && parsedUnitPrice
-                        ? parsedUnitPrice
-                        : bouquetPriceOverride !== undefined
-                          ? bouquetPriceOverride
-                          : sharingBoxUnitPriceOverride !== undefined
-                            ? sharingBoxUnitPriceOverride
-                            : isCustomCookiesItem &&
-                                cookieBreakdownUnitPrice > 0
-                              ? cookieBreakdownUnitPrice
-                              : getUnitPriceFromCatalog(productCatalog, {
-                                  category: normalizedSelection.category,
-                                  subcategory: normalizedSelection.subcategory,
-                                  productName: normalizedSelection.productName,
-                                  size: normalizedSelection.size,
-                                });
-                    const displayLinePrice =
-                      hasParsedRecapPrice && cookieSubtotalWithDesignCharge
-                        ? cookieSubtotalWithDesignCharge
-                        : hasParsedRecapPrice && parsedSubtotalWithDesignCharge
-                          ? parsedSubtotalWithDesignCharge
-                          : isCustomCookiesItem && cookieBreakdownSubtotal > 0
-                            ? cookieBreakdownSubtotal
-                            : getItemBasePrice(
-                                productCatalog,
-                                bouquetProbeItem,
+                        const cookieDifficultyRows: CookieDifficultyRow[] =
+                          cookieDifficultyRowsFromNotes.length > 0
+                            ? cookieDifficultyRowsFromNotes
+                            : [
                                 {
-                                  cookieAdditionalDesignUnitPrice:
-                                    customCookieAdditionalDesignUnitPrice,
+                                  difficulty: normalizeTokenDifficultyValue(
+                                    item?.tokenDifficulty || "SIMPLE",
+                                  ),
+                                  quantity: Math.max(
+                                    1,
+                                    Number(item?.quantity) || 1,
+                                  ),
                                 },
+                              ];
+                        const hasCustomTokenOverride =
+                          Number(item?.customTokenPerUnit) > 0;
+                        const quantityError = errors.items?.[index]?.quantity
+                          ?.message as string | undefined;
+                        const hasDarkColorButtercream =
+                          isCupcakes &&
+                          (item?.addOns?.includes(
+                            DARK_COLOR_BUTTERCREAM_ADDON_ID,
+                          ) ??
+                            false);
+                        const cookieCatalogMode = resolveCookieCatalogMode({
+                          category: normalizedSelection.category,
+                          subcategory: normalizedSelection.subcategory,
+                        });
+                        const selectedDarkButtercreamColors =
+                          normalizeDarkButtercreamColors(
+                            item?.darkColorButtercreamColors ?? [],
+                          );
+                        const hasMultipleSubcategories =
+                          subcategories.length > 1;
+                        const hasMultipleProducts = products.length > 1;
+                        const hasMultipleVariants = displayVariants.length > 1;
+                        const quantityValue = Number(item?.quantity) || 0;
+                        const normalizedAddOnQuantities =
+                          normalizeAddOnQuantities(item?.addOnQuantities);
+                        const normalizedAddOnPriceOverrides =
+                          normalizeAddOnPriceOverrides(
+                            item?.addOnPriceOverrides,
+                          );
+                        const customAddOns = normalizeCustomAddOns(
+                          item?.customAddOns,
+                        );
+                        const selectedNonFlavorAddOns = nonFlavorAddOns.filter(
+                          (addon) => item?.addOns?.includes(addon.id) ?? false,
+                        );
+                        // Separate flowers from other add-ons for proper pricing calculation
+                        const selectedFlowerAddOns =
+                          selectedNonFlavorAddOns.filter((addon) =>
+                            isBouquetFlowerAddOnId(addon.id),
+                          );
+                        const selectedOtherAddOns =
+                          selectedNonFlavorAddOns.filter(
+                            (addon) => !isBouquetFlowerAddOnId(addon.id),
+                          );
+
+                        // Calculate flower add-ons (fixed, no quantity multiplier)
+                        const selectedFlowerAddOnTotal =
+                          selectedFlowerAddOns.reduce((sum, addon) => {
+                            const overriddenPrice =
+                              normalizedAddOnPriceOverrides[addon.id];
+                            const unitPrice =
+                              overriddenPrice !== undefined
+                                ? overriddenPrice
+                                : (getBouquetFlowerAddOnUnitPrice({
+                                    addonId: addon.id,
+                                    bouquetType,
+                                  }) ?? addon.price);
+                            return sum + unitPrice;
+                          }, 0);
+
+                        // Calculate other add-ons (scaled by quantity)
+                        const selectedOtherAddOnTotal =
+                          selectedOtherAddOns.reduce((sum, addon) => {
+                            const multiplier = getAddOnUnitMultiplier({
+                              category: normalizedSelection.category,
+                              addonId: addon.id,
+                              addOnQuantities: normalizedAddOnQuantities,
+                            });
+                            const overriddenPrice =
+                              normalizedAddOnPriceOverrides[addon.id];
+                            const unitPrice =
+                              overriddenPrice !== undefined
+                                ? overriddenPrice
+                                : addon.price;
+                            return sum + unitPrice * multiplier;
+                          }, 0) * Math.max(1, quantityValue);
+
+                        const selectedNonFlavorAddOnTotal =
+                          selectedFlowerAddOnTotal + selectedOtherAddOnTotal;
+
+                        // Calculate total add-ons properly handling flowers
+                        const flowerAddOnsPrice = (item?.addOns ?? [])
+                          .filter((id) => isBouquetFlowerAddOnId(id))
+                          .reduce((sum, addonId) => {
+                            const addon = addOns.find((a) => a.id === addonId);
+                            if (!addon) return sum;
+                            const overriddenPrice =
+                              normalizedAddOnPriceOverrides[addonId];
+                            const unitPrice =
+                              overriddenPrice !== undefined
+                                ? overriddenPrice
+                                : (getBouquetFlowerAddOnUnitPrice({
+                                    addonId,
+                                    bouquetType,
+                                  }) ?? addon.price);
+                            return sum + unitPrice;
+                          }, 0);
+
+                        const nonFlowerAddOnsPrice =
+                          calculatePerUnitAddOnPrice({
+                            category: normalizedSelection.category,
+                            bouquetType,
+                            selectedAddOnIds: (item?.addOns ?? []).filter(
+                              (id) => !isBouquetFlowerAddOnId(id),
+                            ),
+                            addOnQuantities: normalizedAddOnQuantities,
+                            addOnPriceOverrides: normalizedAddOnPriceOverrides,
+                            addOnCatalogEntries: addOns,
+                            itemSelection: {
+                              category: normalizedSelection.category,
+                              subcategory: normalizedSelection.subcategory,
+                              productName: normalizedSelection.productName,
+                              size: normalizedSelection.size,
+                            },
+                          }) * Math.max(1, quantityValue);
+
+                        const selectedAllAddOnTotal =
+                          flowerAddOnsPrice + nonFlowerAddOnsPrice;
+                        const customAddOnTotal = getCustomAddOnTotal(
+                          customAddOns,
+                          quantityValue,
+                        );
+                        const cookieBreakdownSubtotal = isCustomCookiesItem
+                          ? cookieDifficultyRows.reduce((sum, row) => {
+                              const rowDifficulty = getTokenDifficultyOption(
+                                row.difficulty,
                               );
-                    const itemTotalCostDisplay =
-                      hasParsedRecapPrice && cookieSubtotalWithDesignCharge
-                        ? cookieSubtotalWithDesignCharge
-                        : hasParsedRecapPrice && parsedSubtotalWithDesignCharge
-                          ? parsedSubtotalWithDesignCharge
-                          : displayLinePrice +
-                            selectedAllAddOnTotal +
-                            customAddOnTotal +
-                            customCookieAdditionalDesignCharge;
-                    const totalAddOnAndSurchargeDisplay =
-                      selectedAllAddOnTotal +
-                      customAddOnTotal +
-                      customCookieAdditionalDesignCharge;
-
-                    return (
-                      <div
-                        key={field.id}
-                        className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
-                      >
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                            Item {index + 1}
-                          </p>
-                          <div className="flex items-center gap-2 text-[11px] font-medium text-slate-600">
-                            {isSeasonalEventItem && (
-                              <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-amber-700">
-                                Seasonal/Event
-                              </span>
-                            )}
-                            {isTwoTierCake && (
-                              <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-indigo-700">
-                                Two Tiered Cake
-                              </span>
-                            )}
-                            <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5">
-                              Unit {formatCurrency(displayUnitPrice)}
-                            </span>
-                            <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5">
-                              Subtotal {formatCurrency(displayLinePrice)}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="grid gap-x-3 gap-y-2 sm:grid-cols-2 lg:grid-cols-4">
-                          <label className="grid gap-2 text-sm font-medium text-gray-700">
-                            Category
-                            <Select
-                              {...register(`items.${index}.category`)}
-                              value={normalizedSelection.category}
-                              onChange={(event) => {
-                                const nextCategory = event.target.value;
-                                const nextSelection =
-                                  getDefaultSelectionFromCatalog(
+                              return (
+                                sum +
+                                Math.max(0, row.quantity) *
+                                  rowDifficulty.cookiePrice
+                              );
+                            }, 0)
+                          : 0;
+                        const cookieBreakdownUnitPrice =
+                          quantityValue > 0 && cookieBreakdownSubtotal > 0
+                            ? Math.round(
+                                cookieBreakdownSubtotal / quantityValue,
+                              )
+                            : 0;
+                        const customCookieAdditionalDesignCount =
+                          isCustomCookiesItem
+                            ? getCookieAdditionalDesignCountFromItem({
+                                designCount: item?.designCount,
+                                additionalDesignCount:
+                                  item?.additionalDesignCount,
+                              })
+                            : 0;
+                        const customCookieAdditionalDesignUnitPrice =
+                          isCustomCookiesItem
+                            ? getCookieAdditionalDesignUnitPrice({
+                                categoryAddOns: addOns,
+                                item: {
+                                  addOnPriceOverrides:
+                                    item?.addOnPriceOverrides,
+                                },
+                              })
+                            : COOKIE_ADDITIONAL_DESIGN_PRICE;
+                        const customCookieAdditionalDesignCharge =
+                          customCookieAdditionalDesignCount *
+                          customCookieAdditionalDesignUnitPrice;
+                        const parsedSubtotalWithDesignCharge =
+                          hasParsedRecapPrice && parsedSubtotal
+                            ? parsedSubtotal +
+                              customCookieAdditionalDesignCharge
+                            : parsedSubtotal;
+                        const cookieSubtotalWithDesignCharge =
+                          isCustomCookiesItem && cookieBreakdownSubtotal > 0
+                            ? cookieBreakdownSubtotal +
+                              customCookieAdditionalDesignCharge
+                            : undefined;
+                        const displayUnitPrice =
+                          hasParsedRecapPrice && parsedUnitPrice
+                            ? parsedUnitPrice
+                            : bouquetPriceOverride !== undefined
+                              ? bouquetPriceOverride
+                              : sharingBoxUnitPriceOverride !== undefined
+                                ? sharingBoxUnitPriceOverride
+                                : isCustomCookiesItem &&
+                                    cookieBreakdownUnitPrice > 0
+                                  ? cookieBreakdownUnitPrice
+                                  : getUnitPriceFromCatalog(productCatalog, {
+                                      category: normalizedSelection.category,
+                                      subcategory:
+                                        normalizedSelection.subcategory,
+                                      productName:
+                                        normalizedSelection.productName,
+                                      size: normalizedSelection.size,
+                                    });
+                        const displayLinePrice =
+                          hasParsedRecapPrice && cookieSubtotalWithDesignCharge
+                            ? cookieSubtotalWithDesignCharge
+                            : hasParsedRecapPrice &&
+                                parsedSubtotalWithDesignCharge
+                              ? parsedSubtotalWithDesignCharge
+                              : isCustomCookiesItem &&
+                                  cookieBreakdownSubtotal > 0
+                                ? cookieBreakdownSubtotal
+                                : getItemBasePrice(
                                     productCatalog,
-                                    nextCategory,
-                                  );
-                                const nextProbeItem: BookingItemInput = {
-                                  category: nextSelection.category,
-                                  subcategory: nextSelection.subcategory,
-                                  productName: nextSelection.productName,
-                                  size: nextSelection.size,
-                                  quantity: Number(item?.quantity) || 0,
-                                  tokenDifficulty: item?.tokenDifficulty,
-                                  customTokenPerUnit:
-                                    Number(item?.customTokenPerUnit) > 0
-                                      ? Number(item?.customTokenPerUnit)
-                                      : undefined,
-                                  cookiePrice:
-                                    Number(item?.cookiePrice) > 0
-                                      ? Number(item?.cookiePrice)
-                                      : undefined,
-                                  addOns: item?.addOns ?? [],
-                                  notes: item?.notes ?? "",
-                                };
-                                const nextAutoQuantity =
-                                  getAutoQuantityForItem(nextProbeItem);
-                                clearParsedPricingOverride(index);
-                                setValue(
-                                  `items.${index}.category`,
-                                  nextSelection.category,
-                                  { shouldValidate: true },
-                                );
-                                setValue(
-                                  `items.${index}.subcategory`,
-                                  nextSelection.subcategory,
-                                  {
-                                    shouldValidate: true,
-                                  },
-                                );
-                                setValue(
-                                  `items.${index}.productName`,
-                                  nextSelection.productName,
-                                  {
-                                    shouldValidate: true,
-                                  },
-                                );
-                                setValue(
-                                  `items.${index}.size`,
-                                  nextSelection.size,
-                                  { shouldValidate: true },
-                                );
-                                setValue(`items.${index}.addOns`, [], {
-                                  shouldValidate: true,
-                                });
-                                setValue(
-                                  `items.${index}.addOnQuantities`,
-                                  {},
-                                  {
-                                    shouldValidate: true,
-                                  },
-                                );
-                                setValue(
-                                  `items.${index}.addOnPriceOverrides`,
-                                  {},
-                                  {
-                                    shouldValidate: true,
-                                  },
-                                );
-                                setValue(
-                                  `items.${index}.darkColorButtercreamColors`,
-                                  [],
-                                  {
-                                    shouldValidate: true,
-                                  },
-                                );
-                                setValue(
-                                  `items.${index}.bouquetPriceOverride`,
-                                  undefined,
-                                  {
-                                    shouldValidate: true,
-                                  },
-                                );
-                                setValue(
-                                  `items.${index}.cookiePrice`,
-                                  undefined,
-                                  {
-                                    shouldValidate: true,
-                                  },
-                                );
-                                setValue(
-                                  `items.${index}.greetingCard`,
-                                  nextSelection.category === "Buket"
-                                    ? String(item?.greetingCard || "")
-                                    : "",
-                                  {
-                                    shouldValidate: true,
-                                  },
-                                );
-                                setValue(
-                                  `items.${index}.bouquetPaperColor`,
-                                  nextSelection.category === "Buket"
-                                    ? String(item?.bouquetPaperColor || "")
-                                    : "",
-                                  {
-                                    shouldValidate: true,
-                                  },
-                                );
-                                setValue(
-                                  `items.${index}.ribbon`,
-                                  nextSelection.category === "Buket"
-                                    ? String(item?.ribbon || "")
-                                    : "",
-                                  {
-                                    shouldValidate: true,
-                                  },
-                                );
-                                setValue(
-                                  `items.${index}.flowerCount`,
-                                  nextSelection.category === "Buket"
-                                    ? String(item?.flowerCount || "")
-                                    : "",
-                                  {
-                                    shouldValidate: true,
-                                  },
-                                );
-                                setValue(
-                                  `items.${index}.flowerColor`,
-                                  nextSelection.category === "Buket"
-                                    ? String(item?.flowerColor || "")
-                                    : "",
-                                  {
-                                    shouldValidate: true,
-                                  },
-                                );
-                                setValue(
-                                  `items.${index}.ribbonColor`,
-                                  nextSelection.category === "Buket"
-                                    ? String(item?.ribbonColor || "")
-                                    : "",
-                                  {
-                                    shouldValidate: true,
-                                  },
-                                );
-                                setValue(
-                                  `items.${index}.cookieDifficultyBreakdown`,
-                                  undefined,
-                                  {
-                                    shouldValidate: true,
-                                  },
-                                );
-                                setValue(
-                                  `items.${index}.tokenDifficulty`,
-                                  nextSelection.category === "Cookies"
-                                    ? "SIMPLE"
-                                    : undefined,
-                                  {
-                                    shouldValidate: true,
-                                  },
-                                );
-                                if (typeof nextAutoQuantity === "number") {
-                                  setValue(
-                                    `items.${index}.quantity`,
-                                    nextAutoQuantity,
+                                    bouquetProbeItem,
                                     {
-                                      shouldValidate: true,
+                                      cookieAdditionalDesignUnitPrice:
+                                        customCookieAdditionalDesignUnitPrice,
                                     },
                                   );
-                                }
-                              }}
-                            >
-                              {productCatalog.map((entry) => (
-                                <option
-                                  key={entry.category}
-                                  value={entry.category}
-                                >
-                                  {entry.category}
-                                </option>
-                              ))}
-                            </Select>
-                          </label>
+                        const itemTotalCostDisplay =
+                          hasParsedRecapPrice && cookieSubtotalWithDesignCharge
+                            ? cookieSubtotalWithDesignCharge
+                            : hasParsedRecapPrice &&
+                                parsedSubtotalWithDesignCharge
+                              ? parsedSubtotalWithDesignCharge
+                              : displayLinePrice +
+                                selectedAllAddOnTotal +
+                                customAddOnTotal +
+                                customCookieAdditionalDesignCharge;
+                        const totalAddOnAndSurchargeDisplay =
+                          selectedAllAddOnTotal +
+                          customAddOnTotal +
+                          customCookieAdditionalDesignCharge;
 
-                          <label className="grid gap-2 text-sm font-medium text-gray-700">
-                            {isCookies ? "Mode Cookies" : "Subcategory"}
-                            {isCookies ? (
-                              <>
+                        return (
+                          <div
+                            key={field.id}
+                            className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                Item {index + 1}
+                              </p>
+                              <div className="flex items-center gap-2 text-[11px] font-medium text-slate-600">
+                                {isSeasonalEventItem && (
+                                  <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-amber-700">
+                                    Seasonal/Event
+                                  </span>
+                                )}
+                                {isTwoTierCake && (
+                                  <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-indigo-700">
+                                    Two Tiered Cake
+                                  </span>
+                                )}
+                                <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5">
+                                  Unit {formatCurrency(displayUnitPrice)}
+                                </span>
+                                <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5">
+                                  Subtotal {formatCurrency(displayLinePrice)}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="grid gap-x-3 gap-y-2 sm:grid-cols-2 lg:grid-cols-4">
+                              <label className="grid gap-2 text-sm font-medium text-gray-700">
+                                Category
                                 <Select
-                                  value={cookieCatalogMode}
+                                  {...register(`items.${index}.category`)}
+                                  value={normalizedSelection.category}
                                   onChange={(event) => {
-                                    const nextMode = event.target
-                                      .value as CookieCatalogMode;
+                                    const nextCategory = event.target.value;
                                     const nextSelection =
-                                      getCookieSelectionByMode({
-                                        catalog: productCatalog,
-                                        mode: nextMode,
-                                        previousSelection: normalizedSelection,
-                                      });
+                                      getDefaultSelectionFromCatalog(
+                                        productCatalog,
+                                        nextCategory,
+                                      );
                                     const nextProbeItem: BookingItemInput = {
                                       category: nextSelection.category,
                                       subcategory: nextSelection.subcategory,
@@ -6784,18 +6662,133 @@ export default function BookingForm() {
                                       getAutoQuantityForItem(nextProbeItem);
                                     clearParsedPricingOverride(index);
                                     setValue(
+                                      `items.${index}.category`,
+                                      nextSelection.category,
+                                      { shouldValidate: true },
+                                    );
+                                    setValue(
                                       `items.${index}.subcategory`,
                                       nextSelection.subcategory,
-                                      { shouldValidate: true },
+                                      {
+                                        shouldValidate: true,
+                                      },
                                     );
                                     setValue(
                                       `items.${index}.productName`,
                                       nextSelection.productName,
-                                      { shouldValidate: true },
+                                      {
+                                        shouldValidate: true,
+                                      },
                                     );
                                     setValue(
                                       `items.${index}.size`,
                                       nextSelection.size,
+                                      { shouldValidate: true },
+                                    );
+                                    setValue(`items.${index}.addOns`, [], {
+                                      shouldValidate: true,
+                                    });
+                                    setValue(
+                                      `items.${index}.addOnQuantities`,
+                                      {},
+                                      {
+                                        shouldValidate: true,
+                                      },
+                                    );
+                                    setValue(
+                                      `items.${index}.addOnPriceOverrides`,
+                                      {},
+                                      {
+                                        shouldValidate: true,
+                                      },
+                                    );
+                                    setValue(
+                                      `items.${index}.darkColorButtercreamColors`,
+                                      [],
+                                      {
+                                        shouldValidate: true,
+                                      },
+                                    );
+                                    setValue(
+                                      `items.${index}.bouquetPriceOverride`,
+                                      undefined,
+                                      {
+                                        shouldValidate: true,
+                                      },
+                                    );
+                                    setValue(
+                                      `items.${index}.cookiePrice`,
+                                      undefined,
+                                      {
+                                        shouldValidate: true,
+                                      },
+                                    );
+                                    setValue(
+                                      `items.${index}.greetingCard`,
+                                      nextSelection.category === "Buket"
+                                        ? String(item?.greetingCard || "")
+                                        : "",
+                                      {
+                                        shouldValidate: true,
+                                      },
+                                    );
+                                    setValue(
+                                      `items.${index}.bouquetPaperColor`,
+                                      nextSelection.category === "Buket"
+                                        ? String(item?.bouquetPaperColor || "")
+                                        : "",
+                                      {
+                                        shouldValidate: true,
+                                      },
+                                    );
+                                    setValue(
+                                      `items.${index}.ribbon`,
+                                      nextSelection.category === "Buket"
+                                        ? String(item?.ribbon || "")
+                                        : "",
+                                      {
+                                        shouldValidate: true,
+                                      },
+                                    );
+                                    setValue(
+                                      `items.${index}.flowerCount`,
+                                      nextSelection.category === "Buket"
+                                        ? String(item?.flowerCount || "")
+                                        : "",
+                                      {
+                                        shouldValidate: true,
+                                      },
+                                    );
+                                    setValue(
+                                      `items.${index}.flowerColor`,
+                                      nextSelection.category === "Buket"
+                                        ? String(item?.flowerColor || "")
+                                        : "",
+                                      {
+                                        shouldValidate: true,
+                                      },
+                                    );
+                                    setValue(
+                                      `items.${index}.ribbonColor`,
+                                      nextSelection.category === "Buket"
+                                        ? String(item?.ribbonColor || "")
+                                        : "",
+                                      {
+                                        shouldValidate: true,
+                                      },
+                                    );
+                                    setValue(
+                                      `items.${index}.cookieDifficultyBreakdown`,
+                                      undefined,
+                                      {
+                                        shouldValidate: true,
+                                      },
+                                    );
+                                    setValue(
+                                      `items.${index}.tokenDifficulty`,
+                                      nextSelection.category === "Cookies"
+                                        ? "SIMPLE"
+                                        : undefined,
                                       {
                                         shouldValidate: true,
                                       },
@@ -6811,509 +6804,470 @@ export default function BookingForm() {
                                     }
                                   }}
                                 >
-                                  <option value="CUSTOM">Custom</option>
-                                  <option value="SEASONAL_EVENT">
-                                    Seasonal/Event
-                                  </option>
+                                  {productCatalog.map((entry) => (
+                                    <option
+                                      key={entry.category}
+                                      value={entry.category}
+                                    >
+                                      {entry.category}
+                                    </option>
+                                  ))}
                                 </Select>
-                                <span className="text-[11px] font-normal text-gray-500">
-                                  Subcategory aktif:{" "}
-                                  {normalizedSelection.subcategory || "-"}
-                                </span>
-                              </>
-                            ) : hasMultipleSubcategories ? (
-                              <Select
-                                {...register(`items.${index}.subcategory`)}
-                                value={normalizedSelection.subcategory}
-                                onChange={(event) => {
-                                  const nextSub = event.target.value;
-                                  const nextSelection =
-                                    ensureSelectionFromCatalog(productCatalog, {
-                                      category: normalizedSelection.category,
-                                      subcategory: nextSub,
-                                    });
-                                  const nextProbeItem: BookingItemInput = {
-                                    category: nextSelection.category,
-                                    subcategory: nextSelection.subcategory,
-                                    productName: nextSelection.productName,
-                                    size: nextSelection.size,
-                                    quantity: Number(item?.quantity) || 0,
-                                    tokenDifficulty: item?.tokenDifficulty,
-                                    customTokenPerUnit:
-                                      Number(item?.customTokenPerUnit) > 0
-                                        ? Number(item?.customTokenPerUnit)
-                                        : undefined,
-                                    cookiePrice:
-                                      Number(item?.cookiePrice) > 0
-                                        ? Number(item?.cookiePrice)
-                                        : undefined,
-                                    addOns: item?.addOns ?? [],
-                                    notes: item?.notes ?? "",
-                                  };
-                                  const nextAutoQuantity =
-                                    getAutoQuantityForItem(nextProbeItem);
-                                  clearParsedPricingOverride(index);
-                                  setValue(
-                                    `items.${index}.subcategory`,
-                                    nextSelection.subcategory,
-                                    {
-                                      shouldValidate: true,
-                                    },
-                                  );
-                                  setValue(
-                                    `items.${index}.productName`,
-                                    nextSelection.productName,
-                                    {
-                                      shouldValidate: true,
-                                    },
-                                  );
-                                  setValue(
-                                    `items.${index}.size`,
-                                    nextSelection.size,
-                                    { shouldValidate: true },
-                                  );
-                                  if (typeof nextAutoQuantity === "number") {
-                                    setValue(
-                                      `items.${index}.quantity`,
-                                      nextAutoQuantity,
-                                      {
-                                        shouldValidate: true,
-                                      },
-                                    );
-                                  }
-                                }}
-                              >
-                                {subcategories.map((entry) => (
-                                  <option key={entry.name} value={entry.name}>
-                                    {entry.name}
-                                  </option>
-                                ))}
-                              </Select>
-                            ) : (
-                              <div className="flex h-10 items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700">
-                                {normalizedSelection.subcategory || "-"}
-                              </div>
-                            )}
-                          </label>
+                              </label>
 
-                          <label className="grid gap-2 text-sm font-medium text-gray-700">
-                            Product
-                            {hasMultipleProducts ? (
-                              <Select
-                                {...register(`items.${index}.productName`)}
-                                value={normalizedSelection.productName}
-                                onChange={(event) => {
-                                  const nextProduct = event.target.value;
-                                  const nextSelection =
-                                    ensureSelectionFromCatalog(productCatalog, {
-                                      category: normalizedSelection.category,
-                                      subcategory:
-                                        normalizedSelection.subcategory,
-                                      productName: nextProduct,
-                                    });
-                                  const nextProbeItem: BookingItemInput = {
-                                    category: nextSelection.category,
-                                    subcategory: nextSelection.subcategory,
-                                    productName: nextSelection.productName,
-                                    size: nextSelection.size,
-                                    quantity: Number(item?.quantity) || 0,
-                                    tokenDifficulty: item?.tokenDifficulty,
-                                    customTokenPerUnit:
-                                      Number(item?.customTokenPerUnit) > 0
-                                        ? Number(item?.customTokenPerUnit)
-                                        : undefined,
-                                    cookiePrice:
-                                      Number(item?.cookiePrice) > 0
-                                        ? Number(item?.cookiePrice)
-                                        : undefined,
-                                    addOns: item?.addOns ?? [],
-                                    notes: item?.notes ?? "",
-                                  };
-                                  const nextAutoQuantity =
-                                    getAutoQuantityForItem(nextProbeItem);
-                                  clearParsedPricingOverride(index);
-                                  setValue(
-                                    `items.${index}.productName`,
-                                    nextSelection.productName,
-                                    {
-                                      shouldValidate: true,
-                                    },
-                                  );
-                                  setValue(
-                                    `items.${index}.size`,
-                                    nextSelection.size,
-                                    { shouldValidate: true },
-                                  );
-                                  if (typeof nextAutoQuantity === "number") {
-                                    setValue(
-                                      `items.${index}.quantity`,
-                                      nextAutoQuantity,
-                                      {
-                                        shouldValidate: true,
-                                      },
-                                    );
-                                  }
-                                }}
-                              >
-                                {products.map((product) => (
-                                  <option
-                                    key={product.name}
-                                    value={product.name}
-                                  >
-                                    {product.name}
-                                  </option>
-                                ))}
-                              </Select>
-                            ) : (
-                              <div className="flex h-10 items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700">
-                                {normalizedSelection.productName || "-"}
-                              </div>
-                            )}
-                            {itemGrabCarOnly && (
-                              <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-700">
-                                GrabCar only
-                              </span>
-                            )}
-                          </label>
-
-                          <label className="grid gap-2 text-sm font-medium text-gray-700">
-                            Varian / Size
-                            {isCustomCookiesItem ? (
-                              <div className="flex h-10 items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700">
-                                Mixed by difficulty
-                              </div>
-                            ) : hasMultipleVariants ? (
-                              <Select
-                                {...register(`items.${index}.size`)}
-                                value={normalizedSelection.size}
-                                onChange={(event) => {
-                                  const nextSize = event.target.value;
-                                  const nextProbeItem: BookingItemInput = {
-                                    category: normalizedSelection.category,
-                                    subcategory:
-                                      normalizedSelection.subcategory,
-                                    productName:
-                                      normalizedSelection.productName,
-                                    size: nextSize,
-                                    quantity: Number(item?.quantity) || 0,
-                                    tokenDifficulty: item?.tokenDifficulty,
-                                    customTokenPerUnit:
-                                      Number(item?.customTokenPerUnit) > 0
-                                        ? Number(item?.customTokenPerUnit)
-                                        : undefined,
-                                    cookiePrice:
-                                      Number(item?.cookiePrice) > 0
-                                        ? Number(item?.cookiePrice)
-                                        : undefined,
-                                    addOns: item?.addOns ?? [],
-                                    notes: item?.notes ?? "",
-                                  };
-                                  const nextAutoQuantity =
-                                    getAutoQuantityForItem(nextProbeItem);
-                                  clearParsedPricingOverride(index);
-                                  setValue(`items.${index}.size`, nextSize, {
-                                    shouldValidate: true,
-                                  });
-                                  if (typeof nextAutoQuantity === "number") {
-                                    setValue(
-                                      `items.${index}.quantity`,
-                                      nextAutoQuantity,
-                                      {
-                                        shouldValidate: true,
-                                      },
-                                    );
-                                  }
-                                }}
-                              >
-                                {displayVariants.map((sizeOption) => (
-                                  <option
-                                    key={sizeOption.label}
-                                    value={sizeOption.label}
-                                  >
-                                    {getReadableVariantLabel({
-                                      ...bouquetProbeItem,
-                                      size: sizeOption.label,
-                                    })}{" "}
-                                    ({formatCurrency(sizeOption.price)})
-                                  </option>
-                                ))}
-                              </Select>
-                            ) : (
-                              <div className="flex h-10 items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700">
-                                {getReadableVariantLabel(bouquetProbeItem)}
-                              </div>
-                            )}
-                            {effectiveDeliveryMethod === "ASSISTED_PAXEL" &&
-                              isBouquet && (
-                                <span className="text-[11px] font-normal leading-4 text-gray-500">
-                                  Paxel untuk bouquet hanya mendukung varian
-                                  Large/XL.
-                                </span>
-                              )}
-                          </label>
-
-                          <label className="grid gap-1.5 text-sm font-medium text-gray-700">
-                            {quantityRule.label}
-                            <Input
-                              type="number"
-                              min={quantityRule.min}
-                              max={quantityRule.max}
-                              step={1}
-                              {...register(`items.${index}.quantity`, {
-                                valueAsNumber: true,
-                                onChange: () => {
-                                  clearParsedPricingOverride(index);
-                                },
-                                onBlur: (event) => {
-                                  const parsed =
-                                    Number(event.target.value) || 0;
-                                  const minQty = quantityRule.min;
-                                  if (parsed > 0 && parsed < minQty) {
-                                    setValue(
-                                      `items.${index}.quantity`,
-                                      minQty,
-                                      {
-                                        shouldValidate: true,
-                                      },
-                                    );
-                                  }
-                                },
-                                validate: (value) => {
-                                  const quantity = Number(value) || 0;
-                                  if (quantity < quantityRule.min) {
-                                    return getQuantityRuleViolationMessage(
-                                      quantityRule,
-                                    );
-                                  }
-                                  if (
-                                    typeof quantityRule.max === "number" &&
-                                    quantity > quantityRule.max
-                                  ) {
-                                    return getQuantityRuleViolationMessage(
-                                      quantityRule,
-                                    );
-                                  }
-                                  return true;
-                                },
-                              })}
-                            />
-                            {quantityRule.helperText && (
-                              <span className="min-h-4 text-[11px] font-normal leading-4 text-gray-500">
-                                {quantityRule.helperText}
-                              </span>
-                            )}
-                            {isCustomCookiesItem && (
-                              <label className="grid gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-[12px] font-medium text-emerald-900">
-                                Jumlah Design Cookies
-                                <Input
-                                  type="number"
-                                  min={1}
-                                  max={100}
-                                  placeholder="contoh: 7"
-                                  {...register(`items.${index}.designCount`, {
-                                    setValueAs: (value) =>
-                                      normalizeCookieDesignCount(value),
-                                    onChange: (event) => {
+                              <label className="grid gap-2 text-sm font-medium text-gray-700">
+                                {isCookies ? "Mode Cookies" : "Subcategory"}
+                                {isCookies ? (
+                                  <>
+                                    <Select
+                                      value={cookieCatalogMode}
+                                      onChange={(event) => {
+                                        const nextMode = event.target
+                                          .value as CookieCatalogMode;
+                                        const nextSelection =
+                                          getCookieSelectionByMode({
+                                            catalog: productCatalog,
+                                            mode: nextMode,
+                                            previousSelection:
+                                              normalizedSelection,
+                                          });
+                                        const nextProbeItem: BookingItemInput =
+                                          {
+                                            category: nextSelection.category,
+                                            subcategory:
+                                              nextSelection.subcategory,
+                                            productName:
+                                              nextSelection.productName,
+                                            size: nextSelection.size,
+                                            quantity:
+                                              Number(item?.quantity) || 0,
+                                            tokenDifficulty:
+                                              item?.tokenDifficulty,
+                                            customTokenPerUnit:
+                                              Number(item?.customTokenPerUnit) >
+                                              0
+                                                ? Number(
+                                                    item?.customTokenPerUnit,
+                                                  )
+                                                : undefined,
+                                            cookiePrice:
+                                              Number(item?.cookiePrice) > 0
+                                                ? Number(item?.cookiePrice)
+                                                : undefined,
+                                            addOns: item?.addOns ?? [],
+                                            notes: item?.notes ?? "",
+                                          };
+                                        const nextAutoQuantity =
+                                          getAutoQuantityForItem(nextProbeItem);
+                                        clearParsedPricingOverride(index);
+                                        setValue(
+                                          `items.${index}.subcategory`,
+                                          nextSelection.subcategory,
+                                          { shouldValidate: true },
+                                        );
+                                        setValue(
+                                          `items.${index}.productName`,
+                                          nextSelection.productName,
+                                          { shouldValidate: true },
+                                        );
+                                        setValue(
+                                          `items.${index}.size`,
+                                          nextSelection.size,
+                                          {
+                                            shouldValidate: true,
+                                          },
+                                        );
+                                        if (
+                                          typeof nextAutoQuantity === "number"
+                                        ) {
+                                          setValue(
+                                            `items.${index}.quantity`,
+                                            nextAutoQuantity,
+                                            {
+                                              shouldValidate: true,
+                                            },
+                                          );
+                                        }
+                                      }}
+                                    >
+                                      <option value="CUSTOM">Custom</option>
+                                      <option value="SEASONAL_EVENT">
+                                        Seasonal/Event
+                                      </option>
+                                    </Select>
+                                    <span className="text-[11px] font-normal text-gray-500">
+                                      Subcategory aktif:{" "}
+                                      {normalizedSelection.subcategory || "-"}
+                                    </span>
+                                  </>
+                                ) : hasMultipleSubcategories ? (
+                                  <Select
+                                    {...register(`items.${index}.subcategory`)}
+                                    value={normalizedSelection.subcategory}
+                                    onChange={(event) => {
+                                      const nextSub = event.target.value;
+                                      const nextSelection =
+                                        ensureSelectionFromCatalog(
+                                          productCatalog,
+                                          {
+                                            category:
+                                              normalizedSelection.category,
+                                            subcategory: nextSub,
+                                          },
+                                        );
+                                      const nextProbeItem: BookingItemInput = {
+                                        category: nextSelection.category,
+                                        subcategory: nextSelection.subcategory,
+                                        productName: nextSelection.productName,
+                                        size: nextSelection.size,
+                                        quantity: Number(item?.quantity) || 0,
+                                        tokenDifficulty: item?.tokenDifficulty,
+                                        customTokenPerUnit:
+                                          Number(item?.customTokenPerUnit) > 0
+                                            ? Number(item?.customTokenPerUnit)
+                                            : undefined,
+                                        cookiePrice:
+                                          Number(item?.cookiePrice) > 0
+                                            ? Number(item?.cookiePrice)
+                                            : undefined,
+                                        addOns: item?.addOns ?? [],
+                                        notes: item?.notes ?? "",
+                                      };
+                                      const nextAutoQuantity =
+                                        getAutoQuantityForItem(nextProbeItem);
                                       clearParsedPricingOverride(index);
-                                      const nextDesignCount =
-                                        normalizeCookieDesignCount(
-                                          event.target.value,
-                                        ) ?? 0;
                                       setValue(
-                                        `items.${index}.additionalDesignCount`,
-                                        getAdditionalCookieDesignCount(
-                                          nextDesignCount,
-                                        ),
+                                        `items.${index}.subcategory`,
+                                        nextSelection.subcategory,
                                         {
                                           shouldValidate: true,
                                         },
                                       );
+                                      setValue(
+                                        `items.${index}.productName`,
+                                        nextSelection.productName,
+                                        {
+                                          shouldValidate: true,
+                                        },
+                                      );
+                                      setValue(
+                                        `items.${index}.size`,
+                                        nextSelection.size,
+                                        { shouldValidate: true },
+                                      );
+                                      if (
+                                        typeof nextAutoQuantity === "number"
+                                      ) {
+                                        setValue(
+                                          `items.${index}.quantity`,
+                                          nextAutoQuantity,
+                                          {
+                                            shouldValidate: true,
+                                          },
+                                        );
+                                      }
+                                    }}
+                                  >
+                                    {subcategories.map((entry) => (
+                                      <option
+                                        key={entry.name}
+                                        value={entry.name}
+                                      >
+                                        {entry.name}
+                                      </option>
+                                    ))}
+                                  </Select>
+                                ) : (
+                                  <div className="flex h-10 items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700">
+                                    {normalizedSelection.subcategory || "-"}
+                                  </div>
+                                )}
+                              </label>
+
+                              <label className="grid gap-2 text-sm font-medium text-gray-700">
+                                Product
+                                {hasMultipleProducts ? (
+                                  <Select
+                                    {...register(`items.${index}.productName`)}
+                                    value={normalizedSelection.productName}
+                                    onChange={(event) => {
+                                      const nextProduct = event.target.value;
+                                      const nextSelection =
+                                        ensureSelectionFromCatalog(
+                                          productCatalog,
+                                          {
+                                            category:
+                                              normalizedSelection.category,
+                                            subcategory:
+                                              normalizedSelection.subcategory,
+                                            productName: nextProduct,
+                                          },
+                                        );
+                                      const nextProbeItem: BookingItemInput = {
+                                        category: nextSelection.category,
+                                        subcategory: nextSelection.subcategory,
+                                        productName: nextSelection.productName,
+                                        size: nextSelection.size,
+                                        quantity: Number(item?.quantity) || 0,
+                                        tokenDifficulty: item?.tokenDifficulty,
+                                        customTokenPerUnit:
+                                          Number(item?.customTokenPerUnit) > 0
+                                            ? Number(item?.customTokenPerUnit)
+                                            : undefined,
+                                        cookiePrice:
+                                          Number(item?.cookiePrice) > 0
+                                            ? Number(item?.cookiePrice)
+                                            : undefined,
+                                        addOns: item?.addOns ?? [],
+                                        notes: item?.notes ?? "",
+                                      };
+                                      const nextAutoQuantity =
+                                        getAutoQuantityForItem(nextProbeItem);
+                                      clearParsedPricingOverride(index);
+                                      setValue(
+                                        `items.${index}.productName`,
+                                        nextSelection.productName,
+                                        {
+                                          shouldValidate: true,
+                                        },
+                                      );
+                                      setValue(
+                                        `items.${index}.size`,
+                                        nextSelection.size,
+                                        { shouldValidate: true },
+                                      );
+                                      if (
+                                        typeof nextAutoQuantity === "number"
+                                      ) {
+                                        setValue(
+                                          `items.${index}.quantity`,
+                                          nextAutoQuantity,
+                                          {
+                                            shouldValidate: true,
+                                          },
+                                        );
+                                      }
+                                    }}
+                                  >
+                                    {products.map((product) => (
+                                      <option
+                                        key={product.name}
+                                        value={product.name}
+                                      >
+                                        {product.name}
+                                      </option>
+                                    ))}
+                                  </Select>
+                                ) : (
+                                  <div className="flex h-10 items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700">
+                                    {normalizedSelection.productName || "-"}
+                                  </div>
+                                )}
+                                {itemGrabCarOnly && (
+                                  <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-700">
+                                    GrabCar only
+                                  </span>
+                                )}
+                              </label>
+
+                              <label className="grid gap-2 text-sm font-medium text-gray-700">
+                                Varian / Size
+                                {isCustomCookiesItem ? (
+                                  <div className="flex h-10 items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700">
+                                    Mixed by difficulty
+                                  </div>
+                                ) : hasMultipleVariants ? (
+                                  <Select
+                                    {...register(`items.${index}.size`)}
+                                    value={normalizedSelection.size}
+                                    onChange={(event) => {
+                                      const nextSize = event.target.value;
+                                      const nextProbeItem: BookingItemInput = {
+                                        category: normalizedSelection.category,
+                                        subcategory:
+                                          normalizedSelection.subcategory,
+                                        productName:
+                                          normalizedSelection.productName,
+                                        size: nextSize,
+                                        quantity: Number(item?.quantity) || 0,
+                                        tokenDifficulty: item?.tokenDifficulty,
+                                        customTokenPerUnit:
+                                          Number(item?.customTokenPerUnit) > 0
+                                            ? Number(item?.customTokenPerUnit)
+                                            : undefined,
+                                        cookiePrice:
+                                          Number(item?.cookiePrice) > 0
+                                            ? Number(item?.cookiePrice)
+                                            : undefined,
+                                        addOns: item?.addOns ?? [],
+                                        notes: item?.notes ?? "",
+                                      };
+                                      const nextAutoQuantity =
+                                        getAutoQuantityForItem(nextProbeItem);
+                                      clearParsedPricingOverride(index);
+                                      setValue(
+                                        `items.${index}.size`,
+                                        nextSize,
+                                        {
+                                          shouldValidate: true,
+                                        },
+                                      );
+                                      if (
+                                        typeof nextAutoQuantity === "number"
+                                      ) {
+                                        setValue(
+                                          `items.${index}.quantity`,
+                                          nextAutoQuantity,
+                                          {
+                                            shouldValidate: true,
+                                          },
+                                        );
+                                      }
+                                    }}
+                                  >
+                                    {displayVariants.map((sizeOption) => (
+                                      <option
+                                        key={sizeOption.label}
+                                        value={sizeOption.label}
+                                      >
+                                        {getReadableVariantLabel({
+                                          ...bouquetProbeItem,
+                                          size: sizeOption.label,
+                                        })}{" "}
+                                        ({formatCurrency(sizeOption.price)})
+                                      </option>
+                                    ))}
+                                  </Select>
+                                ) : (
+                                  <div className="flex h-10 items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700">
+                                    {getReadableVariantLabel(bouquetProbeItem)}
+                                  </div>
+                                )}
+                                {effectiveDeliveryMethod === "ASSISTED_PAXEL" &&
+                                  isBouquet && (
+                                    <span className="text-[11px] font-normal leading-4 text-gray-500">
+                                      Paxel untuk bouquet hanya mendukung varian
+                                      Large/XL.
+                                    </span>
+                                  )}
+                              </label>
+
+                              <label className="grid gap-1.5 text-sm font-medium text-gray-700">
+                                {quantityRule.label}
+                                <Input
+                                  type="number"
+                                  min={quantityRule.min}
+                                  max={quantityRule.max}
+                                  step={1}
+                                  {...register(`items.${index}.quantity`, {
+                                    valueAsNumber: true,
+                                    onChange: () => {
+                                      clearParsedPricingOverride(index);
+                                    },
+                                    onBlur: (event) => {
+                                      const parsed =
+                                        Number(event.target.value) || 0;
+                                      const minQty = quantityRule.min;
+                                      if (parsed > 0 && parsed < minQty) {
+                                        setValue(
+                                          `items.${index}.quantity`,
+                                          minQty,
+                                          {
+                                            shouldValidate: true,
+                                          },
+                                        );
+                                      }
+                                    },
+                                    validate: (value) => {
+                                      const quantity = Number(value) || 0;
+                                      if (quantity < quantityRule.min) {
+                                        return getQuantityRuleViolationMessage(
+                                          quantityRule,
+                                        );
+                                      }
+                                      if (
+                                        typeof quantityRule.max === "number" &&
+                                        quantity > quantityRule.max
+                                      ) {
+                                        return getQuantityRuleViolationMessage(
+                                          quantityRule,
+                                        );
+                                      }
+                                      return true;
                                     },
                                   })}
                                 />
-                                <span className="min-h-4 text-[11px] font-normal leading-4 text-emerald-700">
-                                  Maks {COOKIE_INCLUDED_DESIGN_LIMIT} design
-                                  tanpa surcharge. Di atas itu dikenakan{" "}
-                                  {formatCurrency(
-                                    customCookieAdditionalDesignUnitPrice,
-                                  )}{" "}
-                                  per design tambahan.
-                                </span>
-                              </label>
-                            )}
-                            {isCustomCookiesItem && (
-                              <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
-                                <div className="mb-1.5 flex items-center justify-between">
-                                  <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-                                    Breakdown Difficulty
+                                {quantityRule.helperText && (
+                                  <span className="min-h-4 text-[11px] font-normal leading-4 text-gray-500">
+                                    {quantityRule.helperText}
                                   </span>
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    className="h-6 border-indigo-200 px-2 text-[11px] text-indigo-700"
-                                    onClick={() => {
-                                      clearParsedPricingOverride(index);
-                                      const nextRows: CookieDifficultyRow[] = [
-                                        ...cookieDifficultyRows,
+                                )}
+                                {isCustomCookiesItem && (
+                                  <label className="grid gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-[12px] font-medium text-emerald-900">
+                                    Jumlah Design Cookies
+                                    <Input
+                                      type="number"
+                                      min={1}
+                                      max={100}
+                                      placeholder="contoh: 7"
+                                      {...register(
+                                        `items.${index}.designCount`,
                                         {
-                                          difficulty:
-                                            "SIMPLE" as TokenDifficultyValue,
-                                          quantity: 1,
+                                          setValueAs: (value) =>
+                                            normalizeCookieDesignCount(value),
+                                          onChange: (event) => {
+                                            clearParsedPricingOverride(index);
+                                            const nextDesignCount =
+                                              normalizeCookieDesignCount(
+                                                event.target.value,
+                                              ) ?? 0;
+                                            setValue(
+                                              `items.${index}.additionalDesignCount`,
+                                              getAdditionalCookieDesignCount(
+                                                nextDesignCount,
+                                              ),
+                                              {
+                                                shouldValidate: true,
+                                              },
+                                            );
+                                          },
                                         },
-                                      ];
-                                      const nextTotal = nextRows.reduce(
-                                        (sum, row) =>
-                                          sum + Math.max(0, row.quantity),
-                                        0,
-                                      );
-                                      const nextBreakdown =
-                                        mergeCookieBreakdownIntoNotes(nextRows);
-                                      setValue(
-                                        `items.${index}.quantity`,
-                                        nextTotal,
-                                        {
-                                          shouldValidate: true,
-                                        },
-                                      );
-                                      setValue(
-                                        `items.${index}.tokenDifficulty`,
-                                        nextRows[0]?.difficulty || "SIMPLE",
-                                        { shouldValidate: true },
-                                      );
-                                      setValue(
-                                        `items.${index}.cookieDifficultyBreakdown`,
-                                        nextBreakdown,
-                                        {
-                                          shouldValidate: true,
-                                        },
-                                      );
-                                    }}
-                                  >
-                                    <Plus size={12} className="mr-1" />
-                                    Tambah
-                                  </Button>
-                                </div>
-                                <div className="space-y-1.5">
-                                  {cookieDifficultyRows.map((row, rowIndex) => (
-                                    <div
-                                      key={`${row.difficulty}-${rowIndex}`}
-                                      className="grid grid-cols-[1fr_1fr_auto] items-center gap-1.5"
-                                    >
-                                      <Input
-                                        type="number"
-                                        min={1}
-                                        step={1}
-                                        value={row.quantity}
-                                        onChange={(event) => {
-                                          clearParsedPricingOverride(index);
-                                          const nextRows =
-                                            cookieDifficultyRows.map(
-                                              (entry, entryIndex) =>
-                                                entryIndex === rowIndex
-                                                  ? {
-                                                      ...entry,
-                                                      quantity: Math.max(
-                                                        1,
-                                                        Number(
-                                                          event.target.value,
-                                                        ) || 1,
-                                                      ),
-                                                    }
-                                                  : entry,
-                                            );
-                                          const nextTotal = nextRows.reduce(
-                                            (sum, entry) =>
-                                              sum + Math.max(0, entry.quantity),
-                                            0,
-                                          );
-                                          const nextBreakdown =
-                                            mergeCookieBreakdownIntoNotes(
-                                              nextRows,
-                                            );
-                                          setValue(
-                                            `items.${index}.quantity`,
-                                            nextTotal,
-                                            {
-                                              shouldValidate: true,
-                                            },
-                                          );
-                                          setValue(
-                                            `items.${index}.cookieDifficultyBreakdown`,
-                                            nextBreakdown,
-                                            {
-                                              shouldValidate: true,
-                                            },
-                                          );
-                                        }}
-                                      />
-                                      <Select
-                                        value={row.difficulty}
-                                        onChange={(event) => {
-                                          clearParsedPricingOverride(index);
-                                          const nextDifficulty =
-                                            normalizeTokenDifficultyValue(
-                                              event.target.value,
-                                            );
-                                          const nextRows =
-                                            cookieDifficultyRows.map(
-                                              (entry, entryIndex) =>
-                                                entryIndex === rowIndex
-                                                  ? {
-                                                      ...entry,
-                                                      difficulty:
-                                                        nextDifficulty,
-                                                    }
-                                                  : entry,
-                                            );
-                                          const nextBreakdown =
-                                            mergeCookieBreakdownIntoNotes(
-                                              nextRows,
-                                            );
-                                          setValue(
-                                            `items.${index}.tokenDifficulty`,
-                                            nextRows[0]?.difficulty || "SIMPLE",
-                                            {
-                                              shouldValidate: true,
-                                            },
-                                          );
-                                          setValue(
-                                            `items.${index}.cookieDifficultyBreakdown`,
-                                            nextBreakdown,
-                                            {
-                                              shouldValidate: true,
-                                            },
-                                          );
-                                        }}
-                                      >
-                                        {TOKEN_DIFFICULTY_OPTIONS.map(
-                                          (option) => (
-                                            <option
-                                              key={option.value}
-                                              value={option.value}
-                                            >
-                                              {option.label}
-                                            </option>
-                                          ),
-                                        )}
-                                      </Select>
+                                      )}
+                                    />
+                                    <span className="min-h-4 text-[11px] font-normal leading-4 text-emerald-700">
+                                      Maks {COOKIE_INCLUDED_DESIGN_LIMIT} design
+                                      tanpa surcharge. Di atas itu dikenakan{" "}
+                                      {formatCurrency(
+                                        customCookieAdditionalDesignUnitPrice,
+                                      )}{" "}
+                                      per design tambahan.
+                                    </span>
+                                  </label>
+                                )}
+                                {isCustomCookiesItem && (
+                                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
+                                    <div className="mb-1.5 flex items-center justify-between">
+                                      <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                                        Breakdown Difficulty
+                                      </span>
                                       <Button
                                         type="button"
                                         variant="outline"
-                                        className="h-9 border-rose-200 px-2 text-rose-600"
-                                        disabled={
-                                          cookieDifficultyRows.length <= 1
-                                        }
+                                        className="h-6 border-indigo-200 px-2 text-[11px] text-indigo-700"
                                         onClick={() => {
                                           clearParsedPricingOverride(index);
-                                          const nextRows =
-                                            cookieDifficultyRows.filter(
-                                              (_entry, entryIndex) =>
-                                                entryIndex !== rowIndex,
-                                            );
-                                          if (!nextRows.length) return;
+                                          const nextRows: CookieDifficultyRow[] =
+                                            [
+                                              ...cookieDifficultyRows,
+                                              {
+                                                difficulty:
+                                                  "SIMPLE" as TokenDifficultyValue,
+                                                quantity: 1,
+                                              },
+                                            ];
                                           const nextTotal = nextRows.reduce(
-                                            (sum, entry) =>
-                                              sum + Math.max(0, entry.quantity),
+                                            (sum, row) =>
+                                              sum + Math.max(0, row.quantity),
                                             0,
                                           );
                                           const nextBreakdown =
@@ -7330,9 +7284,7 @@ export default function BookingForm() {
                                           setValue(
                                             `items.${index}.tokenDifficulty`,
                                             nextRows[0]?.difficulty || "SIMPLE",
-                                            {
-                                              shouldValidate: true,
-                                            },
+                                            { shouldValidate: true },
                                           );
                                           setValue(
                                             `items.${index}.cookieDifficultyBreakdown`,
@@ -7343,257 +7295,400 @@ export default function BookingForm() {
                                           );
                                         }}
                                       >
-                                        <Trash2 size={13} />
+                                        <Plus size={12} className="mr-1" />
+                                        Tambah
                                       </Button>
                                     </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                            {cookieDifficultyBreakdown && (
-                              <span className="min-h-4 text-[11px] font-medium leading-4 text-indigo-700">
-                                Komposisi difficulty:{" "}
-                                {cookieDifficultyBreakdown}
-                              </span>
-                            )}
-                            {quantityError && (
-                              <span className="min-h-4 text-[11px] font-normal leading-4 text-rose-600">
-                                {quantityError}
-                              </span>
-                            )}
-                          </label>
-
-                          {isCustomCookieSharingBox && (
-                            <label className="grid gap-1.5 text-sm font-medium text-gray-700">
-                              Override Harga Sharing Box
-                              <Input
-                                type="number"
-                                min={0}
-                                step={1000}
-                                placeholder={String(displayUnitPrice)}
-                                {...register(
-                                  `items.${index}.sharingBoxPriceOverride`,
-                                  {
-                                    setValueAs: (value) =>
-                                      normalizeSharingBoxPriceOverrideValue(
-                                        value,
-                                      ),
-                                    onChange: () => {
-                                      clearParsedPricingOverride(index);
-                                    },
-                                  },
-                                )}
-                              />
-                              <span className="min-h-4 text-[11px] font-normal leading-4 text-gray-500">
-                                Kosongkan jika ingin pakai harga default dari
-                                katalog.
-                              </span>
-                            </label>
-                          )}
-
-                          {supportsDifficulty && !isCustomCookiesItem && (
-                            <label className="grid gap-1.5 text-sm font-medium text-gray-700">
-                              Difficulty Token
-                              <Select
-                                {...register(`items.${index}.tokenDifficulty`)}
-                                defaultValue={item?.tokenDifficulty || "SIMPLE"}
-                              >
-                                {TOKEN_DIFFICULTY_OPTIONS.map((option) => (
-                                  <option
-                                    key={option.value}
-                                    value={option.value}
-                                  >
-                                    {option.label} ({option.token})
-                                  </option>
-                                ))}
-                              </Select>
-                            </label>
-                          )}
-
-                          {isBouquet && (
-                            <label className="grid gap-1.5 text-sm font-medium text-gray-700">
-                              Override Harga Buket
-                              <Input
-                                type="number"
-                                min={0}
-                                step={1000}
-                                placeholder={String(displayUnitPrice)}
-                                {...register(
-                                  `items.${index}.bouquetPriceOverride`,
-                                  {
-                                    setValueAs: (value) =>
-                                      normalizeBouquetPriceOverrideValue(value),
-                                    onChange: () => {
-                                      clearParsedPricingOverride(index);
-                                    },
-                                  },
-                                )}
-                              />
-                              <span className="min-h-4 text-[11px] font-normal leading-4 text-gray-500">
-                                {bouquetPriceOverride !== undefined
-                                  ? `Override harga buket aktif: ${formatCurrency(bouquetPriceOverride)}.`
-                                  : "Kosongkan jika ingin pakai harga default start from katalog."}
-                              </span>
-                              <span className="min-h-4 text-[11px] font-normal leading-4 text-gray-500">
-                                Token bouquet fixed: Hand = 20, Standing = 50
-                                per bouquet.
-                              </span>
-                              {bouquetLineTotal !== null && (
-                                <span className="text-[11px] font-normal leading-4 text-indigo-600">
-                                  Estimasi subtotal bouquet:{" "}
-                                  {formatCurrency(bouquetLineTotal)}
-                                </span>
-                              )}
-                            </label>
-                          )}
-
-                          {isBouquet && (
-                            <label className="grid gap-1.5 text-sm font-medium text-gray-700 sm:col-span-2 lg:col-span-4">
-                              Kartu Ucapan
-                              <Textarea
-                                className="min-h-20"
-                                placeholder="Contoh: Happy Birthday Elliora!"
-                                {...register(`items.${index}.greetingCard`)}
-                              />
-                            </label>
-                          )}
-
-                          <label className="grid gap-1.5 text-sm font-medium text-gray-700 sm:col-span-2 lg:col-span-4">
-                            Customer Notes
-                            <Input
-                              placeholder="Decoration instructions"
-                              {...register(`items.${index}.notes`)}
-                            />
-                          </label>
-
-                          {isBouquet && (
-                            <div className="grid gap-2 sm:col-span-2 lg:col-span-4 sm:grid-cols-2">
-                              <label className="grid gap-1.5 text-sm font-medium text-gray-700">
-                                Warna kertas bouquet
-                                <Input
-                                  placeholder="Contoh: No 13"
-                                  {...register(
-                                    `items.${index}.bouquetPaperColor`,
-                                  )}
-                                />
-                              </label>
-                              <label className="grid gap-1.5 text-sm font-medium text-gray-700">
-                                Ribbon
-                                <Input
-                                  placeholder="Contoh: Satin"
-                                  {...register(`items.${index}.ribbon`)}
-                                />
-                              </label>
-                              <label className="grid gap-1.5 text-sm font-medium text-gray-700">
-                                Jumlah Bunga
-                                <Input
-                                  placeholder="Contoh: - / 3 bunga"
-                                  {...register(`items.${index}.flowerCount`)}
-                                />
-                              </label>
-                              <label className="grid gap-1.5 text-sm font-medium text-gray-700">
-                                Warna Bunga
-                                <Input
-                                  placeholder="Contoh: Putih"
-                                  {...register(`items.${index}.flowerColor`)}
-                                />
-                              </label>
-                              <label className="grid gap-1.5 text-sm font-medium text-gray-700 sm:col-span-2">
-                                Warna Pita
-                                <Input
-                                  placeholder="Contoh: Blue pastel"
-                                  {...register(`items.${index}.ribbonColor`)}
-                                />
-                              </label>
-                            </div>
-                          )}
-                        </div>
-
-                        {hasParsedRecapPrice && (
-                          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700">
-                            Harga dari recap aktif
-                            {parsedUnitPrice
-                              ? ` • Harga satuan ${formatCurrency(parsedUnitPrice)}`
-                              : ""}
-                            {parsedSubtotal
-                              ? ` • Subtotal ${formatCurrency(parsedSubtotal)}`
-                              : ""}
-                            {customCookieAdditionalDesignCharge > 0
-                              ? ` • Surcharge design +${formatCurrency(customCookieAdditionalDesignCharge)}`
-                              : ""}
-                            {cookieDifficultyBreakdown
-                              ? ` • Komposisi ${cookieDifficultyBreakdown}`
-                              : ""}
-                            . Jika produk, size, atau qty diubah, override ini
-                            akan otomatis direset.
-                          </div>
-                        )}
-
-                        <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-medium text-indigo-700">
-                          Estimasi token item ini: {itemTokenPreview}
-                          {hasCustomTokenOverride
-                            ? " (custom token override)"
-                            : ""}
-                          {isTwoTierCake && !hasCustomTokenOverride
-                            ? " • Two-tier dihitung sebagai 2 cake (100 + 100 token) tapi tetap 1 item."
-                            : ""}
-                        </div>
-
-                        {flavorOptions.length > 0 && (
-                          <label className="grid gap-1.5 text-sm font-medium text-gray-700 sm:max-w-2xl">
-                            <span className="flex items-center justify-between">
-                              <span>Choose Flavor</span>
-                              <span className="text-[11px] font-normal text-gray-500">
-                                1 flavor per item
-                              </span>
-                            </span>
-
-                            <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
-                              {regularFlavorOptions.map((option) => {
-                                const checked = selectedFlavorId === option.id;
-                                const shortCode = option.shortCodes?.[0] || "";
-
-                                return (
-                                  <label
-                                    key={option.id}
-                                    className={`flex items-center justify-between rounded-xl border px-3 py-1.5 text-sm transition ${
-                                      checked
-                                        ? "border-indigo-300 bg-indigo-50 text-indigo-800"
-                                        : "border-gray-200 bg-gray-50 text-gray-700"
-                                    }`}
-                                  >
-                                    <span className="flex items-center gap-2">
-                                      <span>{option.label}</span>
-                                      {shortCode && (
-                                        <span className="rounded-md border border-gray-300 bg-white px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-600">
-                                          {shortCode}
-                                        </span>
+                                    <div className="space-y-1.5">
+                                      {cookieDifficultyRows.map(
+                                        (row, rowIndex) => (
+                                          <div
+                                            key={`${row.difficulty}-${rowIndex}`}
+                                            className="grid grid-cols-[1fr_1fr_auto] items-center gap-1.5"
+                                          >
+                                            <Input
+                                              type="number"
+                                              min={1}
+                                              step={1}
+                                              value={row.quantity}
+                                              onChange={(event) => {
+                                                clearParsedPricingOverride(
+                                                  index,
+                                                );
+                                                const nextRows =
+                                                  cookieDifficultyRows.map(
+                                                    (entry, entryIndex) =>
+                                                      entryIndex === rowIndex
+                                                        ? {
+                                                            ...entry,
+                                                            quantity: Math.max(
+                                                              1,
+                                                              Number(
+                                                                event.target
+                                                                  .value,
+                                                              ) || 1,
+                                                            ),
+                                                          }
+                                                        : entry,
+                                                  );
+                                                const nextTotal =
+                                                  nextRows.reduce(
+                                                    (sum, entry) =>
+                                                      sum +
+                                                      Math.max(
+                                                        0,
+                                                        entry.quantity,
+                                                      ),
+                                                    0,
+                                                  );
+                                                const nextBreakdown =
+                                                  mergeCookieBreakdownIntoNotes(
+                                                    nextRows,
+                                                  );
+                                                setValue(
+                                                  `items.${index}.quantity`,
+                                                  nextTotal,
+                                                  {
+                                                    shouldValidate: true,
+                                                  },
+                                                );
+                                                setValue(
+                                                  `items.${index}.cookieDifficultyBreakdown`,
+                                                  nextBreakdown,
+                                                  {
+                                                    shouldValidate: true,
+                                                  },
+                                                );
+                                              }}
+                                            />
+                                            <Select
+                                              value={row.difficulty}
+                                              onChange={(event) => {
+                                                clearParsedPricingOverride(
+                                                  index,
+                                                );
+                                                const nextDifficulty =
+                                                  normalizeTokenDifficultyValue(
+                                                    event.target.value,
+                                                  );
+                                                const nextRows =
+                                                  cookieDifficultyRows.map(
+                                                    (entry, entryIndex) =>
+                                                      entryIndex === rowIndex
+                                                        ? {
+                                                            ...entry,
+                                                            difficulty:
+                                                              nextDifficulty,
+                                                          }
+                                                        : entry,
+                                                  );
+                                                const nextBreakdown =
+                                                  mergeCookieBreakdownIntoNotes(
+                                                    nextRows,
+                                                  );
+                                                setValue(
+                                                  `items.${index}.tokenDifficulty`,
+                                                  nextRows[0]?.difficulty ||
+                                                    "SIMPLE",
+                                                  {
+                                                    shouldValidate: true,
+                                                  },
+                                                );
+                                                setValue(
+                                                  `items.${index}.cookieDifficultyBreakdown`,
+                                                  nextBreakdown,
+                                                  {
+                                                    shouldValidate: true,
+                                                  },
+                                                );
+                                              }}
+                                            >
+                                              {TOKEN_DIFFICULTY_OPTIONS.map(
+                                                (option) => (
+                                                  <option
+                                                    key={option.value}
+                                                    value={option.value}
+                                                  >
+                                                    {option.label}
+                                                  </option>
+                                                ),
+                                              )}
+                                            </Select>
+                                            <Button
+                                              type="button"
+                                              variant="outline"
+                                              className="h-9 border-rose-200 px-2 text-rose-600"
+                                              disabled={
+                                                cookieDifficultyRows.length <= 1
+                                              }
+                                              onClick={() => {
+                                                clearParsedPricingOverride(
+                                                  index,
+                                                );
+                                                const nextRows =
+                                                  cookieDifficultyRows.filter(
+                                                    (_entry, entryIndex) =>
+                                                      entryIndex !== rowIndex,
+                                                  );
+                                                if (!nextRows.length) return;
+                                                const nextTotal =
+                                                  nextRows.reduce(
+                                                    (sum, entry) =>
+                                                      sum +
+                                                      Math.max(
+                                                        0,
+                                                        entry.quantity,
+                                                      ),
+                                                    0,
+                                                  );
+                                                const nextBreakdown =
+                                                  mergeCookieBreakdownIntoNotes(
+                                                    nextRows,
+                                                  );
+                                                setValue(
+                                                  `items.${index}.quantity`,
+                                                  nextTotal,
+                                                  {
+                                                    shouldValidate: true,
+                                                  },
+                                                );
+                                                setValue(
+                                                  `items.${index}.tokenDifficulty`,
+                                                  nextRows[0]?.difficulty ||
+                                                    "SIMPLE",
+                                                  {
+                                                    shouldValidate: true,
+                                                  },
+                                                );
+                                                setValue(
+                                                  `items.${index}.cookieDifficultyBreakdown`,
+                                                  nextBreakdown,
+                                                  {
+                                                    shouldValidate: true,
+                                                  },
+                                                );
+                                              }}
+                                            >
+                                              <Trash2 size={13} />
+                                            </Button>
+                                          </div>
+                                        ),
                                       )}
+                                    </div>
+                                  </div>
+                                )}
+                                {cookieDifficultyBreakdown && (
+                                  <span className="min-h-4 text-[11px] font-medium leading-4 text-indigo-700">
+                                    Komposisi difficulty:{" "}
+                                    {cookieDifficultyBreakdown}
+                                  </span>
+                                )}
+                                {quantityError && (
+                                  <span className="min-h-4 text-[11px] font-normal leading-4 text-rose-600">
+                                    {quantityError}
+                                  </span>
+                                )}
+                              </label>
+
+                              {isCustomCookieSharingBox && (
+                                <label className="grid gap-1.5 text-sm font-medium text-gray-700">
+                                  Override Harga Sharing Box
+                                  <Input
+                                    type="number"
+                                    min={0}
+                                    step={1000}
+                                    placeholder={String(displayUnitPrice)}
+                                    {...register(
+                                      `items.${index}.sharingBoxPriceOverride`,
+                                      {
+                                        setValueAs: (value) =>
+                                          normalizeSharingBoxPriceOverrideValue(
+                                            value,
+                                          ),
+                                        onChange: () => {
+                                          clearParsedPricingOverride(index);
+                                        },
+                                      },
+                                    )}
+                                  />
+                                  <span className="min-h-4 text-[11px] font-normal leading-4 text-gray-500">
+                                    Kosongkan jika ingin pakai harga default
+                                    dari katalog.
+                                  </span>
+                                </label>
+                              )}
+
+                              {supportsDifficulty && !isCustomCookiesItem && (
+                                <label className="grid gap-1.5 text-sm font-medium text-gray-700">
+                                  Difficulty Token
+                                  <Select
+                                    {...register(
+                                      `items.${index}.tokenDifficulty`,
+                                    )}
+                                    defaultValue={
+                                      item?.tokenDifficulty || "SIMPLE"
+                                    }
+                                  >
+                                    {TOKEN_DIFFICULTY_OPTIONS.map((option) => (
+                                      <option
+                                        key={option.value}
+                                        value={option.value}
+                                      >
+                                        {option.label} ({option.token})
+                                      </option>
+                                    ))}
+                                  </Select>
+                                </label>
+                              )}
+
+                              {isBouquet && (
+                                <label className="grid gap-1.5 text-sm font-medium text-gray-700">
+                                  Override Harga Buket
+                                  <Input
+                                    type="number"
+                                    min={0}
+                                    step={1000}
+                                    placeholder={String(displayUnitPrice)}
+                                    {...register(
+                                      `items.${index}.bouquetPriceOverride`,
+                                      {
+                                        setValueAs: (value) =>
+                                          normalizeBouquetPriceOverrideValue(
+                                            value,
+                                          ),
+                                        onChange: () => {
+                                          clearParsedPricingOverride(index);
+                                        },
+                                      },
+                                    )}
+                                  />
+                                  <span className="min-h-4 text-[11px] font-normal leading-4 text-gray-500">
+                                    {bouquetPriceOverride !== undefined
+                                      ? `Override harga buket aktif: ${formatCurrency(bouquetPriceOverride)}.`
+                                      : "Kosongkan jika ingin pakai harga default start from katalog."}
+                                  </span>
+                                  <span className="min-h-4 text-[11px] font-normal leading-4 text-gray-500">
+                                    Token bouquet fixed: Hand = 20, Standing =
+                                    50 per bouquet.
+                                  </span>
+                                  {bouquetLineTotal !== null && (
+                                    <span className="text-[11px] font-normal leading-4 text-indigo-600">
+                                      Estimasi subtotal bouquet:{" "}
+                                      {formatCurrency(bouquetLineTotal)}
                                     </span>
-                                    <input
-                                      type="checkbox"
-                                      checked={checked}
-                                      onChange={() =>
-                                        toggleItemFlavor(
-                                          index,
-                                          normalizedSelection.category,
-                                          option.id,
-                                        )
-                                      }
-                                      className="h-4 w-4 accent-indigo-600"
+                                  )}
+                                </label>
+                              )}
+
+                              {isBouquet && (
+                                <label className="grid gap-1.5 text-sm font-medium text-gray-700 sm:col-span-2 lg:col-span-4">
+                                  Kartu Ucapan
+                                  <Textarea
+                                    className="min-h-20"
+                                    placeholder="Contoh: Happy Birthday Elliora!"
+                                    {...register(`items.${index}.greetingCard`)}
+                                  />
+                                </label>
+                              )}
+
+                              <label className="grid gap-1.5 text-sm font-medium text-gray-700 sm:col-span-2 lg:col-span-4">
+                                Customer Notes
+                                <Input
+                                  placeholder="Decoration instructions"
+                                  {...register(`items.${index}.notes`)}
+                                />
+                              </label>
+
+                              {isBouquet && (
+                                <div className="grid gap-2 sm:col-span-2 lg:col-span-4 sm:grid-cols-2">
+                                  <label className="grid gap-1.5 text-sm font-medium text-gray-700">
+                                    Warna kertas bouquet
+                                    <Input
+                                      placeholder="Contoh: No 13"
+                                      {...register(
+                                        `items.${index}.bouquetPaperColor`,
+                                      )}
                                     />
                                   </label>
-                                );
-                              })}
+                                  <label className="grid gap-1.5 text-sm font-medium text-gray-700">
+                                    Ribbon
+                                    <Input
+                                      placeholder="Contoh: Satin"
+                                      {...register(`items.${index}.ribbon`)}
+                                    />
+                                  </label>
+                                  <label className="grid gap-1.5 text-sm font-medium text-gray-700">
+                                    Jumlah Bunga
+                                    <Input
+                                      placeholder="Contoh: - / 3 bunga"
+                                      {...register(
+                                        `items.${index}.flowerCount`,
+                                      )}
+                                    />
+                                  </label>
+                                  <label className="grid gap-1.5 text-sm font-medium text-gray-700">
+                                    Warna Bunga
+                                    <Input
+                                      placeholder="Contoh: Putih"
+                                      {...register(
+                                        `items.${index}.flowerColor`,
+                                      )}
+                                    />
+                                  </label>
+                                  <label className="grid gap-1.5 text-sm font-medium text-gray-700 sm:col-span-2">
+                                    Warna Pita
+                                    <Input
+                                      placeholder="Contoh: Blue pastel"
+                                      {...register(
+                                        `items.${index}.ribbonColor`,
+                                      )}
+                                    />
+                                  </label>
+                                </div>
+                              )}
                             </div>
 
-                            {premiumFlavorOptions.length > 0 && (
-                              <>
-                                <span className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">
-                                  Premium Flavors (Surcharge)
+                            {hasParsedRecapPrice && (
+                              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700">
+                                Harga dari recap aktif
+                                {parsedUnitPrice
+                                  ? ` • Harga satuan ${formatCurrency(parsedUnitPrice)}`
+                                  : ""}
+                                {parsedSubtotal
+                                  ? ` • Subtotal ${formatCurrency(parsedSubtotal)}`
+                                  : ""}
+                                {customCookieAdditionalDesignCharge > 0
+                                  ? ` • Surcharge design +${formatCurrency(customCookieAdditionalDesignCharge)}`
+                                  : ""}
+                                {cookieDifficultyBreakdown
+                                  ? ` • Komposisi ${cookieDifficultyBreakdown}`
+                                  : ""}
+                                . Jika produk, size, atau qty diubah, override
+                                ini akan otomatis direset.
+                              </div>
+                            )}
+
+                            <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-medium text-indigo-700">
+                              Estimasi token item ini: {itemTokenPreview}
+                              {hasCustomTokenOverride
+                                ? " (custom token override)"
+                                : ""}
+                              {isTwoTierCake && !hasCustomTokenOverride
+                                ? " • Two-tier dihitung sebagai 2 cake (100 + 100 token) tapi tetap 1 item."
+                                : ""}
+                            </div>
+
+                            {flavorOptions.length > 0 && (
+                              <label className="grid gap-1.5 text-sm font-medium text-gray-700 sm:max-w-2xl">
+                                <span className="flex items-center justify-between">
+                                  <span>Choose Flavor</span>
+                                  <span className="text-[11px] font-normal text-gray-500">
+                                    1 flavor per item
+                                  </span>
                                 </span>
+
                                 <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
-                                  {premiumFlavorOptions.map((option) => {
+                                  {regularFlavorOptions.map((option) => {
                                     const checked =
                                       selectedFlavorId === option.id;
                                     const shortCode =
@@ -7604,24 +7699,15 @@ export default function BookingForm() {
                                         key={option.id}
                                         className={`flex items-center justify-between rounded-xl border px-3 py-1.5 text-sm transition ${
                                           checked
-                                            ? "border-amber-300 bg-amber-50 text-amber-900"
-                                            : "border-amber-200 bg-amber-50/60 text-gray-700"
+                                            ? "border-indigo-300 bg-indigo-50 text-indigo-800"
+                                            : "border-gray-200 bg-gray-50 text-gray-700"
                                         }`}
                                       >
                                         <span className="flex items-center gap-2">
                                           <span>{option.label}</span>
                                           {shortCode && (
-                                            <span className="rounded-md border border-amber-300 bg-white px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+                                            <span className="rounded-md border border-gray-300 bg-white px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-600">
                                               {shortCode}
-                                            </span>
-                                          )}
-                                          {option.price > 0 && (
-                                            <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
-                                              +
-                                              {formatCompactSurcharge(
-                                                option.price,
-                                              )}
-                                              /cake
                                             </span>
                                           )}
                                         </span>
@@ -7635,875 +7721,960 @@ export default function BookingForm() {
                                               option.id,
                                             )
                                           }
-                                          className="h-4 w-4 accent-amber-600"
+                                          className="h-4 w-4 accent-indigo-600"
                                         />
                                       </label>
                                     );
                                   })}
                                 </div>
-                              </>
+
+                                {premiumFlavorOptions.length > 0 && (
+                                  <>
+                                    <span className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">
+                                      Premium Flavors (Surcharge)
+                                    </span>
+                                    <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
+                                      {premiumFlavorOptions.map((option) => {
+                                        const checked =
+                                          selectedFlavorId === option.id;
+                                        const shortCode =
+                                          option.shortCodes?.[0] || "";
+
+                                        return (
+                                          <label
+                                            key={option.id}
+                                            className={`flex items-center justify-between rounded-xl border px-3 py-1.5 text-sm transition ${
+                                              checked
+                                                ? "border-amber-300 bg-amber-50 text-amber-900"
+                                                : "border-amber-200 bg-amber-50/60 text-gray-700"
+                                            }`}
+                                          >
+                                            <span className="flex items-center gap-2">
+                                              <span>{option.label}</span>
+                                              {shortCode && (
+                                                <span className="rounded-md border border-amber-300 bg-white px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+                                                  {shortCode}
+                                                </span>
+                                              )}
+                                              {option.price > 0 && (
+                                                <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+                                                  +
+                                                  {formatCompactSurcharge(
+                                                    option.price,
+                                                  )}
+                                                  /cake
+                                                </span>
+                                              )}
+                                            </span>
+                                            <input
+                                              type="checkbox"
+                                              checked={checked}
+                                              onChange={() =>
+                                                toggleItemFlavor(
+                                                  index,
+                                                  normalizedSelection.category,
+                                                  option.id,
+                                                )
+                                              }
+                                              className="h-4 w-4 accent-amber-600"
+                                            />
+                                          </label>
+                                        );
+                                      })}
+                                    </div>
+                                  </>
+                                )}
+
+                                <span className="min-h-4 text-[11px] font-normal leading-4 text-gray-500">
+                                  {flavorGuideText}
+                                </span>
+                              </label>
                             )}
 
-                            <span className="min-h-4 text-[11px] font-normal leading-4 text-gray-500">
-                              {flavorGuideText}
-                            </span>
-                          </label>
-                        )}
-
-                        <div className="space-y-1.5">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                              Add-ons
-                            </span>
-                            <span className="text-[11px] font-medium text-slate-500">
-                              {selectedNonFlavorAddOns.length +
-                                customAddOns.length}{" "}
-                              dipilih
-                              {selectedNonFlavorAddOns.length > 0 ||
-                              customAddOns.length > 0
-                                ? ` • ${formatCurrency(selectedNonFlavorAddOnTotal + customAddOnTotal)}`
-                                : ""}
-                            </span>
-                          </div>
-                          <div className="grid gap-1.5 sm:grid-cols-3">
-                            {nonFlavorAddOns.map((addon) => {
-                              const checked =
-                                item?.addOns?.includes(addon.id) ?? false;
-                              const overriddenPrice =
-                                normalizedAddOnPriceOverrides[addon.id];
-                              const baseUnitPrice =
-                                overriddenPrice !== undefined
-                                  ? overriddenPrice
-                                  : addon.price;
-                              const dynamicBubblewrapUnitPrice =
-                                resolveBubblewrapUnitPrice({
-                                  category: normalizedSelection.category,
-                                  addonId: addon.id,
-                                  defaultPrice: baseUnitPrice,
-                                  itemSelection: {
-                                    category: normalizedSelection.category,
-                                    subcategory:
-                                      normalizedSelection.subcategory,
-                                    productName:
-                                      normalizedSelection.productName,
-                                    size: normalizedSelection.size,
-                                  },
-                                });
-                              const supportsQuantity = supportsAddOnQuantity(
-                                normalizedSelection.category,
-                                addon.id,
-                              );
-                              const perCakeUnits = getAddOnUnitMultiplier({
-                                category: normalizedSelection.category,
-                                addonId: addon.id,
-                                addOnQuantities: normalizedAddOnQuantities,
-                              });
-                              const effectiveUnitPrice =
-                                (normalizedSelection.category === "Buket"
-                                  ? (getBouquetFlowerAddOnUnitPrice({
+                            <div className="space-y-1.5">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                  Add-ons
+                                </span>
+                                <span className="text-[11px] font-medium text-slate-500">
+                                  {selectedNonFlavorAddOns.length +
+                                    customAddOns.length}{" "}
+                                  dipilih
+                                  {selectedNonFlavorAddOns.length > 0 ||
+                                  customAddOns.length > 0
+                                    ? ` • ${formatCurrency(selectedNonFlavorAddOnTotal + customAddOnTotal)}`
+                                    : ""}
+                                </span>
+                              </div>
+                              <div className="grid gap-1.5 sm:grid-cols-3">
+                                {nonFlavorAddOns.map((addon) => {
+                                  const checked =
+                                    item?.addOns?.includes(addon.id) ?? false;
+                                  const overriddenPrice =
+                                    normalizedAddOnPriceOverrides[addon.id];
+                                  const baseUnitPrice =
+                                    overriddenPrice !== undefined
+                                      ? overriddenPrice
+                                      : addon.price;
+                                  const dynamicBubblewrapUnitPrice =
+                                    resolveBubblewrapUnitPrice({
+                                      category: normalizedSelection.category,
                                       addonId: addon.id,
-                                      bouquetType,
-                                    }) ?? dynamicBubblewrapUnitPrice)
-                                  : dynamicBubblewrapUnitPrice) * perCakeUnits;
+                                      defaultPrice: baseUnitPrice,
+                                      itemSelection: {
+                                        category: normalizedSelection.category,
+                                        subcategory:
+                                          normalizedSelection.subcategory,
+                                        productName:
+                                          normalizedSelection.productName,
+                                        size: normalizedSelection.size,
+                                      },
+                                    });
+                                  const supportsQuantity =
+                                    supportsAddOnQuantity(
+                                      normalizedSelection.category,
+                                      addon.id,
+                                    );
+                                  const perCakeUnits = getAddOnUnitMultiplier({
+                                    category: normalizedSelection.category,
+                                    addonId: addon.id,
+                                    addOnQuantities: normalizedAddOnQuantities,
+                                  });
+                                  const effectiveUnitPrice =
+                                    (normalizedSelection.category === "Buket"
+                                      ? (getBouquetFlowerAddOnUnitPrice({
+                                          addonId: addon.id,
+                                          bouquetType,
+                                        }) ?? dynamicBubblewrapUnitPrice)
+                                      : dynamicBubblewrapUnitPrice) *
+                                    perCakeUnits;
 
-                              return (
-                                <div
-                                  key={addon.id}
-                                  className="flex items-center justify-between gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm text-gray-700"
-                                >
-                                  <span className="min-w-0">
-                                    {addon.label}{" "}
-                                    <span className="text-xs text-gray-400">
-                                      {formatCurrency(effectiveUnitPrice)}
-                                      {supportsQuantity
-                                        ? ` / item (${perCakeUnits}x)`
-                                        : ""}
-                                      {overriddenPrice !== undefined
-                                        ? " (adjusted)"
-                                        : ""}
-                                      {!isBouquetFlowerAddOnId(addon.id) &&
-                                      quantityValue > 0
-                                        ? ` (x${quantityValue} = ${formatCurrency(effectiveUnitPrice * quantityValue)})`
-                                        : ""}
+                                  return (
+                                    <div
+                                      key={addon.id}
+                                      className="flex items-center justify-between gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm text-gray-700"
+                                    >
+                                      <span className="min-w-0">
+                                        {addon.label}{" "}
+                                        <span className="text-xs text-gray-400">
+                                          {formatCurrency(effectiveUnitPrice)}
+                                          {supportsQuantity
+                                            ? ` / item (${perCakeUnits}x)`
+                                            : ""}
+                                          {overriddenPrice !== undefined
+                                            ? " (adjusted)"
+                                            : ""}
+                                          {!isBouquetFlowerAddOnId(addon.id) &&
+                                          quantityValue > 0
+                                            ? ` (x${quantityValue} = ${formatCurrency(effectiveUnitPrice * quantityValue)})`
+                                            : ""}
+                                        </span>
+                                      </span>
+                                      <span className="flex items-center gap-2">
+                                        {supportsQuantity && checked && (
+                                          <Input
+                                            type="number"
+                                            min={1}
+                                            step={1}
+                                            value={perCakeUnits}
+                                            onChange={(event) =>
+                                              setItemAddOnQuantity(
+                                                index,
+                                                addon.id,
+                                                Number(event.target.value),
+                                              )
+                                            }
+                                            className="h-8 w-16"
+                                          />
+                                        )}
+                                        {checked &&
+                                          addon.id !==
+                                            DARK_COLOR_BUTTERCREAM_ADDON_ID &&
+                                          !isBouquetFlowerAddOnId(addon.id) &&
+                                          !isCupcakeCookieAddOnId(addon.id) && (
+                                            <Input
+                                              type="number"
+                                              min={0}
+                                              step={1000}
+                                              value={
+                                                overriddenPrice !== undefined
+                                                  ? overriddenPrice
+                                                  : ""
+                                              }
+                                              placeholder={String(addon.price)}
+                                              onChange={(event) =>
+                                                setItemAddOnPriceOverride(
+                                                  index,
+                                                  addon.id,
+                                                  event.target.value,
+                                                )
+                                              }
+                                              className="h-8 w-24"
+                                            />
+                                          )}
+                                        <input
+                                          type="checkbox"
+                                          checked={checked}
+                                          onChange={() =>
+                                            toggleItemAddOn(index, addon.id)
+                                          }
+                                          className="h-4 w-4 accent-indigo-600"
+                                        />
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                                <div className="mb-2 flex items-center justify-between gap-2">
+                                  <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                                    Add-on Custom
+                                  </span>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="h-7 border-indigo-200 px-2 text-[11px] font-medium text-indigo-700"
+                                    onClick={() => addCustomAddOn(index)}
+                                  >
+                                    + Tambah
+                                  </Button>
+                                </div>
+                                {customAddOns.length === 0 ? (
+                                  <p className="text-[11px] text-slate-500">
+                                    Gunakan jika kebutuhan add-on tidak ada di
+                                    list.
+                                  </p>
+                                ) : (
+                                  <div className="space-y-1.5">
+                                    {customAddOns.map(
+                                      (customAddOn, customIndex) => (
+                                        <div
+                                          key={`${customAddOn.label}-${customIndex}`}
+                                          className="grid gap-1.5 sm:grid-cols-[minmax(0,1fr)_130px_auto]"
+                                        >
+                                          <Input
+                                            value={customAddOn.label}
+                                            placeholder="Nama add-on custom"
+                                            onChange={(event) =>
+                                              setCustomAddOnLabel(
+                                                index,
+                                                customIndex,
+                                                event.target.value,
+                                              )
+                                            }
+                                          />
+                                          <Input
+                                            type="number"
+                                            min={0}
+                                            step={1}
+                                            value={customAddOn.price}
+                                            placeholder="Harga"
+                                            onChange={(event) =>
+                                              setCustomAddOnPrice(
+                                                index,
+                                                customIndex,
+                                                Number(event.target.value),
+                                              )
+                                            }
+                                          />
+                                          <Button
+                                            type="button"
+                                            variant="outline"
+                                            className="h-9 border-rose-200 px-2 text-xs text-rose-600"
+                                            onClick={() =>
+                                              removeCustomAddOn(
+                                                index,
+                                                customIndex,
+                                              )
+                                            }
+                                          >
+                                            Hapus
+                                          </Button>
+                                        </div>
+                                      ),
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="sticky bottom-2 z-10 rounded-xl border border-emerald-200 bg-linear-to-r from-emerald-50 via-white to-emerald-50 px-3 py-2.5 shadow-sm backdrop-blur-sm">
+                                <div className="flex flex-wrap items-center justify-between gap-1.5">
+                                  <span className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
+                                    Total Biaya Item
+                                  </span>
+                                  <span className="text-sm font-bold text-emerald-800 sm:text-base">
+                                    {formatCurrency(itemTotalCostDisplay)}
+                                    <span>
+                                      Add-on custom:{" "}
+                                      {formatCurrency(customAddOnTotal)}
                                     </span>
                                   </span>
-                                  <span className="flex items-center gap-2">
-                                    {supportsQuantity && checked && (
-                                      <Input
-                                        type="number"
-                                        min={1}
-                                        step={1}
-                                        value={perCakeUnits}
-                                        onChange={(event) =>
-                                          setItemAddOnQuantity(
-                                            index,
-                                            addon.id,
-                                            Number(event.target.value),
-                                          )
-                                        }
-                                        className="h-8 w-16"
-                                      />
+                                </div>
+                                <div className="mt-1 grid gap-1 text-[11px] text-slate-600 sm:grid-cols-3">
+                                  <span>
+                                    Subtotal produk:{" "}
+                                    {formatCurrency(displayLinePrice)}
+                                  </span>
+                                  <span>
+                                    Total add-ons + surcharge:{" "}
+                                    {formatCurrency(
+                                      totalAddOnAndSurchargeDisplay,
                                     )}
-                                    {checked &&
-                                      addon.id !==
-                                        DARK_COLOR_BUTTERCREAM_ADDON_ID &&
-                                      !isBouquetFlowerAddOnId(addon.id) &&
-                                      !isCupcakeCookieAddOnId(addon.id) && (
-                                        <Input
-                                          type="number"
-                                          min={0}
-                                          step={1000}
-                                          value={
-                                            overriddenPrice !== undefined
-                                              ? overriddenPrice
-                                              : ""
-                                          }
-                                          placeholder={String(addon.price)}
-                                          onChange={(event) =>
-                                            setItemAddOnPriceOverride(
-                                              index,
-                                              addon.id,
-                                              event.target.value,
-                                            )
-                                          }
-                                          className="h-8 w-24"
-                                        />
-                                      )}
-                                    <input
-                                      type="checkbox"
-                                      checked={checked}
-                                      onChange={() =>
-                                        toggleItemAddOn(index, addon.id)
-                                      }
-                                      className="h-4 w-4 accent-indigo-600"
-                                    />
                                   </span>
                                 </div>
-                              );
-                            })}
-                          </div>
-                          <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
-                            <div className="mb-2 flex items-center justify-between gap-2">
-                              <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-                                Add-on Custom
-                              </span>
+                                <p className="mt-1 text-[11px] font-medium text-slate-500">
+                                  {hasParsedRecapPrice && parsedSubtotal
+                                    ? customCookieAdditionalDesignCharge > 0
+                                      ? "Sumber angka: recap parser + surcharge design tambahan."
+                                      : "Sumber angka: recap parser (override aktif)."
+                                    : customCookieAdditionalDesignCharge > 0
+                                      ? "Sumber angka: subtotal produk + add-ons + surcharge design dinamis."
+                                      : "Sumber angka: subtotal produk + semua add-ons terpilih."}
+                                </p>
+                              </div>
+                            </div>
+
+                            {(selectedNonFlavorAddOns.length > 0 ||
+                              customAddOns.length > 0) && (
+                              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                                {[
+                                  ...selectedFlowerAddOns.map(
+                                    (addon) => addon.label,
+                                  ),
+                                  ...selectedOtherAddOns.map((addon) => {
+                                    const units = getAddOnUnitMultiplier({
+                                      category: normalizedSelection.category,
+                                      addonId: addon.id,
+                                      addOnQuantities:
+                                        normalizedAddOnQuantities,
+                                    });
+                                    return units > 1
+                                      ? `${addon.label} x${units}`
+                                      : addon.label;
+                                  }),
+                                  ...customAddOns.map(
+                                    (entry) =>
+                                      `${entry.label} (${formatCurrency(entry.price)} / item)`,
+                                  ),
+                                ].join(", ")}
+                              </div>
+                            )}
+
+                            {hasDarkColorButtercream && (
+                              <label className="grid gap-1.5 text-sm font-medium text-gray-700 sm:max-w-sm">
+                                Pilih Warna Dark Color (maks. 3)
+                                <div className="grid gap-1.5 sm:grid-cols-2">
+                                  {DARK_BUTTERCREAM_COLOR_OPTIONS.map(
+                                    (color) => {
+                                      const checked =
+                                        selectedDarkButtercreamColors.includes(
+                                          color,
+                                        );
+                                      const disableNewSelection =
+                                        !checked &&
+                                        selectedDarkButtercreamColors.length >=
+                                          MAX_DARK_BUTTERCREAM_COLORS;
+
+                                      return (
+                                        <label
+                                          key={color}
+                                          className="flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm text-gray-700"
+                                        >
+                                          <span>{color}</span>
+                                          <input
+                                            type="checkbox"
+                                            checked={checked}
+                                            disabled={disableNewSelection}
+                                            onChange={() =>
+                                              toggleDarkButtercreamColor(
+                                                index,
+                                                color,
+                                              )
+                                            }
+                                            className="h-4 w-4 accent-indigo-600"
+                                          />
+                                        </label>
+                                      );
+                                    },
+                                  )}
+                                </div>
+                                <span className="min-h-4 text-[11px] font-normal leading-4 text-gray-500">
+                                  Dipilih:{" "}
+                                  {selectedDarkButtercreamColors.join(", ") ||
+                                    "belum ada"}
+                                  . Dark color additional charge 50k / item.
+                                </span>
+                              </label>
+                            )}
+
+                            {itemFields.length > 1 && (
                               <Button
                                 type="button"
                                 variant="outline"
-                                className="h-7 border-indigo-200 px-2 text-[11px] font-medium text-indigo-700"
-                                onClick={() => addCustomAddOn(index)}
+                                className="h-8 gap-1 border-rose-200 text-rose-600 hover:bg-rose-50"
+                                onClick={() => removeItem(index)}
                               >
-                                + Tambah
+                                <Trash2 size={14} />
+                                Remove Item
                               </Button>
-                            </div>
-                            {customAddOns.length === 0 ? (
-                              <p className="text-[11px] text-slate-500">
-                                Gunakan jika kebutuhan add-on tidak ada di list.
-                              </p>
-                            ) : (
-                              <div className="space-y-1.5">
-                                {customAddOns.map(
-                                  (customAddOn, customIndex) => (
-                                    <div
-                                      key={`${customAddOn.label}-${customIndex}`}
-                                      className="grid gap-1.5 sm:grid-cols-[minmax(0,1fr)_130px_auto]"
-                                    >
-                                      <Input
-                                        value={customAddOn.label}
-                                        placeholder="Nama add-on custom"
-                                        onChange={(event) =>
-                                          setCustomAddOnLabel(
-                                            index,
-                                            customIndex,
-                                            event.target.value,
-                                          )
-                                        }
-                                      />
-                                      <Input
-                                        type="number"
-                                        min={0}
-                                        step={1}
-                                        value={customAddOn.price}
-                                        placeholder="Harga"
-                                        onChange={(event) =>
-                                          setCustomAddOnPrice(
-                                            index,
-                                            customIndex,
-                                            Number(event.target.value),
-                                          )
-                                        }
-                                      />
-                                      <Button
-                                        type="button"
-                                        variant="outline"
-                                        className="h-9 border-rose-200 px-2 text-xs text-rose-600"
-                                        onClick={() =>
-                                          removeCustomAddOn(index, customIndex)
-                                        }
-                                      >
-                                        Hapus
-                                      </Button>
-                                    </div>
-                                  ),
-                                )}
-                              </div>
                             )}
                           </div>
-                          <div className="sticky bottom-2 z-10 rounded-xl border border-emerald-200 bg-linear-to-r from-emerald-50 via-white to-emerald-50 px-3 py-2.5 shadow-sm backdrop-blur-sm">
-                            <div className="flex flex-wrap items-center justify-between gap-1.5">
-                              <span className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
-                                Total Biaya Item
-                              </span>
-                              <span className="text-sm font-bold text-emerald-800 sm:text-base">
-                                {formatCurrency(itemTotalCostDisplay)}
-                                <span>
-                                  Add-on custom:{" "}
-                                  {formatCurrency(customAddOnTotal)}
-                                </span>
-                              </span>
-                            </div>
-                            <div className="mt-1 grid gap-1 text-[11px] text-slate-600 sm:grid-cols-3">
-                              <span>
-                                Subtotal produk:{" "}
-                                {formatCurrency(displayLinePrice)}
-                              </span>
-                              <span>
-                                Total add-ons + surcharge:{" "}
-                                {formatCurrency(totalAddOnAndSurchargeDisplay)}
-                              </span>
-                            </div>
-                            <p className="mt-1 text-[11px] font-medium text-slate-500">
-                              {hasParsedRecapPrice && parsedSubtotal
-                                ? customCookieAdditionalDesignCharge > 0
-                                  ? "Sumber angka: recap parser + surcharge design tambahan."
-                                  : "Sumber angka: recap parser (override aktif)."
-                                : customCookieAdditionalDesignCharge > 0
-                                  ? "Sumber angka: subtotal produk + add-ons + surcharge design dinamis."
-                                  : "Sumber angka: subtotal produk + semua add-ons terpilih."}
-                            </p>
-                          </div>
-                        </div>
+                        );
+                      })}
+                    </div>
+                  </div>
 
-                        {(selectedNonFlavorAddOns.length > 0 ||
-                          customAddOns.length > 0) && (
-                          <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
-                            {[
-                              ...selectedFlowerAddOns.map(
-                                (addon) => addon.label,
-                              ),
-                              ...selectedOtherAddOns.map((addon) => {
-                                const units = getAddOnUnitMultiplier({
-                                  category: normalizedSelection.category,
-                                  addonId: addon.id,
-                                  addOnQuantities: normalizedAddOnQuantities,
-                                });
-                                return units > 1
-                                  ? `${addon.label} x${units}`
-                                  : addon.label;
-                              }),
-                              ...customAddOns.map(
-                                (entry) =>
-                                  `${entry.label} (${formatCurrency(entry.price)} / item)`,
-                              ),
-                            ].join(", ")}
-                          </div>
-                        )}
-
-                        {hasDarkColorButtercream && (
-                          <label className="grid gap-1.5 text-sm font-medium text-gray-700 sm:max-w-sm">
-                            Pilih Warna Dark Color (maks. 3)
-                            <div className="grid gap-1.5 sm:grid-cols-2">
-                              {DARK_BUTTERCREAM_COLOR_OPTIONS.map((color) => {
-                                const checked =
-                                  selectedDarkButtercreamColors.includes(color);
-                                const disableNewSelection =
-                                  !checked &&
-                                  selectedDarkButtercreamColors.length >=
-                                    MAX_DARK_BUTTERCREAM_COLORS;
-
-                                return (
-                                  <label
-                                    key={color}
-                                    className="flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm text-gray-700"
-                                  >
-                                    <span>{color}</span>
-                                    <input
-                                      type="checkbox"
-                                      checked={checked}
-                                      disabled={disableNewSelection}
-                                      onChange={() =>
-                                        toggleDarkButtercreamColor(index, color)
-                                      }
-                                      className="h-4 w-4 accent-indigo-600"
-                                    />
-                                  </label>
-                                );
-                              })}
-                            </div>
-                            <span className="min-h-4 text-[11px] font-normal leading-4 text-gray-500">
-                              Dipilih:{" "}
-                              {selectedDarkButtercreamColors.join(", ") ||
-                                "belum ada"}
-                              . Dark color additional charge 50k / item.
-                            </span>
-                          </label>
-                        )}
-
-                        {itemFields.length > 1 && (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            className="h-8 gap-1 border-rose-200 text-rose-600 hover:bg-rose-50"
-                            onClick={() => removeItem(index)}
-                          >
-                            <Trash2 size={14} />
-                            Remove Item
-                          </Button>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    Delivery Addresses
-                  </p>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-8 gap-1 border-indigo-200 text-indigo-700"
-                    onClick={() =>
-                      appendAddress({
-                        label: "Extra",
-                        area: "",
-                        postalCode: "",
-                        addressLine: "",
-                      })
-                    }
-                  >
-                    <Plus size={14} />
-                    Add Address
-                  </Button>
-                </div>
-
-                <div className="space-y-3">
-                  {addressFields.map((field, index) => {
-                    const addressError = errors.deliveryAddresses?.[index];
-                    const isPrimaryShippingAddress =
-                      shouldUseShippingEngine && index === 0;
-
-                    return (
-                      <div
-                        key={field.id}
-                        className="grid gap-3 rounded-xl border border-gray-200 p-4 sm:grid-cols-2"
-                      >
-                        <label className="grid gap-2 text-sm font-medium text-gray-700">
-                          Label
-                          <Input
-                            placeholder="Primary / Gift address"
-                            {...register(`deliveryAddresses.${index}.label`)}
-                          />
-                          {addressError?.label?.message && (
-                            <span className="text-[11px] font-normal text-rose-600">
-                              {String(addressError.label.message)}
-                            </span>
-                          )}
-                        </label>
-                        <label className="grid gap-2 text-sm font-medium text-gray-700">
-                          Area{" "}
-                          {isPrimaryShippingAddress
-                            ? "(Wajib untuk Shipping)"
-                            : "(Opsional)"}
-                          <Input
-                            placeholder="Kecamatan / Kota"
-                            {...register(`deliveryAddresses.${index}.area`)}
-                          />
-                          {isPrimaryShippingAddress &&
-                            !addressError?.area?.message && (
-                              <span className="text-[11px] font-normal leading-4 text-gray-500">
-                                Isi minimal kecamatan dan kota, mis. `Cipondoh /
-                                Tangerang`.
-                              </span>
-                            )}
-                          {addressError?.area?.message && (
-                            <span className="text-[11px] font-normal text-rose-600">
-                              {String(addressError.area.message)}
-                            </span>
-                          )}
-                        </label>
-                        <label className="grid gap-2 text-sm font-medium text-gray-700">
-                          Kode Pos{" "}
-                          {isPrimaryShippingAddress
-                            ? "(Wajib / dari alamat)"
-                            : "(Opsional)"}
-                          <Input
-                            inputMode="numeric"
-                            placeholder="Contoh: 11470"
-                            {...register(
-                              `deliveryAddresses.${index}.postalCode`,
-                              {
-                                setValueAs: (value) =>
-                                  typeof value === "string"
-                                    ? sanitizePostalCodeInput(value)
-                                    : "",
-                              },
-                            )}
-                          />
-                          {isPrimaryShippingAddress &&
-                            !addressError?.postalCode?.message && (
-                              <span className="text-[11px] font-normal leading-4 text-gray-500">
-                                Isi 5 digit. Kalau ada di alamat, sistem akan
-                                coba ambil otomatis.
-                              </span>
-                            )}
-                          {addressError?.postalCode?.message && (
-                            <span className="text-[11px] font-normal text-rose-600">
-                              {String(addressError.postalCode.message)}
-                            </span>
-                          )}
-                        </label>
-                        <label className="grid gap-2 text-sm font-medium text-gray-700 sm:col-span-2">
-                          Full Address {isPickupMethod ? "(Opsional untuk Pickup)" : ""}
-                          <Textarea
-                            className="min-h-20"
-                            placeholder="Jalan, nomor, blok, RT/RW, kelurahan, kecamatan, kota"
-                            {...register(
-                              `deliveryAddresses.${index}.addressLine`,
-                              {
-                                onBlur: (event) => {
-                                  autofillPostalCodeFromAddress(
-                                    index,
-                                    event.target.value,
-                                  );
-                                },
-                              },
-                            )}
-                          />
-                          {!addressError?.addressLine?.message && (
-                            <span className="text-[11px] font-normal leading-4 text-gray-500">
-                              {isPickupMethod
-                                ? "Untuk pickup, alamat boleh dikosongkan. Isi hanya jika memang perlu dicatat."
-                                : "Jangan campur nama penerima atau no. telepon di field ini. Fokus ke satu alamat final."}
-                            </span>
-                          )}
-                          {addressError?.addressLine?.message && (
-                            <span className="text-[11px] font-normal text-rose-600">
-                              {String(addressError.addressLine.message)}
-                            </span>
-                          )}
-                        </label>
-                        {addressFields.length > 1 && (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            className="h-8 w-fit gap-1 border-rose-200 text-rose-600 hover:bg-rose-50"
-                            onClick={() => removeAddress(index)}
-                          >
-                            <Trash2 size={14} />
-                            Remove Address
-                          </Button>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="space-y-3 rounded-xl border border-gray-200 bg-gray-50/60 p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    Shipping & Delivery Method
-                  </p>
-                  {isCheckingShipping && (
-                    <span className="text-xs text-indigo-600">
-                      Menghitung ongkir otomatis...
-                    </span>
-                  )}
-                </div>
-
-                <label className="grid gap-2 text-sm font-medium text-gray-700">
-                  Sales Channel
-                  <Select {...register("sales_channel")}>
-                    <option value="">Pilih sales channel</option>
-                    <option value="direct">direct</option>
-                    <option value="tokopedia">tokopedia</option>
-                    <option value="shopee">shopee</option>
-                  </Select>
-                  {errors.sales_channel?.message && (
-                    <span className="text-[11px] font-normal text-rose-600">
-                      {String(errors.sales_channel.message)}
-                    </span>
-                  )}
-                </label>
-
-                <label className="grid gap-2 text-sm font-medium text-gray-700">
-                  Metode Pengiriman
-                  <Select
-                    name={deliveryMethodField.name}
-                    ref={deliveryMethodField.ref}
-                    onBlur={deliveryMethodField.onBlur}
-                    value={effectiveDeliveryMethod}
-                    onChange={handleDeliveryMethodChange}
-                  >
-                    {selectableDeliveryMethodOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </Select>
-                </label>
-
-                <p className="text-xs text-gray-500">
-                  {
-                    DELIVERY_METHOD_OPTIONS.find(
-                      (option) => option.value === effectiveDeliveryMethod,
-                    )?.description
-                  }
-                </p>
-
-                <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600">
-                  {isCarRideHailingMethod ? (
-                    <p>
-                      GoCar / GrabCar dipakai berdasarkan jarak, jadi berat
-                      tidak ditampilkan di sini.
-                    </p>
-                  ) : (
-                    <>
-                      <p>
-                        Total berat kirim: {shippingWeightSummary.totalGram}{" "}
-                        gram ({shippingWeightSummary.totalKg} kg)
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        Delivery Addresses
                       </p>
-                      {shippingWeightSummary.rows.length > 0 && (
-                        <details className="mt-1">
-                          <summary className="cursor-pointer text-gray-700">
-                            Lihat rincian berat per item
-                          </summary>
-                          <div className="mt-2 space-y-1">
-                            {shippingWeightSummary.rows.map((row) => (
-                              <p key={row.name}>
-                                {row.name}: {row.qty} pcs x {row.perPcsGram}{" "}
-                                gram = {row.totalGram} gram
-                              </p>
-                            ))}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-8 gap-1 border-indigo-200 text-indigo-700"
+                        onClick={() =>
+                          appendAddress({
+                            label: "Extra",
+                            area: "",
+                            postalCode: "",
+                            addressLine: "",
+                          })
+                        }
+                      >
+                        <Plus size={14} />
+                        Add Address
+                      </Button>
+                    </div>
+
+                    <div className="space-y-3">
+                      {addressFields.map((field, index) => {
+                        const addressError = errors.deliveryAddresses?.[index];
+                        const isPrimaryShippingAddress =
+                          shouldUseShippingEngine && index === 0;
+
+                        return (
+                          <div
+                            key={field.id}
+                            className="grid gap-3 rounded-xl border border-gray-200 p-4 sm:grid-cols-2"
+                          >
+                            <label className="grid gap-2 text-sm font-medium text-gray-700">
+                              Label
+                              <Input
+                                placeholder="Primary / Gift address"
+                                {...register(
+                                  `deliveryAddresses.${index}.label`,
+                                )}
+                              />
+                              {addressError?.label?.message && (
+                                <span className="text-[11px] font-normal text-rose-600">
+                                  {String(addressError.label.message)}
+                                </span>
+                              )}
+                            </label>
+                            <label className="grid gap-2 text-sm font-medium text-gray-700">
+                              Area{" "}
+                              {isPrimaryShippingAddress
+                                ? "(Wajib untuk Shipping)"
+                                : "(Opsional)"}
+                              <Input
+                                placeholder="Kecamatan / Kota"
+                                {...register(`deliveryAddresses.${index}.area`)}
+                              />
+                              {isPrimaryShippingAddress &&
+                                !addressError?.area?.message && (
+                                  <span className="text-[11px] font-normal leading-4 text-gray-500">
+                                    Isi minimal kecamatan dan kota, mis.
+                                    `Cipondoh / Tangerang`.
+                                  </span>
+                                )}
+                              {addressError?.area?.message && (
+                                <span className="text-[11px] font-normal text-rose-600">
+                                  {String(addressError.area.message)}
+                                </span>
+                              )}
+                            </label>
+                            <label className="grid gap-2 text-sm font-medium text-gray-700">
+                              Kode Pos{" "}
+                              {isPrimaryShippingAddress
+                                ? "(Wajib / dari alamat)"
+                                : "(Opsional)"}
+                              <Input
+                                inputMode="numeric"
+                                placeholder="Contoh: 11470"
+                                {...register(
+                                  `deliveryAddresses.${index}.postalCode`,
+                                  {
+                                    setValueAs: (value) =>
+                                      typeof value === "string"
+                                        ? sanitizePostalCodeInput(value)
+                                        : "",
+                                  },
+                                )}
+                              />
+                              {isPrimaryShippingAddress &&
+                                !addressError?.postalCode?.message && (
+                                  <span className="text-[11px] font-normal leading-4 text-gray-500">
+                                    Isi 5 digit. Kalau ada di alamat, sistem
+                                    akan coba ambil otomatis.
+                                  </span>
+                                )}
+                              {addressError?.postalCode?.message && (
+                                <span className="text-[11px] font-normal text-rose-600">
+                                  {String(addressError.postalCode.message)}
+                                </span>
+                              )}
+                            </label>
+                            <label className="grid gap-2 text-sm font-medium text-gray-700 sm:col-span-2">
+                              Full Address{" "}
+                              {isPickupMethod ? "(Opsional untuk Pickup)" : ""}
+                              <Textarea
+                                className="min-h-20"
+                                placeholder="Jalan, nomor, blok, RT/RW, kelurahan, kecamatan, kota"
+                                {...register(
+                                  `deliveryAddresses.${index}.addressLine`,
+                                  {
+                                    onBlur: (event) => {
+                                      autofillPostalCodeFromAddress(
+                                        index,
+                                        event.target.value,
+                                      );
+                                    },
+                                  },
+                                )}
+                              />
+                              {!addressError?.addressLine?.message && (
+                                <span className="text-[11px] font-normal leading-4 text-gray-500">
+                                  {isPickupMethod
+                                    ? "Untuk pickup, alamat boleh dikosongkan. Isi hanya jika memang perlu dicatat."
+                                    : "Jangan campur nama penerima atau no. telepon di field ini. Fokus ke satu alamat final."}
+                                </span>
+                              )}
+                              {addressError?.addressLine?.message && (
+                                <span className="text-[11px] font-normal text-rose-600">
+                                  {String(addressError.addressLine.message)}
+                                </span>
+                              )}
+                            </label>
+                            {addressFields.length > 1 && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="h-8 w-fit gap-1 border-rose-200 text-rose-600 hover:bg-rose-50"
+                                onClick={() => removeAddress(index)}
+                              >
+                                <Trash2 size={14} />
+                                Remove Address
+                              </Button>
+                            )}
                           </div>
-                        </details>
-                      )}
-                    </>
-                  )}
-                </div>
+                        );
+                      })}
+                    </div>
+                  </div>
 
-                {isFragileOrder && (
-                  <p
-                    className={`rounded-lg px-3 py-2 text-xs ${
-                      isAllowedFragileOrderMethod
-                        ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
-                        : "border border-amber-200 bg-amber-50 text-amber-700"
-                    }`}
-                  >
-                    {isAllowedFragileOrderMethod
-                      ? `Produk ${fragileOrderReasons.join(", ")} sudah memakai metode yang diizinkan (${FRAGILE_ORDER_ALLOWED_METHODS_TEXT}).`
-                      : `Produk ${fragileOrderReasons.join(", ")} hanya bisa ${FRAGILE_ORDER_ALLOWED_METHODS_TEXT}`}
-                  </p>
-                )}
-
-                {!shouldUseShippingEngine && (
-                  <p className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
-                    Metode ini tidak memakai kalkulasi ongkir live.
-                  </p>
-                )}
-
-                {displayedShippingDistanceKm !== null && (
-                  <p className="text-xs text-gray-600">
-                    Estimasi jarak gudang ke alamat:{" "}
-                    <span className="font-semibold">
-                      {displayedShippingDistanceKm} km
-                      {shippingDistanceSource === "ai_fallback" && (
-                        <span className="ml-1 text-[10px] font-medium uppercase tracking-wide text-amber-600">
-                          (AI fallback)
+                  <div className="space-y-3 rounded-xl border border-gray-200 bg-gray-50/60 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        Shipping & Delivery Method
+                      </p>
+                      {isCheckingShipping && (
+                        <span className="text-xs text-indigo-600">
+                          Menghitung ongkir otomatis...
                         </span>
                       )}
-                    </span>
-                  </p>
-                )}
+                    </div>
 
-                {shippingWarning && (
-                  <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                    {shippingWarning}
-                  </p>
-                )}
+                    <label className="grid gap-2 text-sm font-medium text-gray-700">
+                      Sales Channel
+                      <Select {...register("sales_channel")}>
+                        <option value="">Pilih sales channel</option>
+                        <option value="direct">direct</option>
+                        <option value="tokopedia">tokopedia</option>
+                        <option value="shopee">shopee</option>
+                      </Select>
+                      {errors.sales_channel?.message && (
+                        <span className="text-[11px] font-normal text-rose-600">
+                          {String(errors.sales_channel.message)}
+                        </span>
+                      )}
+                    </label>
 
-                {shippingFallbackMessage && (
-                  <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                    {shippingFallbackMessage}
-                  </p>
-                )}
+                    <label className="grid gap-2 text-sm font-medium text-gray-700">
+                      Metode Pengiriman
+                      <Select
+                        name={deliveryMethodField.name}
+                        ref={deliveryMethodField.ref}
+                        onBlur={deliveryMethodField.onBlur}
+                        value={effectiveDeliveryMethod}
+                        onChange={handleDeliveryMethodChange}
+                      >
+                        {selectableDeliveryMethodOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </Select>
+                    </label>
 
-                {filteredShippingQuotes.length > 0 && (
-                  <div className="space-y-2">
-                    <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
-                      <p>
-                        Rekomendasi termurah: {cheapestShippingQuote?.provider}{" "}
-                        - {cheapestShippingQuote?.courierServiceName} ({" "}
-                        {cheapestShippingQuote
-                          ? formatCurrency(cheapestShippingQuote.price)
-                          : "-"}
-                        )
-                      </p>
-                      {fastestShippingQuote &&
-                        fastestShippingQuote.id !==
-                          cheapestShippingQuote?.id && (
-                          <p>
-                            Rekomendasi tercepat:{" "}
-                            {fastestShippingQuote.provider} -{" "}
-                            {fastestShippingQuote.courierServiceName} (ETA{" "}
-                            {fastestShippingQuote.eta})
-                          </p>
-                        )}
-                      {filteredShippingQuotes.length > 3 && (
-                        <p className="mt-1 text-[11px] text-slate-600">
-                          Menampilkan {displayedShippingQuotes.length} dari{" "}
-                          {filteredShippingQuotes.length} layanan.
+                    <p className="text-xs text-gray-500">
+                      {
+                        DELIVERY_METHOD_OPTIONS.find(
+                          (option) => option.value === effectiveDeliveryMethod,
+                        )?.description
+                      }
+                    </p>
+
+                    <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600">
+                      {isCarRideHailingMethod ? (
+                        <p>
+                          GoCar / GrabCar dipakai berdasarkan jarak, jadi berat
+                          tidak ditampilkan di sini.
                         </p>
+                      ) : (
+                        <>
+                          <p>
+                            Total berat kirim: {shippingWeightSummary.totalGram}{" "}
+                            gram ({shippingWeightSummary.totalKg} kg)
+                          </p>
+                          {shippingWeightSummary.rows.length > 0 && (
+                            <details className="mt-1">
+                              <summary className="cursor-pointer text-gray-700">
+                                Lihat rincian berat per item
+                              </summary>
+                              <div className="mt-2 space-y-1">
+                                {shippingWeightSummary.rows.map((row) => (
+                                  <p key={row.name}>
+                                    {row.name}: {row.qty} pcs x {row.perPcsGram}{" "}
+                                    gram = {row.totalGram} gram
+                                  </p>
+                                ))}
+                              </div>
+                            </details>
+                          )}
+                        </>
                       )}
                     </div>
 
-                    {displayedShippingQuotes.map((quote) => {
-                      const active = quote.id === selectedShippingQuoteId;
-                      const isCheapest = cheapestShippingQuote?.id === quote.id;
-                      const isFastest = fastestShippingQuote?.id === quote.id;
-                      return (
-                        <button
-                          key={quote.id}
-                          type="button"
-                          onClick={() => setSelectedShippingQuoteId(quote.id)}
-                          className={`w-full rounded-xl border px-3 py-2 text-left text-sm ${
-                            active
-                              ? "border-indigo-300 bg-indigo-50 text-indigo-700"
-                              : "border-gray-200 bg-white text-gray-700"
-                          }`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="flex items-center gap-2 font-semibold">
-                              <span>
-                                {quote.provider} - {quote.courierServiceName}
-                              </span>
-                              {isCheapest && (
-                                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
-                                  Termurah
-                                </span>
-                              )}
-                              {isFastest && (
-                                <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-700">
-                                  Tercepat
-                                </span>
-                              )}
-                            </span>
-                            <span className="font-semibold">
-                              {formatCurrency(getShippingQuoteDisplayPrice(quote))}
-                            </span>
-                          </div>
-                          <p className="text-xs">
-                            ETA {quote.eta} | Jarak {quote.distanceKm} km |
-                            Source: API Kurir
-                          </p>
-                          {quote.insuranceFee ? (
-                            <p className="mt-1 text-[11px] text-amber-700">
-                              + Asuransi {formatCurrency(quote.insuranceFee)}
-                            </p>
-                          ) : null}
-                        </button>
-                      );
-                    })}
+                    {isFragileOrder && (
+                      <p
+                        className={`rounded-lg px-3 py-2 text-xs ${
+                          isAllowedFragileOrderMethod
+                            ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
+                            : "border border-amber-200 bg-amber-50 text-amber-700"
+                        }`}
+                      >
+                        {isAllowedFragileOrderMethod
+                          ? `Produk ${fragileOrderReasons.join(", ")} sudah memakai metode yang diizinkan (${FRAGILE_ORDER_ALLOWED_METHODS_TEXT}).`
+                          : `Produk ${fragileOrderReasons.join(", ")} hanya bisa ${FRAGILE_ORDER_ALLOWED_METHODS_TEXT}`}
+                      </p>
+                    )}
 
-                    {filteredShippingQuotes.length > 3 && (
-                      <div className="flex justify-end">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="h-8 px-3 text-xs"
-                          onClick={() =>
-                            setShowAllShippingOptions((current) => !current)
-                          }
-                        >
-                          {showAllShippingOptions
-                            ? "Tampilkan ringkas"
-                            : `Lihat semua layanan (${filteredShippingQuotes.length})`}
-                        </Button>
+                    {!shouldUseShippingEngine && (
+                      <p className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+                        Metode ini tidak memakai kalkulasi ongkir live.
+                      </p>
+                    )}
+
+                    {displayedShippingDistanceKm !== null && (
+                      <p className="text-xs text-gray-600">
+                        Estimasi jarak gudang ke alamat:{" "}
+                        <span className="font-semibold">
+                          {displayedShippingDistanceKm} km
+                          {shippingDistanceSource === "ai_fallback" && (
+                            <span className="ml-1 text-[10px] font-medium uppercase tracking-wide text-amber-600">
+                              (AI fallback)
+                            </span>
+                          )}
+                        </span>
+                      </p>
+                    )}
+
+                    {shippingWarning && (
+                      <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                        {shippingWarning}
+                      </p>
+                    )}
+
+                    {shippingFallbackMessage && (
+                      <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                        {shippingFallbackMessage}
+                      </p>
+                    )}
+
+                    {filteredShippingQuotes.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                          <p>
+                            Rekomendasi termurah:{" "}
+                            {cheapestShippingQuote?.provider} -{" "}
+                            {cheapestShippingQuote?.courierServiceName} ({" "}
+                            {cheapestShippingQuote
+                              ? formatCurrency(cheapestShippingQuote.price)
+                              : "-"}
+                            )
+                          </p>
+                          {fastestShippingQuote &&
+                            fastestShippingQuote.id !==
+                              cheapestShippingQuote?.id && (
+                              <p>
+                                Rekomendasi tercepat:{" "}
+                                {fastestShippingQuote.provider} -{" "}
+                                {fastestShippingQuote.courierServiceName} (ETA{" "}
+                                {fastestShippingQuote.eta})
+                              </p>
+                            )}
+                          {filteredShippingQuotes.length > 3 && (
+                            <p className="mt-1 text-[11px] text-slate-600">
+                              Menampilkan {displayedShippingQuotes.length} dari{" "}
+                              {filteredShippingQuotes.length} layanan.
+                            </p>
+                          )}
+                        </div>
+
+                        {displayedShippingQuotes.map((quote) => {
+                          const active = quote.id === selectedShippingQuoteId;
+                          const isCheapest =
+                            cheapestShippingQuote?.id === quote.id;
+                          const isFastest =
+                            fastestShippingQuote?.id === quote.id;
+                          return (
+                            <button
+                              key={quote.id}
+                              type="button"
+                              onClick={() =>
+                                setSelectedShippingQuoteId(quote.id)
+                              }
+                              className={`w-full rounded-xl border px-3 py-2 text-left text-sm ${
+                                active
+                                  ? "border-indigo-300 bg-indigo-50 text-indigo-700"
+                                  : "border-gray-200 bg-white text-gray-700"
+                              }`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="flex items-center gap-2 font-semibold">
+                                  <span>
+                                    {quote.provider} -{" "}
+                                    {quote.courierServiceName}
+                                  </span>
+                                  {isCheapest && (
+                                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+                                      Termurah
+                                    </span>
+                                  )}
+                                  {isFastest && (
+                                    <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-700">
+                                      Tercepat
+                                    </span>
+                                  )}
+                                </span>
+                                <span className="font-semibold">
+                                  {formatCurrency(
+                                    getShippingQuoteDisplayPrice(quote),
+                                  )}
+                                </span>
+                              </div>
+                              <p className="text-xs">
+                                ETA {quote.eta} | Jarak {quote.distanceKm} km |
+                                Source: API Kurir
+                              </p>
+                              {quote.insuranceFee ? (
+                                <p className="mt-1 text-[11px] text-amber-700">
+                                  + Asuransi{" "}
+                                  {formatCurrency(quote.insuranceFee)}
+                                </p>
+                              ) : null}
+                            </button>
+                          );
+                        })}
+
+                        {filteredShippingQuotes.length > 3 && (
+                          <div className="flex justify-end">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="h-8 px-3 text-xs"
+                              onClick={() =>
+                                setShowAllShippingOptions((current) => !current)
+                              }
+                            >
+                              {showAllShippingOptions
+                                ? "Tampilkan ringkas"
+                                : `Lihat semua layanan (${filteredShippingQuotes.length})`}
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     )}
+
+                    {!filteredShippingQuotes.length && !shippingPayload && (
+                      <p className="text-xs text-gray-500">
+                        {shouldUseShippingEngine
+                          ? isAddressTooShortForShipping
+                            ? "Alamat terlalu pendek untuk kalkulasi ongkir. Lengkapi alamat utama minimal 8 karakter."
+                            : "Lengkapi alamat utama, area (Kecamatan/Kota), kode pos, dan item order untuk kalkulasi ongkir otomatis."
+                          : "Pilih metode berbasis kurir reguler/admin jika ingin kalkulasi ongkir otomatis."}
+                      </p>
+                    )}
+
+                    {!filteredShippingQuotes.length &&
+                      shippingPayload &&
+                      !isCheckingShipping && (
+                        <p className="text-xs text-gray-500">
+                          Belum ada opsi ongkir yang bisa dipakai untuk alamat
+                          ini.
+                        </p>
+                      )}
                   </div>
-                )}
+                </div>
 
-                {!filteredShippingQuotes.length && !shippingPayload && (
-                  <p className="text-xs text-gray-500">
-                    {shouldUseShippingEngine
-                      ? isAddressTooShortForShipping
-                        ? "Alamat terlalu pendek untuk kalkulasi ongkir. Lengkapi alamat utama minimal 8 karakter."
-                        : "Lengkapi alamat utama, area (Kecamatan/Kota), kode pos, dan item order untuk kalkulasi ongkir otomatis."
-                      : "Pilih metode berbasis kurir reguler/admin jika ingin kalkulasi ongkir otomatis."}
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="grid gap-2 text-sm font-medium text-gray-700">
+                    Payment Status
+                    <Select {...register("paymentStatus")}>
+                      <option value="DP Paid">DP {defaultDpPercentage}%</option>
+                      <option value="Paid">Lunas</option>
+                    </Select>
+                  </label>
+
+                  <label className="grid gap-2 text-sm font-medium text-gray-700">
+                    Discount Grosir
+                    <Select
+                      {...register("wholesaleDiscountPercent", {
+                        valueAsNumber: true,
+                      })}
+                    >
+                      <option value={0}>Tanpa Diskon</option>
+                      <option value={10}>Diskon 10%</option>
+                      <option value={15}>Diskon 15%</option>
+                      <option value={20}>Diskon 20%</option>
+                    </Select>
+                  </label>
+
+                  <label className="grid gap-2 text-sm font-medium text-gray-700">
+                    Manual Adjustment (+/-)
+                    <Input
+                      type="number"
+                      step="1000"
+                      {...register("manualAdjustment", { valueAsNumber: true })}
+                    />
+                  </label>
+                </div>
+
+                <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 px-4 py-3 text-sm text-indigo-800">
+                  <p className="font-semibold">
+                    Pembayaran otomatis dari pilihan status:
                   </p>
-                )}
+                  <p className="mt-1">
+                    {selectedPaymentStatus === "Paid"
+                      ? "Jika pilih Lunas, sistem otomatis set pembayaran 100% dari total pesanan."
+                      : `Jika pilih DP ${defaultDpPercentage}%, sistem otomatis set DP sebesar ${formatCurrency(
+                          suggestedDownPaymentAmount,
+                        )}.`}
+                  </p>
+                </div>
 
-                {!filteredShippingQuotes.length &&
-                  shippingPayload &&
-                  !isCheckingShipping && (
-                    <p className="text-xs text-gray-500">
-                      Belum ada opsi ongkir yang bisa dipakai untuk alamat ini.
-                    </p>
-                  )}
-              </div>
-            </div>
+                <label className="grid gap-2 text-sm font-medium text-gray-700">
+                  Notes
+                  <Textarea
+                    placeholder="Special handling, color palette, pickup notes"
+                    {...register("customNotes")}
+                  />
+                </label>
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="grid gap-2 text-sm font-medium text-gray-700">
-                Payment Status
-                <Select {...register("paymentStatus")}>
-                  <option value="DP Paid">DP {defaultDpPercentage}%</option>
-                  <option value="Paid">Lunas</option>
-                </Select>
-              </label>
-
-              <label className="grid gap-2 text-sm font-medium text-gray-700">
-                Discount Grosir
-                <Select
-                  {...register("wholesaleDiscountPercent", {
-                    valueAsNumber: true,
-                  })}
-                >
-                  <option value={0}>Tanpa Diskon</option>
-                  <option value={10}>Diskon 10%</option>
-                  <option value={15}>Diskon 15%</option>
-                  <option value={20}>Diskon 20%</option>
-                </Select>
-              </label>
-
-              <label className="grid gap-2 text-sm font-medium text-gray-700">
-                Manual Adjustment (+/-)
-                <Input
-                  type="number"
-                  step="1000"
-                  {...register("manualAdjustment", { valueAsNumber: true })}
-                />
-              </label>
-            </div>
-
-            <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 px-4 py-3 text-sm text-indigo-800">
-              <p className="font-semibold">
-                Pembayaran otomatis dari pilihan status:
-              </p>
-              <p className="mt-1">
-                {selectedPaymentStatus === "Paid"
-                  ? "Jika pilih Lunas, sistem otomatis set pembayaran 100% dari total pesanan."
-                  : `Jika pilih DP ${defaultDpPercentage}%, sistem otomatis set DP sebesar ${formatCurrency(
-                      suggestedDownPaymentAmount,
-                    )}.`}
-              </p>
-            </div>
-
-            <label className="grid gap-2 text-sm font-medium text-gray-700">
-              Notes
-              <Textarea
-                placeholder="Special handling, color palette, pickup notes"
-                {...register("customNotes")}
-              />
-            </label>
-
-            <div className="flex flex-wrap gap-3">
-              <Button
-                type="button"
-                className="gap-2 bg-[var(--crumbella-accent)] text-white hover:bg-[var(--crumbella-accent-strong)] focus-visible:ring-[var(--crumbella-accent)]"
-                disabled={
-                  isSubmitting ||
-                  isBookingCreationInFlight ||
-                  isManualSubmitInFlight ||
-                  isCapacityValidating
-                }
-                onClick={() => void submitBookingForm()}
-              >
-                {isSubmitting ||
-                isManualSubmitInFlight ||
-                isBookingCreationInFlight
-                  ? "Saving Booking..."
-                  : isCapacityValidating
-                    ? "Validating Capacity..."
-                    : "Preview Booking"}
-              </Button>
-              <Button
-                variant="outline"
-                type="button"
-                onClick={resetBookingDraftState}
-                className="border-indigo-200 text-indigo-700 hover:bg-indigo-50"
-                disabled={
-                  isSubmitting ||
-                  isManualSubmitInFlight ||
-                  isBookingCreationInFlight
-                }
-              >
-                Reset Form
-              </Button>
-            </div>
-            {submitFeedback}
-            {submitSuccess ? (
-              <div className="space-y-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-                <p className="font-semibold">{submitSuccess}</p>
-                {submitSuccessMeta ? (
-                  <div className="space-y-1">
-                    <p>
-                      Status: <span className="font-semibold">Submitted</span>
-                    </p>
-                    <p>
-                      Kode Booking:{" "}
-                      <span className="font-semibold">
-                        {submitSuccessMeta.bookingCode}
-                      </span>
-                    </p>
-                    <p>
-                      Waktu Submit:{" "}
-                      {formatSubmitTimestamp(submitSuccessMeta.submittedAt)}
-                    </p>
-                    <div className="flex gap-2 pt-2">
-                      <Button
-                        size="sm"
-                        className="bg-[#25D366] font-bold text-white hover:bg-[#20bd5a]"
-                        onClick={handleSendWhatsAppFromSuccess}
-                      >
-                        Kirim Rekap WA
-                      </Button>
-                      <NextLink
-                        href={`/bakery/bookings/${submitSuccessMeta.id}`}
-                        className="inline-flex h-8 items-center justify-center rounded-xl border border-emerald-200 bg-white px-3 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50"
-                      >
-                        Lihat Detail
-                      </NextLink>
-                    </div>
+                <div className="flex flex-wrap gap-3">
+                  <Button
+                    type="button"
+                    className="gap-2 bg-[var(--crumbella-accent)] text-white hover:bg-[var(--crumbella-accent-strong)] focus-visible:ring-[var(--crumbella-accent)]"
+                    disabled={
+                      isSubmitting ||
+                      isBookingCreationInFlight ||
+                      isManualSubmitInFlight ||
+                      isCapacityValidating
+                    }
+                    onClick={() => void submitBookingForm()}
+                  >
+                    {isSubmitting ||
+                    isManualSubmitInFlight ||
+                    isBookingCreationInFlight
+                      ? "Saving Booking..."
+                      : isCapacityValidating
+                        ? "Validating Capacity..."
+                        : "Preview Booking"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    type="button"
+                    onClick={resetBookingDraftState}
+                    className="border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                    disabled={
+                      isSubmitting ||
+                      isManualSubmitInFlight ||
+                      isBookingCreationInFlight
+                    }
+                  >
+                    Reset Form
+                  </Button>
+                </div>
+                {submitFeedback}
+                {submitSuccess ? (
+                  <div className="space-y-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                    <p className="font-semibold">{submitSuccess}</p>
+                    {submitSuccessMeta ? (
+                      <div className="space-y-1">
+                        <p>
+                          Status:{" "}
+                          <span className="font-semibold">Submitted</span>
+                        </p>
+                        <p>
+                          Kode Booking:{" "}
+                          <span className="font-semibold">
+                            {submitSuccessMeta.bookingCode}
+                          </span>
+                        </p>
+                        <p>
+                          Waktu Submit:{" "}
+                          {formatSubmitTimestamp(submitSuccessMeta.submittedAt)}
+                        </p>
+                        <div className="flex gap-2 pt-2">
+                          <Button
+                            size="sm"
+                            className="bg-[#25D366] font-bold text-white hover:bg-[#20bd5a]"
+                            onClick={handleSendWhatsAppFromSuccess}
+                          >
+                            Kirim Rekap WA
+                          </Button>
+                          <NextLink
+                            href={`/bakery/bookings/${submitSuccessMeta.id}`}
+                            className="inline-flex h-8 items-center justify-center rounded-xl border border-emerald-200 bg-white px-3 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50"
+                          >
+                            Lihat Detail
+                          </NextLink>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
-              </div>
-            ) : null}
-          </CardContent>
-        </Card>
+              </CardContent>
+            </Card>
 
-        <div className="space-y-4">
-          <PriceSummaryCard
-            basePrice={basePrice}
-            addOnTotal={addOnTotal}
-            deliveryFee={deliveryFee}
-            insuranceFee={insuranceFee}
-            serviceCharge={serviceCharge}
-            manualAdjustment={Number(manualAdjustment || 0)}
-            wholesaleDiscountPercent={Number(wholesaleDiscountPercent || 0)}
-            wholesaleDiscountAmount={wholesaleDiscountAmount}
-            totalPrice={totalPrice}
-            categoryBreakdown={categoryPriceBreakdown}
-            paymentStatus={effectivePaymentStatus}
-            paymentPaidAmount={totalPaid}
-            paymentRemainingAmount={remainingBalance}
-          />
-        </div>
-      </div>
+            <div className="space-y-4">
+              <PriceSummaryCard
+                basePrice={basePrice}
+                addOnTotal={addOnTotal}
+                deliveryFee={deliveryFee}
+                insuranceFee={insuranceFee}
+                serviceCharge={serviceCharge}
+                manualAdjustment={Number(manualAdjustment || 0)}
+                wholesaleDiscountPercent={Number(wholesaleDiscountPercent || 0)}
+                wholesaleDiscountAmount={wholesaleDiscountAmount}
+                totalPrice={totalPrice}
+                categoryBreakdown={categoryPriceBreakdown}
+                paymentStatus={effectivePaymentStatus}
+                paymentPaidAmount={totalPaid}
+                paymentRemainingAmount={remainingBalance}
+              />
+            </div>
+          </div>
         </>
       ) : (
         <div className="space-y-3 pb-4">
@@ -8531,14 +8702,18 @@ export default function BookingForm() {
               {/* Warning notice */}
               <div className="mx-[14px] mt-[10px] flex items-start gap-2 rounded-[11px] border border-[#D8B870] border-l-[3px] border-l-[#C9A84C] bg-[#FFF8E1] px-3 py-[9px]">
                 <span className="shrink-0 text-[13px]">⚠️</span>
-                <p className="text-[10.5px] leading-[1.5] text-[#7A5000]">{previewAlertMessage}</p>
+                <p className="text-[10.5px] leading-[1.5] text-[#7A5000]">
+                  {previewAlertMessage}
+                </p>
               </div>
 
               {/* Customer card */}
               <div className="mx-[14px] mt-[10px] rounded-[16px] border border-[var(--crumbella-border)] bg-white">
                 <div className="flex items-center gap-[10px] border-b border-[var(--crumbella-border)] px-[14px] py-[11px]">
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--crumbella-accent-soft)] text-[13px] font-extrabold text-[var(--crumbella-primary)]">
-                    {(watchedValues.customerName || "AD").slice(0, 2).toUpperCase()}
+                    {(watchedValues.customerName || "AD")
+                      .slice(0, 2)
+                      .toUpperCase()}
                   </div>
                   <div className="min-w-0">
                     <p className="truncate text-[14px] font-bold text-[var(--foreground)]">
@@ -8556,7 +8731,9 @@ export default function BookingForm() {
                 </div>
                 <div className="grid grid-cols-2 px-[14px] py-[11px]">
                   <div className="border-r border-[var(--crumbella-border)] pr-[10px] py-1">
-                    <p className="text-[9px] uppercase tracking-[0.06em] text-[var(--crumbella-muted)]">Delivery</p>
+                    <p className="text-[9px] uppercase tracking-[0.06em] text-[var(--crumbella-muted)]">
+                      Delivery
+                    </p>
                     <p className="mt-[2px] text-[13px] font-semibold text-[var(--foreground)]">
                       {normalizedDeliveryDate
                         ? formatDuplicateWarningDate(normalizedDeliveryDate)
@@ -8564,9 +8741,12 @@ export default function BookingForm() {
                     </p>
                   </div>
                   <div className="py-1 pl-[10px]">
-                    <p className="text-[9px] uppercase tracking-[0.06em] text-[var(--crumbella-muted)]">Jam & Metode</p>
+                    <p className="text-[9px] uppercase tracking-[0.06em] text-[var(--crumbella-muted)]">
+                      Jam & Metode
+                    </p>
                     <p className="mt-[2px] text-[13px] font-semibold text-[var(--foreground)]">
-                      {(watchedValues.deliverySlot || "-").replace(":", ".")} · {deliveryMethodLabel}
+                      {(watchedValues.deliverySlot || "-").replace(":", ".")} ·{" "}
+                      {deliveryMethodLabel}
                     </p>
                   </div>
                 </div>
@@ -8576,11 +8756,16 @@ export default function BookingForm() {
               <div className="mx-[14px] mt-[10px] rounded-[16px] border border-[var(--crumbella-border)] bg-white">
                 <div className="flex items-center gap-[10px] border-b border-[var(--crumbella-border)] px-[14px] py-[10px]">
                   <span className="text-[14px]">🍪</span>
-                  <p className="text-[13px] font-bold text-[var(--foreground)]">Produk yang Dipesan</p>
+                  <p className="text-[13px] font-bold text-[var(--foreground)]">
+                    Produk yang Dipesan
+                  </p>
                 </div>
                 <div className="divide-y divide-[var(--crumbella-border)]">
                   {itemPriceBreakdowns.map((item, index) => (
-                    <div key={`${item.itemLabel}-${index}`} className="px-[14px] py-[10px]">
+                    <div
+                      key={`${item.itemLabel}-${index}`}
+                      className="px-[14px] py-[10px]"
+                    >
                       <div className="flex items-start justify-between">
                         <p className="text-[13px] font-semibold text-[var(--foreground)]">
                           {item.quantity}× {item.itemLabel}
@@ -8590,7 +8775,9 @@ export default function BookingForm() {
                         </p>
                       </div>
                       <p className="mt-[3px] text-[10.5px] text-[var(--crumbella-muted)]">
-                        {getReadableVariantLabel(watchedItems[index] as BookingItemInput)}
+                        {getReadableVariantLabel(
+                          watchedItems[index] as BookingItemInput,
+                        )}
                       </p>
                       {item.addOnDetails.length > 0 ? (
                         <div className="mt-[6px] flex flex-wrap gap-[5px]">
@@ -8683,50 +8870,90 @@ export default function BookingForm() {
               <div className="mx-[14px] mt-[10px] rounded-[16px] border border-[var(--crumbella-border)] bg-white">
                 <div className="flex items-center gap-[10px] border-b border-[var(--crumbella-border)] px-[14px] py-[10px]">
                   <span className="text-[14px]">💳</span>
-                  <p className="text-[13px] font-bold text-[var(--foreground)]">Pengiriman & Pembayaran</p>
+                  <p className="text-[13px] font-bold text-[var(--foreground)]">
+                    Pengiriman & Pembayaran
+                  </p>
                 </div>
                 <div>
                   <div className="flex items-center justify-between border-b border-[var(--crumbella-border)] px-[14px] py-[11px]">
-                    <span className="text-[12px] text-[var(--crumbella-muted)]">Metode</span>
-                    <span className="text-[12.5px] font-semibold text-[var(--foreground)]">{deliveryMethodLabel}</span>
+                    <span className="text-[12px] text-[var(--crumbella-muted)]">
+                      Metode
+                    </span>
+                    <span className="text-[12.5px] font-semibold text-[var(--foreground)]">
+                      {deliveryMethodLabel}
+                    </span>
                   </div>
                   <div className="flex items-center justify-between border-b border-[var(--crumbella-border)] px-[14px] py-[11px]">
-                    <span className="text-[12px] text-[var(--crumbella-muted)]">Ongkir</span>
-                    <span className="text-[12.5px] font-semibold text-[var(--foreground)]">{formatCurrency(deliveryFee)}</span>
+                    <span className="text-[12px] text-[var(--crumbella-muted)]">
+                      Ongkir
+                    </span>
+                    <span className="text-[12.5px] font-semibold text-[var(--foreground)]">
+                      {formatCurrency(deliveryFee)}
+                    </span>
                   </div>
                   {insuranceFee > 0 ? (
                     <div className="flex items-center justify-between border-b border-[var(--crumbella-border)] px-[14px] py-[11px]">
-                      <span className="text-[12px] text-[var(--crumbella-muted)]">Insurance</span>
-                      <span className="text-[12.5px] font-semibold text-[var(--foreground)]">{formatCurrency(insuranceFee)}</span>
+                      <span className="text-[12px] text-[var(--crumbella-muted)]">
+                        Insurance
+                      </span>
+                      <span className="text-[12.5px] font-semibold text-[var(--foreground)]">
+                        {formatCurrency(insuranceFee)}
+                      </span>
                     </div>
                   ) : null}
                   {serviceCharge > 0 ? (
                     <div className="flex items-center justify-between border-b border-[var(--crumbella-border)] px-[14px] py-[11px]">
-                      <span className="text-[12px] text-[var(--crumbella-muted)]">Biaya Admin</span>
-                      <span className="text-[12.5px] font-semibold text-[var(--foreground)]">{formatCurrency(serviceCharge)}</span>
+                      <span className="text-[12px] text-[var(--crumbella-muted)]">
+                        Biaya Admin
+                      </span>
+                      <span className="text-[12.5px] font-semibold text-[var(--foreground)]">
+                        {formatCurrency(serviceCharge)}
+                      </span>
                     </div>
                   ) : null}
                   {Number(manualAdjustment || 0) !== 0 ? (
                     <div className="flex items-center justify-between border-b border-[var(--crumbella-border)] px-[14px] py-[11px]">
-                      <span className="text-[12px] text-[var(--crumbella-muted)]">Adjustment</span>
-                      <span className="text-[12.5px] font-semibold text-[var(--foreground)]">{formatCurrency(Number(manualAdjustment || 0))}</span>
+                      <span className="text-[12px] text-[var(--crumbella-muted)]">
+                        Adjustment
+                      </span>
+                      <span className="text-[12.5px] font-semibold text-[var(--foreground)]">
+                        {formatCurrency(Number(manualAdjustment || 0))}
+                      </span>
                     </div>
                   ) : null}
                   <div className="flex items-center justify-between border-b border-[var(--crumbella-border)] px-[14px] py-[11px]">
-                    <span className="text-[12px] text-[var(--crumbella-muted)]">Total Harga</span>
-                    <span className="text-[13px] font-bold text-[var(--foreground)]">{formatCurrency(totalPrice)}</span>
+                    <span className="text-[12px] text-[var(--crumbella-muted)]">
+                      Total Harga
+                    </span>
+                    <span className="text-[13px] font-bold text-[var(--foreground)]">
+                      {formatCurrency(totalPrice)}
+                    </span>
                   </div>
                   <div className="flex items-center justify-between border-b border-[var(--crumbella-border)] px-[14px] py-[11px]">
-                    <span className="text-[12px] text-[var(--crumbella-muted)]">Pembayaran</span>
-                    <span className="text-[12.5px] font-semibold text-[var(--foreground)]">{selectedPaymentStatus === "Paid" ? "Lunas" : `DP ${defaultDpPercentage}%`}</span>
+                    <span className="text-[12px] text-[var(--crumbella-muted)]">
+                      Pembayaran
+                    </span>
+                    <span className="text-[12.5px] font-semibold text-[var(--foreground)]">
+                      {selectedPaymentStatus === "Paid"
+                        ? "Lunas"
+                        : `DP ${defaultDpPercentage}%`}
+                    </span>
                   </div>
                   <div className="flex items-center justify-between border-b border-[var(--crumbella-border)] px-[14px] py-[11px]">
-                    <span className="text-[12px] text-[var(--crumbella-muted)]">DP</span>
-                    <span className="text-[13px] font-bold text-[#1f6a43]">{formatCurrency(totalPaid)}</span>
+                    <span className="text-[12px] text-[var(--crumbella-muted)]">
+                      DP
+                    </span>
+                    <span className="text-[13px] font-bold text-[#1f6a43]">
+                      {formatCurrency(totalPaid)}
+                    </span>
                   </div>
                   <div className="flex items-center justify-between px-[14px] py-[11px]">
-                    <span className="text-[12px] text-[var(--crumbella-muted)]">Sisa Tagihan</span>
-                    <span className="text-[13px] font-bold text-[#b53b2c]">{formatCurrency(remainingBalance)}</span>
+                    <span className="text-[12px] text-[var(--crumbella-muted)]">
+                      Sisa Tagihan
+                    </span>
+                    <span className="text-[13px] font-bold text-[#b53b2c]">
+                      {formatCurrency(remainingBalance)}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -8956,4 +9183,3 @@ export default function BookingForm() {
     </form>
   );
 }
-
