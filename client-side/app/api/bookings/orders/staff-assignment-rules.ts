@@ -100,6 +100,143 @@ function getOrderStaffTokenAssignmentsForLimit(
   ];
 }
 
+function collectAssignedStaffUserIds(
+  order: Pick<StaffValidationOrder, "assignedStaffUserId" | "productionStages">,
+): number[] {
+  const assignedIds = new Set<number>();
+
+  if (order.assignedStaffUserId) {
+    assignedIds.add(order.assignedStaffUserId);
+  }
+
+  for (const stage of order.productionStages ?? []) {
+    const staffId = asPositiveIntOrNull(stage.staffId);
+    if (staffId) {
+      assignedIds.add(staffId);
+    }
+  }
+
+  return [...assignedIds].sort((left, right) => left - right);
+}
+
+function collectAssignmentTargetsBySlot(
+  order: Pick<StaffValidationOrder, "assignedStaffUserId" | "productionStages">,
+): Map<string, number | null> {
+  const targets = new Map<string, number | null>([
+    ["order", asPositiveIntOrNull(order.assignedStaffUserId)],
+  ]);
+
+  for (const stage of order.productionStages ?? []) {
+    targets.set(`stage:${stage.stage}`, asPositiveIntOrNull(stage.staffId));
+  }
+
+  return targets;
+}
+
+function assignedStaffTargetsChanged(
+  current: Pick<StaffValidationOrder, "assignedStaffUserId" | "productionStages">,
+  next: Pick<StaffValidationOrder, "assignedStaffUserId" | "productionStages">,
+) {
+  const currentIds = collectAssignedStaffUserIds(current);
+  const nextIds = collectAssignedStaffUserIds(next);
+
+  if (currentIds.length !== nextIds.length) return true;
+
+  return currentIds.some((staffUserId, index) => staffUserId !== nextIds[index]);
+}
+
+export function sanitizeAssignableStaffTargets(params: {
+  orders: StaffValidationOrder[];
+  assignableStaffUserIds: Set<number>;
+}) {
+  const { orders, assignableStaffUserIds } = params;
+
+  return orders.map((order) => {
+    const productionStages = (order.productionStages ?? []).map((stage) => {
+      const staffId = asPositiveIntOrNull(stage.staffId);
+      if (!staffId || assignableStaffUserIds.has(staffId)) {
+        return stage;
+      }
+
+      return {
+        ...stage,
+        staffId: null,
+      };
+    });
+
+    const uniqueStageAssignees = [
+      ...new Set(
+        productionStages
+          .map((stage) => asPositiveIntOrNull(stage.staffId))
+          .filter((staffId): staffId is number => Boolean(staffId)),
+      ),
+    ];
+    const topLevelAssignee = asPositiveIntOrNull(order.assignedStaffUserId);
+    const sanitizedAssignedStaffUserId =
+      uniqueStageAssignees.length === 1
+        ? uniqueStageAssignees[0]
+        : topLevelAssignee && assignableStaffUserIds.has(topLevelAssignee)
+          ? topLevelAssignee
+          : null;
+
+    return {
+      ...order,
+      assignedStaffUserId: sanitizedAssignedStaffUserId,
+      productionStages,
+    };
+  });
+}
+
+export function ensureAssignableStaffTargets(params: {
+  orders: Array<
+    Pick<StaffValidationOrder, "id" | "assignedStaffUserId" | "productionStages">
+  >;
+  existingOrders?: Array<
+    Pick<StaffValidationOrder, "id" | "assignedStaffUserId" | "productionStages">
+  >;
+  assignableStaffUserIds: Set<number>;
+}) {
+  const {
+    orders,
+    existingOrders = [],
+    assignableStaffUserIds,
+  } = params;
+  const existingOrdersMap = new Map<string, Pick<
+    StaffValidationOrder,
+    "id" | "assignedStaffUserId" | "productionStages"
+  >>(
+    existingOrders.map((order) => [order.id, order]),
+  );
+
+  for (const order of orders) {
+    const existingOrder = existingOrdersMap.get(order.id);
+    if (
+      existingOrder &&
+      !assignedStaffTargetsChanged(existingOrder, order)
+    ) {
+      continue;
+    }
+
+    const nextTargets = collectAssignmentTargetsBySlot(order);
+    const currentTargets = existingOrder
+      ? collectAssignmentTargetsBySlot(existingOrder)
+      : new Map<string, number | null>();
+    const invalidTargetIds = [...nextTargets.entries()]
+      .filter(([, staffUserId]) => staffUserId !== null)
+      .filter(([slotKey, staffUserId]) => {
+        if (staffUserId === null) return false;
+        if (assignableStaffUserIds.has(staffUserId)) return false;
+        return currentTargets.get(slotKey) !== staffUserId;
+      })
+      .map(([, staffUserId]) => Number(staffUserId));
+    if (invalidTargetIds.length === 0) continue;
+
+    throw new ForbiddenError(
+      "Assignment produksi hanya boleh ke role Staff. Owner, Admin, dan Cashier tidak bisa di-assign.",
+    );
+  }
+}
+
 export function validateAssignmentTransitionRules(params: {
   orders: StaffValidationOrder[];
   existingAssignments: ExistingAssignmentState[];
@@ -107,7 +244,7 @@ export function validateAssignmentTransitionRules(params: {
   userId: number;
 }) {
   const { orders, existingAssignments, roleName, userId } = params;
-  const isPrivilegedRequest = roleName === "Owner" || roleName === "Admin";
+  const isOwnerRequest = roleName === "Owner";
   const isStaffRequest = roleName === "Staff";
   const existingAssignmentMap = new Map(
     existingAssignments.map((row) => [row.external_id, row]),
@@ -139,20 +276,20 @@ export function validateAssignmentTransitionRules(params: {
       currentAssignee !== null &&
       nextAssignee === null &&
       !nextHasAssignment &&
-      !isPrivilegedRequest
+      !isOwnerRequest
     ) {
       throw new ForbiddenError(
         "Order yang sudah diambil tidak bisa dilepas. Gunakan transfer oleh owner.",
       );
     }
 
-    if (!isPrivilegedRequest) {
+    if (!isOwnerRequest) {
       const isStaffClaimOwnUnassignedOrder =
         isStaffRequest && currentAssignee === null && nextAssignee === userId;
 
       if (!isStaffClaimOwnUnassignedOrder) {
         throw new ForbiddenError(
-          "Hanya owner/admin yang dapat memindahkan assignment order.",
+          "Hanya owner yang dapat memindahkan assignment order.",
         );
       }
     }

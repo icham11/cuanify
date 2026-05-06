@@ -9,6 +9,8 @@ declare const expect: (value: unknown) => {
 };
 
 import {
+  ensureAssignableStaffTargets,
+  sanitizeAssignableStaffTargets,
   validateAssignmentTransitionRules,
   validateProjectedStaffDailyTokenLimit,
 } from "../staff-assignment-rules";
@@ -40,6 +42,82 @@ function makeExistingAssignment(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Orders API staff assignment and status transition rules", () => {
+  it("rejects assigning order to non-staff role target", () => {
+    expect(() =>
+      ensureAssignableStaffTargets({
+        orders: [
+          makeOrder({
+            assignedStaffUserId: 91,
+          }),
+        ],
+        assignableStaffUserIds: new Set([22, 33]),
+      }),
+    ).toThrow("Assignment produksi hanya boleh ke role Staff");
+  });
+
+  it("allows existing legacy non-staff assignment when target is unchanged", () => {
+    ensureAssignableStaffTargets({
+      orders: [
+        makeOrder({
+          assignedStaffUserId: 91,
+        }),
+      ],
+      existingOrders: [
+        makeOrder({
+          assignedStaffUserId: 91,
+        }),
+      ],
+      assignableStaffUserIds: new Set([22, 33]),
+    });
+  });
+
+  it("allows owner to assign valid staff on changed slots while legacy non-staff slot remains unchanged", () => {
+    ensureAssignableStaffTargets({
+      orders: [
+        makeOrder({
+          assignedStaffUserId: 22,
+          productionStages: [
+            { stage: "lining", staffId: 22, tokenAmount: 25, percentage: 25 },
+            { stage: "filling", staffId: 91, tokenAmount: 25, percentage: 25 },
+            { stage: "finishing", staffId: null, tokenAmount: 50, percentage: 50 },
+          ],
+        }),
+      ],
+      existingOrders: [
+        makeOrder({
+          assignedStaffUserId: null,
+          productionStages: [
+            { stage: "lining", staffId: null, tokenAmount: 25, percentage: 25 },
+            { stage: "filling", staffId: 91, tokenAmount: 25, percentage: 25 },
+            { stage: "finishing", staffId: null, tokenAmount: 50, percentage: 50 },
+          ],
+        }),
+      ],
+      assignableStaffUserIds: new Set([22, 33]),
+    });
+  });
+
+  it("sanitizes legacy non-staff assignees and keeps valid staff target", () => {
+    const [sanitized] = sanitizeAssignableStaffTargets({
+      orders: [
+        makeOrder({
+          assignedStaffUserId: 79,
+          productionStages: [
+            { stage: "lining", staffId: 79, tokenAmount: 25, percentage: 25 },
+            { stage: "filling", staffId: 22, tokenAmount: 25, percentage: 25 },
+            { stage: "finishing", staffId: 79, tokenAmount: 50, percentage: 50 },
+          ],
+        }),
+      ],
+      assignableStaffUserIds: new Set([22, 33]),
+    });
+
+    expect(sanitized.assignedStaffUserId).toBe(22);
+    expect(sanitized.productionStages?.[0]?.staffId).toBe(null);
+    expect(sanitized.productionStages?.[1]?.staffId).toBe(22);
+    expect(sanitized.productionStages?.[2]?.staffId).toBe(null);
+  });
+
   it("rejects status change when order is still unassigned", () => {
     const orders = [
       makeOrder({
@@ -131,7 +209,7 @@ describe("Orders API staff assignment and status transition rules", () => {
         roleName: "Staff",
         userId: 22,
       }),
-    ).toThrow("Hanya owner/admin yang dapat memindahkan assignment order");
+    ).toThrow("Hanya owner yang dapat memindahkan assignment order");
   });
 
   it("allows owner transfer action", () => {
@@ -155,7 +233,7 @@ describe("Orders API staff assignment and status transition rules", () => {
     });
   });
 
-  it("allows admin transfer action", () => {
+  it("rejects admin transfer action", () => {
     const orders = [
       makeOrder({
         assignedStaffUserId: 33,
@@ -168,12 +246,14 @@ describe("Orders API staff assignment and status transition rules", () => {
       }),
     ];
 
-    validateAssignmentTransitionRules({
-      orders,
-      existingAssignments,
-      roleName: "Admin",
-      userId: 7,
-    });
+    expect(() =>
+      validateAssignmentTransitionRules({
+        orders,
+        existingAssignments,
+        roleName: "Admin",
+        userId: 7,
+      }),
+    ).toThrow("Hanya owner yang dapat memindahkan assignment order");
   });
 
   it("allows owner to fully unassign a claimed order", () => {

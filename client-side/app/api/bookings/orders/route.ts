@@ -527,6 +527,143 @@ function getOrderStaffTokenAssignmentsForLimit(
   ];
 }
 
+function collectAssignedStaffUserIds(
+  order: Pick<StaffValidationOrder, "assignedStaffUserId" | "productionStages">,
+): number[] {
+  const assignedIds = new Set<number>();
+
+  if (order.assignedStaffUserId) {
+    assignedIds.add(order.assignedStaffUserId);
+  }
+
+  for (const stage of order.productionStages ?? []) {
+    const staffId = asPositiveIntOrNull(stage.staffId);
+    if (staffId) {
+      assignedIds.add(staffId);
+    }
+  }
+
+  return [...assignedIds].sort((left, right) => left - right);
+}
+
+function collectAssignmentTargetsBySlot(
+  order: Pick<StaffValidationOrder, "assignedStaffUserId" | "productionStages">,
+): Map<string, number | null> {
+  const targets = new Map<string, number | null>([
+    ["order", asPositiveIntOrNull(order.assignedStaffUserId)],
+  ]);
+
+  for (const stage of order.productionStages ?? []) {
+    targets.set(`stage:${stage.stage}`, asPositiveIntOrNull(stage.staffId));
+  }
+
+  return targets;
+}
+
+function assignedStaffTargetsChanged(
+  current: Pick<StaffValidationOrder, "assignedStaffUserId" | "productionStages">,
+  next: Pick<StaffValidationOrder, "assignedStaffUserId" | "productionStages">,
+) {
+  const currentIds = collectAssignedStaffUserIds(current);
+  const nextIds = collectAssignedStaffUserIds(next);
+
+  if (currentIds.length !== nextIds.length) return true;
+
+  return currentIds.some((staffUserId, index) => staffUserId !== nextIds[index]);
+}
+
+function sanitizeAssignableStaffTargets(params: {
+  orders: StaffValidationOrder[];
+  assignableStaffUserIds: Set<number>;
+}) {
+  const { orders, assignableStaffUserIds } = params;
+
+  return orders.map((order) => {
+    const productionStages = (order.productionStages ?? []).map((stage) => {
+      const staffId = asPositiveIntOrNull(stage.staffId);
+      if (!staffId || assignableStaffUserIds.has(staffId)) {
+        return stage;
+      }
+
+      return {
+        ...stage,
+        staffId: null,
+      };
+    });
+
+    const uniqueStageAssignees = [
+      ...new Set(
+        productionStages
+          .map((stage) => asPositiveIntOrNull(stage.staffId))
+          .filter((staffId): staffId is number => Boolean(staffId)),
+      ),
+    ];
+    const topLevelAssignee = asPositiveIntOrNull(order.assignedStaffUserId);
+    const sanitizedAssignedStaffUserId =
+      uniqueStageAssignees.length === 1
+        ? uniqueStageAssignees[0]
+        : topLevelAssignee && assignableStaffUserIds.has(topLevelAssignee)
+          ? topLevelAssignee
+          : null;
+
+    return {
+      ...order,
+      assignedStaffUserId: sanitizedAssignedStaffUserId,
+      productionStages,
+    };
+  });
+}
+
+function ensureAssignableStaffTargets(params: {
+  orders: Array<
+    Pick<StaffValidationOrder, "id" | "assignedStaffUserId" | "productionStages">
+  >;
+  existingOrders?: Array<
+    Pick<StaffValidationOrder, "id" | "assignedStaffUserId" | "productionStages">
+  >;
+  assignableStaffUserIds: Set<number>;
+}) {
+  const {
+    orders,
+    existingOrders = [],
+    assignableStaffUserIds,
+  } = params;
+  const existingOrdersMap = new Map<string, Pick<
+    StaffValidationOrder,
+    "id" | "assignedStaffUserId" | "productionStages"
+  >>(
+    existingOrders.map((order) => [order.id, order]),
+  );
+
+  for (const order of orders) {
+    const existingOrder = existingOrdersMap.get(order.id);
+    if (
+      existingOrder &&
+      !assignedStaffTargetsChanged(existingOrder, order)
+    ) {
+      continue;
+    }
+
+    const nextTargets = collectAssignmentTargetsBySlot(order);
+    const currentTargets = existingOrder
+      ? collectAssignmentTargetsBySlot(existingOrder)
+      : new Map<string, number | null>();
+    const invalidTargetIds = [...nextTargets.entries()]
+      .filter(([, staffUserId]) => staffUserId !== null)
+      .filter(([slotKey, staffUserId]) => {
+        if (staffUserId === null) return false;
+        if (assignableStaffUserIds.has(staffUserId)) return false;
+        return currentTargets.get(slotKey) !== staffUserId;
+      })
+      .map(([, staffUserId]) => Number(staffUserId));
+    if (invalidTargetIds.length === 0) continue;
+
+    throw new ForbiddenError(
+      "Assignment produksi hanya boleh ke role Staff. Owner, Admin, dan Cashier tidak bisa di-assign.",
+    );
+  }
+}
+
 function toIsoOrNull(value: unknown): string | null {
   if (!value) return null;
   if (value instanceof Date) return value.toISOString();
@@ -1372,7 +1509,7 @@ function validateAssignmentTransitionRules(params: {
   userId: number;
 }) {
   const { orders, existingAssignments, roleName, userId } = params;
-  const isPrivilegedRequest = roleName === "Owner" || roleName === "Admin";
+  const isOwnerRequest = roleName === "Owner";
   const isStaffRequest = roleName === "Staff";
   const existingAssignmentMap = new Map(
     existingAssignments.map((row) => [row.external_id, row]),
@@ -1404,20 +1541,20 @@ function validateAssignmentTransitionRules(params: {
       currentAssignee !== null &&
       nextAssignee === null &&
       !nextHasAssignment &&
-      !isPrivilegedRequest
+      !isOwnerRequest
     ) {
       throw new ForbiddenError(
         "Order yang sudah diambil tidak bisa dilepas. Gunakan transfer oleh owner.",
       );
     }
 
-    if (!isPrivilegedRequest) {
+    if (!isOwnerRequest) {
       const isStaffClaimOwnUnassignedOrder =
         isStaffRequest && currentAssignee === null && nextAssignee === userId;
 
       if (!isStaffClaimOwnUnassignedOrder) {
         throw new ForbiddenError(
-          "Hanya owner/admin yang dapat memindahkan assignment order.",
+          "Hanya owner yang dapat memindahkan assignment order.",
         );
       }
     }
@@ -1533,13 +1670,23 @@ async function upsertOrdersSnapshot(
       sourceType: SNAPSHOT_SOURCE_TYPE,
     },
     orderBy: { updatedAt: "desc" },
-    select: { id: true },
+    select: { id: true, content: true },
   });
 
-  const content = JSON.stringify(orders);
+  const incomingById = new Map(orders.map((order) => [order.id, order]));
+  const existingSnapshotOrders = parseOrdersContent(existingSnapshot?.content);
+  const mergedSnapshotOrders = [
+    ...orders,
+    ...existingSnapshotOrders.filter((entry) => {
+      const record = asRecord(entry);
+      const id = asString(record?.id).trim();
+      return id.length > 0 && !incomingById.has(id);
+    }),
+  ];
+  const content = JSON.stringify(mergedSnapshotOrders);
   const metadata = {
     kind: SNAPSHOT_SOURCE_TYPE,
-    itemCount: orders.length,
+    itemCount: mergedSnapshotOrders.length,
     updatedByUserId: userId,
     updatedAt: new Date().toISOString(),
     source,
@@ -2258,6 +2405,7 @@ export async function POST(request: NextRequest) {
     const roleName = role as unknown as string;
     const isStaffRequest = roleName === "Staff";
     const isPrivilegedRequest = roleName === "Owner" || roleName === "Admin";
+    const canManageAssignments = roleName === "Owner";
     const bakerySettings = await getBakeryBusinessSettings(businessId);
     const canBackfillPastOrders =
       !bakerySettings.cutoffEnabled &&
@@ -2306,6 +2454,29 @@ export async function POST(request: NextRequest) {
     );
 
     await ensureBakeryTables();
+    const assignableStaffMembers = await prisma.businessMember.findMany({
+      where: {
+        businessId,
+        role: "Staff",
+      },
+      select: {
+        userId: true,
+        user: {
+          select: {
+            name: true,
+          },
+        },
+      },
+    });
+    const assignableStaffUserIds = new Set<number>(
+      assignableStaffMembers.map((member) => member.userId),
+    );
+    const assignableStaffNameByUserId = new Map<number, string>(
+      assignableStaffMembers.map((member) => [
+        member.userId,
+        member.user.name?.trim() || `Staff #${member.userId}`,
+      ]),
+    );
 
     const existingAssignmentRows = await prisma.$queryRaw<
       {
@@ -2537,7 +2708,7 @@ export async function POST(request: NextRequest) {
             existingStages: existingOrder.productionStages,
             incomingStages: incomingOrder.productionStages,
             userId,
-            isPrivilegedRequest,
+            isPrivilegedRequest: canManageAssignments,
           });
         const viewerOwnsAnyStage = mergedStages.some(
           (stage) => stage.staffId === userId,
@@ -2552,7 +2723,7 @@ export async function POST(request: NextRequest) {
         // Staff payload can be stale for unrelated orders; keep server truth
         // and only apply changes that are explicitly allowed.
         if (
-          !isPrivilegedRequest &&
+          !canManageAssignments &&
           !sameAssignee &&
           !staffClaimingUnassignedOwnOrder &&
           !staffClaimingOwnProductionStage
@@ -2577,6 +2748,7 @@ export async function POST(request: NextRequest) {
           nextAssignedName = "";
         } else if (nextAssignee === userId) {
           nextAssignedName =
+            assignableStaffNameByUserId.get(userId) ||
             incomingOrder.assignedStaffName.trim() ||
             existingOrder.assignedStaffName ||
             `Staff #${userId}`;
@@ -2617,8 +2789,25 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    if (canManageAssignments) {
+      orders = sanitizeAssignableStaffTargets({
+        orders,
+        assignableStaffUserIds,
+      });
+    }
+
+    ensureAssignableStaffTargets({
+      orders,
+      existingOrders,
+      assignableStaffUserIds,
+    });
+
     orders = orders.map((order) => ({
       ...order,
+      assignedStaffName: order.assignedStaffUserId
+        ? (assignableStaffNameByUserId.get(order.assignedStaffUserId) ??
+          order.assignedStaffName)
+        : "",
       insuranceFee: computeInsuranceFee({
         shippingQuote: order.shippingQuote,
         shipment: order.shipment,
@@ -3274,33 +3463,12 @@ export async function POST(request: NextRequest) {
           },
         );
       } else if (createdOrdersForWhatsApp.length > 0) {
-        console.info(`[api/bookings/orders] Awaiting ${createdOrdersForWhatsApp.length} WA notifications...`);
-        const waResults = await Promise.all(
-          createdOrdersForWhatsApp.map((orderPayload) =>
-            sendOrderToWhatsApp(orderPayload),
-          ),
+        console.info(
+          `[api/bookings/orders] Queueing ${createdOrdersForWhatsApp.length} WA notifications in background...`,
         );
-        
-        const waFailures = waResults.filter((result) => !result.ok);
-        if (waFailures.length > 0) {
-          const firstError = waFailures[0];
-          const errorMessage = `WA Produksi Gagal (${firstError.stage}): ${firstError.message}`;
-          console.error("[api/bookings/orders] " + errorMessage);
-          
-          // MELEMPAR ERROR KE UI AGAR TERLIHAT OLEH USER
-          return NextResponse.json(
-            { 
-              success: false, 
-              error: { message: errorMessage } 
-            },
-            { status: 500 }
-          );
-        }
-        
-        console.info("[api/bookings/orders] All WA notifications sent successfully.");
       }
 
-      return NextResponse.json({
+      const response = NextResponse.json({
         success: true,
         data: {
           mode: "rows",
@@ -3318,6 +3486,60 @@ export async function POST(request: NextRequest) {
           skipWhatsAppNotification: !shouldSendWhatsAppNotification,
         },
       });
+
+      if (shouldSendWhatsAppNotification && createdOrdersForWhatsApp.length > 0) {
+        void Promise.allSettled(
+          createdOrdersForWhatsApp.map((orderPayload) =>
+            sendOrderToWhatsApp(orderPayload),
+          ),
+        ).then((results) => {
+          const failedResults = results
+            .filter(
+              (
+                result,
+              ): result is PromiseFulfilledResult<SendOrderToWhatsAppResult> =>
+                result.status === "fulfilled" && !result.value.ok,
+            )
+            .map((result) => result.value);
+          const rejectedResults = results.filter(
+            (result): result is PromiseRejectedResult =>
+              result.status === "rejected",
+          );
+
+          if (failedResults.length > 0 || rejectedResults.length > 0) {
+            console.error(
+              "[api/bookings/orders] Background WA notification failures",
+              {
+                businessId,
+                userId,
+                failureCount: failedResults.length,
+                rejectedCount: rejectedResults.length,
+                failures: failedResults.map((failure) => ({
+                  stage: failure.stage,
+                  message: failure.message,
+                })),
+                rejected: rejectedResults.map((failure) =>
+                  failure.reason instanceof Error
+                    ? failure.reason.message
+                    : String(failure.reason),
+                ),
+              },
+            );
+            return;
+          }
+
+          console.info(
+            "[api/bookings/orders] Background WA notifications sent successfully.",
+            {
+              businessId,
+              userId,
+              count: createdOrdersForWhatsApp.length,
+            },
+          );
+        });
+      }
+
+      return response;
     } catch (rowError) {
       // ── Handle capacity-full errors with 409 ──
       if (rowError instanceof CapacityFullError) {

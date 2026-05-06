@@ -23,6 +23,7 @@ import {
   type ProductionStageCategoryProfile,
 } from "@/lib/bookings/production-stages";
 import { getStaffTokenLimitForUser } from "@/lib/bakery/token-limits";
+import { getJakartaTodayIsoDate } from "@/lib/bookings/shipping-schedule";
 
 interface TeamMember {
   userId: number;
@@ -176,13 +177,6 @@ function inferDifficultyLabel(order: BakeryOrder): string | null {
   return normalized.charAt(0) + normalized.slice(1).toLowerCase();
 }
 
-function toLocalDateKey(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
 function statusBadgeClass(status: string): string {
   const normalized = normalizeOrderStatus(status);
   if (normalized === "In Production") {
@@ -204,10 +198,10 @@ export default function ProductionTable() {
     updateOrderStatus,
     assignProductionStageStaff,
     assignProductionStagesStaff,
-    resetStaffAssignments,
   } = useOrders();
   const { isOwner, isAdmin, isStaff, role, userName } = useRole();
   const isPrivilegedManager = isOwner || isAdmin;
+  const canOwnerManageAssignments = isOwner;
   const { settings: bakerySettings } = useBakerySettings();
   const productionDailyTokenLimit =
     bakerySettings?.dailyProductionTokenLimit ?? DEFAULT_MAX_TOKEN;
@@ -242,7 +236,6 @@ export default function ProductionTable() {
   const [activeTab, setActiveTab] = useState<"active" | "ready">("active");
   const [viewer, setViewer] = useState<ViewerIdentity | null>(null);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
-  const [resettingUserId, setResettingUserId] = useState<number | null>(null);
   const [loadingMeta, setLoadingMeta] = useState(true);
   const [filterMonth, setFilterMonth] = useState<string>("all");
   const [filterYear, setFilterYear] = useState<string>("all");
@@ -266,7 +259,33 @@ export default function ProductionTable() {
   >(EMPTY_STAGE_STAFF_SELECTIONS);
 
   const normalizedQuery = useMemo(() => query.trim().toLowerCase(), [query]);
-  const todayDateKey = useMemo(() => toLocalDateKey(new Date()), []);
+  const [todayDateKey, setTodayDateKey] = useState(() =>
+    getJakartaTodayIsoDate(),
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    let timeoutId: number | null = null;
+    const syncTodayDateKey = () => {
+      setTodayDateKey(getJakartaTodayIsoDate());
+      const now = new Date();
+      const nextMinute = new Date(now.getTime());
+      nextMinute.setSeconds(0, 0);
+      nextMinute.setMinutes(nextMinute.getMinutes() + 1);
+      timeoutId = window.setTimeout(
+        syncTodayDateKey,
+        Math.max(1000, nextMinute.getTime() - now.getTime()),
+      );
+    };
+
+    syncTodayDateKey();
+    return () => {
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     setIsListTransitioning(true);
@@ -399,28 +418,11 @@ export default function ProductionTable() {
               })
               .filter((member): member is TeamMember => Boolean(member));
 
-            // Tambahkan owner ke daftar team members jika mereka adalah owner
-            const ownerPayload = staffPayload.data?.owner as { id?: number; name?: string } | undefined;
-            if (ownerPayload?.id && parsedBusinessId) {
-              const ownerUserId = parseNumericId(ownerPayload.id);
-              if (ownerUserId && !allStaffMembers.some(m => m.userId === ownerUserId)) {
-                allStaffMembers.unshift({
-                  userId: ownerUserId,
-                  businessId: parsedBusinessId,
-                  role: "Owner",
-                  name: ownerPayload.name?.trim() ? `${ownerPayload.name.trim()} (Owner)` : "Owner",
-                });
-              }
-            }
-
-            const currentBusinessStaff = allStaffMembers.filter(
-              (member) => member.businessId === parsedBusinessId,
+            const membersToShow = allStaffMembers.filter(
+              (member) =>
+                member.businessId === parsedBusinessId &&
+                member.role === "Staff",
             );
-
-            const membersToShow =
-              currentBusinessStaff.length > 0
-                ? currentBusinessStaff
-                : allStaffMembers;
 
             if (active) {
               setTeamMembers(membersToShow);
@@ -519,7 +521,7 @@ export default function ProductionTable() {
     );
   }, [isPrivilegedManager, isStaff, orders, teamMembers, viewer, userName]);
 
-  const staffDailyIndicatorDateKey = filterDate || "";
+  const staffDailyIndicatorDateKey = filterDate.trim();
   const usesExplicitDailyDate = staffDailyIndicatorDateKey.length > 0;
 
   const staffDailyTokenByDate = useMemo(() => {
@@ -962,7 +964,7 @@ export default function ProductionTable() {
   };
 
   /**
-   * State untuk melacak dropdown inline assign-per-stage (Owner/Admin only).
+   * State untuk melacak dropdown inline assign-per-stage (Owner only).
    * Format key: `${orderId}:${stage}`
    */
   const [activeStageDropdown, setActiveStageDropdown] = useState<string | null>(null);
@@ -984,7 +986,7 @@ export default function ProductionTable() {
   }, [activeStageDropdown]);
 
   /**
-   * Handler untuk Owner/Admin assign staff ke stage tertentu secara inline.
+   * Handler untuk Owner assign staff ke stage tertentu secara inline.
    * Jika staffUserId null → unassign (kosongkan stage).
    */
   const handleOwnerAssignStage = useCallback(
@@ -993,22 +995,35 @@ export default function ProductionTable() {
       stage: ProductionStage,
       staffUserId: number | null,
     ) => {
+      if (!canOwnerManageAssignments) return;
+      const order = orders.find((entry) => entry.id === orderId);
+      const currentStaffId = parseNumericId(
+        order?.productionStages?.find((entry) => entry.stage === stage)?.staffId,
+      );
+
       if (staffUserId === null) {
-        assignProductionStageStaff(orderId, stage, null);
-      } else {
-        const member = teamMembers.find((m) => m.userId === staffUserId);
-        if (!member) return;
-        assignProductionStageStaff(orderId, stage, {
-          userId: member.userId,
-          name: member.name,
-        });
+        setActiveStageDropdown(null);
+        if (currentStaffId) {
+          toast.message(
+            "Assignment yang sudah diambil tidak bisa dilepas. Gunakan transfer ke staff lain.",
+          );
+        }
+        return;
       }
+
+      const member = teamMembers.find((m) => m.userId === staffUserId);
+      if (!member) return;
+      assignProductionStageStaff(orderId, stage, {
+        userId: member.userId,
+        name: member.name,
+      });
       setActiveStageDropdown(null);
     },
-    [assignProductionStageStaff, teamMembers],
+    [assignProductionStageStaff, canOwnerManageAssignments, orders, teamMembers],
   );
 
   const handleOpenStageAssignmentModal = (orderId: string) => {
+    if (!canOwnerManageAssignments) return;
     const order = orders.find((entry) => entry.id === orderId);
     if (!order) return;
     const stages = getEffectiveProductionStages(
@@ -1033,13 +1048,24 @@ export default function ProductionTable() {
   };
 
   const handleConfirmStageAssignments = () => {
+    if (!canOwnerManageAssignments) return;
     if (!stageAssignmentOrderId) return;
 
     const assignments = PRODUCTION_STAGE_ORDER.reduce(
       (acc, stage) => {
         const staffId = parseNumericId(stageStaffSelections[stage]);
+        const currentStaffId = parseNumericId(
+          stageAssignmentStages.find((entry) => entry.stage === stage)?.staffId,
+        );
         if (!staffId) {
-          acc[stage] = null;
+          acc[stage] = currentStaffId
+            ? {
+                userId: currentStaffId,
+                name:
+                  teamMembers.find((entry) => entry.userId === currentStaffId)
+                    ?.name || `Staff #${currentStaffId}`,
+              }
+            : null;
           return acc;
         }
 
@@ -1059,71 +1085,6 @@ export default function ProductionTable() {
 
     assignProductionStagesStaff(stageAssignmentOrderId, assignments);
     closeStageAssignmentModal();
-  };
-
-  const handleResetStaffMonth = (staffUserId: number) => {
-    setResettingUserId(staffUserId);
-    void (async () => {
-      try {
-        const changedCount = resetStaffAssignments(staffUserId, {
-          syncToServer: false,
-        });
-
-        const response = await fetch("/api/bakery/production/staff-tokens", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            staffUserId,
-          }),
-        });
-
-        const payload = (await response.json().catch(() => ({}))) as {
-          error?: string;
-          data?: {
-            affectedOrderCount?: unknown;
-            clearedStageCount?: unknown;
-          };
-        };
-
-        if (!response.ok) {
-          throw new Error(payload.error || "Gagal mereset token staff.");
-        }
-
-        const affectedOrderCount = Math.max(
-          0,
-          Number(payload.data?.affectedOrderCount ?? 0),
-        );
-        const clearedStageCount = Math.max(
-          0,
-          Number(payload.data?.clearedStageCount ?? 0),
-        );
-
-        if (
-          changedCount <= 0 &&
-          affectedOrderCount <= 0 &&
-          clearedStageCount <= 0
-        ) {
-          toast.message("Tidak ada assignment aktif yang perlu di-reset.");
-          return;
-        }
-
-        toast.success(
-          changedCount > 0
-            ? `${changedCount} order assignment berhasil dilepas dan token staff di-reset.`
-            : `${affectedOrderCount} order dan ${clearedStageCount} proses berhasil di-reset.`,
-        );
-      } catch (error) {
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : "Gagal mereset token staff.",
-        );
-      } finally {
-        setResettingUserId(null);
-      }
-    })();
   };
 
   const resetFilters = () => {
@@ -1255,7 +1216,7 @@ export default function ProductionTable() {
       parseNumericId(stage.staffId),
     ).length;
 
-    const canOwnerAssignOrTransfer = isPrivilegedManager;
+    const canOwnerAssignOrTransfer = canOwnerManageAssignments;
 
     let statusDisabledMessage = "";
     if (claimedStaffIds.length === 0) {
@@ -1412,9 +1373,8 @@ export default function ProductionTable() {
                   </div>
 
                   {isClaimed ? (
-                    // Stage sudah diisi: tampilkan token
-                    // Owner/Admin bisa klik untuk unassign atau ganti staff
-                    isPrivilegedManager ? (
+                    // Stage sudah diisi: Owner bisa transfer ke staff lain
+                    canOwnerAssignOrTransfer ? (
                       <div className="relative" ref={activeStageDropdown === `${order.id}:${stage}` ? stageDropdownRef : null}>
                         <button
                           type="button"
@@ -1424,7 +1384,7 @@ export default function ProductionTable() {
                             setActiveStageDropdown(prev => prev === key ? null : key);
                           }}
                           className="flex items-center gap-1 rounded-full border border-current/30 px-2 py-1 text-[11px] font-semibold text-current transition hover:bg-current/10"
-                          title="Klik untuk ganti atau lepas staff"
+                          title="Klik untuk transfer staff"
                         >
                           {stageToken} tok ▾
                         </button>
@@ -1433,16 +1393,16 @@ export default function ProductionTable() {
                             className="absolute right-0 top-full z-50 mt-1 min-w-[160px] rounded-xl border border-slate-200 bg-white shadow-xl"
                             onClick={(event) => event.stopPropagation()}
                           >
-                            {/* Opsi unassign */}
+                            {/* Transfer assignment */}
                             <button
                               type="button"
                               onClick={() => handleOwnerAssignStage(order.id, stage, null)}
-                              className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-rose-600 transition hover:bg-rose-50"
+                              className="hidden"
                             >
                               ✕ Lepas Assignment
                             </button>
-                            <div className="mx-2 my-1 border-t border-slate-100" />
-                            {/* Daftar staff untuk ganti */}
+                            <div className="hidden" />
+                            {/* Daftar staff untuk transfer */}
                             {teamMembers.map((member) => {
                               const memberDailyToken = orderDateKey
                                 ? (staffDailyTokenByDate.get(`${member.userId}:${orderDateKey}`) ?? 0)
@@ -1492,8 +1452,8 @@ export default function ProductionTable() {
                     >
                       Assign
                     </button>
-                  ) : isPrivilegedManager ? (
-                    // Owner/Admin: inline dropdown assign untuk stage yang kosong
+                  ) : canOwnerAssignOrTransfer ? (
+                    // Owner: inline dropdown assign untuk stage yang kosong
                     <div className="relative" ref={activeStageDropdown === `${order.id}:${stage}` ? stageDropdownRef : null}>
                       <button
                         type="button"
@@ -1933,6 +1893,9 @@ export default function ProductionTable() {
                     : dailyPct >= 100
                       ? "Limit tercapai"
                       : `Sisa ${remainingDailyToken} token`;
+                const tokenLabel = usesExplicitDailyDate
+                  ? "Token hari ini"
+                  : "Token aktif";
 
                 return (
                   <div
@@ -1955,26 +1918,12 @@ export default function ProductionTable() {
                         </div>
                       </div>
 
-                      {isPrivilegedManager && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            handleResetStaffMonth(staff.userId)
-                          }
-                          disabled={resettingUserId === staff.userId}
-                          className="shrink-0 rounded-full border border-[var(--crumbella-border)] bg-[var(--crumbella-accent-soft)] px-3 py-1.5 text-[11px] font-semibold text-[var(--crumbella-primary)] transition hover:bg-[#f6dcc8] disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {resettingUserId === staff.userId
-                            ? "Reset..."
-                            : "Reset token"}
-                        </button>
-                      )}
                     </div>
 
                     <div className="mt-4 grid grid-cols-2 gap-3 text-[11px] text-[var(--crumbella-muted)]">
                       <div>
                         <p className="uppercase tracking-[0.14em]">
-                          Token hari ini
+                          {tokenLabel}
                         </p>
                         <p className="mt-1 text-lg font-semibold text-[var(--foreground)]">
                           {usedDailyToken} / {normalizedDailyLimit}
@@ -2161,7 +2110,7 @@ export default function ProductionTable() {
         </p>
       )}
 
-      {stageAssignmentOrderId && stageAssignmentOrder ? (
+      {canOwnerManageAssignments && stageAssignmentOrderId && stageAssignmentOrder ? (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4"
           role="dialog"
@@ -2264,7 +2213,9 @@ export default function ProductionTable() {
                         }
                         className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
                       >
-                        <option value="">Kosong</option>
+                        {!parseNumericId(stageData?.staffId) ? (
+                          <option value="">Belum dipilih</option>
+                        ) : null}
                         {teamMembers.map((member) => (
                           <option key={member.userId} value={String(member.userId)}>
                             {member.name}

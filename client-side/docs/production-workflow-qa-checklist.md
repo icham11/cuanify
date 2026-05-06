@@ -126,6 +126,12 @@ Scope: validasi aturan assignment, status progression, transfer owner-only, dan 
   - Response 403.
   - Error: Hanya owner yang dapat memindahkan assignment order.
 
+- Login sebagai Admin.
+- Kirim payload transfer order dari Staff A ke Staff B.
+- Expected:
+  - Response 403.
+  - Error: Hanya owner yang dapat memindahkan assignment order.
+
 ### 13) API menolak proyeksi token staff di atas 500
 
 - Kirim payload assignment yang menyebabkan total token aktif staff/date lebih dari 500.
