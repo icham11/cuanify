@@ -236,6 +236,11 @@ interface StaffValidationOrder {
   items: JsonRecord[];
 }
 
+type AssignableStaffTargetOrder = Pick<
+  StaffValidationOrder,
+  "id" | "assignedStaffUserId" | "productionStages"
+>;
+
 type SnapshotSource = "rows" | "snapshot-fallback" | "snapshot-newer-than-rows";
 type SnapshotStore = Pick<typeof prisma, "businessDocument">;
 let bakeryTablesEnsuredPromise: Promise<void> | null = null;
@@ -572,8 +577,8 @@ function assignedStaffTargetsChanged(
   return currentIds.some((staffUserId, index) => staffUserId !== nextIds[index]);
 }
 
-function sanitizeAssignableStaffTargets(params: {
-  orders: StaffValidationOrder[];
+function sanitizeAssignableStaffTargets<T extends AssignableStaffTargetOrder>(params: {
+  orders: T[];
   assignableStaffUserIds: Set<number>;
 }) {
   const { orders, assignableStaffUserIds } = params;
@@ -610,17 +615,13 @@ function sanitizeAssignableStaffTargets(params: {
       ...order,
       assignedStaffUserId: sanitizedAssignedStaffUserId,
       productionStages,
-    };
+    } as T;
   });
 }
 
-function ensureAssignableStaffTargets(params: {
-  orders: Array<
-    Pick<StaffValidationOrder, "id" | "assignedStaffUserId" | "productionStages">
-  >;
-  existingOrders?: Array<
-    Pick<StaffValidationOrder, "id" | "assignedStaffUserId" | "productionStages">
-  >;
+function ensureAssignableStaffTargets<T extends AssignableStaffTargetOrder>(params: {
+  orders: T[];
+  existingOrders?: T[];
   assignableStaffUserIds: Set<number>;
 }) {
   const {
@@ -628,10 +629,7 @@ function ensureAssignableStaffTargets(params: {
     existingOrders = [],
     assignableStaffUserIds,
   } = params;
-  const existingOrdersMap = new Map<string, Pick<
-    StaffValidationOrder,
-    "id" | "assignedStaffUserId" | "productionStages"
-  >>(
+  const existingOrdersMap = new Map<string, AssignableStaffTargetOrder>(
     existingOrders.map((order) => [order.id, order]),
   );
 
