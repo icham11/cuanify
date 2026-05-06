@@ -234,6 +234,38 @@ function loadBookingDraftSnapshot(): BookingDraftSnapshot | null {
   }
 }
 
+function mergeRequestedImageLabels(
+  existingLabels: string[] | undefined,
+  requestedLabels: string[],
+): string[] {
+  return [
+    ...(Array.isArray(existingLabels) ? existingLabels : []),
+    ...requestedLabels,
+  ].filter((value, index, array) => {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return false;
+    return (
+      array.findIndex((entry) => entry.trim().toLowerCase() === normalized) ===
+      index
+    );
+  });
+}
+
+function buildReferenceInputSignature(args: {
+  files: File[];
+  requestedLabels: string[];
+}): string {
+  return JSON.stringify({
+    files: args.files.map((file) => ({
+      name: file.name,
+      size: file.size,
+      lastModified: file.lastModified,
+      type: file.type,
+    })),
+    requestedLabels: args.requestedLabels,
+  });
+}
+
 const itemSchema = z.object({
   category: z.string().min(1, "Category is required"),
   subcategory: z.string().min(1, "Subcategory is required"),
@@ -2495,6 +2527,18 @@ export default function BookingForm() {
     null,
   );
   const submitFeedbackRef = useRef<HTMLDivElement | null>(null);
+  const importDraftRef = useRef<
+    ((
+      override?: {
+        sourceType?: ParserSource;
+        orderType?: ParserOrderType;
+        text?: string;
+        successMessage?: string;
+      },
+    ) => Promise<void>) | null
+  >(null);
+  const autoParseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastParsedReferenceSignatureRef = useRef("");
   const shouldRequireSubmitConfirmation =
     !isRoleLoading && (isOwner || isAdmin);
   const canWarnDuplicateTemplate = !isRoleLoading && (isOwner || isAdmin);
@@ -2669,10 +2713,14 @@ export default function BookingForm() {
     setProductionPreviewImageUrl(snapshot.productionPreviewImageUrl);
     setDraftImported(snapshot.draftImported);
     setReferenceImageLabelsInput(snapshot.referenceImageLabelsInput);
-    setReferenceFilesChangedSinceParse(
-      snapshot.referenceFilesChangedSinceParse,
-    );
+    setReferenceFilesChangedSinceParse(false);
     setReferenceImageFiles([]);
+    lastParsedReferenceSignatureRef.current = buildReferenceInputSignature({
+      files: [],
+      requestedLabels: normalizeReferenceLabelInput(
+        snapshot.referenceImageLabelsInput,
+      ),
+    });
     setComposerStep(isReviewPage ? "preview" : "input");
   }, [isReviewPage, reset, router]);
 
@@ -2948,6 +2996,14 @@ export default function BookingForm() {
         .map((line) => line.trim())
         .filter(Boolean),
     [referenceImageLabelsInput],
+  );
+  const referenceInputSignature = useMemo(
+    () =>
+      buildReferenceInputSignature({
+        files: referenceImageFiles,
+        requestedLabels: normalizedReferenceImageLabels,
+      }),
+    [normalizedReferenceImageLabels, referenceImageFiles],
   );
 
   const itemPriceBreakdowns = useMemo(() => {
@@ -4827,6 +4883,11 @@ export default function BookingForm() {
   };
 
   const resetBookingDraftState = () => {
+    if (autoParseTimeoutRef.current) {
+      clearTimeout(autoParseTimeoutRef.current);
+      autoParseTimeoutRef.current = null;
+    }
+    lastParsedReferenceSignatureRef.current = "";
     if (typeof window !== "undefined") {
       window.sessionStorage.removeItem(BOOKING_DRAFT_STORAGE_KEY);
     }
@@ -5537,20 +5598,10 @@ export default function BookingForm() {
         });
       }
 
-      const mergedRequestedImageLabels = [
-        ...(Array.isArray(payload.parsed.requestedImageLabels)
-          ? payload.parsed.requestedImageLabels
-          : []),
-        ...explicitRequestedImageLabels,
-      ].filter((value, index, array) => {
-        const normalized = value.trim().toLowerCase();
-        if (!normalized) return false;
-        return (
-          array.findIndex(
-            (entry) => entry.trim().toLowerCase() === normalized,
-          ) === index
-        );
-      });
+      const mergedRequestedImageLabels = mergeRequestedImageLabels(
+        payload.parsed.requestedImageLabels,
+        explicitRequestedImageLabels,
+      );
       const enrichedParsedPreview: ParsedWhatsAppOrder = {
         ...payload.parsed,
         referenceImages: buildParsedReferenceImages({
@@ -5569,11 +5620,16 @@ export default function BookingForm() {
       setProductionPreviewImageUrl(payload.productionPreviewImageUrl ?? "");
       setDraftImported(true);
       setReferenceFilesChangedSinceParse(false);
+      lastParsedReferenceSignatureRef.current = buildReferenceInputSignature({
+        files: referenceImageFiles,
+        requestedLabels: explicitRequestedImageLabels,
+      });
       setShowOrderTypeSelector(false);
       openPreviewPage({
         parsedPreview: enrichedParsedPreview,
         productionPreviewImageUrl: payload.productionPreviewImageUrl ?? "",
         draftImported: true,
+        referenceFilesChangedSinceParse: false,
       });
       window.scrollTo({ top: 0, behavior: "smooth" });
 
@@ -5596,6 +5652,7 @@ export default function BookingForm() {
       setIsParsingWhatsApp(false);
     }
   };
+  importDraftRef.current = importDraft;
 
   const fillManualTemplate = () => {
     if (selectedOrderType === "unknown") {
@@ -5610,6 +5667,96 @@ export default function BookingForm() {
       "Template manual berhasil diisi. Lanjutkan isi lalu klik Parse WhatsApp.",
     );
   };
+
+  useEffect(() => {
+    if (!draftImported || !parsedPreview || isParsingWhatsApp) {
+      return;
+    }
+
+    if (referenceInputSignature === lastParsedReferenceSignatureRef.current) {
+      if (referenceFilesChangedSinceParse) {
+        setReferenceFilesChangedSinceParse(false);
+      }
+      return;
+    }
+
+    if (autoParseTimeoutRef.current) {
+      clearTimeout(autoParseTimeoutRef.current);
+      autoParseTimeoutRef.current = null;
+    }
+
+    if (referenceImageFiles.length > 0) {
+      setReferenceFilesChangedSinceParse(true);
+      autoParseTimeoutRef.current = setTimeout(() => {
+        autoParseTimeoutRef.current = null;
+        void importDraftRef.current?.({
+          successMessage:
+            "Referensi gambar terbaru berhasil diparse ulang otomatis.",
+        });
+      }, 700);
+
+      return () => {
+        if (autoParseTimeoutRef.current) {
+          clearTimeout(autoParseTimeoutRef.current);
+          autoParseTimeoutRef.current = null;
+        }
+      };
+    }
+
+    const nextParsedPreview: ParsedWhatsAppOrder = {
+      ...parsedPreview,
+      referenceImages: buildParsedReferenceImages({
+        parsed: parsedPreview,
+        requestedLabels: normalizedReferenceImageLabels,
+      }),
+      requestedImageLabels: mergeRequestedImageLabels(
+        parsedPreview.requestedImageLabels,
+        normalizedReferenceImageLabels,
+      ),
+    };
+
+    setParsedPreview(nextParsedPreview);
+    setReferenceFilesChangedSinceParse(false);
+    lastParsedReferenceSignatureRef.current = referenceInputSignature;
+
+    try {
+      saveBookingDraftSnapshot({
+        composerStep,
+        quickPaste,
+        selectedOrderType,
+        parsedPreview: nextParsedPreview,
+        productionPreviewImageUrl,
+        draftImported: true,
+        referenceImageLabelsInput,
+        referenceFilesChangedSinceParse: false,
+        formValues: bookingSchema.parse(getValues()),
+      });
+    } catch {
+      // Ignore draft snapshot sync until form reaches a valid shape again.
+    }
+  }, [
+    composerStep,
+    draftImported,
+    getValues,
+    isParsingWhatsApp,
+    parsedPreview,
+    productionPreviewImageUrl,
+    quickPaste,
+    referenceFilesChangedSinceParse,
+    referenceImageFiles,
+    referenceImageLabelsInput,
+    referenceInputSignature,
+    selectedOrderType,
+    normalizedReferenceImageLabels,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      if (autoParseTimeoutRef.current) {
+        clearTimeout(autoParseTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const submitFeedback = submitError ? (
     <div
