@@ -34,7 +34,9 @@ export interface SendOrderToWhatsAppResult {
   imageUrl?: string;
 }
 
-function buildProductionCaption(order: SendOrderToWhatsAppInput): string {
+export function buildProductionCaption(
+  order: SendOrderToWhatsAppInput,
+): string {
   const lines: string[] = [];
 
   lines.push("Tanggal Pengiriman :");
@@ -153,36 +155,26 @@ function normalizeStructuredReferenceImages(
 export async function sendOrderToWhatsApp(
   order: SendOrderToWhatsAppInput,
 ): Promise<SendOrderToWhatsAppResult> {
+
   const selectedImageUrls = normalizeReferenceImageUrls(order);
   const structuredReferenceImages = normalizeStructuredReferenceImages(order);
 
-  // Ambil semua kandidat gambar yang bukan template dan bukan placeholder
-  const sourceImageCandidates = [
+  // DEBUG LOGGING
+  console.info('[WA DEBUG] selectedImageUrls:', selectedImageUrls);
+  console.info('[WA DEBUG] structuredReferenceImages:', structuredReferenceImages);
+
+  // Ambil semua kandidat gambar user-upload (http/https, bukan template/data URI/placeholder)
+  const userUploadedImages = [
     ...selectedImageUrls,
     ...structuredReferenceImages.map((r) => r.url),
   ].filter(
     (url) =>
       url &&
+      /^https?:\/\//i.test(url) &&
       !url.includes("/orders/generated/") &&
       !url.includes("via.placeholder.com"),
   );
-
-  console.info("[sendOrderToWhatsApp] Image candidates:", {
-    inputImageUrl: order.imageUrl,
-    inputImageUrlsCount: order.imageUrls?.length,
-    selectedImageUrlsCount: selectedImageUrls.length,
-    sourceImageCandidatesCount: sourceImageCandidates.length,
-  });
-
-  const productImageUrl =
-    sourceImageCandidates[0] || selectedImageUrls[0] || FALLBACK_IMAGE_URL;
-
-  const payload: SendOrderToWhatsAppInput = {
-    ...order,
-    imageUrl: productImageUrl,
-    imageUrls: selectedImageUrls,
-    referenceImages: structuredReferenceImages,
-  };
+  console.info('[WA DEBUG] userUploadedImages:', userUploadedImages);
 
   if (!process.env.FONNTE_TOKEN) {
     return {
@@ -200,26 +192,17 @@ export async function sendOrderToWhatsApp(
     };
   }
 
-  let generatedOrderImageUrl = "";
-  let generatedBuffer: Buffer | null = null;
-
-  // Cek apakah ada gambar asli yang diupload (hanya HTTP/HTTPS, bukan template/data URI)
-  const originalImageUrl = sourceImageCandidates.find((u) =>
-    /^https?:\/\//i.test(String(u)),
-  );
-
-  if (originalImageUrl) {
-    // Jika ada gambar asli, gunakan langsung tanpa generate template
-    generatedOrderImageUrl = originalImageUrl;
-    console.info(
-      "[sendOrderToWhatsApp] MENGGUNAKAN GAMBAR ASLI:",
-      originalImageUrl,
-    );
-  } else {
-    console.info(
-      "[sendOrderToWhatsApp] TIDAK ADA GAMBAR ASLI, GENERATING TEMPLATE...",
-    );
-    // Jika tidak ada gambar asli, baru generate dari template
+  // Jika tidak ada gambar user-upload, fallback ke template lama (generate template)
+  if (userUploadedImages.length === 0) {
+    // ...existing code for template generation...
+    let generatedOrderImageUrl = "";
+    let generatedBuffer: Buffer | null = null;
+    const payload: SendOrderToWhatsAppInput = {
+      ...order,
+      imageUrl: undefined,
+      imageUrls: [],
+      referenceImages: [],
+    };
     try {
       generatedBuffer = await generateOrderImage(payload);
     } catch (error) {
@@ -232,16 +215,13 @@ export async function sendOrderToWhatsApp(
             : "Failed to generate WhatsApp order image.",
       };
     }
-
     try {
       const imageUrl = await uploadToCloudinary(generatedBuffer, {
         folder: "orders/generated",
       });
-
       if (!imageUrl || !imageUrl.trim()) {
         throw new Error("Image URL is missing.");
       }
-
       generatedOrderImageUrl = imageUrl;
     } catch (error) {
       return {
@@ -253,29 +233,108 @@ export async function sendOrderToWhatsApp(
             : "Failed to upload WhatsApp order image.",
       };
     }
+    try {
+      await sendWhatsAppImage(
+        generatedOrderImageUrl,
+        buildProductionCaption(payload),
+      );
+      return {
+        ok: true,
+        stage: "send",
+        message:
+          "WhatsApp production notification sent successfully (template fallback).",
+        imageUrl: generatedOrderImageUrl,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        stage: "send",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Failed to send WhatsApp production notification.",
+        imageUrl: generatedOrderImageUrl,
+      };
+    }
   }
 
+  // 1. Kirim satu pesan teks rekap order (tanpa gambar)
+  let lastResult: SendOrderToWhatsAppResult = { ok: false, stage: "send", message: "No messages sent" };
   try {
-    await sendWhatsAppImage(
-      generatedOrderImageUrl,
-      buildProductionCaption(payload),
-    );
+    let lines: string[] = [];
+    lines.push(`Tanggal Pengiriman :\n${formatWhatsAppDeliveryDate(order.deliveryDate)}`);
+    lines.push("");
+    lines.push(`KODE BOOKING : ${order.bookingCode || '-'}`);
+    lines.push("");
+    if (order.captionItems && order.captionItems.length > 0) {
+      for (const item of order.captionItems) {
+        lines.push(`Order :\n${item.productName || '-'}`);
+        if (item.detailLines && item.detailLines.length > 0) {
+          for (const d of item.detailLines) {
+            lines.push(`${d.label} : ${d.value}`);
+          }
+        }
+        lines.push("");
+      }
+    }
+    lines.push(`Jam Pengiriman: ${formatWhatsAppDeliveryTime(order.deliveryTime)}`);
+    lines.push(`Metode Pengiriman : ${order.shippingMethod || '-'}`);
+    lines.push(`Nama penerima : ${order.recipientName || order.customerName || '-'}`);
+    lines.push(`No. telp penerima : ${order.recipientPhone || order.phone || '-'}`);
+    lines.push(`Alamat lengkap : ${order.fullAddress || order.address || '-'}`);
 
-    return {
+    await sendWhatsAppImage('', lines.join("\n")); // Kirim teks saja, tanpa gambar
+    lastResult = {
       ok: true,
       stage: "send",
-      message: "WhatsApp production notification sent successfully.",
-      imageUrl: generatedOrderImageUrl,
+      message: "WhatsApp order recap text sent successfully.",
+      imageUrl: undefined,
     };
   } catch (error) {
-    return {
+    lastResult = {
       ok: false,
       stage: "send",
       message:
         error instanceof Error
           ? error.message
-          : "Failed to send WhatsApp production notification.",
-      imageUrl: generatedOrderImageUrl,
+          : "Failed to send WhatsApp order recap text.",
+      imageUrl: undefined,
     };
+    return lastResult;
   }
+
+  // 2. Kirim satu per satu gambar user-upload, caption = detail gambar dari parser
+  for (let i = 0; i < userUploadedImages.length; i++) {
+    const imgUrl = userUploadedImages[i];
+    let caption = '';
+    // Ambil label/notes dari referenceImages jika ada, jika tidak dari captionItems
+    if (order.referenceImages && order.referenceImages[i]?.label) {
+      caption = order.referenceImages[i].label ?? '';
+    } else if (order.captionItems && order.captionItems[i]?.productName) {
+      caption = order.captionItems[i].productName ?? '';
+    } else {
+      caption = `Gambar ${i + 1}`;
+    }
+    try {
+      await sendWhatsAppImage(imgUrl, caption);
+      lastResult = {
+        ok: true,
+        stage: "send",
+        message: `WhatsApp image sent for image ${i + 1}`,
+        imageUrl: imgUrl,
+      };
+    } catch (error) {
+      lastResult = {
+        ok: false,
+        stage: "send",
+        message:
+          error instanceof Error
+            ? error.message
+            : `Failed to send WhatsApp image for image ${i + 1}`,
+        imageUrl: imgUrl,
+      };
+      break;
+    }
+  }
+  return lastResult;
 }
