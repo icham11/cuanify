@@ -11,6 +11,7 @@ import {
   Package2,
   Search,
   Wallet,
+  X,
 } from "lucide-react";
 import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import { type BakeryOrder, useOrders } from "@/components/bakery/store";
@@ -117,6 +118,7 @@ export default function BakeryDashboardPage() {
   const [isTeamLoading, setIsTeamLoading] = useState(true);
   const [staffRoleFilter, setStaffRoleFilter] = useState<"all" | "staff" | "admin">("all");
   const [staffSearch, setStaffSearch] = useState("");
+  const [isCashInModalOpen, setIsCashInModalOpen] = useState(false);
 
   const today = getJakartaTodayIsoDate();
   const staffDailyTokenLimit =
@@ -289,6 +291,87 @@ export default function BakeryDashboardPage() {
     () => todayPayments.reduce((sum, transaction) => sum + Number(transaction.amount || 0), 0),
     [todayPayments],
   );
+
+  const todayPaymentBreakdown = useMemo(() => {
+    const grouped = new Map<
+      string,
+      {
+        customerName: string;
+        customerPhone: string;
+        amountToday: number;
+        orderIds: Set<string>;
+        bookingCodes: Set<string>;
+        productLabels: string[];
+        paymentTypes: Set<string>;
+      }
+    >();
+
+    for (const order of orders) {
+      const todaysTransactions = (order.paymentTransactions ?? []).filter(
+        (transaction) => toJakartaDateKey(transaction.timestamp) === today,
+      );
+
+      if (todaysTransactions.length === 0) continue;
+
+      const customerName = (order.customerName || "").trim() || "Customer";
+      const customerPhone = (order.customerPhone || "").trim();
+      const key = `${customerName.toLowerCase()}||${customerPhone.toLowerCase()}`;
+      const existing = grouped.get(key) ?? {
+        customerName,
+        customerPhone,
+        amountToday: 0,
+        orderIds: new Set<string>(),
+        bookingCodes: new Set<string>(),
+        productLabels: [],
+        paymentTypes: new Set<string>(),
+      };
+
+      for (const transaction of todaysTransactions) {
+        existing.amountToday += Math.max(0, Number(transaction.amount || 0));
+        existing.paymentTypes.add(transaction.type || "Payment");
+      }
+
+      existing.orderIds.add(order.id);
+      if (order.bookingCode) {
+        existing.bookingCodes.add(order.bookingCode);
+      }
+
+      const productLabel =
+        order.items?.[0]?.productName?.trim() ||
+        order.product?.trim() ||
+        "Order custom";
+      if (
+        productLabel &&
+        !existing.productLabels.some(
+          (label) => label.toLowerCase() === productLabel.toLowerCase(),
+        )
+      ) {
+        existing.productLabels.push(productLabel);
+      }
+
+      grouped.set(key, existing);
+    }
+
+    return Array.from(grouped.values())
+      .map((entry) => ({
+        customerName: entry.customerName,
+        customerPhone: entry.customerPhone,
+        amountToday: entry.amountToday,
+        orderCount: entry.orderIds.size,
+        paymentLabel:
+          entry.paymentTypes.size > 1
+            ? "DP + pelunasan"
+            : entry.paymentTypes.has("Final")
+              ? "Pelunasan"
+              : "DP",
+        shortInfo: entry.productLabels.slice(0, 2).join(" - "),
+        bookingCode:
+          entry.bookingCodes.size === 1
+            ? Array.from(entry.bookingCodes)[0] || ""
+            : `${entry.bookingCodes.size} booking`,
+      }))
+      .sort((left, right) => right.amountToday - left.amountToday);
+  }, [orders, today]);
 
   const upcomingDeliveries = useMemo(
     () =>
@@ -493,7 +576,18 @@ export default function BakeryDashboardPage() {
         icon={BarChart3}
       />
 
-      <section className="rounded-[26px] border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] px-4 py-4 shadow-[0_16px_30px_-24px_rgba(30,18,10,0.5)]">
+      <section
+        role="button"
+        tabIndex={0}
+        onClick={() => setIsCashInModalOpen(true)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            setIsCashInModalOpen(true);
+          }
+        }}
+        className="cursor-pointer rounded-[26px] border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] px-4 py-4 shadow-[0_16px_30px_-24px_rgba(30,18,10,0.5)] transition hover:border-[var(--crumbella-accent)] hover:bg-[#fffdfa]"
+      >
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--crumbella-muted)]">
@@ -505,12 +599,83 @@ export default function BakeryDashboardPage() {
             <p className="mt-2 text-[11px] text-[var(--crumbella-muted)]">
               Berdasar transaksi payment hari ini - {todayPayments.length} transaksi
             </p>
+            <p className="mt-2 text-[10px] font-semibold text-[var(--crumbella-primary)]">
+              Tap untuk lihat rincian customer
+            </p>
           </div>
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[var(--crumbella-accent-soft)] text-[var(--crumbella-primary)] sm:h-12 sm:w-12">
             <Wallet className="h-5 w-5" />
           </div>
         </div>
       </section>
+
+      {isCashInModalOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4 py-6">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Rincian uang masuk hari ini"
+            className="w-full max-w-md rounded-[28px] border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] shadow-[0_30px_60px_-28px_rgba(30,18,10,0.6)]"
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-[var(--crumbella-border)] px-4 py-4">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--crumbella-muted)]">
+                  Rincian Omzet Hari Ini
+                </p>
+                <p className="mt-1 text-[1.5rem] font-extrabold leading-none text-[var(--foreground)]">
+                  {formatRupiah(cashInToday)}
+                </p>
+                <p className="mt-1 text-[11px] text-[var(--crumbella-muted)]">
+                  {todayPaymentBreakdown.length} customer berkontribusi hari ini
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCashInModalOpen(false)}
+                className="flex h-9 w-9 items-center justify-center rounded-full border border-[var(--crumbella-border)] bg-white text-[var(--crumbella-muted)] transition hover:text-[var(--foreground)]"
+                aria-label="Tutup rincian uang masuk"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="max-h-[65vh] space-y-2 overflow-y-auto px-4 py-4">
+              {todayPaymentBreakdown.length === 0 ? (
+                <div className="rounded-[22px] border border-dashed border-[var(--crumbella-border)] bg-[var(--crumbella-accent-soft)]/35 px-4 py-6 text-center text-sm text-[var(--crumbella-muted)]">
+                  Belum ada pembayaran customer yang masuk hari ini.
+                </div>
+              ) : (
+                todayPaymentBreakdown.map((entry) => (
+                  <div
+                    key={`${entry.customerName}-${entry.customerPhone}`}
+                    className="rounded-[22px] border border-[var(--crumbella-border)] bg-white px-4 py-3 shadow-[0_12px_24px_-24px_rgba(30,18,10,0.55)]"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-[14px] font-semibold text-[var(--foreground)]">
+                          {entry.customerName}
+                        </p>
+                        <p className="mt-0.5 text-[11px] text-[var(--crumbella-muted)]">
+                          {entry.shortInfo || "Order custom"} - {entry.orderCount} order
+                        </p>
+                        <p className="mt-0.5 text-[10px] text-[var(--crumbella-muted)]">
+                          {entry.paymentLabel} - {entry.bookingCode}
+                        </p>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <p className="text-[10px] text-[var(--crumbella-muted)]">Masuk hari ini</p>
+                        <p className="mt-1 text-[15px] font-extrabold leading-none text-[var(--foreground)]">
+                          {formatRupiah(entry.amountToday)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <section className="grid grid-cols-2 gap-3">
         {summaryCards.map((card) => {

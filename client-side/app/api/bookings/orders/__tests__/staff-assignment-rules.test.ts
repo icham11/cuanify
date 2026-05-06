@@ -166,6 +166,29 @@ describe("Orders API staff assignment and status transition rules", () => {
     });
   });
 
+  it("allows completing unassigned order for backfill flow", () => {
+    const orders = [
+      makeOrder({
+        orderStatus: "Completed",
+        assignedStaffUserId: null,
+      }),
+    ];
+
+    const existingAssignments = [
+      makeExistingAssignment({
+        order_status: "Inquiry",
+        assigned_staff_user_id: null,
+      }),
+    ];
+
+    validateAssignmentTransitionRules({
+      orders,
+      existingAssignments,
+      roleName: "Owner",
+      userId: 1,
+    });
+  });
+
   it("rejects staff unassign action for already claimed order", () => {
     const orders = [
       makeOrder({

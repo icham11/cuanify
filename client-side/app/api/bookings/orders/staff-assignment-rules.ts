@@ -264,7 +264,12 @@ export function validateAssignmentTransitionRules(params: {
     const nextHasAssignment =
       getOrderStaffTokenAssignmentsForLimit(order).length > 0;
 
-    if (statusChanged && !nextHasAssignment && nextStatus !== "Cancelled") {
+    if (
+      statusChanged &&
+      !nextHasAssignment &&
+      nextStatus !== "Cancelled" &&
+      nextStatus !== "Completed"
+    ) {
       throw new ForbiddenError("Order must be assigned before changing status");
     }
 

@@ -1,12 +1,19 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, Download, Search, Users } from "lucide-react";
-import { exportToExcel } from "@/lib/helpers/export-excel";
-import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
+import {
+  Menu,
+  MessageCircle,
+  Search,
+  Star,
+  Users,
+} from "lucide-react";
 import { useOrders } from "@/components/bakery/store";
 
+type CustomerSegment = "all" | "vip" | "repeat" | "new";
+
 type CustomerRow = {
+  key: string;
   name: string;
   phone: string;
   address: string;
@@ -14,10 +21,21 @@ type CustomerRow = {
   totalSpent: number;
   lastOrderDate: string;
   lastDeliverySlot: string;
+  segment: Exclude<CustomerSegment, "all">;
 };
+
+const VIP_THRESHOLD = 10_000_000;
 
 function normalizePhone(value: string): string {
   return value.replace(/\s+/g, "").trim();
+}
+
+function normalizePhoneForWhatsApp(value: string): string {
+  const digits = value.replace(/\D/g, "");
+  if (!digits) return "";
+  if (digits.startsWith("62")) return digits;
+  if (digits.startsWith("0")) return `62${digits.slice(1)}`;
+  return digits;
 }
 
 function formatCurrency(value: number): string {
@@ -25,17 +43,82 @@ function formatCurrency(value: number): string {
     style: "currency",
     currency: "IDR",
     minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
   }).format(Math.max(0, value));
+}
+
+function formatCurrencyCompact(value: number): string {
+  const safeValue = Math.max(0, value);
+
+  if (safeValue >= 1_000_000_000) {
+    return `Rp${(safeValue / 1_000_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+  }
+  if (safeValue >= 1_000_000) {
+    return `Rp${(safeValue / 1_000_000).toFixed(1).replace(/\.0$/, "")}jt`;
+  }
+  if (safeValue >= 1_000) {
+    return `Rp${(safeValue / 1_000).toFixed(0)}rb`;
+  }
+
+  return formatCurrency(safeValue);
+}
+
+function formatLongDate(value: string): string {
+  if (!value) return "-";
+  const parsed = new Date(`${value}T00:00:00+07:00`);
+  if (Number.isNaN(parsed.getTime())) return value;
+
+  return new Intl.DateTimeFormat("id-ID", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    timeZone: "Asia/Jakarta",
+  }).format(parsed);
+}
+
+function formatHeaderDate(value: Date): string {
+  return new Intl.DateTimeFormat("id-ID", {
+    weekday: "long",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "Asia/Jakarta",
+  }).format(value);
+}
+
+function getCustomerSegment(customer: {
+  totalSpent: number;
+  orderCount: number;
+}): CustomerRow["segment"] {
+  if (customer.totalSpent >= VIP_THRESHOLD) return "vip";
+  if (customer.orderCount > 1) return "repeat";
+  return "new";
+}
+
+function getInitials(name: string): string {
+  const parts = name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2);
+
+  if (parts.length === 0) return "C";
+  return parts.map((part) => part[0]?.toUpperCase() || "").join("");
+}
+
+function getSegmentLabel(segment: CustomerRow["segment"]): string {
+  if (segment === "vip") return "VIP";
+  if (segment === "repeat") return "Repeat";
+  return "New";
 }
 
 export default function BakeryCustomersPage() {
   const { orders } = useOrders();
   const [query, setQuery] = useState("");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [activeFilter, setActiveFilter] = useState<CustomerSegment>("all");
 
-  const filteredCustomers = useMemo<CustomerRow[]>(() => {
-    const grouped = new Map<string, CustomerRow>();
+  const allCustomers = useMemo<CustomerRow[]>(() => {
+    const grouped = new Map<string, Omit<CustomerRow, "segment">>();
 
     orders.forEach((order) => {
       const name = (order.customerName || "").trim();
@@ -46,13 +129,16 @@ export default function BakeryCustomersPage() {
         "-";
 
       if (!name && !phone) return;
-      const key = `${name.toLowerCase()}||${phone.toLowerCase()}`;
-      const existing = grouped.get(key);
+
+      const keyBase = `${name.toLowerCase()}||${phone.toLowerCase()}`;
+      const key = keyBase || `${address.toLowerCase()}||unknown`;
       const orderTotal = Math.max(0, Number(order.totalPrice || 0));
       const deliveryDate = (order.deliveryDate || "").trim();
+      const existing = grouped.get(key);
 
       if (!existing) {
         grouped.set(key, {
+          key,
           name: name || "Customer",
           phone: phone || "-",
           address,
@@ -66,6 +152,7 @@ export default function BakeryCustomersPage() {
 
       existing.orderCount += 1;
       existing.totalSpent += orderTotal;
+
       if (deliveryDate && deliveryDate > existing.lastOrderDate) {
         existing.lastOrderDate = deliveryDate;
         existing.lastDeliverySlot = (order.deliverySlot || "").trim();
@@ -73,212 +160,262 @@ export default function BakeryCustomersPage() {
       }
     });
 
-    const q = query.trim().toLowerCase();
-    const rows = Array.from(grouped.values());
-    const filtered = q
-      ? rows.filter(
-          (row) =>
-            row.name.toLowerCase().includes(q) ||
-            row.phone.toLowerCase().includes(q) ||
-            row.address.toLowerCase().includes(q),
-        )
-      : rows;
+    return Array.from(grouped.values())
+      .map((customer) => ({
+        ...customer,
+        segment: getCustomerSegment(customer),
+      }))
+      .sort((left, right) => {
+        if (right.totalSpent !== left.totalSpent) {
+          return right.totalSpent - left.totalSpent;
+        }
+        return left.name.localeCompare(right.name, "id");
+      });
+  }, [orders]);
 
-    return filtered.sort((a, b) => a.name.localeCompare(b.name, "id"));
-  }, [orders, query]);
+  const summary = useMemo(() => {
+    const vipCount = allCustomers.filter((customer) => customer.segment === "vip").length;
+    const repeatCount = allCustomers.filter((customer) => customer.segment === "repeat").length;
+    const revenue = allCustomers.reduce((sum, customer) => sum + customer.totalSpent, 0);
 
-  const totalCustomers = filteredCustomers.length;
-  const totalPages = Math.max(1, Math.ceil(totalCustomers / pageSize));
-  const safePage = Math.min(page, totalPages);
-  const startIndex = (safePage - 1) * pageSize;
-  const endIndex = Math.min(startIndex + pageSize, totalCustomers);
-  const pagedCustomers = filteredCustomers.slice(startIndex, endIndex);
-  const totalOrderCount = filteredCustomers.reduce(
-    (sum, row) => sum + row.orderCount,
-    0,
-  );
-  const totalSpend = filteredCustomers.reduce((sum, row) => sum + row.totalSpent, 0);
+    return {
+      totalCustomers: allCustomers.length,
+      vipCount,
+      repeatCount,
+      revenue,
+    };
+  }, [allCustomers]);
 
-  const handleExportExcel = () => {
-    const dataToExport = filteredCustomers.map((c) => ({
-      Name: c.name,
-      Phone: c.phone,
-      Address: c.address,
-      "Order Count": c.orderCount,
-      "Total Spent": c.totalSpent,
-      "Last Order": c.lastOrderDate,
-      "Last Slot": c.lastDeliverySlot,
-    }));
+  const filteredCustomers = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
 
-    exportToExcel(dataToExport, "Bakery_Customers", "Customers");
-  };
+    return allCustomers.filter((customer) => {
+      const matchesFilter =
+        activeFilter === "all" ? true : customer.segment === activeFilter;
+
+      if (!matchesFilter) return false;
+      if (!normalizedQuery) return true;
+
+      return [customer.name, customer.phone, customer.address].some((value) =>
+        value.toLowerCase().includes(normalizedQuery),
+      );
+    });
+  }, [activeFilter, allCustomers, query]);
+
+  const todayLabel = useMemo(() => formatHeaderDate(new Date()), []);
 
   return (
-    <div className="space-y-6 pb-8">
-      <GradientPageHeader
-        title="Customer Database"
-        description="Data customer dari seluruh booking order, otomatis tersusun rapi."
-        icon={Users}
-        actions={
-          <button
-            type="button"
-            onClick={handleExportExcel}
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-white px-4 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-50"
-          >
-            <Download className="h-4 w-4" />
-            Export Excel
-          </button>
-        }
-      />
+    <div className="min-h-screen bg-[#f6ede3] text-[#221710]">
+      <div className="mx-auto flex w-full max-w-[392px] flex-col px-3 pb-8 pt-3 md:max-w-[392px]">
+        <div className="flex items-start justify-between border-b border-[#decdbe] px-1 pb-2.5">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              className="flex h-8 w-8 items-center justify-center rounded-full text-[#7c4420] transition hover:bg-[#f0e4d7]"
+              aria-label="Menu"
+            >
+              <Menu className="h-[18px] w-[18px]" />
+            </button>
+            <div>
+              <p className="text-[29px] font-black leading-none tracking-[-0.035em] text-[#221710]">
+                Data Customer
+              </p>
+              <p className="mt-0.5 text-[12px] leading-none text-[#9a7861]">{todayLabel}</p>
+            </div>
+          </div>
+          <div className="flex h-8 min-w-8 items-center justify-center rounded-full px-2 text-[12px] font-bold text-[#9e4e1f]">
+            FE
+          </div>
+        </div>
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <div className="rounded-2xl border border-indigo-100 bg-white p-4 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Total Customer
-          </p>
-          <p className="mt-1 text-2xl font-extrabold text-slate-800">{totalCustomers}</p>
-        </div>
-        <div className="rounded-2xl border border-indigo-100 bg-white p-4 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Total Order
-          </p>
-          <p className="mt-1 text-2xl font-extrabold text-slate-800">{totalOrderCount}</p>
-        </div>
-        <div className="rounded-2xl border border-indigo-100 bg-white p-4 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Total Belanja
-          </p>
-          <p className="mt-1 text-2xl font-extrabold text-emerald-700">{formatCurrency(totalSpend)}</p>
-        </div>
-      </div>
-
-      <div className="rounded-2xl border border-indigo-100 bg-white p-4 shadow-sm">
-        <div className="grid gap-3 md:grid-cols-[1fr_180px]">
-          <div className="flex items-center gap-2 rounded-xl border border-indigo-200 px-3">
-            <Search className="h-4 w-4 text-indigo-500" />
+        <div className="mt-3 rounded-[24px] border border-[#eadbce] bg-transparent">
+          <div className="flex items-center gap-2 rounded-[14px] border border-[#d9c7b8] bg-white px-4 py-[11px] shadow-[0_4px_12px_-10px_rgba(76,47,25,0.45)]">
+            <Search className="h-[15px] w-[15px] text-[#dc6f2d]" />
             <input
               value={query}
-              onChange={(event) => {
-                setQuery(event.target.value);
-                setPage(1);
-              }}
-              placeholder="Cari nama, no hp, atau alamat..."
-              className="h-10 w-full bg-transparent text-sm text-slate-700 outline-none"
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Cari nama customer..."
+              className="w-full bg-transparent text-[14px] leading-none text-[#765443] outline-none placeholder:text-[#cf8f6d]"
             />
           </div>
-          <select
-            value={String(pageSize)}
-            onChange={(event) => {
-              setPageSize(Math.max(5, Number(event.target.value) || 25));
-              setPage(1);
-            }}
-            className="h-10 rounded-xl border border-indigo-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-indigo-400"
-          >
-            <option value="10">10 / halaman</option>
-            <option value="25">25 / halaman</option>
-            <option value="50">50 / halaman</option>
-            <option value="100">100 / halaman</option>
-          </select>
-        </div>
-      </div>
 
-      <div className="rounded-2xl border border-indigo-100 bg-white shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-indigo-100 px-4 py-3 text-sm text-slate-600">
-          <p className="font-semibold">
-            Menampilkan {totalCustomers === 0 ? 0 : startIndex + 1}-{endIndex} dari {totalCustomers} customer
-          </p>
-          <p>
-            Halaman {safePage} / {totalPages}
-          </p>
-        </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {[
+              { value: "all", label: "Semua" },
+              { value: "vip", label: "VIP > Rp10jt" },
+              { value: "repeat", label: "Repeat" },
+              { value: "new", label: "New" },
+            ].map((filter) => {
+              const isActive = activeFilter === filter.value;
 
-        <div className="hidden max-h-[62vh] overflow-auto md:block">
-          <table className="w-full min-w-[720px] text-sm">
-            <thead className="sticky top-0 z-10">
-              <tr className="bg-indigo-50 text-left text-xs uppercase tracking-wide text-indigo-700">
-                <th className="px-4 py-3">Customer</th>
-                <th className="px-4 py-3">No HP</th>
-                <th className="px-4 py-3">Alamat Terakhir</th>
-                <th className="px-4 py-3 text-right">Total Order</th>
-                <th className="px-4 py-3 text-right">Total Belanja</th>
-                <th className="px-4 py-3 text-right">Order Terakhir</th>
-              </tr>
-            </thead>
-            <tbody>
-              {pagedCustomers.map((customer) => (
-                <tr key={`${customer.name}-${customer.phone}`} className="border-t border-slate-100">
-                  <td className="px-4 py-3 font-semibold text-slate-800">{customer.name}</td>
-                  <td className="px-4 py-3 text-slate-600">{customer.phone}</td>
-                  <td className="px-4 py-3 text-slate-600">{customer.address}</td>
-                  <td className="px-4 py-3 text-right font-semibold text-slate-700">{customer.orderCount}</td>
-                  <td className="px-4 py-3 text-right font-semibold text-emerald-700">{formatCurrency(customer.totalSpent)}</td>
-                  <td className="px-4 py-3 text-right text-slate-600">
-                    <p>{customer.lastOrderDate || "-"}</p>
-                    <p className="text-xs text-slate-500">
-                      {customer.lastDeliverySlot || "-"}
-                    </p>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="space-y-3 p-4 md:hidden">
-          {pagedCustomers.map((customer) => (
-            <div key={`${customer.name}-${customer.phone}`} className="rounded-xl border border-slate-100 p-3">
-              <p className="text-sm font-bold text-slate-800">{customer.name}</p>
-              <p className="text-xs text-slate-600">{customer.phone}</p>
-              <p className="mt-1 text-xs text-slate-500">{customer.address}</p>
-              <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
-                <div>
-                  <p className="text-slate-400">Order</p>
-                  <p className="font-semibold text-slate-700">{customer.orderCount}</p>
-                </div>
-                <div>
-                  <p className="text-slate-400">Belanja</p>
-                  <p className="font-semibold text-emerald-700">{formatCurrency(customer.totalSpent)}</p>
-                </div>
-                <div>
-                  <p className="text-slate-400">Terakhir</p>
-                  <p className="font-semibold text-slate-700">
-                    {customer.lastOrderDate || "-"}
-                  </p>
-                  <p className="text-[11px] text-slate-500">
-                    {customer.lastDeliverySlot || "-"}
-                  </p>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {pagedCustomers.length === 0 ? (
-          <div className="px-4 py-10 text-center text-sm text-slate-500">
-            Tidak ada data customer untuk filter ini.
+              return (
+                <button
+                  key={filter.value}
+                  type="button"
+                  onClick={() => setActiveFilter(filter.value as CustomerSegment)}
+                  className={`inline-flex h-9 items-center gap-1.5 rounded-full border px-4 text-[13px] font-semibold transition ${
+                    isActive
+                      ? "border-[#d96d28] bg-[#d96d28] text-white shadow-[0_8px_18px_-14px_rgba(217,109,40,0.9)]"
+                      : "border-[#dec9b9] bg-white text-[#7a4928]"
+                  }`}
+                >
+                  {filter.value === "vip" ? <Star className="h-3.5 w-3.5 fill-current" /> : null}
+                  {filter.label}
+                </button>
+              );
+            })}
           </div>
-        ) : null}
 
-        <div className="flex items-center justify-between border-t border-indigo-100 px-4 py-3">
-          <button
-            type="button"
-            onClick={() => setPage((prev) => Math.max(1, prev - 1))}
-            disabled={safePage <= 1}
-            className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 px-3 py-1.5 text-xs font-semibold text-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <ChevronLeft className="h-4 w-4" /> Prev
-          </button>
-          <span className="text-xs font-semibold text-slate-600">
-            {safePage} / {totalPages}
-          </span>
-          <button
-            type="button"
-            onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
-            disabled={safePage >= totalPages}
-            className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 px-3 py-1.5 text-xs font-semibold text-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            Next <ChevronRight className="h-4 w-4" />
-          </button>
+          <div className="mt-3 grid grid-cols-4 gap-2.5">
+            <div className="rounded-[16px] border border-[#dcc7b5] bg-white px-2 py-3 text-center shadow-[0_10px_24px_-22px_rgba(62,38,18,0.55)]">
+              <p className="text-[18px] font-black leading-none text-[#1e1814]">
+                {summary.totalCustomers}
+              </p>
+              <p className="mt-1 text-[10px] text-[#8c6f5f]">Customer</p>
+            </div>
+            <div className="rounded-[16px] border border-[#dcc7b5] bg-white px-2 py-3 text-center shadow-[0_10px_24px_-22px_rgba(62,38,18,0.55)]">
+              <p className="text-[18px] font-black leading-none text-[#d19a00]">
+                {summary.vipCount}
+              </p>
+              <p className="mt-1 text-[10px] text-[#8c6f5f]">VIP</p>
+            </div>
+            <div className="rounded-[16px] border border-[#dcc7b5] bg-white px-2 py-3 text-center shadow-[0_10px_24px_-22px_rgba(62,38,18,0.55)]">
+              <p className="text-[18px] font-black leading-none text-[#173a20]">
+                {summary.repeatCount}
+              </p>
+              <p className="mt-1 text-[10px] text-[#8c6f5f]">Repeat</p>
+            </div>
+            <div className="rounded-[16px] border border-[#dcc7b5] bg-white px-2 py-3 text-center shadow-[0_10px_24px_-22px_rgba(62,38,18,0.55)]">
+              <p className="text-[15px] font-black leading-none text-[#1e1814]">
+                {formatCurrencyCompact(summary.revenue)}
+              </p>
+              <p className="mt-1 text-[10px] text-[#8c6f5f]">Revenue</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 flex items-center justify-between px-0.5 text-sm">
+          <p className="text-[15px] font-semibold text-[#2e1d14]">
+            {filteredCustomers.length} customer
+          </p>
+          <p className="text-[15px] font-semibold text-[#b75c23]">
+            {filteredCustomers.length > 0 ? "1 Terbesar" : ""}
+          </p>
+        </div>
+
+        <div className="mt-2.5 space-y-3">
+          {filteredCustomers.length === 0 ? (
+            <div className="rounded-[24px] border border-[#dcc7b5] bg-white px-5 py-10 text-center text-sm text-[#94755f] shadow-[0_18px_42px_-30px_rgba(103,66,39,0.5)]">
+              Tidak ada data customer untuk filter ini.
+            </div>
+          ) : null}
+
+          {filteredCustomers.map((customer, index) => {
+            const isVip = customer.segment === "vip";
+            const whatsAppPhone = normalizePhoneForWhatsApp(customer.phone);
+            const averageSpend =
+              customer.orderCount > 0
+                ? customer.totalSpent / customer.orderCount
+                : 0;
+
+            return (
+              <div
+                key={customer.key}
+                className={`overflow-hidden rounded-[18px] border bg-white shadow-[0_12px_28px_-24px_rgba(103,66,39,0.45)] ${
+                  isVip
+                    ? "border-[#e4b13e] bg-[#fff8e8]"
+                    : "border-[#ddcec2] bg-[#fffefd]"
+                }`}
+              >
+                <div className="flex min-h-[76px] items-start justify-between gap-3 px-[14px] py-[12px]">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div
+                      className={`flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full border text-[18px] font-black ${
+                        isVip
+                          ? "border-[#d79f2f] bg-white text-[#9a661d]"
+                          : "border-[#ead8ca] bg-[#fff5ef] text-[#b45c2a]"
+                      }`}
+                    >
+                      {getInitials(customer.name)}
+                    </div>
+
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <p className="truncate text-[15px] font-black leading-none text-[#1f140f]">
+                          {customer.name}
+                        </p>
+                        {isVip ? (
+                          <span className="inline-flex h-[18px] items-center gap-1 rounded-full bg-[#7f5920] px-1.5 text-[9px] font-bold uppercase tracking-[0.02em] text-[#ffe39e]">
+                            <Star className="h-[10px] w-[10px] fill-current" />
+                            VIP
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-[#f8ede2] px-2 py-[2px] text-[9px] font-bold uppercase tracking-[0.02em] text-[#9b6038]">
+                            {getSegmentLabel(customer.segment)}
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-1 text-[12px] leading-none text-[#b08a71]">
+                        Terakhir order {formatLongDate(customer.lastOrderDate)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <a
+                    href={whatsAppPhone ? `https://wa.me/${whatsAppPhone}` : undefined}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label={`Chat WhatsApp ${customer.name}`}
+                    className={`mt-[2px] flex h-[32px] w-[32px] shrink-0 items-center justify-center rounded-full border transition ${
+                      whatsAppPhone
+                        ? "border-[#9ed8b8] bg-[radial-gradient(circle_at_35%_35%,#f6ecff_0%,#ddf7eb_62%,#d4efdf_100%)] text-[#af86dd] hover:scale-[1.02]"
+                        : "pointer-events-none border-[#d9d9d9] bg-[#f3f3f3] text-[#a7a7a7]"
+                    }`}
+                  >
+                    <MessageCircle className="h-[15px] w-[15px]" />
+                  </a>
+                </div>
+
+                <div
+                  className={`grid grid-cols-3 border-t text-sm ${
+                    isVip ? "border-[#e4b13e]" : "border-[#eadccf]"
+                  }`}
+                >
+                  <div className="border-r border-inherit px-[12px] py-[9px]">
+                    <p className="text-[9px] uppercase tracking-[0.12em] text-[#c09a80]">
+                      Total Spend
+                    </p>
+                    <p className="mt-1 text-[11px] font-black leading-none text-[#de6826]">
+                      {formatCurrency(customer.totalSpent)}
+                    </p>
+                  </div>
+                  <div className="border-r border-inherit px-[12px] py-[9px]">
+                    <p className="text-[9px] uppercase tracking-[0.12em] text-[#c09a80]">
+                      Transaksi
+                    </p>
+                    <p className="mt-1 text-[11px] font-black leading-none text-[#1f2554]">
+                      {customer.orderCount}x
+                    </p>
+                  </div>
+                  <div className="px-[12px] py-[9px]">
+                    <p className="text-[9px] uppercase tracking-[0.12em] text-[#c09a80]">
+                      Avg / Trx
+                    </p>
+                    <p className="mt-1 text-[11px] font-black leading-none text-[#111b43]">
+                      {formatCurrencyCompact(averageSpend)}
+                    </p>
+                  </div>
+                </div>
+
+                {index === 0 ? (
+                  <div className="flex items-center gap-2 border-t border-dashed border-[#edd8c8] px-[14px] py-2 text-[10px] font-semibold text-[#b5662b]">
+                    <Users className="h-3 w-3" />
+                    Customer dengan total spend terbesar saat ini
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>

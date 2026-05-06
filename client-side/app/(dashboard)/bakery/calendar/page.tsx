@@ -36,6 +36,8 @@ import { useCalendarCapacity } from "@/hooks/useCalendarCapacity";
 import { useBakerySettings } from "@/hooks/useBakerySettings";
 import CalendarCell from "@/components/calendar/CalendarCell";
 import { useRole } from "@/context/RoleContext";
+import { summarizeProductionTokensByItems } from "@/lib/bookings/operations";
+import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 
 const locales = { id: localeId };
 
@@ -233,6 +235,8 @@ export default function BakeryCalendarPage() {
   const { settings: bakerySettings } = useBakerySettings();
   const blockedDates = bakerySettings?.blockedDates;
   const cutoffHour = bakerySettings?.cutoffHour ?? 10;
+  const calendarMaxToken =
+    bakerySettings?.dailyProductionTokenLimit ?? DEFAULT_MAX_TOKEN;
 
   const capacitySyncKey = useMemo(() => {
     return orders
@@ -254,6 +258,51 @@ export default function BakeryCalendarPage() {
     };
   }, [capacitySyncKey, refetchCapacity]);
 
+  const liveUsedTokenByDate = useMemo(() => {
+    const result = new Map<string, number>();
+
+    for (const order of orders) {
+      const normalizedDate = normalizeCalendarDeliveryDate(order.deliveryDate);
+      if (!normalizedDate) continue;
+
+      const normalizedStatus = normalizeOrderStatus(order.orderStatus);
+      if (
+        ["Cancelled", "Completed", "Delivered", "Delivery"].includes(
+          normalizedStatus,
+        )
+      ) {
+        continue;
+      }
+
+      const currentUsedToken = result.get(normalizedDate) ?? 0;
+      result.set(
+        normalizedDate,
+        currentUsedToken + summarizeProductionTokensByItems(order.items ?? []),
+      );
+    }
+
+    return result;
+  }, [orders]);
+
+  const getEffectiveCapacity = useMemo(() => {
+    return (dateKey: string) => {
+      const serverCapacity = getCapacity(dateKey);
+      const liveUsedToken = liveUsedTokenByDate.get(dateKey);
+
+      return {
+        date: dateKey,
+        usedToken:
+          liveUsedToken !== undefined
+            ? liveUsedToken
+            : serverCapacity.usedToken,
+        maxToken:
+          Number(serverCapacity.maxToken) > 0
+            ? serverCapacity.maxToken
+            : calendarMaxToken,
+      };
+    };
+  }, [calendarMaxToken, getCapacity, liveUsedTokenByDate]);
+
   const statusByDate = useMemo(() => {
     const result = new Map<string, CalendarStatus>();
     const now = new Date();
@@ -261,7 +310,7 @@ export default function BakeryCalendarPage() {
     while (cursor <= calendarRange.end) {
       const dateKey = safeToDateKey(cursor);
       if (dateKey) {
-        const capacity = getCapacity(dateKey);
+        const capacity = getEffectiveCapacity(dateKey);
         const status = getCalendarStatus(
           {
             usedToken: capacity.usedToken,
@@ -276,11 +325,11 @@ export default function BakeryCalendarPage() {
       cursor.setDate(cursor.getDate() + 1);
     }
     return result;
-  }, [blockedDates, cutoffHour, calendarRange, getCapacity]);
+  }, [blockedDates, cutoffHour, calendarRange, getEffectiveCapacity]);
 
   const selectedDateKey = selectedDate ? toDateKey(selectedDate) : "";
   const selectedCapacity = selectedDateKey
-    ? getCapacity(selectedDateKey)
+    ? getEffectiveCapacity(selectedDateKey)
     : null;
   const selectedStatus = selectedDateKey
     ? (statusByDate.get(selectedDateKey) ?? "AVAILABLE")
@@ -574,8 +623,8 @@ export default function BakeryCalendarPage() {
     const dateKey = safeToDateKey(date);
     const count = dateKey ? (ordersByDate.get(dateKey)?.length ?? 0) : 0;
     const capacity = dateKey
-      ? getCapacity(dateKey)
-      : { usedToken: 0, maxToken: DEFAULT_MAX_TOKEN, date: dateKey };
+      ? getEffectiveCapacity(dateKey)
+      : { usedToken: 0, maxToken: calendarMaxToken, date: dateKey };
     const status = dateKey
       ? (statusByDate.get(dateKey) ?? "AVAILABLE")
       : "AVAILABLE";
