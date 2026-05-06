@@ -45,53 +45,59 @@ export function normalizeFonnteTarget(target: string): string {
     .join(",");
 }
 
-/**
- * Mengirim pesan gambar ke WhatsApp via Fonnte
- */
-export async function sendWhatsAppImage(
-  imageUrl: string,
-  caption = "ORDER BARU MASUK - PRODUKSI",
-  customTarget?: string, // Opsional: jika ingin mengirim ke target selain target produksi default
+type FonnteResponse = {
+  status?: boolean;
+  reason?: string;
+  id?: string[];
+};
+
+async function sendFonnteMessage(
+  message: string,
+  customTarget?: string,
+  imageUrl?: string,
 ): Promise<void> {
-  // Ambil token dan target dari env
   const token = process.env.FONNTE_TOKEN?.trim();
   const defaultTarget = process.env.FONNTE_PRODUCTION_TARGET?.trim();
-  
-  // Gunakan target kustom jika ada, jika tidak pakai default dari env
   const rawTarget = customTarget || defaultTarget;
 
-  // Validasi input
-  if (!imageUrl || !isValidHttpUrl(imageUrl)) {
-    throw new Error(`[sendWhatsAppImage] Image URL tidak valid atau kosong: ${imageUrl}`);
-  }
-
   if (!token) {
-    throw new Error("[sendWhatsAppImage] FONNTE_TOKEN tidak ditemukan di environment variables.");
+    throw new Error(
+      "[sendFonnteMessage] FONNTE_TOKEN tidak ditemukan di environment variables.",
+    );
   }
 
   if (!rawTarget) {
-    throw new Error("[sendWhatsAppImage] Target WhatsApp (FONNTE_PRODUCTION_TARGET) tidak ditemukan.");
+    throw new Error(
+      "[sendFonnteMessage] Target WhatsApp (FONNTE_PRODUCTION_TARGET) tidak ditemukan.",
+    );
   }
 
-  // Normalisasi target
   const normalizedTarget = normalizeFonnteTarget(rawTarget);
+  const logLabel = imageUrl ? "[sendWhatsAppImage]" : "[sendWhatsAppText]";
 
-  console.info("[sendWhatsAppImage] Mempersiapkan pengiriman gambar:", {
+  console.info(`${logLabel} Mempersiapkan pengiriman WhatsApp:`, {
     originalTarget: rawTarget,
     normalizedTarget,
-    imageUrl: imageUrl.substring(0, 50) + "...",
-    caption: caption.substring(0, 30) + "...",
+    imageUrl: imageUrl ? imageUrl.substring(0, 50) + "..." : undefined,
+    caption: message.substring(0, 30) + "...",
   });
 
-  try {
-    // Gunakan JSON payload agar lebih konsisten dengan service lain
-    const payload = {
-      target: normalizedTarget,
-      url: imageUrl,
-      message: caption,
-      delay: "2",
-    };
+  const payload: {
+    target: string;
+    message: string;
+    delay: string;
+    url?: string;
+  } = {
+    target: normalizedTarget,
+    message,
+    delay: "2",
+  };
 
+  if (imageUrl) {
+    payload.url = imageUrl;
+  }
+
+  try {
     const response = await fetch(FONNTE_ENDPOINT, {
       method: "POST",
       headers: {
@@ -103,9 +109,8 @@ export async function sendWhatsAppImage(
 
     const rawText = await response.text();
 
-    // Error handling level HTTP
     if (!response.ok) {
-      console.error("[sendWhatsAppImage] Fonnte HTTP Error:", {
+      console.error(`${logLabel} Fonnte HTTP Error:`, {
         status: response.status,
         statusText: response.statusText,
         body: rawText,
@@ -113,24 +118,43 @@ export async function sendWhatsAppImage(
       throw new Error(`Fonnte API Error (${response.status}): ${rawText}`);
     }
 
-    // Parsing response Fonnte
-    const result = JSON.parse(rawText) as {
-      status?: boolean;
-      reason?: string;
-      id?: string[];
-    };
+    const result = JSON.parse(rawText) as FonnteResponse;
 
     if (result.status === false) {
-      console.error("[sendWhatsAppImage] Fonnte menolak pesan:", result.reason);
+      console.error(`${logLabel} Fonnte menolak pesan:`, result.reason);
       throw new Error(`Fonnte rejection: ${result.reason || rawText}`);
     }
 
-    console.info("[sendWhatsAppImage] Berhasil mengirim pesan WhatsApp:", {
+    console.info(`${logLabel} Berhasil mengirim pesan WhatsApp:`, {
       status: result.status,
       messageIds: result.id,
     });
   } catch (error) {
-    console.error("[sendWhatsAppImage] Gagal dalam proses pengiriman:", error);
+    console.error(`${logLabel} Gagal dalam proses pengiriman:`, error);
     throw error;
   }
+}
+
+export async function sendWhatsAppText(
+  message: string,
+  customTarget?: string,
+): Promise<void> {
+  await sendFonnteMessage(message, customTarget);
+}
+
+/**
+ * Mengirim pesan gambar ke WhatsApp via Fonnte
+ */
+export async function sendWhatsAppImage(
+  imageUrl: string,
+  caption = "ORDER BARU MASUK - PRODUKSI",
+  customTarget?: string, // Opsional: jika ingin mengirim ke target selain target produksi default
+): Promise<void> {
+  if (!imageUrl || !isValidHttpUrl(imageUrl)) {
+    throw new Error(
+      `[sendWhatsAppImage] Image URL tidak valid atau kosong: ${imageUrl}`,
+    );
+  }
+
+  await sendFonnteMessage(caption, customTarget, imageUrl);
 }

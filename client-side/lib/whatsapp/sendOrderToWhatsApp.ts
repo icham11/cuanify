@@ -10,7 +10,10 @@ import {
   type WhatsAppRecapItem,
 } from "@/lib/bookings/whatsapp-message-template";
 import { uploadToCloudinary } from "@/lib/whatsapp/uploadToCloudinary";
-import { sendWhatsAppImage } from "@/lib/whatsapp/sendWhatsApp";
+import {
+  sendWhatsAppImage,
+  sendWhatsAppText,
+} from "@/lib/whatsapp/sendWhatsApp";
 
 const FALLBACK_IMAGE_URL = "https://via.placeholder.com/300";
 
@@ -155,13 +158,15 @@ function normalizeStructuredReferenceImages(
 export async function sendOrderToWhatsApp(
   order: SendOrderToWhatsAppInput,
 ): Promise<SendOrderToWhatsAppResult> {
-
   const selectedImageUrls = normalizeReferenceImageUrls(order);
   const structuredReferenceImages = normalizeStructuredReferenceImages(order);
 
   // DEBUG LOGGING
-  console.info('[WA DEBUG] selectedImageUrls:', selectedImageUrls);
-  console.info('[WA DEBUG] structuredReferenceImages:', structuredReferenceImages);
+  console.info("[WA DEBUG] selectedImageUrls:", selectedImageUrls);
+  console.info(
+    "[WA DEBUG] structuredReferenceImages:",
+    structuredReferenceImages,
+  );
 
   // Ambil semua kandidat gambar user-upload (http/https, bukan template/data URI/placeholder)
   const userUploadedImages = [
@@ -174,7 +179,7 @@ export async function sendOrderToWhatsApp(
       !url.includes("/orders/generated/") &&
       !url.includes("via.placeholder.com"),
   );
-  console.info('[WA DEBUG] userUploadedImages:', userUploadedImages);
+  console.info("[WA DEBUG] userUploadedImages:", userUploadedImages);
 
   if (!process.env.FONNTE_TOKEN) {
     return {
@@ -259,16 +264,22 @@ export async function sendOrderToWhatsApp(
   }
 
   // 1. Kirim satu pesan teks rekap order (tanpa gambar)
-  let lastResult: SendOrderToWhatsAppResult = { ok: false, stage: "send", message: "No messages sent" };
+  let lastResult: SendOrderToWhatsAppResult = {
+    ok: false,
+    stage: "send",
+    message: "No messages sent",
+  };
   try {
-    let lines: string[] = [];
-    lines.push(`Tanggal Pengiriman :\n${formatWhatsAppDeliveryDate(order.deliveryDate)}`);
+    const lines: string[] = [];
+    lines.push(
+      `Tanggal Pengiriman :\n${formatWhatsAppDeliveryDate(order.deliveryDate)}`,
+    );
     lines.push("");
-    lines.push(`KODE BOOKING : ${order.bookingCode || '-'}`);
+    lines.push(`KODE BOOKING : ${order.bookingCode || "-"}`);
     lines.push("");
     if (order.captionItems && order.captionItems.length > 0) {
       for (const item of order.captionItems) {
-        lines.push(`Order :\n${item.productName || '-'}`);
+        lines.push(`Order :\n${item.productName || "-"}`);
         if (item.detailLines && item.detailLines.length > 0) {
           for (const d of item.detailLines) {
             lines.push(`${d.label} : ${d.value}`);
@@ -277,13 +288,19 @@ export async function sendOrderToWhatsApp(
         lines.push("");
       }
     }
-    lines.push(`Jam Pengiriman: ${formatWhatsAppDeliveryTime(order.deliveryTime)}`);
-    lines.push(`Metode Pengiriman : ${order.shippingMethod || '-'}`);
-    lines.push(`Nama penerima : ${order.recipientName || order.customerName || '-'}`);
-    lines.push(`No. telp penerima : ${order.recipientPhone || order.phone || '-'}`);
-    lines.push(`Alamat lengkap : ${order.fullAddress || order.address || '-'}`);
+    lines.push(
+      `Jam Pengiriman: ${formatWhatsAppDeliveryTime(order.deliveryTime)}`,
+    );
+    lines.push(`Metode Pengiriman : ${order.shippingMethod || "-"}`);
+    lines.push(
+      `Nama penerima : ${order.recipientName || order.customerName || "-"}`,
+    );
+    lines.push(
+      `No. telp penerima : ${order.recipientPhone || order.phone || "-"}`,
+    );
+    lines.push(`Alamat lengkap : ${order.fullAddress || order.address || "-"}`);
 
-    await sendWhatsAppImage('', lines.join("\n")); // Kirim teks saja, tanpa gambar
+    await sendWhatsAppText(lines.join("\n"));
     lastResult = {
       ok: true,
       stage: "send",
@@ -306,12 +323,12 @@ export async function sendOrderToWhatsApp(
   // 2. Kirim satu per satu gambar user-upload, caption = detail gambar dari parser
   for (let i = 0; i < userUploadedImages.length; i++) {
     const imgUrl = userUploadedImages[i];
-    let caption = '';
+    let caption = "";
     // Ambil label/notes dari referenceImages jika ada, jika tidak dari captionItems
     if (order.referenceImages && order.referenceImages[i]?.label) {
-      caption = order.referenceImages[i].label ?? '';
+      caption = order.referenceImages[i].label ?? "";
     } else if (order.captionItems && order.captionItems[i]?.productName) {
-      caption = order.captionItems[i].productName ?? '';
+      caption = order.captionItems[i].productName ?? "";
     } else {
       caption = `Gambar ${i + 1}`;
     }
