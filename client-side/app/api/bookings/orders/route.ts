@@ -151,6 +151,9 @@ interface NormalizedOrder {
   shipment: unknown;
   simulations: unknown;
   whatsAppParsedData: unknown;
+  imageUrl?: string;
+  imageUrls?: string[];
+  referenceImages?: Array<{ url: string; label?: string; orderIndex?: number }>;
   statusHistory: JsonRecord[];
   automationLogs: JsonRecord[];
   paymentTransactions: JsonRecord[];
@@ -271,6 +274,18 @@ const normalizedOrderSchema = z.object({
   shipment: z.unknown().nullable(),
   simulations: z.unknown().nullable(),
   whatsAppParsedData: z.unknown().nullable(),
+  imageUrl: z.string().optional().catch(""),
+  imageUrls: z.array(z.string()).optional().catch([]),
+  referenceImages: z
+    .array(
+      z.object({
+        url: z.string(),
+        label: z.string().optional(),
+        orderIndex: z.number().optional(),
+      }),
+    )
+    .optional()
+    .catch([]),
   statusHistory: z.array(z.record(z.string(), z.unknown())),
   automationLogs: z.array(z.record(z.string(), z.unknown())),
   paymentTransactions: z.array(z.record(z.string(), z.unknown())),
@@ -724,6 +739,10 @@ function extractNotificationReferenceImages(order: NormalizedOrder) {
   }> = [];
   const parsedData = asRecord(order.whatsAppParsedData);
 
+  pushReferenceImage(references, order.imageUrl);
+  collectReferenceImagesFromValue(references, order.imageUrls);
+  collectReferenceImagesFromValue(references, order.referenceImages);
+
   for (const key of PRIORITY_IMAGE_VALUE_KEYS) {
     pushReferenceImage(references, parsedData?.[key]);
   }
@@ -1175,6 +1194,17 @@ function toWhatsAppPayload(order: NormalizedOrder): SendOrderToWhatsAppInput {
   const shippingMethod = resolveShippingMethodLabel(order, common);
   const fullAddress = asString(common?.fullAddress) || address;
   const bookingCode = resolvePreferredBookingCode(order, common);
+
+  console.info("[api/bookings/orders] WA payload image sources", {
+    orderId: order.id,
+    parsedImageUrl: asString(parsedData?.imageUrl),
+    topLevelImageUrl: order.imageUrl || "",
+    topLevelImageCount: Array.isArray(order.imageUrls) ? order.imageUrls.length : 0,
+    topLevelReferenceCount: Array.isArray(order.referenceImages)
+      ? order.referenceImages.length
+      : 0,
+    extractedReferenceCount: referenceImages.length,
+  });
 
   return {
     customerName: asString(order.customerName) || "Customer",

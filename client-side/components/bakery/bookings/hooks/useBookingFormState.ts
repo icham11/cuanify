@@ -2138,6 +2138,9 @@ export function useBookingFormState() {
       dpPaidAmount: effectiveDpPaidAmount,
       finalPaidAmount: effectiveFinalPaidAmount,
       whatsAppParsedData: normalizedParsedPreview,
+      imageUrl: normalizedParsedPreview?.imageUrl,
+      imageUrls: normalizedParsedPreview?.uploadedImageUrls,
+      referenceImages: normalizedParsedPreview?.referenceImages,
       shippingQuote: selectedShippingQuote,
     };
 

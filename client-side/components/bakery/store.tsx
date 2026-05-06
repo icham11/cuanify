@@ -181,6 +181,9 @@ export interface BakeryOrder {
   statusHistory: OrderStatusLog[];
   automationLogs?: OrderAutomationLog[];
   whatsAppParsedData?: ParsedWhatsAppOrder;
+  imageUrl?: string;
+  imageUrls?: string[];
+  referenceImages?: ParsedWhatsAppOrder["referenceImages"];
   shippingQuote?: ShippingQuote | null;
   shippingReferenceId?: string;
   shipment?: ShippingShipment | null;
@@ -219,6 +222,9 @@ export interface NewOrderInput {
   remainingBalance: number;
   paymentStatus: PaymentStatus;
   whatsAppParsedData?: ParsedWhatsAppOrder;
+  imageUrl?: string;
+  imageUrls?: string[];
+  referenceImages?: ParsedWhatsAppOrder["referenceImages"];
   shippingQuote?: ShippingQuote | null;
 }
 
@@ -1770,6 +1776,11 @@ export function OrdersProvider({
         productionAssignedAt: null,
         productionStages: [],
         whatsAppParsedData: order.whatsAppParsedData,
+        imageUrl: order.imageUrl ?? order.whatsAppParsedData?.imageUrl,
+        imageUrls:
+          order.imageUrls ?? order.whatsAppParsedData?.uploadedImageUrls ?? [],
+        referenceImages:
+          order.referenceImages ?? order.whatsAppParsedData?.referenceImages,
         shippingQuote: order.shippingQuote ?? null,
         shipment: null,
         automationLogs: [],

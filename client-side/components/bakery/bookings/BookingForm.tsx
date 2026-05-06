@@ -4506,6 +4506,9 @@ export default function BookingForm() {
       dpPaidAmount: effectiveDpPaidAmount,
       finalPaidAmount: effectiveFinalPaidAmount,
       whatsAppParsedData: normalizedParsedPreview,
+      imageUrl: normalizedParsedPreview?.imageUrl,
+      imageUrls: normalizedParsedPreview?.uploadedImageUrls,
+      referenceImages: normalizedParsedPreview?.referenceImages,
       shippingQuote: selectedShippingQuote,
     };
 
@@ -8866,5 +8869,4 @@ export default function BookingForm() {
     </form>
   );
 }
-
 
