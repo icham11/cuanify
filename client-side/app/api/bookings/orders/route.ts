@@ -566,7 +566,10 @@ function collectAssignmentTargetsBySlot(
 }
 
 function assignedStaffTargetsChanged(
-  current: Pick<StaffValidationOrder, "assignedStaffUserId" | "productionStages">,
+  current: Pick<
+    StaffValidationOrder,
+    "assignedStaffUserId" | "productionStages"
+  >,
   next: Pick<StaffValidationOrder, "assignedStaffUserId" | "productionStages">,
 ) {
   const currentIds = collectAssignedStaffUserIds(current);
@@ -574,13 +577,14 @@ function assignedStaffTargetsChanged(
 
   if (currentIds.length !== nextIds.length) return true;
 
-  return currentIds.some((staffUserId, index) => staffUserId !== nextIds[index]);
+  return currentIds.some(
+    (staffUserId, index) => staffUserId !== nextIds[index],
+  );
 }
 
-function sanitizeAssignableStaffTargets<T extends AssignableStaffTargetOrder>(params: {
-  orders: T[];
-  assignableStaffUserIds: Set<number>;
-}) {
+function sanitizeAssignableStaffTargets<
+  T extends AssignableStaffTargetOrder,
+>(params: { orders: T[]; assignableStaffUserIds: Set<number> }) {
   const { orders, assignableStaffUserIds } = params;
 
   return orders.map((order) => {
@@ -619,26 +623,21 @@ function sanitizeAssignableStaffTargets<T extends AssignableStaffTargetOrder>(pa
   });
 }
 
-function ensureAssignableStaffTargets<T extends AssignableStaffTargetOrder>(params: {
+function ensureAssignableStaffTargets<
+  T extends AssignableStaffTargetOrder,
+>(params: {
   orders: T[];
   existingOrders?: T[];
   assignableStaffUserIds: Set<number>;
 }) {
-  const {
-    orders,
-    existingOrders = [],
-    assignableStaffUserIds,
-  } = params;
+  const { orders, existingOrders = [], assignableStaffUserIds } = params;
   const existingOrdersMap = new Map<string, AssignableStaffTargetOrder>(
     existingOrders.map((order) => [order.id, order]),
   );
 
   for (const order of orders) {
     const existingOrder = existingOrdersMap.get(order.id);
-    if (
-      existingOrder &&
-      !assignedStaffTargetsChanged(existingOrder, order)
-    ) {
+    if (existingOrder && !assignedStaffTargetsChanged(existingOrder, order)) {
       continue;
     }
 
@@ -1334,7 +1333,9 @@ function toWhatsAppPayload(order: NormalizedOrder): SendOrderToWhatsAppInput {
     orderId: order.id,
     parsedImageUrl: asString(parsedData?.imageUrl),
     topLevelImageUrl: order.imageUrl || "",
-    topLevelImageCount: Array.isArray(order.imageUrls) ? order.imageUrls.length : 0,
+    topLevelImageCount: Array.isArray(order.imageUrls)
+      ? order.imageUrls.length
+      : 0,
     topLevelReferenceCount: Array.isArray(order.referenceImages)
       ? order.referenceImages.length
       : 0,
@@ -1780,7 +1781,7 @@ async function ensureBakeryTables() {
   }
 
   bakeryTablesEnsuredPromise = (async () => {
-  await prisma.$executeRawUnsafe(`
+    await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS bakery_orders (
       id BIGSERIAL PRIMARY KEY,
       business_id INTEGER NOT NULL,
@@ -1822,12 +1823,12 @@ async function ensureBakeryTables() {
     );
   `);
 
-  await prisma.$executeRawUnsafe(`
+    await prisma.$executeRawUnsafe(`
     CREATE INDEX IF NOT EXISTS idx_bakery_orders_business_updated
     ON bakery_orders (business_id, updated_at DESC);
   `);
 
-  await prisma.$executeRawUnsafe(`
+    await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS bakery_order_items (
       id BIGSERIAL PRIMARY KEY,
       business_id INTEGER NOT NULL,
@@ -1838,12 +1839,12 @@ async function ensureBakeryTables() {
     );
   `);
 
-  await prisma.$executeRawUnsafe(`
+    await prisma.$executeRawUnsafe(`
     CREATE INDEX IF NOT EXISTS idx_bakery_order_items_lookup
     ON bakery_order_items (business_id, order_external_id, item_index);
   `);
 
-  await prisma.$executeRawUnsafe(`
+    await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS bakery_order_addresses (
       id BIGSERIAL PRIMARY KEY,
       business_id INTEGER NOT NULL,
@@ -1854,60 +1855,60 @@ async function ensureBakeryTables() {
     );
   `);
 
-  await prisma.$executeRawUnsafe(`
+    await prisma.$executeRawUnsafe(`
     CREATE INDEX IF NOT EXISTS idx_bakery_order_addresses_lookup
     ON bakery_order_addresses (business_id, order_external_id, address_index);
   `);
 
-  // ── Token capacity columns on bakery_orders ──
-  await prisma.$executeRawUnsafe(`
+    // ── Token capacity columns on bakery_orders ──
+    await prisma.$executeRawUnsafe(`
     ALTER TABLE bakery_orders
     ADD COLUMN IF NOT EXISTS difficulty TEXT DEFAULT NULL;
   `);
 
-  await prisma.$executeRawUnsafe(`
+    await prisma.$executeRawUnsafe(`
     ALTER TABLE bakery_orders
     ADD COLUMN IF NOT EXISTS token_used INTEGER NOT NULL DEFAULT 0;
   `);
 
-  await prisma.$executeRawUnsafe(`
+    await prisma.$executeRawUnsafe(`
     ALTER TABLE bakery_orders
     ADD COLUMN IF NOT EXISTS assigned_staff_user_id INTEGER;
   `);
 
-  await prisma.$executeRawUnsafe(`
+    await prisma.$executeRawUnsafe(`
     ALTER TABLE bakery_orders
     ADD COLUMN IF NOT EXISTS assigned_staff_name TEXT;
   `);
 
-  await prisma.$executeRawUnsafe(`
+    await prisma.$executeRawUnsafe(`
     ALTER TABLE bakery_orders
     ADD COLUMN IF NOT EXISTS production_assigned_at TIMESTAMPTZ;
   `);
 
-  await prisma.$executeRawUnsafe(`
+    await prisma.$executeRawUnsafe(`
     ALTER TABLE bakery_orders
     ADD COLUMN IF NOT EXISTS insurance_fee NUMERIC(14,2) NOT NULL DEFAULT 0;
   `);
 
-  await prisma.$executeRawUnsafe(`
+    await prisma.$executeRawUnsafe(`
     ALTER TABLE bakery_orders
     ADD COLUMN IF NOT EXISTS sales_channel TEXT NOT NULL DEFAULT 'direct';
   `);
 
-  await prisma.$executeRawUnsafe(`
+    await prisma.$executeRawUnsafe(`
     ALTER TABLE bakery_orders
     ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
   `);
 
-  await prisma.$executeRawUnsafe(`
+    await prisma.$executeRawUnsafe(`
     UPDATE bakery_orders
     SET sales_channel = 'direct'
     WHERE sales_channel IS NULL
       OR sales_channel NOT IN ('direct', 'tokopedia', 'shopee');
   `);
 
-  await prisma.$executeRawUnsafe(`
+    await prisma.$executeRawUnsafe(`
     DO $$
     BEGIN
       IF NOT EXISTS (
@@ -1923,12 +1924,12 @@ async function ensureBakeryTables() {
     $$;
   `);
 
-  await prisma.$executeRawUnsafe(`
+    await prisma.$executeRawUnsafe(`
     ALTER TABLE bakery_orders
     ADD COLUMN IF NOT EXISTS order_uuid UUID;
   `);
 
-  await prisma.$executeRawUnsafe(`
+    await prisma.$executeRawUnsafe(`
     DO $$
     BEGIN
       IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'production_stage') THEN
@@ -1959,7 +1960,7 @@ async function ensureBakeryTables() {
     END $$;
   `);
 
-  await prisma.$executeRawUnsafe(`
+    await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS production_tasks (
       id UUID PRIMARY KEY,
       order_id UUID NOT NULL,
@@ -1971,7 +1972,7 @@ async function ensureBakeryTables() {
     );
   `);
 
-  await prisma.$executeRawUnsafe(`
+    await prisma.$executeRawUnsafe(`
     ALTER TABLE production_tasks
       DROP CONSTRAINT IF EXISTS production_tasks_stage_check;
 
@@ -1984,12 +1985,12 @@ async function ensureBakeryTables() {
       CHECK (stage::text IN ('lining', 'filling', 'finishing'));
   `);
 
-  await prisma.$executeRawUnsafe(`
+    await prisma.$executeRawUnsafe(`
     CREATE INDEX IF NOT EXISTS idx_production_tasks_order_id
     ON production_tasks (order_id);
   `);
 
-  await prisma.$executeRawUnsafe(`
+    await prisma.$executeRawUnsafe(`
     DELETE FROM production_tasks a
     USING production_tasks b
     WHERE a.order_id = b.order_id
@@ -2010,8 +2011,8 @@ async function ensureBakeryTables() {
     END $$;
   `);
 
-  // ── Ensure production_capacity table exists ──
-  await ensureCapacityTable();
+    // ── Ensure production_capacity table exists ──
+    await ensureCapacityTable();
   })();
 
   try {
@@ -2406,26 +2407,34 @@ export async function POST(request: NextRequest) {
     const canManageAssignments = roleName === "Owner";
     const bakerySettings = await getBakeryBusinessSettings(businessId);
     const canBackfillPastOrders =
-      !bakerySettings.cutoffEnabled &&
-      (role === "Owner" || role === "Admin");
+      !bakerySettings.cutoffEnabled && (role === "Owner" || role === "Admin");
 
     // Root Cause: Staff was previously skipped if notifyProductionWhatsapp was false.
     // Solution: Allow Staff to bypass the setting just like Admin/Owner, or at least ensure they are considered.
     const shouldSendWhatsAppNotification =
-      !skipWhatsAppNotification && 
-      (bakerySettings.notifyProductionWhatsapp || isPrivilegedRequest || isStaffRequest);
+      !skipWhatsAppNotification &&
+      (bakerySettings.notifyProductionWhatsapp ||
+        isPrivilegedRequest ||
+        isStaffRequest);
 
     // Logging environment variables for debugging production issues
     if (shouldSendWhatsAppNotification) {
       const missingVars = [];
       if (!process.env.FONNTE_TOKEN) missingVars.push("FONNTE_TOKEN");
-      if (!process.env.FONNTE_PRODUCTION_TARGET) missingVars.push("FONNTE_PRODUCTION_TARGET");
-      if (!process.env.CLOUDINARY_URL && (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY)) {
+      if (!process.env.FONNTE_PRODUCTION_TARGET)
+        missingVars.push("FONNTE_PRODUCTION_TARGET");
+      if (
+        !process.env.CLOUDINARY_URL &&
+        (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY)
+      ) {
         missingVars.push("CLOUDINARY_VARS");
       }
-      
+
       if (missingVars.length > 0) {
-        console.error("[api/bookings/orders] WA Notification requested but missing env vars:", missingVars);
+        console.error(
+          "[api/bookings/orders] WA Notification requested but missing env vars:",
+          missingVars,
+        );
       }
     }
 
@@ -2435,10 +2444,16 @@ export async function POST(request: NextRequest) {
         notifyProductionWhatsapp: bakerySettings.notifyProductionWhatsapp,
         isPrivilegedRequest,
         isStaffRequest,
-        businessId
+        businessId,
       });
-    } else if ((isPrivilegedRequest || isStaffRequest) && !bakerySettings.notifyProductionWhatsapp) {
-      console.info("[api/bookings/orders] WA notification forced via Role Bypass", { role, businessId });
+    } else if (
+      (isPrivilegedRequest || isStaffRequest) &&
+      !bakerySettings.notifyProductionWhatsapp
+    ) {
+      console.info(
+        "[api/bookings/orders] WA notification forced via Role Bypass",
+        { role, businessId },
+      );
     }
     let existingOrders: ParsedOrder[] = [];
     const staffLimitByUserId = new Map<number, number>(
@@ -2642,9 +2657,7 @@ export async function POST(request: NextRequest) {
           sales_channel: normalizeSalesChannel(row.sales_channel),
           paymentStatus: row.payment_status ?? "Pending",
           orderStatus: row.order_status ?? "Inquiry",
-          assignedStaffUserId: asPositiveIntOrNull(
-            row.assigned_staff_user_id,
-          ),
+          assignedStaffUserId: asPositiveIntOrNull(row.assigned_staff_user_id),
           assignedStaffName: row.assigned_staff_name ?? "",
           productionAssignedAt: toIsoOrNull(row.production_assigned_at),
           shippingQuote: parseJsonField(row.shipping_quote),
@@ -3345,9 +3358,11 @@ export async function POST(request: NextRequest) {
 
             // Root Cause: Strict !existingOrder check prevented WA for revived/updated orders.
             // Solution: Send WA if order is becoming active (was inactive/new and is now active).
-            const wasInactive = !existingOrder || INACTIVE_STATUSES.includes(existingOrder.order_status || "");
+            const wasInactive =
+              !existingOrder ||
+              INACTIVE_STATUSES.includes(existingOrder.order_status || "");
             const isBecomingActive = wasInactive && isActiveStatus;
-            
+
             if (isBecomingActive) {
               createdOrdersForWhatsApp.push(toWhatsAppPayload(order));
             }
@@ -3485,7 +3500,10 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      if (shouldSendWhatsAppNotification && createdOrdersForWhatsApp.length > 0) {
+      if (
+        shouldSendWhatsAppNotification &&
+        createdOrdersForWhatsApp.length > 0
+      ) {
         void Promise.allSettled(
           createdOrdersForWhatsApp.map((orderPayload) =>
             sendOrderToWhatsApp(orderPayload),

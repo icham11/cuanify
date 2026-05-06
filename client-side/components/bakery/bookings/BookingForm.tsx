@@ -10,6 +10,7 @@ import {
 } from "react";
 import NextLink from "next/link";
 import { startOfDay } from "date-fns";
+import { usePathname, useRouter } from "next/navigation";
 import {
   SubmitHandler,
   useFieldArray,
@@ -33,7 +34,6 @@ import {
 } from "@/components/bakery/store";
 import { toast } from "sonner";
 import {
-  AlertTriangle,
   ArrowLeft,
   ChevronRight,
   Loader2,
@@ -200,6 +200,41 @@ function addressLooksStructured(value: string): boolean {
 }
 
 const defaultItemSelection = getDefaultCatalogSelection();
+
+type BookingDraftSnapshot = {
+  composerStep: "input" | "preview";
+  quickPaste: string;
+  selectedOrderType: ParserOrderType;
+  parsedPreview: ParsedWhatsAppOrder | null;
+  productionPreviewImageUrl: string;
+  draftImported: boolean;
+  referenceImageLabelsInput: string;
+  referenceFilesChangedSinceParse: boolean;
+  formValues: BookingFormValues;
+};
+
+const BOOKING_DRAFT_STORAGE_KEY = "cuanify.bakery.booking-draft.v1";
+
+function saveBookingDraftSnapshot(snapshot: BookingDraftSnapshot): void {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.setItem(
+    BOOKING_DRAFT_STORAGE_KEY,
+    JSON.stringify(snapshot),
+  );
+}
+
+function loadBookingDraftSnapshot(): BookingDraftSnapshot | null {
+  if (typeof window === "undefined") return null;
+
+  const rawValue = window.sessionStorage.getItem(BOOKING_DRAFT_STORAGE_KEY);
+  if (!rawValue) return null;
+
+  try {
+    return JSON.parse(rawValue) as BookingDraftSnapshot;
+  } catch {
+    return null;
+  }
+}
 
 const itemSchema = z.object({
   category: z.string().min(1, "Category is required"),
@@ -2400,11 +2435,14 @@ function findFirstFormErrorMessage(error: unknown): string | null {
 }
 
 export default function BookingForm() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const isReviewPage = pathname === "/bakery/bookings/new/review";
   const { addOrder, orders, getCustomerMessagePreview } = useOrders();
   const { isOwner, isAdmin, loading: isRoleLoading } = useRole();
   const { productCatalog, addOnCatalog } = useCatalogAdminState();
   const [composerStep, setComposerStep] = useState<"input" | "preview">(
-    "input",
+    isReviewPage ? "preview" : "input",
   );
   const [quickPaste, setQuickPaste] = useState("");
   const [selectedOrderType, setSelectedOrderType] =
@@ -2540,6 +2578,7 @@ export default function BookingForm() {
     register,
     handleSubmit,
     setValue,
+    getValues,
     control,
     reset,
     formState: { errors, isSubmitting },
@@ -2620,6 +2659,61 @@ export default function BookingForm() {
       ],
     },
   });
+
+  useEffect(() => {
+    const snapshot = loadBookingDraftSnapshot();
+    if (!snapshot) {
+      if (isReviewPage) {
+        router.replace("/bakery/bookings/new");
+      }
+      return;
+    }
+
+    reset(snapshot.formValues);
+    setQuickPaste(snapshot.quickPaste);
+    setSelectedOrderType(snapshot.selectedOrderType);
+    setParsedPreview(snapshot.parsedPreview);
+    setProductionPreviewImageUrl(snapshot.productionPreviewImageUrl);
+    setDraftImported(snapshot.draftImported);
+    setReferenceImageLabelsInput(snapshot.referenceImageLabelsInput);
+    setReferenceFilesChangedSinceParse(snapshot.referenceFilesChangedSinceParse);
+    setReferenceImageFiles([]);
+    setComposerStep(isReviewPage ? "preview" : "input");
+  }, [isReviewPage, reset, router]);
+
+  const openPreviewPage = useCallback(
+    (snapshotOverrides?: Partial<BookingDraftSnapshot>) => {
+      saveBookingDraftSnapshot({
+        composerStep: "preview",
+        quickPaste,
+        selectedOrderType,
+        parsedPreview,
+        productionPreviewImageUrl,
+        draftImported,
+        referenceImageLabelsInput,
+        referenceFilesChangedSinceParse,
+        formValues: bookingSchema.parse(getValues()),
+        ...snapshotOverrides,
+      });
+
+      setComposerStep("preview");
+      if (!isReviewPage) {
+        router.push("/bakery/bookings/new/review");
+      }
+    },
+    [
+      draftImported,
+      getValues,
+      isReviewPage,
+      parsedPreview,
+      productionPreviewImageUrl,
+      quickPaste,
+      referenceFilesChangedSinceParse,
+      referenceImageLabelsInput,
+      router,
+      selectedOrderType,
+    ],
+  );
 
   const isBookingProcessing =
     isSubmitting ||
@@ -4215,8 +4309,7 @@ export default function BookingForm() {
     if (!isPreviewSubmit) {
       setShowSubmitConfirmation(false);
       pendingSubmitConfirmationRef.current = null;
-      setComposerStep("preview");
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      openPreviewPage();
       return;
     }
 
@@ -4716,6 +4809,9 @@ export default function BookingForm() {
   };
 
   const resetBookingDraftState = () => {
+    if (typeof window !== "undefined") {
+      window.sessionStorage.removeItem(BOOKING_DRAFT_STORAGE_KEY);
+    }
     reset();
     setComposerStep("input");
     setSubmitError("");
@@ -5456,7 +5552,11 @@ export default function BookingForm() {
       setDraftImported(true);
       setReferenceFilesChangedSinceParse(false);
       setShowOrderTypeSelector(false);
-      setComposerStep("preview");
+      openPreviewPage({
+        parsedPreview: enrichedParsedPreview,
+        productionPreviewImageUrl: payload.productionPreviewImageUrl ?? "",
+        draftImported: true,
+      });
       window.scrollTo({ top: 0, behavior: "smooth" });
 
       if (payload.warnings?.length) {
@@ -5757,7 +5857,7 @@ export default function BookingForm() {
                   toast.error("Pastikan teks sudah di-parse sebelum lanjut ke preview.");
                   return;
                 }
-                setComposerStep("preview");
+                openPreviewPage();
               }}
             >
               👀 Lihat Preview
@@ -8412,7 +8512,7 @@ export default function BookingForm() {
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setComposerStep("input")}
+                  onClick={() => router.push("/bakery/bookings/new")}
                   className="flex h-8 w-8 items-center justify-center rounded-xl text-lg text-[var(--crumbella-muted)]"
                 >
                   ←
@@ -8635,7 +8735,7 @@ export default function BookingForm() {
               <div className="flex gap-2 px-[14px] pb-5 pt-1">
                 <button
                   type="button"
-                  onClick={() => setComposerStep("input")}
+                  onClick={() => router.push("/bakery/bookings/new")}
                   className="flex-1 rounded-[13px] border-[1.5px] border-[var(--crumbella-border)] bg-white px-3 py-[13px] text-center text-[13px] font-semibold text-[var(--crumbella-muted)] transition hover:bg-gray-50"
                 >
                   ← Edit

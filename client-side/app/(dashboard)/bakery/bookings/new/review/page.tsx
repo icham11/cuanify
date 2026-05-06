@@ -1,5 +1,9 @@
-import { redirect } from "next/navigation";
+import BookingForm from "@/components/bakery/bookings/BookingForm";
 
 export default function ReviewBookingPage() {
-  redirect("/bakery/bookings/new");
+  return (
+    <div className="space-y-4 pb-10">
+      <BookingForm />
+    </div>
+  );
 }
