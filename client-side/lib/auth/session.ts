@@ -29,6 +29,10 @@ export type AuthResult = {
   role: UserRole
 }
 
+type BusinessAccessResult =
+  | { businessId: number; role: UserRole }
+  | null
+
 function normalizeNumericId(value: unknown): number | undefined {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value
@@ -142,6 +146,46 @@ async function resolveUserIdFromNextAuthJwt(): Promise<number | undefined> {
   return undefined
 }
 
+async function resolveBusinessAccess(args: {
+  userId: number
+  businessId: number
+}): Promise<BusinessAccessResult> {
+  const ownedBusiness = await prisma.business.findFirst({
+    where: {
+      id: args.businessId,
+      userId: args.userId,
+    },
+    select: { id: true },
+  })
+
+  if (ownedBusiness) {
+    return {
+      businessId: ownedBusiness.id,
+      role: "Owner" as UserRole,
+    }
+  }
+
+  const membership = await prisma.businessMember.findFirst({
+    where: {
+      userId: args.userId,
+      businessId: args.businessId,
+    },
+    select: {
+      businessId: true,
+      role: true,
+    },
+  })
+
+  if (membership) {
+    return {
+      businessId: membership.businessId,
+      role: membership.role,
+    }
+  }
+
+  return null
+}
+
 export const requireAuth = cache(async (): Promise<AuthResult> => {
   const cookieStore = await cookies()
   const headerList = await headers()
@@ -172,27 +216,6 @@ export const requireAuth = cache(async (): Promise<AuthResult> => {
   const preferredId = cookieStore.get("active_business_id")?.value
   const normalizedPreferredId = normalizeNumericId(preferredId)
 
-  if (!preferredId && jwtBusinessId && jwtRole) {
-    return {
-      userId: Number(userId),
-      businessId: jwtBusinessId,
-      role: jwtRole,
-    }
-  }
-
-  if (
-    normalizedPreferredId &&
-    jwtBusinessId &&
-    jwtRole &&
-    normalizedPreferredId === jwtBusinessId
-  ) {
-    return {
-      userId: Number(userId),
-      businessId: jwtBusinessId,
-      role: jwtRole,
-    }
-  }
-
   if (isPrismaTimeoutCooldownActive()) {
     if (jwtBusinessId && jwtRole) {
       return {
@@ -207,32 +230,27 @@ export const requireAuth = cache(async (): Promise<AuthResult> => {
 
   let business = null
 
-  if (preferredId) {
+  const requestedBusinessId = normalizedPreferredId ?? jwtBusinessId
+
+  if (requestedBusinessId) {
     try {
-      business = await prisma.business.findFirst({
-        where: { id: Number(preferredId), userId: Number(userId) },
+      const requestedAccess = await resolveBusinessAccess({
+        userId: Number(userId),
+        businessId: requestedBusinessId,
       })
 
-      if (!business) {
-        const membership = await prisma.businessMember.findFirst({
-          where: { userId: Number(userId), businessId: Number(preferredId) },
-          include: { business: true },
-        })
-        if (membership) {
-          return {
-            userId: Number(userId),
-            businessId: membership.businessId,
-            role: membership.role,
-          }
+      if (requestedAccess) {
+        return {
+          userId: Number(userId),
+          businessId: requestedAccess.businessId,
+          role: requestedAccess.role,
         }
       }
     } catch (error) {
       if (
         isPrismaConnectionTimeout(error) &&
-        normalizedPreferredId &&
         jwtBusinessId &&
-        jwtRole &&
-        normalizedPreferredId === jwtBusinessId
+        jwtRole
       ) {
         console.warn(
           "[Auth] Prisma timeout while resolving active business. Falling back to JWT business context.",
@@ -250,7 +268,7 @@ export const requireAuth = cache(async (): Promise<AuthResult> => {
   if (!business) {
     business = await prisma.business.findFirst({
       where: { userId: Number(userId) },
-      orderBy: { createdAt: "asc" },
+      orderBy: { createdAt: "desc" },
     })
   }
 
@@ -258,7 +276,7 @@ export const requireAuth = cache(async (): Promise<AuthResult> => {
     const membership = await prisma.businessMember.findFirst({
       where: { userId: Number(userId) },
       include: { business: true },
-      orderBy: { createdAt: "asc" },
+      orderBy: { createdAt: "desc" },
     })
 
     if (membership) {

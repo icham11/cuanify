@@ -19,6 +19,11 @@ import {
   getDefaultProductionStageTemplates,
   PRODUCTION_STAGE_ORDER,
 } from "@/lib/bookings/production-stages";
+import {
+  buildMainProductCategoryOptions,
+  normalizeMainCategoryKey,
+  resolveMainProductCategory,
+} from "@/lib/products/main-category";
 
 type StaffApiResponse = {
   data?: {
@@ -35,11 +40,27 @@ type StaffApiResponse = {
   };
 };
 
+type ProductCategoriesApiResponse = {
+  data?: Array<{
+    id: number;
+    name: string;
+    _count?: {
+      products?: number;
+    };
+  }>;
+};
+
 type EditableExpense = BakeryOperationalExpenseSetting;
 type EditableHoliday = BakeryHolidaySetting;
 type EditableStaff = BakeryStaffSetting;
 type EditableProductionStageProfile = ProductionStageCategoryProfile;
 type StaffRoleFilter = "Semua" | "Admin" | "Cashier" | "Staff";
+type ProductionCategoryOption = {
+  value: string;
+  label: string;
+  productCount: number;
+  source: "product" | "legacy";
+};
 
 function formatMoneyInput(value: number) {
   return String(Math.max(0, Math.round(Number(value || 0))));
@@ -164,10 +185,77 @@ function createDefaultStageProfile(category = ""): EditableProductionStageProfil
   };
 }
 
+function syncProductionStageProfilesWithCategories(args: {
+  categoryNames: string[];
+  currentProfiles: EditableProductionStageProfile[];
+}): EditableProductionStageProfile[] {
+  const canonicalNamesByKey = new Map<string, string>();
+  args.categoryNames.forEach((name) => {
+    const trimmed = resolveMainProductCategory(name.trim()) || name.trim();
+    const key = normalizeMainCategoryKey(trimmed);
+    if (!key || canonicalNamesByKey.has(key)) return;
+    canonicalNamesByKey.set(key, trimmed);
+  });
+
+  const currentProfilesByKey = new Map<string, EditableProductionStageProfile>();
+  args.currentProfiles.forEach((profile) => {
+    const normalizedCategory =
+      resolveMainProductCategory(profile.category.trim()) || profile.category.trim();
+    const key = normalizeMainCategoryKey(normalizedCategory);
+    if (!key) return;
+    if (!currentProfilesByKey.has(key)) {
+      currentProfilesByKey.set(key, {
+        category: normalizedCategory,
+        stages: profile.stages.map((stage) => ({ ...stage })),
+      });
+    }
+  });
+
+  const mergedProfiles: EditableProductionStageProfile[] = [];
+
+  canonicalNamesByKey.forEach((canonicalName, key) => {
+    const currentProfile = currentProfilesByKey.get(key);
+    mergedProfiles.push(
+      currentProfile
+        ? {
+            category: canonicalName,
+            stages: currentProfile.stages.map((stage) => ({ ...stage })),
+          }
+        : createDefaultStageProfile(canonicalName),
+    );
+    currentProfilesByKey.delete(key);
+  });
+
+  const legacyProfiles = Array.from(currentProfilesByKey.values()).sort((left, right) =>
+    left.category.localeCompare(right.category, "id"),
+  );
+
+  return [...mergedProfiles, ...legacyProfiles];
+}
+
+function serializeProductionStageProfiles(
+  profiles: EditableProductionStageProfile[],
+) {
+  return JSON.stringify(
+    profiles.map((profile) => ({
+      category: profile.category.trim(),
+      stages: profile.stages.map((stage) => ({
+        stage: stage.stage,
+        label: stage.label.trim(),
+        percentage: Number(stage.percentage || 0),
+      })),
+    })),
+  );
+}
+
 export default function BakerySettingsPage() {
-  const { settings, isLoading } = useBakerySettings();
+  const { settings, isLoading, refetch } = useBakerySettings();
   const { isOwner, loading: roleLoading } = useRole();
   const [isSaving, setIsSaving] = useState(false);
+  const [isSavingProductionStages, setIsSavingProductionStages] = useState(false);
+  const [productionStageProfilesSavedSnapshot, setProductionStageProfilesSavedSnapshot] =
+    useState("[]");
+  const [productionStageSaveMessage, setProductionStageSaveMessage] = useState("");
   const [staffOptions, setStaffOptions] = useState<
     Array<{ userId: number; name: string; role: string }>
   >([]);
@@ -189,9 +277,18 @@ export default function BakerySettingsPage() {
   const [holidayEntries, setHolidayEntries] = useState<EditableHoliday[]>([]);
   const [newHolidayDate, setNewHolidayDate] = useState("");
   const [newHolidayLabel, setNewHolidayLabel] = useState("");
+  const [productCategoryOptions, setProductCategoryOptions] = useState<
+    ProductionCategoryOption[]
+  >([]);
+  const [
+    hasInitializedProductionStageProfiles,
+    setHasInitializedProductionStageProfiles,
+  ] = useState(false);
   const [productionStageProfiles, setProductionStageProfiles] = useState<
     EditableProductionStageProfile[]
   >([]);
+  const [selectedProductionStageCategory, setSelectedProductionStageCategory] =
+    useState("");
 
   useEffect(() => {
     let active = true;
@@ -223,6 +320,46 @@ export default function BakerySettingsPage() {
   }, []);
 
   useEffect(() => {
+    let active = true;
+
+    const loadProductCategories = async () => {
+      try {
+        const response = await fetch("/api/categories", { cache: "no-store" });
+        const payload = (await response
+          .json()
+          .catch(() => ({}))) as ProductCategoriesApiResponse;
+        if (!response.ok || !active) return;
+
+        const nextOptions = buildMainProductCategoryOptions(
+          (payload.data ?? []).map((entry) => ({
+            name: entry.name,
+            productCount: Number(entry._count?.products ?? 0),
+          })),
+        ).map((entry) => ({
+          ...entry,
+          source: "product" as const,
+        }));
+
+        setProductCategoryOptions(nextOptions);
+      } catch {
+        // Category options remain optional; legacy saved profiles still render.
+      }
+    };
+
+    const handleWindowFocus = () => {
+      void loadProductCategories();
+    };
+
+    void loadProductCategories();
+    window.addEventListener("focus", handleWindowFocus);
+
+    return () => {
+      active = false;
+      window.removeEventListener("focus", handleWindowFocus);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!settings) return;
 
     setDailyProductionTokenLimit(settings.dailyProductionTokenLimit);
@@ -233,6 +370,11 @@ export default function BakerySettingsPage() {
     setNotifyProductionWhatsapp(settings.notifyProductionWhatsapp);
     setHolidayEntries(settings.holidayEntries);
     setProductionStageProfiles(settings.productionStageProfiles);
+    setProductionStageProfilesSavedSnapshot(
+      serializeProductionStageProfiles(settings.productionStageProfiles),
+    );
+    setProductionStageSaveMessage("");
+    setHasInitializedProductionStageProfiles(true);
 
     const monthExpenses = settings.monthlyExpenses.filter(
       (entry) => entry.monthKey === currentMonthKey,
@@ -248,6 +390,18 @@ export default function BakerySettingsPage() {
     if (!settings) return;
     setStaffSettings(mergeStaffSettings(staffOptions, settings.staffSettings));
   }, [settings, staffOptions]);
+
+  useEffect(() => {
+    if (!hasInitializedProductionStageProfiles || productCategoryOptions.length === 0) {
+      return;
+    }
+    setProductionStageProfiles((current) =>
+      syncProductionStageProfilesWithCategories({
+        categoryNames: productCategoryOptions.map((entry) => entry.label),
+        currentProfiles: current,
+      }),
+    );
+  }, [hasInitializedProductionStageProfiles, productCategoryOptions]);
 
   const totalMonthlyPayroll = useMemo(
     () =>
@@ -269,6 +423,71 @@ export default function BakerySettingsPage() {
       return matchRole && matchKeyword;
     });
   }, [staffRoleFilter, staffSearch, staffSettings]);
+
+  const availableProductionCategoryOptions = useMemo(() => {
+    const deduped = new Map<string, ProductionCategoryOption>();
+
+    productCategoryOptions.forEach((entry) => {
+      const key = normalizeMainCategoryKey(entry.label);
+      if (!key) return;
+      deduped.set(key, entry);
+    });
+
+    productionStageProfiles.forEach((profile) => {
+      const key = normalizeMainCategoryKey(profile.category);
+      if (!key || deduped.has(key)) return;
+      deduped.set(key, {
+        value: profile.category,
+        label: profile.category,
+        productCount: 0,
+        source: "legacy",
+      });
+    });
+
+    return Array.from(deduped.values()).sort((left, right) =>
+      left.label.localeCompare(right.label, "id"),
+    );
+  }, [productCategoryOptions, productionStageProfiles]);
+
+  const selectedProductionStageProfileIndex = useMemo(() => {
+    const selectedKey = normalizeMainCategoryKey(selectedProductionStageCategory);
+    if (!selectedKey) return -1;
+    return productionStageProfiles.findIndex(
+      (profile) => normalizeMainCategoryKey(profile.category) === selectedKey,
+    );
+  }, [productionStageProfiles, selectedProductionStageCategory]);
+
+  const selectedProductionStageProfile =
+    selectedProductionStageProfileIndex >= 0
+      ? productionStageProfiles[selectedProductionStageProfileIndex]
+      : null;
+
+  const isProductionStageDirty = useMemo(
+    () =>
+      serializeProductionStageProfiles(productionStageProfiles) !==
+      productionStageProfilesSavedSnapshot,
+    [productionStageProfiles, productionStageProfilesSavedSnapshot],
+  );
+
+  useEffect(() => {
+    if (availableProductionCategoryOptions.length === 0) {
+      if (selectedProductionStageCategory) {
+        setSelectedProductionStageCategory("");
+      }
+      return;
+    }
+
+    const selectedKey = normalizeMainCategoryKey(selectedProductionStageCategory);
+    const stillExists = availableProductionCategoryOptions.some(
+      (entry) => normalizeMainCategoryKey(entry.label) === selectedKey,
+    );
+
+    if (!stillExists) {
+      setSelectedProductionStageCategory(
+        availableProductionCategoryOptions[0]?.label ?? "",
+      );
+    }
+  }, [availableProductionCategoryOptions, selectedProductionStageCategory]);
 
   const currentMonthExpenseLabel = getMonthLabel(currentMonthKey);
   const currentMonthHolidayCount = holidayEntries.length;
@@ -339,24 +558,6 @@ export default function BakerySettingsPage() {
     toast.success("Tanggal libur dihapus dari draft pengaturan.");
   };
 
-  const addProductionStageProfile = () => {
-    setProductionStageProfiles((current) => [
-      ...current,
-      createDefaultStageProfile(""),
-    ]);
-  };
-
-  const updateProductionStageProfile = (
-    profileIndex: number,
-    patch: Partial<EditableProductionStageProfile>,
-  ) => {
-    setProductionStageProfiles((current) =>
-      current.map((entry, index) =>
-        index === profileIndex ? { ...entry, ...patch } : entry,
-      ),
-    );
-  };
-
   const updateProductionStageRow = (
     profileIndex: number,
     stageKey: (typeof PRODUCTION_STAGE_ORDER)[number],
@@ -384,10 +585,54 @@ export default function BakerySettingsPage() {
     );
   };
 
-  const removeProductionStageProfile = (profileIndex: number) => {
-    setProductionStageProfiles((current) =>
-      current.filter((_, index) => index !== profileIndex),
-    );
+  const validateProductionStageProfiles = (
+    profiles: EditableProductionStageProfile[],
+  ) => {
+    for (const profile of profiles) {
+      if (!profile.category.trim()) {
+        return "Kategori besar pada profile proses produksi wajib diisi.";
+      }
+      const total = profile.stages.reduce(
+        (sum, stage) => sum + Number(stage.percentage || 0),
+        0,
+      );
+      if (total !== 100) {
+        return `Total persentase proses untuk kategori ${profile.category} harus tepat 100%.`;
+      }
+    }
+
+    return null;
+  };
+
+  const saveBakerySettings = async (input: Record<string, unknown>) => {
+    const response = await fetch("/api/bakery/settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+
+    const payload = (await response.json().catch(() => ({}))) as {
+      error?: string;
+      data?: {
+        productionStageProfiles?: EditableProductionStageProfile[];
+      };
+    };
+
+    if (!response.ok) {
+      throw new Error(payload.error || "Gagal menyimpan bakery settings");
+    }
+
+    if (payload.data?.productionStageProfiles) {
+      setProductionStageProfiles(payload.data.productionStageProfiles);
+      setProductionStageProfilesSavedSnapshot(
+        serializeProductionStageProfiles(payload.data.productionStageProfiles),
+      );
+    }
+
+    await refetch({ force: true }).catch(() => payload.data ?? null);
+    window.dispatchEvent(new Event(BAKERY_SETTINGS_UPDATED_EVENT));
+
+    return payload;
   };
 
   const handleSave = async () => {
@@ -396,54 +641,31 @@ export default function BakerySettingsPage() {
       return;
     }
 
-    for (const profile of productionStageProfiles) {
-      if (!profile.category.trim()) {
-        toast.error("Kategori besar pada profile proses produksi wajib diisi.");
-        return;
-      }
-      const total = profile.stages.reduce(
-        (sum, stage) => sum + Number(stage.percentage || 0),
-        0,
-      );
-      if (total !== 100) {
-        toast.error(
-          `Total persentase proses untuk kategori ${profile.category} harus tepat 100%.`,
-        );
-        return;
-      }
+    const productionStageValidationError =
+      validateProductionStageProfiles(productionStageProfiles);
+    if (productionStageValidationError) {
+      toast.error(productionStageValidationError);
+      return;
     }
 
     setIsSaving(true);
     try {
-      const response = await fetch("/api/bakery/settings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          dailyProductionTokenLimit,
-          staffDailyTokenLimit,
-          cutoffHour,
-          cutoffEnabled,
-          defaultDpPercentage,
-          notifyProductionWhatsapp,
-          holidayEntries,
-          staffSettings: staffSettings.map((entry) => ({
-            ...entry,
-            takeHomePay: toTakeHome(entry.monthlySalary, entry.mealAllowance),
-          })),
-          monthlyExpenses,
-          productionStageProfiles,
-        }),
+      await saveBakerySettings({
+        dailyProductionTokenLimit,
+        staffDailyTokenLimit,
+        cutoffHour,
+        cutoffEnabled,
+        defaultDpPercentage,
+        notifyProductionWhatsapp,
+        holidayEntries,
+        staffSettings: staffSettings.map((entry) => ({
+          ...entry,
+          takeHomePay: toTakeHome(entry.monthlySalary, entry.mealAllowance),
+        })),
+        monthlyExpenses,
+        productionStageProfiles,
       });
-
-      const payload = (await response.json().catch(() => ({}))) as {
-        error?: string;
-      };
-
-      if (!response.ok) {
-        throw new Error(payload.error || "Gagal menyimpan bakery settings");
-      }
-
-      window.dispatchEvent(new Event(BAKERY_SETTINGS_UPDATED_EVENT));
+      setProductionStageSaveMessage("Proses produksi terakhir sudah tersimpan.");
       toast.success("Pengaturan bakery berhasil disimpan dan langsung diperbarui.");
     } catch (error) {
       toast.error(
@@ -451,6 +673,37 @@ export default function BakerySettingsPage() {
       );
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleSaveProductionStages = async () => {
+    if (!isOwner) {
+      toast.error("Hanya owner yang dapat menyimpan pengaturan.");
+      return;
+    }
+
+    const productionStageValidationError =
+      validateProductionStageProfiles(productionStageProfiles);
+    if (productionStageValidationError) {
+      toast.error(productionStageValidationError);
+      return;
+    }
+
+    setIsSavingProductionStages(true);
+    try {
+      await saveBakerySettings({
+        productionStageProfiles,
+      });
+      setProductionStageSaveMessage(
+        "Perubahan proses produksi sudah tersimpan dan tidak akan kembali ke versi sebelumnya.",
+      );
+      toast.success("Proses produksi per kategori berhasil disimpan.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Gagal menyimpan proses produksi",
+      );
+    } finally {
+      setIsSavingProductionStages(false);
     }
   };
 
@@ -803,68 +1056,84 @@ export default function BakerySettingsPage() {
       </section>
 
       <section className="overflow-hidden rounded-[24px] border border-[#ddcbbb] bg-[#f4e9dc] shadow-[0_16px_30px_-26px_rgba(52,31,20,0.35)]">
-        <div className="flex items-center justify-between border-b border-[#e8d6c8] px-4 py-3">
-          <div>
-            <h2 className="text-lg font-bold">🧩 Proses Produksi per Kategori</h2>
-            <p className="text-xs text-[#b58872]">
-              Ubah label proses dan persentase token untuk kategori besar seperti Bouquet atau Cupcakes.
-            </p>
-          </div>
-          <button
-            type="button"
-            disabled={!isOwner}
-            onClick={addProductionStageProfile}
-            className="inline-flex items-center gap-1 rounded-full border border-[#cb6837] bg-[#fff0df] px-3 py-1.5 text-xs font-bold text-[#cb6837] disabled:opacity-50"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Tambah
-          </button>
+        <div className="border-b border-[#e8d6c8] px-4 py-3">
+          <h2 className="text-lg font-bold">🧩 Proses Produksi per Kategori</h2>
+          <p className="text-xs text-[#b58872]">
+            Pilih main category produk, lalu edit 3 proses backend-nya tanpa risiko typo nama kategori.
+          </p>
         </div>
         <div className="space-y-3 px-4 py-4">
-          {productionStageProfiles.length === 0 ? (
+          {availableProductionCategoryOptions.length === 0 ? (
             <div className="rounded-[18px] border border-dashed border-[#dcc7b8] px-4 py-6 text-center text-sm text-[#8a6047]">
-              Belum ada profile kategori khusus. Sistem akan pakai default Lining 25%, Filling 25%, Finishing 50%.
+              Belum ada kategori produk yang bisa dipakai. Tambahkan kategori di halaman product dulu, lalu kembali ke sini.
             </div>
           ) : (
-            productionStageProfiles.map((profile, profileIndex) => {
-              const totalPercentage = profile.stages.reduce(
-                (sum, stage) => sum + Number(stage.percentage || 0),
-                0,
-              );
-
-              return (
-                <div
-                  key={`stage-profile-${profileIndex}`}
-                  className="rounded-[20px] border border-[#e2d1c3] bg-[#f8efe6] p-4"
+            <>
+              <label className="grid gap-1 text-sm font-semibold text-[#2f1e13]">
+                Main Category Product
+                <select
+                  value={selectedProductionStageCategory}
+                  onChange={(event) =>
+                    setSelectedProductionStageCategory(event.target.value)
+                  }
+                  className="h-11 rounded-2xl border border-[#dcc7b8] bg-[#fbf4ed] px-3 text-sm outline-none"
                 >
-                  <div className="mb-3 flex items-center gap-3">
-                    <input
-                      type="text"
-                      value={profile.category}
-                      disabled={!isOwner}
-                      onChange={(event) =>
-                        updateProductionStageProfile(profileIndex, {
-                          category: event.target.value,
-                        })
-                      }
-                      placeholder="Contoh: Bouquet"
-                      className="h-10 flex-1 rounded-2xl border border-[#dcc7b8] bg-[#fbf4ed] px-3 text-sm font-semibold outline-none"
-                    />
-                    <button
-                      type="button"
-                      disabled={!isOwner}
-                      onClick={() => removeProductionStageProfile(profileIndex)}
-                      className="rounded-full p-2 text-[#c86030] disabled:opacity-40"
-                      aria-label={`Hapus profile ${profile.category || profileIndex + 1}`}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                  {availableProductionCategoryOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                      {option.productCount > 0
+                        ? ` (${option.productCount} produk)`
+                        : option.source === "legacy"
+                          ? " (profile lama)"
+                          : ""}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-xs font-normal text-[#b58872]">
+                  Option ini mengikuti main category product, jadi subcategory seperti One Tier Cake dan Two Tier Cake tetap masuk ke category Cake yang sama.
+                </span>
+              </label>
+
+              {selectedProductionStageProfile &&
+              selectedProductionStageProfileIndex >= 0 ? (
+                <div className="rounded-[20px] border border-[#e2d1c3] bg-[#f8efe6] p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-base font-bold text-[#2f1e13]">
+                        {selectedProductionStageProfile.category}
+                      </p>
+                      <p className="mt-1 text-xs text-[#b58872]">
+                        Preview dan edit 3 proses produksi untuk kategori ini.
+                      </p>
+                    </div>
+                    <div className="rounded-full bg-[#fff0df] px-3 py-1 text-xs font-semibold text-[#b15d2f]">
+                      3 proses backend tetap aktif
+                    </div>
                   </div>
 
-                  <div className="space-y-3">
-                    {profile.stages.map((stage) => (
+                  <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                    {selectedProductionStageProfile.stages.map((stage) => (
                       <div
-                        key={`${profile.category}-${stage.stage}`}
+                        key={`${selectedProductionStageProfile.category}-preview-${stage.stage}`}
+                        className="rounded-[18px] border border-[#ead8ca] bg-[#fbf4ed] px-3 py-3"
+                      >
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#b58872]">
+                          {stage.stage}
+                        </p>
+                        <p className="mt-1 text-sm font-bold text-[#2f1e13]">
+                          {stage.label}
+                        </p>
+                        <p className="mt-1 text-xs text-[#8a6047]">
+                          {stage.percentage}% token
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-4 space-y-3">
+                    {selectedProductionStageProfile.stages.map((stage) => (
+                      <div
+                        key={`${selectedProductionStageProfile.category}-${stage.stage}`}
                         className="grid grid-cols-1 gap-3 sm:grid-cols-[1.4fr_1fr]"
                       >
                         <input
@@ -872,9 +1141,13 @@ export default function BakerySettingsPage() {
                           value={stage.label}
                           disabled={!isOwner}
                           onChange={(event) =>
-                            updateProductionStageRow(profileIndex, stage.stage, {
-                              label: event.target.value,
-                            })
+                            updateProductionStageRow(
+                              selectedProductionStageProfileIndex,
+                              stage.stage,
+                              {
+                                label: event.target.value,
+                              },
+                            )
                           }
                           className="h-11 rounded-2xl border border-[#dcc7b8] bg-[#fbf4ed] px-3 text-sm font-semibold outline-none"
                         />
@@ -886,9 +1159,13 @@ export default function BakerySettingsPage() {
                             value={stage.percentage}
                             disabled={!isOwner}
                             onChange={(event) =>
-                              updateProductionStageRow(profileIndex, stage.stage, {
-                                percentage: Number(event.target.value || 0),
-                              })
+                              updateProductionStageRow(
+                                selectedProductionStageProfileIndex,
+                                stage.stage,
+                                {
+                                  percentage: Number(event.target.value || 0),
+                                },
+                              )
                             }
                             className="h-11 w-full rounded-2xl border border-[#dcc7b8] bg-[#fbf4ed] px-3 pr-10 text-sm font-semibold outline-none"
                           />
@@ -901,11 +1178,51 @@ export default function BakerySettingsPage() {
                   </div>
 
                   <p className="mt-3 text-xs text-[#b58872]">
-                    Total persentase: {totalPercentage}% · Slot stage backend saat ini tetap 3 proses.
+                    Total persentase:{" "}
+                    {selectedProductionStageProfile.stages.reduce(
+                      (sum, stage) => sum + Number(stage.percentage || 0),
+                      0,
+                    )}
+                    % · Slot stage backend saat ini tetap 3 proses.
                   </p>
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                    <p
+                      className={`text-xs ${
+                        isProductionStageDirty
+                          ? "text-[#b15d2f]"
+                          : "text-[#5f8a67]"
+                      }`}
+                    >
+                      {isProductionStageDirty
+                        ? "Ada perubahan yang belum disimpan."
+                        : productionStageSaveMessage ||
+                          "Versi proses produksi ini sudah sinkron dengan server."}
+                    </p>
+                    <button
+                      type="button"
+                      disabled={
+                        !isOwner ||
+                        isSavingProductionStages ||
+                        !isProductionStageDirty
+                      }
+                      onClick={handleSaveProductionStages}
+                      className="inline-flex items-center gap-2 rounded-full bg-[#cb6837] px-4 py-2 text-xs font-bold text-white shadow-[0_12px_20px_-18px_rgba(200,96,48,0.8)] disabled:opacity-50"
+                    >
+                      {isSavingProductionStages ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Save className="h-3.5 w-3.5" />
+                      )}
+                      {isSavingProductionStages
+                        ? "Menyimpan..."
+                        : isProductionStageDirty
+                          ? "Simpan Proses Ini"
+                          : "Sudah Tersimpan"}
+                    </button>
+                  </div>
                 </div>
-              );
-            })
+              ) : null}
+            </>
           )}
         </div>
       </section>

@@ -1588,9 +1588,13 @@ export async function generateOrderImage(
             renderableReferenceImages.map((reference) => reference.url),
           );
 
-    await page.setContent(html, { waitUntil: "networkidle0" });
+    await page.setContent(html, { waitUntil: "domcontentloaded" });
 
     await page.evaluate(async () => {
+      if (document.fonts?.ready) {
+        await document.fonts.ready.catch(() => undefined);
+      }
+
       const images = Array.from(document.images);
       await Promise.all(
         images.map((img) => {
@@ -1598,8 +1602,13 @@ export async function generateOrderImage(
             return Promise.resolve();
           }
           return new Promise<void>((resolve) => {
-            img.onload = () => resolve();
-            img.onerror = () => resolve();
+            const timeoutId = window.setTimeout(() => resolve(), 15000);
+            const finish = () => {
+              window.clearTimeout(timeoutId);
+              resolve();
+            };
+            img.onload = finish;
+            img.onerror = finish;
           });
         }),
       );

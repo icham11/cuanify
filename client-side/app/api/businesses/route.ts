@@ -115,6 +115,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Name required" }, { status: 400 })
     }
 
+    const existingBusiness = await prisma.business.findFirst({
+      where: { userId: Number(userId) },
+      orderBy: { createdAt: "desc" },
+    })
+
+    if (existingBusiness) {
+      return NextResponse.json(
+        {
+          success: true,
+          data: existingBusiness,
+          alreadyExists: true,
+          message: "Owner hanya boleh memiliki satu business.",
+        },
+        { status: 200 },
+      )
+    }
+
     const business = await prisma.business.create({
       data: {
         name,

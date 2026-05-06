@@ -24,15 +24,39 @@ export async function GET() {
   try {
     const { businessId } = await requireAuth();
 
-    const categories = await prisma.category.findMany({
-      where: { businessId },
-      orderBy: { name: "asc" },
-      include: {
-        _count: { select: { products: true } },
-      },
-    });
+    const [categories, activeProductCounts] = await Promise.all([
+      prisma.category.findMany({
+        where: { businessId },
+        orderBy: { name: "asc" },
+      }),
+      prisma.product.groupBy({
+        by: ["categoryId"],
+        where: {
+          businessId,
+          deletedAt: null,
+          categoryId: { not: null },
+        },
+        _count: {
+          _all: true,
+        },
+      }),
+    ]);
 
-    return NextResponse.json({ success: true, data: categories });
+    const activeCountByCategoryId = new Map(
+      activeProductCounts.map((entry) => [
+        Number(entry.categoryId),
+        Number(entry._count._all ?? 0),
+      ]),
+    );
+
+    const categoriesWithCounts = categories.map((category) => ({
+      ...category,
+      _count: {
+        products: activeCountByCategoryId.get(category.id) ?? 0,
+      },
+    }));
+
+    return NextResponse.json({ success: true, data: categoriesWithCounts });
   } catch (error: unknown) {
     if (isAuthError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

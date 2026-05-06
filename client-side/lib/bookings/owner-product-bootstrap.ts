@@ -25,6 +25,7 @@ export type OwnerProductBootstrapResult = {
   skipped: boolean;
   existingProducts: number;
   reason?:
+    | "business-not-found"
     | "existing-products-threshold"
     | "existing-product-history"
     | "existing-product-history-disabled";
@@ -59,6 +60,19 @@ export async function ensureOwnerDefaultProducts(args: {
   businessId: number;
   force?: boolean;
 }): Promise<OwnerProductBootstrapResult> {
+  const business = await prisma.business.findUnique({
+    where: { id: args.businessId },
+    select: { id: true },
+  });
+
+  if (!business) {
+    return {
+      skipped: true,
+      existingProducts: 0,
+      reason: "business-not-found",
+    };
+  }
+
   const productHistoryCount = await prisma.product.count({
     where: {
       businessId: args.businessId,

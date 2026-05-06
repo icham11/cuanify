@@ -42,15 +42,15 @@ export async function POST(req: Request) {
   const ownedBusiness = await prisma.business.findFirst({
     where: { userId: user.id },
     select: { id: true },
-    orderBy: { createdAt: "asc" },
+    orderBy: { createdAt: "desc" },
   });
 
   const membership = ownedBusiness
-    ? null
-    : await prisma.businessMember.findFirst({
+      ? null
+      : await prisma.businessMember.findFirst({
         where: { userId: user.id },
         select: { businessId: true, role: true },
-        orderBy: { createdAt: "asc" },
+        orderBy: { createdAt: "desc" },
       });
 
   const role = ownedBusiness ? "Owner" : membership?.role;

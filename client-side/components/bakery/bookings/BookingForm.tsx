@@ -5456,6 +5456,8 @@ export default function BookingForm() {
       setDraftImported(true);
       setReferenceFilesChangedSinceParse(false);
       setShowOrderTypeSelector(false);
+      setComposerStep("preview");
+      window.scrollTo({ top: 0, behavior: "smooth" });
 
       if (payload.warnings?.length) {
         toast.warning(payload.warnings.join(" "));
@@ -5514,6 +5516,9 @@ export default function BookingForm() {
                 <ArrowLeft className="h-4 w-4" />
               </div>
               <div>
+                <p className="text-3xl font-semibold leading-none text-[var(--foreground)]">
+                  New Booking
+                </p>
                 <p className="text-sm text-[var(--crumbella-muted)]">
                   Paste rekap WA lalu klik Parse
                 </p>
@@ -5733,66 +5738,14 @@ export default function BookingForm() {
             </div>
           )}
 
-          {productionPreviewImageUrl ? (
-            <div className="space-y-3 rounded-[20px] border border-[#d7efe4] bg-[#f7fffb] p-4">
-              <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-700">
-                Template produksi siap direview sebelum booking dibuat.
-              </div>
-              <div className="rounded-lg border border-emerald-200 bg-white p-3">
-                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
-                    Preview Template Produksi
-                  </p>
-                  <a
-                    href={productionPreviewImageUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-xs font-medium text-emerald-700 underline underline-offset-2"
-                  >
-                    Buka file Cloudinary
-                  </a>
-                </div>
-                {/* Using a plain img keeps arbitrary Cloudinary preview URLs simple in the admin form. */}
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={productionPreviewImageUrl}
-                  alt="Preview template produksi"
-                  className="w-full rounded-lg border border-gray-200 bg-gray-50 object-contain"
-                />
-              </div>
+          {(productionPreviewImageUrl ||
+            previewReferenceImages.some((image) => image.url)) && (
+            <div className="rounded-2xl border border-dashed border-[var(--crumbella-border)] bg-white/70 px-4 py-3 text-center text-xs text-[var(--crumbella-muted)]">
+              Preview template produksi disembunyikan di halaman ini. Untuk
+              melihatnya, klik <span className="font-semibold">Preview Booking</span>{" "}
+              di atas Price Summary.
             </div>
-          ) : previewReferenceImages.some((image) => image.url) ? (
-            <div className="space-y-3 rounded-[20px] border border-[#f4dfc7] bg-[#fffaf5] p-4">
-              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                Preview template produksi belum muncul. Sementara tampilkan gambar referensi hasil parse yang sudah diinput admin.
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                {previewReferenceImages
-                  .filter((image) => image.url)
-                  .map((image, index) => (
-                    <div
-                      key={`${image.label}-${index}`}
-                      className="rounded-lg border border-[var(--crumbella-border)] bg-white p-3"
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={image.url}
-                        alt={image.label}
-                        className="h-40 w-full rounded-lg border border-gray-200 bg-gray-50 object-contain"
-                      />
-                      <p className="mt-2 text-sm font-medium text-[var(--foreground)]">
-                        {image.label}
-                      </p>
-                      {image.note ? (
-                        <p className="mt-1 text-xs text-[var(--crumbella-muted)]">
-                          {image.note}
-                        </p>
-                      ) : null}
-                    </div>
-                  ))}
-              </div>
-            </div>
-          ) : null}
+          )}
 
           <div className="px-1 pt-1">
             <Button
@@ -8564,13 +8517,47 @@ export default function BookingForm() {
                     Gambar Referensi · {previewReferenceImages.length} gambar
                   </p>
                 </div>
-                <div className="flex flex-col gap-2 px-[14px] py-[10px]">
+                <div className="flex flex-col gap-3 px-[14px] py-[10px]">
                   {previewReferenceImages.length > 0 ? (
                     previewReferenceImages.map((image, index) => {
-                      const iconEmojis = ["🍪", "🦖", "⭐", "🎂", "🌸"];
-                      const bgColors = ["#FFF8E1", "#E8F5E9", "#E3F2FD", "#FFF3E0", "#FCE4EC"];
-                      const borderColors = ["#D8B870", "#A8D0B8", "#A0B8D8", "#FFCC80", "#F48FB1"];
                       return (
+                        <div
+                          key={`${image.label}-${index}`}
+                          className="overflow-hidden rounded-[14px] border border-[var(--crumbella-border)] bg-[#fffdfa] p-[9px] shadow-[0_10px_24px_-22px_rgba(30,18,10,0.45)]"
+                        >
+                          <div className="overflow-hidden rounded-[11px] border border-[#ebe2d7] bg-[linear-gradient(90deg,#f6f1ea_0%,#fcfaf7_50%,#f6f1ea_100%)]">
+                            {image.url ? (
+                              <>
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={image.url}
+                                  alt={image.label}
+                                  className="h-[168px] w-full object-contain"
+                                />
+                              </>
+                            ) : (
+                              <div className="flex h-[168px] items-center justify-center px-4 text-center text-[11px] text-[var(--crumbella-muted)]">
+                                Gambar referensi belum tersedia.
+                              </div>
+                            )}
+                          </div>
+                          <div className="px-[2px] pb-[2px] pt-3">
+                            <p className="text-[12.5px] font-semibold leading-[1.45] text-[var(--foreground)]">
+                              {image.label}
+                            </p>
+                            <p
+                              className={`mt-[4px] text-[11px] leading-[1.5] ${
+                                image.note
+                                  ? "text-[var(--crumbella-muted)]"
+                                  : "italic text-[var(--crumbella-muted)]"
+                              }`}
+                            >
+                              {image.note || "Tidak ada notes"}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                      /* return (
                         <div key={`${image.label}-${index}`} className="flex items-center gap-[10px]">
                           <div
                             className="flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-lg border text-[18px]"
@@ -8582,7 +8569,7 @@ export default function BookingForm() {
                             {image.label}{image.note ? ` — ${image.note}` : " — Tidak ada notes"}
                           </p>
                         </div>
-                      );
+                      ); */
                     })
                   ) : (
                     <p className="text-[11.5px] italic text-[var(--crumbella-muted)]">

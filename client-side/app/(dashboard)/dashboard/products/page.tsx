@@ -23,8 +23,11 @@ import {
 } from "@/lib/api/products";
 import type { Product, ProductCategory } from "@/types/product";
 import EditProductModal from "./EditProductModal";
-import { BOOKING_PRODUCT_CATALOG } from "@/lib/bookings/pricelist";
 import UnifiedAddProductModal from "@/components/products/UnifiedAddProductModal";
+import {
+  REMOVED_BAKERY_SUBCATEGORIES,
+  resolveMainProductCategory,
+} from "@/lib/products/main-category";
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat("id-ID", {
@@ -32,19 +35,6 @@ const formatCurrency = (value: number) =>
     currency: "IDR",
     minimumFractionDigits: 0,
   }).format(value);
-
-const SUBCATEGORY_PRODUCT_MAP = new Map(
-  BOOKING_PRODUCT_CATALOG.flatMap((category) =>
-    category.subcategories.map(
-      (subcategory) => [subcategory.name, category.category] as const,
-    ),
-  ),
-);
-
-const REMOVED_BAKERY_SUBCATEGORIES = new Set([
-  ["Best", "Seller", "Kids", "Edition"].join(" "),
-  ["Best", "Seller", "Signature"].join(" "),
-]);
 
 type SortByField = "name" | "sellingPrice" | "createdAt";
 type SortOrderType = "asc" | "desc";
@@ -63,7 +53,7 @@ const PRODUCT_SORT_OPTIONS: Array<{
 
 function getProductGroupName(product: Product): string {
   const subcategory = product.category?.name ?? "";
-  return SUBCATEGORY_PRODUCT_MAP.get(subcategory) ?? "Custom";
+  return resolveMainProductCategory(subcategory);
 }
 
 function formatCompactCurrency(value: number): string {
@@ -403,7 +393,7 @@ export default function ProductsPage() {
   const productGroupOptions = useMemo(() => {
     const groups = new Set(
       visibleCategories.map(
-        (category) => SUBCATEGORY_PRODUCT_MAP.get(category.name) ?? "Custom",
+        (category) => resolveMainProductCategory(category.name),
       ),
     );
     return Array.from(groups).sort((a, b) => a.localeCompare(b));
@@ -413,8 +403,7 @@ export default function ProductsPage() {
     if (!productGroupFilter) return visibleCategories;
     return visibleCategories.filter(
       (category) =>
-        (SUBCATEGORY_PRODUCT_MAP.get(category.name) ?? "Custom") ===
-        productGroupFilter,
+        resolveMainProductCategory(category.name) === productGroupFilter,
     );
   }, [productGroupFilter, visibleCategories]);
 

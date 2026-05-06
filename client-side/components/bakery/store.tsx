@@ -265,10 +265,6 @@ interface OrdersContextValue {
   syncOrderCalendar: (id: string) => Promise<void>;
   getCustomerMessagePreview: (id: string) => string;
   setOrderShipment: (id: string, shipment: ShippingShipment) => void;
-  resetStaffAssignments: (
-    staffUserId: number,
-    options?: { syncToServer?: boolean },
-  ) => number;
   reloadOrdersFromServer: () => Promise<void>;
 }
 
@@ -1056,6 +1052,28 @@ export function OrdersProvider({
     return payload;
   }, []);
 
+  const fetchLatestOrdersFromServer = useCallback(async () => {
+    if (!enabled) return null as BakeryOrder[] | null;
+    if (typeof window === "undefined") return null as BakeryOrder[] | null;
+
+    try {
+      const response = await fetch(ORDERS_SYNC_ENDPOINT, {
+        method: "GET",
+        cache: "no-store",
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        success?: boolean;
+        data?: { orders?: BakeryOrder[] };
+      };
+
+      if (!response.ok || !payload.success) return null;
+      if (!Array.isArray(payload.data?.orders)) return [];
+      return parseSnapshot(JSON.stringify(payload.data.orders));
+    } catch {
+      return null;
+    }
+  }, [enabled]);
+
   const hydrateOrdersFromServer = useCallback(
     async (force = false) => {
       if (!enabled) return;
@@ -1669,13 +1687,16 @@ export function OrdersProvider({
         );
       }
 
-      const localMaxId = orders.reduce((max, item) => {
+      const latestServerOrders = await fetchLatestOrdersFromServer();
+      const baseOrders = latestServerOrders ?? orders;
+
+      const localMaxId = baseOrders.reduce((max, item) => {
         const parsed = Number(item.id);
         return Number.isFinite(parsed) ? Math.max(max, parsed) : max;
       }, 9300);
       const timestampId = Date.now();
       const id = String(Math.max(localMaxId + 1, timestampId));
-      const sequence = getDailyBookingSequence(orders, order.deliveryDate);
+      const sequence = getDailyBookingSequence(baseOrders, order.deliveryDate);
       const bookingCode = generateBookingCode(
         order.customerName,
         order.customerPhone,
@@ -1802,9 +1823,9 @@ export function OrdersProvider({
           googleSheetsSynced: false,
         },
       };
-      const nextOrders = [newOrder, ...orders];
+      const nextOrders = [newOrder, ...baseOrders];
 
-      await syncOrdersToServer(nextOrders);
+      await syncOrdersToServer([newOrder]);
       writeOrdersSnapshot(nextOrders);
 
       toast.success(`Booking masuk produksi: ${bookingCode}`);
@@ -1835,6 +1856,7 @@ export function OrdersProvider({
       runAutomationsForOrder,
       createShipmentForOrder,
       syncOrdersToServer,
+      fetchLatestOrdersFromServer,
       blockedDates,
       cutoffEnabled,
     ],
@@ -2094,130 +2116,6 @@ export function OrdersProvider({
       assignProductionStagesStaff(id, { [stage]: staff });
     },
     [assignProductionStagesStaff],
-  );
-
-  const resetStaffAssignments = useCallback(
-    (staffUserId: number, options?: { syncToServer?: boolean }) => {
-      if (!Number.isInteger(staffUserId) || staffUserId <= 0) return 0;
-
-      const inferredStaffNames = new Map<number, string>();
-      for (const order of orders) {
-        const assignedUserId = Number(order.assignedStaffUserId);
-        const assignedName = order.assignedStaffName?.trim();
-        if (
-          Number.isInteger(assignedUserId) &&
-          assignedUserId > 0 &&
-          assignedName
-        ) {
-          inferredStaffNames.set(assignedUserId, assignedName);
-        }
-      }
-
-      let changedCount = 0;
-      const nextOrders = orders.map((order) => {
-        const totalTokens = summarizeProductionTokensByItems(order.items ?? []);
-        const existingStages = order.productionStages ?? [];
-        const existingStageByKey = new Map(
-          existingStages.map((stage) => [stage.stage, stage]),
-        );
-        const stagePercentages =
-          existingStages.length > 0
-            ? PRODUCTION_STAGE_ORDER.reduce(
-                (acc, stage) => {
-                  const current = existingStageByKey.get(stage);
-                  if (current) {
-                    acc[stage] = Math.max(
-                      0,
-                      Math.round(Number(current.percentage) || 0),
-                    );
-                  }
-                  return acc;
-                },
-                {} as Partial<Record<ProductionStage, number>>,
-              )
-            : getProductionStagePercentagesFromTemplates(
-                resolveProductionStageTemplatesForCategory({
-                  category: resolvePrimaryProductionCategory(order.items ?? []),
-                  profiles: bakerySettings?.productionStageProfiles,
-                }),
-              );
-
-        const nextStages = distributeProductionTokens({
-          totalTokens,
-          staffByStage: PRODUCTION_STAGE_ORDER.reduce(
-            (acc, stage) => {
-              const current = existingStageByKey.get(stage);
-              const currentStaffId = Number(current?.staffId);
-              acc[stage] =
-                Number.isInteger(currentStaffId) && currentStaffId > 0
-                  ? currentStaffId === staffUserId
-                    ? null
-                    : currentStaffId
-                  : null;
-              return acc;
-            },
-            {} as Record<ProductionStage, number | null>,
-          ),
-          percentages: stagePercentages,
-        });
-
-        const hadStageAssignment = existingStages.some(
-          (stage) => Number(stage.staffId) === staffUserId,
-        );
-        const hadLegacyAssignment =
-          Number(order.assignedStaffUserId) === staffUserId;
-        if (!hadStageAssignment && !hadLegacyAssignment) {
-          return order;
-        }
-
-        changedCount += 1;
-
-        const remainingAssignees = [
-          ...new Set(
-            nextStages
-              .map((stage) => Number(stage.staffId))
-              .filter((value) => Number.isInteger(value) && value > 0),
-          ),
-        ];
-        const nextAssignedStaffUserId =
-          remainingAssignees.length === 1 ? remainingAssignees[0] : null;
-        const nextAssignedStaffName =
-          nextAssignedStaffUserId === null
-            ? ""
-            : order.assignedStaffUserId === nextAssignedStaffUserId &&
-                order.assignedStaffName?.trim()
-              ? order.assignedStaffName
-              : inferredStaffNames.get(nextAssignedStaffUserId) ||
-                `Staff #${nextAssignedStaffUserId}`;
-
-        return {
-          ...order,
-          assignedStaffUserId: nextAssignedStaffUserId,
-          assignedStaffName: nextAssignedStaffName,
-          productionAssignedAt:
-            nextAssignedStaffUserId === null &&
-            nextStages.every((stage) => !stage.staffId)
-              ? null
-              : order.productionAssignedAt || new Date().toISOString(),
-          productionStages: nextStages,
-          statusHistory: appendStatusLog(
-            order.statusHistory,
-            order.orderStatus,
-            `Assignment staff ${staffUserId} dilepas melalui reset token`,
-            actorIdentity,
-          ),
-        };
-      });
-
-      if (changedCount > 0) {
-        persistOrders(nextOrders, {
-          syncToServer: options?.syncToServer ?? false,
-        });
-      }
-
-      return changedCount;
-    },
-    [orders, persistOrders, actorIdentity, bakerySettings?.productionStageProfiles],
   );
 
   const updatePaymentStatus = useCallback(
@@ -2549,7 +2447,6 @@ export function OrdersProvider({
       syncOrderCalendar,
       getCustomerMessagePreview,
       setOrderShipment,
-      resetStaffAssignments,
       reloadOrdersFromServer: () => hydrateOrdersFromServer(true),
     }),
     [
@@ -2566,7 +2463,6 @@ export function OrdersProvider({
       syncOrderCalendar,
       getCustomerMessagePreview,
       setOrderShipment,
-      resetStaffAssignments,
       hydrateOrdersFromServer,
     ],
   );
