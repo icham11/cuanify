@@ -1,0 +1,535 @@
+import type { BakeryOrder, OrderItem } from "@/components/bakery/store";
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function normalizeText(value?: string | null): string {
+  return String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function splitLines(value?: string | null): string[] {
+  return String(value ?? "")
+    .split(/\r?\n/g)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function uniq(values: string[]): string[] {
+  return values.filter((value, index) => {
+    const normalized = value.toLowerCase();
+    return values.findIndex((entry) => entry.toLowerCase() === normalized) === index;
+  });
+}
+
+function formatShortDate(value?: string): string {
+  if (!value) return "-";
+  const parsed = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return new Intl.DateTimeFormat("id-ID", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(parsed);
+}
+
+function formatFooterTime(value?: string): string {
+  const normalized = normalizeText(value);
+  if (!normalized) return "-";
+  return normalized.length === 5 ? `${normalized} WIB` : normalized;
+}
+
+function resolvePreferredBookingCode(order: BakeryOrder): string {
+  return (
+    normalizeText(order.whatsAppParsedData?.common?.bookingCode) ||
+    normalizeText(order.resi) ||
+    normalizeText(order.bookingCode) ||
+    normalizeText(order.id) ||
+    "PENDING"
+  );
+}
+
+function resolveRecipientName(order: BakeryOrder): string {
+  return (
+    normalizeText(order.whatsAppParsedData?.common?.recipientName) ||
+    normalizeText(order.customerName) ||
+    "-"
+  );
+}
+
+function resolveRecipientPhone(order: BakeryOrder): string {
+  return (
+    normalizeText(order.whatsAppParsedData?.common?.recipientPhone) ||
+    normalizeText(order.customerPhone) ||
+    "-"
+  );
+}
+
+function resolveFullAddress(order: BakeryOrder): string {
+  const pickupFallback =
+    normalizeText(order.whatsAppParsedData?.common?.deliveryMethod).toLowerCase().includes("pickup") ||
+    normalizeText(order.notes).toLowerCase().includes("pickup")
+      ? "Pickup langsung di lokasi Crumbella"
+      : "";
+
+  return (
+    normalizeText(order.whatsAppParsedData?.common?.fullAddress) ||
+    normalizeText(order.deliveryAddresses?.[0]?.addressLine) ||
+    normalizeText(order.customerAddress) ||
+    pickupFallback ||
+    "-"
+  );
+}
+
+function inferDeliveryMethodFromNotes(notes?: string): string {
+  const match = notes?.match(/delivery\s*method\s*:\s*([^\n]+)/i);
+  return normalizeText(match?.[1]);
+}
+
+function resolveShippingMethod(order: BakeryOrder): string {
+  const parsedMethod = normalizeText(order.whatsAppParsedData?.common?.deliveryMethod);
+  const shippingQuote = [
+    normalizeText(order.shippingQuote?.provider),
+    normalizeText(order.shippingQuote?.courierServiceName),
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const raw = [parsedMethod, shippingQuote, inferDeliveryMethodFromNotes(order.notes)]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  if (!raw) return "PICKUP";
+  if (raw.includes("pickup")) return "PICKUP";
+  if (
+    raw.includes("grab") ||
+    raw.includes("gojek") ||
+    raw.includes("gosend") ||
+    raw.includes("go send") ||
+    raw.includes("gocar") ||
+    raw.includes("go car")
+  ) {
+    return "GOJEK / GRAB";
+  }
+  if (raw.includes("paxel")) return "PAXEL";
+  if (raw.includes("jne") || raw.includes("jnt") || raw.includes("j&t")) {
+    return "JNE / J&T";
+  }
+  if (raw.includes("customer")) return "KURIR CUSTOMER";
+
+  return raw.toUpperCase();
+}
+
+function resolveShippingEmoji(method: string): string {
+  if (method === "PICKUP") return "🏪";
+  if (method === "GOJEK / GRAB") return "🛵";
+  if (method === "PAXEL") return "📦";
+  if (method === "JNE / J&T") return "🚚";
+  if (method === "KURIR CUSTOMER") return "🧍";
+  return "📍";
+}
+
+function getDetailsByType(order: BakeryOrder): Record<string, string> {
+  const orderType = order.whatsAppParsedData?.orderType;
+  if (!orderType) return order.whatsAppParsedData?.details ?? {};
+  return (
+    order.whatsAppParsedData?.detailsByOrderType?.[orderType] ??
+    order.whatsAppParsedData?.details ??
+    {}
+  );
+}
+
+function resolveGreetingNote(order: BakeryOrder): string {
+  const details = getDetailsByType(order);
+  const directCandidates = [
+    normalizeText(details.greetingCard),
+    normalizeText(details.toFromNotes),
+  ].filter(Boolean);
+  if (directCandidates.length > 0) {
+    return directCandidates[0];
+  }
+
+  const noteLines = splitLines(order.notes)
+    .map((line) => {
+      const match = line.match(
+        /^(?:kartu\s*ucapan|ucapan|isi\s*kartu|to\s*from\s*notes?)\s*[:=-]\s*(.+)$/i,
+      );
+      return normalizeText(match?.[1]);
+    })
+    .filter(Boolean);
+
+  return noteLines[0] || "";
+}
+
+function formatItemBadgeQuantity(quantity: number): string {
+  return `${Math.max(1, Math.round(Number(quantity) || 1))}x`;
+}
+
+function formatItemDetailPart(value?: string): string {
+  return normalizeText(value)
+    .replace(/_/g, " ")
+    .split(/(\s+|\/|\+)/)
+    .map((part) =>
+      /^[A-Z]+$/.test(part) ? `${part[0]}${part.slice(1).toLowerCase()}` : part,
+    )
+    .join("");
+}
+
+function buildItemSubtitle(order: BakeryOrder, item: OrderItem): string {
+  const details = getDetailsByType(order);
+  const orderType = order.whatsAppParsedData?.orderType;
+
+  const structuredParts =
+    orderType === "cake"
+      ? [details.cakeDesign, details.cakeFlavor]
+      : orderType === "cookies"
+        ? [details.cookieDesign, item.size, item.tokenDifficulty]
+        : orderType === "cupcakes"
+          ? [details.cupcakeFlavor, item.size]
+          : orderType === "buket"
+            ? [details.bouquetDesign, details.bouquetPaperColor, item.size]
+            : orderType === "cookies_tower"
+              ? [details.designTheme, details.colorTheme, item.size]
+              : [item.size, item.subcategory];
+
+  const normalizedParts = uniq(
+    structuredParts
+      .map((part) => formatItemDetailPart(String(part ?? "")))
+      .filter(Boolean),
+  );
+
+  if (normalizedParts.length > 0) {
+    return normalizedParts.join(" - ");
+  }
+
+  const noteSummary = splitLines(item.notes)
+    .filter(
+      (line) =>
+        !/^delivery\s*method\s*:/i.test(line) &&
+        !/^service\s*charge\s*:/i.test(line) &&
+        !/^insurance\s*fee\s*:/i.test(line) &&
+        !/^wholesale\s*discount\s*:/i.test(line),
+    )
+    .slice(0, 2)
+    .join(" - ");
+
+  return noteSummary || "-";
+}
+
+function buildItemRows(order: BakeryOrder): string {
+  const rows = (order.items ?? []).map((item) => {
+    const title = normalizeText(item.productName) || "Produk";
+    const subtitle = buildItemSubtitle(order, item);
+    return `
+      <div class="item-row">
+        <div class="qty-chip">${escapeHtml(formatItemBadgeQuantity(item.quantity))}</div>
+        <div class="item-copy">
+          <div class="item-name">${escapeHtml(title)}</div>
+          <div class="item-subtitle">${escapeHtml(subtitle)}</div>
+        </div>
+      </div>
+    `;
+  });
+
+  return rows.join("");
+}
+
+function buildLabelHtml(order: BakeryOrder): string {
+  const bookingCode = resolvePreferredBookingCode(order);
+  const shippingMethod = resolveShippingMethod(order);
+  const shippingEmoji = resolveShippingEmoji(shippingMethod);
+  const recipientName = resolveRecipientName(order);
+  const recipientPhone = resolveRecipientPhone(order);
+  const fullAddress = resolveFullAddress(order);
+  const greetingNote = resolveGreetingNote(order);
+  const footerDate = formatShortDate(order.deliveryDate);
+  const footerTime = formatFooterTime(order.deliverySlot);
+  const noteMarkup = greetingNote
+    ? escapeHtml(greetingNote).replace(/\n/g, "<br />")
+    : `<span class="note-empty">- Tidak ada note ucapan -</span>`;
+
+  return `<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Label ${escapeHtml(bookingCode)}</title>
+  <style>
+    @page {
+      size: 80mm auto;
+      margin: 0;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      background: #ffffff;
+      color: #111111;
+      font-family: "Arial Narrow", Arial, "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    body {
+      display: flex;
+      justify-content: center;
+      padding: 0;
+    }
+
+    .sheet {
+      width: 80mm;
+      min-height: 132mm;
+      border: 1px solid #a8a8a8;
+      background: #ffffff;
+    }
+
+    .header {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      padding: 12px 12px 10px;
+      border-bottom: 1px solid #d8d8d8;
+      align-items: start;
+    }
+
+    .brand-title {
+      font-size: 17px;
+      font-weight: 800;
+      letter-spacing: 0.02em;
+    }
+
+    .brand-subtitle {
+      margin-top: 3px;
+      font-size: 9px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #8b8b8b;
+    }
+
+    .booking-meta {
+      text-align: right;
+    }
+
+    .booking-label {
+      font-size: 8px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #8b8b8b;
+    }
+
+    .booking-code {
+      margin-top: 3px;
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+    }
+
+    .shipping-strip {
+      background: #050505;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 7px 10px;
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+    }
+
+    .shipping-emoji {
+      font-size: 13px;
+      line-height: 1;
+      letter-spacing: 0;
+    }
+
+    .section {
+      padding: 10px 12px;
+      border-bottom: 1px solid #d8d8d8;
+    }
+
+    .section-title {
+      margin-bottom: 7px;
+      font-size: 8px;
+      font-weight: 700;
+      letter-spacing: 0.24em;
+      text-transform: uppercase;
+      color: #818181;
+    }
+
+    .recipient-name {
+      font-size: 18px;
+      line-height: 1.05;
+      font-weight: 800;
+    }
+
+    .recipient-phone {
+      margin-top: 5px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .recipient-address {
+      margin-top: 7px;
+      font-size: 11px;
+      line-height: 1.45;
+      white-space: pre-line;
+    }
+
+    .item-row {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 8px;
+      align-items: start;
+    }
+
+    .item-row + .item-row {
+      margin-top: 10px;
+    }
+
+    .qty-chip {
+      min-width: 28px;
+      height: 18px;
+      padding: 0 6px;
+      border-radius: 5px;
+      background: #000000;
+      color: #ffffff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 800;
+      line-height: 1;
+    }
+
+    .item-name {
+      font-size: 13px;
+      font-weight: 800;
+      line-height: 1.25;
+    }
+
+    .item-subtitle {
+      margin-top: 2px;
+      font-size: 11px;
+      line-height: 1.35;
+      color: #595959;
+    }
+
+    .note-box {
+      min-height: 50px;
+      border: 1px dashed #9a9a9a;
+      border-radius: 8px;
+      padding: 10px;
+      font-size: 11px;
+      line-height: 1.45;
+      white-space: pre-line;
+      font-style: italic;
+    }
+
+    .note-empty {
+      color: #9a9a9a;
+    }
+
+    .spacer {
+      min-height: 110px;
+      border-bottom: 1px solid #d8d8d8;
+    }
+
+    .footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 10px;
+      padding: 10px 12px 12px;
+    }
+
+    .footer-copy {
+      font-size: 9px;
+      line-height: 1.35;
+      color: #8a6f60;
+    }
+
+    .footer-time {
+      text-align: right;
+      font-size: 10px;
+      line-height: 1.3;
+      font-weight: 700;
+      color: #6f6f6f;
+    }
+  </style>
+</head>
+<body>
+  <div class="sheet">
+    <div class="header">
+      <div>
+        <div class="brand-title">CRUMBELLA</div>
+        <div class="brand-subtitle">Custom Icing Cookies</div>
+      </div>
+      <div class="booking-meta">
+        <div class="booking-label">Kode Booking</div>
+        <div class="booking-code">${escapeHtml(bookingCode)}</div>
+      </div>
+    </div>
+    <div class="shipping-strip">
+      <span class="shipping-emoji">${shippingEmoji}</span>
+      <span>${escapeHtml(shippingMethod)}</span>
+    </div>
+    <div class="section">
+      <div class="section-title">Penerima ✨</div>
+      <div class="recipient-name">${escapeHtml(recipientName)}</div>
+      <div class="recipient-phone">${escapeHtml(recipientPhone)}</div>
+      <div class="recipient-address">${escapeHtml(fullAddress)}</div>
+    </div>
+    <div class="section">
+      <div class="section-title">Isi Pesanan 🍪</div>
+      ${buildItemRows(order)}
+    </div>
+    <div class="section">
+      <div class="section-title">Note Ucapan 💌</div>
+      <div class="note-box">${noteMarkup}</div>
+    </div>
+    <div class="spacer"></div>
+    <div class="footer">
+      <div class="footer-copy">
+        Dikirim dengan penuh cinta 🤍<br />
+        Terima kasih sudah order di Crumbella! 🎂
+      </div>
+      <div class="footer-time">
+        <div>${escapeHtml(footerDate)}</div>
+        <div>${escapeHtml(footerTime)}</div>
+      </div>
+    </div>
+  </div>
+  <script>
+    window.onload = () => {
+      window.print();
+      window.setTimeout(() => window.close(), 150);
+    };
+  </script>
+</body>
+</html>`;
+}
+
+export function openLabelPrintWindow(order: BakeryOrder): void {
+  const printWindow = window.open("", "_blank", "width=420,height=860");
+  if (!printWindow) {
+    window.alert("Pop-up diblokir browser. Izinkan pop-up untuk mencetak label.");
+    return;
+  }
+
+  printWindow.document.open();
+  printWindow.document.write(buildLabelHtml(order));
+  printWindow.document.close();
+}
