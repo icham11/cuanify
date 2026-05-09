@@ -858,7 +858,15 @@ async function fetchImageAsDataUrl(source: string): Promise<string | null> {
   if (!isValidHttpUrl(source)) return null;
 
   try {
-    const response = await fetch(source, { cache: "no-store" });
+    // Abort fetch after 5s to avoid long hangs when many remote images
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const response = await fetch(source, {
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
     if (!response.ok) return null;
 
     const bytes = Buffer.from(await response.arrayBuffer());
@@ -1554,7 +1562,9 @@ export async function generateOrderImage(
       });
     } else {
       // Load local Chromium only in dev runtime to keep serverless bundles lean.
-      const puppeteerLocal = requireFromHere("puppeteer") as typeof import("puppeteer");
+      const puppeteerLocal = requireFromHere(
+        "puppeteer",
+      ) as typeof import("puppeteer");
 
       browser = await puppeteerLocal.launch({
         headless: true,
@@ -1563,9 +1573,19 @@ export async function generateOrderImage(
     }
 
     const page = await browser.newPage();
+
+    // Limit reference images processed to avoid heavy work when many choices
+    const MAX_REFERENCE_IMAGES = 12;
+    const trimmedReferences = referenceImages.slice(0, MAX_REFERENCE_IMAGES);
+    if (referenceImages.length > MAX_REFERENCE_IMAGES) {
+      console.warn(
+        `[generateOrderImage] Trimming referenceImages from ${referenceImages.length} to ${MAX_REFERENCE_IMAGES} to avoid heavy processing.`,
+      );
+    }
+
     const renderableReferenceImages = await resolveRenderableReferenceImages(
       page,
-      referenceImages,
+      trimmedReferences,
     );
     const useTemplateLayout = Boolean(templateDataUrl);
 
