@@ -47,6 +47,7 @@ import {
 } from "@/lib/bookings/shipping-schedule";
 import { normalizeDateInput } from "@/lib/helpers/date-normalization";
 import { useBakerySettings } from "@/hooks/useBakerySettings";
+import { useRole } from "@/context/RoleContext";
 import {
   distributeProductionTokens,
   getProductionStagePercentagesFromTemplates,
@@ -902,6 +903,7 @@ export function OrdersProvider({
   const { settings: bakerySettings } = useBakerySettings();
   const blockedDates = bakerySettings?.blockedDates;
   const cutoffEnabled = bakerySettings?.cutoffEnabled ?? true;
+  const { isOwner, isAdmin, loading: isRoleLoading } = useRole();
   const defaultDpPercentage = bakerySettings?.defaultDpPercentage ?? 50;
   const snapshot = useSyncExternalStore(
     subscribe,
@@ -1667,8 +1669,10 @@ export function OrdersProvider({
   const addOrder = useCallback(
     async (order: NewOrderInput) => {
       const deliveryMethod = inferDeliveryMethodFromNotes(order.notes);
+      const isPrivilegedBackfill = !isRoleLoading && (isOwner || isAdmin);
       const allowHistoricalBackfill =
-        !cutoffEnabled && isHistoricalBackfillOrder(order.deliveryDate);
+        (isPrivilegedBackfill || !cutoffEnabled) &&
+        isHistoricalBackfillOrder(order.deliveryDate);
       if (
         !isWithinBusinessHours(
           order.deliveryDate,
@@ -1859,6 +1863,9 @@ export function OrdersProvider({
       fetchLatestOrdersFromServer,
       blockedDates,
       cutoffEnabled,
+      isOwner,
+      isAdmin,
+      isRoleLoading,
     ],
   );
 
@@ -2304,10 +2311,13 @@ export function OrdersProvider({
 
   const updateOrderSchedule = useCallback(
     (id: string, deliveryDate: string, deliverySlot: string) => {
-      const targetOrder = orders.find((order) => order.id === id);
+      const targetOrder = orders.find((o) => o.id === id);
       const deliveryMethod = inferDeliveryMethodFromNotes(targetOrder?.notes);
+      const isPrivilegedBackfill = !isRoleLoading && (isOwner || isAdmin);
       const allowHistoricalBackfill =
-        !cutoffEnabled && isHistoricalBackfillOrder(deliveryDate);
+        (isPrivilegedBackfill || !cutoffEnabled) &&
+        isHistoricalBackfillOrder(deliveryDate);
+
       if (
         !isWithinBusinessHours(deliveryDate, deliverySlot, undefined, {
           deliveryMethod,
@@ -2316,9 +2326,7 @@ export function OrdersProvider({
           allowHistoricalBackfill,
         })
       ) {
-        toast.error(
-          "Selected slot is outside business hours (Mon-Sat 10:00-22:00, Sun 10:00-15:00).",
-        );
+        toast.error("Selected time is outside business hours");
         return;
       }
 
@@ -2336,6 +2344,7 @@ export function OrdersProvider({
           ),
         };
       });
+
       persistOrders(nextOrders);
       toast.success("Order schedule updated");
       void runAutomationsForOrder("order_rescheduled", id);
@@ -2356,6 +2365,9 @@ export function OrdersProvider({
       createShipmentForOrder,
       blockedDates,
       cutoffEnabled,
+      isOwner,
+      isAdmin,
+      isRoleLoading,
     ],
   );
 

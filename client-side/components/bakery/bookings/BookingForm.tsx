@@ -2528,16 +2528,17 @@ export default function BookingForm() {
   );
   const submitFeedbackRef = useRef<HTMLDivElement | null>(null);
   const importDraftRef = useRef<
-    ((
-      override?: {
+    | ((override?: {
         sourceType?: ParserSource;
         orderType?: ParserOrderType;
         text?: string;
         successMessage?: string;
-      },
-    ) => Promise<void>) | null
+      }) => Promise<void>)
+    | null
   >(null);
-  const autoParseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoParseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const lastParsedReferenceSignatureRef = useRef("");
   const shouldRequireSubmitConfirmation =
     !isRoleLoading && (isOwner || isAdmin);
@@ -2921,8 +2922,7 @@ export default function BookingForm() {
   const cutoffHour = bakerySettings?.cutoffHour ?? 10;
   const cutoffEnabled = bakerySettings?.cutoffEnabled ?? true;
   const defaultDpPercentage = bakerySettings?.defaultDpPercentage ?? 50;
-  const canBackfillPastOrders =
-    !cutoffEnabled && !isRoleLoading && (isOwner || isAdmin);
+  const canBackfillPastOrders = !isRoleLoading && (isOwner || isAdmin);
   const allowHistoricalBackfillForSelectedDate =
     canBackfillPastOrders &&
     Boolean(normalizedDeliveryDate) &&
