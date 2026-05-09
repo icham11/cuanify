@@ -638,8 +638,9 @@ function buildHistoricalOrderTimestamp(
   const normalizedDate = normalizeDateInput(deliveryDate);
   if (!normalizedDate) return null;
 
-  const slot =
-    /^\d{2}:\d{2}$/.test(deliverySlot || "") ? deliverySlot : "10:00";
+  const slot = /^\d{2}:\d{2}$/.test(deliverySlot || "")
+    ? deliverySlot
+    : "10:00";
   const timestamp = new Date(`${normalizedDate}T${slot}:00+07:00`);
   if (!Number.isFinite(timestamp.getTime())) return null;
   return timestamp.toISOString();
@@ -1203,10 +1204,7 @@ export function OrdersProvider({
   }, [hydrateOrdersFromServer, syncOrdersToServer]);
 
   const persistOrders = useCallback(
-    (
-      nextOrders: BakeryOrder[],
-      options?: { syncToServer?: boolean },
-    ) => {
+    (nextOrders: BakeryOrder[], options?: { syncToServer?: boolean }) => {
       if (typeof window === "undefined") return;
       const shouldSyncToServer = options?.syncToServer !== false;
       const previousSnapshot =
@@ -1225,7 +1223,6 @@ export function OrdersProvider({
         syncDebounceTimerRef.current = null;
         void flushQueuedOrdersSync();
       }, ORDERS_SYNC_DEBOUNCE_MS);
-
 
       /*
         console.warn("[bookings][frontend] persist sync failed", {
@@ -1726,11 +1723,12 @@ export function OrdersProvider({
         normalizedTotalPrice,
         normalizedTotalPaid,
       );
-      const isHistoricalBackfill = isHistoricalBackfillOrder(order.deliveryDate);
-      const historicalTimestamp =
-        isHistoricalBackfill
-          ? buildHistoricalOrderTimestamp(order.deliveryDate, order.deliverySlot)
-          : null;
+      const isHistoricalBackfill = isHistoricalBackfillOrder(
+        order.deliveryDate,
+      );
+      const historicalTimestamp = isHistoricalBackfill
+        ? buildHistoricalOrderTimestamp(order.deliveryDate, order.deliverySlot)
+        : null;
       const eventTimestamp = historicalTimestamp || new Date().toISOString();
 
       const newOrder: BakeryOrder = {
@@ -1963,7 +1961,8 @@ export function OrdersProvider({
             filling: staff.userId,
             finishing: staff.userId,
           },
-          percentages: getProductionStagePercentagesFromTemplates(stageTemplates),
+          percentages:
+            getProductionStagePercentagesFromTemplates(stageTemplates),
         });
         return {
           ...order,
@@ -1987,7 +1986,12 @@ export function OrdersProvider({
         toast.success(`Order di-assign ke ${staff.name}`);
       }
     },
-    [orders, persistOrders, actorIdentity, bakerySettings?.productionStageProfiles],
+    [
+      orders,
+      persistOrders,
+      actorIdentity,
+      bakerySettings?.productionStageProfiles,
+    ],
   );
 
   const clearOrderAssignee = useCallback(
@@ -2029,7 +2033,12 @@ export function OrdersProvider({
       persistOrders(nextOrders);
       toast.message("Assignment staff dilepas");
     },
-    [orders, persistOrders, actorIdentity, bakerySettings?.productionStageProfiles],
+    [
+      orders,
+      persistOrders,
+      actorIdentity,
+      bakerySettings?.productionStageProfiles,
+    ],
   );
 
   const assignProductionStagesStaff = useCallback(
@@ -2155,11 +2164,12 @@ export function OrdersProvider({
         const totalPaidAmount = Math.min(total, dpPaidAmount + finalPaidAmount);
         const remainingBalance = Math.max(0, total - totalPaidAmount);
         const nowIso = new Date().toISOString();
-        const eventTimestamp =
-          isHistoricalBackfillOrder(order.deliveryDate)
-            ? buildHistoricalOrderTimestamp(order.deliveryDate, order.deliverySlot) ||
-              nowIso
-            : nowIso;
+        const eventTimestamp = isHistoricalBackfillOrder(order.deliveryDate)
+          ? buildHistoricalOrderTimestamp(
+              order.deliveryDate,
+              order.deliverySlot,
+            ) || nowIso
+          : nowIso;
         const deltaDp = normalizeMoney(dpPaidAmount - previousDpPaid);
         const deltaFinal = normalizeMoney(finalPaidAmount - previousFinalPaid);
 
@@ -2247,11 +2257,12 @@ export function OrdersProvider({
         const deltaDp = normalizeMoney(nextDpPaid - previousDpPaid);
         const deltaFinal = normalizeMoney(nextFinalPaid - previousFinalPaid);
         const nowIso = new Date().toISOString();
-        const eventTimestamp =
-          isHistoricalBackfillOrder(order.deliveryDate)
-            ? buildHistoricalOrderTimestamp(order.deliveryDate, order.deliverySlot) ||
-              nowIso
-            : nowIso;
+        const eventTimestamp = isHistoricalBackfillOrder(order.deliveryDate)
+          ? buildHistoricalOrderTimestamp(
+              order.deliveryDate,
+              order.deliverySlot,
+            ) || nowIso
+          : nowIso;
 
         const appendedTransactions: PaymentTransaction[] = [];
         if (deltaDp !== 0) {
