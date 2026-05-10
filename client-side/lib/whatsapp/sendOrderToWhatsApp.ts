@@ -174,7 +174,12 @@ function normalizeStructuredReferenceImages(
     }
   }
 
-  return normalized;
+  // Sort berdasarkan orderIndex agar urutan gambar dan label sesuai input pengguna
+  return normalized.sort((a, b) => {
+    const aIdx = a.orderIndex ?? Infinity;
+    const bIdx = b.orderIndex ?? Infinity;
+    return aIdx - bIdx;
+  });
 }
 
 async function prepareOutboundWhatsAppImageUrl(
@@ -230,45 +235,35 @@ export async function sendOrderToWhatsApp(
     structuredReferenceImages,
   );
 
-  // Ambil semua kandidat gambar user-upload (http/https, bukan template/data URI/placeholder)
-  // Gunakan Map untuk deduplikasi berdasarkan URL namun tetap menyimpan labelnya
-  const validImagesMap = new Map<string, string>();
+  // Ambil gambar user-upload (http/https, bukan template/placeholder)
+  // Menggunakan array terurut dari structuredReferenceImages agar label & urutan terjaga
+  const isValidUserImage = (url: string) =>
+    url &&
+    /^https?:\/\//i.test(url) &&
+    !url.includes("/orders/generated/") &&
+    !url.includes("via.placeholder.com");
 
-  // 1. Prioritaskan structuredReferenceImages karena memiliki label
+  // Bangun list gambar final dengan label-nya, dimulai dari structuredReferenceImages (sudah terurut)
+  const seenUrls = new Set<string>();
+  const finalImagesToUpload: Array<{ url: string; label: string }> = [];
+
+  // 1. Prioritaskan structuredReferenceImages karena memiliki label & sudah terurut
   for (const ref of structuredReferenceImages) {
-    if (
-      ref.url &&
-      /^https?:\/\//i.test(ref.url) &&
-      !ref.url.includes("/orders/generated/") &&
-      !ref.url.includes("via.placeholder.com")
-    ) {
-      if (!validImagesMap.has(ref.url)) {
-        validImagesMap.set(ref.url, ref.label || "");
-      } else if (!validImagesMap.get(ref.url) && ref.label) {
-        validImagesMap.set(ref.url, ref.label);
-      }
+    if (isValidUserImage(ref.url) && !seenUrls.has(ref.url)) {
+      seenUrls.add(ref.url);
+      finalImagesToUpload.push({ url: ref.url, label: ref.label || "" });
     }
   }
 
-  // 2. Tambahkan selectedImageUrls yang mungkin tidak memiliki label eksplisit
+  // 2. Tambahkan selectedImageUrls yang mungkin tidak ada di referenceImages
   for (const url of selectedImageUrls) {
-    if (
-      url &&
-      /^https?:\/\//i.test(url) &&
-      !url.includes("/orders/generated/") &&
-      !url.includes("via.placeholder.com")
-    ) {
-      if (!validImagesMap.has(url)) {
-        validImagesMap.set(url, "");
-      }
+    if (isValidUserImage(url) && !seenUrls.has(url)) {
+      seenUrls.add(url);
+      finalImagesToUpload.push({ url, label: "" });
     }
   }
 
-  const finalImagesToUpload = Array.from(validImagesMap.entries()).map(
-    ([url, label]) => ({ url, label }),
-  );
-
-  console.info("[WA DEBUG] finalImagesToUpload:", finalImagesToUpload);
+  console.info("[WA DEBUG] finalImagesToUpload (ordered):", finalImagesToUpload);
 
   if (!process.env.FONNTE_TOKEN) {
     return {

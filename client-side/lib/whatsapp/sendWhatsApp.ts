@@ -80,31 +80,40 @@ async function sendFonnteMessage(
     normalizedTarget,
     imageUrl: imageUrl ? imageUrl.substring(0, 50) + "..." : undefined,
     caption: message.substring(0, 30) + "...",
+    isImageMessage: !!imageUrl,
   });
 
-  const payload: {
-    target: string;
-    message: string;
-    delay: string;
-    url?: string;
-  } = {
-    target: normalizedTarget,
-    message,
-    delay: "2",
-  };
+  // Fonnte API WAJIB menggunakan multipart/form-data (FormData) untuk pengiriman gambar via URL.
+  // Jika menggunakan JSON (application/json), Fonnte tidak dapat membaca field 'url' dan
+  // hanya mengirimkan teks saja tanpa gambar.
+  const formData = new FormData();
+  formData.set("target", normalizedTarget);
+  formData.set("message", message);
+  formData.set("delay", "2");
 
   if (imageUrl) {
-    payload.url = imageUrl;
+    // Menggunakan field 'url' untuk mengirimkan link publik gambar ke Fonnte
+    formData.set("url", imageUrl);
+    // Field 'filename' diperlukan Fonnte agar gambar tidak ditolak WA sebagai dokumen
+    formData.set("filename", "referensi.jpg");
   }
+
+  console.debug(`${logLabel} FormData yang akan dikirim ke Fonnte:`, {
+    target: normalizedTarget,
+    messageLength: message.length,
+    hasUrl: !!imageUrl,
+    urlPreview: imageUrl ? imageUrl.substring(0, 80) : undefined,
+  });
 
   try {
     const response = await fetch(FONNTE_ENDPOINT, {
       method: "POST",
+      // Tidak set Content-Type header secara manual saat pakai FormData:
+      // browser/Node akan otomatis set multipart/form-data + boundary yang benar
       headers: {
         Authorization: token,
-        "Content-Type": "application/json",
       },
-      body: JSON.stringify(payload),
+      body: formData,
     });
 
     const rawText = await response.text();
@@ -128,6 +137,8 @@ async function sendFonnteMessage(
     console.info(`${logLabel} Berhasil mengirim pesan WhatsApp:`, {
       status: result.status,
       messageIds: result.id,
+      hasImage: !!imageUrl,
+      rawResponse: rawText.substring(0, 200),
     });
   } catch (error) {
     console.error(`${logLabel} Gagal dalam proses pengiriman:`, error);
