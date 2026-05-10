@@ -4,7 +4,6 @@ import {
   type WhatsAppOrderImagePayload,
 } from "@/lib/whatsapp/generateOrderImage";
 import {
-  buildOrderDeliveryDetailsWhatsAppText,
   formatWhatsAppDeliveryDate,
   formatWhatsAppDeliveryTime,
   type WhatsAppRecapItem,
@@ -14,8 +13,6 @@ import {
   sendWhatsAppImage,
   sendWhatsAppText,
 } from "@/lib/whatsapp/sendWhatsApp";
-
-const FALLBACK_IMAGE_URL = "https://via.placeholder.com/300";
 
 export interface SendOrderToWhatsAppInput extends WhatsAppOrderImagePayload {
   imageUrl?: string;
@@ -37,6 +34,29 @@ export interface SendOrderToWhatsAppResult {
   imageUrl?: string;
 }
 
+function sanitizeBookingCode(value?: string): string {
+  const raw = (value || "").trim();
+  if (!raw) return "-";
+
+  const cleaned = raw
+    .replace(/^kode\s*booking\s*[:\-]?\s*/i, "")
+    .replace(/^booking\s*[:\-]?\s*/i, "")
+    .trim();
+
+  const finalValue = cleaned || raw;
+  return /[a-z0-9]/i.test(finalValue) ? finalValue : "-";
+}
+
+function isMeaningfulImageCaption(value?: string): boolean {
+  const text = (value || "").trim();
+  if (!text) return false;
+  if (/^[a-f0-9-]{12,}$/i.test(text)) return false;
+  if (/^[a-f0-9-]{12,}$/i.test(text.replace(/\s+/g, "-"))) return false;
+  if (/^(img|image|foto|photo)\s*\d[\d\s-]*$/i.test(text)) return false;
+  if (/\.(jpe?g|png|webp|gif|heic|heif)$/i.test(text)) return false;
+  return true;
+}
+
 export function buildProductionCaption(
   order: SendOrderToWhatsAppInput,
 ): string {
@@ -46,7 +66,7 @@ export function buildProductionCaption(
   lines.push(formatWhatsAppDeliveryDate(order.deliveryDate));
   lines.push("");
 
-  lines.push(`KODE BOOKING : ${order.bookingCode || "-"}`);
+  lines.push(`KODE BOOKING : ${sanitizeBookingCode(order.bookingCode)}`);
   lines.push("");
 
   lines.push("Order :");
@@ -169,21 +189,44 @@ export async function sendOrderToWhatsApp(
   );
 
   // Ambil semua kandidat gambar user-upload (http/https, bukan template/data URI/placeholder)
-  const userUploadedImages = [
-    ...selectedImageUrls,
-    ...structuredReferenceImages.map((r) => r.url),
-  ].filter((url) => {
-    return (
+  // Gunakan Map untuk deduplikasi berdasarkan URL namun tetap menyimpan labelnya
+  const validImagesMap = new Map<string, string>();
+
+  // 1. Prioritaskan structuredReferenceImages karena memiliki label
+  for (const ref of structuredReferenceImages) {
+    if (
+      ref.url &&
+      /^https?:\/\//i.test(ref.url) &&
+      !ref.url.includes("/orders/generated/") &&
+      !ref.url.includes("via.placeholder.com")
+    ) {
+      if (!validImagesMap.has(ref.url)) {
+        validImagesMap.set(ref.url, ref.label || "");
+      } else if (!validImagesMap.get(ref.url) && ref.label) {
+        validImagesMap.set(ref.url, ref.label);
+      }
+    }
+  }
+
+  // 2. Tambahkan selectedImageUrls yang mungkin tidak memiliki label eksplisit
+  for (const url of selectedImageUrls) {
+    if (
       url &&
       /^https?:\/\//i.test(url) &&
       !url.includes("/orders/generated/") &&
       !url.includes("via.placeholder.com")
-    );
-  });
-  const dedupedUserUploadedImages = Array.from(
-    new Set(userUploadedImages),
+    ) {
+      if (!validImagesMap.has(url)) {
+        validImagesMap.set(url, "");
+      }
+    }
+  }
+
+  const finalImagesToUpload = Array.from(validImagesMap.entries()).map(
+    ([url, label]) => ({ url, label }),
   );
-  console.info("[WA DEBUG] userUploadedImages:", dedupedUserUploadedImages);
+
+  console.info("[WA DEBUG] finalImagesToUpload:", finalImagesToUpload);
 
   if (!process.env.FONNTE_TOKEN) {
     return {
@@ -202,7 +245,7 @@ export async function sendOrderToWhatsApp(
   }
 
   // Jika tidak ada gambar user-upload, fallback ke template lama (generate template)
-  if (dedupedUserUploadedImages.length === 0) {
+  if (finalImagesToUpload.length === 0) {
     // ...existing code for template generation...
     let generatedOrderImageUrl = "";
     let generatedBuffer: Buffer | null = null;
@@ -247,6 +290,10 @@ export async function sendOrderToWhatsApp(
         generatedOrderImageUrl,
         buildProductionCaption(payload),
       );
+      console.info(`[sendOrderToWhatsApp] Template image sent successfully:`, {
+        imageUrl: generatedOrderImageUrl,
+        caption: buildProductionCaption(payload).substring(0, 50),
+      });
       return {
         ok: true,
         stage: "send",
@@ -255,6 +302,10 @@ export async function sendOrderToWhatsApp(
         imageUrl: generatedOrderImageUrl,
       };
     } catch (error) {
+      console.error(`[sendOrderToWhatsApp] Template image send failed:`, {
+        imageUrl: generatedOrderImageUrl,
+        error: error instanceof Error ? error.message : String(error),
+      });
       return {
         ok: false,
         stage: "send",
@@ -279,7 +330,7 @@ export async function sendOrderToWhatsApp(
       `Tanggal Pengiriman :\n${formatWhatsAppDeliveryDate(order.deliveryDate)}`,
     );
     lines.push("");
-    lines.push(`KODE BOOKING : ${order.bookingCode || "-"}`);
+    lines.push(`KODE BOOKING : ${sanitizeBookingCode(order.bookingCode)}`);
     lines.push("");
     if (order.captionItems && order.captionItems.length > 0) {
       for (const item of order.captionItems) {
@@ -325,19 +376,25 @@ export async function sendOrderToWhatsApp(
   }
 
   // 2. Kirim satu per satu gambar user-upload, caption = detail gambar dari parser
-  for (let i = 0; i < dedupedUserUploadedImages.length; i++) {
-    const imgUrl = dedupedUserUploadedImages[i];
+  for (let i = 0; i < finalImagesToUpload.length; i++) {
+    const { url: imgUrl, label: referenceLabel } = finalImagesToUpload[i];
     let caption = "";
+    
     // Ambil label/notes dari referenceImages jika ada, jika tidak dari captionItems
-    if (order.referenceImages && order.referenceImages[i]?.label) {
-      caption = order.referenceImages[i].label ?? "";
-    } else if (order.captionItems && order.captionItems[i]?.productName) {
-      caption = order.captionItems[i].productName ?? "";
+    const productName = order.captionItems?.[i]?.productName;
+    if (isMeaningfulImageCaption(referenceLabel)) {
+      caption = referenceLabel.trim();
+    } else if (isMeaningfulImageCaption(productName)) {
+      caption = productName!.trim();
     } else {
-      caption = `Gambar ${i + 1}`;
+      caption = `Referensi ${i + 1}`;
     }
     try {
       await sendWhatsAppImage(imgUrl, caption);
+      console.info(`[sendOrderToWhatsApp] User image ${i + 1} sent successfully:`, {
+        imageUrl: imgUrl.substring(0, 60),
+        caption,
+      });
       lastResult = {
         ok: true,
         stage: "send",
@@ -345,6 +402,11 @@ export async function sendOrderToWhatsApp(
         imageUrl: imgUrl,
       };
     } catch (error) {
+      console.error(`[sendOrderToWhatsApp] User image ${i + 1} send failed:`, {
+        imageUrl: imgUrl.substring(0, 60),
+        caption,
+        error: error instanceof Error ? error.message : String(error),
+      });
       lastResult = {
         ok: false,
         stage: "send",

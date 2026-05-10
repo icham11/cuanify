@@ -169,7 +169,16 @@ function deriveReferenceLabelFromFileName(fileName: string): string | undefined 
     .replace(/\s+/g, " ")
     .trim();
 
-  return normalized || undefined;
+  if (!normalized) return undefined;
+  if (normalized.length < 4) return undefined;
+  if (/^[a-f0-9-]{12,}$/i.test(normalized.replace(/\s+/g, "-"))) {
+    return undefined;
+  }
+  if (/^(img|image|foto|photo)\s*\d[\d\s-]*$/i.test(normalized)) {
+    return undefined;
+  }
+
+  return normalized;
 }
 
 function normalizeReferenceLabelsInput(value: string): string[] {

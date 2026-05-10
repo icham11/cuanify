@@ -1849,7 +1849,9 @@ export function OrdersProvider({
       } else {
         void createShipmentForOrder(id);
       }
-      void runAutomationsForOrder("order_confirmed", id);
+      // WA produksi sudah dikirim saat sync ke server (/api/bookings/orders).
+      // Hindari double-send dengan hanya sync kalender di sisi frontend.
+      void runAutomationsForOrder("order_calendar_sync", id);
       return id;
     },
     [

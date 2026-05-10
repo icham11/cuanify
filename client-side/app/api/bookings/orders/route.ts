@@ -1765,6 +1765,13 @@ function normalizeOrder(raw: unknown, index: number): NormalizedOrder | null {
     shipment: record.shipment ?? null,
     simulations: record.simulations ?? null,
     whatsAppParsedData: record.whatsAppParsedData ?? null,
+    imageUrl: asString(record.imageUrl),
+    imageUrls: asStringArray(record.imageUrls),
+    referenceImages: asArrayOfRecords(record.referenceImages).map((entry) => ({
+      url: asString(entry.url),
+      label: asString(entry.label) || undefined,
+      orderIndex: typeof entry.orderIndex === "number" ? entry.orderIndex : undefined,
+    })),
     statusHistory: asArrayOfRecords(record.statusHistory),
     automationLogs: asArrayOfRecords(record.automationLogs),
     paymentTransactions: asArrayOfRecords(record.paymentTransactions),
@@ -3498,7 +3505,9 @@ export async function POST(request: NextRequest) {
               result.status === "fulfilled",
           )
           .map((result) => result.value);
-        const failedResults = waNotificationResults.filter((result) => !result.ok);
+        const failedResults = waNotificationResults.filter(
+          (result) => !result.ok,
+        );
         const rejectedResults = waSettledResults.filter(
           (result): result is PromiseRejectedResult =>
             result.status === "rejected",
@@ -3540,11 +3549,14 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        console.info("[api/bookings/orders] WA notifications sent successfully.", {
-          businessId,
-          userId,
-          count: waNotificationResults.length,
-        });
+        console.info(
+          "[api/bookings/orders] WA notifications sent successfully.",
+          {
+            businessId,
+            userId,
+            count: waNotificationResults.length,
+          },
+        );
 
         return NextResponse.json({
           success: true,
