@@ -869,23 +869,19 @@ function normalizeReferenceImages(
   value: unknown,
 ): Array<{ url: string; label?: string; orderIndex?: number }> {
   return dedupeReferenceImages(
-    asArrayOfRecords(value)
-      .map((entry) => {
+    asArrayOfRecords(value).reduce<
+      Array<{ url: string; label?: string; orderIndex?: number }>
+    >((images, entry) => {
         const url = asString(entry.url).trim();
-        if (!url) return null;
+        if (!url) return images;
 
-        return {
+        images.push({
           url,
           label: asString(entry.label).trim() || undefined,
           orderIndex: parseImageOrderIndex(entry.orderIndex),
-        };
-      })
-      .filter(
-        (
-          entry,
-        ): entry is { url: string; label?: string; orderIndex?: number } =>
-          Boolean(entry),
-      ),
+        });
+        return images;
+      }, []),
   );
 }
 
@@ -2247,9 +2243,11 @@ export async function GET() {
             shipment: parseJsonField(row.shipment),
             simulations: parseJsonField(row.simulations),
             whatsAppParsedData: parseJsonField(row.whatsapp_parsed_data),
-            statusHistory: parseJsonField(row.status_history) ?? [],
-            automationLogs: parseJsonField(row.automation_logs) ?? [],
-            paymentTransactions: parseJsonField(row.payment_transactions) ?? [],
+            statusHistory: asArrayOfRecords(parseJsonField(row.status_history)),
+            automationLogs: asArrayOfRecords(parseJsonField(row.automation_logs)),
+            paymentTransactions: asArrayOfRecords(
+              parseJsonField(row.payment_transactions),
+            ),
             productionStages: (stagesMap.get(row.external_id) ?? []).map(
               (stage) => ({
                 ...stage,

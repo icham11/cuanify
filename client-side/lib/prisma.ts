@@ -6,9 +6,28 @@ const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
 
+function normalizeSupabaseDatabaseUrl(rawUrl: string) {
+  if (!rawUrl) return rawUrl;
+
+  try {
+    const parsed = new URL(rawUrl);
+    const isSupabaseHost = parsed.hostname.endsWith(".supabase.com");
+    const usesLegacyDatabaseName = parsed.pathname === "/umkm-helper";
+
+    if (isSupabaseHost && usesLegacyDatabaseName) {
+      parsed.pathname = "/postgres";
+      return parsed.toString();
+    }
+  } catch {
+    return rawUrl;
+  }
+
+  return rawUrl;
+}
+
 function createPrismaClient() {
   // Strip sslmode from connection string — we configure SSL via the Pool object
-  const rawUrl = process.env.DATABASE_URL ?? "";
+  const rawUrl = normalizeSupabaseDatabaseUrl(process.env.DATABASE_URL ?? "");
   const cleanUrl = rawUrl.replace(/[?&]sslmode=[^&]*/g, "").replace(/\?$/, "");
   const isProduction = process.env.NODE_ENV === "production";
   const poolMax = Number(process.env.PGPOOL_MAX ?? (isProduction ? 10 : 15));

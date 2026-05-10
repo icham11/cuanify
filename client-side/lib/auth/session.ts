@@ -207,7 +207,7 @@ export const requireAuth = cache(async (): Promise<AuthResult> => {
 
     let reason = "Sesi tidak ditemukan."
     if (!hasNextAuth && !hasCustom) reason = "Anda belum login atau cookie diblokir browser."
-    else if (hasNextAuth && !userId) reason = "Sesi Google ditemukan tapi gagal divalidasi (Secret mismatch?)."
+    else if (hasNextAuth && !userId) reason = "Sesi auth lama ditemukan tapi gagal divalidasi (Secret mismatch?)."
     else if (hasCustom && !userId) reason = "Token login ditemukan tapi gagal divalidasi (JWT Secret mismatch?)."
 
     throw new AuthError(`Unauthorized: ${reason}`)

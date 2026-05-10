@@ -39,16 +39,6 @@ const nextConfig: NextConfig = {
       },
     ];
   },
-
-  async redirects() {
-    return [
-      {
-        source: "/bakery/ecommerce",
-        destination: "/bakery/catalog",
-        permanent: false,
-      },
-    ];
-  },
 };
 
 export default nextConfig;

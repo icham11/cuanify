@@ -5,7 +5,7 @@ import { ensureOwnerDefaultProducts } from "@/lib/bookings/owner-product-bootstr
 /**
  * GET /api/auth/post-login
  *
- * After login (email/password or Google OAuth), this route checks the user's role
+ * After login, this route checks the user's role
  * and redirects them to the correct page:
  *   - Owner → /dashboard/business
  *   - Admin → /bakery/bookings

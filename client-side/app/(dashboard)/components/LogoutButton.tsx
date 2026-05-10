@@ -8,7 +8,7 @@ import { useState } from "react"
  * Full logout — clears ALL auth state:
  *   1. JWT cookie (token)
  *   2. active_business_id cookie
- *   3. NextAuth session (if using Google login)
+ *   3. NextAuth session (legacy auth session)
  *   4. localStorage & sessionStorage
  *   5. Service Worker caches (PWA)
  */
@@ -57,7 +57,7 @@ export default function LogoutButton() {
     clearAllClientState()
 
     if (session) {
-      // NextAuth (Google) — signOut will redirect
+      // NextAuth legacy session — signOut will redirect
       await signOut({ callbackUrl: "/" })
     } else {
       // JWT (email/password) — hard redirect
