@@ -352,7 +352,7 @@ async function sendFonnteMessage(
     console.error("[automation-service] Fonnte API Error:", {
       status: response.status,
       data,
-      target
+      target,
     });
     return {
       ok: false,
@@ -362,7 +362,7 @@ async function sendFonnteMessage(
 
   console.info("[automation-service] Fonnte API Success:", {
     id: data.id,
-    target
+    target,
   });
   return {
     ok: true,
