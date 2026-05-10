@@ -7,6 +7,7 @@ import {
   type CatalogAddOn,
   type PricelistCategory,
 } from "@/lib/bookings/pricelist";
+import { normalizeCatalogAdminState } from "@/lib/bookings/catalog-state";
 
 export interface CustomProductEntry {
   category: string;
@@ -64,21 +65,25 @@ function readStateFromStorage(): CatalogAdminState {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return EMPTY_STATE;
     const parsed = JSON.parse(raw) as CatalogAdminState;
+    const normalized = normalizeCatalogAdminState(parsed);
+    if (JSON.stringify(normalized) !== JSON.stringify(parsed)) {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+    }
     return {
-      productVariantPriceOverrides: parsed.productVariantPriceOverrides ?? {},
-      addOnPriceOverrides: parsed.addOnPriceOverrides ?? {},
-      addOnCogsOverrides: parsed.addOnCogsOverrides ?? {},
-      inactiveProducts: Array.isArray(parsed.inactiveProducts)
-        ? parsed.inactiveProducts
+      productVariantPriceOverrides: normalized.productVariantPriceOverrides ?? {},
+      addOnPriceOverrides: normalized.addOnPriceOverrides ?? {},
+      addOnCogsOverrides: normalized.addOnCogsOverrides ?? {},
+      inactiveProducts: Array.isArray(normalized.inactiveProducts)
+        ? normalized.inactiveProducts
         : [],
-      inactiveAddOns: Array.isArray(parsed.inactiveAddOns)
-        ? parsed.inactiveAddOns
+      inactiveAddOns: Array.isArray(normalized.inactiveAddOns)
+        ? normalized.inactiveAddOns
         : [],
-      customProducts: Array.isArray(parsed.customProducts)
-        ? parsed.customProducts
+      customProducts: Array.isArray(normalized.customProducts)
+        ? normalized.customProducts
         : [],
-      customAddOns: Array.isArray(parsed.customAddOns)
-        ? parsed.customAddOns
+      customAddOns: Array.isArray(normalized.customAddOns)
+        ? normalized.customAddOns
         : [],
     };
   } catch {

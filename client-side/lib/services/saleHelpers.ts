@@ -40,9 +40,9 @@ export async function updateBusinessMetrics(
   businessId: number,
   revenue: number,
   cost: number,
+  referenceDate: Date = new Date(),
 ) {
-  const today = new Date();
-  const dateOnly = new Date(today.toISOString().split("T")[0]);
+  const dateOnly = new Date(referenceDate.toISOString().split("T")[0]);
 
   const existing = await tx.businessMetrics.findUnique({
     where: {
@@ -89,9 +89,9 @@ export async function updateProductMetrics(
   quantity: number,
   revenue: number,
   cost: number,
+  referenceDate: Date = new Date(),
 ) {
-  const today = new Date();
-  const dateOnly = new Date(today.toISOString().split("T")[0]);
+  const dateOnly = new Date(referenceDate.toISOString().split("T")[0]);
 
   const existing = await tx.productMetrics.findUnique({
     where: {
