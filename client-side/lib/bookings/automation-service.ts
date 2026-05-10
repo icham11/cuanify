@@ -680,83 +680,37 @@ export async function runBookingAutomations(
             : "Failed to send WhatsApp produksi.",
       }));
     } else {
-      // Prioritaskan gambar yang diupload langsung oleh user
-      const originalImageUrl = order.imageUrl || (order.imageUrls && order.imageUrls[0]);
-      
-      if (originalImageUrl) {
-        // Kirim gambar asli yang diupload
-        try {
-          await sendWhatsAppImage(
-            originalImageUrl,
-            buildProductionMessage(order),
-          );
-          fonnteProduction = {
-            ok: true,
-            skipped: false,
-            message: "WA Produksi (Gambar Upload) berhasil dikirim.",
-          };
-        } catch (error) {
-          fonnteProduction = {
-            ok: false,
-            skipped: false,
-            message: error instanceof Error ? error.message : "Gagal mengirim gambar upload.",
-          };
-        }
-      } else {
-        // Fallback ke template hanya jika tidak ada gambar sama sekali
-        const result = await sendOrderToWhatsApp({
-          ...order,
-          item: getItemsSummary(order),
-          phone: order.customerPhone,
-          address: getPrimaryAddress(order),
-        });
+      // Gunakan jalur WA terstandar agar urutan kirim konsisten: teks rekap dulu, lalu gambar.
+      const result = await sendOrderToWhatsApp({
+        ...order,
+        item: getItemsSummary(order),
+        phone: order.customerPhone,
+        address: getPrimaryAddress(order),
+      });
 
-        fonnteProduction = {
-          ok: result.ok,
-          skipped: false,
-          message: result.message,
-        };
-      }
+      fonnteProduction = {
+        ok: result.ok,
+        skipped: false,
+        message: result.message,
+      };
     }
   } else if (eventType === "order_created") {
     const shouldSendOnCreate =
       String(process.env.FONNTE_SEND_PRODUCTION_ON_CREATE || "true") === "true";
 
     if (shouldSendOnCreate) {
-      const originalImageUrl = order.imageUrl || (order.imageUrls && order.imageUrls[0]);
+      const result = await sendOrderToWhatsApp({
+        ...order,
+        item: getItemsSummary(order),
+        phone: order.customerPhone,
+        address: getPrimaryAddress(order),
+      });
 
-      if (originalImageUrl) {
-        try {
-          await sendWhatsAppImage(
-            originalImageUrl,
-            buildProductionMessage(order),
-          );
-          fonnteProduction = {
-            ok: true,
-            skipped: false,
-            message: "WA Produksi (Gambar Upload) berhasil dikirim.",
-          };
-        } catch (error) {
-          fonnteProduction = {
-            ok: false,
-            skipped: false,
-            message: error instanceof Error ? error.message : "Gagal mengirim gambar upload.",
-          };
-        }
-      } else {
-        const result = await sendOrderToWhatsApp({
-          ...order,
-          item: getItemsSummary(order),
-          phone: order.customerPhone,
-          address: getPrimaryAddress(order),
-        });
-
-        fonnteProduction = {
-          ok: result.ok,
-          skipped: false,
-          message: result.message,
-        };
-      }
+      fonnteProduction = {
+        ok: result.ok,
+        skipped: false,
+        message: result.message,
+      };
     } else {
       fonnteProduction = {
         ok: false,
