@@ -20,6 +20,7 @@ import {
   Factory,
   Settings2,
   ContactRound,
+  Store,
 } from "lucide-react";
 
 import { useRole } from "@/context/RoleContext";
@@ -154,6 +155,13 @@ export default function MobileNav({ jwtUserName, jwtUserEmail }: MobileNavProps)
                         icon={FileText}
                         label="Reports"
                         active={isActive("/bakery/reports")}
+                        onClick={() => setIsDrawerOpen(false)}
+                      />
+                      <NavLink
+                        href="/bakery/ecommerce"
+                        icon={Store}
+                        label="E-Commerce"
+                        active={isActive("/bakery/ecommerce")}
                         onClick={() => setIsDrawerOpen(false)}
                       />
                     </>

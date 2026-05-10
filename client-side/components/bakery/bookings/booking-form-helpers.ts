@@ -55,7 +55,6 @@ import {
   getDeliverySlotsForDate,
   inferOrderTypeFromItems,
   isSeasonalCookiesItem,
-  isWithinBusinessHours,
   isDateBlockedForOrdering,
   type SlotAvailabilityStatus,
   type SlotOrderType,

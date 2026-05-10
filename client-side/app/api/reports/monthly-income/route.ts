@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { PaymentStatus, SalesChannel } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { requireAuth, isAuthError } from "@/lib/auth/session";
 
@@ -88,15 +89,95 @@ export async function GET(request: NextRequest) {
       ORDER BY month_key ASC, product_name ASC
     `;
 
-    return NextResponse.json({
-      success: true,
-      data: rows.map((row) => ({
+    const sales = await prisma.sale.findMany({
+      where: {
+        businessId,
+        paymentStatus: PaymentStatus.Paid,
+        sales_channel: {
+          in: [SalesChannel.tokopedia, SalesChannel.shopee],
+        },
+        ...(Number.isInteger(year)
+          ? {
+              createdAt: {
+                gte: new Date(Date.UTC(year, 0, 1, 0, 0, 0, 0)),
+                lt: new Date(Date.UTC(year + 1, 0, 1, 0, 0, 0, 0)),
+              },
+            }
+          : {}),
+      },
+      select: {
+        createdAt: true,
+        saleItems: {
+          select: {
+            productId: true,
+            quantity: true,
+            priceAtSale: true,
+            product: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        createdAt: "asc",
+      },
+    });
+
+    const merged = new Map<
+      string,
+      {
+        month: string;
+        productId: string | null;
+        productName: string;
+        quantity: number;
+        revenue: number;
+      }
+    >();
+
+    rows.forEach((row) => {
+      const entry = {
         month: row.month_key,
         productId: row.product_id,
         productName: row.product_name || "Produk",
         quantity: toNumber(row.quantity),
         revenue: toNumber(row.revenue),
-      })),
+      };
+      merged.set(`${entry.month}||${entry.productId}||${entry.productName}`, entry);
+    });
+
+    sales.forEach((sale) => {
+      const month = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Jakarta",
+        year: "numeric",
+        month: "2-digit",
+      }).format(sale.createdAt);
+
+      sale.saleItems.forEach((item) => {
+        const productId = String(item.productId);
+        const productName = item.product.name || "Produk";
+        const key = `${month}||${productId}||${productName}`;
+        const current = merged.get(key) ?? {
+          month,
+          productId,
+          productName,
+          quantity: 0,
+          revenue: 0,
+        };
+
+        current.quantity += toNumber(item.quantity);
+        current.revenue += toNumber(item.quantity) * toNumber(item.priceAtSale);
+        merged.set(key, current);
+      });
+    });
+
+    return NextResponse.json({
+      success: true,
+      data: Array.from(merged.values()).sort((left, right) => {
+        if (left.month !== right.month) return left.month.localeCompare(right.month);
+        return left.productName.localeCompare(right.productName);
+      }),
     });
   } catch (error) {
     if (isAuthError(error)) {

@@ -1,4 +1,8 @@
+import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { NextConfig } from "next";
+
+const projectDir = dirname(fileURLToPath(import.meta.url));
 
 const publicBuildVersion =
   process.env.NEXT_PUBLIC_BUILD_VERSION ||
@@ -10,6 +14,8 @@ const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_BUILD_VERSION: publicBuildVersion,
   },
+
+  outputFileTracingRoot: projectDir,
 
   serverExternalPackages: ["@sparticuz/chromium", "puppeteer-core"],
 
@@ -30,6 +36,16 @@ const nextConfig: NextConfig = {
           { key: "Cache-Control", value: "public, max-age=0, must-revalidate" },
           { key: "Service-Worker-Allowed", value: "/" },
         ],
+      },
+    ];
+  },
+
+  async redirects() {
+    return [
+      {
+        source: "/bakery/ecommerce",
+        destination: "/bakery/catalog",
+        permanent: false,
       },
     ];
   },

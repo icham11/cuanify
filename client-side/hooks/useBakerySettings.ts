@@ -34,11 +34,12 @@ async function fetchBakerySettingsFromApi(): Promise<BakeryBusinessSettings | nu
   return payload.data;
 }
 
-export function useBakerySettings() {
+export function useBakerySettings(options?: { enabled?: boolean }) {
+  const enabled = options?.enabled !== false;
   const [settings, setSettings] = useState<BakeryBusinessSettings | null>(
     cachedSettings,
   );
-  const [isLoading, setIsLoading] = useState(!cachedSettings);
+  const [isLoading, setIsLoading] = useState(enabled && !cachedSettings);
   const [error, setError] = useState<string | null>(null);
 
   const refetch = useCallback(async (options?: { force?: boolean }) => {
@@ -78,10 +79,16 @@ export function useBakerySettings() {
   }, []);
 
   useEffect(() => {
+    if (!enabled) {
+      setIsLoading(false);
+      return;
+    }
     void refetch().catch(() => {});
-  }, [refetch]);
+  }, [enabled, refetch]);
 
   useEffect(() => {
+    if (!enabled) return;
+
     const handleUpdated = () => {
       void refetch({ force: true }).catch(() => {});
     };
@@ -90,7 +97,7 @@ export function useBakerySettings() {
     return () => {
       window.removeEventListener(BAKERY_SETTINGS_UPDATED_EVENT, handleUpdated);
     };
-  }, [refetch]);
+  }, [enabled, refetch]);
 
   return {
     settings,

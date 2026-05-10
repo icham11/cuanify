@@ -98,8 +98,24 @@ export async function GET() {
       );
     }
 
+    const normalizedState = normalizeCatalogAdminState(parsed.data);
+
+    if (JSON.stringify(normalizedState) !== JSON.stringify(parsed.data)) {
+      const content = "bakery catalog config";
+      const contentHash = createHash("sha256")
+        .update(JSON.stringify(normalizedState))
+        .digest("hex");
+      await prisma.$executeRaw`
+        UPDATE "BusinessDocument"
+        SET content = ${content},
+            "contentHash" = ${contentHash},
+            metadata = ${JSON.stringify(normalizedState)}::jsonb,
+            "updatedAt" = NOW()
+        WHERE id = ${rows[0].id}`;
+    }
+
     return NextResponse.json(
-      { success: true, data: parsed.data },
+      { success: true, data: normalizedState },
       { status: 200 },
     );
   } catch (error: unknown) {
@@ -130,7 +146,7 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    const payload = parsed.data;
+    const payload = normalizeCatalogAdminState(parsed.data);
     const content = "bakery catalog config";
     const contentHash = createHash("sha256")
       .update(JSON.stringify(payload))

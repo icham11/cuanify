@@ -337,6 +337,20 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
         });
       }
 
+      const allowedProductNames = new Set(
+        products.map((product) => normalizeProductName(product.name)),
+      );
+      await tx.product.updateMany({
+        where: {
+          businessId: args.businessId,
+          deletedAt: null,
+          name: { notIn: Array.from(allowedProductNames) },
+        },
+        data: {
+          deletedAt: new Date(),
+        },
+      });
+
       if (productsToCreate.length > 0) {
         const created = await tx.product.createMany({
           data: productsToCreate,

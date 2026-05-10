@@ -29,7 +29,6 @@ import type {
   ShippingShipment,
 } from "@/lib/bookings/shipping-types";
 import {
-  isWithinBusinessHours,
   summarizeProductionTokensByItems,
 } from "@/lib/bookings/operations";
 import {
@@ -47,7 +46,7 @@ import {
 } from "@/lib/bookings/shipping-schedule";
 import { normalizeDateInput } from "@/lib/helpers/date-normalization";
 import { useBakerySettings } from "@/hooks/useBakerySettings";
-import { useRole } from "@/context/RoleContext";
+import { fetchAuthMe } from "@/lib/auth/auth-me-client";
 import {
   distributeProductionTokens,
   getProductionStagePercentagesFromTemplates,
@@ -322,6 +321,21 @@ class CapacityFullSyncError extends Error {
     this.name = "CapacityFullSyncError";
   }
 }
+
+class OrdersSyncRequestError extends Error {
+  public readonly status: number | null;
+  public readonly retryable: boolean;
+
+  constructor(
+    message: string,
+    options?: { status?: number | null; retryable?: boolean },
+  ) {
+    super(message);
+    this.name = "OrdersSyncRequestError";
+    this.status = options?.status ?? null;
+    this.retryable = options?.retryable ?? false;
+  }
+}
 const AUTO_REQUOTE_ERROR_KEYWORDS = [
   "courier price is not found",
   "check your origin and destination location",
@@ -524,35 +538,6 @@ function resolvePreferredBookingCode(order: BakeryOrder): string {
     order.bookingCode ||
     "PENDING"
   );
-}
-
-function inferDeliveryMethodFromNotes(notes?: string): string | undefined {
-  const match = notes?.match(/delivery\s*method\s*:\s*([^\n]+)/i);
-  const raw = (match?.[1] || "").trim().toLowerCase();
-  if (!raw) return undefined;
-
-  if (raw.includes("pickup")) return "PICKUP";
-  if (raw.includes("customer")) return "CUSTOMER_APP_COURIER";
-  if (raw.includes("gosend") || raw.includes("go send")) {
-    return "ASSISTED_GOSEND";
-  }
-  if (raw.includes("gocar") || raw.includes("go car")) {
-    return "ASSISTED_GOCAR";
-  }
-  if (raw.includes("grab")) return "ASSISTED_GRAB";
-  if (raw.includes("paxel")) return "ASSISTED_PAXEL";
-  if (
-    raw.includes("same day") ||
-    raw.includes("same-day") ||
-    raw.includes("sameday")
-  ) {
-    return "ASSISTED_SAME_DAY";
-  }
-  if (raw.includes("jne") || raw.includes("j&t") || raw.includes("jnt")) {
-    return "REGULAR_JNE_JNT";
-  }
-
-  return undefined;
 }
 
 function toBookingDatePart(deliveryDate: string): string {
@@ -862,8 +847,7 @@ function mergeOrdersPreferLatestLocal(
   serverOrders: BakeryOrder[],
 ): BakeryOrder[] {
   const localById = new Map(localOrders.map((order) => [order.id, order]));
-
-  return serverOrders.map((serverOrder) => {
+  const mergedOrders = serverOrders.map((serverOrder) => {
     const localOrder = localById.get(serverOrder.id);
     if (!localOrder) return serverOrder;
 
@@ -872,6 +856,11 @@ function mergeOrdersPreferLatestLocal(
 
     return localLatest > serverLatest ? localOrder : serverOrder;
   });
+
+  const serverIds = new Set(serverOrders.map((order) => order.id));
+  const localOnlyOrders = localOrders.filter((order) => !serverIds.has(order.id));
+
+  return [...mergedOrders, ...localOnlyOrders];
 }
 
 function writeOrdersSnapshot(nextOrders: BakeryOrder[]) {
@@ -901,10 +890,7 @@ export function OrdersProvider({
   children: React.ReactNode;
   enabled?: boolean;
 }) {
-  const { settings: bakerySettings } = useBakerySettings();
-  const blockedDates = bakerySettings?.blockedDates;
-  const cutoffEnabled = bakerySettings?.cutoffEnabled ?? true;
-  const { isOwner, isAdmin, loading: isRoleLoading } = useRole();
+  const { settings: bakerySettings } = useBakerySettings({ enabled });
   const defaultDpPercentage = bakerySettings?.defaultDpPercentage ?? 50;
   const snapshot = useSyncExternalStore(
     subscribe,
@@ -950,17 +936,13 @@ export function OrdersProvider({
 
     const fetchActorIdentity = async () => {
       try {
-        const response = await fetch("/api/auth/me", { cache: "no-store" });
-        if (!response.ok) return;
-        const payload = (await response.json()) as {
-          data?: { userId?: number; name?: string };
-        };
-        const parsedId = Number(payload.data?.userId);
+        const payload = await fetchAuthMe();
+        const parsedId = Number(payload?.userId);
         if (!Number.isFinite(parsedId)) return;
         if (!isMounted) return;
         setActorIdentity({
           userId: parsedId,
-          name: payload.data?.name?.trim() || `User #${parsedId}`,
+          name: payload?.name?.trim() || `User #${parsedId}`,
         });
       } catch {
         // Keep default actor when identity endpoint is unavailable.
@@ -1018,7 +1000,10 @@ export function OrdersProvider({
         error instanceof Error
           ? error.message
           : "Network error while syncing bookings.";
-      throw new Error(`Network error saat sinkron booking: ${message}`);
+      throw new OrdersSyncRequestError(
+        `Network error saat sinkron booking: ${message}`,
+        { retryable: true },
+      );
     }
 
     const payload = (await response
@@ -1049,10 +1034,28 @@ export function OrdersProvider({
         throw new CapacityFullSyncError(message);
       }
 
-      throw new Error(message);
+      throw new OrdersSyncRequestError(message, {
+        status: response.status,
+        retryable: response.status >= 500 || response.status === 429,
+      });
     }
 
     return payload;
+  }, []);
+
+  const scheduleQueuedOrdersSync = useCallback((
+    delayMs: number,
+    runner: () => Promise<void>,
+  ) => {
+    if (typeof window === "undefined") return;
+    if (syncDebounceTimerRef.current) {
+      window.clearTimeout(syncDebounceTimerRef.current);
+    }
+
+    syncDebounceTimerRef.current = window.setTimeout(() => {
+      syncDebounceTimerRef.current = null;
+      void runner();
+    }, delayMs);
   }, []);
 
   const fetchLatestOrdersFromServer = useCallback(async () => {
@@ -1180,10 +1183,19 @@ export function OrdersProvider({
           : "Gagal sinkron perubahan booking ke server.";
 
       if (!syncQueuedOrdersRef.current) {
-        const rollbackOrders = parseSnapshot(rollbackSnapshot);
-        writeOrdersSnapshot(rollbackOrders);
-        lastLocalWriteAtRef.current = 0;
-        void hydrateOrdersFromServer(true);
+        if (
+          error instanceof OrdersSyncRequestError &&
+          error.retryable
+        ) {
+          syncQueuedOrdersRef.current = queuedOrders;
+          syncRollbackSnapshotRef.current = rollbackSnapshot;
+          scheduleQueuedOrdersSync(2_000, flushQueuedOrdersSync);
+        } else {
+          const rollbackOrders = parseSnapshot(rollbackSnapshot);
+          writeOrdersSnapshot(rollbackOrders);
+          lastLocalWriteAtRef.current = 0;
+          void hydrateOrdersFromServer(true);
+        }
       }
 
       console.warn("[bookings][frontend] persist sync failed", {
@@ -1192,7 +1204,13 @@ export function OrdersProvider({
       });
 
       if (!(error instanceof CapacityFullSyncError)) {
-        toast.error(`Perubahan dibatalkan karena sinkron gagal: ${message}`);
+        if (error instanceof OrdersSyncRequestError && error.retryable) {
+          toast.error(
+            `Sinkron server sedang gagal sementara. Input tetap disimpan lokal: ${message}`,
+          );
+        } else {
+          toast.error(`Perubahan dibatalkan karena sinkron gagal: ${message}`);
+        }
       }
     } finally {
       syncInFlightRef.current = false;
@@ -1201,7 +1219,7 @@ export function OrdersProvider({
         void flushQueuedOrdersSync();
       }
     }
-  }, [hydrateOrdersFromServer, syncOrdersToServer]);
+  }, [hydrateOrdersFromServer, scheduleQueuedOrdersSync, syncOrdersToServer]);
 
   const persistOrders = useCallback(
     (nextOrders: BakeryOrder[], options?: { syncToServer?: boolean }) => {
@@ -1215,14 +1233,7 @@ export function OrdersProvider({
       syncQueuedOrdersRef.current = nextOrders;
       syncRollbackSnapshotRef.current = previousSnapshot;
 
-      if (syncDebounceTimerRef.current) {
-        window.clearTimeout(syncDebounceTimerRef.current);
-      }
-
-      syncDebounceTimerRef.current = window.setTimeout(() => {
-        syncDebounceTimerRef.current = null;
-        void flushQueuedOrdersSync();
-      }, ORDERS_SYNC_DEBOUNCE_MS);
+      scheduleQueuedOrdersSync(ORDERS_SYNC_DEBOUNCE_MS, flushQueuedOrdersSync);
 
       /*
         console.warn("[bookings][frontend] persist sync failed", {
@@ -1240,7 +1251,7 @@ export function OrdersProvider({
       });
       */
     },
-    [flushQueuedOrdersSync],
+    [flushQueuedOrdersSync, scheduleQueuedOrdersSync],
   );
 
   const runAutomationsForOrder = useCallback(
@@ -1665,29 +1676,6 @@ export function OrdersProvider({
 
   const addOrder = useCallback(
     async (order: NewOrderInput) => {
-      const deliveryMethod = inferDeliveryMethodFromNotes(order.notes);
-      const isPrivilegedBackfill = !isRoleLoading && (isOwner || isAdmin);
-      const allowHistoricalBackfill =
-        (isPrivilegedBackfill || !cutoffEnabled) &&
-        isHistoricalBackfillOrder(order.deliveryDate);
-      if (
-        !isWithinBusinessHours(
-          order.deliveryDate,
-          order.deliverySlot,
-          undefined,
-          {
-            deliveryMethod,
-            items: order.items,
-            blockedDates,
-            allowHistoricalBackfill,
-          },
-        )
-      ) {
-        throw new Error(
-          "Selected slot is outside business hours (Mon-Sat 10:00-22:00, Sun 10:00-15:00).",
-        );
-      }
-
       const latestServerOrders = await fetchLatestOrdersFromServer();
       const baseOrders = latestServerOrders ?? orders;
 
@@ -1861,11 +1849,6 @@ export function OrdersProvider({
       createShipmentForOrder,
       syncOrdersToServer,
       fetchLatestOrdersFromServer,
-      blockedDates,
-      cutoffEnabled,
-      isOwner,
-      isAdmin,
-      isRoleLoading,
     ],
   );
 
@@ -2324,25 +2307,6 @@ export function OrdersProvider({
 
   const updateOrderSchedule = useCallback(
     (id: string, deliveryDate: string, deliverySlot: string) => {
-      const targetOrder = orders.find((o) => o.id === id);
-      const deliveryMethod = inferDeliveryMethodFromNotes(targetOrder?.notes);
-      const isPrivilegedBackfill = !isRoleLoading && (isOwner || isAdmin);
-      const allowHistoricalBackfill =
-        (isPrivilegedBackfill || !cutoffEnabled) &&
-        isHistoricalBackfillOrder(deliveryDate);
-
-      if (
-        !isWithinBusinessHours(deliveryDate, deliverySlot, undefined, {
-          deliveryMethod,
-          items: targetOrder?.items ?? [],
-          blockedDates,
-          allowHistoricalBackfill,
-        })
-      ) {
-        toast.error("Selected time is outside business hours");
-        return;
-      }
-
       const nextOrders: BakeryOrder[] = orders.map((order) => {
         if (order.id !== id) return order;
         return {
@@ -2376,11 +2340,6 @@ export function OrdersProvider({
       runAutomationsForOrder,
       actorIdentity,
       createShipmentForOrder,
-      blockedDates,
-      cutoffEnabled,
-      isOwner,
-      isAdmin,
-      isRoleLoading,
     ],
   );
 

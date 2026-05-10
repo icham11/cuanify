@@ -12,6 +12,7 @@ import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 import { BAKERY_STAFF_DAILY_TOKEN_LIMIT } from "@/lib/bookings/config";
 import { DEFAULT_MAX_TOKEN } from "@/lib/calendar/getCalendarStatus";
 import { useBakerySettings } from "@/hooks/useBakerySettings";
+import { fetchAuthMe } from "@/lib/auth/auth-me-client";
 import {
   distributeProductionTokens,
   getProductionStageLabels,
@@ -333,27 +334,15 @@ export default function ProductionTable() {
     const loadMeta = async () => {
       setLoadingMeta(true);
       try {
-        const meRes = await fetch("/api/auth/me", { cache: "no-store" });
-        if (!meRes.ok) return;
-
-        const mePayload = (await meRes.json()) as {
-          data?: {
-            userId?: unknown;
-            businessId?: unknown;
-            businessName?: unknown;
-            role?: unknown;
-            name?: unknown;
-          };
-        };
-
-        const parsedUserId = parseNumericId(mePayload.data?.userId);
-        const parsedBusinessId = parseNumericId(mePayload.data?.businessId);
+        const mePayload = await fetchAuthMe();
+        const parsedUserId = parseNumericId(mePayload?.userId);
+        const parsedBusinessId = parseNumericId(mePayload?.businessId);
         const parsedRole =
-          mePayload.data?.role === "Owner" ||
-          mePayload.data?.role === "Admin" ||
-          mePayload.data?.role === "Cashier" ||
-          mePayload.data?.role === "Staff"
-            ? mePayload.data.role
+          mePayload?.role === "Owner" ||
+          mePayload?.role === "Admin" ||
+          mePayload?.role === "Cashier" ||
+          mePayload?.role === "Staff"
+            ? mePayload.role
             : null;
 
         if (!active || !parsedUserId || !parsedBusinessId || !parsedRole) {
@@ -365,12 +354,12 @@ export default function ProductionTable() {
           businessId: parsedBusinessId,
           role: parsedRole,
           name:
-            typeof mePayload.data?.name === "string"
-              ? mePayload.data.name
+            typeof mePayload?.name === "string"
+              ? mePayload.name
               : "User",
           businessName:
-            typeof mePayload.data?.businessName === "string"
-              ? mePayload.data.businessName
+            typeof mePayload?.businessName === "string"
+              ? mePayload.businessName
               : "",
         });
 
