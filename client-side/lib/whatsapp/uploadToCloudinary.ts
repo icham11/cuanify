@@ -3,10 +3,11 @@ import cloudinary from "@/lib/cloudinary";
 interface UploadToCloudinaryOptions {
   folder?: string;
   format?: string;
+  tags?: string[];
 }
 
 export async function uploadToCloudinary(
-  buffer: Buffer,
+  source: Buffer | string,
   options: UploadToCloudinaryOptions = {},
 ): Promise<string> {
   if (
@@ -19,31 +20,44 @@ export async function uploadToCloudinary(
     );
   }
 
+  const uploadOptions = {
+    folder: options.folder || "orders/generated",
+    format: options.format || "jpg",
+    tags: options.tags,
+  };
+
   const attemptUpload = (): Promise<string> =>
     new Promise<string>((resolve, reject) => {
-      const stream = cloudinary.uploader.upload_stream(
-        {
-          folder: options.folder || "orders/generated",
-          format: options.format || "jpg",
-        },
-        (error, result) => {
-          if (error) return reject(error);
-          if (!result?.secure_url) {
-            return reject(
-              new Error(
-                "Cloudinary upload succeeded but secure_url is missing.",
-              ),
-            );
-          }
-          console.info(
-            "[uploadToCloudinary] Uploaded image URL:",
-            result.secure_url,
+      const handleResult = (
+        error: unknown,
+        result?: { secure_url?: string | null },
+      ) => {
+        if (error) return reject(error);
+        if (!result?.secure_url) {
+          return reject(
+            new Error(
+              "Cloudinary upload succeeded but secure_url is missing.",
+            ),
           );
-          resolve(result.secure_url);
-        },
+        }
+        console.info(
+          "[uploadToCloudinary] Uploaded image URL:",
+          result.secure_url,
+        );
+        resolve(result.secure_url);
+      };
+
+      if (typeof source === "string") {
+        void cloudinary.uploader.upload(source, uploadOptions, handleResult);
+        return;
+      }
+
+      const stream = cloudinary.uploader.upload_stream(
+        uploadOptions,
+        handleResult,
       );
 
-      stream.end(buffer);
+      stream.end(source);
     });
 
   // Retry once on transient failure

@@ -1,10 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { imagekit } from "@/lib/imagekit";
+import cloudinary from "@/lib/cloudinary";
 
 interface ImageKitFile {
   fileId: string;
   name: string;
   tags?: string[] | null;
+}
+
+interface CloudinaryResource {
+  public_id: string;
+  tags?: string[];
+  created_at?: string;
 }
 
 export const runtime = "nodejs";
@@ -41,6 +48,7 @@ export async function POST(request: NextRequest) {
     const now = Date.now();
     const deletedFiles: string[] = [];
     const errors: string[] = [];
+    const deletedCloudinaryFiles: string[] = [];
 
     // List files with 'temp' tag — limit to 50 per cycle to avoid timeout
     let files;
@@ -99,13 +107,85 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const canCleanupCloudinary =
+      Boolean(process.env.CLOUDINARY_CLOUD_NAME) &&
+      Boolean(process.env.CLOUDINARY_API_KEY) &&
+      Boolean(process.env.CLOUDINARY_API_SECRET);
+
+    if (canCleanupCloudinary) {
+      try {
+        const resourcesResponse = (await Promise.race([
+          cloudinary.api.resources({
+            type: "upload",
+            prefix: "orders/outbound-temp",
+            max_results: 100,
+            tags: true,
+          }),
+          new Promise<never>((_, reject) =>
+            setTimeout(
+              () => reject(new Error("Cloudinary resources timeout")),
+              10_000,
+            ),
+          ),
+        ])) as { resources?: CloudinaryResource[] };
+
+        const resources = Array.isArray(resourcesResponse.resources)
+          ? resourcesResponse.resources
+          : [];
+
+        const expiredPublicIds = resources
+          .filter((resource) => {
+            const expireTag = resource.tags?.find((tag) =>
+              tag.startsWith("expire:"),
+            );
+            if (expireTag) {
+              const expiresAt = Number(expireTag.split(":")[1]);
+              return Number.isFinite(expiresAt) && now > expiresAt;
+            }
+
+            const createdAt = Date.parse(resource.created_at || "");
+            if (!Number.isFinite(createdAt)) return false;
+            return now - createdAt > 24 * 60 * 60 * 1000;
+          })
+          .map((resource) => resource.public_id)
+          .filter(Boolean);
+
+        if (expiredPublicIds.length > 0) {
+          await Promise.race([
+            cloudinary.api.delete_resources(expiredPublicIds, {
+              resource_type: "image",
+              type: "upload",
+              invalidate: true,
+            }),
+            new Promise<never>((_, reject) =>
+              setTimeout(
+                () => reject(new Error("Cloudinary delete_resources timeout")),
+                10_000,
+              ),
+            ),
+          ]);
+
+          deletedCloudinaryFiles.push(...expiredPublicIds);
+        }
+      } catch (error) {
+        errors.push(
+          `Cloudinary cleanup failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+        console.error("Cloudinary cleanup failed:", error);
+      }
+    }
+
     return NextResponse.json({
       success: true,
       message: "Cleanup completed",
-      deleted: deletedFiles.length,
+      deleted: deletedFiles.length + deletedCloudinaryFiles.length,
       errors: errors.length,
-      deletedFiles,
+      deletedFiles: [...deletedFiles, ...deletedCloudinaryFiles],
       errorDetails: errors,
+      deletedImageKitFiles: deletedFiles,
+      deletedCloudinaryFiles,
     });
   } catch (error) {
     console.error("Cleanup error:", error);

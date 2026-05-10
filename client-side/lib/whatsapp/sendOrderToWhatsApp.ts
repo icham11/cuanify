@@ -34,6 +34,8 @@ export interface SendOrderToWhatsAppResult {
   imageUrl?: string;
 }
 
+const OUTBOUND_WA_IMAGE_TTL_MS = 24 * 60 * 60 * 1000;
+
 function sanitizeBookingCode(value?: string): string {
   const raw = (value || "").trim();
   if (!raw) return "-";
@@ -173,6 +175,46 @@ function normalizeStructuredReferenceImages(
   }
 
   return normalized;
+}
+
+async function prepareOutboundWhatsAppImageUrl(
+  sourceUrl: string,
+  index: number,
+): Promise<string> {
+  if (!sourceUrl.trim()) {
+    throw new Error("Reference image URL is empty.");
+  }
+
+  if (sourceUrl.includes("/orders/outbound-temp/")) {
+    return sourceUrl;
+  }
+
+  const expiresAt = Date.now() + OUTBOUND_WA_IMAGE_TTL_MS;
+
+  try {
+    const mirroredUrl = await uploadToCloudinary(sourceUrl, {
+      folder: "orders/outbound-temp",
+      format: "jpg",
+      tags: ["temp", "wa-outbound", `expire:${expiresAt}`],
+    });
+
+    if (mirroredUrl?.trim()) {
+      console.info("[sendOrderToWhatsApp] Mirrored outbound image to Cloudinary", {
+        index,
+        sourceUrl: sourceUrl.substring(0, 80),
+        mirroredUrl: mirroredUrl.substring(0, 80),
+      });
+      return mirroredUrl;
+    }
+  } catch (error) {
+    console.warn("[sendOrderToWhatsApp] Failed to mirror outbound image, falling back to source URL", {
+      index,
+      sourceUrl: sourceUrl.substring(0, 80),
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  return sourceUrl;
 }
 
 export async function sendOrderToWhatsApp(
@@ -377,7 +419,7 @@ export async function sendOrderToWhatsApp(
 
   // 2. Kirim satu per satu gambar user-upload, caption = detail gambar dari parser
   for (let i = 0; i < finalImagesToUpload.length; i++) {
-    const { url: imgUrl, label: referenceLabel } = finalImagesToUpload[i];
+    const { url: sourceImgUrl, label: referenceLabel } = finalImagesToUpload[i];
     let caption = "";
     
     // Ambil label/notes dari referenceImages jika ada, jika tidak dari captionItems
@@ -390,6 +432,7 @@ export async function sendOrderToWhatsApp(
       caption = `Referensi ${i + 1}`;
     }
     try {
+      const imgUrl = await prepareOutboundWhatsAppImageUrl(sourceImgUrl, i);
       await sendWhatsAppImage(imgUrl, caption);
       console.info(`[sendOrderToWhatsApp] User image ${i + 1} sent successfully:`, {
         imageUrl: imgUrl.substring(0, 60),
@@ -403,7 +446,7 @@ export async function sendOrderToWhatsApp(
       };
     } catch (error) {
       console.error(`[sendOrderToWhatsApp] User image ${i + 1} send failed:`, {
-        imageUrl: imgUrl.substring(0, 60),
+        imageUrl: sourceImgUrl.substring(0, 60),
         caption,
         error: error instanceof Error ? error.message : String(error),
       });
@@ -414,7 +457,7 @@ export async function sendOrderToWhatsApp(
           error instanceof Error
             ? error.message
             : `Failed to send WhatsApp image for image ${i + 1}`,
-        imageUrl: imgUrl,
+        imageUrl: sourceImgUrl,
       };
       break;
     }
