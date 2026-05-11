@@ -379,14 +379,15 @@ export default function BusinessPage() {
       const previousSummary = previousSalesPayload?.data?.summary;
       const currentSales = currentSalesPayload?.data?.sales ?? [];
 
-      const currentRevenue = Number(currentSummary?.totalRevenue ?? 0);
-      const currentProfit = Number(currentSummary?.totalProfit ?? 0);
+      const businessStats = businessDetail?.stats;
+      const currentRevenue = Number(currentSummary?.totalRevenue ?? 0) || Number(businessStats?.totalRevenue ?? 0);
+      const currentProfit = Number(currentSummary?.totalProfit ?? 0) || Number(businessStats?.totalProfit ?? 0);
+      const totalCost = Number(currentSummary?.totalCost ?? 0) || Number(businessStats?.totalCost ?? 0);
       const previousRevenue = Number(previousSummary?.totalRevenue ?? 0);
-      const totalCost = Number(currentSummary?.totalCost ?? 0);
       const avgMargin =
         currentRevenue > 0
           ? (currentProfit / currentRevenue) * 100
-          : Number(businessDetail?.stats.marginAvg ?? 0) || 0;
+          : Number(businessStats?.marginAvg ?? 0) || 0;
 
       const nextViewState: ViewState = {
         viewerName: userName?.trim() || "",
@@ -401,7 +402,7 @@ export default function BusinessPage() {
         totalCost,
         avgMargin,
         totalSalesCount: Number(businessDetail?._count?.sales ?? 0),
-        paidSalesCount: Number(businessDetail?.stats?.paidSalesCount ?? 0),
+        paidSalesCount: Number(businessStats?.paidSalesCount ?? 0),
         topProducts: buildTopProducts(currentSales),
         bakerySettings: null,
       };

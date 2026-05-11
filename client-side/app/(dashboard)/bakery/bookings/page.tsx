@@ -15,7 +15,7 @@ import {
 
 type CourierFilter = "" | "grab-gojek" | "paxel";
 type OrderSourceFilter = "" | "customer" | "admin";
-type SavedView = "all" | "today" | "tomorrow" | "production";
+type SavedView = "all" | "active" | "today" | "tomorrow" | "production";
 
 function addDaysToIsoDate(isoDate: string, days: number): string {
   const matched = isoDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -93,7 +93,7 @@ export default function BookingListPage() {
     "delivery-asc" | "delivery-desc" | "name-asc" | "value-desc"
   >("delivery-asc");
   const [currentPage, setCurrentPage] = useState(1);
-  const [activeSavedView, setActiveSavedView] = useState<SavedView>("all");
+  const [activeSavedView, setActiveSavedView] = useState<SavedView>("active");
   const today = getJakartaTodayIsoDate();
   const tomorrow = useMemo(() => addDaysToIsoDate(today, 1), [today]);
   const PAGE_SIZE = 10;
@@ -119,12 +119,18 @@ export default function BookingListPage() {
       const source = resolveOrderSource(order);
       const matchesOrderSource =
         orderSourceFilter === "" ? true : source === orderSourceFilter;
+      const isViewAll = activeSavedView === "all";
+      const isActiveView = activeSavedView === "active";
+      const isStatusActive = !["Completed", "Delivered", "Cancelled"].includes(normalizedOrderStatus);
+      const matchesSavedView = isViewAll || (isActiveView ? isStatusActive : true);
+
       return (
         matchesQuery &&
         matchesStatus &&
         matchesDate &&
         matchesCourier &&
-        matchesOrderSource
+        matchesOrderSource &&
+        matchesSavedView
       );
     });
 
@@ -157,6 +163,7 @@ export default function BookingListPage() {
     courierFilter,
     orderSourceFilter,
     sortBy,
+    activeSavedView,
   ]);
 
   const activeOrdersCount = useMemo(
@@ -179,7 +186,7 @@ export default function BookingListPage() {
       dateFilter ||
       courierFilter ||
       orderSourceFilter ||
-      activeSavedView !== "all" ||
+      activeSavedView !== "active" ||
       sortBy !== "delivery-asc",
   );
 
@@ -198,14 +205,14 @@ export default function BookingListPage() {
     setOrderSourceFilter("");
     setSortBy("delivery-asc");
     setCurrentPage(1);
-    setActiveSavedView("all");
+    setActiveSavedView("active");
   };
 
   const applySavedView = (view: SavedView) => {
     setCurrentPage(1);
     setActiveSavedView(view);
 
-    if (view === "all") {
+    if (view === "all" || view === "active") {
       setStatusFilter("");
       setDateFilter("");
       return;
@@ -266,6 +273,9 @@ export default function BookingListPage() {
         </div>
 
         <div className="flex gap-2 overflow-x-auto scrollbar-none">
+          <button type="button" onClick={() => applySavedView("active")} className={quickChipClass(activeSavedView === "active")}>
+            Aktif
+          </button>
           <button type="button" onClick={() => applySavedView("all")} className={quickChipClass(activeSavedView === "all")}>
             Semua
           </button>

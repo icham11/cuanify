@@ -1506,8 +1506,9 @@ function validateAssignmentTransitionRules(params: {
   existingAssignments: ExistingAssignmentState[];
   roleName: string;
   userId: number;
+  isPrivilegedRequest?: boolean;
 }) {
-  const { orders, existingAssignments, roleName, userId } = params;
+  const { orders, existingAssignments, roleName, userId, isPrivilegedRequest = false } = params;
   const isOwnerRequest = roleName === "Owner";
   const isStaffRequest = roleName === "Staff";
   const existingAssignmentMap = new Map(
@@ -1529,7 +1530,9 @@ function validateAssignmentTransitionRules(params: {
       getOrderStaffTokenAssignmentsForLimit(order).length > 0;
 
     if (statusChanged && !nextHasAssignment && nextStatus !== "Cancelled") {
-      throw new ForbiddenError("Order must be assigned before changing status");
+      if (!isPrivilegedRequest) {
+        throw new ForbiddenError("Order must be assigned before changing status");
+      }
     }
 
     if (currentAssignee === nextAssignee) {
@@ -2804,6 +2807,7 @@ export async function POST(request: NextRequest) {
         existingAssignments: existingAssignmentRows,
         roleName,
         userId,
+        isPrivilegedRequest: canManageAssignments,
       });
     }
 
