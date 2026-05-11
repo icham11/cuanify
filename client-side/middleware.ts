@@ -24,24 +24,24 @@ const MAX_REQUESTS_PER_MINUTE = 100;
 function handleRateLimit(request: NextRequest) {
   const ip = request.headers.get("x-forwarded-for") ?? "unknown";
   const now = Date.now();
-  
+
   const record = rateLimitMap.get(ip);
   if (!record || now > record.resetAt) {
     rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
     return null;
   }
-  
+
   record.count++;
   if (record.count > MAX_REQUESTS_PER_MINUTE) {
     return new NextResponse(
       JSON.stringify({ error: "Terlalu banyak permintaan, coba lagi nanti." }),
-      { 
-        status: 429, 
-        headers: { "Content-Type": "application/json" } 
-      }
+      {
+        status: 429,
+        headers: { "Content-Type": "application/json" },
+      },
     );
   }
-  
+
   return null;
 }
 
@@ -66,7 +66,10 @@ const CASHIER_BLOCKED_PATHS = [
   "/dashboard/ai-analysis",
 ];
 
-const STAFF_ALLOWED_PAGE_PREFIXES = ["/bakery/production", "/bakery/attendance"];
+const STAFF_ALLOWED_PAGE_PREFIXES = [
+  "/bakery/production",
+  "/bakery/attendance",
+];
 
 const ADMIN_ALLOWED_PAGE_PREFIXES = [
   "/bakery/dashboard",
@@ -240,7 +243,7 @@ function resolveRoleFromClaims(
   return null;
 }
 
-export async function proxy(request: NextRequest) {
+export default async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const method = request.method.toUpperCase();
   const apiRequest = isApiPath(pathname);
