@@ -24,7 +24,12 @@
     "visual:baseline": "playwright test tests/visual/admin-baseline.spec.ts --update-snapshots",
     "visual:test": "playwright test tests/visual/admin-baseline.spec.ts",
     "visual:a11y": "playwright test tests/accessibility/basic-a11y.spec.ts",
-    "visual:report": "playwright show-report"
+    "visual:report": "playwright show-report",
+    "smoke:bookings": "node ./tmp/run-smoke-bookings.js",
+    "smoke:team-settings": "node ./tmp/run-smoke-team-settings.js",
+    "smoke:products-catalog": "node ./tmp/run-smoke-products-catalog.js",
+    "smoke:regression": "node ./tmp/run-regression-smoke-suite.js",
+    "predeploy:smoke": "npm run smoke:regression"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

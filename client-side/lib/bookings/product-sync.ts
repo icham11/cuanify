@@ -14,6 +14,7 @@ interface FlattenedCatalogProduct {
   category: string;
   productName: string;
   variantLabel: string;
+  variantCount: number;
   name: string;
   subcategory: string;
   sellingPrice: number;
@@ -73,6 +74,7 @@ export function flattenCatalogProductsForDashboard(
             category: category.category,
             productName: normalizeProductName(product.name),
             variantLabel: normalizeProductName(variant.label),
+            variantCount: product.variants.length,
             name,
             subcategory: normalizeProductName(subcategory.name),
             sellingPrice: normalizeMoney(variant.price),
@@ -281,9 +283,16 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
         const normalizedName = normalizeProductName(product.name);
         const subcategoryKey = normalizeProductNameKey(product.subcategory);
         const resolvedCategoryId = categoryIds.get(subcategoryKey) ?? null;
-        const matched = existingByName.get(
+        const matchedByName = existingByName.get(
           normalizeProductNameKey(normalizedName),
         );
+        const matchedByBaseName =
+          product.variantCount === 1
+            ? existingByName.get(
+                normalizeProductNameKey(product.productName),
+              ) ?? null
+            : null;
+        const matched = matchedByName ?? matchedByBaseName;
 
         if (matched) {
           if (matched.deletedAt && !shouldReactivateDeleted) {

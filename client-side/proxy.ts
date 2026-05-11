@@ -18,30 +18,59 @@ import { verifyToken } from "@/lib/auth/jwt";
  */
 
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
-const RATE_LIMIT_WINDOW_MS = 60_000; // 1 menit
-const MAX_REQUESTS_PER_MINUTE = 100;
 
-function handleRateLimit(request: NextRequest) {
-  const ip = request.headers.get("x-forwarded-for") ?? "unknown";
+function parsePositiveInteger(value: string | undefined, fallback: number) {
+  const parsed = Number.parseInt(value || "", 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return parsed;
+}
+
+const RATE_LIMIT_WINDOW_MS = parsePositiveInteger(
+  process.env.RATE_LIMIT_WINDOW_MS,
+  60_000,
+);
+const MAX_ANON_REQUESTS_PER_WINDOW = parsePositiveInteger(
+  process.env.RATE_LIMIT_MAX_ANON,
+  100,
+);
+const MAX_AUTH_REQUESTS_PER_WINDOW = parsePositiveInteger(
+  process.env.RATE_LIMIT_MAX_AUTH,
+  600,
+);
+const RATE_LIMIT_BYPASS_API_PREFIXES = [
+  "/api/auth/me",
+  "/api/auth/session",
+  "/api/auth/post-login",
+  "/api/auth/csrf",
+  "/api/auth/providers",
+];
+
+function shouldBypassRateLimit(pathname: string) {
+  return RATE_LIMIT_BYPASS_API_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
+}
+
+function handleRateLimit(key: string, maxRequests: number) {
   const now = Date.now();
-  
-  const record = rateLimitMap.get(ip);
+
+  const record = rateLimitMap.get(key);
   if (!record || now > record.resetAt) {
-    rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    rateLimitMap.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
     return null;
   }
-  
+
   record.count++;
-  if (record.count > MAX_REQUESTS_PER_MINUTE) {
+  if (record.count > maxRequests) {
     return new NextResponse(
       JSON.stringify({ error: "Terlalu banyak permintaan, coba lagi nanti." }),
-      { 
-        status: 429, 
-        headers: { "Content-Type": "application/json" } 
-      }
+      {
+        status: 429,
+        headers: { "Content-Type": "application/json" },
+      },
     );
   }
-  
+
   return null;
 }
 
@@ -163,6 +192,11 @@ function normalizeRole(value: unknown): AppRole | null {
   return null;
 }
 
+function normalizeNumericId(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
 function isStaticPath(pathname: string) {
   return STATIC_PATH_PREFIXES.some((p) => pathname.startsWith(p));
 }
@@ -240,16 +274,38 @@ function resolveRoleFromClaims(
   return null;
 }
 
+function resolveUserIdFromClaims(
+  jwtToken: string | undefined,
+  nextAuthToken: unknown,
+): number | null {
+  if (jwtToken) {
+    const decoded = verifyToken(jwtToken);
+    if (decoded && typeof decoded === "object" && "userId" in decoded) {
+      const tokenUserId = normalizeNumericId(
+        (decoded as { userId?: unknown }).userId,
+      );
+      if (tokenUserId) return tokenUserId;
+    }
+  }
+
+  if (
+    nextAuthToken &&
+    typeof nextAuthToken === "object" &&
+    "userId" in nextAuthToken
+  ) {
+    const nextAuthUserId = normalizeNumericId(
+      (nextAuthToken as { userId?: unknown }).userId,
+    );
+    if (nextAuthUserId) return nextAuthUserId;
+  }
+
+  return null;
+}
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const method = request.method.toUpperCase();
   const apiRequest = isApiPath(pathname);
-
-  // Rate Limiting for API
-  if (apiRequest) {
-    const rateLimitResponse = handleRateLimit(request);
-    if (rateLimitResponse) return rateLimitResponse;
-  }
 
   // Let static assets through.
   if (isStaticPath(pathname) || pathname.includes(".")) {
@@ -287,6 +343,20 @@ export async function proxy(request: NextRequest) {
       secret: process.env.NEXTAUTH_SECRET,
     });
     isAuthenticated = !!nextAuthToken;
+  }
+
+  // Rate limiting for API:
+  // - bypass auth self-check endpoints used by the app shell
+  // - use per-user buckets for authenticated sessions
+  if (apiRequest && !shouldBypassRateLimit(pathname)) {
+    const userId = resolveUserIdFromClaims(jwtToken, nextAuthToken);
+    const ip = request.headers.get("x-forwarded-for") ?? "unknown";
+    const rateLimitKey = userId ? `user:${userId}` : `ip:${ip}`;
+    const maxRequests = userId
+      ? MAX_AUTH_REQUESTS_PER_WINDOW
+      : MAX_ANON_REQUESTS_PER_WINDOW;
+    const rateLimitResponse = handleRateLimit(rateLimitKey, maxRequests);
+    if (rateLimitResponse) return rateLimitResponse;
   }
 
   // Not logged in → let API route decide, page route redirects to /login.

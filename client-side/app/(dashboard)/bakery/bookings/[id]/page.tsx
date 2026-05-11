@@ -40,6 +40,7 @@ import {
   isScheduledShipmentOrder,
 } from "@/lib/bookings/shipping-schedule";
 import { normalizeDateInput } from "@/lib/helpers/date-normalization";
+import { useRole } from "@/context/RoleContext";
 
 function inferDeliveryMethodFromNotes(notes?: string): string | undefined {
   const match = notes?.match(/delivery\s*method\s*:\s*([^\n]+)/i);
@@ -97,6 +98,7 @@ function getInitials(value?: string): string {
 }
 
 export default function OrderDetailPage() {
+  const { isOwner } = useRole();
   const {
     orders,
     updateOrderStatus,
@@ -129,6 +131,14 @@ export default function OrderDetailPage() {
     () => inferDeliveryMethodFromNotes(order?.notes),
     [order?.notes],
   );
+  const hasAnyProductionAssignment = Boolean(
+    order?.assignedStaffUserId ||
+      order?.productionStages?.some((entry) => Number(entry.staffId || 0) > 0),
+  );
+  const canUpdateStatus = isOwner || hasAnyProductionAssignment;
+  const statusUpdateHelperText = canUpdateStatus
+    ? ""
+    : "Status order tanpa assignment staff hanya bisa diubah oleh owner.";
 
   const totalPrice = order?.totalPrice ?? 0;
   const messagePreview = order ? getCustomerMessagePreview(order.id) : "";
@@ -353,7 +363,7 @@ export default function OrderDetailPage() {
   });
 
   return (
-    <div className="mx-auto max-w-3xl space-y-4 pb-10">
+    <div className="mx-auto max-w-6xl space-y-4 pb-10">
       <div className="flex justify-center">
         <div className="inline-flex items-center rounded-full border border-[var(--crumbella-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.95)_0%,rgba(246,233,219,0.92)_100%)] px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.28em] text-[var(--crumbella-primary)] shadow-[0_12px_24px_-22px_rgba(30,18,10,0.7)]">
           Booking
@@ -444,6 +454,7 @@ export default function OrderDetailPage() {
                 <Button
                   type="button"
                   className="h-11 rounded-2xl bg-[var(--crumbella-accent)] px-5 text-white hover:bg-[var(--crumbella-accent-strong)]"
+                  disabled={!canUpdateStatus}
                   onClick={() =>
                     updateOrderStatus(
                       order.id,
@@ -460,6 +471,11 @@ export default function OrderDetailPage() {
                   Simpan
                 </Button>
               </div>
+              {!canUpdateStatus ? (
+                <p className="text-sm text-[var(--crumbella-muted)]">
+                  {statusUpdateHelperText}
+                </p>
+              ) : null}
             </CardContent>
           </Card>
 
@@ -613,7 +629,7 @@ export default function OrderDetailPage() {
             </Card>
           ) : null}
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <Button type="button" variant="outline" className="h-12 rounded-2xl border-[var(--crumbella-border)] text-[var(--foreground)]" onClick={handlePrintLabel}>
               <Printer className="mr-2 h-4 w-4" />
               Label

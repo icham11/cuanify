@@ -564,7 +564,7 @@ export default function BakeryDashboardPage() {
   ];
 
   return (
-    <div className="mx-auto max-w-3xl space-y-4 pb-10">
+    <div className="mx-auto max-w-7xl space-y-4 pb-10">
       <GradientPageHeader
         title="Dashboard"
         description={new Date().toLocaleDateString("id-ID", {
@@ -677,7 +677,7 @@ export default function BakeryDashboardPage() {
         </div>
       ) : null}
 
-      <section className="grid grid-cols-2 gap-3">
+      <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         {summaryCards.map((card) => {
           const Icon = card.icon;
 
@@ -791,7 +791,7 @@ export default function BakeryDashboardPage() {
           </div>
         </div>
 
-        <div className="space-y-2">
+        <div className="grid gap-2 xl:grid-cols-2">
           {filteredStaffStats.length === 0 ? (
             <div className="rounded-[24px] border border-dashed border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] px-4 py-5 text-sm text-[var(--crumbella-muted)]">
               {isTeamLoading
@@ -902,7 +902,7 @@ export default function BakeryDashboardPage() {
           </button>
         </div>
 
-        <div className="space-y-2">
+        <div className="grid gap-2 xl:grid-cols-2">
           {upcomingDeliveries.length === 0 ? (
             <div className="rounded-[22px] border border-dashed border-[var(--crumbella-border)] bg-[var(--crumbella-accent-soft)]/35 px-4 py-6 text-center text-sm text-[var(--crumbella-muted)]">
               Belum ada delivery.

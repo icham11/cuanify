@@ -164,7 +164,7 @@ export default function BakeryAttendancePage() {
   };
 
   return (
-    <div className="mx-auto max-w-[360px] pb-10 text-[#2f1e13]">
+    <div className="mx-auto max-w-7xl pb-10 text-[#2f1e13]">
       <div className="rounded-[34px] border border-[#dec8b6] bg-[#fffaf4] px-4 pb-5 pt-3 shadow-[0_26px_55px_-42px_rgba(94,53,30,0.5)]">
         <div className="border-b border-[#ead6c8] pb-3">
           <div className="flex items-center gap-2">
@@ -207,7 +207,7 @@ export default function BakeryAttendancePage() {
             Memuat data absensi...
           </div>
         ) : isOwner ? (
-          <div className="mt-4 space-y-4">
+          <div className="mt-4 grid gap-4 xl:grid-cols-2">
             {ownerTeam.length === 0 ? (
               <div className="rounded-[18px] border border-[#ead6c8] bg-white px-4 py-4 text-sm text-[#8a6a54]">
                 Belum ada admin/staff yang terdaftar di bisnis ini.
@@ -238,7 +238,7 @@ export default function BakeryAttendancePage() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-2 px-4 py-4">
+                  <div className="grid grid-cols-2 gap-2 px-4 py-4 sm:grid-cols-3 lg:grid-cols-4">
                     {member.daily.length === 0 ? (
                       <p className="col-span-3 text-[11px] text-[#8a6a54]">
                         Belum ada absensi di bulan ini.

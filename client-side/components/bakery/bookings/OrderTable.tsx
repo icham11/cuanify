@@ -165,7 +165,7 @@ export default function OrderTable({ orders }: OrderTableProps) {
   }
 
   return (
-    <div className="space-y-3">
+    <div className="grid gap-3 xl:grid-cols-2">
       {orders.map((order) => {
         const messagePhone = buildWhatsappPhone(order.customerPhone);
         const message = getCustomerMessagePreview(order.id);

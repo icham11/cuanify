@@ -104,7 +104,6 @@ export function normalizeCatalogAdminState(
               entry.productName &&
               entry.variantLabel,
           )
-          .filter((entry) => isCoreBookingCategory(entry.category))
       : [],
     customAddOns: Array.isArray(value.customAddOns)
       ? value.customAddOns
@@ -167,7 +166,6 @@ export function buildEffectiveProductCatalog(
   const next = cloneCatalog(BOOKING_PRODUCT_CATALOG);
 
   state.customProducts.forEach((entry) => {
-    if (!isCoreBookingCategory(entry.category)) return;
     let category = next.find((item) => item.category === entry.category);
     if (!category) {
       category = {

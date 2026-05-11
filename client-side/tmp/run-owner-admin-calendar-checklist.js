@@ -1,4 +1,4 @@
-/* eslint-disable no-console */
+/* eslint-disable @typescript-eslint/no-require-imports */
 const { chromium } = require("playwright");
 const { PrismaClient } = require("@prisma/client");
 const { PrismaPg } = require("@prisma/adapter-pg");
@@ -7,7 +7,7 @@ const bcrypt = require("bcryptjs");
 
 require("dotenv").config({ path: ".env" });
 
-const BASE_URL = "http://localhost:3000";
+const BASE_URL = "http://127.0.0.1:3000";
 
 function createPrismaClient() {
   const rawUrl = process.env.DATABASE_URL || "";
@@ -162,12 +162,12 @@ async function waitForOrderByCustomer(page, customerName, timeoutMs = 45000) {
   throw new Error(`Order for customer ${customerName} was not found.`);
 }
 
-async function waitForOrderDate(page, orderId, expectedDate, timeoutMs = 20000) {
+async function waitForOrderStatus(page, orderId, expectedStatus, timeoutMs = 20000) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
     const orders = await fetchOrders(page);
     const found = orders.find((order) => order.id === orderId);
-    if (found && found.deliveryDate === expectedDate) return found;
+    if (found && found.orderStatus === expectedStatus) return found;
     await sleep(600);
   }
   return null;
@@ -300,8 +300,10 @@ async function createBookingFromNewPage(page, customerName, deliveryDateIso) {
 
   await page.locator('input[name="manualAdjustment"]').fill("200000");
 
-  const submitButton = page.locator('button[type="submit"]').first();
-  const disabled = await submitButton.isDisabled();
+  const previewButton = page.getByRole("button", { name: /Preview Booking/i });
+  await previewButton.waitFor({ state: "visible", timeout: 30000 });
+
+  const disabled = await previewButton.isDisabled();
   if (disabled) {
     const hints = await page
       .locator(".text-rose-600, .text-rose-500, .text-amber-700")
@@ -313,11 +315,16 @@ async function createBookingFromNewPage(page, customerName, deliveryDateIso) {
       .join(" | ");
 
     throw new Error(
-      `Create Booking button is disabled before submit. ${hintPreview || "No inline validation hint captured."}`,
+      `Preview Booking button is disabled before submit. ${hintPreview || "No inline validation hint captured."}`,
     );
   }
 
-  await submitButton.click();
+  await previewButton.click();
+  await page.waitForURL("**/bakery/bookings/new/review", { timeout: 30000 });
+
+  const createButton = page.getByRole("button", { name: /Create Booking/i });
+  await createButton.waitFor({ state: "visible", timeout: 30000 });
+  await createButton.click();
 
   const successBanner = page.getByText("Booking berhasil disimpan ke server.", {
     exact: false,
@@ -381,42 +388,34 @@ async function createBookingFromNewPage(page, customerName, deliveryDateIso) {
   return selectedDeliveryDate;
 }
 
-async function rescheduleFromDetailAsAdmin(page, orderId, currentDeliveryDate) {
-  await page.goto(`/bakery/bookings/${orderId}#edit-delivery`, {
+async function updateStatusFromDetailAsAdmin(page, orderId, nextStatus) {
+  await page.goto(`/bakery/bookings/${orderId}`, {
     waitUntil: "domcontentloaded",
   });
 
-  const section = page.locator("#edit-delivery");
-  await section.waitFor({ state: "visible", timeout: 20000 });
+  const statusSelect = page.locator("select").first();
+  await statusSelect.waitFor({ state: "visible", timeout: 20000 });
+  await statusSelect.selectOption(nextStatus);
 
-  for (let offset = 4; offset <= 20; offset += 1) {
-    const nextDate = formatIsoDate(addDays(offset));
-    if (nextDate === currentDeliveryDate) {
-      continue;
-    }
+  await page.getByRole("button", { name: /^Simpan$/i }).click();
 
-    await section.locator('input[type="date"]').fill(nextDate);
-    await sleep(300);
-
-    const slotSelect = section.locator("select").first();
-    const slots = await slotSelect
-      .locator("option")
-      .evaluateAll((nodes) => nodes.map((node) => node.value).filter(Boolean));
-
-    if (slots.length === 0) {
-      continue;
-    }
-
-    await slotSelect.selectOption(slots[0]);
-    await section.getByRole("button", { name: "Save Reschedule" }).click();
-
-    const updated = await waitForOrderDate(page, orderId, nextDate, 12000);
-    if (updated) {
-      return nextDate;
-    }
+  const updated = await waitForOrderStatus(page, orderId, nextStatus, 12000);
+  if (updated) {
+    return updated.orderStatus;
   }
 
-  throw new Error("Failed to reschedule order to an available date.");
+  throw new Error(`Failed to update order status to ${nextStatus}.`);
+}
+
+async function verifyOrderDetailVisible(page, orderId, bookingCode) {
+  await page.goto(`/bakery/bookings/${orderId}`, {
+    waitUntil: "domcontentloaded",
+  });
+
+  await page.getByText(`#${bookingCode}`, { exact: false }).waitFor({
+    state: "visible",
+    timeout: 20000,
+  });
 }
 
 (async () => {
@@ -424,8 +423,8 @@ async function rescheduleFromDetailAsAdmin(page, orderId, currentDeliveryDate) {
     checklist: {
       ownerCreateBookingFromNewPage: false,
       ownerCalendarContainsBooking: false,
-      adminRescheduleFromDetailPage: false,
-      adminCalendarShowsMovedDate: false,
+      adminCanAccessDetailPage: false,
+      ownerUpdateStatusFromDetailPage: false,
       ownerRecheckAfterCrossAccountSync: false,
     },
     runId: null,
@@ -485,43 +484,47 @@ async function rescheduleFromDetailAsAdmin(page, orderId, currentDeliveryDate) {
     await verifyCalendarContainsOrder(page, createdOrder.deliveryDate, customerName);
     summary.checklist.ownerCalendarContainsBooking = true;
 
-    // 2) Admin edit/reschedule from detail page and verify moved date in calendar
+    // 2) Admin can access detail page for the same order
     await logout(page);
     await login(page, seeded.adminEmail, seeded.password, "Admin");
 
-    const movedDate = await rescheduleFromDetailAsAdmin(
+    await verifyOrderDetailVisible(
       page,
       createdOrder.id,
-      createdOrder.deliveryDate,
+      createdOrder.bookingCode,
     );
-    summary.checklist.adminRescheduleFromDetailPage = true;
-    summary.order.movedDeliveryDate = movedDate;
+    summary.checklist.adminCanAccessDetailPage = true;
 
-    if (movedDate === createdOrder.deliveryDate) {
-      throw new Error(
-        `Reschedule did not change date. Still ${movedDate}.`,
-      );
-    }
-
-    await verifyCalendarContainsOrder(page, movedDate, customerName);
-    summary.checklist.adminCalendarShowsMovedDate = true;
-
-    // 3) Cross-account recheck: back to owner ensure order not lost after sync
+    // 3) Owner updates order status from detail page and sync stays consistent
     await logout(page);
     await login(page, seeded.ownerEmail, seeded.password, "Owner");
+
+    const updatedStatus = await updateStatusFromDetailAsAdmin(
+      page,
+      createdOrder.id,
+      "Ready",
+    );
+    summary.checklist.ownerUpdateStatusFromDetailPage = true;
+    summary.order.updatedStatus = updatedStatus;
+
+    if (updatedStatus !== "Ready") {
+      throw new Error(
+        `Status update did not persist. Expected Ready, got ${updatedStatus}.`,
+      );
+    }
 
     const ownerOrders = await fetchOrders(page);
     const ownerOrder = ownerOrders.find((entry) => entry.id === createdOrder.id);
     if (!ownerOrder) {
       throw new Error("Order missing when re-checking from owner account.");
     }
-    if (ownerOrder.deliveryDate !== movedDate) {
+    if (ownerOrder.orderStatus !== "Ready") {
       throw new Error(
-        `Owner sees unexpected delivery date. Expected ${movedDate}, got ${ownerOrder.deliveryDate}.`,
+        `Owner sees unexpected order status. Expected Ready, got ${ownerOrder.orderStatus}.`,
       );
     }
 
-    await verifyCalendarContainsOrder(page, movedDate, customerName);
+    await verifyCalendarContainsOrder(page, createdOrder.deliveryDate, customerName);
     summary.checklist.ownerRecheckAfterCrossAccountSync = true;
 
     // Keep role sanity info

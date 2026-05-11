@@ -709,7 +709,7 @@ export default function BakerySettingsPage() {
 
   if (isLoading || roleLoading) {
     return (
-      <div className="mx-auto max-w-md px-4 py-8">
+      <div className="mx-auto max-w-3xl px-4 py-8">
         <div className="rounded-[28px] border border-[#dccbbb] bg-[#f6ede2] px-5 py-10 text-sm text-[#8a6047] shadow-[0_20px_40px_-32px_rgba(52,31,20,0.35)]">
           <div className="flex items-center gap-2">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -721,14 +721,22 @@ export default function BakerySettingsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-md space-y-4 bg-[#f7ede2] px-4 py-5 text-[#2f1e13]">
-      <div className="space-y-1">
+    <div className="mx-auto max-w-7xl px-3 pb-10 pt-4 text-[#2f1e13] sm:px-4">
+      <div className="space-y-5 rounded-[34px] border border-[#e4d2c4] bg-[#f8efe5] px-4 pb-6 pt-3 shadow-[0_26px_55px_-42px_rgba(94,53,30,0.6)] sm:px-5 xl:px-6">
+      <div className="overflow-hidden rounded-[32px] border border-[#ddcbbb] bg-[#f4e9dc] shadow-[0_16px_30px_-26px_rgba(52,31,20,0.35)]">
+        <div className="flex flex-col gap-3 px-5 py-5 sm:flex-row sm:items-end sm:justify-between sm:px-6">
+          <div className="space-y-1">
         <h1 className="text-[1.95rem] font-extrabold tracking-[-0.04em]">
           Bakery Settings
         </h1>
         <p className="text-sm text-[#b58872]">
           🧁 Pengaturan operasional owner untuk staff, order, dan biaya bulanan.
         </p>
+          </div>
+          <div className="rounded-full border border-[#ebd2bf] bg-[#fff5ea] px-3 py-1.5 text-xs font-semibold text-[#b15d2f]">
+            Sinkron ke booking, calendar, dan business
+          </div>
+        </div>
       </div>
 
       {!isOwner ? (
@@ -737,7 +745,8 @@ export default function BakerySettingsPage() {
         </div>
       ) : null}
 
-      <section className="overflow-hidden rounded-[24px] border border-[#ddcbbb] bg-[#f4e9dc] shadow-[0_16px_30px_-26px_rgba(52,31,20,0.35)]">
+      <div className="grid gap-5 2xl:grid-cols-[minmax(0,1.1fr)_minmax(340px,0.9fr)]">
+      <section className="h-full overflow-hidden rounded-[24px] border border-[#ddcbbb] bg-[#f4e9dc] shadow-[0_16px_30px_-26px_rgba(52,31,20,0.35)]">
         <div className="flex items-center justify-between border-b border-[#e8d6c8] px-4 py-3">
           <div>
             <h2 className="text-lg font-bold">👥 Token & Gaji per Staff</h2>
@@ -915,7 +924,7 @@ export default function BakerySettingsPage() {
         </div>
       </section>
 
-      <section className="overflow-hidden rounded-[24px] border border-[#ddcbbb] bg-[#f4e9dc] shadow-[0_16px_30px_-26px_rgba(52,31,20,0.35)]">
+      <section className="h-full overflow-hidden rounded-[24px] border border-[#ddcbbb] bg-[#f4e9dc] shadow-[0_16px_30px_-26px_rgba(52,31,20,0.35)]">
         <div className="border-b border-[#e8d6c8] px-4 py-3">
           <h2 className="text-lg font-bold">⚙️ Pengaturan Operasional</h2>
           <p className="text-xs text-[#b58872]">
@@ -1054,6 +1063,7 @@ export default function BakerySettingsPage() {
           </div>
         </div>
       </section>
+      </div>
 
       <section className="overflow-hidden rounded-[24px] border border-[#ddcbbb] bg-[#f4e9dc] shadow-[0_16px_30px_-26px_rgba(52,31,20,0.35)]">
         <div className="border-b border-[#e8d6c8] px-4 py-3">
@@ -1227,6 +1237,7 @@ export default function BakerySettingsPage() {
         </div>
       </section>
 
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,0.92fr)_minmax(320px,1.08fr)]">
       <section className="overflow-hidden rounded-[24px] border border-[#ddcbbb] bg-[#f4e9dc] shadow-[0_16px_30px_-26px_rgba(52,31,20,0.35)]">
         <div className="flex items-center justify-between border-b border-[#e8d6c8] px-4 py-3">
           <div>
@@ -1244,46 +1255,48 @@ export default function BakerySettingsPage() {
           </button>
         </div>
         <div className="space-y-3 px-4 py-4">
-          {monthlyExpenses.map((entry) => (
-            <div
-              key={entry.id}
-              className="rounded-[20px] border border-[#e2d1c3] bg-[#f8efe6] p-4"
-            >
-              <div className="mb-2 flex items-center gap-3">
+          <div className="grid gap-3 xl:grid-cols-2">
+            {monthlyExpenses.map((entry) => (
+              <div
+                key={entry.id}
+                className="rounded-[20px] border border-[#e2d1c3] bg-[#f8efe6] p-4"
+              >
+                <div className="mb-2 flex items-center gap-3">
+                  <input
+                    type="text"
+                    value={entry.name}
+                    disabled={!isOwner || entry.category !== "custom"}
+                    onChange={(event) =>
+                      updateExpense(entry.id, { name: event.target.value })
+                    }
+                    className="h-10 min-w-0 flex-1 rounded-2xl border border-[#dcc7b8] bg-[#fbf4ed] px-3 text-sm font-semibold outline-none"
+                  />
+                  <button
+                    type="button"
+                    disabled={!isOwner}
+                    onClick={() => removeExpense(entry.id)}
+                    className="rounded-full p-2 text-[#c86030] disabled:opacity-40"
+                    aria-label={`Hapus ${entry.name}`}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
                 <input
-                  type="text"
-                  value={entry.name}
-                  disabled={!isOwner || entry.category !== "custom"}
-                  onChange={(event) =>
-                    updateExpense(entry.id, { name: event.target.value })
-                  }
-                  className="h-10 flex-1 rounded-2xl border border-[#dcc7b8] bg-[#fbf4ed] px-3 text-sm font-semibold outline-none"
-                />
-                <button
-                  type="button"
+                  type="number"
+                  min={0}
+                  value={entry.amount}
                   disabled={!isOwner}
-                  onClick={() => removeExpense(entry.id)}
-                  className="rounded-full p-2 text-[#c86030] disabled:opacity-40"
-                  aria-label={`Hapus ${entry.name}`}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
+                  onChange={(event) =>
+                    updateExpense(entry.id, { amount: Number(event.target.value || 0) })
+                  }
+                  className="h-11 w-full rounded-2xl border border-[#dcc7b8] bg-[#fbf4ed] px-3 text-sm font-semibold outline-none"
+                />
+                <p className="mt-2 text-xs text-[#b58872]">
+                  {entry.note || "Catatan owner untuk business summary"}
+                </p>
               </div>
-              <input
-                type="number"
-                min={0}
-                value={entry.amount}
-                disabled={!isOwner}
-                onChange={(event) =>
-                  updateExpense(entry.id, { amount: Number(event.target.value || 0) })
-                }
-                className="h-11 w-full rounded-2xl border border-[#dcc7b8] bg-[#fbf4ed] px-3 text-sm font-semibold outline-none"
-              />
-              <p className="mt-2 text-xs text-[#b58872]">
-                {entry.note || "Catatan owner untuk business summary"}
-              </p>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       </section>
 
@@ -1297,7 +1310,7 @@ export default function BakerySettingsPage() {
           </div>
         </div>
         <div className="space-y-4 px-4 py-4">
-          <div className="grid grid-cols-[1fr_auto] gap-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]">
             <input
               type="date"
               value={newHolidayDate}
@@ -1362,7 +1375,9 @@ export default function BakerySettingsPage() {
           </div>
         </div>
       </section>
+      </div>
 
+      <div className="sticky bottom-[calc(env(safe-area-inset-bottom)+5.25rem)] z-10 space-y-2 rounded-[24px] border border-[#ddcbbb] bg-[#f7ede2]/95 px-3 py-3 shadow-[0_18px_30px_-26px_rgba(52,31,20,0.35)] backdrop-blur md:bottom-3">
       <button
         type="button"
         onClick={handleSave}
@@ -1375,6 +1390,8 @@ export default function BakerySettingsPage() {
       <p className="text-center text-xs text-[#b58872]">
         ✨ Setelah disimpan, perubahan langsung dipakai di booking order, calendar, dan business.
       </p>
+      </div>
+      </div>
     </div>
   );
 }

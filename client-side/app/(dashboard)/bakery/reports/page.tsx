@@ -643,7 +643,7 @@ export default function ReportsPage() {
   };
 
   return (
-    <div className="mx-auto max-w-[360px] pb-10 text-[#2f1e13]">
+    <div className="mx-auto max-w-7xl pb-10 text-[#2f1e13]">
       {typeof document !== "undefined" &&
         isExportPickerOpen &&
         createPortal(
@@ -701,7 +701,7 @@ export default function ReportsPage() {
           </div>
         </div>
 
-        <div className="mt-4 flex gap-2">
+        <div className="mt-4 flex flex-col gap-2 sm:flex-row">
           <Select
             value={selectedMonth}
             onChange={(event) => {
@@ -765,7 +765,8 @@ export default function ReportsPage() {
 
         <p className="mt-3 text-[11px] text-[#9b775e]">Laporan aktif: {reportScopeLabel}</p>
 
-        <section className="mt-5">
+        <div className="mt-5 grid gap-5 xl:grid-cols-2">
+        <section>
           <h2 className="mb-2 flex items-center gap-2 text-[1rem] font-bold text-[#23160f]">
             <span>💰</span> Keuangan
           </h2>
@@ -796,7 +797,7 @@ export default function ReportsPage() {
           ) : null}
         </section>
 
-        <section className="mt-5">
+        <section>
           <h2 className="mb-2 flex items-center gap-2 text-[1rem] font-bold text-[#23160f]">
             <span>📦</span> Orders
           </h2>
@@ -812,7 +813,7 @@ export default function ReportsPage() {
           </div>
         </section>
 
-        <section className="mt-5">
+        <section>
           <h2 className="mb-2 flex items-center gap-2 text-[1rem] font-bold text-[#23160f]">
             <span>🏆</span> Produk Terjual
           </h2>
@@ -841,7 +842,7 @@ export default function ReportsPage() {
           </div>
         </section>
 
-        <section className="mt-5">
+        <section>
           <h2 className="mb-2 flex items-center gap-2 text-[1rem] font-bold text-[#23160f]">
             <span>👥</span> Customer
           </h2>
@@ -866,7 +867,7 @@ export default function ReportsPage() {
           </div>
         </section>
 
-        <section className="mt-5">
+        <section>
           <h2 className="mb-2 flex items-center gap-2 text-[1rem] font-bold text-[#23160f]">
             <span>👤</span> Kinerja Staff
           </h2>
@@ -904,7 +905,7 @@ export default function ReportsPage() {
                     </span>
                   </div>
 
-                  <div className="mt-3 grid grid-cols-3 gap-2">
+                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
                     <MetricTile
                       title={staff.token.toLocaleString("id-ID")}
                       subtitle="Token bulan ini"
@@ -922,7 +923,7 @@ export default function ReportsPage() {
           </div>
         </section>
 
-        <section className="mt-5">
+        <section>
           <h2 className="mb-2 flex items-center gap-2 text-[1rem] font-bold text-[#23160f]">
             <span>🪪</span> Absensi Staff
           </h2>
@@ -962,6 +963,7 @@ export default function ReportsPage() {
             )}
           </div>
         </section>
+        </div>
       </div>
     </div>
   );

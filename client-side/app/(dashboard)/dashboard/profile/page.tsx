@@ -221,25 +221,26 @@ export default function ProfilePage() {
   const stats = profile.stats;
 
   return (
-    <div className="space-y-8 max-w-4xl mx-auto">
+    <div className="mx-auto max-w-7xl px-3 pb-10 pt-4 text-[#2f1e13] sm:px-4">
+      <div className="space-y-5 rounded-[34px] border border-[#e4d2c4] bg-[#f8efe5] px-4 pb-6 pt-3 shadow-[0_26px_55px_-42px_rgba(94,53,30,0.6)] sm:px-5 xl:px-6">
       {/* ───── Header ───── */}
       <motion.div
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
-        className="flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+        className="flex flex-col justify-between gap-4 rounded-[30px] border border-[#dcc8b8] bg-[#f4e9dc] px-5 py-5 shadow-[0_16px_30px_-26px_rgba(52,31,20,0.35)] sm:flex-row sm:items-center sm:px-6"
       >
         <div>
-          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-900 flex items-center gap-3">
-            <div className="p-2 sm:p-2.5 bg-linear-to-br from-violet-500 to-fuchsia-500 rounded-xl text-white">
+          <h1 className="flex items-center gap-3 text-xl font-extrabold text-[#2f1e13] sm:text-2xl md:text-3xl">
+            <div className="rounded-2xl bg-linear-to-br from-[#f7a56a] via-[#e77b39] to-[#cb6837] p-2 text-white shadow-[0_12px_22px_-18px_rgba(200,96,48,0.9)] sm:p-2.5">
               <User className="w-5 h-5 sm:w-7 sm:h-7" />
             </div>
             Profile
           </h1>
-          <p className="text-gray-500 mt-1 text-sm">Kelola informasi akun dan keamanan Anda</p>
+          <p className="mt-1 text-sm text-[#8a6047]">Kelola informasi akun dan keamanan Anda</p>
         </div>
         <button
           onClick={fetchProfile}
-          className="self-start flex items-center gap-2 px-4 py-2 text-sm text-gray-500 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition cursor-pointer"
+          className="flex items-center gap-2 self-start rounded-xl border border-[#dcc7b8] bg-[#fff8f2] px-4 py-2 text-sm text-[#8a6047] transition hover:bg-[#fbf1e8] cursor-pointer"
         >
           <RefreshCw className="w-4 h-4" /> Refresh
         </button>
@@ -250,20 +251,20 @@ export default function ProfilePage() {
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1 }}
-        className="relative overflow-hidden bg-white rounded-2xl shadow-lg border border-gray-100"
+        className="relative overflow-hidden rounded-[24px] border border-[#dcc8b8] bg-[#fffaf6] shadow-[0_18px_34px_-28px_rgba(52,31,20,0.32)]"
       >
         {/* Gradient top */}
-        <div className="h-32 bg-linear-to-r from-violet-500 via-purple-500 to-fuchsia-500 relative">
+        <div className="relative h-32 bg-linear-to-r from-[#f6b27d] via-[#e98245] to-[#cb6837]">
           {/* Decorative circles */}
           <div className="absolute top-4 right-8 w-20 h-20 bg-white/10 rounded-full" />
           <div className="absolute bottom-2 right-24 w-10 h-10 bg-white/10 rounded-full" />
           <div className="absolute top-6 left-12 w-14 h-14 bg-white/5 rounded-full" />
         </div>
 
-        <div className="px-6 sm:px-8 pb-8 -mt-14 relative">
+        <div className="relative -mt-14 px-5 pb-8 sm:px-8">
           {/* Avatar */}
-          <div className="flex items-end gap-5 mb-6">
-            <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-linear-to-br from-violet-400 to-fuchsia-500 flex items-center justify-center text-white text-2xl sm:text-3xl font-bold shadow-xl border-4 border-white">
+          <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:gap-5">
+            <div className="flex h-20 w-20 items-center justify-center rounded-2xl border-4 border-white bg-linear-to-br from-[#f2a368] to-[#cb6837] text-2xl font-bold text-white shadow-xl sm:h-24 sm:w-24 sm:text-3xl">
               {session?.user?.image ? (
                 <Image
                   src={session.user.image}
@@ -279,12 +280,12 @@ export default function ProfilePage() {
             <div className="pb-1">
               <div className="flex items-center gap-2">
                 {isLegacySession ? (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-white/90 backdrop-blur text-xs font-bold text-violet-700 rounded-full border border-violet-100">
+                  <span className="inline-flex items-center gap-1 rounded-full border border-[#f2d4bf] bg-white/90 px-2 py-0.5 text-xs font-bold text-[#b15d2f] backdrop-blur">
                     <Shield className="w-3 h-3" />
                     Legacy Session
                   </span>
                 ) : (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-white/90 backdrop-blur text-xs font-bold text-gray-600 rounded-full border border-gray-200">
+                  <span className="inline-flex items-center gap-1 rounded-full border border-[#e6d8ce] bg-white/90 px-2 py-0.5 text-xs font-bold text-[#6f4933] backdrop-blur">
                     <Mail className="w-3 h-3" />
                     Email
                   </span>
@@ -303,7 +304,7 @@ export default function ProfilePage() {
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">Nama Lengkap</p>
                 {editingName ? (
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                     <input
                       value={nameVal}
                       onChange={(e) => setNameVal(e.target.value)}
@@ -314,7 +315,7 @@ export default function ProfilePage() {
                     <button
                       onClick={handleSaveName}
                       disabled={savingName}
-                      className="p-2 bg-violet-500 text-white rounded-lg hover:bg-violet-600 cursor-pointer disabled:opacity-50"
+                      className="rounded-lg bg-[#cb6837] p-2 text-white hover:bg-[#b95a2c] cursor-pointer disabled:opacity-50"
                     >
                       {savingName ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                     </button>
@@ -329,11 +330,11 @@ export default function ProfilePage() {
                     </button>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-2 group">
+                  <div className="group flex items-center gap-2">
                     <p className="text-xl font-bold text-gray-900">{profile.name}</p>
                     <button
                       onClick={() => setEditingName(true)}
-                      className="opacity-0 group-hover:opacity-100 p-1.5 text-gray-400 hover:text-violet-500 hover:bg-violet-50 rounded-lg transition-all cursor-pointer"
+                      className="rounded-lg p-1.5 text-gray-400 opacity-0 transition-all hover:bg-[#fff0e2] hover:text-[#cb6837] group-hover:opacity-100 cursor-pointer"
                     >
                       <Edit3 className="w-4 h-4" />
                     </button>
@@ -355,7 +356,7 @@ export default function ProfilePage() {
             </div>
 
             {/* Account dates */}
-            <div className="flex flex-col sm:flex-row gap-4 sm:gap-8">
+            <div className="grid gap-4 sm:grid-cols-2 sm:gap-6">
               <div className="flex items-start gap-4">
                 <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center shrink-0 mt-0.5">
                   <Calendar className="w-5 h-5 text-emerald-500" />
@@ -371,9 +372,8 @@ export default function ProfilePage() {
                 </div>
                 <div>
                   <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">Terakhir Diperbarui</p>
-                  <p className="text-gray-700 font-medium">{updatedAgoLabel}</p>
-                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">Terakhir Diperbarui</p>
-                  <p className="text-gray-700 font-medium">{timeAgo(profile.updatedAt)}</p>
+                  <p className="text-gray-700 font-medium">{updatedAgoLabel || timeAgo(profile.updatedAt)}</p>
+                  <p className="mt-1 text-xs text-gray-400">{formatDate(profile.updatedAt)}</p>
                 </div>
               </div>
             </div>
@@ -383,10 +383,10 @@ export default function ProfilePage() {
 
       {/* ───── Stats Overview ───── */}
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
-        <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+        <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-[#8a6047]">
           <Sparkles className="w-4 h-4" /> Ringkasan Akun
         </h3>
-        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
           <AccountStat
             icon={Building2}
             label="Bisnis"
@@ -423,16 +423,16 @@ export default function ProfilePage() {
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.2 }}
-        className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden"
+        className="overflow-hidden rounded-[24px] border border-[#dcc8b8] bg-[#fffaf6] shadow-[0_18px_34px_-28px_rgba(52,31,20,0.32)]"
       >
-        <div className="p-6 border-b border-gray-100">
+        <div className="border-b border-[#ead9cc] p-6">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-red-50 rounded-xl">
-              <Shield className="w-5 h-5 text-red-500" />
+            <div className="rounded-xl bg-[#fff0e2] p-2">
+              <Shield className="w-5 h-5 text-[#cb6837]" />
             </div>
             <div>
-              <h3 className="text-lg font-bold text-gray-900">Keamanan Akun</h3>
-              <p className="text-sm text-gray-500">Kelola password dan keamanan</p>
+              <h3 className="text-lg font-bold text-[#2f1e13]">Keamanan Akun</h3>
+              <p className="text-sm text-[#8a6047]">Kelola password dan keamanan</p>
             </div>
           </div>
         </div>
@@ -440,8 +440,8 @@ export default function ProfilePage() {
         <div className="p-6">
           {/* Password change toggle */}
           {isLegacySession ? (
-            <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl">
-              <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center shrink-0">
+            <div className="flex items-center gap-4 rounded-xl bg-[#fbf4ed] p-4">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#f3e4d8]">
                 <Lock className="w-5 h-5 text-gray-400" />
               </div>
               <div className="flex-1">
@@ -458,10 +458,10 @@ export default function ProfilePage() {
             <>
               <button
                 onClick={() => setShowPwForm(!showPwForm)}
-                className="w-full flex items-center gap-4 p-4 bg-gray-50 hover:bg-gray-100 rounded-xl transition cursor-pointer group"
+                className="group flex w-full items-center gap-4 rounded-xl bg-[#fbf4ed] p-4 transition hover:bg-[#f7ecdf] cursor-pointer"
               >
-                <div className="w-10 h-10 rounded-xl bg-orange-50 flex items-center justify-center shrink-0 group-hover:bg-orange-100 transition">
-                  <KeyRound className="w-5 h-5 text-orange-500" />
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#fff0e2] transition group-hover:bg-[#ffe6d3]">
+                  <KeyRound className="w-5 h-5 text-[#cb6837]" />
                 </div>
                 <div className="flex-1 text-left">
                   <p className="font-medium text-gray-700">Ubah Password</p>
@@ -478,7 +478,7 @@ export default function ProfilePage() {
                   initial={{ height: 0, opacity: 0 }}
                   animate={{ height: "auto", opacity: 1 }}
                   transition={{ duration: 0.25 }}
-                  className="mt-4 p-5 bg-orange-50/50 rounded-xl border border-orange-100 space-y-4"
+                  className="mt-4 space-y-4 rounded-xl border border-[#ecd4c2] bg-[#fff6ee] p-5"
                 >
                   {/* Current password */}
                   <div>
@@ -489,7 +489,7 @@ export default function ProfilePage() {
                         value={currentPw}
                         onChange={(e) => setCurrentPw(e.target.value)}
                         placeholder="Masukkan password saat ini"
-                        className="w-full px-4 py-2.5 pr-10 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 text-black placeholder-gray-400"
+                        className="w-full rounded-xl border border-[#dcc7b8] bg-white px-4 py-2.5 pr-10 text-sm text-black placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#f0bf9f]"
                       />
                       <button
                         type="button"
@@ -510,7 +510,7 @@ export default function ProfilePage() {
                         value={newPw}
                         onChange={(e) => setNewPw(e.target.value)}
                         placeholder="Minimal 6 karakter"
-                        className="w-full px-4 py-2.5 pr-10 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 text-black placeholder-gray-400"
+                        className="w-full rounded-xl border border-[#dcc7b8] bg-white px-4 py-2.5 pr-10 text-sm text-black placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#f0bf9f]"
                       />
                       <button
                         type="button"
@@ -560,7 +560,7 @@ export default function ProfilePage() {
                       className={`w-full px-4 py-2.5 bg-white border rounded-xl text-sm focus:outline-none focus:ring-2 text-black placeholder-gray-400 ${
                         confirmPw && confirmPw !== newPw
                           ? "border-red-300 focus:ring-red-300"
-                          : "border-gray-200 focus:ring-orange-300"
+                          : "border-[#dcc7b8] focus:ring-[#f0bf9f]"
                       }`}
                     />
                     {confirmPw && confirmPw !== newPw && (
@@ -573,7 +573,7 @@ export default function ProfilePage() {
                     <button
                       onClick={handleChangePw}
                       disabled={savingPw || !currentPw || !newPw || newPw !== confirmPw}
-                      className="flex items-center gap-2 px-5 py-2.5 bg-orange-500 text-white rounded-xl text-sm font-semibold hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition"
+                      className="flex items-center gap-2 rounded-xl bg-[#cb6837] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#b95a2c] disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
                     >
                       {savingPw ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
                       Ubah Password
@@ -602,11 +602,12 @@ export default function ProfilePage() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.3 }}
-        className="flex items-center justify-between px-4 py-3 bg-gray-50 rounded-xl text-xs text-gray-400"
+        className="flex flex-col gap-2 rounded-xl border border-[#e6d7ca] bg-[#fbf4ed] px-4 py-3 text-xs text-[#8a6047] sm:flex-row sm:items-center sm:justify-between"
       >
         <span>User ID: #{profile.id}</span>
         <span>Crumbella • {currentYear}</span>
       </motion.div>
+      </div>
     </div>
   );
 }
