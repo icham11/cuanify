@@ -255,12 +255,6 @@ export function inferOrderTypeFromItems(
   return isSeasonalOrderItems(items) ? "SEASONAL" : "CUSTOM";
 }
 
-function parseLocalDay(deliveryDate: string): number {
-  const parsed = parseSafeDate(deliveryDate);
-  if (!parsed) return 1;
-  return parsed.getDay();
-}
-
 function parseLocalDateOnly(value: string): Date | null {
   return parseSafeDate(value);
 }
@@ -326,12 +320,8 @@ export function getDeliverySlotsForDate(
     return [];
   }
 
-  const day = parseLocalDay(deliveryDate);
-  const startHour = 10;
-  const endHour = day === 0 ? 15 : 22;
-
   const slots: string[] = [];
-  for (let hour = startHour; hour <= endHour; hour += 1) {
+  for (let hour = 0; hour <= 23; hour += 1) {
     slots.push(`${String(hour).padStart(2, "0")}:00`);
   }
 
@@ -346,10 +336,16 @@ export function isWithinBusinessHours(
 ): boolean {
   if (!deliveryDate || !deliverySlot) return false;
   if (isDateBlockedForOrdering(deliveryDate, now, context)) return false;
-  if (!/^\d{2}:\d{2}$/.test(deliverySlot)) return false;
-  return getDeliverySlotsForDate(deliveryDate, now, context).includes(
-    deliverySlot,
-  );
+  const match = deliverySlot.match(/^(\d{2}):(\d{2})$/);
+  if (!match) return false;
+
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute)) return false;
+  if (hour < 0 || hour > 23) return false;
+  if (minute < 0 || minute > 59) return false;
+
+  return true;
 }
 
 function isActiveOrder(orderStatus: string | undefined): boolean {

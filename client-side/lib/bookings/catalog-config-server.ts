@@ -52,6 +52,9 @@ export async function loadEffectiveBookingCatalog(
   const effectiveAddOnCatalog = state
     ? buildEffectiveAddOnCatalog(state)
     : BOOKING_ADD_ON_CATALOG;
+  const allowedCategories = new Set(
+    effectiveProductCatalog.map((entry) => entry.category),
+  );
 
   // 1. Fetch active products from DB
   const dbProducts = await prisma.product.findMany({
@@ -85,19 +88,20 @@ export async function loadEffectiveBookingCatalog(
   ) as PricelistCategory[];
 
   for (const dbProduct of dbProducts) {
+    const categoryName = dbProduct.category?.name || "";
+    if (!allowedCategories.has(categoryName)) continue;
+
     const dbNameKey = normalizeProductNameKey(dbProduct.name);
     if (existingNames.has(dbNameKey)) continue;
 
-    const catName = dbProduct.category?.name || "Lainnya";
-
     // Find or create category
     let category = dbCatalog.find(
-      (c) => c.category.toLowerCase() === catName.toLowerCase(),
+      (c) => c.category.toLowerCase() === categoryName.toLowerCase(),
     );
     if (!category) {
       category = {
-        category: catName,
-        keywords: [catName.toLowerCase()],
+        category: categoryName,
+        keywords: [categoryName.toLowerCase()],
         subcategories: [],
       };
       dbCatalog.push(category);

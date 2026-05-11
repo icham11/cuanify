@@ -16,6 +16,7 @@ import {
   Factory,
   Settings2,
   ContactRound,
+  Store,
 } from "lucide-react";
 import { useRole } from "@/context/RoleContext";
 
@@ -128,6 +129,12 @@ export default function SidebarNav() {
                 icon={FileText}
                 label="Reports"
                 active={isActive("/bakery/reports")}
+              />
+              <SidebarLink
+                href="/bakery/ecommerce"
+                icon={Store}
+                label="E-Commerce"
+                active={isActive("/bakery/ecommerce")}
               />
               <SidebarLink
                 href="/bakery/customers"

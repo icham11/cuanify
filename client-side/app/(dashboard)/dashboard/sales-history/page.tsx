@@ -87,28 +87,33 @@ export default function SalesHistoryPage() {
     try {
       setLoading(true);
       setError(null);
-      const response = await fetch("/api/sales");
-      const data = await response.json();
+      const responses = await Promise.all([
+        fetch("/api/sales?sales_channel=direct"),
+        fetch("/api/sales?sales_channel=tokopedia"),
+        fetch("/api/sales?sales_channel=shopee"),
+      ]);
+      const payloads = await Promise.all(responses.map((response) => response.json()));
 
-      if (data.success && data.data) {
-        // API returns: { success: true, data: { sales: [...], summary: {...} } }
-        if (Array.isArray(data.data.sales)) {
-          setSales(data.data.sales);
-        } else if (Array.isArray(data.data)) {
-          // Fallback: if data.data is directly an array
-          setSales(data.data);
-        } else {
-          console.warn("API returned unexpected data structure:", data.data);
-          setSales([]);
-          setError("Invalid data format received");
+      const collected: Sale[] = [];
+      for (const payload of payloads) {
+        if (payload?.success && payload?.data) {
+          if (Array.isArray(payload.data.sales)) {
+            collected.push(...payload.data.sales);
+          } else if (Array.isArray(payload.data)) {
+            collected.push(...payload.data);
+          }
+        } else if (payload?.error) {
+          throw new Error(payload.error);
         }
-      } else if (data.error) {
-        setSales([]);
-        setError(data.error);
-      } else {
-        setSales([]);
-        setError("Failed to fetch sales");
       }
+
+      const merged = Array.from(
+        new Map(collected.map((sale) => [sale.id, sale])).values(),
+      ).sort(
+        (left, right) =>
+          new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
+      );
+      setSales(merged);
     } catch (err) {
       setSales([]); // Ensure sales is always an array
       const msg = err instanceof Error ? err.message : "Failed to fetch sales";
@@ -356,6 +361,7 @@ export default function SalesHistoryPage() {
               <option value="Transfer">Transfer</option>
               <option value="Digital">Digital</option>
               <option value="Kasbon">Kasbon</option>
+              <option value="Marketplace">Marketplace</option>
             </select>
           </div>
           <div className="relative">

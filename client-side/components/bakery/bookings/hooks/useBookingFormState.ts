@@ -57,7 +57,6 @@ import {
   getDeliverySlotsForDate,
   inferOrderTypeFromItems,
   isSeasonalCookiesItem,
-  isWithinBusinessHours,
   isDateBlockedForOrdering,
   type SlotAvailabilityStatus,
   type SlotOrderType,
@@ -1661,24 +1660,6 @@ export function useBookingFormState() {
 
     if (isPastDate(normalizedDeliveryDate)) {
       toast.error("Tanggal sudah terlewat");
-      return;
-    }
-
-    if (
-      !isWithinBusinessHours(
-        normalizedDeliveryDate,
-        values.deliverySlot,
-        undefined,
-        {
-          deliveryMethod: values.deliveryMethod,
-          items: values.items,
-          blockedDates,
-        },
-      )
-    ) {
-      toast.error(
-        "Selected slot is outside business hours (Mon-Sat 10:00-22:00, Sun 10:00-15:00).",
-      );
       return;
     }
 

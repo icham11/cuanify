@@ -41,6 +41,14 @@ export const EMPTY_CATALOG_ADMIN_STATE: CatalogAdminState = {
   customAddOns: [],
 };
 
+const CORE_BOOKING_CATEGORY_NAMES = new Set(
+  BOOKING_PRODUCT_CATALOG.map((entry) => entry.category),
+);
+
+function isCoreBookingCategory(category: string): boolean {
+  return CORE_BOOKING_CATEGORY_NAMES.has(category);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -96,6 +104,7 @@ export function normalizeCatalogAdminState(
               entry.productName &&
               entry.variantLabel,
           )
+          .filter((entry) => isCoreBookingCategory(entry.category))
       : [],
     customAddOns: Array.isArray(value.customAddOns)
       ? value.customAddOns
@@ -107,7 +116,13 @@ export function normalizeCatalogAdminState(
             price: normalizeMoney(entry.price),
             cogs: normalizeMoney(entry.cogs),
           }))
-          .filter((entry) => entry.category && entry.id && entry.label)
+          .filter(
+            (entry) =>
+              entry.category &&
+              entry.id &&
+              entry.label &&
+              isCoreBookingCategory(entry.category),
+          )
       : [],
   };
 }
@@ -152,6 +167,7 @@ export function buildEffectiveProductCatalog(
   const next = cloneCatalog(BOOKING_PRODUCT_CATALOG);
 
   state.customProducts.forEach((entry) => {
+    if (!isCoreBookingCategory(entry.category)) return;
     let category = next.find((item) => item.category === entry.category);
     if (!category) {
       category = {
@@ -260,6 +276,7 @@ export function buildEffectiveAddOnCatalog(
   );
 
   state.customAddOns.forEach((entry) => {
+    if (!isCoreBookingCategory(entry.category)) return;
     const list = next[entry.category] ?? [];
     const exists = list.some((item) => item.id === entry.id);
     if (exists) return;

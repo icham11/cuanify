@@ -32,10 +32,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
-    // OAuth users have empty password — can't change via this route
+    // Legacy SSO users have empty password — can't change via this route
     if (!user.password) {
       return NextResponse.json(
-        { error: "Akun Google tidak mendukung perubahan password" },
+        { error: "Akun ini tidak menggunakan password login" },
         { status: 400 },
       );
     }

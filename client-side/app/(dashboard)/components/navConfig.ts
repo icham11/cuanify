@@ -15,6 +15,7 @@ import {
   Factory,
   FileText,
   ContactRound,
+  Store,
 } from "lucide-react";
 
 export interface NavItem {
@@ -65,6 +66,11 @@ export const navSections: NavSection[] = [
         label: "Reports",
         href: "/bakery/reports",
         icon: FileText,
+      },
+      {
+        label: "E-Commerce",
+        href: "/bakery/ecommerce",
+        icon: Store,
       },
       {
         label: "Customers",

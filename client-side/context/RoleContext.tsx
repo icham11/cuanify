@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
+import { fetchAuthMe } from "@/lib/auth/auth-me-client";
 
 export type UserRole = "Owner" | "Admin" | "Cashier" | "Staff";
 
@@ -24,11 +25,10 @@ export function RoleProvider({ children }: { children: React.ReactNode }) {
 
   const fetchRole = useCallback(async () => {
     try {
-      const res = await fetch("/api/auth/me", { credentials: "include" });
-      if (res.ok) {
-        const data = await res.json();
-        setRole(data.data?.role || "Owner");
-        setUserName(data.data?.name || "");
+      const data = await fetchAuthMe();
+      if (data) {
+        setRole(data.role || "Owner");
+        setUserName(data.name || "");
       }
     } catch {
       // Default to Owner if fetch fails (backward compat)

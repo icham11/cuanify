@@ -865,6 +865,26 @@ function dedupeReferenceImages(
   return Array.from(byUrl.values());
 }
 
+function normalizeReferenceImages(
+  value: unknown,
+): Array<{ url: string; label?: string; orderIndex?: number }> {
+  return dedupeReferenceImages(
+    asArrayOfRecords(value).reduce<
+      Array<{ url: string; label?: string; orderIndex?: number }>
+    >((images, entry) => {
+        const url = asString(entry.url).trim();
+        if (!url) return images;
+
+        images.push({
+          url,
+          label: asString(entry.label).trim() || undefined,
+          orderIndex: parseImageOrderIndex(entry.orderIndex),
+        });
+        return images;
+      }, []),
+  );
+}
+
 function extractNotificationReferenceImages(order: NormalizedOrder) {
   const references: Array<{
     url: string;
@@ -928,6 +948,26 @@ function extractNotificationReferenceImages(order: NormalizedOrder) {
   pushReferenceImage(references, shipment?.imageUrl);
 
   return dedupeReferenceImages(references);
+}
+
+function resolvePersistedImageFields(order: NormalizedOrder) {
+  const referenceImages = extractNotificationReferenceImages(order);
+  const imageUrls = Array.from(
+    new Set(
+      [
+        ...asStringArray(order.imageUrls),
+        ...referenceImages.map((reference) => reference.url),
+      ].filter((value) => value.trim().length > 0),
+    ),
+  );
+  const imageUrl =
+    asString(order.imageUrl).trim() || imageUrls[0] || referenceImages[0]?.url || "";
+
+  return {
+    imageUrl,
+    imageUrls,
+    referenceImages,
+  };
 }
 function collectProductTags(order: NormalizedOrder): string[] {
   const tags: string[] = [];
@@ -1736,7 +1776,7 @@ function normalizeOrder(raw: unknown, index: number): NormalizedOrder | null {
     totalPrice,
   });
 
-  return {
+  const normalizedOrder: NormalizedOrder = {
     id,
     bookingCode: asString(record.bookingCode),
     resi: asString(record.resi),
@@ -1764,23 +1804,24 @@ function normalizeOrder(raw: unknown, index: number): NormalizedOrder | null {
     assignedStaffUserId: asPositiveIntOrNull(record.assignedStaffUserId),
     assignedStaffName: asString(record.assignedStaffName),
     productionAssignedAt: toIsoOrNull(record.productionAssignedAt),
-    shippingQuote: record.shippingQuote ?? null,
-    shipment: record.shipment ?? null,
-    simulations: record.simulations ?? null,
-    whatsAppParsedData: record.whatsAppParsedData ?? null,
-    imageUrl: asString(record.imageUrl),
-    imageUrls: asStringArray(record.imageUrls),
-    referenceImages: asArrayOfRecords(record.referenceImages).map((entry) => ({
-      url: asString(entry.url),
-      label: asString(entry.label) || undefined,
-      orderIndex: typeof entry.orderIndex === "number" ? entry.orderIndex : undefined,
-    })),
-    statusHistory: asArrayOfRecords(record.statusHistory),
-    automationLogs: asArrayOfRecords(record.automationLogs),
-    paymentTransactions: asArrayOfRecords(record.paymentTransactions),
+      shippingQuote: record.shippingQuote ?? null,
+      shipment: record.shipment ?? null,
+      simulations: record.simulations ?? null,
+      whatsAppParsedData: record.whatsAppParsedData ?? null,
+      imageUrl: asString(record.imageUrl).trim(),
+      imageUrls: asStringArray(record.imageUrls),
+      referenceImages: normalizeReferenceImages(record.referenceImages),
+      statusHistory: asArrayOfRecords(record.statusHistory),
+      automationLogs: asArrayOfRecords(record.automationLogs),
+      paymentTransactions: asArrayOfRecords(record.paymentTransactions),
     productionStages: normalizeProductionStages(record.productionStages),
     items: asArrayOfRecords(record.items),
     deliveryAddresses: asArrayOfRecords(record.deliveryAddresses),
+  };
+
+  return {
+    ...normalizedOrder,
+    ...resolvePersistedImageFields(normalizedOrder),
   };
 }
 
@@ -2168,7 +2209,7 @@ export async function GET() {
             }),
           );
 
-          return {
+          const order: NormalizedOrder = {
             id: row.external_id,
             bookingCode: row.booking_code ?? "",
             resi: row.resi ?? "",
@@ -2205,9 +2246,11 @@ export async function GET() {
             shipment: parseJsonField(row.shipment),
             simulations: parseJsonField(row.simulations),
             whatsAppParsedData: parseJsonField(row.whatsapp_parsed_data),
-            statusHistory: parseJsonField(row.status_history) ?? [],
-            automationLogs: parseJsonField(row.automation_logs) ?? [],
-            paymentTransactions: parseJsonField(row.payment_transactions) ?? [],
+            statusHistory: asArrayOfRecords(parseJsonField(row.status_history)),
+            automationLogs: asArrayOfRecords(parseJsonField(row.automation_logs)),
+            paymentTransactions: asArrayOfRecords(
+              parseJsonField(row.payment_transactions),
+            ),
             productionStages: (stagesMap.get(row.external_id) ?? []).map(
               (stage) => ({
                 ...stage,
@@ -2216,6 +2259,11 @@ export async function GET() {
             ),
             items,
             deliveryAddresses: addressesMap.get(row.external_id) ?? [],
+          };
+
+          return {
+            ...order,
+            ...resolvePersistedImageFields(order),
           };
         });
 
@@ -2639,7 +2687,7 @@ export async function POST(request: NextRequest) {
           }),
         );
 
-        return {
+        const order: ParsedOrder = {
           id: row.external_id,
           bookingCode: row.booking_code ?? "",
           resi: row.resi ?? "",
@@ -2687,6 +2735,11 @@ export async function POST(request: NextRequest) {
           ),
           items,
           deliveryAddresses: addressesMap.get(row.external_id) ?? [],
+        };
+
+        return {
+          ...order,
+          ...resolvePersistedImageFields(order),
         };
       });
 
