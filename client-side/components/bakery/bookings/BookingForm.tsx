@@ -779,6 +779,7 @@ function buildParsedReferenceImages(args: {
     byUrl.set(url, {
       url,
       label: reference.label?.trim() || undefined,
+      note: reference.note?.trim() || undefined,
       orderIndex:
         typeof reference.orderIndex === "number" &&
         Number.isFinite(reference.orderIndex)
@@ -792,13 +793,14 @@ function buildParsedReferenceImages(args: {
     if (!trimmedUrl) return;
 
     const existing = byUrl.get(trimmedUrl);
-    const requestedLabel = args.requestedLabels[index];
+    const requestedNote = args.requestedLabels[index]?.trim();
     byUrl.set(trimmedUrl, {
       url: trimmedUrl,
-      label: requestedLabel || existing?.label,
+      label: existing?.label || `Gambar ${index + 1}`,
+      note: requestedNote || existing?.note,
       orderIndex:
         existing?.orderIndex ??
-        (requestedLabel || uploadedImageUrls.length > 1 ? index : undefined),
+        (requestedNote || uploadedImageUrls.length > 1 ? index : undefined),
     });
   });
 
@@ -3023,16 +3025,15 @@ export default function BookingForm() {
       return parsedPreview.referenceImages.map((entry, index) => ({
         label:
           entry.label?.trim() ||
-          normalizedReferenceImageLabels[index] ||
           `Gambar ${index + 1}`,
         note:
-          entry.label?.trim() || normalizedReferenceImageLabels[index] || "",
+          entry.note?.trim() || "",
         url: entry.url?.trim() || "",
       }));
     }
 
     return referenceImageFiles.map((file, index) => ({
-      label: normalizedReferenceImageLabels[index] || `Gambar ${index + 1}`,
+      label: `Gambar ${index + 1}`,
       note: normalizedReferenceImageLabels[index] || "",
       url: "",
     }));

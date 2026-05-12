@@ -428,6 +428,7 @@ export async function POST(request: NextRequest) {
     const uploadedReferenceImages: Array<{
       url: string;
       label?: string;
+      note?: string;
       orderIndex?: number;
     }> = [];
 
@@ -442,8 +443,8 @@ export async function POST(request: NextRequest) {
         uploadedImageUrls.push(imageUrl);
         uploadedReferenceImages.push({
           url: imageUrl,
-          label:
-            explicitRequestedLabels[index] || deriveReferenceLabelFromFileName(file.name),
+          label: `Gambar ${index + 1}`,
+          note: explicitRequestedLabels[index] || undefined,
           orderIndex: index,
         });
       }

@@ -245,13 +245,21 @@ export async function sendOrderToWhatsApp(
 
   // Bangun list gambar final dengan label-nya, dimulai dari structuredReferenceImages (sudah terurut)
   const seenUrls = new Set<string>();
-  const finalImagesToUpload: Array<{ url: string; label: string }> = [];
+  const finalImagesToUpload: Array<{
+    url: string;
+    label: string;
+    note?: string;
+  }> = [];
 
   // 1. Prioritaskan structuredReferenceImages karena memiliki label & sudah terurut
   for (const ref of structuredReferenceImages) {
     if (isValidUserImage(ref.url) && !seenUrls.has(ref.url)) {
       seenUrls.add(ref.url);
-      finalImagesToUpload.push({ url: ref.url, label: ref.label || "" });
+      finalImagesToUpload.push({
+        url: ref.url,
+        label: ref.label || "",
+        note: ref.note || "",
+      });
     }
   }
 
@@ -259,7 +267,7 @@ export async function sendOrderToWhatsApp(
   for (const url of selectedImageUrls) {
     if (isValidUserImage(url) && !seenUrls.has(url)) {
       seenUrls.add(url);
-      finalImagesToUpload.push({ url, label: "" });
+      finalImagesToUpload.push({ url, label: "", note: "" });
     }
   }
 
@@ -414,12 +422,18 @@ export async function sendOrderToWhatsApp(
 
   // 2. Kirim satu per satu gambar user-upload, caption = detail gambar dari parser
   for (let i = 0; i < finalImagesToUpload.length; i++) {
-    const { url: sourceImgUrl, label: referenceLabel } = finalImagesToUpload[i];
+    const {
+      url: sourceImgUrl,
+      label: referenceLabel,
+      note: referenceNote,
+    } = finalImagesToUpload[i];
     let caption = "";
     
     // Ambil label/notes dari referenceImages jika ada, jika tidak dari captionItems
     const productName = order.captionItems?.[i]?.productName;
-    if (isMeaningfulImageCaption(referenceLabel)) {
+    if (isMeaningfulImageCaption(referenceNote)) {
+      caption = referenceNote!.trim();
+    } else if (isMeaningfulImageCaption(referenceLabel)) {
       caption = referenceLabel.trim();
     } else if (isMeaningfulImageCaption(productName)) {
       caption = productName!.trim();

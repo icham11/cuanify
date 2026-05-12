@@ -1,5 +1,37 @@
 import type { Product, CreateProductInput } from "@/types/product";
 
+async function extractApiErrorMessage(
+  response: Response,
+  fallback: string,
+): Promise<string> {
+  const contentType = response.headers.get("content-type") || "";
+
+  try {
+    if (contentType.includes("application/json")) {
+      const json = (await response.json()) as {
+        error?: string;
+        details?: string | string[];
+      };
+      if (typeof json.error === "string" && json.error.trim()) {
+        return json.error.trim();
+      }
+      if (Array.isArray(json.details) && json.details.length > 0) {
+        return json.details.join(", ");
+      }
+      if (typeof json.details === "string" && json.details.trim()) {
+        return json.details.trim();
+      }
+    } else {
+      const text = (await response.text()).trim();
+      if (text) return text;
+    }
+  } catch {
+    // Ignore parse errors and use the fallback below.
+  }
+
+  return fallback;
+}
+
 // ─── Fetch helpers ─────────────────────────────────────────────────────────────
 
 export type PaginationMeta = {
@@ -43,8 +75,13 @@ export async function getProducts(
   if (params?.page) url.searchParams.set("page", String(params.page));
   if (params?.limit) url.searchParams.set("limit", String(params.limit));
 
-  const res = await fetch(url.toString(), { credentials: "include" });
-  if (!res.ok) throw new Error("Failed to fetch products");
+  const res = await fetch(url.toString(), {
+    credentials: "include",
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error(await extractApiErrorMessage(res, "Failed to fetch products"));
+  }
   const json = await res.json();
   return {
     data: json.data ?? [],
@@ -174,8 +211,15 @@ export type IngredientOption = {
 };
 
 export async function getIngredientOptions(): Promise<IngredientOption[]> {
-  const res = await fetch("/api/ingredients", { credentials: "include" });
-  if (!res.ok) throw new Error("Failed to fetch ingredients");
+  const res = await fetch("/api/ingredients", {
+    credentials: "include",
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error(
+      await extractApiErrorMessage(res, "Failed to fetch ingredients"),
+    );
+  }
   const data = await res.json();
   return (data.data ?? []).map(
     (ing: {
@@ -197,7 +241,10 @@ export async function getIngredientOptions(): Promise<IngredientOption[]> {
 export async function getCategoryOptions(): Promise<
   { id: number; name: string }[]
 > {
-  const res = await fetch("/api/categories", { credentials: "include" });
+  const res = await fetch("/api/categories", {
+    credentials: "include",
+    cache: "no-store",
+  });
   if (!res.ok) return []; // categories may not have a dedicated endpoint — fallback to empty
   const data = await res.json();
   return data.data ?? [];

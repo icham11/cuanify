@@ -1185,8 +1185,8 @@ export default function ProductionTable() {
       0,
     );
     const productName =
-      order.product ||
       order.items?.[0]?.productName ||
+      order.product ||
       order.items?.[0]?.subcategory ||
       "Produk";
     const orderDateKey = (order.deliveryDate || "").trim();

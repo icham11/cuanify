@@ -7,14 +7,6 @@ import NumericZeroInputBehavior from "@/app/components/NumericZeroInputBehavior"
 import AppProviders from "@/context/AppProviders";
 import PWAProvider from "@/app/components/PWAProvider";
 
-if (
-  typeof window === "undefined" &&
-  process.env.NODE_ENV === "production" &&
-  process.env.ENABLE_AUTO_CLEANUP === "true"
-) {
-  import("@/lib/cleanup-scheduler");
-}
-
 const midtransClientKey = process.env.NEXT_PUBLIC_MIDTRANS_CLIENT_KEY || "";
 const explicitMidtransProdRaw =
   process.env.NEXT_PUBLIC_MIDTRANS_IS_PRODUCTION ?? process.env.MIDTRANS_IS_PRODUCTION;

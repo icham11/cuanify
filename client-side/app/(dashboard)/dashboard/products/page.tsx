@@ -372,12 +372,9 @@ export default function ProductsPage() {
   const [addProductModalOpen, setAddProductModalOpen] = useState(false);
 
   useEffect(() => {
-    fetch("/api/categories")
-      .then((res) => res.json())
+    void getCategoryOptions()
       .then((data) => {
-        if (data.success && Array.isArray(data.data)) {
-          setCategories(data.data);
-        }
+        setCategories(data);
       })
       .catch(() => {});
   }, []);

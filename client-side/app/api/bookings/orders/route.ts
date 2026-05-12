@@ -153,7 +153,12 @@ interface NormalizedOrder {
   whatsAppParsedData: unknown;
   imageUrl?: string;
   imageUrls?: string[];
-  referenceImages?: Array<{ url: string; label?: string; orderIndex?: number }>;
+  referenceImages?: Array<{
+    url: string;
+    label?: string;
+    note?: string;
+    orderIndex?: number;
+  }>;
   statusHistory: JsonRecord[];
   automationLogs: JsonRecord[];
   paymentTransactions: JsonRecord[];
@@ -286,6 +291,7 @@ const normalizedOrderSchema = z.object({
       z.object({
         url: z.string(),
         label: z.string().optional(),
+        note: z.string().optional(),
         orderIndex: z.number().optional(),
       }),
     )
@@ -757,10 +763,16 @@ function parseImageOrderIndex(value: unknown): number | undefined {
 }
 
 function pushReferenceImage(
-  target: Array<{ url: string; label?: string; orderIndex?: number }>,
+  target: Array<{
+    url: string;
+    label?: string;
+    note?: string;
+    orderIndex?: number;
+  }>,
   url: unknown,
   options?: {
     label?: unknown;
+    note?: unknown;
     orderIndex?: unknown;
   },
 ) {
@@ -768,15 +780,22 @@ function pushReferenceImage(
   if (!parsedUrl) return;
 
   const label = asString(options?.label).trim() || undefined;
+  const note = asString(options?.note).trim() || undefined;
   const orderIndex = parseImageOrderIndex(options?.orderIndex);
-  target.push({ url: parsedUrl, label, orderIndex });
+  target.push({ url: parsedUrl, label, note, orderIndex });
 }
 
 function collectReferenceImagesFromValue(
-  target: Array<{ url: string; label?: string; orderIndex?: number }>,
+  target: Array<{
+    url: string;
+    label?: string;
+    note?: string;
+    orderIndex?: number;
+  }>,
   value: unknown,
   options?: {
     label?: unknown;
+    note?: unknown;
     orderIndex?: unknown;
   },
 ) {
@@ -797,6 +816,7 @@ function collectReferenceImagesFromValue(
     IMAGE_LABEL_KEYS.map((key) => record[key]).find((entry) =>
       asString(entry),
     ) ?? options?.label;
+  const resolvedNote = record.note ?? options?.note;
   const resolvedOrderIndex =
     IMAGE_ORDER_KEYS.map((key) => record[key]).find((entry) =>
       Number.isFinite(parseImageOrderIndex(entry)),
@@ -810,6 +830,7 @@ function collectReferenceImagesFromValue(
   ]) {
     pushReferenceImage(target, record[key], {
       label: resolvedLabel,
+      note: resolvedNote,
       orderIndex: resolvedOrderIndex,
     });
   }
@@ -817,6 +838,7 @@ function collectReferenceImagesFromValue(
   for (const key of [...PRIORITY_IMAGE_LIST_KEYS, ...IMAGE_LIST_KEYS]) {
     collectReferenceImagesFromValue(target, record[key], {
       label: resolvedLabel,
+      note: resolvedNote,
       orderIndex: resolvedOrderIndex,
     });
   }
@@ -824,17 +846,23 @@ function collectReferenceImagesFromValue(
   for (const key of IMAGE_COLLECTION_KEYS) {
     collectReferenceImagesFromValue(target, record[key], {
       label: resolvedLabel,
+      note: resolvedNote,
       orderIndex: resolvedOrderIndex,
     });
   }
 }
 
 function dedupeReferenceImages(
-  references: Array<{ url: string; label?: string; orderIndex?: number }>,
+  references: Array<{
+    url: string;
+    label?: string;
+    note?: string;
+    orderIndex?: number;
+  }>,
 ) {
   const byUrl = new Map<
     string,
-    { url: string; label?: string; orderIndex?: number }
+    { url: string; label?: string; note?: string; orderIndex?: number }
   >();
 
   for (const reference of references) {
@@ -846,6 +874,7 @@ function dedupeReferenceImages(
       byUrl.set(key, {
         url: key,
         label: reference.label?.trim() || undefined,
+        note: reference.note?.trim() || undefined,
         orderIndex: reference.orderIndex,
       });
       continue;
@@ -853,6 +882,9 @@ function dedupeReferenceImages(
 
     if (!existing.label && reference.label?.trim()) {
       existing.label = reference.label.trim();
+    }
+    if (!existing.note && reference.note?.trim()) {
+      existing.note = reference.note.trim();
     }
     if (
       existing.orderIndex === undefined &&
@@ -867,10 +899,10 @@ function dedupeReferenceImages(
 
 function normalizeReferenceImages(
   value: unknown,
-): Array<{ url: string; label?: string; orderIndex?: number }> {
+): Array<{ url: string; label?: string; note?: string; orderIndex?: number }> {
   return dedupeReferenceImages(
     asArrayOfRecords(value).reduce<
-      Array<{ url: string; label?: string; orderIndex?: number }>
+      Array<{ url: string; label?: string; note?: string; orderIndex?: number }>
     >((images, entry) => {
         const url = asString(entry.url).trim();
         if (!url) return images;
@@ -878,6 +910,7 @@ function normalizeReferenceImages(
         images.push({
           url,
           label: asString(entry.label).trim() || undefined,
+          note: asString(entry.note).trim() || undefined,
           orderIndex: parseImageOrderIndex(entry.orderIndex),
         });
         return images;
@@ -889,6 +922,7 @@ function extractNotificationReferenceImages(order: NormalizedOrder) {
   const references: Array<{
     url: string;
     label?: string;
+    note?: string;
     orderIndex?: number;
   }> = [];
   const parsedData = asRecord(order.whatsAppParsedData);
@@ -1323,14 +1357,11 @@ function buildWhatsAppCustomerNotes(order: NormalizedOrder): string {
 function buildWhatsAppDesignNotes(order: NormalizedOrder): string {
   const parsedData = asRecord(order.whatsAppParsedData);
   const details = getParsedDetailsForTemplate(order);
-  const labeledReferences = asArrayOfRecords(parsedData?.referenceImages)
-    .map((entry) =>
-      normalizeWhatsAppCaptionValue(
-        IMAGE_LABEL_KEYS.map((key) => entry[key]).find((value) =>
-          Boolean(asString(value)),
-        ),
-      ),
-    )
+  const referenceNotes = [
+    ...asArrayOfRecords(order.referenceImages),
+    ...asArrayOfRecords(parsedData?.referenceImages),
+  ]
+    .map((entry) => normalizeWhatsAppCaptionValue(entry.note))
     .filter(Boolean);
 
   const candidates = [
@@ -1339,7 +1370,7 @@ function buildWhatsAppDesignNotes(order: NormalizedOrder): string {
     ),
     normalizeWhatsAppCaptionValue(details?.cookieDesign),
     normalizeWhatsAppCaptionValue(details?.colorTheme),
-    ...labeledReferences,
+    ...referenceNotes,
   ].filter(Boolean);
 
   return Array.from(new Set(candidates)).join(" | ");

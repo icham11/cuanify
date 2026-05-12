@@ -323,6 +323,7 @@ export type ParsedCommonFields = Record<CommonFieldKey, string>;
 export interface ParsedWhatsAppReferenceImage {
   url: string;
   label?: string;
+  note?: string;
   orderIndex?: number;
 }
 

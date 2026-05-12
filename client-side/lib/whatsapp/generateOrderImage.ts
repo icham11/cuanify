@@ -19,6 +19,7 @@ interface ChromiumRuntimeModule {
 export interface WhatsAppReferenceImage {
   url: string;
   label?: string;
+  note?: string;
   orderIndex?: number;
 }
 
@@ -461,6 +462,7 @@ function collectReferenceImages(
     if (!normalizedUrl) continue;
 
     const label = normalizeLabel(reference.label) || undefined;
+    const note = normalizeLabel(reference.note) || undefined;
     const orderIndex =
       Number.isFinite(reference.orderIndex) &&
       typeof reference.orderIndex === "number"
@@ -472,6 +474,7 @@ function collectReferenceImages(
       const nextReference = {
         url: normalizedUrl,
         label,
+        note,
         orderIndex,
       };
       byUrl.set(normalizedUrl, nextReference);
@@ -481,6 +484,9 @@ function collectReferenceImages(
 
     if (!existing.label && label) {
       existing.label = label;
+    }
+    if (!existing.note && note) {
+      existing.note = note;
     }
     if (existing.orderIndex === undefined && orderIndex !== undefined) {
       existing.orderIndex = orderIndex;

@@ -182,6 +182,22 @@ function formatItemDetailPart(value?: string): string {
     .join("");
 }
 
+function stripPriceDetails(value?: string | null): string {
+  return normalizeText(value)
+    .replace(
+      /\((?=[^)]*(?:rp\b|\b\d+(?:[.,]\d+)?\s*k\b|\/\s*(?:pcs?|pc|item|unit)))[^)]*\)/gi,
+      "",
+    )
+    .replace(/@\s*\d+(?:[.,]\d+)?\s*k\b(?:\s*\/\s*(?:pcs?|pc|item|unit))?/gi, "")
+    .replace(/rp\.?\s*[\d.,]+(?:\s*\/\s*(?:pcs?|pc|item|unit))?/gi, "")
+    .replace(/\b\d+(?:[.,]\d+)?\s*k\b(?:\s*\/\s*(?:pcs?|pc|item|unit))?/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([,./)])/g, "$1")
+    .replace(/([(/-])\s+/g, "$1")
+    .replace(/\s+-\s*$/g, "")
+    .trim();
+}
+
 function buildItemSubtitle(order: BakeryOrder, item: OrderItem): string {
   const details = getDetailsByType(order);
   const orderType = order.whatsAppParsedData?.orderType;
@@ -201,7 +217,7 @@ function buildItemSubtitle(order: BakeryOrder, item: OrderItem): string {
 
   const normalizedParts = uniq(
     structuredParts
-      .map((part) => formatItemDetailPart(String(part ?? "")))
+      .map((part) => formatItemDetailPart(stripPriceDetails(String(part ?? ""))))
       .filter(Boolean),
   );
 
@@ -215,12 +231,21 @@ function buildItemSubtitle(order: BakeryOrder, item: OrderItem): string {
         !/^delivery\s*method\s*:/i.test(line) &&
         !/^service\s*charge\s*:/i.test(line) &&
         !/^insurance\s*fee\s*:/i.test(line) &&
-        !/^wholesale\s*discount\s*:/i.test(line),
+        !/^wholesale\s*discount\s*:/i.test(line) &&
+        !/^harga\b/i.test(line) &&
+        !/^subtotal\b/i.test(line) &&
+        !/^total\b/i.test(line) &&
+        !/^dp\b/i.test(line) &&
+        !/^sisa\b/i.test(line) &&
+        !/^ongkir\b/i.test(line) &&
+        !/^adjustment\b/i.test(line),
     )
+    .map((line) => stripPriceDetails(line))
+    .filter(Boolean)
     .slice(0, 2)
     .join(" - ");
 
-  return noteSummary || "-";
+  return noteSummary;
 }
 
 function buildItemRows(order: BakeryOrder): string {
@@ -232,7 +257,7 @@ function buildItemRows(order: BakeryOrder): string {
         <div class="qty-chip">${escapeHtml(formatItemBadgeQuantity(item.quantity))}</div>
         <div class="item-copy">
           <div class="item-name">${escapeHtml(title)}</div>
-          <div class="item-subtitle">${escapeHtml(subtitle)}</div>
+          ${subtitle ? `<div class="item-subtitle">${escapeHtml(subtitle)}</div>` : ""}
         </div>
       </div>
     `;
@@ -283,16 +308,15 @@ function buildLabelHtml(order: BakeryOrder): string {
     }
 
     body {
-      display: flex;
-      justify-content: center;
+      display: block;
       padding: 0;
     }
 
     .sheet {
       width: 80mm;
-      min-height: 132mm;
       border: 1px solid #a8a8a8;
       background: #ffffff;
+      margin: 0;
     }
 
     .header {
@@ -442,11 +466,6 @@ function buildLabelHtml(order: BakeryOrder): string {
       color: #9a9a9a;
     }
 
-    .spacer {
-      min-height: 110px;
-      border-bottom: 1px solid #d8d8d8;
-    }
-
     .footer {
       display: flex;
       justify-content: space-between;
@@ -500,7 +519,6 @@ function buildLabelHtml(order: BakeryOrder): string {
       <div class="section-title">Note Ucapan 💌</div>
       <div class="note-box">${noteMarkup}</div>
     </div>
-    <div class="spacer"></div>
     <div class="footer">
       <div class="footer-copy">
         Dikirim dengan penuh cinta 🤍<br />

@@ -529,6 +529,7 @@ export function buildParsedReferenceImages(args: {
     byUrl.set(url, {
       url,
       label: reference.label?.trim() || undefined,
+      note: reference.note?.trim() || undefined,
       orderIndex:
         typeof reference.orderIndex === "number" &&
         Number.isFinite(reference.orderIndex)
@@ -542,13 +543,14 @@ export function buildParsedReferenceImages(args: {
     if (!trimmedUrl) return;
 
     const existing = byUrl.get(trimmedUrl);
-    const requestedLabel = args.requestedLabels[index];
+    const requestedNote = args.requestedLabels[index]?.trim();
     byUrl.set(trimmedUrl, {
       url: trimmedUrl,
-      label: requestedLabel || existing?.label,
+      label: existing?.label || `Gambar ${index + 1}`,
+      note: requestedNote || existing?.note,
       orderIndex:
         existing?.orderIndex ??
-        (requestedLabel || uploadedImageUrls.length > 1 ? index : undefined),
+        (requestedNote || uploadedImageUrls.length > 1 ? index : undefined),
     });
   });
 

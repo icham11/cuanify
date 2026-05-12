@@ -97,6 +97,27 @@ function getInitials(value?: string): string {
   return parts.map((part) => part[0]?.toUpperCase() || "").join("");
 }
 
+function collectReferenceImageNotes(
+  order: ReturnType<typeof useOrders>["orders"][number] | undefined,
+): string[] {
+  const candidates = [
+    ...(Array.isArray(order?.referenceImages) ? order.referenceImages : []),
+    ...(Array.isArray(order?.whatsAppParsedData?.referenceImages)
+      ? order.whatsAppParsedData.referenceImages
+      : []),
+  ];
+
+  return candidates
+    .map((image) => String(image?.note || "").trim())
+    .filter((note, index, array) => {
+      const normalized = note.toLowerCase();
+      return (
+        normalized.length > 0 &&
+        array.findIndex((entry) => entry.toLowerCase() === normalized) === index
+      );
+    });
+}
+
 export default function OrderDetailPage() {
   const { isOwner } = useRole();
   const {
@@ -291,22 +312,7 @@ export default function OrderDetailPage() {
                   : deliveryMethod === "REGULAR_JNE_JNT"
                     ? "JNE/JNT"
                     : "Pickup";
-  const parsedReferenceLabels = [
-    ...(Array.isArray(order.whatsAppParsedData?.requestedImageLabels)
-      ? order.whatsAppParsedData.requestedImageLabels
-      : []),
-    ...((order.whatsAppParsedData?.referenceImages ?? [])
-      .map((image) => image.label || "")
-      .filter((label) => label.trim().length > 0)),
-  ]
-    .map((label) => label.trim())
-    .filter((label, index, array) => {
-      const normalized = label.toLowerCase();
-      return (
-        normalized.length > 0 &&
-        array.findIndex((entry) => entry.toLowerCase() === normalized) === index
-      );
-    });
+  const parsedReferenceNotes = collectReferenceImageNotes(order);
   const customNotesOnly = (order.notes || "")
     .split(/\r?\n/g)
     .map((line) => line.trim())
@@ -318,7 +324,15 @@ export default function OrderDetailPage() {
         !/^insurance\s*fee\s*:/i.test(line) &&
         !/^wholesale\s*discount\s*:/i.test(line),
     );
-  const bookingNotesList = [...parsedReferenceLabels, ...customNotesOnly];
+  const bookingNotesList = [...parsedReferenceNotes, ...customNotesOnly].filter(
+    (note, index, array) => {
+      const normalized = note.toLowerCase();
+      return (
+        normalized.length > 0 &&
+        array.findIndex((entry) => entry.toLowerCase() === normalized) === index
+      );
+    },
+  );
   const totalPaidAmount = Math.max(0, Math.round(Number(order.totalPaidAmount ?? 0)));
   const remainingBalanceAmount = Math.max(
     0,
@@ -606,24 +620,19 @@ export default function OrderDetailPage() {
               </CardHeader>
               <CardContent className="space-y-4 px-0 py-0">
                 <div className="px-4 py-4">
-                  {itemRows.map((row, index) => (
-                    <div key={`${row.id}-notes-${index}`} className="border-b border-[var(--crumbella-border)] pb-4 last:border-b-0 last:pb-0">
-                      <div className="mb-3 flex items-center gap-2">
-                        <span className="rounded-full bg-[var(--crumbella-accent)] px-2 py-1 text-[10px] font-semibold text-white">
-                          Produk {index + 1}
+                  <ol className="space-y-2">
+                    {bookingNotesList.map((note, noteIndex) => (
+                      <li
+                        key={`booking-note-${noteIndex}`}
+                        className="grid grid-cols-[18px_1fr] gap-2 text-sm text-[var(--foreground)]"
+                      >
+                        <span className="text-[var(--crumbella-accent)]">
+                          {noteIndex + 1}
                         </span>
-                        <p className="text-base font-semibold text-[var(--foreground)]">{row.title}</p>
-                      </div>
-                      <ol className="space-y-2">
-                        {bookingNotesList.map((note, noteIndex) => (
-                          <li key={`${row.id}-note-${noteIndex}`} className="grid grid-cols-[18px_1fr] gap-2 text-sm text-[var(--foreground)]">
-                            <span className="text-[var(--crumbella-accent)]">{noteIndex + 1}</span>
-                            <span>{note}</span>
-                          </li>
-                        ))}
-                      </ol>
-                    </div>
-                  ))}
+                        <span>{note}</span>
+                      </li>
+                    ))}
+                  </ol>
                 </div>
               </CardContent>
             </Card>

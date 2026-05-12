@@ -1,27 +1,12 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Wifi, WifiOff, X, Download } from "lucide-react";
+import { Wifi, WifiOff, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
-/**
- * PWA Registration & Offline Status Component
- *
- * - Registers the service worker
- * - Shows an offline banner when connectivity is lost
- * - Shows install prompt (beforeinstallprompt)
- */
 export default function PWAProvider() {
-  const buildVersion = process.env.NEXT_PUBLIC_BUILD_VERSION || "local";
-  const SW_VERSION = `umkm-v3-${buildVersion}`;
-  const SW_VERSION_STORAGE_KEY = "crumbella-sw-version";
   const [isOffline, setIsOffline] = useState(false);
   const [showOfflineBanner, setShowOfflineBanner] = useState(false);
-  const [installPrompt, setInstallPrompt] = useState<Event | null>(null);
-  const [showInstall, setShowInstall] = useState(false);
-  const isMobileBrowser =
-    typeof navigator !== "undefined" &&
-    /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
 
   const handleOffline = useCallback(() => {
     setIsOffline(true);
@@ -34,121 +19,8 @@ export default function PWAProvider() {
   }, []);
 
   useEffect(() => {
-    // ─── Register Service Worker ───
-    const isDev = process.env.NODE_ENV !== "production";
-
-    if (isMobileBrowser) {
-      if ("serviceWorker" in navigator) {
-        navigator.serviceWorker
-          .getRegistrations()
-          .then((registrations) =>
-            Promise.all(
-              registrations.map((registration) => registration.unregister()),
-            ),
-          )
-          .catch((err) => {
-            console.warn(
-              "[PWA] Failed to unregister service workers on mobile:",
-              err,
-            );
-          });
-
-        if ("caches" in window) {
-          caches
-            .keys()
-            .then((keys) =>
-              Promise.all(
-                keys
-                  .filter((key) => key.startsWith("umkm-"))
-                  .map((key) => caches.delete(key)),
-              ),
-            )
-            .catch((err) => {
-              console.warn("[PWA] Failed to clear SW caches on mobile:", err);
-            });
-        }
-      }
-
-      return;
-    }
-
-    if (isDev && "serviceWorker" in navigator) {
-      navigator.serviceWorker
-        .getRegistrations()
-        .then((registrations) =>
-          Promise.all(
-            registrations.map((registration) => registration.unregister()),
-          ),
-        )
-        .catch((err) => {
-          console.warn(
-            "[PWA] Failed to unregister service workers in dev:",
-            err,
-          );
-        });
-
-      if ("caches" in window) {
-        caches
-          .keys()
-          .then((keys) =>
-            Promise.all(
-              keys
-                .filter((key) => key.startsWith("umkm-"))
-                .map((key) => caches.delete(key)),
-            ),
-          )
-          .catch((err) => {
-            console.warn("[PWA] Failed to clear SW caches in dev:", err);
-          });
-      }
-    }
-
-    if ("serviceWorker" in navigator && !isDev) {
-      const refreshServiceWorker = async () => {
-        const savedVersion = window.localStorage.getItem(
-          SW_VERSION_STORAGE_KEY,
-        );
-
-        if (savedVersion !== SW_VERSION) {
-          try {
-            const registrations =
-              await navigator.serviceWorker.getRegistrations();
-            await Promise.all(
-              registrations.map((registration) => registration.unregister()),
-            );
-
-            if ("caches" in window) {
-              const keys = await caches.keys();
-              await Promise.all(
-                keys
-                  .filter((key) => key.startsWith("umkm-"))
-                  .map((key) => caches.delete(key)),
-              );
-            }
-
-            window.localStorage.setItem(SW_VERSION_STORAGE_KEY, SW_VERSION);
-            window.location.reload();
-            return;
-          } catch (err) {
-            console.warn("[PWA] Failed to refresh stale service worker:", err);
-          }
-        }
-
-        navigator.serviceWorker
-          .register("/sw.js")
-          .then((reg) => {
-            console.log("[PWA] Service Worker registered:", reg.scope);
-            void reg.update();
-          })
-          .catch((err) => {
-            console.warn("[PWA] Service Worker registration failed:", err);
-          });
-      };
-
-      void refreshServiceWorker();
-    }
-
-    // Check initial state via rAF (avoids sync setState-in-effect lint rule)
+    // Stability first: keep the connectivity banner, but leave service workers
+    // disabled until the deployment/runtime path is verified on production.
     if (!navigator.onLine) {
       requestAnimationFrame(() => handleOffline());
     }
@@ -156,109 +28,42 @@ export default function PWAProvider() {
     window.addEventListener("offline", handleOffline);
     window.addEventListener("online", handleOnline);
 
-    // ─── Install Prompt ───
-    const handleInstallEvt = (e: Event) => {
-      e.preventDefault();
-      setInstallPrompt(e);
-      setShowInstall(true);
-    };
-    window.addEventListener("beforeinstallprompt", handleInstallEvt);
-
     return () => {
       window.removeEventListener("offline", handleOffline);
       window.removeEventListener("online", handleOnline);
-      window.removeEventListener("beforeinstallprompt", handleInstallEvt);
     };
-  }, [handleOffline, handleOnline, SW_VERSION, isMobileBrowser]);
-
-  async function handleInstallClick() {
-    if (!installPrompt) return;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (installPrompt as any).prompt();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result = await (installPrompt as any).userChoice;
-    if (result.outcome === "accepted") {
-      setShowInstall(false);
-      setInstallPrompt(null);
-    }
-  }
+  }, [handleOffline, handleOnline]);
 
   return (
-    <>
-      {/* Offline/Online Banner */}
-      <AnimatePresence>
-        {showOfflineBanner && (
-          <motion.div
-            initial={{ y: -60, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: -60, opacity: 0 }}
-            className={`fixed top-0 left-0 right-0 z-9999 px-4 py-2.5 text-center text-sm font-medium flex items-center justify-center gap-2 ${
-              isOffline ? "bg-amber-500 text-white" : "bg-green-500 text-white"
-            }`}
+    <AnimatePresence>
+      {showOfflineBanner && (
+        <motion.div
+          initial={{ y: -60, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: -60, opacity: 0 }}
+          className={`fixed top-0 left-0 right-0 z-9999 flex items-center justify-center gap-2 px-4 py-2.5 text-center text-sm font-medium ${
+            isOffline ? "bg-amber-500 text-white" : "bg-green-500 text-white"
+          }`}
+        >
+          {isOffline ? (
+            <>
+              <WifiOff className="h-4 w-4" />
+              <span>Anda sedang offline - beberapa fitur mungkin terbatas</span>
+            </>
+          ) : (
+            <>
+              <Wifi className="h-4 w-4" />
+              <span>Koneksi kembali!</span>
+            </>
+          )}
+          <button
+            onClick={() => setShowOfflineBanner(false)}
+            className="ml-2 cursor-pointer rounded p-0.5 hover:bg-white/20"
           >
-            {isOffline ? (
-              <>
-                <WifiOff className="w-4 h-4" />
-                <span>
-                  Anda sedang offline — beberapa fitur mungkin terbatas
-                </span>
-              </>
-            ) : (
-              <>
-                <Wifi className="w-4 h-4" />
-                <span>Koneksi kembali! ✓</span>
-              </>
-            )}
-            <button
-              onClick={() => setShowOfflineBanner(false)}
-              className="ml-2 p-0.5 rounded hover:bg-white/20 cursor-pointer"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Install PWA Prompt */}
-      <AnimatePresence>
-        {showInstall && (
-          <motion.div
-            initial={{ y: 80, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 80, opacity: 0 }}
-            className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-4 sm:w-80 z-9998 bg-white rounded-2xl shadow-2xl border border-gray-200 p-4"
-          >
-            <div className="flex items-start gap-3">
-              <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center shrink-0">
-                <Download className="w-5 h-5 text-indigo-600" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-gray-900 text-sm">
-                  Install Crumbella
-                </p>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  Install aplikasi di perangkat Anda untuk akses cepat dan
-                  pengalaman yang lebih baik
-                </p>
-                <div className="flex gap-2 mt-3">
-                  <button
-                    onClick={handleInstallClick}
-                    className="flex-1 py-2 px-3 bg-indigo-500 text-white text-xs font-semibold rounded-lg hover:bg-indigo-600 cursor-pointer transition"
-                  >
-                    Install
-                  </button>
-                  <button
-                    onClick={() => setShowInstall(false)}
-                    className="py-2 px-3 bg-gray-100 text-gray-600 text-xs font-medium rounded-lg hover:bg-gray-200 cursor-pointer transition"
-                  >
-                    Nanti
-                  </button>
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </>
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
