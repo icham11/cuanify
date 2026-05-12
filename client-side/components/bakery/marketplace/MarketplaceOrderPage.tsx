@@ -703,8 +703,8 @@ export default function MarketplaceOrderPage() {
   };
 
   return (
-    <div className="mx-auto max-w-[430px] px-4 pb-10 pt-4 text-[#2f1d12]">
-      <div className="rounded-[34px] bg-[#f8efe5] px-4 pb-6 pt-3 shadow-[0_26px_55px_-42px_rgba(94,53,30,0.6)]">
+    <div className="mx-auto max-w-7xl px-3 pb-10 pt-4 text-[#2f1d12] sm:px-4">
+      <div className="rounded-[34px] border border-[#e4d2c4] bg-[#f8efe5] px-4 pb-6 pt-3 shadow-[0_26px_55px_-42px_rgba(94,53,30,0.6)] sm:px-5 xl:px-6">
         <div className="border-b border-[#decec1] pb-3">
           <button
             type="button"
@@ -721,125 +721,139 @@ export default function MarketplaceOrderPage() {
           </button>
         </div>
 
-        <section className="mt-5">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#b06e43]">
-            Platform
-          </p>
-          <div className="mt-3 grid grid-cols-2 gap-3">
-            <button
-              type="button"
-              onClick={() => setPlatform("tokopedia")}
-              className={`rounded-[16px] border px-3 py-4 text-center transition ${
-                platform === "tokopedia"
-                  ? "border-[#29b34a] bg-[#eaf8ee] shadow-[inset_0_0_0_1px_rgba(41,179,74,0.18)]"
-                  : "border-[#dcc8b8] bg-white"
-              }`}
-            >
-              <div className="mx-auto h-5 w-5 rounded-full bg-[radial-gradient(circle_at_30%_30%,#98f6bc,#3aa25c_65%,#1f7e42)]" />
-              <p className="mt-2 text-sm font-bold text-[#1d140e]">Tokopedia</p>
-            </button>
-            <button
-              type="button"
-              onClick={() => setPlatform("shopee")}
-              className={`rounded-[16px] border px-3 py-4 text-center transition ${
-                platform === "shopee"
-                  ? "border-[#f28b57] bg-[#fff3ed] shadow-[inset_0_0_0_1px_rgba(242,139,87,0.15)]"
-                  : "border-[#dcc8b8] bg-white"
-              }`}
-            >
-              <div className="mx-auto text-xl leading-none text-[#f06c2d]">♥</div>
-              <p className="mt-1 text-sm font-bold text-[#1d140e]">Shopee</p>
-            </button>
-          </div>
-        </section>
-
-        <section className="mt-6">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#b06e43]">
-            Informasi Order
-          </p>
-          <div className="mt-3 overflow-hidden rounded-[20px] border border-[#dcc8b8] bg-[#fffaf6]">
-            <div className="grid gap-4 px-4 py-4">
-              <label className="grid gap-1">
-                <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#b06e43]">
-                  Nomor Order / Resi Platform
-                </span>
-                <Input
-                  value={orderReference}
-                  onChange={(event) => setOrderReference(event.target.value)}
-                  placeholder="Contoh: INV/20260429/MPL/123456789"
-                  className="h-11 rounded-[12px] border-[#d7c0ae] bg-[#fbf2e8] text-[#6a4128] shadow-none"
-                />
-              </label>
-              <label className="grid gap-1">
-                <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#b06e43]">
-                  Nama Pembeli
-                </span>
-                <Input
-                  value={customerName}
-                  onChange={(event) => setCustomerName(event.target.value)}
-                  placeholder="Nama customer di platform"
-                  className="h-11 rounded-[12px] border-[#d7c0ae] bg-[#fbf2e8] text-[#6a4128] shadow-none"
-                />
-              </label>
-              <label className="grid gap-1">
-                <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#b06e43]">
-                  Tanggal Order Masuk
-                </span>
-                <Input
-                  type="date"
-                  value={orderDate}
-                  onChange={(event) => setOrderDate(event.target.value)}
-                  className="h-11 rounded-[12px] border-[#d7c0ae] bg-white shadow-none"
-                />
-              </label>
-              <label className="grid gap-1">
-                <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#b06e43]">
-                  Estimasi Tanggal Kirim
-                </span>
-                <Input
-                  type="date"
-                  value={shipDate}
-                  onChange={(event) => setShipDate(event.target.value)}
-                  className="h-11 rounded-[12px] border-[#d7c0ae] bg-white shadow-none"
-                />
-              </label>
-              <label className="grid gap-1">
-                <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#b06e43]">
-                  Metode Pengiriman
-                </span>
-                <Select
-                  value={shippingMethod}
-                  onChange={(event) => setShippingMethod(event.target.value)}
-                  className="h-11 rounded-[12px] border-[#d7c0ae] bg-white shadow-none"
+        <div className="mt-5 grid gap-6 xl:grid-cols-[minmax(340px,0.9fr)_minmax(0,1.1fr)] xl:items-start">
+          <div className="space-y-6 xl:sticky xl:top-4">
+            <section>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#b06e43]">
+                Platform
+              </p>
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setPlatform("tokopedia")}
+                  className={`rounded-[16px] border px-3 py-4 text-center transition ${
+                    platform === "tokopedia"
+                      ? "border-[#29b34a] bg-[#eaf8ee] shadow-[inset_0_0_0_1px_rgba(41,179,74,0.18)]"
+                      : "border-[#dcc8b8] bg-white"
+                  }`}
                 >
-                  <option value="">Pilih metode pengiriman...</option>
-                  {SHIPPING_METHOD_OPTIONS.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </Select>
-              </label>
-              <label className="grid gap-1">
-                <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#b06e43]">
-                  Notes Dari Customer
-                </span>
-                <Textarea
-                  value={customerNotes}
-                  onChange={(event) => setCustomerNotes(event.target.value)}
-                  placeholder="Contoh: tolong dikemas bubble wrap dobel, ada note ucapan di dalam..."
-                  className="min-h-[92px] rounded-[12px] border-[#d7c0ae] bg-[#fbf2e8] text-[#6a4128] shadow-none focus-visible:ring-[#c57b49]"
-                />
-              </label>
-            </div>
-          </div>
-        </section>
+                  <div className="mx-auto h-5 w-5 rounded-full bg-[radial-gradient(circle_at_30%_30%,#98f6bc,#3aa25c_65%,#1f7e42)]" />
+                  <p className="mt-2 text-sm font-bold text-[#1d140e]">Tokopedia</p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPlatform("shopee")}
+                  className={`rounded-[16px] border px-3 py-4 text-center transition ${
+                    platform === "shopee"
+                      ? "border-[#f28b57] bg-[#fff3ed] shadow-[inset_0_0_0_1px_rgba(242,139,87,0.15)]"
+                      : "border-[#dcc8b8] bg-white"
+                  }`}
+                >
+                  <div className="mx-auto text-xl leading-none text-[#f06c2d]">♥</div>
+                  <p className="mt-1 text-sm font-bold text-[#1d140e]">Shopee</p>
+                </button>
+              </div>
+            </section>
 
-        <section className="mt-6">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#b06e43]">
-            Input Produk
-          </p>
-          <div className="mt-3 overflow-hidden rounded-[20px] border border-[#dcc8b8] bg-[#fffaf6]">
+            <section>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#b06e43]">
+                Informasi Order
+              </p>
+              <div className="mt-3 overflow-hidden rounded-[20px] border border-[#dcc8b8] bg-[#fffaf6]">
+                <div className="grid gap-4 px-4 py-4 md:grid-cols-2">
+                  <label className="grid gap-1 md:col-span-2">
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#b06e43]">
+                      Nomor Order / Resi Platform
+                    </span>
+                    <Input
+                      value={orderReference}
+                      onChange={(event) => setOrderReference(event.target.value)}
+                      placeholder="Contoh: INV/20260429/MPL/123456789"
+                      className="h-11 rounded-[12px] border-[#d7c0ae] bg-[#fbf2e8] text-[#6a4128] shadow-none"
+                    />
+                  </label>
+                  <label className="grid gap-1 md:col-span-2">
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#b06e43]">
+                      Nama Pembeli
+                    </span>
+                    <Input
+                      value={customerName}
+                      onChange={(event) => setCustomerName(event.target.value)}
+                      placeholder="Nama customer di platform"
+                      className="h-11 rounded-[12px] border-[#d7c0ae] bg-[#fbf2e8] text-[#6a4128] shadow-none"
+                    />
+                  </label>
+                  <label className="grid gap-1">
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#b06e43]">
+                      Tanggal Order Masuk
+                    </span>
+                    <Input
+                      type="date"
+                      value={orderDate}
+                      onChange={(event) => setOrderDate(event.target.value)}
+                      className="h-11 rounded-[12px] border-[#d7c0ae] bg-white shadow-none"
+                    />
+                  </label>
+                  <label className="grid gap-1">
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#b06e43]">
+                      Estimasi Tanggal Kirim
+                    </span>
+                    <Input
+                      type="date"
+                      value={shipDate}
+                      onChange={(event) => setShipDate(event.target.value)}
+                      className="h-11 rounded-[12px] border-[#d7c0ae] bg-white shadow-none"
+                    />
+                  </label>
+                  <label className="grid gap-1 md:col-span-2">
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#b06e43]">
+                      Metode Pengiriman
+                    </span>
+                    <Select
+                      value={shippingMethod}
+                      onChange={(event) => setShippingMethod(event.target.value)}
+                      className="h-11 rounded-[12px] border-[#d7c0ae] bg-white shadow-none"
+                    >
+                      <option value="">Pilih metode pengiriman...</option>
+                      {SHIPPING_METHOD_OPTIONS.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </Select>
+                  </label>
+                  <label className="grid gap-1 md:col-span-2">
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#b06e43]">
+                      Notes Dari Customer
+                    </span>
+                    <Textarea
+                      value={customerNotes}
+                      onChange={(event) => setCustomerNotes(event.target.value)}
+                      placeholder="Contoh: tolong dikemas bubble wrap dobel, ada note ucapan di dalam..."
+                      className="min-h-[92px] rounded-[12px] border-[#d7c0ae] bg-[#fbf2e8] text-[#6a4128] shadow-none focus-visible:ring-[#c57b49]"
+                    />
+                  </label>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <div className="space-y-6">
+            <section>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#b06e43]">
+                    Input Produk
+                  </p>
+                  <p className="mt-1 text-xs text-[#b7835f]">
+                    Parse daftar platform atau tambah item manual, lalu cek total sebelum simpan.
+                  </p>
+                </div>
+                <div className="rounded-full bg-[#fff0e2] px-3 py-1 text-xs font-semibold text-[#b15d2f]">
+                  {items.length} item tersusun
+                </div>
+              </div>
+              <div className="mt-3 overflow-hidden rounded-[20px] border border-[#dcc8b8] bg-[#fffaf6]">
             <div className="flex items-center justify-between border-b border-[#e7d8cc] px-4 py-3">
               <p className="text-sm font-bold text-[#1d140e]">Paste dari Platform</p>
               <p className="text-[11px] text-[#c08965]">atau input manual di bawah</p>
@@ -945,7 +959,7 @@ Add-On: Dark Color x1`}
                     ))}
                   </Select>
 
-                  <div className="grid grid-cols-[1fr,92px] gap-3">
+                  <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_120px]">
                     <Input
                       type="number"
                       min={1}
@@ -973,7 +987,7 @@ Add-On: Dark Color x1`}
                     <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#b06e43]">
                       Add-On Sesuai Product
                     </p>
-                    <div className="mt-2 grid grid-cols-[1fr,88px,auto] gap-2">
+                    <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_88px_auto]">
                       <Select
                         value={pendingAddOnId}
                         onChange={(event) => setPendingAddOnId(event.target.value)}
@@ -1035,14 +1049,14 @@ Add-On: Dark Color x1`}
                 </div>
               )}
             </div>
-          </div>
-        </section>
+              </div>
+            </section>
 
-        <section className="mt-6">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#b06e43]">
-            Daftar Item
-          </p>
-          <div className="mt-3 overflow-hidden rounded-[20px] border border-[#dcc8b8] bg-[#fffaf6]">
+            <section>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#b06e43]">
+                Daftar Item
+              </p>
+              <div className="mt-3 overflow-hidden rounded-[20px] border border-[#dcc8b8] bg-[#fffaf6]">
             <div className="flex items-center justify-between border-b border-[#e7d8cc] px-4 py-3">
               <p className="text-sm font-bold text-[#1d140e]">
                 {items.length} item
@@ -1062,7 +1076,7 @@ Add-On: Dark Color x1`}
               </button>
             </div>
 
-            <div className="grid grid-cols-[1fr,62px,86px,34px] gap-2 border-b border-[#e7d8cc] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#b06e43]">
+            <div className="hidden grid-cols-[minmax(0,1fr)_72px_104px_40px] gap-2 border-b border-[#e7d8cc] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#b06e43] sm:grid">
               <span>Nama Produk</span>
               <span>Qty</span>
               <span>Harga/Pcs</span>
@@ -1077,7 +1091,7 @@ Add-On: Dark Color x1`}
               <div>
                 {items.map((item) => (
                   <div key={item.id} className="border-b border-[#f0e4da]">
-                    <div className="grid grid-cols-[1fr,62px,86px,34px] gap-2 px-4 py-3">
+                    <div className="grid gap-2 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_72px_104px_40px]">
                       <div>
                         <p className="rounded-[10px] border border-[#dfc6b4] bg-[#fff6ef] px-3 py-2 text-sm text-[#2c1d14]">
                           {item.displayName}
@@ -1112,7 +1126,7 @@ Add-On: Dark Color x1`}
                       <button
                         type="button"
                         onClick={() => removeItem(item.id)}
-                        className="flex h-10 items-center justify-center rounded-[10px] bg-[#ffe6e6] text-[#d15a5a]"
+                        className="flex h-10 items-center justify-center rounded-[10px] bg-[#ffe6e6] text-[#d15a5a] sm:w-auto"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
@@ -1121,7 +1135,7 @@ Add-On: Dark Color x1`}
                     {item.addOns.map((addOn) => (
                       <div
                         key={`${item.id}-${addOn.id}`}
-                        className="grid grid-cols-[1fr,62px,86px,34px] gap-2 bg-[#eef5ff] px-4 py-3"
+                        className="grid gap-2 bg-[#eef5ff] px-4 py-3 sm:grid-cols-[minmax(0,1fr)_72px_104px_40px]"
                       >
                         <div>
                           <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#4c79a2]">
@@ -1174,32 +1188,34 @@ Add-On: Dark Color x1`}
                 {formatRupiah(totalIncome)}
               </p>
             </div>
+              </div>
+            </section>
+
+            <div className="rounded-[16px] border border-[#e0ad47] bg-[#fff8e9] px-4 py-3 text-[12px] leading-5 text-[#8f6424]">
+              Order e-commerce dicatat terpisah dari order WA. Data ini hanya masuk
+              ke laporan keuangan marketplace dan tidak membuat booking order baru.
+            </div>
+
+            <button
+              type="button"
+              onClick={saveOrder}
+              disabled={savingOrder || loadingCatalog}
+              className="flex h-14 w-full items-center justify-center rounded-[16px] bg-[#d26a31] text-xl font-extrabold text-white transition hover:bg-[#bf5921] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {savingOrder ? (
+                <>
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                  Menyimpan...
+                </>
+              ) : (
+                "✓ Simpan Order"
+              )}
+            </button>
+            <p className="text-center text-[11px] text-[#c18b66]">
+              Order tersimpan ke catatan omzet marketplace sesuai estimasi tanggal kirim.
+            </p>
           </div>
-        </section>
-
-        <div className="mt-5 rounded-[16px] border border-[#e0ad47] bg-[#fff8e9] px-4 py-3 text-[12px] leading-5 text-[#8f6424]">
-          Order e-commerce dicatat terpisah dari order WA. Data ini hanya masuk
-          ke laporan keuangan marketplace dan tidak membuat booking order baru.
         </div>
-
-        <button
-          type="button"
-          onClick={saveOrder}
-          disabled={savingOrder || loadingCatalog}
-          className="mt-5 flex h-14 w-full items-center justify-center rounded-[16px] bg-[#d26a31] text-xl font-extrabold text-white transition hover:bg-[#bf5921] disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {savingOrder ? (
-            <>
-              <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-              Menyimpan...
-            </>
-          ) : (
-            "✓ Simpan Order"
-          )}
-        </button>
-        <p className="mt-3 text-center text-[11px] text-[#c18b66]">
-          Order tersimpan ke catatan omzet marketplace sesuai estimasi tanggal kirim.
-        </p>
       </div>
     </div>
   );

@@ -35,7 +35,10 @@ export function isPrismaConnectionTimeout(error: unknown): boolean {
     message.includes("can't reach database server") ||
     message.includes("cant reach database server") ||
     message.includes("connection timeout") ||
-    message.includes("connect timeout")
+    message.includes("connect timeout") ||
+    message.includes("max clients reached in session mode") ||
+    message.includes("emaxconnsession") ||
+    message.includes("too many clients")
   );
 }
 

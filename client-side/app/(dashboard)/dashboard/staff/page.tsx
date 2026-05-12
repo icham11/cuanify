@@ -373,16 +373,21 @@ export default function StaffPage() {
   );
 
   return (
-    <div className="space-y-8 max-w-3xl mx-auto">
+    <div className="mx-auto max-w-7xl px-3 pb-10 pt-4 text-[#2f1e13] sm:px-4">
+      <div className="space-y-5 rounded-[34px] border border-[#e4d2c4] bg-[#f8efe5] px-4 pb-6 pt-3 shadow-[0_26px_55px_-42px_rgba(94,53,30,0.6)] sm:px-5 xl:px-6">
       {/* ═══ Header ═══ */}
-      <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
-        <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-900 flex items-center gap-3">
-          <div className="p-2 sm:p-2.5 bg-linear-to-br from-indigo-500 to-purple-500 rounded-xl text-white">
+      <motion.div
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="rounded-[30px] border border-[#dcc8b8] bg-[#f4e9dc] px-5 py-5 shadow-[0_16px_30px_-26px_rgba(52,31,20,0.35)] sm:px-6"
+      >
+        <h1 className="flex items-center gap-3 text-xl font-extrabold text-[#2f1e13] sm:text-2xl md:text-3xl">
+          <div className="rounded-2xl bg-linear-to-br from-[#f7a56a] via-[#e77b39] to-[#cb6837] p-2 text-white shadow-[0_12px_22px_-18px_rgba(200,96,48,0.9)] sm:p-2.5">
             <Users className="w-5 h-5 sm:w-7 sm:h-7" />
           </div>
           Staff
         </h1>
-        <p className="text-gray-500 mt-1 text-sm">Daftarkan admin/staff/kasir, atur bisnis penempatan, dan kelola tim Anda.</p>
+        <p className="mt-1 max-w-3xl text-sm text-[#8a6047]">Daftarkan admin/staff/kasir, atur bisnis penempatan, dan kelola tim Anda.</p>
       </motion.div>
 
       {/* ═══ RBAC Explanation ═══ */}
@@ -390,11 +395,11 @@ export default function StaffPage() {
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.05 }}
-        className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5"
+        className="rounded-[24px] border border-[#dcc8b8] bg-[#fffaf6] p-5 shadow-[0_16px_30px_-26px_rgba(52,31,20,0.28)]"
       >
-        <h3 className="font-bold text-gray-900 text-sm mb-3">Perbedaan Hak Akses</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="p-4 bg-amber-50 rounded-xl border border-amber-100">
+        <h3 className="mb-3 text-sm font-bold text-[#2f1e13]">Perbedaan Hak Akses</h3>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <div className="rounded-[22px] border border-[#efd9b1] bg-[#fff3d9] p-4">
             <div className="flex items-center gap-2 mb-2">
               <Crown className="w-4 h-4 text-amber-600" />
               <span className="font-bold text-amber-800 text-sm">Owner (Bos)</span>
@@ -408,7 +413,7 @@ export default function StaffPage() {
               <li>✅ Export data</li>
             </ul>
           </div>
-          <div className="p-4 bg-violet-50 rounded-xl border border-violet-100">
+          <div className="rounded-[22px] border border-[#e8d7cd] bg-[#fff8f3] p-4">
             <div className="flex items-center gap-2 mb-2">
               <Shield className="w-4 h-4 text-violet-600" />
               <span className="font-bold text-violet-800 text-sm">Admin</span>
@@ -425,7 +430,7 @@ export default function StaffPage() {
               </li>
             </ul>
           </div>
-          <div className="p-4 bg-blue-50 rounded-xl border border-blue-100">
+          <div className="rounded-[22px] border border-[#d8e6ef] bg-[#eef6fb] p-4">
             <div className="flex items-center gap-2 mb-2">
               <BadgeCheck className="w-4 h-4 text-blue-600" />
               <span className="font-bold text-blue-800 text-sm">Kasir</span>
@@ -453,10 +458,10 @@ export default function StaffPage() {
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1 }}
-        className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden"
+        className="overflow-hidden rounded-[24px] border border-[#dcc8b8] bg-[#fffaf6] shadow-[0_16px_30px_-26px_rgba(52,31,20,0.28)]"
       >
         {/* Tab bar */}
-        <div className="flex border-b border-gray-100">
+        <div className="flex flex-col border-b border-[#ead9cc] sm:flex-row">
           <button
             onClick={() => {
               setTabMode("register");
@@ -464,8 +469,8 @@ export default function StaffPage() {
             }}
             className={`flex-1 py-3.5 text-sm font-semibold text-center transition cursor-pointer ${
               tabMode === "register"
-                ? "text-indigo-700 border-b-2 border-indigo-600 bg-indigo-50/50"
-                : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"
+                ? "border-b-2 border-[#cb6837] bg-[#fff4ea] text-[#b15d2f]"
+                : "text-[#8a6047] hover:bg-[#fbf1e8] hover:text-[#6f4933]"
             }`}
           >
             <span className="flex items-center justify-center gap-2">
@@ -480,8 +485,8 @@ export default function StaffPage() {
             }}
             className={`flex-1 py-3.5 text-sm font-semibold text-center transition cursor-pointer ${
               tabMode === "existing"
-                ? "text-indigo-700 border-b-2 border-indigo-600 bg-indigo-50/50"
-                : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"
+                ? "border-b-2 border-[#cb6837] bg-[#fff4ea] text-[#b15d2f]"
+                : "text-[#8a6047] hover:bg-[#fbf1e8] hover:text-[#6f4933]"
             }`}
           >
             <span className="flex items-center justify-center gap-2">
@@ -491,7 +496,7 @@ export default function StaffPage() {
           </button>
         </div>
 
-        <div className="p-5">
+        <div className="p-5 sm:p-6">
           {/* ── Tab: Register new member ── */}
           {tabMode === "register" && (
             <div className="space-y-4">
@@ -575,7 +580,7 @@ export default function StaffPage() {
 
               {/* Registration form */}
               {!newCashierInfo && (
-                <div className="space-y-3">
+                <div className="grid gap-3 lg:grid-cols-2">
                   {/* Business selector */}
                   {businesses.length > 1 && (
                     <div>
@@ -593,7 +598,7 @@ export default function StaffPage() {
                         value={regName}
                         onChange={(e) => setRegName(e.target.value)}
                         placeholder="Contoh: Siti Aisyah"
-                        className="w-full pl-9 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-300 focus:outline-none text-black placeholder-gray-400"
+                        className="w-full rounded-xl border border-[#dcc7b8] bg-[#fbf4ed] py-2.5 pl-9 pr-4 text-sm text-black placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#f0bf9f]"
                       />
                     </div>
                   </div>
@@ -607,7 +612,7 @@ export default function StaffPage() {
                         value={regEmail}
                         onChange={(e) => setRegEmail(e.target.value)}
                         placeholder="Contoh: siti@gmail.com"
-                        className="w-full pl-9 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-300 focus:outline-none text-black placeholder-gray-400"
+                        className="w-full rounded-xl border border-[#dcc7b8] bg-[#fbf4ed] py-2.5 pl-9 pr-4 text-sm text-black placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#f0bf9f]"
                       />
                     </div>
                   </div>
@@ -621,7 +626,7 @@ export default function StaffPage() {
                         value={regPassword}
                         onChange={(e) => setRegPassword(e.target.value)}
                         placeholder="Minimal 6 karakter"
-                        className="w-full pl-9 pr-20 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-300 focus:outline-none text-black placeholder-gray-400"
+                        className="w-full rounded-xl border border-[#dcc7b8] bg-[#fbf4ed] py-2.5 pl-9 pr-20 text-sm text-black placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#f0bf9f]"
                       />
                       <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
                         <button
@@ -647,7 +652,7 @@ export default function StaffPage() {
                       <select
                         value={regRole}
                         onChange={(e) => setRegRole(e.target.value as ManagedRole)}
-                        className="w-full appearance-none rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 pr-9 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                        className="w-full appearance-none rounded-xl border border-[#dcc7b8] bg-[#fbf4ed] px-3 py-2.5 pr-9 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#f0bf9f]"
                       >
                         <option value="Admin">Admin Operasional</option>
                         <option value="Staff">Staff Produksi</option>
@@ -667,7 +672,7 @@ export default function StaffPage() {
                       regPassword.length < 6 ||
                       !regBusinessId
                     }
-                    className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition cursor-pointer flex items-center justify-center gap-2"
+                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#cb6837] py-3 text-sm font-bold text-white transition hover:bg-[#b95a2c] disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {registering ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
                     Daftarkan {regRole}
@@ -690,7 +695,7 @@ export default function StaffPage() {
                 <select
                   value={inviteRole}
                   onChange={(e) => setInviteRole(e.target.value as ManagedRole)}
-                  className="w-full appearance-none rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 pr-9 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                className="w-full appearance-none rounded-xl border border-[#dcc7b8] bg-[#fbf4ed] px-3 py-2.5 pr-9 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#f0bf9f]"
                 >
                   <option value="Admin">Admin Operasional</option>
                   <option value="Staff">Staff Produksi</option>
@@ -698,7 +703,7 @@ export default function StaffPage() {
                 </select>
                 <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-700" />
               </div>
-              <div className="flex gap-3">
+              <div className="flex flex-col gap-3 md:flex-row">
                 <div className="relative flex-1">
                   <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                   <input
@@ -707,13 +712,13 @@ export default function StaffPage() {
                     onChange={(e) => setInviteEmail(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && handleInvite()}
                     placeholder="email@staff.com"
-                    className="w-full pl-9 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-300 focus:outline-none text-black placeholder-gray-400"
+                    className="w-full rounded-xl border border-[#dcc7b8] bg-[#fbf4ed] py-2.5 pl-9 pr-4 text-sm text-black placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#f0bf9f]"
                   />
                 </div>
                 <button
                   onClick={handleInvite}
                   disabled={inviting || !inviteEmail.trim() || !inviteBusinessId}
-                  className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition cursor-pointer flex items-center gap-2"
+                  className="flex items-center justify-center gap-2 rounded-xl bg-[#cb6837] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#b95a2c] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {inviting ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
                   Tambahkan {inviteRole}
@@ -729,7 +734,7 @@ export default function StaffPage() {
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.15 }}
-        className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden"
+        className="overflow-hidden rounded-[24px] border border-[#dcc8b8] bg-[#fffaf6] shadow-[0_16px_30px_-26px_rgba(52,31,20,0.28)]"
       >
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
           <div>
@@ -774,7 +779,7 @@ export default function StaffPage() {
           <div className="divide-y divide-gray-50">
             {/* Owner row */}
             {owner && (
-              <div className="px-5 py-4 flex items-center gap-4 bg-amber-50/50">
+              <div className="flex flex-col gap-3 bg-[#fff4de] px-5 py-4 md:flex-row md:items-center">
                 <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center shrink-0">
                   <Crown className="w-5 h-5 text-amber-600" />
                 </div>
@@ -821,7 +826,7 @@ export default function StaffPage() {
               const roleLabel = isAdmin ? "Admin" : isCashier ? "Cashier" : "Staff";
 
               return (
-              <div key={member.id} className="px-5 py-4 flex items-center gap-4 hover:bg-gray-50 transition">
+              <div key={member.id} className="flex flex-col gap-3 px-5 py-4 transition hover:bg-[#fbf2ea] md:flex-row md:items-center">
                 <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${avatarClass}`}>
                   {isAdmin ? (
                     <Shield className={`w-5 h-5 ${iconClass}`} />
@@ -845,30 +850,30 @@ export default function StaffPage() {
                     </span>
                   </div>
                 </div>
-                <span className={`px-3 py-1 text-xs font-bold rounded-full shrink-0 ${roleBadgeClass}`}>
-                  {roleLabel}
-                </span>
-                {/* Edit button */}
-                <button
-                  onClick={() => openEditModal(member)}
-                  className="p-2 text-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition cursor-pointer"
-                  title="Edit anggota tim"
-                >
-                  <Pencil className="w-4 h-4" />
-                </button>
-                {/* Delete button */}
-                <button
-                  onClick={() => handleRemove(member.id)}
-                  disabled={deletingId === member.id}
-                  className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition cursor-pointer disabled:opacity-50"
-                  title="Hapus anggota tim"
-                >
-                  {deletingId === member.id ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Trash2 className="w-4 h-4" />
-                  )}
-                </button>
+                <div className="flex flex-wrap items-center gap-2 md:ml-auto md:flex-nowrap">
+                  <span className={`px-3 py-1 text-xs font-bold rounded-full shrink-0 ${roleBadgeClass}`}>
+                    {roleLabel}
+                  </span>
+                  <button
+                    onClick={() => openEditModal(member)}
+                    className="rounded-lg p-2 text-indigo-400 transition hover:bg-indigo-50 hover:text-indigo-600 cursor-pointer"
+                    title="Edit anggota tim"
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => handleRemove(member.id)}
+                    disabled={deletingId === member.id}
+                    className="rounded-lg p-2 text-red-400 transition hover:bg-red-50 hover:text-red-600 cursor-pointer disabled:opacity-50"
+                    title="Hapus anggota tim"
+                  >
+                    {deletingId === member.id ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-4 h-4" />
+                    )}
+                  </button>
+                </div>
               </div>
             );
             })}
@@ -995,6 +1000,7 @@ export default function StaffPage() {
           </motion.div>
         )}
       </AnimatePresence>
+      </div>
     </div>
   );
 }

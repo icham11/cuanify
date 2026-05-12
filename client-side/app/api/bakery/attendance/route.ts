@@ -18,7 +18,7 @@ type AttendanceRow = {
   id: number;
   business_id: number;
   user_id: number;
-  attendance_date: string;
+  attendance_date: string | Date;
   status: AttendanceStatus;
   check_in_at: Date;
   notes: string | null;
@@ -100,6 +100,19 @@ function getJakartaDateKey(date: Date) {
   return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
 }
 
+function normalizeAttendanceDateKey(value: string | Date) {
+  if (typeof value === "string") {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+    const parsed = new Date(value);
+    if (Number.isFinite(parsed.getTime())) {
+      return parsed.toISOString().slice(0, 10);
+    }
+    return value;
+  }
+
+  return value.toISOString().slice(0, 10);
+}
+
 async function ensureAttendanceTable() {
   await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS bakery_attendance (
@@ -161,7 +174,7 @@ async function getOwnerAttendanceSummary(
     const daily = userRows.map((row) => {
       const localParts = getJakartaParts(new Date(row.check_in_at));
       return {
-        date: row.attendance_date,
+        date: normalizeAttendanceDateKey(row.attendance_date),
         status: row.status,
         checkInAt: row.check_in_at,
         isLate: localParts.hour >= LATE_THRESHOLD_HOUR,
@@ -198,7 +211,10 @@ async function getSelfAttendanceSummary(
   `;
 
   const todayKey = getJakartaDateKey(new Date());
-  const todayRecord = rows.find((row) => row.attendance_date === todayKey) ?? null;
+  const todayRecord =
+    rows.find(
+      (row) => normalizeAttendanceDateKey(row.attendance_date) === todayKey,
+    ) ?? null;
 
   return {
     attendanceCount: rows.length,
@@ -207,7 +223,7 @@ async function getSelfAttendanceSummary(
       return localParts.hour >= LATE_THRESHOLD_HOUR;
     }).length,
     records: rows.map((row) => ({
-      date: row.attendance_date,
+      date: normalizeAttendanceDateKey(row.attendance_date),
       status: row.status,
       checkInAt: row.check_in_at,
       isLate: getJakartaParts(new Date(row.check_in_at)).hour >= LATE_THRESHOLD_HOUR,
@@ -215,7 +231,7 @@ async function getSelfAttendanceSummary(
     })),
     todayRecord: todayRecord
       ? {
-          date: todayRecord.attendance_date,
+          date: normalizeAttendanceDateKey(todayRecord.attendance_date),
           status: todayRecord.status,
           checkInAt: todayRecord.check_in_at,
           isLate:
@@ -343,7 +359,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data: {
-        date: record.attendance_date,
+        date: normalizeAttendanceDateKey(record.attendance_date),
         status: record.status,
         checkInAt: record.check_in_at,
         isLate: localParts.hour >= LATE_THRESHOLD_HOUR,

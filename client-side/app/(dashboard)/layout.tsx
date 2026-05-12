@@ -79,8 +79,8 @@ export default async function DashboardLayout({
           <div className="hidden w-px self-stretch bg-[var(--crumbella-border)] md:block" />
 
           <main className="min-h-0 min-w-0 flex-1 overflow-visible pb-24 md:custom-scrollbar md:h-[calc(100vh-2rem)] md:overflow-y-auto md:overscroll-contain md:pb-0">
-            <div className="mx-auto w-full max-w-[440px] px-1 py-2 sm:px-3 sm:py-4 md:max-w-[96rem] lg:px-5">
-              <div className="relative overflow-hidden rounded-[34px] border border-[var(--crumbella-border)] bg-[var(--background)] p-2 text-[0.95rem] shadow-[0_24px_44px_-30px_rgba(30,18,10,0.5)] sm:p-3 md:rounded-[24px] md:bg-[var(--crumbella-surface)] md:p-4 md:shadow-[0_16px_34px_-26px_rgba(30,18,10,0.45)]">
+            <div className="mx-auto w-full max-w-[440px] px-1 py-2 sm:px-3 sm:py-4 md:max-w-[112rem] lg:px-5">
+              <div className="relative overflow-hidden rounded-[34px] border border-[#e4d2c4] bg-[#f8efe5] p-2 text-[0.95rem] shadow-[0_24px_44px_-30px_rgba(30,18,10,0.5)] sm:p-3 md:p-4 md:shadow-[0_16px_34px_-26px_rgba(30,18,10,0.45)]">
                 <div className="relative">{children}</div>
               </div>
             </div>

@@ -205,9 +205,10 @@ export default function BakeryCustomersPage() {
   const todayLabel = useMemo(() => formatHeaderDate(new Date()), []);
 
   return (
-    <div className="min-h-screen bg-[#f6ede3] text-[#221710]">
-      <div className="mx-auto flex w-full max-w-[392px] flex-col px-3 pb-8 pt-3 md:max-w-[392px]">
-        <div className="flex items-start justify-between border-b border-[#decdbe] px-1 pb-2.5">
+    <div className="mx-auto max-w-7xl px-3 pb-10 pt-4 text-[#221710] sm:px-4">
+      <div className="rounded-[34px] border border-[#e4d2c4] bg-[#f8efe5] px-4 pb-6 pt-3 shadow-[0_26px_55px_-42px_rgba(94,53,30,0.6)] sm:px-5 xl:px-6">
+        <div className="border-b border-[#decec1] pb-3">
+          <div className="flex items-start justify-between px-1">
           <div className="flex items-center gap-3">
             <button
               type="button"
@@ -227,8 +228,9 @@ export default function BakeryCustomersPage() {
             FE
           </div>
         </div>
+        </div>
 
-        <div className="mt-3 rounded-[24px] border border-[#eadbce] bg-transparent">
+        <div className="mt-5 rounded-[24px] border border-[#eadbce] bg-transparent">
           <div className="flex items-center gap-2 rounded-[14px] border border-[#d9c7b8] bg-white px-4 py-[11px] shadow-[0_4px_12px_-10px_rgba(76,47,25,0.45)]">
             <Search className="h-[15px] w-[15px] text-[#dc6f2d]" />
             <input
@@ -266,26 +268,26 @@ export default function BakeryCustomersPage() {
             })}
           </div>
 
-          <div className="mt-3 grid grid-cols-4 gap-2.5">
-            <div className="rounded-[16px] border border-[#dcc7b5] bg-white px-2 py-3 text-center shadow-[0_10px_24px_-22px_rgba(62,38,18,0.55)]">
+          <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+            <div className="rounded-[16px] border border-[#dcc7b5] bg-[#fffaf6] px-2 py-3 text-center shadow-[0_10px_24px_-22px_rgba(62,38,18,0.55)]">
               <p className="text-[18px] font-black leading-none text-[#1e1814]">
                 {summary.totalCustomers}
               </p>
               <p className="mt-1 text-[10px] text-[#8c6f5f]">Customer</p>
             </div>
-            <div className="rounded-[16px] border border-[#dcc7b5] bg-white px-2 py-3 text-center shadow-[0_10px_24px_-22px_rgba(62,38,18,0.55)]">
+            <div className="rounded-[16px] border border-[#dcc7b5] bg-[#fffaf6] px-2 py-3 text-center shadow-[0_10px_24px_-22px_rgba(62,38,18,0.55)]">
               <p className="text-[18px] font-black leading-none text-[#d19a00]">
                 {summary.vipCount}
               </p>
               <p className="mt-1 text-[10px] text-[#8c6f5f]">VIP</p>
             </div>
-            <div className="rounded-[16px] border border-[#dcc7b5] bg-white px-2 py-3 text-center shadow-[0_10px_24px_-22px_rgba(62,38,18,0.55)]">
+            <div className="rounded-[16px] border border-[#dcc7b5] bg-[#fffaf6] px-2 py-3 text-center shadow-[0_10px_24px_-22px_rgba(62,38,18,0.55)]">
               <p className="text-[18px] font-black leading-none text-[#173a20]">
                 {summary.repeatCount}
               </p>
               <p className="mt-1 text-[10px] text-[#8c6f5f]">Repeat</p>
             </div>
-            <div className="rounded-[16px] border border-[#dcc7b5] bg-white px-2 py-3 text-center shadow-[0_10px_24px_-22px_rgba(62,38,18,0.55)]">
+            <div className="rounded-[16px] border border-[#dcc7b5] bg-[#fffaf6] px-2 py-3 text-center shadow-[0_10px_24px_-22px_rgba(62,38,18,0.55)]">
               <p className="text-[15px] font-black leading-none text-[#1e1814]">
                 {formatCurrencyCompact(summary.revenue)}
               </p>
@@ -303,9 +305,9 @@ export default function BakeryCustomersPage() {
           </p>
         </div>
 
-        <div className="mt-2.5 space-y-3">
+        <div className="mt-2.5 grid gap-3 xl:grid-cols-2">
           {filteredCustomers.length === 0 ? (
-            <div className="rounded-[24px] border border-[#dcc7b5] bg-white px-5 py-10 text-center text-sm text-[#94755f] shadow-[0_18px_42px_-30px_rgba(103,66,39,0.5)]">
+            <div className="rounded-[24px] border border-[#dcc7b5] bg-[#fffaf6] px-5 py-10 text-center text-sm text-[#94755f] shadow-[0_18px_42px_-30px_rgba(103,66,39,0.5)]">
               Tidak ada data customer untuk filter ini.
             </div>
           ) : null}
@@ -324,7 +326,7 @@ export default function BakeryCustomersPage() {
                 className={`overflow-hidden rounded-[18px] border bg-white shadow-[0_12px_28px_-24px_rgba(103,66,39,0.45)] ${
                   isVip
                     ? "border-[#e4b13e] bg-[#fff8e8]"
-                    : "border-[#ddcec2] bg-[#fffefd]"
+                    : "border-[#ddcec2] bg-[#fffaf6]"
                 }`}
               >
                 <div className="flex min-h-[76px] items-start justify-between gap-3 px-[14px] py-[12px]">

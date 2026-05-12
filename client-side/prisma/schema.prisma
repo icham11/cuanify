@@ -638,7 +638,6 @@ model production_tasks {
   business     Business? @relation(fields: [businessId], references: [id])
   businessId   Int?
 
-  @@unique([order_id, stage])
   @@unique([order_id, stage], map: "production_tasks_order_stage_unique")
   @@index([order_id], map: "idx_production_tasks_order_id")
 }

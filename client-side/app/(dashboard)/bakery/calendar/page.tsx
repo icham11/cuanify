@@ -653,8 +653,9 @@ export default function BakeryCalendarPage() {
   }
 
   return (
-    <div className="mx-auto max-w-[360px] space-y-4 pb-10 text-[#2f1e13]">
-      <div className="rounded-[34px] border border-[#dec8b6] bg-[#fffaf4] p-4 shadow-[0_24px_60px_-38px_rgba(94,53,30,0.45)]">
+    <div className="mx-auto max-w-7xl space-y-4 pb-10 text-[#2f1e13]">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,0.9fr)]">
+        <div className="rounded-[34px] border border-[#dec8b6] bg-[#fffaf4] p-4 shadow-[0_24px_60px_-38px_rgba(94,53,30,0.45)]">
         <div className="flex items-start justify-between gap-3 border-b border-[#ead6c8] pb-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
@@ -700,7 +701,7 @@ export default function BakeryCalendarPage() {
           </div>
         ) : null}
 
-        <div className="mt-4 rounded-[20px] border border-[#dec8b6] bg-[#fffdf9] p-3">
+          <div className="mt-4 rounded-[20px] border border-[#dec8b6] bg-[#fffdf9] p-3 lg:p-4">
           {isCapacityLoading ? (
             <div className="flex items-center justify-center gap-2 pb-3 text-xs font-medium text-[#8c5f44]">
               <Loader2 className="h-4 w-4 animate-spin text-[#cb6531]" />
@@ -708,7 +709,13 @@ export default function BakeryCalendarPage() {
             </div>
           ) : null}
 
-          <div className={currentView === Views.MONTH ? "h-[392px]" : "h-[540px]"}>
+            <div
+              className={
+                currentView === Views.MONTH
+                  ? "h-[392px] md:h-[500px] xl:h-[640px]"
+                  : "h-[540px] md:h-[640px] xl:h-[760px]"
+              }
+            >
             <Calendar
               localizer={localizer}
               culture="id"
@@ -773,7 +780,7 @@ export default function BakeryCalendarPage() {
             />
           </div>
 
-          <div className="mt-3 flex flex-wrap gap-x-3 gap-y-2 rounded-[16px] border border-[#ead6c8] bg-white px-3 py-2 text-[10px] font-medium text-[#8a6a54]">
+            <div className="mt-3 flex flex-wrap gap-x-3 gap-y-2 rounded-[16px] border border-[#ead6c8] bg-white px-3 py-2 text-[10px] font-medium text-[#8a6a54]">
             <span className="inline-flex items-center gap-1">
               <span className="h-2 w-2 rounded-full bg-[#bdb4ae]" /> Passed
             </span>
@@ -792,11 +799,12 @@ export default function BakeryCalendarPage() {
             <span className="inline-flex items-center gap-1">
               <span className="h-2 w-2 rounded-full bg-[#d24f40]" /> Closed H-1
             </span>
+            </div>
           </div>
         </div>
 
         {selectedDate && selectedCapacity ? (
-          <div className="mt-4 overflow-hidden rounded-[20px] border border-[#dd8c5a] bg-[#fffdf9]">
+          <div className="overflow-hidden rounded-[20px] border border-[#dd8c5a] bg-[#fffdf9] xl:sticky xl:top-4 xl:self-start">
             <div className="flex items-start justify-between gap-3 border-b border-[#ebc8b0] bg-[#fff1e6] px-4 py-3">
               <div>
                 <p className="text-lg font-semibold leading-tight text-[#cb6531]">
@@ -829,7 +837,7 @@ export default function BakeryCalendarPage() {
               </button>
             </div>
 
-            <div className="grid grid-cols-4 gap-2 px-4 py-4 text-center">
+            <div className="grid grid-cols-2 gap-3 px-4 py-4 text-center sm:grid-cols-4 xl:grid-cols-2">
               <div>
                 <p className="text-[2rem] font-bold leading-none text-[#1e140e]">
                   {selectedCapacity.usedToken}
@@ -1086,6 +1094,12 @@ export default function BakeryCalendarPage() {
 
         .rbc-month-row {
           min-height: 96px;
+        }
+
+        @media (min-width: 1280px) {
+          .rbc-month-row {
+            min-height: 128px;
+          }
         }
 
         .rbc-date-cell {

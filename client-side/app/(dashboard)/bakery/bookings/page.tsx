@@ -242,7 +242,7 @@ export default function BookingListPage() {
     }`;
 
   return (
-    <div className="space-y-4 pb-10">
+    <div className="mx-auto max-w-7xl space-y-4 pb-10">
       <GradientPageHeader
         title="Bookings"
         description={`${activeOrdersCount} order aktif`}

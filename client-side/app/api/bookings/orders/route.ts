@@ -1683,19 +1683,6 @@ async function readOrdersSnapshot(businessId: number) {
   });
 }
 
-function getSnapshotSource(value: unknown): SnapshotSource | null {
-  const metadata = asRecord(value);
-  const source = asString(metadata?.source);
-  if (
-    source === "rows" ||
-    source === "snapshot-fallback" ||
-    source === "snapshot-newer-than-rows"
-  ) {
-    return source;
-  }
-  return null;
-}
-
 async function upsertOrdersSnapshot(
   db: SnapshotStore,
   params: {
@@ -1971,6 +1958,8 @@ async function ensureBakeryTables() {
           ADD CONSTRAINT bakery_orders_sales_channel_check
           CHECK (sales_channel IN ('direct', 'tokopedia', 'shopee'));
       END IF;
+    EXCEPTION
+      WHEN duplicate_object THEN NULL;
     END
     $$;
   `);
@@ -2008,6 +1997,8 @@ async function ensureBakeryTables() {
           ALTER TYPE production_stage ADD VALUE 'lining';
         END IF;
       END IF;
+    EXCEPTION
+      WHEN duplicate_object THEN NULL;
     END $$;
   `);
 
@@ -2019,7 +2010,7 @@ async function ensureBakeryTables() {
       staff_id UUID,
       token_amount DECIMAL(10,2) NOT NULL,
       created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-      UNIQUE (order_id, stage)
+      CONSTRAINT production_tasks_order_stage_unique UNIQUE (order_id, stage)
     );
   `);
 
@@ -2031,9 +2022,14 @@ async function ensureBakeryTables() {
     SET stage = 'lining'
     WHERE stage::text = 'listing';
 
-    ALTER TABLE production_tasks
-      ADD CONSTRAINT production_tasks_stage_check
-      CHECK (stage::text IN ('lining', 'filling', 'finishing'));
+    DO $$
+    BEGIN
+      ALTER TABLE production_tasks
+        ADD CONSTRAINT production_tasks_stage_check
+        CHECK (stage::text IN ('lining', 'filling', 'finishing'));
+    EXCEPTION
+      WHEN duplicate_object THEN NULL;
+    END $$;
   `);
 
     await prisma.$executeRawUnsafe(`
@@ -2049,16 +2045,41 @@ async function ensureBakeryTables() {
       AND a.ctid < b.ctid;
 
     DO $$
+    DECLARE
+      matching_constraint_name TEXT;
     BEGIN
-      IF NOT EXISTS (
-        SELECT 1
-        FROM pg_constraint
-        WHERE conname = 'production_tasks_order_stage_unique'
-      ) THEN
+      SELECT con.conname
+      INTO matching_constraint_name
+      FROM pg_constraint con
+      WHERE con.conrelid = 'production_tasks'::regclass
+        AND con.contype = 'u'
+        AND con.conkey = ARRAY[
+          (
+            SELECT attnum
+            FROM pg_attribute
+            WHERE attrelid = 'production_tasks'::regclass
+              AND attname = 'order_id'
+          ),
+          (
+            SELECT attnum
+            FROM pg_attribute
+            WHERE attrelid = 'production_tasks'::regclass
+              AND attname = 'stage'
+          )
+        ]::smallint[];
+
+      IF matching_constraint_name IS NULL THEN
         ALTER TABLE production_tasks
-        ADD CONSTRAINT production_tasks_order_stage_unique
-        UNIQUE (order_id, stage);
+          ADD CONSTRAINT production_tasks_order_stage_unique
+          UNIQUE (order_id, stage);
+      ELSIF matching_constraint_name <> 'production_tasks_order_stage_unique' THEN
+        EXECUTE format(
+          'ALTER TABLE production_tasks RENAME CONSTRAINT %I TO production_tasks_order_stage_unique',
+          matching_constraint_name
+        );
       END IF;
+    EXCEPTION
+      WHEN duplicate_table OR duplicate_object THEN NULL;
     END $$;
   `);
 
@@ -2268,21 +2289,8 @@ export async function GET() {
         });
 
         const snapshot = await readOrdersSnapshot(businessId);
-        const snapshotSource = getSnapshotSource(snapshot?.metadata);
         const rowUpdatedAt = orderRows[0]?.updated_at?.toISOString() ?? null;
         const snapshotUpdatedAt = snapshot?.updatedAt?.toISOString() ?? null;
-
-        if (snapshotSource === "snapshot-fallback") {
-          return NextResponse.json({
-            success: true,
-            data: {
-              source: "snapshot-fallback",
-              id: snapshot?.id ?? null,
-              orders: parseOrdersContent(snapshot?.content),
-              updatedAt: snapshotUpdatedAt,
-            },
-          });
-        }
 
         if (
           snapshotUpdatedAt &&

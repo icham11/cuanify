@@ -146,7 +146,7 @@ export default function CreateProductsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-8">
+    <div className="mx-auto max-w-6xl space-y-8">
       <div className="flex items-center gap-3">
         <button
           type="button"

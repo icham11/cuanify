@@ -529,8 +529,8 @@ export default function BusinessPage() {
 
   if (businessLoading || loading) {
     return (
-      <div className="min-h-[60vh] bg-[#f6efe8] px-4 py-6">
-        <div className="mx-auto flex max-w-md items-center justify-center rounded-[28px] border border-[#dac8ba] bg-[#f7efe7] px-6 py-20 shadow-[0_12px_35px_rgba(84,56,36,0.08)]">
+      <div className="min-h-[60vh] px-4 py-6">
+        <div className="mx-auto flex max-w-3xl items-center justify-center rounded-[28px] border border-[#dac8ba] bg-[#f7efe7] px-6 py-20 shadow-[0_12px_35px_rgba(84,56,36,0.08)]">
           <Loader2 className="mr-3 h-5 w-5 animate-spin text-[#c86030]" />
           <span className="text-sm font-medium text-[#6b4a38]">
             Memuat ringkasan business...
@@ -542,8 +542,8 @@ export default function BusinessPage() {
 
   if (!business?.id) {
     return (
-      <div className="min-h-[60vh] bg-[#f6efe8] px-4 py-6">
-        <div className="mx-auto max-w-md rounded-[28px] border border-[#dac8ba] bg-[#f7efe7] px-6 py-10 text-center shadow-[0_12px_35px_rgba(84,56,36,0.08)]">
+      <div className="min-h-[60vh] px-4 py-6">
+        <div className="mx-auto max-w-3xl rounded-[28px] border border-[#dac8ba] bg-[#f7efe7] px-6 py-10 text-center shadow-[0_12px_35px_rgba(84,56,36,0.08)]">
           <p className="text-sm font-semibold text-[#6b4a38]">
             Tidak ada business aktif.
           </p>
@@ -553,9 +553,10 @@ export default function BusinessPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f6efe8] px-3 py-4 text-[#23150f] sm:px-5">
-      <div className="mx-auto max-w-md overflow-hidden rounded-[32px] border border-[#cfbdaf] bg-[#f7efe7] shadow-[0_14px_36px_rgba(84,56,36,0.10)]">
-        <div className="flex items-center gap-3 border-b border-[#e5d4c7] px-5 py-4">
+    <div className="mx-auto max-w-7xl px-3 pb-10 pt-4 text-[#23150f] sm:px-4">
+      <div className="overflow-hidden rounded-[34px] border border-[#e4d2c4] bg-[#f8efe5] px-4 pb-6 pt-3 shadow-[0_26px_55px_-42px_rgba(94,53,30,0.6)] sm:px-5 xl:px-6">
+      <div className="overflow-hidden rounded-[30px] border border-[#dcc8b8] bg-[#f7efe7] shadow-[0_14px_36px_rgba(84,56,36,0.10)]">
+        <div className="flex flex-wrap items-center gap-3 border-b border-[#e5d4c7] px-5 py-4">
           <button
             type="button"
             className="rounded-full p-2 text-[#7d553f] transition hover:bg-[#efe3d8]"
@@ -577,8 +578,8 @@ export default function BusinessPage() {
           </div>
         </div>
 
-        <div className="space-y-4 px-4 py-4">
-          <div className="flex gap-2">
+        <div className="space-y-5 px-4 py-4 sm:px-5 lg:px-6">
+          <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto]">
             <label className="relative flex-1">
               <select
                 value={selectedMonth}
@@ -607,7 +608,7 @@ export default function BusinessPage() {
           </div>
 
           <section className="overflow-hidden rounded-[18px] border border-[#dbcabc] bg-white shadow-[0_2px_10px_rgba(84,56,36,0.06)]">
-            <div className="grid grid-cols-2 divide-x divide-[#ead8cb] px-4 py-4">
+            <div className="grid grid-cols-1 divide-y divide-[#ead8cb] px-4 py-4 sm:grid-cols-2 sm:divide-x sm:divide-y-0">
               <div className="pr-3">
                 <p className="text-[11px] text-[#b58872]">Total Revenue</p>
                 <p className="mt-1 text-[20px] font-extrabold leading-none text-[#1f120e]">
@@ -623,7 +624,7 @@ export default function BusinessPage() {
                   vs {previousMonthLabel}
                 </p>
               </div>
-              <div className="pl-3">
+              <div className="pt-4 sm:pl-3 sm:pt-0">
                 <p className="text-[11px] text-[#b58872]">Profit Bersih</p>
                 <p className="mt-1 text-[20px] font-extrabold leading-none text-[#17653d]">
                   {formatCompactRupiah(netProfit)}
@@ -648,17 +649,18 @@ export default function BusinessPage() {
             </div>
           </section>
 
-          <section>
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-[28px] font-extrabold leading-none tracking-[-0.03em] text-[#1f120e]">
-                Rincian Biaya
-              </h2>
-              {viewState.businessLocation ? (
-                <span className="text-[11px] font-medium text-[#bf8c73]">
-                  {viewState.businessLocation}
-                </span>
-              ) : null}
-            </div>
+          <div className="grid gap-5 lg:grid-cols-[minmax(0,1.08fr)_minmax(320px,0.92fr)]">
+            <section className="space-y-5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-[28px] font-extrabold leading-none tracking-[-0.03em] text-[#1f120e]">
+                  Rincian Biaya
+                </h2>
+                {viewState.businessLocation ? (
+                  <span className="text-[11px] font-medium text-[#bf8c73]">
+                    {viewState.businessLocation}
+                  </span>
+                ) : null}
+              </div>
 
             <div className="overflow-hidden rounded-[18px] border border-[#dbcabc] bg-white shadow-[0_2px_10px_rgba(84,56,36,0.06)]">
               <BreakdownRow
@@ -728,66 +730,69 @@ export default function BusinessPage() {
                 tone="profit"
               />
             </div>
-          </section>
+            </section>
 
-          <section className="grid grid-cols-2 gap-3">
-            <div className="rounded-[18px] border border-[#dbcabc] bg-white px-4 py-4 shadow-[0_2px_10px_rgba(84,56,36,0.06)]">
-              <p className="text-[11px] text-[#7d675a]">Sales Tercatat</p>
-              <p className="mt-1 text-[22px] font-extrabold leading-none text-[#1f120e]">
-                {viewState.totalSalesCount}
-              </p>
-            </div>
-            <div className="rounded-[18px] border border-[#dbcabc] bg-white px-4 py-4 shadow-[0_2px_10px_rgba(84,56,36,0.06)]">
-              <p className="text-[11px] text-[#7d675a]">Margin Kotor</p>
-              <p className="mt-1 text-[22px] font-extrabold leading-none text-[#17653d]">
-                {Math.round(viewState.avgMargin)}%
-              </p>
-            </div>
-          </section>
-
-          <section>
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="inline-flex items-center gap-2 text-[28px] font-extrabold leading-none tracking-[-0.03em] text-[#1f120e]">
-                <Trophy size={18} className="text-[#cc8a27]" />
-                Top Produk
-              </h2>
-              <span className="text-[12px] font-semibold text-[#b0663f]">
-                by Revenue
-              </span>
-            </div>
-
-            <div className="overflow-hidden rounded-[18px] border border-[#dbcabc] bg-white shadow-[0_2px_10px_rgba(84,56,36,0.06)]">
-              {viewState.topProducts.length > 0 ? (
-                viewState.topProducts.slice(0, 5).map((item, index) => (
-                  <div
-                    key={`${item.productName}-${index}`}
-                    className={`flex items-center gap-3 px-4 py-3 ${
-                      index < Math.min(viewState.topProducts.length, 5) - 1
-                        ? "border-b border-[#ead8cb]"
-                        : ""
-                    }`}
-                  >
-                    <div className="text-base">{getRankEmoji(index)}</div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-[15px] font-bold leading-tight text-[#1f120e]">
-                        {item.productName}
-                      </p>
-                      <p className="mt-1 text-[11px] text-[#7d675a]">
-                        {item.quantitySold} order
-                      </p>
-                    </div>
-                    <p className="shrink-0 font-mono text-[14px] font-bold text-[#c86030]">
-                      {formatCurrency(item.revenue)}
-                    </p>
-                  </div>
-                ))
-              ) : (
-                <div className="px-4 py-8 text-center text-sm text-[#9b7b69]">
-                  Belum ada data produk untuk {monthLabel}.
+            <aside className="space-y-5">
+              <section className="grid grid-cols-2 gap-3 sm:grid-cols-2">
+                <div className="rounded-[18px] border border-[#dbcabc] bg-white px-4 py-4 shadow-[0_2px_10px_rgba(84,56,36,0.06)]">
+                  <p className="text-[11px] text-[#7d675a]">Sales Tercatat</p>
+                  <p className="mt-1 text-[22px] font-extrabold leading-none text-[#1f120e]">
+                    {viewState.totalSalesCount}
+                  </p>
                 </div>
-              )}
-            </div>
-          </section>
+                <div className="rounded-[18px] border border-[#dbcabc] bg-white px-4 py-4 shadow-[0_2px_10px_rgba(84,56,36,0.06)]">
+                  <p className="text-[11px] text-[#7d675a]">Margin Kotor</p>
+                  <p className="mt-1 text-[22px] font-extrabold leading-none text-[#17653d]">
+                    {Math.round(viewState.avgMargin)}%
+                  </p>
+                </div>
+              </section>
+
+              <section>
+                <div className="mb-3 flex items-center justify-between">
+                  <h2 className="inline-flex items-center gap-2 text-[28px] font-extrabold leading-none tracking-[-0.03em] text-[#1f120e]">
+                    <Trophy size={18} className="text-[#cc8a27]" />
+                    Top Produk
+                  </h2>
+                  <span className="text-[12px] font-semibold text-[#b0663f]">
+                    by Revenue
+                  </span>
+                </div>
+
+                <div className="overflow-hidden rounded-[18px] border border-[#dbcabc] bg-white shadow-[0_2px_10px_rgba(84,56,36,0.06)]">
+                  {viewState.topProducts.length > 0 ? (
+                    viewState.topProducts.slice(0, 5).map((item, index) => (
+                      <div
+                        key={`${item.productName}-${index}`}
+                        className={`flex items-center gap-3 px-4 py-3 ${
+                          index < Math.min(viewState.topProducts.length, 5) - 1
+                            ? "border-b border-[#ead8cb]"
+                            : ""
+                        }`}
+                      >
+                        <div className="text-base">{getRankEmoji(index)}</div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[15px] font-bold leading-tight text-[#1f120e]">
+                            {item.productName}
+                          </p>
+                          <p className="mt-1 text-[11px] text-[#7d675a]">
+                            {item.quantitySold} order
+                          </p>
+                        </div>
+                        <p className="shrink-0 font-mono text-[14px] font-bold text-[#c86030]">
+                          {formatCurrency(item.revenue)}
+                        </p>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="px-4 py-8 text-center text-sm text-[#9b7b69]">
+                      Belum ada data produk untuk {monthLabel}.
+                    </div>
+                  )}
+                </div>
+              </section>
+            </aside>
+          </div>
 
           {error ? (
             <div className="rounded-2xl border border-[#f1c5b8] bg-[#fff1eb] px-4 py-3 text-sm text-[#a54a2d]">
@@ -795,6 +800,7 @@ export default function BusinessPage() {
             </div>
           ) : null}
         </div>
+      </div>
       </div>
     </div>
   );
