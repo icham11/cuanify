@@ -243,7 +243,7 @@ function resolveRoleFromClaims(
   return null;
 }
 
-export default async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const method = request.method.toUpperCase();
   const apiRequest = isApiPath(pathname);

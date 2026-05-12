@@ -328,6 +328,23 @@ function buildLabelHtml(order: BakeryOrder): string {
       align-items: start;
     }
 
+    .header-time {
+      font-size: 17px;
+      font-weight: 800;
+      line-height: 1.15;
+      letter-spacing: 0.02em;
+    }
+
+    .header-time-subtitle {
+      margin-top: 3px;
+      font-size: 10px;
+      font-weight: 800;
+      line-height: 1.2;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #111111;
+    }
+
     .brand-title {
       font-size: 17px;
       font-weight: 800;
@@ -468,24 +485,14 @@ function buildLabelHtml(order: BakeryOrder): string {
 
     .footer {
       display: flex;
-      justify-content: space-between;
+      justify-content: flex-end;
       align-items: flex-end;
       gap: 10px;
       padding: 10px 12px 12px;
     }
 
-    .footer-copy {
-      font-size: 9px;
-      line-height: 1.35;
-      color: #8a6f60;
-    }
-
-    .footer-time {
+    .footer-brand {
       text-align: right;
-      font-size: 10px;
-      line-height: 1.3;
-      font-weight: 700;
-      color: #6f6f6f;
     }
   </style>
 </head>
@@ -493,8 +500,8 @@ function buildLabelHtml(order: BakeryOrder): string {
   <div class="sheet">
     <div class="header">
       <div>
-        <div class="brand-title">CRUMBELLA</div>
-        <div class="brand-subtitle">Custom Icing Cookies</div>
+        <div class="header-time">${escapeHtml(footerDate)}</div>
+        <div class="header-time-subtitle">${escapeHtml(footerTime)}</div>
       </div>
       <div class="booking-meta">
         <div class="booking-label">Kode Booking</div>
@@ -520,13 +527,8 @@ function buildLabelHtml(order: BakeryOrder): string {
       <div class="note-box">${noteMarkup}</div>
     </div>
     <div class="footer">
-      <div class="footer-copy">
-        Dikirim dengan penuh cinta 🤍<br />
-        Terima kasih sudah order di Crumbella! 🎂
-      </div>
-      <div class="footer-time">
-        <div>${escapeHtml(footerDate)}</div>
-        <div>${escapeHtml(footerTime)}</div>
+      <div class="footer-brand">
+        <div class="brand-title">CRUMBELLA</div>
       </div>
     </div>
   </div>
