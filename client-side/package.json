@@ -8,7 +8,7 @@
     "dev:turbo": "node ./scripts/clean-next-dev-cache.mjs && next dev --hostname localhost --port 3000 --turbopack",
     "dev:webpack": "node ./scripts/clean-next-dev-cache.mjs && next dev --hostname localhost --port 3000 --webpack",
     "dev:network": "node ./scripts/clean-next-dev-cache.mjs && next dev --hostname 0.0.0.0 --port 3000 --webpack",
-    "build:vercel": "npx prisma generate && npx next build --webpack",
+    "build:vercel": "npx prisma migrate deploy && npx prisma generate && npx next build --webpack",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",

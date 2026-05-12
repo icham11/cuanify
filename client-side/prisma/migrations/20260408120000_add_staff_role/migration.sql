@@ -2,6 +2,14 @@ DO $$
 BEGIN
   IF NOT EXISTS (
     SELECT 1
+    FROM pg_type t
+    WHERE t.typname = 'UserRole'
+  ) THEN
+    CREATE TYPE "UserRole" AS ENUM ('Owner', 'Cashier');
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
     FROM pg_enum e
     JOIN pg_type t ON t.oid = e.enumtypid
     WHERE t.typname = 'UserRole'
