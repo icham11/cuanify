@@ -41,7 +41,9 @@ function createPrismaClient() {
     isSupabaseSessionPooler = false;
   }
 
-  const defaultPoolMax = isSupabaseSessionPooler ? 5 : isProduction ? 10 : 15;
+  // Dev often runs multiple hot-reload/server workers at once. Keep the pool
+  // conservative so session-mode DBs do not exhaust client slots.
+  const defaultPoolMax = isSupabaseSessionPooler ? 5 : isProduction ? 10 : 5;
   const poolMax = Number(process.env.PGPOOL_MAX ?? defaultPoolMax);
   const connectionTimeoutMillis = Number(
     process.env.PGPOOL_CONNECTION_TIMEOUT_MS ?? 15000,

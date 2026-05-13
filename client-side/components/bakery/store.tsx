@@ -36,6 +36,7 @@ import {
   parseServiceChargeFromNotes,
   resolveShippingParcelCount,
 } from "@/lib/bookings/delivery-rules";
+import { invalidateApiCache } from "@/lib/api/client";
 import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 import {
   getJakartaTodayIsoDate,
@@ -282,6 +283,7 @@ const ORDERS_SYNC_ENDPOINT = NORMALIZED_BOOKINGS_API_BASE
 const INITIAL_SNAPSHOT = JSON.stringify(initialOrders);
 const LOCAL_WRITE_STALE_GUARD_MS = 2500;
 const ORDERS_SYNC_DEBOUNCE_MS = 450;
+const SERVER_HYDRATION_INTERVAL_MS = 10000;
 const SHIPMENT_RETRY_BACKOFF_MS = 5 * 60 * 1000;
 const SHIPMENT_WARNING_COOLDOWN_MS = 10 * 60 * 1000;
 
@@ -684,7 +686,7 @@ function inferPaymentStatus(
   totalPrice: number,
   totalPaidAmount: number,
 ): PaymentStatus {
-  if (totalPaidAmount <= 0) return "DP Paid";
+  if (totalPaidAmount <= 0) return "Pending";
   if (totalPaidAmount >= Math.max(0, normalizeMoney(totalPrice))) return "Paid";
   return "DP Paid";
 }
@@ -1040,6 +1042,10 @@ export function OrdersProvider({
       });
     }
 
+    invalidateApiCache(
+      /\/api\/(bookings\/orders|bakery\/settings|products|businesses|sales|ingredients|debts)/,
+    );
+
     return payload;
   }, []);
 
@@ -1150,6 +1156,19 @@ export function OrdersProvider({
     if (!enabled) return;
     if (typeof window === "undefined") return;
 
+    const intervalId = window.setInterval(() => {
+      void hydrateOrdersFromServer();
+    }, SERVER_HYDRATION_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [enabled, hydrateOrdersFromServer]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    if (typeof window === "undefined") return;
+
     return () => {
       if (syncDebounceTimerRef.current) {
         window.clearTimeout(syncDebounceTimerRef.current);
@@ -1253,6 +1272,13 @@ export function OrdersProvider({
     },
     [flushQueuedOrdersSync, scheduleQueuedOrdersSync],
   );
+
+  const getLatestOrdersSnapshot = useCallback((): BakeryOrder[] => {
+    if (typeof window === "undefined") return orders;
+    const currentSnapshot =
+      window.localStorage.getItem(STORAGE_KEY) ?? INITIAL_SNAPSHOT;
+    return parseSnapshot(currentSnapshot);
+  }, [orders]);
 
   const runAutomationsForOrder = useCallback(
     async (eventType: BookingAutomationEvent, orderId: string) => {
@@ -1855,14 +1881,15 @@ export function OrdersProvider({
   const updateOrderStatus = useCallback(
     async (id: string, status: OrderStatus) => {
       const requestedStatus = normalizeOrderStatus(status) as OrderStatus;
-      const targetOrder = orders.find((order) => order.id === id);
+      const latestOrders = getLatestOrdersSnapshot();
+      const targetOrder = latestOrders.find((order) => order.id === id);
       const sequence = targetOrder
-        ? getDailyBookingSequence(orders, targetOrder.deliveryDate)
+        ? getDailyBookingSequence(latestOrders, targetOrder.deliveryDate)
         : 1;
       let hasChanged = false;
       let triggeredEvent: BookingAutomationEvent | null = null;
 
-      const nextOrders: BakeryOrder[] = orders.map((order) => {
+      const nextOrders: BakeryOrder[] = latestOrders.map((order) => {
         if (order.id !== id || order.orderStatus === requestedStatus)
           return order;
         hasChanged = true;
@@ -1919,12 +1946,18 @@ export function OrdersProvider({
         await runAutomationsForOrder(triggeredEvent, id);
       }
     },
-    [orders, persistOrders, runAutomationsForOrder, actorIdentity],
+    [
+      getLatestOrdersSnapshot,
+      persistOrders,
+      runAutomationsForOrder,
+      actorIdentity,
+    ],
   );
 
   const assignOrderToStaff = useCallback(
     (id: string, staff: { userId: number; name: string }) => {
-      const target = orders.find((order) => order.id === id);
+      const latestOrders = getLatestOrdersSnapshot();
+      const target = latestOrders.find((order) => order.id === id);
       if (!target) return;
       if (target.assignedStaffUserId === staff.userId) return;
       const isTransfer =
@@ -1932,7 +1965,7 @@ export function OrdersProvider({
         target.assignedStaffUserId !== staff.userId;
 
       const nowIso = new Date().toISOString();
-      const nextOrders = orders.map((order) => {
+      const nextOrders = latestOrders.map((order) => {
         if (order.id !== id) return order;
         const totalTokens = summarizeProductionTokensByItems(order.items ?? []);
         const stageTemplates = resolveProductionStageTemplatesForCategory({
@@ -1972,7 +2005,7 @@ export function OrdersProvider({
       }
     },
     [
-      orders,
+      getLatestOrdersSnapshot,
       persistOrders,
       actorIdentity,
       bakerySettings?.productionStageProfiles,
@@ -1981,10 +2014,11 @@ export function OrdersProvider({
 
   const clearOrderAssignee = useCallback(
     (id: string) => {
-      const target = orders.find((order) => order.id === id);
+      const latestOrders = getLatestOrdersSnapshot();
+      const target = latestOrders.find((order) => order.id === id);
       if (!target || !target.assignedStaffUserId) return;
 
-      const nextOrders = orders.map((order) => {
+      const nextOrders = latestOrders.map((order) => {
         if (order.id !== id) return order;
         const totalTokens = summarizeProductionTokensByItems(order.items ?? []);
         return {
@@ -2019,7 +2053,7 @@ export function OrdersProvider({
       toast.message("Assignment staff dilepas");
     },
     [
-      orders,
+      getLatestOrdersSnapshot,
       persistOrders,
       actorIdentity,
       bakerySettings?.productionStageProfiles,
@@ -2033,7 +2067,8 @@ export function OrdersProvider({
         Record<ProductionStage, { userId: number; name: string } | null>
       >,
     ) => {
-      const nextOrders = orders.map((order) => {
+      const latestOrders = getLatestOrdersSnapshot();
+      const nextOrders = latestOrders.map((order) => {
         if (order.id !== id) return order;
         const totalTokens = summarizeProductionTokensByItems(order.items ?? []);
         const currentByStage = new Map(
@@ -2105,7 +2140,11 @@ export function OrdersProvider({
       persistOrders(nextOrders);
       toast.success("Assignment proses berhasil diperbarui");
     },
-    [orders, persistOrders, bakerySettings?.productionStageProfiles],
+    [
+      getLatestOrdersSnapshot,
+      persistOrders,
+      bakerySettings?.productionStageProfiles,
+    ],
   );
 
   const assignProductionStageStaff = useCallback(
@@ -2134,16 +2173,20 @@ export function OrdersProvider({
         const previousFinalPaid = normalizeMoney(order.finalPaidAmount);
         let dpPaidAmount = previousDpPaid;
         let finalPaidAmount = previousFinalPaid;
+        const preservedDpPaid = Math.min(total, previousDpPaid);
 
         if (status === "Pending") {
           dpPaidAmount = 0;
           finalPaidAmount = 0;
         } else if (status === "DP Paid") {
-          dpPaidAmount = suggestedDp;
+          dpPaidAmount = Math.min(
+            total,
+            previousDpPaid > 0 ? previousDpPaid : suggestedDp,
+          );
           finalPaidAmount = 0;
         } else {
-          dpPaidAmount = 0;
-          finalPaidAmount = total;
+          dpPaidAmount = preservedDpPaid;
+          finalPaidAmount = Math.max(0, total - preservedDpPaid);
         }
 
         const totalPaidAmount = Math.min(total, dpPaidAmount + finalPaidAmount);

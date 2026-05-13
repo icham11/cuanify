@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Menu,
   MessageCircle,
@@ -9,6 +10,7 @@ import {
   Users,
 } from "lucide-react";
 import { useOrders } from "@/components/bakery/store";
+import { useRole } from "@/context/RoleContext";
 
 type CustomerSegment = "all" | "vip" | "repeat" | "new";
 
@@ -113,9 +115,22 @@ function getSegmentLabel(segment: CustomerRow["segment"]): string {
 }
 
 export default function BakeryCustomersPage() {
+  const router = useRouter();
+  const { isOwner, loading: roleLoading } = useRole();
   const { orders } = useOrders();
   const [query, setQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState<CustomerSegment>("all");
+
+  useEffect(() => {
+    if (roleLoading) return;
+    if (!isOwner) {
+      router.replace("/bakery/bookings");
+    }
+  }, [isOwner, roleLoading, router]);
+
+  if (roleLoading || !isOwner) {
+    return null;
+  }
 
   const allCustomers = useMemo<CustomerRow[]>(() => {
     const grouped = new Map<string, Omit<CustomerRow, "segment">>();

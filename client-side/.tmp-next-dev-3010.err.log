@@ -1,0 +1,24 @@
+[api/bookings/orders] failed {
+  message: 'existingById is not defined',
+  name: 'ReferenceError',
+  code: undefined,
+  meta: undefined
+}
+[api/bookings/orders] failed {
+  message: 'existingById is not defined',
+  name: 'ReferenceError',
+  code: undefined,
+  meta: undefined
+}
+[api/bookings/orders] failed {
+  message: 'existingById is not defined',
+  name: 'ReferenceError',
+  code: undefined,
+  meta: undefined
+}
+[api/bookings/orders] failed {
+  message: 'existingById is not defined',
+  name: 'ReferenceError',
+  code: undefined,
+  meta: undefined
+}

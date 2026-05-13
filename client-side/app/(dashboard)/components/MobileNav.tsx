@@ -164,17 +164,23 @@ export default function MobileNav({ jwtUserName, jwtUserEmail }: MobileNavProps)
                         active={isActive("/bakery/ecommerce")}
                         onClick={() => setIsDrawerOpen(false)}
                       />
+                      <NavLink
+                        href="/bakery/customers"
+                        icon={ContactRound}
+                        label="Customers"
+                        active={isActive("/bakery/customers")}
+                        onClick={() => setIsDrawerOpen(false)}
+                      />
                     </>
-                  ) : null}
-                  {isBakeryManager ? (
+                  ) : (
                     <NavLink
-                      href="/bakery/customers"
-                      icon={ContactRound}
-                      label="Customers"
-                      active={isActive("/bakery/customers")}
+                      href="/bakery/ecommerce"
+                      icon={Store}
+                      label="E-Commerce"
+                      active={isActive("/bakery/ecommerce")}
                       onClick={() => setIsDrawerOpen(false)}
                     />
-                  ) : null}
+                  )}
                 </>
               )}
 

@@ -124,24 +124,28 @@ export default function SidebarNav() {
           />
           {isBakeryManager && (
             <>
-              <SidebarLink
-                href="/bakery/reports"
-                icon={FileText}
-                label="Reports"
-                active={isActive("/bakery/reports")}
-              />
+              {isOwner ? (
+                <SidebarLink
+                  href="/bakery/reports"
+                  icon={FileText}
+                  label="Reports"
+                  active={isActive("/bakery/reports")}
+                />
+              ) : null}
               <SidebarLink
                 href="/bakery/ecommerce"
                 icon={Store}
                 label="E-Commerce"
                 active={isActive("/bakery/ecommerce")}
               />
-              <SidebarLink
-                href="/bakery/customers"
-                icon={ContactRound}
-                label="Customers"
-                active={isActive("/bakery/customers")}
-              />
+              {isOwner ? (
+                <SidebarLink
+                  href="/bakery/customers"
+                  icon={ContactRound}
+                  label="Customers"
+                  active={isActive("/bakery/customers")}
+                />
+              ) : null}
             </>
           )}
         </div>

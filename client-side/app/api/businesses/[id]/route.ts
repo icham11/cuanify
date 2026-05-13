@@ -5,6 +5,7 @@ import { getBusinessOverviewSummary } from "@/lib/bookings/business-overview";
 import {
   isPrismaConnectionTimeout,
   prismaConnectionErrorResponse,
+  throwIfPrismaTimeoutCooldownActive,
 } from "@/lib/prisma-errors";
 
 export const runtime = "nodejs";
@@ -14,6 +15,7 @@ export const runtime = "nodejs";
  */
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    throwIfPrismaTimeoutCooldownActive();
     const { userId } = await requireAuth();
     const { id } = await params;
     const businessId = Number(id);
@@ -69,6 +71,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
  */
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    throwIfPrismaTimeoutCooldownActive();
     const { userId } = await requireAuth();
     const { id } = await params;
     const businessId = Number(id);
@@ -126,6 +129,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
  */
 export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    throwIfPrismaTimeoutCooldownActive();
     const { userId } = await requireAuth();
     const { id } = await params;
     const businessId = Number(id);

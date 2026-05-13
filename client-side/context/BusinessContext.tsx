@@ -9,6 +9,7 @@ import {
 } from "react";
 import {
   getAllBusinesses,
+  peekBusinessesCache,
   switchBusiness as switchBusinessApi,
   type Business,
 } from "@/lib/api/business";
@@ -30,9 +31,22 @@ const BusinessContext = createContext<BusinessContextType | undefined>(
 );
 
 export function BusinessProvider({ children }: { children: React.ReactNode }) {
-  const [business, setBusiness] = useState<Business | null>(null);
-  const [businesses, setBusinesses] = useState<Business[]>([]);
-  const [loading, setLoading] = useState(true);
+  const initialBusinesses = peekBusinessesCache();
+  const initialActiveIdMatch =
+    typeof document !== "undefined"
+      ? document.cookie.match(/(?:^|;\s*)active_business_id=([^;]*)/)
+      : null;
+  const initialActiveId = initialActiveIdMatch
+    ? decodeURIComponent(initialActiveIdMatch[1] || "")
+    : "";
+  const initialBusiness =
+    initialBusinesses.find((b) => String(b.id) === initialActiveId) ??
+    initialBusinesses[0] ??
+    null;
+
+  const [business, setBusiness] = useState<Business | null>(initialBusiness);
+  const [businesses, setBusinesses] = useState<Business[]>(initialBusinesses);
+  const [loading, setLoading] = useState(initialBusinesses.length === 0);
 
   const fetchBusiness = useCallback(async () => {
     try {

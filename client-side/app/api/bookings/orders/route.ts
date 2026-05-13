@@ -449,6 +449,55 @@ function normalizeProductionStages(
     .filter((entry): entry is ProductionStageAssignment => Boolean(entry));
 }
 
+function stableSerializeForComparison(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => stableSerializeForComparison(entry)).join(",")}]`;
+  }
+
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map(
+        (key) =>
+          `${JSON.stringify(key)}:${stableSerializeForComparison(record[key])}`,
+      )
+      .join(",")}}`;
+  }
+
+  return JSON.stringify(value ?? null);
+}
+
+function haveComparableValuesChanged(current: unknown, next: unknown): boolean {
+  return stableSerializeForComparison(current) !== stableSerializeForComparison(next);
+}
+
+function serializeProductionStagesForComparison(
+  stages: ProductionStageAssignment[] | undefined,
+): string {
+  const normalizedByStage = new Map(
+    (stages ?? []).map((stage) => [
+      stage.stage,
+      {
+        stage: stage.stage,
+        staffId: asPositiveIntOrNull(stage.staffId),
+        tokenAmount: Math.max(0, asNumber(stage.tokenAmount)),
+      },
+    ]),
+  );
+
+  return stableSerializeForComparison(
+    PRODUCTION_STAGE_ORDER.map((stageKey) => {
+      const stage = normalizedByStage.get(stageKey);
+      return {
+        stage: stageKey,
+        staffId: stage?.staffId ?? null,
+        tokenAmount: stage?.tokenAmount ?? 0,
+      };
+    }),
+  );
+}
+
 function mergeStaffClaimableProductionStages(params: {
   existingStages: ProductionStageAssignment[];
   incomingStages: ProductionStageAssignment[];
@@ -1525,6 +1574,25 @@ function validateDailyTokenCapacity(orders: NormalizedOrder[]) {
   };
 }
 
+function hasCapacityAffectingChange(
+  current:
+    | Pick<NormalizedOrder, "deliveryDate" | "orderStatus" | "items">
+    | undefined,
+  next: NormalizedOrder,
+): boolean {
+  if (!current) return true;
+
+  const currentDate = current.deliveryDate || "";
+  const nextDate = next.deliveryDate || "";
+  if (currentDate !== nextDate) return true;
+
+  const currentActive = !INACTIVE_STATUSES.includes(current.orderStatus || "");
+  const nextActive = !INACTIVE_STATUSES.includes(next.orderStatus || "");
+  if (currentActive !== nextActive) return true;
+
+  return JSON.stringify(current.items ?? []) !== JSON.stringify(next.items ?? []);
+}
+
 function calculateOrderTokenForLimit(
   order: Pick<StaffValidationOrder, "items">,
 ): number {
@@ -2049,6 +2117,9 @@ async function ensureBakeryTables() {
     ALTER TABLE production_tasks
       DROP CONSTRAINT IF EXISTS production_tasks_stage_check;
 
+    ALTER TABLE production_tasks
+      ADD COLUMN IF NOT EXISTS "businessId" INTEGER;
+
     UPDATE production_tasks
     SET stage = 'lining'
     WHERE stage::text = 'listing';
@@ -2112,6 +2183,25 @@ async function ensureBakeryTables() {
     EXCEPTION
       WHEN duplicate_table OR duplicate_object THEN NULL;
     END $$;
+  `);
+
+    await prisma.$executeRawUnsafe(`
+    UPDATE production_tasks pt
+    SET "businessId" = bo.business_id,
+        staff_id = CASE
+          WHEN pt.staff_id IS NULL AND bo.assigned_staff_user_id IS NOT NULL
+            THEN (
+              substr(md5('staff:' || bo.assigned_staff_user_id::text), 1, 8) || '-' ||
+              substr(md5('staff:' || bo.assigned_staff_user_id::text), 9, 4) || '-' ||
+              substr(md5('staff:' || bo.assigned_staff_user_id::text), 13, 4) || '-' ||
+              substr(md5('staff:' || bo.assigned_staff_user_id::text), 17, 4) || '-' ||
+              substr(md5('staff:' || bo.assigned_staff_user_id::text), 21, 12)
+            )::uuid
+          ELSE pt.staff_id
+        END
+    FROM bakery_orders bo
+    WHERE bo.order_uuid = pt.order_id
+      AND (pt."businessId" IS NULL OR (pt.staff_id IS NULL AND bo.assigned_staff_user_id IS NOT NULL));
   `);
 
     // ── Ensure production_capacity table exists ──
@@ -2600,6 +2690,62 @@ export async function POST(request: NextRequest) {
       WHERE business_id = ${businessId}
     `;
 
+    const existingCapacityRows = await prisma.$queryRaw<
+      {
+        external_id: string;
+        delivery_date: string | null;
+        order_status: string | null;
+      }[]
+    >`
+      SELECT external_id, delivery_date, order_status
+      FROM bakery_orders
+      WHERE business_id = ${businessId}
+    `;
+
+    const existingCapacityItemRows = await prisma.$queryRaw<DbItemRow[]>`
+      SELECT order_external_id, item_index, payload
+      FROM bakery_order_items
+      WHERE business_id = ${businessId}
+      ORDER BY order_external_id ASC, item_index ASC
+    `;
+
+    const existingAddressRows = await prisma.$queryRaw<DbAddressRow[]>`
+      SELECT order_external_id, address_index, payload
+      FROM bakery_order_addresses
+      WHERE business_id = ${businessId}
+      ORDER BY order_external_id ASC, address_index ASC
+    `;
+
+    const existingCapacityItemsMap = new Map<string, JsonRecord[]>();
+    for (const row of existingCapacityItemRows) {
+      const current = existingCapacityItemsMap.get(row.order_external_id) ?? [];
+      const payload = asRecord(parseJsonField(row.payload));
+      if (payload) current.push(payload);
+      existingCapacityItemsMap.set(row.order_external_id, current);
+    }
+
+    const existingAddressesMap = new Map<string, JsonRecord[]>();
+    for (const row of existingAddressRows) {
+      const current = existingAddressesMap.get(row.order_external_id) ?? [];
+      const payload = asRecord(parseJsonField(row.payload));
+      if (payload) current.push(payload);
+      existingAddressesMap.set(row.order_external_id, current);
+    }
+
+    const existingCapacityById = new Map(
+      existingCapacityRows.map((row) => [
+        row.external_id,
+        {
+          deliveryDate:
+            normalizeDateInput(row.delivery_date ?? "") ??
+            row.delivery_date ??
+            "",
+          orderStatus: row.order_status ?? "Inquiry",
+          items: existingCapacityItemsMap.get(row.external_id) ?? [],
+        },
+      ]),
+    );
+
     if (isStaffRequest) {
       const existingRows = await prisma.$queryRaw<DbOrderRow[]>`
         SELECT
@@ -2645,19 +2791,8 @@ export async function POST(request: NextRequest) {
         ORDER BY updated_at DESC
       `;
 
-      const itemRows = await prisma.$queryRaw<DbItemRow[]>`
-        SELECT order_external_id, item_index, payload
-        FROM bakery_order_items
-        WHERE business_id = ${businessId}
-        ORDER BY order_external_id ASC, item_index ASC
-      `;
-
-      const addressRows = await prisma.$queryRaw<DbAddressRow[]>`
-        SELECT order_external_id, address_index, payload
-        FROM bakery_order_addresses
-        WHERE business_id = ${businessId}
-        ORDER BY order_external_id ASC, address_index ASC
-      `;
+      const itemRows = existingCapacityItemRows;
+      const addressRows = existingAddressRows;
 
       const staffMembers = await prisma.businessMember.findMany({
         where: { businessId },
@@ -2782,10 +2917,10 @@ export async function POST(request: NextRequest) {
         };
       });
 
+      const incomingById = new Map(orders.map((order) => [order.id, order]));
       const existingById = new Map(
         existingOrders.map((order) => [order.id, order]),
       );
-      const incomingById = new Map(orders.map((order) => [order.id, order]));
 
       const unauthorizedCreate = orders
         .map((order) => order.id)
@@ -2809,9 +2944,10 @@ export async function POST(request: NextRequest) {
         "Completed",
       ]);
 
-      orders = existingOrders.map((existingOrder) => {
-        const incomingOrder = incomingById.get(existingOrder.id);
-        if (!incomingOrder) return existingOrder;
+      const incomingIds = new Set(orders.map((order) => order.id));
+      const mergedIncomingOrders = orders.map((incomingOrder) => {
+        const existingOrder = existingById.get(incomingOrder.id);
+        if (!existingOrder) return incomingOrder;
 
         const currentAssignee = existingOrder.assignedStaffUserId;
         const statusChanged =
@@ -2841,18 +2977,46 @@ export async function POST(request: NextRequest) {
           !staffClaimingUnassignedOwnOrder &&
           !staffClaimingOwnProductionStage
         ) {
-          return existingOrder;
+          return {
+            ...incomingOrder,
+            orderStatus: existingOrder.orderStatus,
+            assignedStaffUserId: existingOrder.assignedStaffUserId,
+            assignedStaffName: existingOrder.assignedStaffName,
+            productionAssignedAt: existingOrder.productionAssignedAt,
+            productionStages: existingOrder.productionStages,
+          };
         }
 
         if (statusChanged) {
           if (!nextAssignee && !viewerOwnsAnyStage) {
-            return existingOrder;
+            return {
+              ...incomingOrder,
+              orderStatus: existingOrder.orderStatus,
+              assignedStaffUserId: existingOrder.assignedStaffUserId,
+              assignedStaffName: existingOrder.assignedStaffName,
+              productionAssignedAt: existingOrder.productionAssignedAt,
+              productionStages: existingOrder.productionStages,
+            };
           }
           if (!staffUpdatableStatuses.has(incomingOrder.orderStatus)) {
-            return existingOrder;
+            return {
+              ...incomingOrder,
+              orderStatus: existingOrder.orderStatus,
+              assignedStaffUserId: existingOrder.assignedStaffUserId,
+              assignedStaffName: existingOrder.assignedStaffName,
+              productionAssignedAt: existingOrder.productionAssignedAt,
+              productionStages: existingOrder.productionStages,
+            };
           }
           if (nextAssignee && nextAssignee !== userId && !viewerOwnsAnyStage) {
-            return existingOrder;
+            return {
+              ...incomingOrder,
+              orderStatus: existingOrder.orderStatus,
+              assignedStaffUserId: existingOrder.assignedStaffUserId,
+              assignedStaffName: existingOrder.assignedStaffName,
+              productionAssignedAt: existingOrder.productionAssignedAt,
+              productionStages: existingOrder.productionStages,
+            };
           }
         }
 
@@ -2883,16 +3047,20 @@ export async function POST(request: NextRequest) {
         }
 
         return {
-          ...existingOrder,
+          ...incomingOrder,
           orderStatus: statusChanged
             ? incomingOrder.orderStatus
-            : existingOrder.orderStatus,
+            : incomingOrder.orderStatus,
           assignedStaffUserId: nextAssignee,
           assignedStaffName: nextAssignedName,
           productionAssignedAt: nextAssignedAt,
           productionStages: mergedStages,
         };
       });
+      const missingExistingOrders = existingOrders.filter(
+        (existingOrder) => !incomingIds.has(existingOrder.id),
+      );
+      orders = [...mergedIncomingOrders, ...missingExistingOrders];
     } else {
       validateAssignmentTransitionRules({
         orders,
@@ -2909,6 +3077,8 @@ export async function POST(request: NextRequest) {
         assignableStaffUserIds,
       });
     }
+
+    const existingById = new Map(existingOrders.map((order) => [order.id, order]));
 
     ensureAssignableStaffTargets({
       orders,
@@ -2936,19 +3106,10 @@ export async function POST(request: NextRequest) {
       limitByStaffUserId: staffLimitByUserId,
     });
 
-    const tokenValidation = validateDailyTokenCapacity(orders);
-    if (!tokenValidation.isValid) {
-      return NextResponse.json(
-        {
-          error:
-            "Payload ditolak karena melebihi kapasitas token produksi harian pada satu atau lebih tanggal.",
-          details: tokenValidation.overflows.map((entry) => {
-            return `Tanggal ${entry.deliveryDate}: ${entry.used}/${entry.allowed} (overflow ${entry.overflow})`;
-          }),
-        },
-        { status: 409 },
-      );
-    }
+    // Skip snapshot-wide preflight capacity rejection here.
+    // The transactional capacity checks below are the authoritative guard and
+    // avoid false positives when syncing assignment-only changes against
+    // snapshots that are newer than the row store.
 
     console.info("[api/bookings/orders] request received", {
       businessId,
@@ -2967,18 +3128,27 @@ export async function POST(request: NextRequest) {
           let upsertedOrderCount = 0;
           let insertedItemCount = 0;
           let insertedAddressCount = 0;
+          let capacityReconcileNeeded = false;
           const inventoryWarnings = new Set<string>();
           const createdOrdersForWhatsApp: SendOrderToWhatsAppInput[] = [];
 
           const existingRows = await tx.$queryRaw<
             {
+              order_uuid: string | null;
               external_id: string;
               delivery_date: string | null;
               token_used: number;
               order_status: string | null;
+              assigned_staff_user_id: number | null;
             }[]
           >`
-          SELECT external_id, delivery_date, token_used, order_status
+          SELECT
+            order_uuid,
+            external_id,
+            delivery_date,
+            token_used,
+            order_status,
+            assigned_staff_user_id
           FROM bakery_orders
           WHERE business_id = ${businessId}
         `;
@@ -2986,6 +3156,46 @@ export async function POST(request: NextRequest) {
           const existingOrderMap = new Map(
             existingRows.map((row) => [row.external_id, row]),
           );
+          const existingOrderExternalByUuid = new Map(
+            existingRows.map((row) => [
+              row.order_uuid ?? orderTaskUuid(businessId, row.external_id),
+              row.external_id,
+            ]),
+          );
+          const stageRows =
+            existingOrderExternalByUuid.size > 0
+              ? await tx.$queryRaw<DbProductionStageRow[]>`
+                  SELECT order_id::text AS order_id, stage, staff_id::text AS staff_id, token_amount
+                  FROM production_tasks
+                  WHERE order_id::text IN (${Prisma.join([...existingOrderExternalByUuid.keys()])})
+                  ORDER BY order_id ASC, stage ASC
+                `
+              : [];
+          const staffIdByUuid = buildStaffIdByUuid([
+            ...assignableStaffUserIds,
+          ]);
+          const existingStagesByExternalId = new Map<
+            string,
+            ProductionStageAssignment[]
+          >();
+
+          for (const row of stageRows) {
+            const externalId = existingOrderExternalByUuid.get(row.order_id);
+            if (!externalId) continue;
+            const stage = normalizeProductionStageKey(row.stage);
+            if (!stage) continue;
+
+            const current = existingStagesByExternalId.get(externalId) ?? [];
+            current.push({
+              stage,
+              staffId: row.staff_id
+                ? (staffIdByUuid.get(row.staff_id) ?? null)
+                : null,
+              tokenAmount: asNumber(row.token_amount),
+              percentage: 0,
+            });
+            existingStagesByExternalId.set(externalId, current);
+          }
 
           // Keep existing rows that are missing from incoming payload.
           // Clients can send stale/partial snapshots across tabs/devices; hard
@@ -3031,22 +3241,54 @@ export async function POST(request: NextRequest) {
                   : undefined,
             }));
             const tokenForOrder = calculateOrderTokenFromItems(orderItems);
-            const staffByStage = Object.fromEntries(
-              order.productionStages.map((stage) => [
-                stage.stage,
-                stage.staffId ?? order.assignedStaffUserId ?? null,
-              ]),
-            ) as Partial<Record<ProductionStage, number | null>>;
             const stageTemplates = resolveProductionStageTemplatesForCategory({
               category: resolvePrimaryProductionCategory(orderItems),
               profiles: bakerySettings.productionStageProfiles,
             });
+            const staffByStage = PRODUCTION_STAGE_ORDER.reduce(
+              (acc, stageKey) => {
+                const matchingStage = order.productionStages.find(
+                  (stage) => stage.stage === stageKey,
+                );
+                if (matchingStage) {
+                  acc[stageKey] = matchingStage.staffId ?? null;
+                } else {
+                  acc[stageKey] = order.assignedStaffUserId ?? null;
+                }
+                return acc;
+              },
+              {} as Record<ProductionStage, number | null>,
+            );
             const productionStages = distributeProductionTokens({
               totalTokens: tokenForOrder,
               staffByStage,
               percentages:
                 getProductionStagePercentagesFromTemplates(stageTemplates),
             });
+            const existingCapacityOrder = existingCapacityById.get(order.id);
+            const currentPersistedItems =
+              existingCapacityItemsMap.get(order.id) ?? [];
+            const currentPersistedAddresses =
+              existingAddressesMap.get(order.id) ?? [];
+            const currentPersistedStages =
+              existingStagesByExternalId.get(order.id) ?? [];
+            const hasCapacityChange = hasCapacityAffectingChange(
+              existingCapacityOrder,
+              order,
+            );
+            const shouldRewriteProductionTasks =
+              !existingOrderMap.has(order.id) ||
+              serializeProductionStagesForComparison(currentPersistedStages) !==
+                serializeProductionStagesForComparison(productionStages);
+            const shouldRewriteOrderItems =
+              !existingOrderMap.has(order.id) ||
+              haveComparableValuesChanged(currentPersistedItems, order.items);
+            const shouldRewriteOrderAddresses =
+              !existingOrderMap.has(order.id) ||
+              haveComparableValuesChanged(
+                currentPersistedAddresses,
+                order.deliveryAddresses,
+              );
             const insuranceFee = computeInsuranceFee({
               shippingQuote: order.shippingQuote,
               shipment: order.shipment,
@@ -3075,6 +3317,7 @@ export async function POST(request: NextRequest) {
               : false;
 
             const shouldValidateSchedule =
+              hasCapacityChange &&
               isActiveStatus &&
               (!existingOrder ||
                 !wasActive ||
@@ -3123,6 +3366,7 @@ export async function POST(request: NextRequest) {
             let releasedFromDate: string | null = null;
 
             if (
+              hasCapacityChange &&
               existingOrder &&
               existingOrder.delivery_date &&
               existingOrder.token_used > 0 &&
@@ -3148,7 +3392,12 @@ export async function POST(request: NextRequest) {
 
             // ── Consume token baru untuk order aktif dengan tanggal delivery ──
             let finalTokenUsed = 0;
-            if (isActiveStatus && order.deliveryDate && tokenForOrder > 0) {
+            if (
+              hasCapacityChange &&
+              isActiveStatus &&
+              order.deliveryDate &&
+              tokenForOrder > 0
+            ) {
               const existingTokenUsed = existingOrder?.token_used ?? 0;
               const existingDeliveryDate = existingOrder?.delivery_date ?? null;
               const dateChanged =
@@ -3233,6 +3482,12 @@ export async function POST(request: NextRequest) {
                 // Tidak ada perubahan — pertahankan token yang ada
                 finalTokenUsed = existingOrder?.token_used ?? 0;
               }
+              capacityReconcileNeeded = true;
+            } else if (existingOrder) {
+              finalTokenUsed = existingOrder.token_used ?? 0;
+            } else {
+              finalTokenUsed =
+                isActiveStatus && order.deliveryDate ? tokenForOrder : 0;
             }
 
             await tx.$executeRaw`
@@ -3358,106 +3613,122 @@ export async function POST(request: NextRequest) {
               updated_at = NOW()
           `;
 
-            await tx.$executeRaw`
-              DELETE FROM production_tasks
-              WHERE order_id = ${orderUuid}::uuid
-            `;
-
-            for (const stage of productionStages) {
+            if (shouldRewriteProductionTasks) {
               await tx.$executeRaw`
-                INSERT INTO production_tasks (
-                  id,
-                  order_id,
-                  stage,
-                  staff_id,
-                  token_amount,
-                  created_at
-                ) VALUES (
-                  ${productionTaskUuid(orderUuid, stage.stage)}::uuid,
-                  ${orderUuid}::uuid,
-                  ${stage.stage},
-                  ${staffUuid(stage.staffId)}::uuid,
-                  ${stage.tokenAmount},
-                  NOW()
-                )
-                ON CONFLICT (order_id, stage)
-                DO UPDATE SET
-                  staff_id = EXCLUDED.staff_id,
-                  token_amount = EXCLUDED.token_amount
+                DELETE FROM production_tasks
+                WHERE order_id = ${orderUuid}::uuid
               `;
+
+              for (const stage of productionStages) {
+                await tx.$executeRaw`
+                  INSERT INTO production_tasks (
+                    id,
+                    order_id,
+                    stage,
+                    "businessId",
+                    staff_id,
+                    token_amount,
+                    created_at
+                  ) VALUES (
+                    ${productionTaskUuid(orderUuid, stage.stage)}::uuid,
+                    ${orderUuid}::uuid,
+                    ${stage.stage},
+                    ${businessId},
+                    ${staffUuid(stage.staffId)}::uuid,
+                    ${stage.tokenAmount},
+                    NOW()
+                  )
+                  ON CONFLICT (order_id, stage)
+                  DO UPDATE SET
+                    "businessId" = EXCLUDED."businessId",
+                    staff_id = EXCLUDED.staff_id,
+                    token_amount = EXCLUDED.token_amount
+                `;
+              }
             }
 
-            await tx.$executeRaw`
-            DELETE FROM bakery_order_items
-            WHERE business_id = ${businessId} AND order_external_id = ${order.id}
-          `;
-
-            for (let index = 0; index < order.items.length; index += 1) {
-              const item = order.items[index];
+            if (shouldRewriteOrderItems) {
               await tx.$executeRaw`
-              INSERT INTO bakery_order_items (
-                business_id,
-                order_external_id,
-                item_index,
-                payload
-              ) VALUES (
-                ${businessId},
-                ${order.id},
-                ${index},
-                ${JSON.stringify(item)}::jsonb
-              )
+              DELETE FROM bakery_order_items
+              WHERE business_id = ${businessId} AND order_external_id = ${order.id}
             `;
-              insertedItemCount += 1;
+
+              for (let index = 0; index < order.items.length; index += 1) {
+                const item = order.items[index];
+                await tx.$executeRaw`
+                INSERT INTO bakery_order_items (
+                  business_id,
+                  order_external_id,
+                  item_index,
+                  payload
+                ) VALUES (
+                  ${businessId},
+                  ${order.id},
+                  ${index},
+                  ${JSON.stringify(item)}::jsonb
+                )
+              `;
+                insertedItemCount += 1;
+              }
             }
 
-            await tx.$executeRaw`
-            DELETE FROM bakery_order_addresses
-            WHERE business_id = ${businessId} AND order_external_id = ${order.id}
-          `;
+            if (shouldRewriteOrderAddresses) {
+              await tx.$executeRaw`
+              DELETE FROM bakery_order_addresses
+              WHERE business_id = ${businessId} AND order_external_id = ${order.id}
+            `;
 
-            for (
-              let index = 0;
-              index < order.deliveryAddresses.length;
-              index += 1
+              for (
+                let index = 0;
+                index < order.deliveryAddresses.length;
+                index += 1
+              ) {
+                const address = order.deliveryAddresses[index];
+                await tx.$executeRaw`
+                INSERT INTO bakery_order_addresses (
+                  business_id,
+                  order_external_id,
+                  address_index,
+                  payload
+                ) VALUES (
+                  ${businessId},
+                  ${order.id},
+                  ${index},
+                  ${JSON.stringify(address)}::jsonb
+                )
+              `;
+                insertedAddressCount += 1;
+              }
+            }
+
+            if (
+              shouldRewriteOrderItems ||
+              (existingOrder?.order_status ?? null) !==
+                (order.orderStatus || null)
             ) {
-              const address = order.deliveryAddresses[index];
-              await tx.$executeRaw`
-              INSERT INTO bakery_order_addresses (
-                business_id,
-                order_external_id,
-                address_index,
-                payload
-              ) VALUES (
-                ${businessId},
-                ${order.id},
-                ${index},
-                ${JSON.stringify(address)}::jsonb
-              )
-            `;
-              insertedAddressCount += 1;
+              const inventorySync = await syncBakeryOrderInventory(tx, {
+                businessId,
+                orderId: order.id,
+                orderStatus: order.orderStatus || "",
+                items: order.items.map((item) => ({
+                  category:
+                    typeof item.category === "string" ? item.category : "",
+                  subcategory:
+                    typeof item.subcategory === "string" ? item.subcategory : "",
+                  productName:
+                    typeof item.productName === "string" ? item.productName : "",
+                  size: typeof item.size === "string" ? item.size : "",
+                  quantity:
+                    typeof item.quantity === "number" ? item.quantity : 0,
+                })),
+              });
+
+              inventorySync.unresolvedProducts.forEach((name) => {
+                inventoryWarnings.add(
+                  `Inventory sync skipped for "${name}" on order ${order.id}`,
+                );
+              });
             }
-
-            const inventorySync = await syncBakeryOrderInventory(tx, {
-              businessId,
-              orderId: order.id,
-              orderStatus: order.orderStatus || "",
-              items: order.items.map((item) => ({
-                category:
-                  typeof item.category === "string" ? item.category : "",
-                subcategory:
-                  typeof item.subcategory === "string" ? item.subcategory : "",
-                productName:
-                  typeof item.productName === "string" ? item.productName : "",
-                size: typeof item.size === "string" ? item.size : "",
-                quantity: typeof item.quantity === "number" ? item.quantity : 0,
-              })),
-            });
-
-            inventorySync.unresolvedProducts.forEach((name) => {
-              inventoryWarnings.add(
-                `Inventory sync skipped for "${name}" on order ${order.id}`,
-              );
-            });
 
             // Root Cause: Strict !existingOrder check prevented WA for revived/updated orders.
             // Solution: Send WA if order is becoming active (was inactive/new and is now active).
@@ -3471,67 +3742,71 @@ export async function POST(request: NextRequest) {
             }
 
             existingOrderMap.set(order.id, {
+              order_uuid: orderUuid,
               external_id: order.id,
               delivery_date: order.deliveryDate || null,
               token_used: finalTokenUsed,
               order_status: order.orderStatus || null,
+              assigned_staff_user_id: order.assignedStaffUserId ?? null,
             });
           }
 
-          // Hard reconcile token ledger to guarantee DB consistency.
-          await tx.$executeRaw`
-            WITH active_tokens AS (
-              SELECT
-                delivery_date::date AS delivery_date,
-                GREATEST(0, COALESCE(SUM(token_used), 0))::integer AS used_token
-              FROM bakery_orders
-              WHERE business_id = ${businessId}
-                AND delivery_date IS NOT NULL
-                AND deleted_at IS NULL
-                AND order_status NOT IN (${INACTIVE_STATUSES[0]}, ${INACTIVE_STATUSES[1]}, ${INACTIVE_STATUSES[2]}, ${INACTIVE_STATUSES[3]})
-              GROUP BY delivery_date::date
-            )
-            INSERT INTO production_capacity (
-              business_id,
-              date,
-              max_token,
-              used_token,
-              created_at,
-              updated_at
-            )
-            SELECT
-              ${businessId},
-              active_tokens.delivery_date,
-              ${DEFAULT_MAX_TOKEN},
-              LEAST(${DEFAULT_MAX_TOKEN}, active_tokens.used_token),
-              NOW(),
-              NOW()
-            FROM active_tokens
-            ON CONFLICT (business_id, date)
-            DO UPDATE SET
-              used_token = LEAST(
-                production_capacity.max_token,
-                GREATEST(0, EXCLUDED.used_token)
-              ),
-              updated_at = NOW()
-          `;
-
-          await tx.$executeRaw`
-            UPDATE production_capacity pc
-            SET used_token = 0,
-                updated_at = NOW()
-            WHERE pc.business_id = ${businessId}
-              AND NOT EXISTS (
-                SELECT 1
-                FROM bakery_orders bo
-                WHERE bo.business_id = pc.business_id
-                  AND bo.delivery_date IS NOT NULL
-                  AND bo.deleted_at IS NULL
-                  AND bo.delivery_date::date = pc.date
-                  AND bo.order_status NOT IN (${INACTIVE_STATUSES[0]}, ${INACTIVE_STATUSES[1]}, ${INACTIVE_STATUSES[2]}, ${INACTIVE_STATUSES[3]})
-                  AND bo.token_used > 0
+          if (capacityReconcileNeeded) {
+            // Hard reconcile token ledger only when schedule/status/items changed.
+            await tx.$executeRaw`
+              WITH active_tokens AS (
+                SELECT
+                  delivery_date::date AS delivery_date,
+                  GREATEST(0, COALESCE(SUM(token_used), 0))::integer AS used_token
+                FROM bakery_orders
+                WHERE business_id = ${businessId}
+                  AND delivery_date IS NOT NULL
+                  AND deleted_at IS NULL
+                  AND order_status NOT IN (${INACTIVE_STATUSES[0]}, ${INACTIVE_STATUSES[1]}, ${INACTIVE_STATUSES[2]}, ${INACTIVE_STATUSES[3]})
+                GROUP BY delivery_date::date
               )
-          `;
+              INSERT INTO production_capacity (
+                business_id,
+                date,
+                max_token,
+                used_token,
+                created_at,
+                updated_at
+              )
+              SELECT
+                ${businessId},
+                active_tokens.delivery_date,
+                ${DEFAULT_MAX_TOKEN},
+                LEAST(${DEFAULT_MAX_TOKEN}, active_tokens.used_token),
+                NOW(),
+                NOW()
+              FROM active_tokens
+              ON CONFLICT (business_id, date)
+              DO UPDATE SET
+                used_token = LEAST(
+                  production_capacity.max_token,
+                  GREATEST(0, EXCLUDED.used_token)
+                ),
+                updated_at = NOW()
+            `;
+
+            await tx.$executeRaw`
+              UPDATE production_capacity pc
+              SET used_token = 0,
+                  updated_at = NOW()
+              WHERE pc.business_id = ${businessId}
+                AND NOT EXISTS (
+                  SELECT 1
+                  FROM bakery_orders bo
+                  WHERE bo.business_id = pc.business_id
+                    AND bo.delivery_date IS NOT NULL
+                    AND bo.deleted_at IS NULL
+                    AND bo.delivery_date::date = pc.date
+                    AND bo.order_status NOT IN (${INACTIVE_STATUSES[0]}, ${INACTIVE_STATUSES[1]}, ${INACTIVE_STATUSES[2]}, ${INACTIVE_STATUSES[3]})
+                    AND bo.token_used > 0
+                )
+            `;
+          }
 
           await upsertOrdersSnapshot(tx, {
             businessId,

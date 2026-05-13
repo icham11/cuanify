@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import RevenueChart from "../components/charts/RevenueChart";
 import { TrendingUp, AlertTriangle, Smile } from "lucide-react";
+import { apiFetch, peekApiCache } from "@/lib/api/client";
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat("id-ID", {
@@ -35,6 +36,22 @@ interface Ingredient {
   minStock: number;
   inventoryBatches?: InventoryBatch[];
 }
+
+type SalesSummaryResponse = {
+  success?: boolean;
+  data?: {
+    summary?: {
+      totalRevenue?: number;
+      transactionCount?: number;
+      totalProfit?: number;
+    };
+  };
+};
+
+type IngredientsResponse = {
+  success?: boolean;
+  data?: Ingredient[];
+};
 
 export default function DashboardPage() {
   // const router = useRouter(); // Unused, remove
@@ -92,36 +109,42 @@ export default function DashboardPage() {
   useEffect(() => {
     const loadDashboardData = async () => {
       try {
-        setLoading(true);
-
         const { start, end } = getDateRange(range);
         const salesUrl = new URL("/api/sales", window.location.origin);
         if (start) salesUrl.searchParams.set("startDate", start.toISOString());
         if (end) salesUrl.searchParams.set("endDate", end.toISOString());
+        const salesUrlString = salesUrl.toString();
+        const ingredientsUrl = "/api/ingredients?withBatches=true";
 
-        const [salesRes, ingredientRes] = await Promise.all([
-          fetch(salesUrl.toString()),
-          fetch("/api/ingredients?withBatches=true"),
-        ]);
+        const cachedSalesData = peekApiCache<SalesSummaryResponse>(salesUrlString);
+        const cachedIngredientData =
+          peekApiCache<IngredientsResponse>(ingredientsUrl);
+        const hasCachedPayload =
+          Boolean(cachedSalesData?.success) || Boolean(cachedIngredientData?.success);
 
-        const salesData = await salesRes.json();
-        const ingredientData = await ingredientRes.json();
+        if (!hasCachedPayload) {
+          setLoading(true);
+        }
 
-        if (salesRes.ok && salesData.success) {
+        const applySalesPayload = (salesData?: SalesSummaryResponse | null) => {
+          if (!salesData?.success) return;
           const summary = salesData.data?.summary ?? {};
           setTodayRevenue(Number(summary.totalRevenue || 0));
           setTodayTransactions(Number(summary.transactionCount || 0));
           setMonthProfit(Number(summary.totalProfit || 0));
-        }
+        };
 
-        if (ingredientRes.ok && ingredientData.success) {
+        const applyIngredientPayload = (
+          ingredientData?: IngredientsResponse | null,
+        ) => {
+          if (!ingredientData?.success) return;
           const today = new Date();
           const expired: AlertItem[] = [];
           const expiring3: AlertItem[] = [];
           const expiring7: AlertItem[] = [];
           const lowStock: AlertItem[] = [];
 
-          ingredientData.data.forEach((ingredient: Ingredient) => {
+          ingredientData.data?.forEach((ingredient: Ingredient) => {
             if (ingredient.currentStock < ingredient.minStock) {
               lowStock.push({
                 name: ingredient.name,
@@ -155,7 +178,21 @@ export default function DashboardPage() {
           });
 
           setAlerts({ expired, expiring3, expiring7, lowStock });
+        };
+
+        if (hasCachedPayload) {
+          applySalesPayload(cachedSalesData);
+          applyIngredientPayload(cachedIngredientData);
+          setLoading(false);
         }
+
+        const [salesData, ingredientData] = await Promise.all([
+          apiFetch(salesUrlString),
+          apiFetch(ingredientsUrl),
+        ]);
+
+        applySalesPayload(salesData as SalesSummaryResponse);
+        applyIngredientPayload(ingredientData as IngredientsResponse);
       } catch (error) {
         console.error("Dashboard load error:", error);
       } finally {

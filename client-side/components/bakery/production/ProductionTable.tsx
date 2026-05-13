@@ -192,6 +192,19 @@ function statusBadgeClass(status: string): string {
   return "bg-[#fdeaea] text-[#a83030]";
 }
 
+function orderMatchesSearch(order: BakeryOrder, normalizedQuery: string): boolean {
+  if (!normalizedQuery) return true;
+
+  const customer = (order.customerName || "").toLowerCase();
+  const product = (order.product || "").toLowerCase();
+  const fallbackItemName =
+    order.items?.[0]?.productName?.toLowerCase() ||
+    order.items?.[0]?.subcategory?.toLowerCase() ||
+    "";
+  const searchable = `${customer} ${product} ${fallbackItemName} ${order.id.toLowerCase()}`;
+  return searchable.includes(normalizedQuery);
+}
+
 export default function ProductionTable() {
   const router = useRouter();
   const {
@@ -711,15 +724,25 @@ export default function ProductionTable() {
             : staffCompletedOrders;
 
       return source.filter((order) => {
-        if (normalizedQuery) {
-          const customer = (order.customerName || "").toLowerCase();
-          const product = (order.product || "").toLowerCase();
-          const fallbackItemName =
-            order.items?.[0]?.productName?.toLowerCase() ||
-            order.items?.[0]?.subcategory?.toLowerCase() ||
-            "";
-          const searchable = `${customer} ${product} ${fallbackItemName} ${order.id.toLowerCase()}`;
-          if (!searchable.includes(normalizedQuery)) return false;
+        if (!matchesDateFilter(order.deliveryDate)) return false;
+        if (!orderMatchesSearch(order, normalizedQuery)) return false;
+
+        if (quickFilter === "mine") {
+          if (
+            !viewer?.userId ||
+            !getOrderClaimedStaffIds(order).includes(viewer.userId)
+          ) {
+            return false;
+          }
+        }
+
+        if (quickFilter === "unassigned") {
+          if (!isOrderFullyUnassigned(order)) return false;
+        }
+
+        if (quickFilter === "heavy") {
+          const token = summarizeProductionTokensByItems(order.items ?? []);
+          if (token < 15) return false;
         }
 
         return true;
@@ -729,17 +752,7 @@ export default function ProductionTable() {
     const source = activeTab === "active" ? activeOrders : readyOrders;
     return source.filter((order) => {
       if (!matchesDateFilter(order.deliveryDate)) return false;
-
-      if (normalizedQuery) {
-        const customer = (order.customerName || "").toLowerCase();
-        const product = (order.product || "").toLowerCase();
-        const fallbackItemName =
-          order.items?.[0]?.productName?.toLowerCase() ||
-          order.items?.[0]?.subcategory?.toLowerCase() ||
-          "";
-        const searchable = `${customer} ${product} ${fallbackItemName} ${order.id.toLowerCase()}`;
-        if (!searchable.includes(normalizedQuery)) return false;
-      }
+      if (!orderMatchesSearch(order, normalizedQuery)) return false;
 
       if (quickFilter === "mine") {
         if (
@@ -1705,116 +1718,118 @@ export default function ProductionTable() {
               </div>
             </div>
           </div>
-
-          <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_140px_120px_170px_auto]">
-            <label className="relative block">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Cari customer, produk, atau ID order"
-                className="h-11 w-full rounded-[16px] border border-[var(--crumbella-border)] bg-white pl-9 pr-3 text-sm text-[var(--foreground)] outline-none transition placeholder:text-[var(--crumbella-muted)] focus:border-[var(--crumbella-border)] focus:ring-2 focus:ring-[var(--crumbella-focus)]/20"
-              />
-            </label>
-
-            <select
-              value={filterMonth}
-              onChange={(event) => setFilterMonth(event.target.value)}
-              className="h-10 rounded-[14px] border border-[var(--crumbella-border)] bg-white px-2.5 text-xs font-medium text-[var(--foreground)] outline-none transition focus:border-[var(--crumbella-border)] focus:ring-2 focus:ring-[var(--crumbella-focus)]/20"
-            >
-              <option value="all">All Months</option>
-              {MONTH_OPTIONS.map((month) => (
-                <option key={month.value} value={month.value}>
-                  {month.label}
-                </option>
-              ))}
-            </select>
-
-            <select
-              value={filterYear}
-              onChange={(event) => setFilterYear(event.target.value)}
-              className="h-10 rounded-[14px] border border-[var(--crumbella-border)] bg-white px-2.5 text-xs font-medium text-[var(--foreground)] outline-none transition focus:border-[var(--crumbella-border)] focus:ring-2 focus:ring-[var(--crumbella-focus)]/20"
-            >
-              <option value="all">All Years</option>
-              {yearOptions.map((year) => (
-                <option key={year} value={year}>
-                  {year}
-                </option>
-              ))}
-            </select>
-
-            <input
-              type="date"
-              value={filterDate}
-              onChange={(event) => setFilterDate(event.target.value)}
-              className="h-10 rounded-[14px] border border-[var(--crumbella-border)] bg-white px-2.5 text-xs font-medium text-[var(--foreground)] outline-none transition focus:border-[var(--crumbella-border)] focus:ring-2 focus:ring-[var(--crumbella-focus)]/20"
-            />
-
-            <button
-              type="button"
-              onClick={resetFilters}
-              className="h-10 rounded-[14px] border border-[var(--crumbella-border)] bg-[var(--background)] px-3 text-xs font-semibold text-[var(--crumbella-primary)] transition hover:bg-[var(--crumbella-accent-soft)]"
-            >
-              Reset Filter
-            </button>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setQuickFilter("all")}
-              className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-                quickFilter === "all"
-                  ? "bg-[var(--crumbella-accent)] text-white"
-                  : "border border-[var(--crumbella-border)] bg-white text-[var(--foreground)] hover:bg-[var(--crumbella-accent-soft)]"
-              }`}
-            >
-              Semua
-            </button>
-            <button
-              type="button"
-              onClick={() => setQuickFilter("mine")}
-              className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-                quickFilter === "mine"
-                  ? "bg-[var(--crumbella-accent)] text-white"
-                  : "border border-[var(--crumbella-border)] bg-white text-[var(--foreground)] hover:bg-[var(--crumbella-accent-soft)]"
-              }`}
-            >
-              Tugas Saya
-            </button>
-            <button
-              type="button"
-              onClick={() => setQuickFilter("unassigned")}
-              className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-                quickFilter === "unassigned"
-                  ? "bg-[var(--crumbella-accent)] text-white"
-                  : "border border-[var(--crumbella-border)] bg-white text-[var(--foreground)] hover:bg-[var(--crumbella-accent-soft)]"
-              }`}
-            >
-              Belum Assigned
-            </button>
-            <button
-              type="button"
-              onClick={() => setQuickFilter("heavy")}
-              className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-                quickFilter === "heavy"
-                  ? "bg-[var(--crumbella-accent)] text-white"
-                  : "border border-[var(--crumbella-border)] bg-white text-[var(--foreground)] hover:bg-[var(--crumbella-accent-soft)]"
-              }`}
-            >
-              Heavy (15+ token)
-            </button>
-
-            {loadingMeta ? (
-              <span className="ml-auto inline-flex items-center gap-1.5 text-xs text-slate-500">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Syncing...
-              </span>
-            ) : null}
-          </div>
         </div>
       )}
+
+      <div className="space-y-3 rounded-[28px] border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] p-4 shadow-[0_16px_30px_-24px_rgba(30,18,10,0.45)]">
+        <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_140px_120px_170px_auto]">
+          <label className="relative block">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Cari customer, produk, atau ID order"
+              className="h-11 w-full rounded-[16px] border border-[var(--crumbella-border)] bg-white pl-9 pr-3 text-sm text-[var(--foreground)] outline-none transition placeholder:text-[var(--crumbella-muted)] focus:border-[var(--crumbella-border)] focus:ring-2 focus:ring-[var(--crumbella-focus)]/20"
+            />
+          </label>
+
+          <select
+            value={filterMonth}
+            onChange={(event) => setFilterMonth(event.target.value)}
+            className="h-10 rounded-[14px] border border-[var(--crumbella-border)] bg-white px-2.5 text-xs font-medium text-[var(--foreground)] outline-none transition focus:border-[var(--crumbella-border)] focus:ring-2 focus:ring-[var(--crumbella-focus)]/20"
+          >
+            <option value="all">All Months</option>
+            {MONTH_OPTIONS.map((month) => (
+              <option key={month.value} value={month.value}>
+                {month.label}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={filterYear}
+            onChange={(event) => setFilterYear(event.target.value)}
+            className="h-10 rounded-[14px] border border-[var(--crumbella-border)] bg-white px-2.5 text-xs font-medium text-[var(--foreground)] outline-none transition focus:border-[var(--crumbella-border)] focus:ring-2 focus:ring-[var(--crumbella-focus)]/20"
+          >
+            <option value="all">All Years</option>
+            {yearOptions.map((year) => (
+              <option key={year} value={year}>
+                {year}
+              </option>
+            ))}
+          </select>
+
+          <input
+            type="date"
+            value={filterDate}
+            onChange={(event) => setFilterDate(event.target.value)}
+            className="h-10 rounded-[14px] border border-[var(--crumbella-border)] bg-white px-2.5 text-xs font-medium text-[var(--foreground)] outline-none transition focus:border-[var(--crumbella-border)] focus:ring-2 focus:ring-[var(--crumbella-focus)]/20"
+          />
+
+          <button
+            type="button"
+            onClick={resetFilters}
+            className="h-10 rounded-[14px] border border-[var(--crumbella-border)] bg-[var(--background)] px-3 text-xs font-semibold text-[var(--crumbella-primary)] transition hover:bg-[var(--crumbella-accent-soft)]"
+          >
+            Reset Filter
+          </button>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setQuickFilter("all")}
+            className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+              quickFilter === "all"
+                ? "bg-[var(--crumbella-accent)] text-white"
+                : "border border-[var(--crumbella-border)] bg-white text-[var(--foreground)] hover:bg-[var(--crumbella-accent-soft)]"
+            }`}
+          >
+            Semua
+          </button>
+          <button
+            type="button"
+            onClick={() => setQuickFilter("mine")}
+            className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+              quickFilter === "mine"
+                ? "bg-[var(--crumbella-accent)] text-white"
+                : "border border-[var(--crumbella-border)] bg-white text-[var(--foreground)] hover:bg-[var(--crumbella-accent-soft)]"
+            }`}
+          >
+            Tugas Saya
+          </button>
+          <button
+            type="button"
+            onClick={() => setQuickFilter("unassigned")}
+            className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+              quickFilter === "unassigned"
+                ? "bg-[var(--crumbella-accent)] text-white"
+                : "border border-[var(--crumbella-border)] bg-white text-[var(--foreground)] hover:bg-[var(--crumbella-accent-soft)]"
+            }`}
+          >
+            Belum Assigned
+          </button>
+          <button
+            type="button"
+            onClick={() => setQuickFilter("heavy")}
+            className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+              quickFilter === "heavy"
+                ? "bg-[var(--crumbella-accent)] text-white"
+                : "border border-[var(--crumbella-border)] bg-white text-[var(--foreground)] hover:bg-[var(--crumbella-accent-soft)]"
+            }`}
+          >
+            Heavy (15+ token)
+          </button>
+
+          {loadingMeta ? (
+            <span className="ml-auto inline-flex items-center gap-1.5 text-xs text-slate-500">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Syncing...
+            </span>
+          ) : null}
+        </div>
+      </div>
 
       {isPrivilegedManager ? (
         <div className="rounded-[28px] border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] p-4 shadow-[0_18px_30px_-24px_rgba(30,18,10,0.45)]">

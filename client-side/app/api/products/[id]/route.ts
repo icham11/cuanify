@@ -48,7 +48,7 @@ export async function PATCH(
 ) {
   try {
     const auth = await requireAuth();
-    requireRole(auth, "Owner", "Admin");
+    requireRole(auth, "Owner");
     const { businessId } = auth;
     const { id: idParam } = await params;
     const id = Number(idParam);
@@ -201,7 +201,9 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const { businessId } = await requireAuth();
+    const auth = await requireAuth();
+    requireRole(auth, "Owner");
+    const { businessId } = auth;
     const { id: idParam } = await params;
     const id = Number(idParam);
     if (!id || isNaN(id)) {
@@ -228,6 +230,9 @@ export async function DELETE(
   } catch (error: unknown) {
     if (isAuthError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (error instanceof ForbiddenError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
     }
     console.error("DELETE /api/products/[id] error:", error);
     return NextResponse.json(

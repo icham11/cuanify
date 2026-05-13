@@ -1,4 +1,6 @@
-import { apiFetch } from "./client"
+import { apiFetch, invalidateApiCache, peekApiCache } from "./client"
+import { invalidateAuthMeCache } from "@/lib/auth/auth-me-client"
+import { invalidateBakerySettingsCache } from "@/hooks/useBakerySettings"
 
 export type Business = {
   id: string
@@ -64,6 +66,9 @@ export async function getCurrentBusiness(): Promise<Business | null> {
  */
 export function switchBusiness(id: string | number) {
   setActiveBusinessCookie(String(id))
+  invalidateAuthMeCache()
+  invalidateBakerySettingsCache()
+  invalidateApiCache()
 }
 
 // 🔹 CREATE business
@@ -71,8 +76,17 @@ export async function createBusiness(data: {
   name: string
   location: string
 }) {
-  return apiFetch("/api/businesses", {
+  const result = await apiFetch("/api/businesses", {
     method: "POST",
     body: JSON.stringify(data),
   })
+  invalidateApiCache("/api/businesses")
+  return result
+}
+
+export function peekBusinessesCache(): Business[] {
+  const payload = peekApiCache<{ success?: boolean; data?: Business[] }>(
+    "/api/businesses",
+  );
+  return payload?.success && Array.isArray(payload.data) ? payload.data : [];
 }

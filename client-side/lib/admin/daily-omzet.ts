@@ -256,9 +256,7 @@ export async function buildDailyOmzetSnapshot(
   const bakeryPaymentsDetail: DailyOmzetSnapshot["payments"] = [];
 
   for (const row of bakeryOrderRows) {
-    const orderBusinessDate =
-      normalizeDateKey(row.delivery_date) || normalizedDateKey;
-    const createdToday = orderBusinessDate === normalizedDateKey;
+    const createdToday = isInRange(row.created_at, startUtc, endUtc);
 
     const reference =
       row.resi || row.booking_code || row.external_id || "BAKERY-ORDER";

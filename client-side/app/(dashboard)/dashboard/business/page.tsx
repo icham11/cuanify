@@ -5,56 +5,62 @@ import { useBusiness } from "@/context/BusinessContext";
 import { useRole } from "@/context/RoleContext";
 import { BAKERY_SETTINGS_UPDATED_EVENT } from "@/hooks/useBakerySettings";
 import { apiFetch } from "@/lib/api/client";
+import {
+  calculateBakeryFinancialSummary,
+  filterBakeryOrdersByDateRange,
+} from "@/lib/bakery/financial-summary";
 import type { BakeryBusinessSettings } from "@/lib/bakery/settings";
+import type { Product } from "@/types/product";
 import { ChevronDown, Download, Loader2, Menu, Trophy } from "lucide-react";
-
-type BusinessDetail = {
-  id: number;
-  name: string;
-  location: string | null;
-  _count: {
-    sales: number;
-  };
-  stats: {
-    totalRevenue: number;
-    totalCost: number;
-    totalProfit: number;
-    paidSalesCount: number;
-    marginAvg: number | null;
-  };
-};
 
 type BakerySettingsResponse = {
   data?: BakeryBusinessSettings;
 };
 
-type SalesSummaryResponse = {
+type BakeryOrdersResponse = {
   data?: {
-    summary?: {
-      totalRevenue?: number;
-      totalCost?: number;
-      totalProfit?: number;
-    };
-    sales?: Array<{
-      saleItems?: Array<{
-        quantity: number;
-        priceAtSale: number;
-        product?: {
-          id: number;
-          name: string;
-        } | null;
+    orders?: Array<{
+      deliveryDate?: string;
+      product?: string;
+      totalPrice?: number;
+      totalPaidAmount?: number;
+      dpPaidAmount?: number;
+      finalPaidAmount?: number;
+      paymentStatus?: string;
+      orderStatus?: string;
+      paymentTransactions?: Array<{
+        timestamp?: string;
+        amount?: number;
+        type?: string;
+      }>;
+      createdAt?: string;
+      updatedAt?: string;
+      items?: Array<{
+        productName?: string;
+        size?: string;
+        quantity?: number;
+        basePrice?: number;
+        selectedPrice?: number;
+        lineTotal?: number;
       }>;
     }>;
   };
 };
 
-type SalesList = NonNullable<SalesSummaryResponse["data"]>["sales"];
+type ProductsResponse = {
+  data?: Product[];
+};
+
+type TopProductView = {
+  productName: string;
+  quantitySold: number;
+  revenue: number;
+};
 
 type ViewState = {
   viewerName: string;
   businessName: string;
   businessLocation: string;
-  businessDetail: BusinessDetail | null;
   currentRevenue: number;
   currentProfit: number;
   previousRevenue: number;
@@ -62,11 +68,7 @@ type ViewState = {
   avgMargin: number;
   totalSalesCount: number;
   paidSalesCount: number;
-  topProducts: Array<{
-    productName: string;
-    quantitySold: number;
-    revenue: number;
-  }>;
+  topProducts: TopProductView[];
   bakerySettings: BakeryBusinessSettings | null;
 };
 
@@ -74,7 +76,6 @@ const EMPTY_VIEW_STATE: ViewState = {
   viewerName: "",
   businessName: "",
   businessLocation: "",
-  businessDetail: null,
   currentRevenue: 0,
   currentProfit: 0,
   previousRevenue: 0,
@@ -101,16 +102,19 @@ function formatCurrency(value: number) {
 
 function formatCompactRupiah(value: number) {
   const amount = Math.round(Number(value || 0));
-  if (amount >= 1_000_000_000) {
-    return `Rp${(amount / 1_000_000_000).toFixed(1).replace(".0", "")}M`;
+  const absoluteAmount = Math.abs(amount);
+  const sign = amount < 0 ? "-" : "";
+
+  if (absoluteAmount >= 1_000_000_000) {
+    return `${sign}Rp${(absoluteAmount / 1_000_000_000).toFixed(1).replace(".0", "")}M`;
   }
-  if (amount >= 1_000_000) {
-    return `Rp${(amount / 1_000_000).toFixed(1).replace(".0", "")}jt`;
+  if (absoluteAmount >= 1_000_000) {
+    return `${sign}Rp${(absoluteAmount / 1_000_000).toFixed(1).replace(".0", "")}jt`;
   }
-  if (amount >= 1_000) {
-    return `Rp${(amount / 1_000).toFixed(0)}rb`;
+  if (absoluteAmount >= 1_000) {
+    return `${sign}Rp${(absoluteAmount / 1_000).toFixed(0)}rb`;
   }
-  return `Rp${amount}`;
+  return `${sign}Rp${absoluteAmount}`;
 }
 
 function formatSignedCurrency(value: number) {
@@ -156,29 +160,6 @@ function getRankEmoji(index: number) {
   if (index === 1) return "#2";
   if (index === 2) return "#3";
   return `#${index + 1}`;
-}
-
-function buildTopProducts(sales: SalesList) {
-  const map = new Map<string, { productName: string; quantitySold: number; revenue: number }>();
-
-  for (const sale of sales ?? []) {
-    for (const item of sale.saleItems ?? []) {
-      const productName = item.product?.name?.trim() || "Produk";
-      const quantitySold = Number(item.quantity || 0);
-      const revenue = Number(item.priceAtSale || 0) * quantitySold;
-      const current = map.get(productName) ?? {
-        productName,
-        quantitySold: 0,
-        revenue: 0,
-      };
-
-      current.quantitySold += quantitySold;
-      current.revenue += revenue;
-      map.set(productName, current);
-    }
-  }
-
-  return Array.from(map.values()).sort((a, b) => b.revenue - a.revenue);
 }
 
 function buildExportCsv(args: {
@@ -258,20 +239,30 @@ function BreakdownRow({
     tone === "positive"
       ? "text-[#17653d]"
       : tone === "profit"
-        ? "text-[#17653d] font-extrabold"
+        ? amount >= 0
+          ? "text-[#17653d] font-extrabold"
+          : "text-[#c85d34] font-extrabold"
         : "text-[#c85d34]";
 
   return (
     <div
       className={`px-4 py-3 ${
-        tone === "profit" ? "bg-[#e4f4ee]" : "border-b border-[#ead8cb]"
+        tone === "profit"
+          ? amount >= 0
+            ? "bg-[#e4f4ee]"
+            : "bg-[#fff1ec]"
+          : "border-b border-[#ead8cb]"
       }`}
     >
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <p
             className={`text-[15px] leading-tight ${
-              tone === "profit" ? "font-bold text-[#17653d]" : "text-[#23150f]"
+              tone === "profit"
+                ? amount >= 0
+                  ? "font-bold text-[#17653d]"
+                  : "font-bold text-[#c85d34]"
+                : "text-[#23150f]"
             }`}
           >
             {label}
@@ -348,63 +339,71 @@ export default function BusinessPage() {
       const currentRange = getMonthRange(selectedMonth);
       const previousRange = getMonthRange(currentRange.prevMonthKey);
 
-      const bakerySettingsPromise = safeApiFetch<BakerySettingsResponse>(
-        "/api/bakery/settings",
-      );
-
       const [
-        businessPayload,
-        currentSalesPayload,
-        previousSalesPayload,
+        bakerySettingsPayload,
+        ordersPayload,
+        productsPayload,
       ] = await Promise.all([
-        safeApiFetch<{ data?: BusinessDetail }>(
-          `/api/businesses/${business.id}`,
-        ),
-        safeApiFetch<SalesSummaryResponse>(
-          `/api/sales?startDate=${currentRange.startDate}&endDate=${currentRange.endDate}&compact=1`,
-        ),
-        safeApiFetch<SalesSummaryResponse>(
-          `/api/sales?startDate=${previousRange.startDate}&endDate=${previousRange.endDate}&summaryOnly=1`,
-        ),
+        safeApiFetch<BakerySettingsResponse>("/api/bakery/settings"),
+        safeApiFetch<BakeryOrdersResponse>("/api/bookings/orders"),
+        safeApiFetch<ProductsResponse>("/api/products?limit=999&withRecipe=false"),
       ]);
 
       if (!active) return;
 
-      const businessRequestFailed = didRequestFail(businessPayload);
-      const currentSalesRequestFailed = didRequestFail(currentSalesPayload);
-      const previousSalesRequestFailed = didRequestFail(previousSalesPayload);
+      const ordersRequestFailed = didRequestFail(ordersPayload);
+      const productsRequestFailed = didRequestFail(productsPayload);
 
-      const businessDetail = businessPayload?.data ?? null;
-      const currentSummary = currentSalesPayload?.data?.summary;
-      const previousSummary = previousSalesPayload?.data?.summary;
-      const currentSales = currentSalesPayload?.data?.sales ?? [];
+      const bakerySettings = bakerySettingsPayload?.data ?? null;
+      const orders = ordersPayload?.data?.orders ?? [];
+      const products = productsPayload?.data ?? [];
+      const deliveryRangeOrders = filterBakeryOrdersByDateRange(
+        orders,
+        currentRange.startDate,
+        currentRange.endDate,
+      );
+      const currentSummary = calculateBakeryFinancialSummary({
+        orders,
+        products,
+        settings: bakerySettings,
+        fromDate: currentRange.startDate,
+        toDate: currentRange.endDate,
+      });
+      const previousSummary = calculateBakeryFinancialSummary({
+        orders,
+        products,
+        settings: bakerySettings,
+        fromDate: previousRange.startDate,
+        toDate: previousRange.endDate,
+      });
 
-      const businessStats = businessDetail?.stats;
-      const currentRevenue = Number(currentSummary?.totalRevenue ?? 0) || Number(businessStats?.totalRevenue ?? 0);
-      const currentProfit = Number(currentSummary?.totalProfit ?? 0) || Number(businessStats?.totalProfit ?? 0);
-      const totalCost = Number(currentSummary?.totalCost ?? 0) || Number(businessStats?.totalCost ?? 0);
-      const previousRevenue = Number(previousSummary?.totalRevenue ?? 0);
+      const currentRevenue = currentSummary.totalRevenue;
+      const currentProfit = currentSummary.grossProfit;
+      const totalCost = currentSummary.cogsCost;
+      const previousRevenue = previousSummary.totalRevenue;
       const avgMargin =
         currentRevenue > 0
           ? (currentProfit / currentRevenue) * 100
-          : Number(businessStats?.marginAvg ?? 0) || 0;
+          : 0;
 
       const nextViewState: ViewState = {
         viewerName: userName?.trim() || "",
-        businessName:
-          businessDetail?.name?.trim() ||
-          business.name,
-        businessLocation: businessDetail?.location?.trim() || "",
-        businessDetail,
+        businessName: business.name,
+        businessLocation: business.location || "",
         currentRevenue,
         currentProfit,
         previousRevenue,
         totalCost,
         avgMargin,
-        totalSalesCount: Number(businessDetail?._count?.sales ?? 0),
-        paidSalesCount: Number(businessStats?.paidSalesCount ?? 0),
-        topProducts: buildTopProducts(currentSales),
-        bakerySettings: null,
+        totalSalesCount: deliveryRangeOrders.length,
+        paidSalesCount: deliveryRangeOrders.filter((order) => {
+          const totalPaid = Number(order.totalPaidAmount ?? 0);
+          const fallbackPaid =
+            Number(order.dpPaidAmount ?? 0) + Number(order.finalPaidAmount ?? 0);
+          return totalPaid > 0 || fallbackPaid > 0;
+        }).length,
+        topProducts: currentSummary.topProducts,
+        bakerySettings,
       };
       BUSINESS_VIEW_CACHE.set(cacheKey, {
         value: nextViewState,
@@ -413,16 +412,15 @@ export default function BusinessPage() {
       setViewState(nextViewState);
 
       const hasPrimaryData =
-        Boolean(businessDetail) ||
+        Boolean(business?.id) ||
         currentRevenue > 0 ||
         currentProfit > 0 ||
-        Number(businessDetail?._count?.sales ?? 0) > 0 ||
-        Number(businessDetail?.stats?.paidSalesCount ?? 0) > 0 ||
-        currentSales.length > 0;
+        deliveryRangeOrders.length > 0 ||
+        currentSummary.paidOrdersCount > 0 ||
+        currentSummary.topProducts.length > 0;
       const hasBackendFailure =
-        businessRequestFailed ||
-        currentSalesRequestFailed ||
-        previousSalesRequestFailed;
+        ordersRequestFailed ||
+        productsRequestFailed;
 
       setError(
         hasBackendFailure && !hasPrimaryData
@@ -430,21 +428,6 @@ export default function BusinessPage() {
           : null,
       );
       setLoading(false);
-
-      const bakerySettingsPayload = await bakerySettingsPromise;
-      if (!active || !bakerySettingsPayload?.data) return;
-
-      setViewState((current) => {
-        const enrichedState = {
-          ...current,
-          bakerySettings: bakerySettingsPayload.data ?? null,
-        };
-        BUSINESS_VIEW_CACHE.set(cacheKey, {
-          value: enrichedState,
-          cachedAt: Date.now(),
-        });
-        return enrichedState;
-      });
     };
 
     void load();
@@ -501,7 +484,7 @@ export default function BusinessPage() {
   );
   const totalOperationalCost =
     staffCost + refundCost + adsCost + customExpenseTotal;
-  const netProfit = Math.max(0, viewState.currentProfit - totalOperationalCost);
+  const netProfit = viewState.currentProfit - totalOperationalCost;
   const avatarLabel = getInitials(
     `${viewState.viewerName || "Owner"} ${viewState.businessName || ""}`,
   );
@@ -626,7 +609,11 @@ export default function BusinessPage() {
               </div>
               <div className="pt-4 sm:pl-3 sm:pt-0">
                 <p className="text-[11px] text-[#b58872]">Profit Bersih</p>
-                <p className="mt-1 text-[20px] font-extrabold leading-none text-[#17653d]">
+                <p
+                  className={`mt-1 text-[20px] font-extrabold leading-none ${
+                    netProfit >= 0 ? "text-[#17653d]" : "text-[#c85d34]"
+                  }`}
+                >
                   {formatCompactRupiah(netProfit)}
                 </p>
                 <p className="mt-2 text-[11px] text-[#b58872]">

@@ -3,7 +3,12 @@ import { revalidateTag } from "next/cache";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
-import { requireAuth, AuthError } from "@/lib/auth/session";
+import {
+  requireAuth,
+  AuthError,
+  ForbiddenError,
+  requireRole,
+} from "@/lib/auth/session";
 import prisma from "@/lib/prisma";
 import {
   buildEffectiveProductCatalog,
@@ -132,7 +137,9 @@ export async function GET() {
 
 export async function PUT(request: NextRequest) {
   try {
-    const { businessId } = await requireAuth();
+    const auth = await requireAuth();
+    requireRole(auth, "Owner");
+    const { businessId } = auth;
     const body = await request.json();
     const parsed = catalogStateSchema.safeParse(body);
 
@@ -189,6 +196,9 @@ export async function PUT(request: NextRequest) {
   } catch (error: unknown) {
     if (error instanceof AuthError) {
       return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+    if (error instanceof ForbiddenError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
     }
     if (isExpiredTransactionError(error)) {
       return NextResponse.json(

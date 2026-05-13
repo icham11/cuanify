@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,7 +11,13 @@ import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 import { generateExcel } from "@/lib/export/excel";
 import { useOrders } from "@/components/bakery/store";
 import { calculateOrderTokenFromItems } from "@/lib/bookings/order-token-calculator";
+import {
+  calculateBakeryFinancialSummary,
+  getMonthKeyFromDateValue,
+} from "@/lib/bakery/financial-summary";
+import type { BakeryBusinessSettings } from "@/lib/bakery/settings";
 import type { Product } from "@/types/product";
+import { useRole } from "@/context/RoleContext";
 
 type AttendanceMember = {
   memberId: number;
@@ -49,15 +56,7 @@ function toDateInputValue(date: Date) {
 }
 
 function monthKeyFromDate(dateStr: string) {
-  return String(dateStr || "").slice(0, 7);
-}
-
-function normalizeText(value: string) {
-  return String(value || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return getMonthKeyFromDateValue(dateStr);
 }
 
 function getMonthRange(monthKey: string) {
@@ -83,16 +82,6 @@ function formatMonthLabel(monthKey: string) {
     month: "long",
     year: "numeric",
   }).format(new Date(year, month - 1, 1));
-}
-
-function getPaymentIn(order: {
-  totalPaidAmount?: number;
-  dpPaidAmount?: number;
-  finalPaidAmount?: number;
-}) {
-  const totalPaid = Number(order.totalPaidAmount ?? 0);
-  if (totalPaid > 0) return totalPaid;
-  return Number(order.dpPaidAmount ?? 0) + Number(order.finalPaidAmount ?? 0);
 }
 
 function parseNumericId(value: unknown): number | null {
@@ -150,6 +139,8 @@ function getOrderStaffTokenAssignments(order: {
 }
 
 export default function ReportsPage() {
+  const router = useRouter();
+  const { isOwner, loading: roleLoading } = useRole();
   const { orders } = useOrders();
   const currentMonth = monthKeyFromDate(toDateInputValue(new Date()));
   const initialRange = getMonthRange(currentMonth);
@@ -159,6 +150,19 @@ export default function ReportsPage() {
   const [isCustomOpen, setIsCustomOpen] = useState(false);
   const [isExportPickerOpen, setIsExportPickerOpen] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
+
+  useEffect(() => {
+    if (roleLoading) return;
+    if (!isOwner) {
+      router.replace("/bakery/bookings");
+    }
+  }, [isOwner, roleLoading, router]);
+
+  if (roleLoading || !isOwner) {
+    return null;
+  }
+  const [bakerySettings, setBakerySettings] =
+    useState<BakeryBusinessSettings | null>(null);
   const [attendanceTeam, setAttendanceTeam] = useState<AttendanceMember[]>([]);
   const [attendanceSelf, setAttendanceSelf] = useState<AttendanceSelfData | null>(null);
   const [attendanceTotalDays, setAttendanceTotalDays] = useState(0);
@@ -208,6 +212,30 @@ export default function ReportsPage() {
     };
 
     void loadProducts();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadBakerySettings = async () => {
+      try {
+        const response = await fetch("/api/bakery/settings", {
+          cache: "no-store",
+        });
+        const payload = (await response.json().catch(() => ({}))) as {
+          data?: BakeryBusinessSettings;
+        };
+        if (!response.ok || cancelled) return;
+        setBakerySettings(payload.data ?? null);
+      } catch {
+        if (!cancelled) setBakerySettings(null);
+      }
+    };
+
+    void loadBakerySettings();
     return () => {
       cancelled = true;
     };
@@ -292,59 +320,25 @@ export default function ReportsPage() {
   });
 
   const totalOrders = filteredOrders.length;
-  const totalRevenue = filteredOrders.reduce(
-    (sum, order) => sum + Number(order.totalPrice || 0),
-    0,
-  );
-  const totalCashFlowIn = filteredOrders.reduce(
-    (sum, order) => sum + getPaymentIn(order),
-    0,
-  );
-
-  const productCogsMap = useMemo(() => {
-    const map = new Map<string, number>();
-    products.forEach((product) => {
-      map.set(normalizeText(product.name), Number(product.cogs || 0));
-    });
-    return map;
-  }, [products]);
 
   const financialSummary = useMemo(() => {
-    let totalCost = 0;
-    let itemsWithMissingCogs = 0;
-
-    filteredOrders.forEach((order) => {
-      (order.items || []).forEach((item) => {
-        const quantity = Math.max(1, Number(item.quantity || 1));
-        const probes = [
-          normalizeText(item.productName || ""),
-          normalizeText(order.product || ""),
-        ].filter(Boolean);
-        const matchedCogs = probes
-          .map((probe) => productCogsMap.get(probe) ?? 0)
-          .find((value) => value > 0);
-
-        if (!matchedCogs) {
-          itemsWithMissingCogs += 1;
-          return;
-        }
-
-        totalCost += matchedCogs * quantity;
-      });
+    return calculateBakeryFinancialSummary({
+      orders,
+      products,
+      settings: bakerySettings,
+      fromDate,
+      toDate,
     });
+  }, [bakerySettings, fromDate, orders, products, toDate]);
 
-    return {
-      totalCost,
-      netProfit: totalRevenue - totalCost,
-      itemsWithMissingCogs,
-      isAccurate: itemsWithMissingCogs === 0,
-    };
-  }, [filteredOrders, productCogsMap, totalRevenue]);
+  const totalRevenue = financialSummary.totalRevenue;
+  const totalCashFlowIn = financialSummary.totalCashFlowIn;
 
   const completedOrders = filteredOrders.filter((order) =>
     ["Completed", "Delivered"].includes(normalizeOrderStatus(order.orderStatus)),
   ).length;
-  const avgOrderValue = totalOrders > 0 ? Math.round(totalRevenue / totalOrders) : 0;
+  const avgOrderValue =
+    totalOrders > 0 ? Math.round(financialSummary.bookedRevenue / totalOrders) : 0;
 
   const allCustomers = useMemo(() => {
     const grouped = new Map<
@@ -535,8 +529,7 @@ export default function ReportsPage() {
         deliveryDate: order.deliveryDate || "",
         deliverySlot: order.deliverySlot || "",
         status: normalizeOrderStatus(order.orderStatus),
-        paymentStatus:
-          order.paymentStatus === "Pending" ? "DP Paid" : order.paymentStatus,
+        paymentStatus: order.paymentStatus || "Pending",
         totalPrice: Number(order.totalPrice || 0),
         notes: order.notes || "",
       })),
@@ -785,12 +778,24 @@ export default function ReportsPage() {
             <ReportRow
               label="Profit Bersih"
               value={formatCurrency(financialSummary.netProfit)}
-              rowClassName="bg-[#dff1ea]"
-              valueClassName="text-[#0d6a4f]"
+              rowClassName={
+                financialSummary.netProfit >= 0 ? "bg-[#dff1ea]" : "bg-[#fff1ec]"
+              }
+              valueClassName={
+                financialSummary.netProfit >= 0 ? "text-[#0d6a4f]" : "text-[#cf4028]"
+              }
               isLast
             />
           </div>
-          {!financialSummary.isAccurate ? (
+          <p className="mt-2 text-[11px] text-[#9b775e]">
+            Revenue di laporan ini mengikuti pembayaran yang benar-benar diterima pada periode terpilih.
+          </p>
+          {financialSummary.totalOperationalCost > 0 ? (
+            <p className="mt-2 text-[11px] text-[#9b775e]">
+              Total biaya sudah termasuk payroll dan biaya operasional bulanan.
+            </p>
+          ) : null}
+          {!financialSummary.isCogsAccurate ? (
             <p className="mt-2 text-[11px] text-[#a35c3a]">
               Perhitungan belum akurat penuh. Ada {financialSummary.itemsWithMissingCogs} item tanpa COGS produk.
             </p>

@@ -1,4 +1,5 @@
 import type { Product, CreateProductInput } from "@/types/product";
+import { apiFetch, invalidateApiCache } from "./client";
 
 async function extractApiErrorMessage(
   response: Response,
@@ -75,14 +76,10 @@ export async function getProducts(
   if (params?.page) url.searchParams.set("page", String(params.page));
   if (params?.limit) url.searchParams.set("limit", String(params.limit));
 
-  const res = await fetch(url.toString(), {
-    credentials: "include",
-    cache: "no-store",
-  });
-  if (!res.ok) {
-    throw new Error(await extractApiErrorMessage(res, "Failed to fetch products"));
-  }
-  const json = await res.json();
+  const json = (await apiFetch(url.toString())) as {
+    data?: Product[];
+    meta?: PaginationMeta;
+  };
   return {
     data: json.data ?? [],
     meta: json.meta ?? {
@@ -109,6 +106,7 @@ export async function createProduct(
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error ?? "Failed to create product");
+  invalidateApiCache(/\/api\/(products|categories|bookings\/catalog-config)/);
   return data.data;
 }
 
@@ -123,6 +121,7 @@ export async function createBulkProducts(
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error ?? "Failed to create products");
+  invalidateApiCache(/\/api\/(products|categories|bookings\/catalog-config)/);
   return data.data;
 }
 
@@ -211,16 +210,15 @@ export type IngredientOption = {
 };
 
 export async function getIngredientOptions(): Promise<IngredientOption[]> {
-  const res = await fetch("/api/ingredients", {
-    credentials: "include",
-    cache: "no-store",
-  });
-  if (!res.ok) {
-    throw new Error(
-      await extractApiErrorMessage(res, "Failed to fetch ingredients"),
-    );
-  }
-  const data = await res.json();
+  const data = (await apiFetch("/api/ingredients")) as {
+    data?: Array<{
+      id: number;
+      name: string;
+      unit: string;
+      costPerUnit: number | null;
+      currentStock?: number;
+    }>;
+  };
   return (data.data ?? []).map(
     (ing: {
       id: number;
@@ -263,6 +261,7 @@ export async function updateProductPrice(
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error ?? "Failed to update product");
+  invalidateApiCache(/\/api\/products/);
   return data.data;
 }
 
@@ -276,6 +275,7 @@ export async function deleteProduct(id: number): Promise<void> {
     const data = await res.json().catch(() => ({}));
     throw new Error(data.error ?? "Failed to delete product");
   }
+  invalidateApiCache(/\/api\/products/);
 }
 
 /** DELETE /api/products — permanently delete multiple products and their recipes */
@@ -290,6 +290,7 @@ export async function bulkDeleteProducts(ids: number[]): Promise<void> {
     const data = await res.json().catch(() => ({}));
     throw new Error(data.error ?? "Failed to delete products");
   }
+  invalidateApiCache(/\/api\/products/);
 }
 
 /** POST /api/ingredients — create a new ingredient (find-or-create), always seats an initial batch */
@@ -307,6 +308,7 @@ export async function syncBakeryCatalogProducts(): Promise<{
   if (!res.ok) {
     throw new Error(data.error ?? "Failed to sync bakery catalog products");
   }
+  invalidateApiCache(/\/api\/(products|categories|bookings\/catalog-config)/);
   return data.data;
 }
 
@@ -337,6 +339,7 @@ export async function createIngredient(data: {
     throw new Error(json.error ?? "Failed to create ingredient");
   }
   const json = await res.json();
+  invalidateApiCache(/\/api\/ingredients/);
   return json.data;
 }
 
@@ -361,6 +364,7 @@ export async function patchIngredient(
     const json = await res.json().catch(() => ({}));
     throw new Error(json.error ?? "Failed to update ingredient");
   }
+  invalidateApiCache(/\/api\/ingredients/);
 }
 
 /** DELETE /api/ingredients/[id] — permanently remove an auto-created (AI) ingredient */
@@ -373,4 +377,5 @@ export async function deleteIngredient(id: number): Promise<void> {
     const data = await res.json().catch(() => ({}));
     throw new Error(data.error ?? "Failed to delete ingredient");
   }
+  invalidateApiCache(/\/api\/ingredients/);
 }

@@ -242,6 +242,13 @@ async function getBakeryOverview(
   });
 
   const paidOrderIdSet = new Set(paidOrderIds);
+  const paidOrderRatioMap = new Map<string, number>();
+  bakeryOrderRows.forEach((row) => {
+    const totalPrice = Math.max(0, toNumber(row.total_price));
+    const paidAmount = Math.min(totalPrice, Math.max(0, toNumber(row.total_paid_amount)));
+    const ratio = totalPrice > 0 ? Math.min(1, paidAmount / totalPrice) : 0;
+    paidOrderRatioMap.set(row.external_id, ratio);
+  });
   let totalCost = 0;
 
   bakeryOrderItems.forEach((row) => {
@@ -249,13 +256,14 @@ async function getBakeryOverview(
 
     const item = parseBakeryOrderItem(row.payload);
     if (!item || item.quantity <= 0) return;
+    const recognitionRatio = paidOrderRatioMap.get(row.order_external_id) ?? 0;
 
     const productCost =
       buildProductNameCandidates(item)
         .map((candidate) => productCostMap.get(normalizeText(candidate)))
         .find((value) => typeof value === "number") ?? 0;
 
-    totalCost += productCost * item.quantity;
+    totalCost += productCost * item.quantity * recognitionRatio;
 
     const normalizedCategory = normalizeText(item.category);
     item.addOns.forEach((addOnId) => {
@@ -264,11 +272,14 @@ async function getBakeryOverview(
         addOnCostMap.get(
           `${normalizedCategory}||${normalizeText(addOnId)}`,
         ) ?? 0;
-      totalCost += addOnCost * units;
+      totalCost += addOnCost * units * recognitionRatio;
     });
 
     item.customAddOns.forEach((addOn) => {
-      totalCost += Math.max(0, addOn.cogs) * Math.max(1, addOn.quantity);
+      totalCost +=
+        Math.max(0, addOn.cogs) *
+        Math.max(1, addOn.quantity) *
+        recognitionRatio;
     });
   });
 
@@ -278,7 +289,12 @@ async function getBakeryOverview(
       toNumber(row.total_paid_amount) > 0,
   );
   const totalRevenue = paidOrders.reduce(
-    (sum, row) => sum + toNumber(row.total_price),
+    (sum, row) =>
+      sum +
+      Math.min(
+        Math.max(0, toNumber(row.total_price)),
+        Math.max(0, toNumber(row.total_paid_amount)),
+      ),
     0,
   );
   const totalProfit = totalRevenue - totalCost;

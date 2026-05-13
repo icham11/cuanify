@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
-import { requireAuth, isAuthError } from "@/lib/auth/session";
+import {
+  requireAuth,
+  isAuthError,
+  requireRole,
+  ForbiddenError,
+} from "@/lib/auth/session";
 import { createProductSchema, bulkCreateProductsSchema } from "@/lib/validations/product";
 import { normalizeDirectCogs } from "@/lib/cogs/config";
 import {
@@ -501,7 +506,9 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
-    const { businessId } = await requireAuth();
+    const auth = await requireAuth();
+    requireRole(auth, "Owner");
+    const { businessId } = auth;
     const body = await request.json();
 
     // Determine single vs bulk
@@ -700,6 +707,9 @@ export async function POST(request: NextRequest) {
     if (isAuthError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    if (error instanceof ForbiddenError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
 
     // Transaction errors from duplicate / validation checks
     if (
@@ -739,7 +749,9 @@ export async function POST(request: NextRequest) {
  */
 export async function DELETE(request: NextRequest) {
   try {
-    const { businessId } = await requireAuth();
+    const auth = await requireAuth();
+    requireRole(auth, "Owner");
+    const { businessId } = auth;
 
     const body = await request.json();
     const ids: number[] = Array.isArray(body?.ids) ? body.ids.map(Number) : [];
@@ -764,6 +776,9 @@ export async function DELETE(request: NextRequest) {
   } catch (error) {
     if (isAuthError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (error instanceof ForbiddenError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
     }
     console.error("DELETE /api/products error:", error);
     return NextResponse.json(

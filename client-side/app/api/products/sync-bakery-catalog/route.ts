@@ -41,7 +41,7 @@ function isUniqueConstraintError(error: unknown): boolean {
 export async function POST() {
   try {
     const auth = await requireAuth();
-    requireRole(auth, "Owner", "Admin");
+    requireRole(auth, "Owner");
 
     const { productCatalog } = await loadEffectiveBookingCatalog(auth.businessId);
     const result = await syncBakeryCatalogToDashboardProducts({

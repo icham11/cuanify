@@ -14,7 +14,52 @@ interface BakerySettingsResponse {
 let cachedSettings: BakeryBusinessSettings | null = null;
 let cachedSettingsFetchedAt = 0;
 let inFlightSettingsRequest: Promise<BakeryBusinessSettings | null> | null = null;
-const SETTINGS_CACHE_TTL_MS = 60_000;
+const SETTINGS_CACHE_TTL_MS = 5 * 60 * 1000;
+const SETTINGS_STORAGE_KEY = "bakery-settings-cache:v1";
+
+function readSettingsFromStorage() {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(SETTINGS_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as {
+      data?: BakeryBusinessSettings;
+      fetchedAt?: number;
+    };
+    if (!parsed?.data || typeof parsed.fetchedAt !== "number") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeSettingsToStorage(
+  data: BakeryBusinessSettings,
+  fetchedAt: number,
+) {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(
+      SETTINGS_STORAGE_KEY,
+      JSON.stringify({ data, fetchedAt }),
+    );
+  } catch {
+    // Ignore storage errors.
+  }
+}
+
+export function invalidateBakerySettingsCache() {
+  cachedSettings = null;
+  cachedSettingsFetchedAt = 0;
+  inFlightSettingsRequest = null;
+
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.removeItem(SETTINGS_STORAGE_KEY);
+  } catch {
+    // Ignore storage errors.
+  }
+}
 
 async function fetchBakerySettingsFromApi(): Promise<BakeryBusinessSettings | null> {
   const response = await fetch("/api/bakery/settings", {
@@ -31,10 +76,19 @@ async function fetchBakerySettingsFromApi(): Promise<BakeryBusinessSettings | nu
 
   cachedSettings = payload.data;
   cachedSettingsFetchedAt = Date.now();
+  writeSettingsToStorage(payload.data, cachedSettingsFetchedAt);
   return payload.data;
 }
 
 export function useBakerySettings(options?: { enabled?: boolean }) {
+  if (!cachedSettings) {
+    const cachedFromStorage = readSettingsFromStorage();
+    if (cachedFromStorage) {
+      cachedSettings = cachedFromStorage.data ?? null;
+      cachedSettingsFetchedAt = cachedFromStorage.fetchedAt ?? 0;
+    }
+  }
+
   const enabled = options?.enabled !== false;
   const [settings, setSettings] = useState<BakeryBusinessSettings | null>(
     cachedSettings,

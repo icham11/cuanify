@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useBusiness } from "@/context/BusinessContext";
+import { useRole } from "@/context/RoleContext";
 import { createBulkProducts } from "@/lib/api/products";
 import type { ProductDraft } from "@/types/product";
 import PhotoUploadModal from "./components/PhotoUploadModal";
@@ -25,6 +26,7 @@ export default function CreateProductsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { business, loading: businessLoading } = useBusiness();
+  const { isOwner, loading: roleLoading } = useRole();
   const prefilledName = (searchParams.get("name") ?? "").trim();
 
   const [mode, setMode] = useState<Mode>("idle");
@@ -37,6 +39,17 @@ export default function CreateProductsPage() {
   useEffect(() => {
     if (prefilledName) setMode("manual");
   }, [prefilledName]);
+
+  useEffect(() => {
+    if (roleLoading) return;
+    if (!isOwner) {
+      router.replace("/dashboard/products");
+    }
+  }, [isOwner, roleLoading, router]);
+
+  if (roleLoading || !isOwner) {
+    return null;
+  }
 
   const resetDrafts = () => {
     setDrafts([]);

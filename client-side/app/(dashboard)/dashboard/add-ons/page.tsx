@@ -12,6 +12,7 @@ import {
   ArrowUpDown,
 } from "lucide-react";
 import { makeAddOnKey, useCatalogAdminState } from "@/lib/bookings/catalog-admin";
+import { useRole } from "@/context/RoleContext";
 
 function normalizeId(value: string): string {
   return value
@@ -160,6 +161,8 @@ function AddOnModal({
 }
 
 export default function AddOnsPage() {
+  const { isOwner, isAdmin, loading: roleLoading } = useRole();
+  const canManageAddOns = isOwner;
   const { addOnCatalog, syncStatus, setCatalogAdminState } = useCatalogAdminState();
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("");
@@ -242,12 +245,14 @@ export default function AddOnsPage() {
   };
 
   const openAddModal = () => {
+    if (!canManageAddOns) return;
     resetAddForm();
     setEditRow(null);
     setAddOpen(true);
   };
 
   const openEditModal = (row: GroupedAddOnRow) => {
+    if (!canManageAddOns) return;
     setEditRow(row);
     setFormPrice(row.price);
     setFormCogs(row.cogs);
@@ -255,6 +260,7 @@ export default function AddOnsPage() {
   };
 
   const handleAdd = () => {
+    if (!canManageAddOns) return;
     const nextCategory = formCategory.trim();
     const nextLabel = formLabel.trim();
     const nextId = normalizeId(formId || formLabel);
@@ -316,6 +322,7 @@ export default function AddOnsPage() {
   };
 
   const handlePriceUpdate = () => {
+    if (!canManageAddOns) return;
     if (!editRow) return;
     setCatalogAdminState((prev) => {
       const nextOverrides = { ...prev.addOnPriceOverrides };
@@ -340,6 +347,7 @@ export default function AddOnsPage() {
   };
 
   const handleDelete = (row: GroupedAddOnRow) => {
+    if (!canManageAddOns) return;
     setCatalogAdminState((prev) => ({
       ...prev,
       inactiveAddOns: Array.from(
@@ -363,13 +371,15 @@ export default function AddOnsPage() {
               {groupedRows.length} add-on · semua produk
             </p>
           </div>
-          <button
-            onClick={openAddModal}
-            className="inline-flex items-center gap-1 rounded-full bg-[#c86030] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-[#a84820]"
-          >
-            <Plus size={16} />
-            Tambah
-          </button>
+          {canManageAddOns ? (
+            <button
+              onClick={openAddModal}
+              className="inline-flex items-center gap-1 rounded-full bg-[#c86030] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-[#a84820]"
+            >
+              <Plus size={16} />
+              Tambah
+            </button>
+          ) : null}
         </div>
 
         <div className="space-y-4 px-4 py-4 sm:px-5">
@@ -412,6 +422,12 @@ export default function AddOnsPage() {
               ))}
             </div>
           </div>
+
+          {!roleLoading && isAdmin ? (
+            <div className="rounded-2xl border border-[#eadccf] bg-[#fff8f2] px-4 py-3 text-sm font-medium text-[#8c6248]">
+              Role Admin hanya bisa melihat data add-on. Tambah, edit, dan hapus hanya untuk Owner.
+            </div>
+          ) : null}
         </div>
       </section>
 
@@ -471,22 +487,24 @@ export default function AddOnsPage() {
                       ))}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => openEditModal(row)}
-                      className="rounded-full p-1.5 text-[#f06b2b] transition hover:bg-[#fff0e7]"
-                      title="Edit add-on"
-                    >
-                      <Pencil size={15} />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(row)}
-                      className="rounded-full p-1.5 text-[#6f6f8f] transition hover:bg-[#f5f2ef]"
-                      title="Hapus add-on"
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  </div>
+                  {canManageAddOns ? (
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => openEditModal(row)}
+                        className="rounded-full p-1.5 text-[#f06b2b] transition hover:bg-[#fff0e7]"
+                        title="Edit add-on"
+                      >
+                        <Pencil size={15} />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(row)}
+                        className="rounded-full p-1.5 text-[#6f6f8f] transition hover:bg-[#f5f2ef]"
+                        title="Hapus add-on"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="grid grid-cols-3 border-b border-[#e0d0c4] px-3 py-3">

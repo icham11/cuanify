@@ -24,6 +24,7 @@ import {
 import type { Product, ProductCategory } from "@/types/product";
 import EditProductModal from "./EditProductModal";
 import UnifiedAddProductModal from "@/components/products/UnifiedAddProductModal";
+import { useRole } from "@/context/RoleContext";
 import {
   REMOVED_BAKERY_SUBCATEGORIES,
   resolveMainProductCategory,
@@ -343,6 +344,8 @@ function DeleteConfirmModal({
 }
 
 export default function ProductsPage() {
+  const { isOwner, isAdmin, loading: roleLoading } = useRole();
+  const canManageProducts = isOwner;
   const searchParams = useSearchParams();
   const router = useRouter();
   const latestRequestRef = useRef(0);
@@ -423,9 +426,13 @@ export default function ProductsPage() {
 
   useEffect(() => {
     if (searchParams.get("addProduct") !== "1") return;
+    if (!canManageProducts) {
+      router.replace("/dashboard/products", { scroll: false });
+      return;
+    }
     setAddProductModalOpen(true);
     router.replace("/dashboard/products", { scroll: false });
-  }, [router, searchParams]);
+  }, [canManageProducts, router, searchParams]);
 
   const fetchProducts = async (
     pageOverride?: number,
@@ -481,6 +488,7 @@ export default function ProductsPage() {
   };
 
   const handleSyncBakeryCatalog = async () => {
+    if (!canManageProducts) return;
     setSyncingCatalog(true);
     setError(null);
     setSyncCatalogMessage(null);
@@ -584,18 +592,20 @@ export default function ProductsPage() {
             <div className="flex items-center gap-2">
               <button
                 onClick={handleSyncBakeryCatalog}
-                disabled={syncingCatalog}
+                disabled={syncingCatalog || !canManageProducts}
                 className="hidden rounded-full border border-[#d7b6a1] bg-white px-3 py-2 text-xs font-semibold text-[#7c3410] transition hover:bg-[#fff7f1] disabled:opacity-60 sm:inline-flex"
               >
                 {syncingCatalog ? "Sync..." : "Sync Catalog"}
               </button>
-              <button
-                onClick={() => setAddProductModalOpen(true)}
-                className="inline-flex items-center gap-1 rounded-full bg-[#c86030] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-[#a84820]"
-              >
-                <Plus size={16} />
-                Tambah
-              </button>
+              {canManageProducts ? (
+                <button
+                  onClick={() => setAddProductModalOpen(true)}
+                  className="inline-flex items-center gap-1 rounded-full bg-[#c86030] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-[#a84820]"
+                >
+                  <Plus size={16} />
+                  Tambah
+                </button>
+              ) : null}
             </div>
           </div>
 
@@ -603,6 +613,12 @@ export default function ProductsPage() {
             {syncCatalogMessage ? (
               <div className="rounded-2xl border border-[#d8eadf] bg-[#f4fbf7] px-4 py-3 text-sm font-semibold text-[#2a5c3f]">
                 {syncCatalogMessage}
+              </div>
+            ) : null}
+
+            {!roleLoading && isAdmin ? (
+              <div className="rounded-2xl border border-[#eadccf] bg-[#fff8f2] px-4 py-3 text-sm font-medium text-[#8c6248]">
+                Role Admin hanya bisa melihat data product. Ubah, hapus, tambah, dan sync hanya untuk Owner.
               </div>
             ) : null}
 
@@ -740,12 +756,14 @@ export default function ProductsPage() {
                   <p className="mt-3 text-base font-bold text-[#1e120a]">
                     Belum ada produk
                   </p>
-                  <button
-                    onClick={() => setAddProductModalOpen(true)}
-                    className="mt-4 rounded-full bg-[#c86030] px-4 py-2 text-sm font-bold text-white"
-                  >
-                    Tambah Produk
-                  </button>
+                  {canManageProducts ? (
+                    <button
+                      onClick={() => setAddProductModalOpen(true)}
+                      className="mt-4 rounded-full bg-[#c86030] px-4 py-2 text-sm font-bold text-white"
+                    >
+                      Tambah Produk
+                    </button>
+                  ) : null}
                 </>
               )}
             </div>
@@ -796,20 +814,24 @@ export default function ProductsPage() {
                           >
                             <Eye size={15} />
                           </button>
-                          <button
-                            onClick={() => setEditModal(product)}
-                            className="rounded-full p-1.5 text-[#f06b2b] transition hover:bg-[#fff0e7]"
-                            title="Edit produk"
-                          >
-                            <Pencil size={15} />
-                          </button>
-                          <button
-                            onClick={() => setDeleteModal(product)}
-                            className="rounded-full p-1.5 text-[#6f6f8f] transition hover:bg-[#f5f2ef]"
-                            title="Hapus produk"
-                          >
-                            <Trash2 size={15} />
-                          </button>
+                          {canManageProducts ? (
+                            <>
+                              <button
+                                onClick={() => setEditModal(product)}
+                                className="rounded-full p-1.5 text-[#f06b2b] transition hover:bg-[#fff0e7]"
+                                title="Edit produk"
+                              >
+                                <Pencil size={15} />
+                              </button>
+                              <button
+                                onClick={() => setDeleteModal(product)}
+                                className="rounded-full p-1.5 text-[#6f6f8f] transition hover:bg-[#f5f2ef]"
+                                title="Hapus produk"
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            </>
+                          ) : null}
                         </div>
                       </div>
 
