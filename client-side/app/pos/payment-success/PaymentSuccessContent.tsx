@@ -3,6 +3,13 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { apiFetch } from "@/lib/api/client";
+import {
+  invalidateSalesCaches,
+  invalidateDebtsCaches,
+  invalidateProductionDependencyCaches,
+  invalidateAiInsightsCaches,
+} from "@/lib/api/cache-keys";
 
 interface SaleItem {
   id: number;
@@ -52,17 +59,19 @@ export default function PaymentSuccessContent() {
   const fetchSaleData = useCallback(async (): Promise<SaleData | null> => {
     if (!saleId) return null;
     try {
-      const salesRes = await fetch(`/api/sales?startDate=${new Date(Date.now() - 86400000 * 7).toISOString()}`);
-      if (salesRes.ok) {
-        const salesJson = await salesRes.json();
-        if (salesJson.success && salesJson.data?.sales) {
-          const found = salesJson.data.sales.find(
-            (s: SaleData) => s.id === Number(saleId) || s.transactionNumber === orderId,
-          );
-          if (found) {
-            setSaleData(found);
-            return found;
-          }
+      const salesJson = (await apiFetch(
+        `/api/sales?startDate=${new Date(Date.now() - 86400000 * 7).toISOString()}`,
+      )) as {
+        success?: boolean;
+        data?: { sales?: SaleData[] };
+      };
+      if (salesJson.success && salesJson.data?.sales) {
+        const found = salesJson.data.sales.find(
+          (s: SaleData) => s.id === Number(saleId) || s.transactionNumber === orderId,
+        );
+        if (found) {
+          setSaleData(found);
+          return found;
         }
       }
     } catch (err) {
@@ -82,6 +91,10 @@ export default function PaymentSuccessContent() {
       });
       const json = await res.json();
       if (json.success) {
+        invalidateSalesCaches();
+        invalidateDebtsCaches();
+        invalidateProductionDependencyCaches();
+        invalidateAiInsightsCaches();
         console.log("✅ Midtrans payment confirmed via client:", json.message);
       } else {
         console.warn("⚠️ Confirm API returned:", json.error);

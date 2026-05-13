@@ -73,6 +73,7 @@ function toLocalDateString(date: Date): string {
 export function useCalendarCapacity(
   startDate: Date,
   endDate: Date,
+  fallbackMaxToken = DEFAULT_MAX_TOKEN,
 ): UseCalendarCapacityReturn {
   const [capacityMap, setCapacityMap] = useState<Map<string, CapacityEntry>>(
     new Map(),
@@ -80,7 +81,7 @@ export function useCalendarCapacity(
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [defaultMaxToken, setDefaultMaxToken] =
-    useState<number>(DEFAULT_MAX_TOKEN);
+    useState<number>(fallbackMaxToken);
 
   // Track the current range as strings to detect changes
   const startStr = toLocalDateString(startDate);
@@ -89,6 +90,12 @@ export function useCalendarCapacity(
   // Use ref to avoid stale closure in refetch
   const rangeRef = useRef({ startStr, endStr });
   rangeRef.current = { startStr, endStr };
+
+  useEffect(() => {
+    if (Number.isFinite(fallbackMaxToken) && fallbackMaxToken > 0) {
+      setDefaultMaxToken(Math.round(fallbackMaxToken));
+    }
+  }, [fallbackMaxToken]);
 
   const fetchCapacity = useCallback(async () => {
     const { startStr: s, endStr: e } = rangeRef.current;

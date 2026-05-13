@@ -60,7 +60,8 @@ function formatDisplayDate(value: string) {
   }).format(date);
 }
 
-function toJakartaDateKey(value: string) {
+function toJakartaDateKey(value: string | null | undefined) {
+  if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
 
@@ -381,7 +382,8 @@ export default function BakeryDashboardPage() {
         .sort((a, b) => a.deliveryDate.localeCompare(b.deliveryDate))
         .slice(0, 5)
         .map((order) => ({
-          id: order.bookingCode || order.resi || `ORD-${order.id}`,
+          orderId: order.id,
+          displayId: order.bookingCode || order.resi || `ORD-${order.id}`,
           customer: order.customerName || "Walk-in Customer",
           product: order.product || "Custom Cake",
           date: order.deliveryDate || "-",
@@ -451,7 +453,7 @@ export default function BakeryDashboardPage() {
     }
 
     for (const order of orders) {
-      if ((order.deliveryDate || "").trim() !== today) continue;
+      if (toJakartaDateKey(order.productionAssignedAt) !== today) continue;
 
       const status = normalizeOrderStatus(order.orderStatus);
       for (const assignment of getOrderStaffTokenAssignments(order)) {
@@ -897,7 +899,11 @@ export default function BakeryDashboardPage() {
           <h2 className="text-[1.35rem] font-extrabold leading-tight text-[var(--foreground)] sm:text-[1.5rem]">
             Upcoming Deliveries
           </h2>
-          <button type="button" className="text-[10px] font-semibold text-[var(--crumbella-primary)]">
+          <button
+            type="button"
+            onClick={() => router.push("/bakery/bookings")}
+            className="text-[10px] font-semibold text-[var(--crumbella-primary)]"
+          >
             Lihat semua
           </button>
         </div>
@@ -909,9 +915,11 @@ export default function BakeryDashboardPage() {
             </div>
           ) : (
             upcomingDeliveries.map((delivery) => (
-              <div
-                key={delivery.id}
-                className="rounded-[24px] border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] px-4 py-3 shadow-[0_14px_26px_-24px_rgba(30,18,10,0.65)]"
+              <button
+                key={delivery.orderId}
+                type="button"
+                onClick={() => router.push(`/bakery/bookings/${delivery.orderId}`)}
+                className="rounded-[24px] border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] px-4 py-3 text-left shadow-[0_14px_26px_-24px_rgba(30,18,10,0.65)] transition hover:border-[var(--crumbella-primary)]/35 hover:bg-[var(--crumbella-accent-soft)]/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--crumbella-primary)]/35"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -919,7 +927,7 @@ export default function BakeryDashboardPage() {
                       {delivery.customer}
                     </p>
                     <p className="mt-0.5 text-[10px] text-[var(--crumbella-muted)]">{delivery.product}</p>
-                    <p className="text-[10px] text-[var(--crumbella-muted)]">{delivery.id}</p>
+                    <p className="text-[10px] text-[var(--crumbella-muted)]">{delivery.displayId}</p>
                   </div>
                   <div className="shrink-0 text-right">
                     <p className="text-[12px] font-semibold text-[var(--foreground)]">
@@ -941,7 +949,7 @@ export default function BakeryDashboardPage() {
                     {delivery.status}
                   </span>
                 </div>
-              </div>
+              </button>
             ))
           )}
         </div>

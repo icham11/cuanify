@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import {
@@ -25,6 +25,9 @@ import {
   Dumbbell,
   Lightbulb,
 } from "lucide-react";
+import { useApiQuery } from "@/hooks/useApiQuery";
+import { peekApiCache } from "@/lib/api/client";
+import { aiInsightsUrl, API_CACHE_TTL_5_MIN_MS } from "@/lib/api/cache-keys";
 
 interface InventoryAlert {
   ingredientName: string;
@@ -74,30 +77,38 @@ type TabType = "overview" | "inventory" | "forecast" | "menu" | "profit";
 
 export default function SmartInsightsPanel() {
   const [activeTab, setActiveTab] = useState<TabType>("overview");
-  const [data, setData] = useState<SmartInsightsData | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const insightsKey = aiInsightsUrl("all");
+  const cachedInsights = peekApiCache<{ data?: SmartInsightsData }>(
+    insightsKey,
+    undefined,
+    { allowStale: true },
+  );
+  const [shouldLoadInsights, setShouldLoadInsights] = useState(
+    Boolean(cachedInsights?.data),
+  );
+  const insightsQuery = useApiQuery<{
+    success?: boolean;
+    data?: SmartInsightsData;
+    error?: string;
+  }>(shouldLoadInsights ? insightsKey : null, {
+    ttlMs: API_CACHE_TTL_5_MIN_MS,
+  });
+  const data = insightsQuery.data?.data ?? cachedInsights?.data ?? null;
+  const loading = shouldLoadInsights && insightsQuery.isLoading;
+  const error = shouldLoadInsights ? insightsQuery.errorMessage ?? "" : "";
 
-  const fetchInsights = useCallback(async () => {
-    setLoading(true);
-    setError("");
+  const fetchInsights = async () => {
+    if (!shouldLoadInsights) {
+      setShouldLoadInsights(true);
+      return;
+    }
     try {
-      const response = await fetch("/api/ai/insights", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "all" }),
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error);
-      setData(result.data);
+      await insightsQuery.refresh({ force: true });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Gagal memuat insights";
-      setError(msg);
       toast.error(msg);
-    } finally {
-      setLoading(false);
     }
-  }, []);
+  };
 
   const tabs: { id: TabType; label: string; icon: typeof BarChart3 }[] = [
     { id: "overview", label: "Overview", icon: BarChart3 },

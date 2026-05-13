@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   BellRing,
@@ -22,6 +22,15 @@ import ImageAnalyzer from "@/app/(dashboard)/components/ai/ImageAnalyzer";
 import AIChatPage from "@/app/(dashboard)/components/ai/AIChatPage";
 import SmartInsightsPanel from "@/app/(dashboard)/components/ai/SmartInsightsPanel";
 import DocumentUploader from "@/app/(dashboard)/components/ai/DocumentUploader";
+import { useApiQuery } from "@/hooks/useApiQuery";
+import {
+  bakeryOrdersUrl,
+  productionListUrl,
+  aiRagIndexUrl,
+  invalidateAiInsightsCaches,
+  invalidateAiRagStatusCaches,
+  API_CACHE_TTL_5_MIN_MS,
+} from "@/lib/api/cache-keys";
 import {
   BAKERY_ORDERS_STORAGE_EVENT,
   summarizeLocalBakeryOrders,
@@ -163,22 +172,44 @@ const itemVariants: any = {
 export default function AIAnalysisPage() {
   const [activeTab, setActiveTab] = useState<AITab>("chat");
   const [mounted, setMounted] = useState(false);
-  const [bakerySummary, setBakerySummary] = useState<LocalBakerySummary>(() =>
-    summarizeLocalBakeryOrders([])
-  );
-  const [bakerySource, setBakerySource] = useState<string>("rows");
-  const [bakeryUpdatedAt, setBakeryUpdatedAt] = useState<string | null>(null);
-  const [productionSummary, setProductionSummary] = useState<ProductionSnapshotSummary>(() =>
-    buildEmptyProductionSummary()
-  );
-  const [ragStatus, setRagStatus] = useState<RagIndexResponse>({
-    success: false,
-    indexed: false,
-    documentCount: 0,
-    lastUpdated: null,
-  });
-  const [snapshotLoading, setSnapshotLoading] = useState(false);
   const [syncingRag, setSyncingRag] = useState(false);
+
+  const bakeryOrdersQuery = useApiQuery<BakeryOrdersApiResponse>(bakeryOrdersUrl, {
+    ttlMs: API_CACHE_TTL_5_MIN_MS,
+  });
+  const productionQuery = useApiQuery<ProductionApiResponse>(productionListUrl(50), {
+    ttlMs: API_CACHE_TTL_5_MIN_MS,
+  });
+  const ragStatusQuery = useApiQuery<RagIndexResponse>(aiRagIndexUrl, {
+    ttlMs: API_CACHE_TTL_5_MIN_MS,
+  });
+
+  const bakerySummary = useMemo<LocalBakerySummary>(() => {
+    const orders = bakeryOrdersQuery.data?.data?.orders;
+    return Array.isArray(orders)
+      ? summarizeLocalBakeryOrders(orders)
+      : summarizeLocalBakeryOrders([]);
+  }, [bakeryOrdersQuery.data]);
+  const bakerySource = bakeryOrdersQuery.data?.data?.source || "unavailable";
+  const bakeryUpdatedAt = bakeryOrdersQuery.data?.data?.updatedAt ?? null;
+  const productionSummary = useMemo(
+    () =>
+      summarizeProductionSnapshot(
+        productionQuery.data?.summary,
+        productionQuery.data?.data,
+      ) ?? buildEmptyProductionSummary(),
+    [productionQuery.data],
+  );
+  const ragStatus = {
+    success: Boolean(ragStatusQuery.data?.success),
+    indexed: Boolean(ragStatusQuery.data?.indexed),
+    documentCount: Number(ragStatusQuery.data?.documentCount ?? 0),
+    lastUpdated: ragStatusQuery.data?.lastUpdated ?? null,
+  };
+  const snapshotLoading =
+    bakeryOrdersQuery.isValidating ||
+    productionQuery.isValidating ||
+    ragStatusQuery.isValidating;
   const bakerySourceLabel =
     bakerySource === "rows"
       ? "Server rows"
@@ -195,90 +226,13 @@ export default function AIAnalysisPage() {
     return () => clearTimeout(t);
   }, []);
 
-  const refreshSnapshot = useCallback(async () => {
-    if (typeof window === "undefined") return;
-
-    setSnapshotLoading(true);
-    try {
-      const [bakeryResult, productionResult, ragResult] = await Promise.allSettled([
-        fetch("/api/bookings/orders", { cache: "no-store", credentials: "include" }),
-        fetch("/api/production?limit=50", { cache: "no-store", credentials: "include" }),
-        fetch("/api/ai/rag/index", { cache: "no-store", credentials: "include" }),
-      ]);
-
-      if (bakeryResult.status === "fulfilled") {
-        const response = bakeryResult.value;
-        const payload = (await response.json().catch(() => ({}))) as BakeryOrdersApiResponse;
-        if (response.ok && payload.success && Array.isArray(payload.data?.orders)) {
-          setBakerySummary(summarizeLocalBakeryOrders(payload.data.orders));
-          setBakerySource(payload.data?.source || "rows");
-          setBakeryUpdatedAt(payload.data?.updatedAt ?? null);
-        } else {
-          setBakerySummary(summarizeLocalBakeryOrders([]));
-          setBakerySource("unavailable");
-          setBakeryUpdatedAt(null);
-        }
-      } else {
-        setBakerySummary(summarizeLocalBakeryOrders([]));
-        setBakerySource("unavailable");
-        setBakeryUpdatedAt(null);
-      }
-
-      if (productionResult.status === "fulfilled") {
-        const response = productionResult.value;
-        const payload = (await response.json().catch(() => ({}))) as ProductionApiResponse;
-        if (response.ok && payload.success !== false) {
-          setProductionSummary(
-            summarizeProductionSnapshot(payload.summary, payload.data),
-          );
-        } else {
-          setProductionSummary(buildEmptyProductionSummary());
-        }
-      } else {
-        setProductionSummary(buildEmptyProductionSummary());
-      }
-
-      if (ragResult.status === "fulfilled") {
-        const response = ragResult.value;
-        const payload = (await response.json().catch(() => ({}))) as RagIndexResponse;
-        if (response.ok && payload.success !== false) {
-          setRagStatus({
-            success: true,
-            indexed: Boolean(payload.indexed),
-            documentCount: Number(payload.documentCount ?? 0),
-            lastUpdated: payload.lastUpdated ?? null,
-          });
-        } else {
-          setRagStatus({
-            success: false,
-            indexed: false,
-            documentCount: 0,
-            lastUpdated: null,
-          });
-        }
-      } else {
-        setRagStatus({
-          success: false,
-          indexed: false,
-          documentCount: 0,
-          lastUpdated: null,
-        });
-      }
-    } catch {
-      setBakerySummary(summarizeLocalBakeryOrders([]));
-      setBakerySource("unavailable");
-      setBakeryUpdatedAt(null);
-      setProductionSummary(buildEmptyProductionSummary());
-      setRagStatus({
-        success: false,
-        indexed: false,
-        documentCount: 0,
-        lastUpdated: null,
-      });
-    } finally {
-      setSnapshotLoading(false);
-    }
-  }, []);
+  const refreshSnapshot = useCallback(async (options?: { force?: boolean }) => {
+    await Promise.all([
+      bakeryOrdersQuery.refresh(options),
+      productionQuery.refresh(options),
+      ragStatusQuery.refresh(options),
+    ]);
+  }, [bakeryOrdersQuery, productionQuery, ragStatusQuery]);
 
   const syncRagIndex = useCallback(async () => {
     if (syncingRag) return;
@@ -302,7 +256,9 @@ export default function AIAnalysisPage() {
       }
 
       toast.success(payload.message || "AI index berhasil disinkronkan");
-      await refreshSnapshot();
+      invalidateAiRagStatusCaches();
+      invalidateAiInsightsCaches();
+      await refreshSnapshot({ force: true });
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Gagal sinkron AI index",
@@ -316,32 +272,18 @@ export default function AIAnalysisPage() {
     if (!mounted || typeof window === "undefined") return;
 
     const handleRefresh = () => {
-      void refreshSnapshot();
+      void refreshSnapshot({ force: true });
     };
-
-    const handleVisibility = () => {
-      if (document.visibilityState === "visible") {
-        void refreshSnapshot();
-      }
-    };
-
-    handleRefresh();
-    window.addEventListener("storage", handleRefresh);
     window.addEventListener(
       BAKERY_ORDERS_STORAGE_EVENT,
       handleRefresh as EventListener,
     );
-    window.addEventListener("focus", handleRefresh);
-    document.addEventListener("visibilitychange", handleVisibility);
 
     return () => {
-      window.removeEventListener("storage", handleRefresh);
       window.removeEventListener(
         BAKERY_ORDERS_STORAGE_EVENT,
         handleRefresh as EventListener,
       );
-      window.removeEventListener("focus", handleRefresh);
-      document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [mounted, refreshSnapshot]);
 

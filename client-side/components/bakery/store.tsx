@@ -286,6 +286,7 @@ const ORDERS_SYNC_DEBOUNCE_MS = 450;
 const SERVER_HYDRATION_INTERVAL_MS = 10000;
 const SHIPMENT_RETRY_BACKOFF_MS = 5 * 60 * 1000;
 const SHIPMENT_WARNING_COOLDOWN_MS = 10 * 60 * 1000;
+const BOOKING_CREATE_DEDUPE_WINDOW_MS = 15 * 1000;
 
 /**
  * HTTP status code yang dikembalikan proxy saat role tidak punya akses.
@@ -682,6 +683,79 @@ function normalizeMoney(value: number | undefined | null): number {
   return Math.max(0, Math.round(parsed));
 }
 
+function normalizeBookingFingerprintText(value?: string | null): string {
+  return String(value ?? "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
+function buildNewOrderSubmissionFingerprint(order: NewOrderInput): string {
+  return JSON.stringify({
+    customerName: normalizeBookingFingerprintText(order.customerName),
+    customerPhone: String(order.customerPhone || "").replace(/\D/g, ""),
+    deliveryDate: normalizeDateInput(order.deliveryDate) ?? order.deliveryDate,
+    deliverySlot: normalizeBookingFingerprintText(order.deliverySlot),
+    notes: normalizeBookingFingerprintText(order.notes),
+    basePrice: normalizeMoney(order.basePrice),
+    addOnTotal: normalizeMoney(order.addOnTotal),
+    deliveryFee: normalizeMoney(order.deliveryFee),
+    insuranceFee: normalizeMoney(order.insuranceFee),
+    manualAdjustment: normalizeMoney(order.manualAdjustment),
+    dpPaidAmount: normalizeMoney(order.dpPaidAmount),
+    finalPaidAmount: normalizeMoney(order.finalPaidAmount),
+    totalPrice: normalizeMoney(order.totalPrice),
+    salesChannel: order.sales_channel,
+    items: order.items.map((item) => ({
+      category: normalizeBookingFingerprintText(item.category),
+      subcategory: normalizeBookingFingerprintText(item.subcategory),
+      productName: normalizeBookingFingerprintText(item.productName),
+      size: normalizeBookingFingerprintText(item.size),
+      quantity: Math.max(0, Number(item.quantity) || 0),
+      tokenDifficulty: item.tokenDifficulty ?? "",
+      customTokenPerUnit: normalizeMoney(item.customTokenPerUnit),
+      basePrice: normalizeMoney(item.basePrice),
+      selectedPrice: normalizeMoney(item.selectedPrice),
+      cookiePrice: normalizeMoney(item.cookiePrice),
+      designCount: Math.max(0, Number(item.designCount) || 0),
+      additionalDesignCount: Math.max(
+        0,
+        Number(item.additionalDesignCount) || 0,
+      ),
+      lineTotal: normalizeMoney(item.lineTotal),
+      addOns: [...(item.addOns ?? [])]
+        .map((entry) => normalizeBookingFingerprintText(entry))
+        .filter(Boolean)
+        .sort((left, right) => left.localeCompare(right)),
+      addOnQuantities: Object.entries(item.addOnQuantities ?? {})
+        .map(([key, value]) => ({
+          key: normalizeBookingFingerprintText(key),
+          value: Math.max(0, Number(value) || 0),
+        }))
+        .filter((entry) => entry.key.length > 0 || entry.value > 0)
+        .sort((left, right) => left.key.localeCompare(right.key)),
+      addOnTotal: normalizeMoney(item.addOnTotal),
+      notes: normalizeBookingFingerprintText(item.notes),
+    })),
+    deliveryAddresses: order.deliveryAddresses.map((address) => ({
+      label: normalizeBookingFingerprintText(address.label),
+      area: normalizeBookingFingerprintText(address.area),
+      addressLine: normalizeBookingFingerprintText(address.addressLine),
+    })),
+  });
+}
+
+function pruneRecentBookingCreateFingerprints(
+  entries: Map<string, { orderId: string; at: number }>,
+  now: number,
+) {
+  for (const [fingerprint, entry] of entries.entries()) {
+    if (now - entry.at > BOOKING_CREATE_DEDUPE_WINDOW_MS) {
+      entries.delete(fingerprint);
+    }
+  }
+}
+
 function inferPaymentStatus(
   totalPrice: number,
   totalPaidAmount: number,
@@ -918,6 +992,10 @@ export function OrdersProvider({
   const syncInFlightRef = useRef(false);
   const processingShipmentIdsRef = useRef<Set<string>>(new Set());
   const shipmentRetryBackoffUntilRef = useRef<Map<string, number>>(new Map());
+  const pendingBookingCreateFingerprintsRef = useRef<Set<string>>(new Set());
+  const recentBookingCreateFingerprintsRef = useRef<
+    Map<string, { orderId: string; at: number }>
+  >(new Map());
   const shipmentWarningStateRef = useRef<
     Map<string, { message: string; at: number }>
   >(new Map());
@@ -1702,171 +1780,208 @@ export function OrdersProvider({
 
   const addOrder = useCallback(
     async (order: NewOrderInput) => {
-      const latestServerOrders = await fetchLatestOrdersFromServer();
-      const baseOrders = latestServerOrders ?? orders;
-
-      const localMaxId = baseOrders.reduce((max, item) => {
-        const parsed = Number(item.id);
-        return Number.isFinite(parsed) ? Math.max(max, parsed) : max;
-      }, 9300);
-      const timestampId = Date.now();
-      const id = String(Math.max(localMaxId + 1, timestampId));
-      const sequence = getDailyBookingSequence(baseOrders, order.deliveryDate);
-      const bookingCode = generateBookingCode(
-        order.customerName,
-        order.customerPhone,
-        order.deliveryDate,
-        sequence,
+      const submissionFingerprint = buildNewOrderSubmissionFingerprint(order);
+      const now = Date.now();
+      pruneRecentBookingCreateFingerprints(
+        recentBookingCreateFingerprintsRef.current,
+        now,
       );
 
-      const normalizedTotalPrice = normalizeMoney(order.totalPrice);
-      const normalizedDpPaid = normalizeMoney(order.dpPaidAmount);
-      const normalizedFinalPaid = normalizeMoney(order.finalPaidAmount);
-      const normalizedTotalPaid = Math.min(
-        normalizedTotalPrice,
-        normalizedDpPaid + normalizedFinalPaid,
-      );
-
-      if (normalizedTotalPaid <= 0) {
-        throw new Error(
-          "Booking harus sudah dibayar minimal DP sebelum disimpan.",
-        );
-      }
-
-      const inferredPaymentStatus = inferPaymentStatus(
-        normalizedTotalPrice,
-        normalizedTotalPaid,
-      );
-      const isHistoricalBackfill = isHistoricalBackfillOrder(
-        order.deliveryDate,
-      );
-      const historicalTimestamp = isHistoricalBackfill
-        ? buildHistoricalOrderTimestamp(order.deliveryDate, order.deliverySlot)
-        : null;
-      const eventTimestamp = historicalTimestamp || new Date().toISOString();
-
-      const newOrder: BakeryOrder = {
-        id,
-        resi: "",
-        bookingCode,
-        shippingReferenceId: generateShippingReferenceId(bookingCode, id),
-        customerName: order.customerName,
-        customerPhone: order.customerPhone,
-        customerAddress: order.deliveryAddresses[0]?.addressLine ?? "",
-        deliveryDate: order.deliveryDate,
-        deliverySlot: order.deliverySlot,
-        notes: order.notes,
-        basePrice: order.basePrice,
-        addOnTotal: order.addOnTotal,
-        deliveryFee: order.deliveryFee,
-        insuranceFee:
-          order.insuranceFee ?? order.shippingQuote?.insuranceFee ?? 0,
-        manualAdjustment: order.manualAdjustment,
-        dpPaidAmount: normalizedDpPaid,
-        finalPaidAmount: normalizedFinalPaid,
-        totalPaidAmount: normalizedTotalPaid,
-        downPaymentAmount: normalizedDpPaid,
-        remainingBalance: Math.max(
-          0,
-          normalizedTotalPrice - normalizedTotalPaid,
-        ),
-        paymentTransactions: [
-          ...(normalizedDpPaid > 0
-            ? [
-                {
-                  id: `pay-${id}-dp`,
-                  timestamp: eventTimestamp,
-                  amount: normalizedDpPaid,
-                  type: "DP" as const,
-                  note: "Initial DP recorded on create",
-                  userId: actorIdentity.userId,
-                  actorName: actorIdentity.name,
-                },
-              ]
-            : []),
-          ...(normalizedFinalPaid > 0
-            ? [
-                {
-                  id: `pay-${id}-final`,
-                  timestamp: eventTimestamp,
-                  amount: normalizedFinalPaid,
-                  type: "Final" as const,
-                  note: "Initial final payment recorded on create",
-                  userId: actorIdentity.userId,
-                  actorName: actorIdentity.name,
-                },
-              ]
-            : []),
-        ],
-        items: order.items,
-        deliveryAddresses: order.deliveryAddresses,
-        cakeType: order.items[0]?.subcategory,
-        size: order.items[0]?.size,
-        addOns: order.items.flatMap((item) => item.addOns).join(", "),
-        product: `${order.items.length} item(s)`,
-        totalPrice: normalizedTotalPrice,
-        sales_channel: order.sales_channel,
-        paymentStatus: inferredPaymentStatus,
-        orderStatus: "In Production",
-        assignedStaffUserId: null,
-        assignedStaffName: "",
-        productionAssignedAt: null,
-        productionStages: [],
-        whatsAppParsedData: order.whatsAppParsedData,
-        imageUrl: order.imageUrl ?? order.whatsAppParsedData?.imageUrl,
-        imageUrls:
-          order.imageUrls ?? order.whatsAppParsedData?.uploadedImageUrls ?? [],
-        referenceImages:
-          order.referenceImages ?? order.whatsAppParsedData?.referenceImages,
-        shippingQuote: order.shippingQuote ?? null,
-        shipment: null,
-        automationLogs: [],
-        statusHistory: [
-          {
-            id: `log-${id}-created`,
-            status: "In Production",
-            timestamp: eventTimestamp,
-            note: "Booking dibuat dan langsung masuk produksi",
-            userId: actorIdentity.userId,
-            actorName: actorIdentity.name,
-          },
-        ],
-        simulations: {
-          whatsappSent: false,
-          productionWhatsappSent: false,
-          customerWhatsappSent: false,
-          calendarEventCreated: false,
-          googleSheetsSynced: false,
-        },
-      };
-      const nextOrders = [newOrder, ...baseOrders];
-
-      await syncOrdersToServer([newOrder]);
-      writeOrdersSnapshot(nextOrders);
-
-      toast.success(`Booking masuk produksi: ${bookingCode}`);
-      if (isHistoricalBackfill) {
+      const recentMatch =
+        recentBookingCreateFingerprintsRef.current.get(submissionFingerprint);
+      if (recentMatch) {
         toast.message(
-          "Booking backfill historis disimpan. Laporan dan kalender internal akan ikut terbarui tanpa trigger operasional baru.",
+          "Booking yang sama baru saja dibuat. Membuka order yang sudah tersimpan.",
         );
-        return id;
+        return recentMatch.orderId;
       }
-      if (isScheduledShipmentOrder(newOrder)) {
-        const todayJakarta = getJakartaTodayIsoDate();
-        if (isDueForScheduledShipment(newOrder, todayJakarta)) {
-          void createShipmentForOrder(id);
-        } else {
-          toast.message(
-            "Order Grab/Gojek/Paxel dijadwalkan. Resi akan dibuat otomatis di hari pengiriman.",
+
+      if (
+        pendingBookingCreateFingerprintsRef.current.has(submissionFingerprint)
+      ) {
+        throw new Error(
+          "Submit booking yang sama masih diproses. Tunggu beberapa detik.",
+        );
+      }
+
+      pendingBookingCreateFingerprintsRef.current.add(submissionFingerprint);
+
+      try {
+        const latestServerOrders = await fetchLatestOrdersFromServer();
+        const baseOrders = latestServerOrders ?? orders;
+
+        const localMaxId = baseOrders.reduce((max, item) => {
+          const parsed = Number(item.id);
+          return Number.isFinite(parsed) ? Math.max(max, parsed) : max;
+        }, 9300);
+        const timestampId = Date.now();
+        const id = String(Math.max(localMaxId + 1, timestampId));
+        const sequence = getDailyBookingSequence(baseOrders, order.deliveryDate);
+        const bookingCode = generateBookingCode(
+          order.customerName,
+          order.customerPhone,
+          order.deliveryDate,
+          sequence,
+        );
+
+        const normalizedTotalPrice = normalizeMoney(order.totalPrice);
+        const normalizedDpPaid = normalizeMoney(order.dpPaidAmount);
+        const normalizedFinalPaid = normalizeMoney(order.finalPaidAmount);
+        const normalizedTotalPaid = Math.min(
+          normalizedTotalPrice,
+          normalizedDpPaid + normalizedFinalPaid,
+        );
+
+        if (normalizedTotalPaid <= 0) {
+          throw new Error(
+            "Booking harus sudah dibayar minimal DP sebelum disimpan.",
           );
         }
-      } else {
-        void createShipmentForOrder(id);
+
+        const inferredPaymentStatus = inferPaymentStatus(
+          normalizedTotalPrice,
+          normalizedTotalPaid,
+        );
+        const isHistoricalBackfill = isHistoricalBackfillOrder(
+          order.deliveryDate,
+        );
+        const historicalTimestamp = isHistoricalBackfill
+          ? buildHistoricalOrderTimestamp(order.deliveryDate, order.deliverySlot)
+          : null;
+        const eventTimestamp = historicalTimestamp || new Date().toISOString();
+
+        const newOrder: BakeryOrder = {
+          id,
+          resi: "",
+          bookingCode,
+          shippingReferenceId: generateShippingReferenceId(bookingCode, id),
+          customerName: order.customerName,
+          customerPhone: order.customerPhone,
+          customerAddress: order.deliveryAddresses[0]?.addressLine ?? "",
+          deliveryDate: order.deliveryDate,
+          deliverySlot: order.deliverySlot,
+          notes: order.notes,
+          basePrice: order.basePrice,
+          addOnTotal: order.addOnTotal,
+          deliveryFee: order.deliveryFee,
+          insuranceFee:
+            order.insuranceFee ?? order.shippingQuote?.insuranceFee ?? 0,
+          manualAdjustment: order.manualAdjustment,
+          dpPaidAmount: normalizedDpPaid,
+          finalPaidAmount: normalizedFinalPaid,
+          totalPaidAmount: normalizedTotalPaid,
+          downPaymentAmount: normalizedDpPaid,
+          remainingBalance: Math.max(
+            0,
+            normalizedTotalPrice - normalizedTotalPaid,
+          ),
+          paymentTransactions: [
+            ...(normalizedDpPaid > 0
+              ? [
+                  {
+                    id: `pay-${id}-dp`,
+                    timestamp: eventTimestamp,
+                    amount: normalizedDpPaid,
+                    type: "DP" as const,
+                    note: "Initial DP recorded on create",
+                    userId: actorIdentity.userId,
+                    actorName: actorIdentity.name,
+                  },
+                ]
+              : []),
+            ...(normalizedFinalPaid > 0
+              ? [
+                  {
+                    id: `pay-${id}-final`,
+                    timestamp: eventTimestamp,
+                    amount: normalizedFinalPaid,
+                    type: "Final" as const,
+                    note: "Initial final payment recorded on create",
+                    userId: actorIdentity.userId,
+                    actorName: actorIdentity.name,
+                  },
+                ]
+              : []),
+          ],
+          items: order.items,
+          deliveryAddresses: order.deliveryAddresses,
+          cakeType: order.items[0]?.subcategory,
+          size: order.items[0]?.size,
+          addOns: order.items.flatMap((item) => item.addOns).join(", "),
+          product: `${order.items.length} item(s)`,
+          totalPrice: normalizedTotalPrice,
+          sales_channel: order.sales_channel,
+          paymentStatus: inferredPaymentStatus,
+          orderStatus: "In Production",
+          assignedStaffUserId: null,
+          assignedStaffName: "",
+          productionAssignedAt: null,
+          productionStages: [],
+          whatsAppParsedData: order.whatsAppParsedData,
+          imageUrl: order.imageUrl ?? order.whatsAppParsedData?.imageUrl,
+          imageUrls:
+            order.imageUrls ?? order.whatsAppParsedData?.uploadedImageUrls ?? [],
+          referenceImages:
+            order.referenceImages ?? order.whatsAppParsedData?.referenceImages,
+          shippingQuote: order.shippingQuote ?? null,
+          shipment: null,
+          automationLogs: [],
+          statusHistory: [
+            {
+              id: `log-${id}-created`,
+              status: "In Production",
+              timestamp: eventTimestamp,
+              note: "Booking dibuat dan langsung masuk produksi",
+              userId: actorIdentity.userId,
+              actorName: actorIdentity.name,
+            },
+          ],
+          simulations: {
+            whatsappSent: false,
+            productionWhatsappSent: false,
+            customerWhatsappSent: false,
+            calendarEventCreated: false,
+            googleSheetsSynced: false,
+          },
+        };
+        const nextOrders = [newOrder, ...baseOrders];
+
+        await syncOrdersToServer([newOrder]);
+        writeOrdersSnapshot(nextOrders);
+
+        recentBookingCreateFingerprintsRef.current.set(submissionFingerprint, {
+          orderId: id,
+          at: Date.now(),
+        });
+
+        toast.success(`Booking masuk produksi: ${bookingCode}`);
+        if (isHistoricalBackfill) {
+          toast.message(
+            "Booking backfill historis disimpan. Laporan dan kalender internal akan ikut terbarui tanpa trigger operasional baru.",
+          );
+          return id;
+        }
+        if (isScheduledShipmentOrder(newOrder)) {
+          const todayJakarta = getJakartaTodayIsoDate();
+          if (isDueForScheduledShipment(newOrder, todayJakarta)) {
+            void createShipmentForOrder(id);
+          } else {
+            toast.message(
+              "Order Grab/Gojek/Paxel dijadwalkan. Resi akan dibuat otomatis di hari pengiriman.",
+            );
+          }
+        } else {
+          void createShipmentForOrder(id);
+        }
+        // WA produksi sudah dikirim saat sync ke server (/api/bookings/orders).
+        // Hindari double-send dengan hanya sync kalender di sisi frontend.
+        void runAutomationsForOrder("order_calendar_sync", id);
+        return id;
+      } finally {
+        pendingBookingCreateFingerprintsRef.current.delete(
+          submissionFingerprint,
+        );
       }
-      // WA produksi sudah dikirim saat sync ke server (/api/bookings/orders).
-      // Hindari double-send dengan hanya sync kalender di sisi frontend.
-      void runAutomationsForOrder("order_calendar_sync", id);
-      return id;
     },
     [
       orders,

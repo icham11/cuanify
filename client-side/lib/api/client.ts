@@ -5,7 +5,7 @@ type ApiCacheEntry = {
 };
 
 const API_CACHE_PREFIX = "api-fetch-cache:v1:";
-const DEFAULT_API_CACHE_TTL_MS = 2 * 60 * 1000;
+export const DEFAULT_API_CACHE_TTL_MS = 5 * 60 * 1000;
 
 const apiMemoryCache = new Map<string, ApiCacheEntry>();
 const apiInFlightRequests = new Map<string, Promise<unknown>>();
@@ -77,24 +77,27 @@ function removeApiCacheStorage(cacheKey: string) {
   }
 }
 
-function getFreshApiCacheEntry(cacheKey: string): ApiCacheEntry | null {
+function getApiCacheEntry(
+  cacheKey: string,
+  options?: { allowStale?: boolean },
+): ApiCacheEntry | null {
   const now = Date.now();
   const memoryEntry = apiMemoryCache.get(cacheKey);
   if (memoryEntry) {
-    if (memoryEntry.expiresAt > now) return memoryEntry;
-    apiMemoryCache.delete(cacheKey);
-    removeApiCacheStorage(cacheKey);
+    if (options?.allowStale || memoryEntry.expiresAt > now) {
+      return memoryEntry;
+    }
   }
 
   const storageEntry = readApiCacheFromStorage(cacheKey);
   if (!storageEntry) return null;
-  if (storageEntry.expiresAt <= now) {
-    removeApiCacheStorage(cacheKey);
-    return null;
-  }
 
   apiMemoryCache.set(cacheKey, storageEntry);
-  return storageEntry;
+  if (options?.allowStale || storageEntry.expiresAt > now) {
+    return storageEntry;
+  }
+
+  return null;
 }
 
 function writeApiCacheEntry(
@@ -120,9 +123,10 @@ function shouldIncludeJsonContentType(init?: RequestInit) {
 export function peekApiCache<T>(
   input: RequestInfo,
   init?: RequestInit,
+  options?: { allowStale?: boolean },
 ): T | null {
   if (!isCacheableRequest(input, init)) return null;
-  const entry = getFreshApiCacheEntry(buildApiCacheKey(input, init));
+  const entry = getApiCacheEntry(buildApiCacheKey(input, init), options);
   return (entry?.data as T | undefined) ?? null;
 }
 
@@ -181,7 +185,7 @@ export function invalidateApiCache(
 
 export async function apiFetch(
   input: RequestInfo,
-  init?: RequestInit & { signal?: AbortSignal },
+  init?: RequestInit & { signal?: AbortSignal; cacheTtlMs?: number },
   timeoutMs = 30000,
 ) {
   const controller = new AbortController();
@@ -189,10 +193,11 @@ export async function apiFetch(
 
   const shouldUseCache = isCacheableRequest(input, init);
   const cacheKey = shouldUseCache ? buildApiCacheKey(input, init) : null;
+  const cacheTtlMs = init?.cacheTtlMs ?? DEFAULT_API_CACHE_TTL_MS;
 
   try {
     if (cacheKey) {
-      const cachedEntry = getFreshApiCacheEntry(cacheKey);
+      const cachedEntry = getApiCacheEntry(cacheKey);
       if (cachedEntry) {
         return cachedEntry.data;
       }
@@ -204,17 +209,18 @@ export async function apiFetch(
     }
 
     const signal = init?.signal || controller.signal;
+    const { cacheTtlMs: _cacheTtlMs, ...requestInit } = init ?? {};
     const headers = {
-      ...(shouldIncludeJsonContentType(init)
+      ...(shouldIncludeJsonContentType(requestInit)
         ? { "Content-Type": "application/json" }
         : {}),
-      ...(init?.headers || {}),
+      ...(requestInit.headers || {}),
     };
 
     const requestPromise = (async () => {
       const res = await fetch(input, {
         credentials: "include",
-        ...init,
+        ...requestInit,
         signal,
         headers,
       });
@@ -230,7 +236,7 @@ export async function apiFetch(
 
       const json = await res.json();
       if (cacheKey) {
-        writeApiCacheEntry(cacheKey, json);
+        writeApiCacheEntry(cacheKey, json, cacheTtlMs);
       }
       return json;
     })();

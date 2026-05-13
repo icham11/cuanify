@@ -14,6 +14,13 @@ import {
   RefreshCw,
   X,
 } from "lucide-react";
+import { useApiQuery } from "@/hooks/useApiQuery";
+import {
+  aiRagDocumentsUrl,
+  invalidateAiDocumentCaches,
+  invalidateAiInsightsCaches,
+  API_CACHE_TTL_5_MIN_MS,
+} from "@/lib/api/cache-keys";
 
 interface UploadedDocument {
   filename: string;
@@ -24,36 +31,30 @@ interface UploadedDocument {
 }
 
 export default function DocumentUploader() {
-  const [documents, setDocuments] = useState<UploadedDocument[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
   const [dragActive, setDragActive] = useState(false);
   const [deletingFile, setDeletingFile] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ─── Fetch documents ───
-  const fetchDocuments = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      const res = await fetch("/api/ai/rag/documents");
-      const data = await res.json();
-      if (data.success) {
-        setDocuments(data.documents || []);
-      }
-    } catch {
-      /* ignore */
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  // Load on mount
-  useState(() => {
-    fetchDocuments();
+  const documentsQuery = useApiQuery<{
+    success?: boolean;
+    documents?: UploadedDocument[];
+  }>(aiRagDocumentsUrl, {
+    ttlMs: API_CACHE_TTL_5_MIN_MS,
   });
+  const documents = documentsQuery.data?.documents ?? [];
+  const isLoading = documents.length === 0 && documentsQuery.isLoading;
+
+  const fetchDocuments = useCallback(
+    async (options?: { force?: boolean }) => {
+      await documentsQuery.refresh(options);
+    },
+    [documentsQuery],
+  );
 
   // ─── Upload handler ───
   const handleUpload = useCallback(
@@ -92,7 +93,9 @@ export default function DocumentUploader() {
 
         setSuccess(data.message);
         setUploadProgress("");
-        fetchDocuments();
+        invalidateAiDocumentCaches();
+        invalidateAiInsightsCaches();
+        await fetchDocuments({ force: true });
       } catch (err) {
         setError(err instanceof Error ? err.message : "Gagal mengunggah dokumen");
         setUploadProgress("");
@@ -120,7 +123,9 @@ export default function DocumentUploader() {
         if (!res.ok) throw new Error(data.error);
 
         setSuccess(data.message);
-        fetchDocuments();
+        invalidateAiDocumentCaches();
+        invalidateAiInsightsCaches();
+        await fetchDocuments({ force: true });
       } catch (err) {
         setError(err instanceof Error ? err.message : "Gagal menghapus dokumen");
       } finally {
@@ -274,7 +279,9 @@ export default function DocumentUploader() {
             )}
           </h3>
           <button
-            onClick={fetchDocuments}
+            onClick={() => {
+              void fetchDocuments({ force: true });
+            }}
             disabled={isLoading}
             className="text-xs text-gray-500 hover:text-indigo-600 flex items-center gap-1 transition"
           >

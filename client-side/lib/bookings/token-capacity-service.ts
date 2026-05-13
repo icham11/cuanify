@@ -147,6 +147,29 @@ async function getBusinessDefaultMaxToken(businessId: number): Promise<number> {
   return settings.dailyProductionTokenLimit;
 }
 
+export async function syncCapacityMaxTokenForBusiness(
+  businessId: number,
+  nextMaxToken: number,
+  dbClient?: SqlExecutor,
+): Promise<void> {
+  const normalizedMaxToken = Math.max(
+    1,
+    Math.round(Number(nextMaxToken) || DEFAULT_MAX_TOKEN),
+  );
+
+  await ensureCapacityTable();
+
+  const db = dbClient ?? prisma;
+  await db.$executeRaw`
+    UPDATE production_capacity
+    SET
+      max_token = ${normalizedMaxToken},
+      updated_at = NOW()
+    WHERE business_id = ${businessId}
+      AND max_token <> ${normalizedMaxToken}
+  `;
+}
+
 // ─── Core Functions ──────────────────────────────────────────────────────────
 
 /**
@@ -159,10 +182,12 @@ export async function getCapacityForDate(
   dbClient?: SqlExecutor,
 ): Promise<CapacityRecord> {
   const normalizedDate = normalizeCapacityDateOrThrow(date);
+  const defaultMaxToken = await getBusinessDefaultMaxToken(businessId);
 
   await ensureCapacityTable();
 
   const db = dbClient ?? prisma;
+  await syncCapacityMaxTokenForBusiness(businessId, defaultMaxToken, db);
 
   const rows = await db.$queryRaw<CapacityRow[]>`
     SELECT date::text AS date, max_token, used_token
@@ -173,7 +198,6 @@ export async function getCapacityForDate(
   `;
 
   if (rows.length === 0) {
-    const defaultMaxToken = await getBusinessDefaultMaxToken(businessId);
     return {
       date: normalizedDate,
       maxToken: defaultMaxToken,
@@ -250,6 +274,7 @@ export async function consumeToken(
 
   await ensureCapacityTable();
   const db = dbClient ?? prisma;
+  await syncCapacityMaxTokenForBusiness(businessId, defaultMaxToken, db);
 
   // Step 1: Attempt atomic UPDATE with WHERE guard
   const updated = await db.$queryRaw<CapacityRow[]>`
@@ -374,6 +399,7 @@ export async function releaseToken(
 
   await ensureCapacityTable();
   const db = dbClient ?? prisma;
+  await syncCapacityMaxTokenForBusiness(businessId, defaultMaxToken, db);
 
   // Atomic update: decrease used_token, floor at 0
   const updated = await db.$queryRaw<CapacityRow[]>`
@@ -415,10 +441,12 @@ export async function getCapacityForDateRange(
 ): Promise<CapacityRecord[]> {
   const normalizedStartDate = normalizeCapacityDateOrThrow(startDate);
   const normalizedEndDate = normalizeCapacityDateOrThrow(endDate);
+  const defaultMaxToken = await getBusinessDefaultMaxToken(businessId);
 
   await ensureCapacityTable();
 
   const db = dbClient ?? prisma;
+  await syncCapacityMaxTokenForBusiness(businessId, defaultMaxToken, db);
 
   const rows = await db.$queryRaw<CapacityRow[]>`
     SELECT date::text AS date, max_token, used_token

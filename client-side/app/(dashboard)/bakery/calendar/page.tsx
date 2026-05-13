@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -220,7 +220,7 @@ export default function BakeryCalendarPage() {
     calendarId: string | null;
   }>({ connected: false, connectedEmail: null, calendarId: null });
 
-  // ─── Token Capacity System ──────────────────────────────────────────────────
+  // â”€â”€â”€ Token Capacity System â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const calendarRange = useMemo(
     () => getCalendarRange(currentDate, currentView),
     [currentDate, currentView],
@@ -257,6 +257,10 @@ export default function BakeryCalendarPage() {
       window.clearTimeout(timer);
     };
   }, [capacitySyncKey, refetchCapacity]);
+
+  useEffect(() => {
+    refetchCapacity();
+  }, [calendarMaxToken, refetchCapacity]);
 
   const liveUsedTokenByDate = useMemo(() => {
     const result = new Map<string, number>();
@@ -335,7 +339,7 @@ export default function BakeryCalendarPage() {
     ? (statusByDate.get(selectedDateKey) ?? "AVAILABLE")
     : "AVAILABLE";
 
-  // ─── OAuth ──────────────────────────────────────────────────────────────────
+  // â”€â”€â”€ OAuth â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const loadOAuthStatus = async () => {
     setIsOAuthLoading(true);
     try {
@@ -447,7 +451,7 @@ export default function BakeryCalendarPage() {
     void fetchGoogleEvents(currentDate, currentView);
   }, [calendarViewMode, currentDate, currentView]);
 
-  // ─── Events ─────────────────────────────────────────────────────────────────
+  // â”€â”€â”€ Events â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const filteredInternalOrders = useMemo(() => {
     if (listFilterMode === "needs-sync") {
       return orders.filter((order) => !order.simulations?.calendarEventCreated);
@@ -530,7 +534,7 @@ export default function BakeryCalendarPage() {
       .sort((a, b) => a.deliverySlot.localeCompare(b.deliverySlot));
   }, [orders, selectedDateKey]);
 
-  // ─── Stats ──────────────────────────────────────────────────────────────────
+  // â”€â”€â”€ Stats â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const todayKey = toDateKey(new Date());
   const internalTodayCount = orders.filter(
     (order) => normalizeCalendarDeliveryDate(order.deliveryDate) === todayKey,
@@ -563,7 +567,7 @@ export default function BakeryCalendarPage() {
     }).length;
   }, [googleEvents, currentDate, currentView, orders]);
 
-  // ─── Token status message ──────────────────────────────────────────────────
+  // â”€â”€â”€ Token status message â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const selectedStatusMessage = useMemo(() => {
     if (!selectedCapacity) return "";
     switch (selectedStatus) {
@@ -572,11 +576,11 @@ export default function BakeryCalendarPage() {
       case "BLOCKED":
         return "Tanggal libur admin";
       case "FULL":
-        return "Kapasitas penuh — tidak bisa menerima order baru";
+        return "Kapasitas penuh â€” tidak bisa menerima order baru";
       case "CUTOFF":
-        return `Closed (H-1) — cutoff jam ${String(cutoffHour).padStart(2, "0")}:00 sudah lewat`;
+        return `Closed (H-1) â€” cutoff jam ${String(cutoffHour).padStart(2, "0")}:00 sudah lewat`;
       case "WARNING":
-        return "Hampir penuh — segera capai batas kapasitas";
+        return "Hampir penuh â€” segera capai batas kapasitas";
       case "AVAILABLE":
       default:
         return "Kapasitas masih tersedia";
@@ -588,7 +592,7 @@ export default function BakeryCalendarPage() {
         100,
         Math.round(
           (selectedCapacity.usedToken /
-            (selectedCapacity.maxToken || DEFAULT_MAX_TOKEN)) *
+            (selectedCapacity.maxToken || calendarMaxToken)) *
             100,
         ),
       )
@@ -613,7 +617,7 @@ export default function BakeryCalendarPage() {
   void mismatchCount;
   void activeModeSubtitle;
 
-  // ─── Handlers ───────────────────────────────────────────────────────────────
+  // â”€â”€â”€ Handlers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const openDateOrdersPopup = (date: Date) => {
     setSelectedDate(date);
     setIsDateOrdersPopupOpen(true);
@@ -642,7 +646,7 @@ export default function BakeryCalendarPage() {
     );
   };
 
-  // ─── Render ─────────────────────────────────────────────────────────────────
+  // â”€â”€â”€ Render â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   if (isRoleLoading) {
     return (
       <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-5 text-sm text-gray-500 shadow-sm">
@@ -659,13 +663,13 @@ export default function BakeryCalendarPage() {
         <div className="flex items-start justify-between gap-3 border-b border-[#ead6c8] pb-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <span className="text-base leading-none text-[#cb6531]">☰</span>
+              <span className="text-base leading-none text-[#cb6531]">â˜°</span>
               <h1 className="text-[1.05rem] font-bold leading-none text-[#1f140d]">
                 Calendar
               </h1>
             </div>
             <p className="mt-1 text-[11px] text-[#b0734d]">
-              Kapasitas {DEFAULT_MAX_TOKEN} tok/hari · 2 staff aktif
+              Kapasitas {calendarMaxToken} tok/hari · 2 staff aktif
             </p>
           </div>
 
@@ -791,7 +795,7 @@ export default function BakeryCalendarPage() {
               <span className="h-2 w-2 rounded-full bg-[#3d9958]" /> Available
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="h-2 w-2 rounded-full bg-[#d3a423]" /> ≥80% penuh
+              <span className="h-2 w-2 rounded-full bg-[#d3a423]" /> â‰¥80% penuh
             </span>
             <span className="inline-flex items-center gap-1">
               <span className="h-2 w-2 rounded-full bg-[#db6b2e]" /> Terlambat
@@ -825,7 +829,7 @@ export default function BakeryCalendarPage() {
                               : "text-[#4f8b57]"
                   }`}
                 >
-                  • {selectedStatusMessage}
+                  â€¢ {selectedStatusMessage}
                 </p>
               </div>
               <button
@@ -1165,3 +1169,5 @@ export default function BakeryCalendarPage() {
     </div>
   );
 }
+
+

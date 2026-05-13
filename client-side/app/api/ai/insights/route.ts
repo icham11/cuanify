@@ -11,6 +11,50 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+async function resolveInsightsData(
+  businessId: number,
+  type: string | null | undefined,
+) {
+  switch (type) {
+    case "inventory":
+      return getInventoryAlerts(businessId);
+    case "forecast":
+      return getSalesForecast(businessId);
+    case "menu":
+      return getMenuRecommendations(businessId);
+    case "profit":
+      return getProfitOptimization(businessId);
+    case "all":
+    default:
+      return getSmartInsights(businessId);
+  }
+}
+
+/**
+ * GET /api/ai/insights?type=all
+ */
+export async function GET(request: NextRequest) {
+  try {
+    const { businessId } = await requireAuth();
+    const type = request.nextUrl.searchParams.get("type") || "all";
+    const data = await resolveInsightsData(businessId, type);
+
+    return NextResponse.json({
+      success: true,
+      type,
+      data,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+    console.error("AI Insights error:", error);
+    const msg = error instanceof Error ? error.message : String(error);
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+}
+
 /**
  * POST /api/ai/insights
  * Body: { type: "all" | "inventory" | "forecast" | "menu" | "profit" }
@@ -20,27 +64,7 @@ export async function POST(request: NextRequest) {
     const { businessId } = await requireAuth();
     const body = await request.json();
     const { type = "all" } = body;
-
-    let data;
-
-    switch (type) {
-      case "inventory":
-        data = await getInventoryAlerts(businessId);
-        break;
-      case "forecast":
-        data = await getSalesForecast(businessId);
-        break;
-      case "menu":
-        data = await getMenuRecommendations(businessId);
-        break;
-      case "profit":
-        data = await getProfitOptimization(businessId);
-        break;
-      case "all":
-      default:
-        data = await getSmartInsights(businessId);
-        break;
-    }
+    const data = await resolveInsightsData(businessId, type);
 
     return NextResponse.json({
       success: true,

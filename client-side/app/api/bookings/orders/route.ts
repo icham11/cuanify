@@ -1197,6 +1197,80 @@ function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function matchesDetailFieldLabel(
+  line: string,
+  field: { label: string; aliases?: string[] },
+): boolean {
+  const normalizedLine = line.trim();
+  if (!normalizedLine) return false;
+
+  const candidates = [field.label, ...(field.aliases ?? [])]
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  return candidates.some((candidate) =>
+    new RegExp(`^${escapeRegex(candidate)}\\s*[:=-]\\s*`, "i").test(
+      normalizedLine,
+    ),
+  );
+}
+
+function extractDetailValueFromItemNotes(params: {
+  itemNotes: string;
+  field: { label: string; aliases?: string[] };
+  fieldDefinitions: Array<{ label: string; aliases?: string[] }>;
+}): string {
+  const { itemNotes, field, fieldDefinitions } = params;
+  if (!itemNotes.trim()) return "";
+
+  const lines = itemNotes.replace(/\r\n/g, "\n").split("\n");
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const currentLine = lines[index]?.trim() || "";
+    if (!currentLine || !matchesDetailFieldLabel(currentLine, field)) {
+      continue;
+    }
+
+    const labelCandidates = [field.label, ...(field.aliases ?? [])]
+      .map((value) => value.trim())
+      .filter(Boolean);
+    const labelPattern = labelCandidates.map(escapeRegex).join("|");
+    const firstLineValue =
+      currentLine.match(
+        new RegExp(`^(?:${labelPattern})\\s*[:=-]\\s*(.*)$`, "i"),
+      )?.[1] ?? "";
+    const collected = [firstLineValue.trim()].filter(Boolean);
+
+    for (let nextIndex = index + 1; nextIndex < lines.length; nextIndex += 1) {
+      const nextLine = lines[nextIndex]?.trim() || "";
+      if (!nextLine) {
+        if (collected.length > 0) {
+          collected.push("");
+        }
+        continue;
+      }
+
+      const isNextField = fieldDefinitions.some(
+        (candidate) =>
+          candidate.label !== field.label &&
+          matchesDetailFieldLabel(nextLine, candidate),
+      );
+      if (isNextField) {
+        break;
+      }
+
+      collected.push(nextLine);
+    }
+
+    return collected
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
+
+  return "";
+}
+
 function getParsedDetailsForItem(
   order: NormalizedOrder,
   item: JsonRecord,
@@ -1235,13 +1309,11 @@ function buildCaptionItemDetailLines(
       let value = asString(parsedDetails?.[field.key]).trim();
 
       if (!value && itemNotes) {
-        const match = itemNotes.match(
-          new RegExp(`${escapeRegex(field.label)}\\s*[:=-]\\s*([^\\n]+)`, "i"),
-        );
-
-        if (match?.[1]) {
-          value = match[1].trim();
-        }
+        value = extractDetailValueFromItemNotes({
+          itemNotes,
+          field,
+          fieldDefinitions,
+        });
       }
 
       return value ? { label: field.label, value } : null;

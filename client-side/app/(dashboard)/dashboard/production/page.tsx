@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Factory,
@@ -17,6 +17,13 @@ import {
   Coins,
   AlertTriangle,
 } from "lucide-react";
+import { useApiQuery } from "@/hooks/useApiQuery";
+import {
+  productionListUrl,
+  productRecipeUrl,
+  invalidateProductionDependencyCaches,
+  API_CACHE_TTL_5_MIN_MS,
+} from "@/lib/api/cache-keys";
 
 interface ReadyStockProduct {
   productId: number;
@@ -47,6 +54,17 @@ interface RecipeItem {
   };
 }
 
+interface ProductionResponse {
+  success?: boolean;
+  summary?: ReadyStockProduct[];
+  data?: ProductionBatch[];
+}
+
+interface RecipeResponse {
+  success?: boolean;
+  data?: RecipeItem[];
+}
+
 const formatRupiah = (val: number) =>
   new Intl.NumberFormat("id-ID", {
     style: "currency",
@@ -55,9 +73,6 @@ const formatRupiah = (val: number) =>
   }).format(val);
 
 export default function ProductionPage() {
-  const [summary, setSummary] = useState<ReadyStockProduct[]>([]);
-  const [batches, setBatches] = useState<ProductionBatch[]>([]);
-  const [loading, setLoading] = useState(true);
   const [producing, setProducing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -66,43 +81,28 @@ export default function ProductionPage() {
   const [showModal, setShowModal] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<ReadyStockProduct | null>(null);
   const [produceQty, setProduceQty] = useState(1);
-  const [recipeItems, setRecipeItems] = useState<RecipeItem[]>([]);
-  const [recipeLoading, setRecipeLoading] = useState(false);
+  const productionQuery = useApiQuery<ProductionResponse>(productionListUrl(50), {
+    ttlMs: API_CACHE_TTL_5_MIN_MS,
+  });
+  const recipeQuery = useApiQuery<RecipeResponse>(
+    showModal && selectedProduct ? productRecipeUrl(selectedProduct.productId) : null,
+    { ttlMs: API_CACHE_TTL_5_MIN_MS },
+  );
+  const summary = useMemo(
+    () => productionQuery.data?.summary ?? [],
+    [productionQuery.data],
+  );
+  const batches = useMemo(
+    () => productionQuery.data?.data ?? [],
+    [productionQuery.data],
+  );
+  const loading = summary.length === 0 && batches.length === 0 && productionQuery.isLoading;
+  const recipeItems = recipeQuery.data?.data ?? [];
+  const recipeLoading = recipeQuery.isLoading;
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetch("/api/production?limit=50", {
-        credentials: "include",
-      });
-      const data = await res.json();
-      if (data.success) {
-        setSummary(data.summary ?? []);
-        setBatches(data.data ?? []);
-      }
-    } catch {
-      setError("Gagal memuat data produksi");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
-
-  useEffect(() => {
-    if (showModal && selectedProduct) {
-      setRecipeLoading(true);
-      fetch(`/api/products/${selectedProduct.productId}/recipe`, { credentials: "include" })
-        .then((r) => r.json())
-        .then((d) => setRecipeItems(d.data ?? []))
-        .catch(() => setRecipeItems([]))
-        .finally(() => setRecipeLoading(false));
-    } else {
-      setRecipeItems([]);
-    }
-  }, [showModal, selectedProduct]);
+  const fetchData = async (options?: { force?: boolean }) => {
+    await productionQuery.refresh(options);
+  };
 
   const handleProduce = async () => {
     if (!selectedProduct || produceQty <= 0) return;
@@ -126,7 +126,8 @@ export default function ProductionPage() {
       );
       setShowModal(false);
       setProduceQty(1);
-      fetchData();
+      invalidateProductionDependencyCaches();
+      await fetchData({ force: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal memproses produksi");
     } finally {
@@ -148,7 +149,9 @@ export default function ProductionPage() {
           </p>
         </div>
         <button
-          onClick={fetchData}
+          onClick={() => {
+            void fetchData({ force: true });
+          }}
           disabled={loading}
           className="flex items-center justify-center gap-2 px-4 sm:px-5 py-2.5 bg-white/20 hover:bg-white/30 border border-white/20 backdrop-blur-sm rounded-xl text-sm font-semibold text-white transition shrink-0"
         >
@@ -158,10 +161,10 @@ export default function ProductionPage() {
       </div>
 
       {/* Alerts */}
-      {error && (
+      {(error || (productionQuery.errorMessage && summary.length === 0 && batches.length === 0)) && (
         <div className="flex items-center gap-2 bg-red-50 text-red-600 rounded-xl p-4 text-sm border border-red-100">
           <AlertCircle className="w-4 h-4 shrink-0" />
-          {error}
+          {error || productionQuery.errorMessage}
         </div>
       )}
       {success && (

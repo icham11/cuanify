@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   MessageCircle,
@@ -26,6 +26,16 @@ import {
   Brain,
   Sparkles,
 } from "lucide-react";
+import { useApiQuery } from "@/hooks/useApiQuery";
+import {
+  aiRagIndexUrl,
+  aiSessionsUrl,
+  aiChatHistoryUrl,
+  invalidateAiChatCaches,
+  invalidateAiInsightsCaches,
+  invalidateAiRagStatusCaches,
+  API_CACHE_TTL_5_MIN_MS,
+} from "@/lib/api/cache-keys";
 import MarkdownRenderer from "./MarkdownRenderer";
 
 interface SourceRef {
@@ -87,18 +97,43 @@ const SOURCE_ICONS: Record<string, { icon: typeof Package; label: string; color:
 
 export default function AIChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [currentSession, setCurrentSession] = useState<number | null>(null);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
   const [streamingSources, setStreamingSources] = useState<SourceRef[]>([]);
   const [showSidebar, setShowSidebar] = useState(false);
-  const [ragStatus, setRagStatus] = useState<RAGStatus | null>(null);
   const [indexing, setIndexing] = useState(false);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const sessionsQuery = useApiQuery<{ success?: boolean; sessions?: ChatSession[] }>(
+    aiSessionsUrl,
+    { ttlMs: API_CACHE_TTL_5_MIN_MS },
+  );
+  const ragStatusQuery = useApiQuery<{ success?: boolean } & RAGStatus>(
+    aiRagIndexUrl,
+    { ttlMs: API_CACHE_TTL_5_MIN_MS },
+  );
+  const historyQuery = useApiQuery<{
+    success?: boolean;
+    messages?: Array<{ id: number; role: string; content: string; createdAt: string }>;
+  }>(
+    currentSession ? aiChatHistoryUrl(currentSession) : null,
+    { ttlMs: API_CACHE_TTL_5_MIN_MS },
+  );
+  const sessions = sessionsQuery.data?.sessions ?? [];
+  const ragStatus = useMemo<RAGStatus | null>(
+    () =>
+      ragStatusQuery.data
+        ? {
+            indexed: Boolean(ragStatusQuery.data.indexed),
+            documentCount: Number(ragStatusQuery.data.documentCount ?? 0),
+            lastUpdated: ragStatusQuery.data.lastUpdated ?? null,
+          }
+        : null,
+    [ragStatusQuery.data],
+  );
 
   const scrollToBottom = useCallback(() => {
     const el = messagesContainerRef.current;
@@ -112,21 +147,18 @@ export default function AIChatPage() {
   }, [messages.length, streamingContent, scrollToBottom]);
 
   useEffect(() => {
-    fetchSessions();
-    fetchRAGStatus();
-  }, []);
+    if (!currentSession || !historyQuery.data?.success) return;
+    setMessages(
+      (historyQuery.data.messages ?? []).map((m) => ({
+        id: m.id.toString(),
+        role: m.role as "user" | "assistant",
+        content: m.content,
+        timestamp: new Date(m.createdAt),
+      })),
+    );
+  }, [currentSession, historyQuery.data]);
 
   // ─── RAG Status ───
-  const fetchRAGStatus = async () => {
-    try {
-      const res = await fetch("/api/ai/rag/index");
-      const data = await res.json();
-      if (data.success) {
-        setRagStatus({ indexed: data.indexed, documentCount: data.documentCount, lastUpdated: data.lastUpdated });
-      }
-    } catch { /* ignore */ }
-  };
-
   const handleSyncData = async () => {
     setIndexing(true);
     try {
@@ -137,38 +169,18 @@ export default function AIChatPage() {
       });
       const data = await res.json();
       if (data.success) {
-        await fetchRAGStatus();
+        invalidateAiRagStatusCaches();
+        invalidateAiInsightsCaches();
+        await ragStatusQuery.refresh({ force: true });
       }
     } catch { /* ignore */ }
     finally { setIndexing(false); }
   };
 
   // ─── Sessions ───
-  const fetchSessions = async () => {
-    try {
-      const res = await fetch("/api/ai/sessions");
-      const data = await res.json();
-      if (data.success) setSessions(data.sessions);
-    } catch { /* ignore */ }
-  };
-
   const loadSession = async (sessionId: number) => {
     setCurrentSession(sessionId);
     setShowSidebar(false);
-    try {
-      const res = await fetch(`/api/ai/chat?sessionId=${sessionId}`);
-      const data = await res.json();
-      if (data.success) {
-        setMessages(
-          data.messages.map((m: { id: number; role: string; content: string; createdAt: string }) => ({
-            id: m.id.toString(),
-            role: m.role as "user" | "assistant",
-            content: m.content,
-            timestamp: new Date(m.createdAt),
-          }))
-        );
-      }
-    } catch { /* ignore */ }
   };
 
   const createNewChat = () => {
@@ -186,7 +198,8 @@ export default function AIChatPage() {
         setMessages([]);
         setCurrentSession(null);
       }
-      fetchSessions();
+      invalidateAiChatCaches(sessionId);
+      await sessionsQuery.refresh({ force: true });
     } catch { /* ignore */ }
   };
 
@@ -220,6 +233,8 @@ export default function AIChatPage() {
         if (data.success) {
           sessionId = data.session.id;
           setCurrentSession(sessionId);
+          invalidateAiChatCaches(sessionId);
+          void sessionsQuery.refresh({ force: true });
         }
       } catch { /* ignore */ }
     }
@@ -338,7 +353,11 @@ export default function AIChatPage() {
       ]);
       setStreamingContent("");
       setStreamingSources([]);
-      fetchSessions(); // Refresh to get auto-updated title
+      invalidateAiChatCaches(sessionId);
+      void sessionsQuery.refresh({ force: true });
+      if (sessionId) {
+        void historyQuery.refresh({ force: true });
+      }
     } catch {
       try {
         const allMessages = [...messages, userMessage].map((m) => ({
@@ -362,6 +381,11 @@ export default function AIChatPage() {
               sources: data.sources,
             },
           ]);
+          invalidateAiChatCaches(sessionId);
+          void sessionsQuery.refresh({ force: true });
+          if (sessionId) {
+            void historyQuery.refresh({ force: true });
+          }
         } else {
           throw new Error(data.error || "Gagal mendapatkan respons AI");
         }

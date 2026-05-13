@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import type { EditProductModalProps } from "@/types/product";
 import type { DraftRecipeRow } from "@/types/product";
 import IngredientSelectorRow from "../products/create/components/IngredientSelectorRow";
-import { getIngredientOptions } from "@/lib/api/products";
+import { getIngredientOptions, updateProduct } from "@/lib/api/products";
 import type { IngredientOption } from "@/lib/api/products";
 import {
   broadcastCatalogAdminState,
@@ -420,33 +420,16 @@ export default function EditProductModal({ product, categories, onClose, onSaved
           quantity: Number(r.quantity),
         }));
 
-      const res = await fetch(`/api/products/${product.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          name: dashboardProductName,
-          categoryName: bookingSubcategory.trim(),
-          sellingPrice: Number(sellingPrice),
-          cogs: Number(directCogs),
-          productionToken: Number(productionToken),
-          manualStock: Number(manualStock),
-          productType,
-          recipe: recipePayload,
-        }),
+      const updatedProduct = await updateProduct(product.id, {
+        name: dashboardProductName,
+        categoryName: bookingSubcategory.trim(),
+        sellingPrice: Number(sellingPrice),
+        cogs: Number(directCogs),
+        productionToken: Number(productionToken),
+        manualStock: Number(manualStock),
+        productType,
+        recipe: recipePayload,
       });
-
-      const data = await res.json();
-      if (!res.ok) {
-        const details = data.details;
-        if (details && typeof details === "object") {
-          const msgs = Object.entries(details)
-            .map(([field, errs]) => `${field}: ${(errs as string[]).join(", ")}`)
-            .join("; ");
-          throw new Error(msgs || data.error || "Gagal update produk");
-        }
-        throw new Error(data.error ?? "Gagal update produk");
-      }
 
       try {
         await syncToBookingCatalogPrice(
@@ -474,7 +457,7 @@ export default function EditProductModal({ product, categories, onClose, onSaved
         return;
       }
 
-      onSaved(data.data);
+      onSaved(updatedProduct);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Gagal update produk");
     } finally {

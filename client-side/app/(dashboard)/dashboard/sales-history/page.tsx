@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
-import { toast } from "sonner";
+import { useEffect, useMemo, useState } from "react";
 import {
   Search,
   Filter,
@@ -18,6 +17,11 @@ import {
   CheckCircle2,
   AlertCircle,
 } from "lucide-react";
+import { useApiQuery } from "@/hooks/useApiQuery";
+import {
+  salesHistoryChannelUrl,
+  API_CACHE_TTL_5_MIN_MS,
+} from "@/lib/api/cache-keys";
 import { InvoiceViewer } from "../../components/InvoiceViewer";
 
 /** Compact currency formatter — shows "3,04 jt" instead of "3.039.622.500" on small numbers */
@@ -54,18 +58,83 @@ interface Sale {
   }>;
 }
 
-export default function SalesHistoryPage() {
-  const [sales, setSales] = useState<Sale[]>([]);
-  const [filteredSales, setFilteredSales] = useState<Sale[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+interface SalesResponse {
+  success?: boolean;
+  data?: {
+    sales?: Sale[];
+  } | Sale[];
+}
 
+export default function SalesHistoryPage() {
   // Filters
   const [searchQuery, setSearchQuery] = useState("");
   const [paymentMethodFilter, setPaymentMethodFilter] = useState<string>("All");
   const [paymentStatusFilter, setPaymentStatusFilter] = useState<string>("All");
   const [dateFilter, setDateFilter] = useState<string>("All");
   const [productFilter, setProductFilter] = useState<string>("All");
+
+  const directSalesQuery = useApiQuery<SalesResponse>(
+    salesHistoryChannelUrl("direct"),
+    { ttlMs: API_CACHE_TTL_5_MIN_MS },
+  );
+  const tokopediaSalesQuery = useApiQuery<SalesResponse>(
+    salesHistoryChannelUrl("tokopedia"),
+    { ttlMs: API_CACHE_TTL_5_MIN_MS },
+  );
+  const shopeeSalesQuery = useApiQuery<SalesResponse>(
+    salesHistoryChannelUrl("shopee"),
+    { ttlMs: API_CACHE_TTL_5_MIN_MS },
+  );
+
+  const fetchSales = async (options?: { force?: boolean }) => {
+    await Promise.all([
+      directSalesQuery.refresh(options),
+      tokopediaSalesQuery.refresh(options),
+      shopeeSalesQuery.refresh(options),
+    ]);
+  };
+
+  const sales = useMemo(() => {
+    const collected: Sale[] = [];
+    const payloads = [
+      directSalesQuery.data,
+      tokopediaSalesQuery.data,
+      shopeeSalesQuery.data,
+    ];
+
+    payloads.forEach((payload) => {
+      if (!payload?.success || !payload.data) return;
+      if (Array.isArray(payload.data)) {
+        collected.push(...payload.data);
+        return;
+      }
+      if (Array.isArray(payload.data.sales)) {
+        collected.push(...payload.data.sales);
+      }
+    });
+
+    return Array.from(new Map(collected.map((sale) => [sale.id, sale])).values()).sort(
+      (left, right) =>
+        new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
+    );
+  }, [
+    directSalesQuery.data,
+    tokopediaSalesQuery.data,
+    shopeeSalesQuery.data,
+  ]);
+
+  const loading =
+    sales.length === 0 &&
+    (directSalesQuery.isLoading ||
+      tokopediaSalesQuery.isLoading ||
+      shopeeSalesQuery.isLoading);
+
+  const error =
+    sales.length === 0
+      ? directSalesQuery.errorMessage ||
+        tokopediaSalesQuery.errorMessage ||
+        shopeeSalesQuery.errorMessage
+      : null;
 
   // Derived: unique product names from all loaded sales
   const allProductNames = useMemo(() => {
@@ -77,60 +146,7 @@ export default function SalesHistoryPage() {
   // Pagination
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 10;
-  const totalPages = Math.max(1, Math.ceil(filteredSales.length / PAGE_SIZE));
-
-  useEffect(() => {
-    fetchSales();
-  }, []);
-
-  const fetchSales = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const responses = await Promise.all([
-        fetch("/api/sales?sales_channel=direct"),
-        fetch("/api/sales?sales_channel=tokopedia"),
-        fetch("/api/sales?sales_channel=shopee"),
-      ]);
-      const payloads = await Promise.all(responses.map((response) => response.json()));
-
-      const collected: Sale[] = [];
-      for (const payload of payloads) {
-        if (payload?.success && payload?.data) {
-          if (Array.isArray(payload.data.sales)) {
-            collected.push(...payload.data.sales);
-          } else if (Array.isArray(payload.data)) {
-            collected.push(...payload.data);
-          }
-        } else if (payload?.error) {
-          throw new Error(payload.error);
-        }
-      }
-
-      const merged = Array.from(
-        new Map(collected.map((sale) => [sale.id, sale])).values(),
-      ).sort(
-        (left, right) =>
-          new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
-      );
-      setSales(merged);
-    } catch (err) {
-      setSales([]); // Ensure sales is always an array
-      const msg = err instanceof Error ? err.message : "Failed to fetch sales";
-      setError(msg);
-      toast.error(msg);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const applyFilters = useCallback(() => {
-    // Guard: Ensure sales is an array
-    if (!Array.isArray(sales)) {
-      setFilteredSales([]);
-      return;
-    }
-
+  const filteredSales = useMemo(() => {
     let filtered = [...sales];
 
     // Search filter
@@ -179,13 +195,14 @@ export default function SalesHistoryPage() {
       });
     }
 
-    setFilteredSales(filtered);
+    return filtered;
   }, [sales, searchQuery, paymentMethodFilter, paymentStatusFilter, dateFilter, productFilter]);
 
+  const totalPages = Math.max(1, Math.ceil(filteredSales.length / PAGE_SIZE));
+
   useEffect(() => {
-    applyFilters();
-    setPage(1); // Reset to first page on filter change
-  }, [applyFilters]);
+    setPage(1);
+  }, [searchQuery, paymentMethodFilter, paymentStatusFilter, dateFilter, productFilter]);
 
   // Calculate statistics
   const totalRevenue = filteredSales.reduce((sum, sale) => sum + Number(sale.totalRevenue), 0);
@@ -246,7 +263,9 @@ export default function SalesHistoryPage() {
             <p className="text-indigo-200 text-xs sm:text-sm mt-0.5">Semua transaksi bisnis Anda</p>
           </div>
           <button
-            onClick={fetchSales}
+            onClick={() => {
+              void fetchSales({ force: true });
+            }}
             className="p-2 sm:px-4 sm:py-2 bg-white/15 hover:bg-white/25 text-white rounded-xl transition text-sm font-medium backdrop-blur-sm border border-white/20 flex items-center gap-2"
           >
             <RefreshCw className="w-4 h-4" />

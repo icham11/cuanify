@@ -26,6 +26,12 @@ import {
   ArrowRightLeft,
   ChevronDown,
 } from "lucide-react";
+import { useApiQuery } from "@/hooks/useApiQuery";
+import {
+  staffListUrl,
+  invalidateStaffCaches,
+  API_CACHE_TTL_5_MIN_MS,
+} from "@/lib/api/cache-keys";
 import { useRole } from "@/context/RoleContext";
 import { TEAM_MEMBERS_UPDATED_EVENT } from "@/lib/staff/events";
 
@@ -53,14 +59,20 @@ interface OwnerInfo {
   email: string;
 }
 
+interface StaffResponse {
+  success?: boolean;
+  data?: {
+    owner?: OwnerInfo | null;
+    members?: StaffMember[];
+    businesses?: BusinessInfo[];
+  };
+  error?: string;
+}
+
 type TabMode = "register" | "existing";
 
 export default function StaffPage() {
   const { isOwner, loading: isRoleLoading } = useRole();
-  const [owner, setOwner] = useState<OwnerInfo | null>(null);
-  const [members, setMembers] = useState<StaffMember[]>([]);
-  const [businesses, setBusinesses] = useState<BusinessInfo[]>([]);
-  const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
   // Tab mode
@@ -106,34 +118,33 @@ export default function StaffPage() {
     window.dispatchEvent(new Event(TEAM_MEMBERS_UPDATED_EVENT));
   }, []);
 
+  const staffQuery = useApiQuery<StaffResponse>(staffListUrl, {
+    enabled: !isRoleLoading && isOwner,
+    ttlMs: API_CACHE_TTL_5_MIN_MS,
+  });
+  const owner = staffQuery.data?.data?.owner ?? null;
+  const members = staffQuery.data?.data?.members ?? [];
+  const businesses = staffQuery.data?.data?.businesses ?? [];
+  const loading = isOwner && staffQuery.isLoading;
+
   // ── Fetch Staff ──
-  const fetchStaff = useCallback(async () => {
-    try {
-      const res = await fetch("/api/staff", { credentials: "include" });
-      if (res.ok) {
-        const data = await res.json();
-        setOwner(data.data.owner);
-        setMembers(data.data.members);
-        setBusinesses(data.data.businesses || []);
-        notifyTeamMembersUpdated();
-        // Set default business for register forms
-        if (data.data.businesses?.length > 0) {
-          setRegBusinessId((prev) => prev || data.data.businesses[0].id);
-          setInviteBusinessId((prev) => prev || data.data.businesses[0].id);
-        }
-      }
-    } catch {
-      // silent
-    } finally {
-      setLoading(false);
-    }
-  }, [notifyTeamMembersUpdated]);
+  const fetchStaff = useCallback(
+    async (options?: { force?: boolean }) => {
+      await staffQuery.refresh(options);
+    },
+    [staffQuery],
+  );
 
   useEffect(() => {
-    if (isRoleLoading) return;
-    if (isOwner) fetchStaff();
-    else setLoading(false);
-  }, [isOwner, fetchStaff, isRoleLoading]);
+    if (!isOwner || !staffQuery.data?.success) return;
+    notifyTeamMembersUpdated();
+  }, [isOwner, notifyTeamMembersUpdated, staffQuery.data]);
+
+  useEffect(() => {
+    if (businesses.length === 0) return;
+    setRegBusinessId((prev) => prev || businesses[0].id);
+    setInviteBusinessId((prev) => prev || businesses[0].id);
+  }, [businesses]);
 
   // ── Generate random password ──
   function generatePassword() {
@@ -186,7 +197,8 @@ export default function StaffPage() {
       setRegName("");
       setRegEmail("");
       setRegPassword("");
-      fetchStaff();
+      invalidateStaffCaches();
+      await fetchStaff({ force: true });
     } catch {
       toast.error("Gagal mendaftarkan anggota tim baru");
     } finally {
@@ -216,7 +228,8 @@ export default function StaffPage() {
       }
       toast.success(`${data.data.name} berhasil ditambahkan sebagai ${data.data.role || inviteRole}!`);
       setInviteEmail("");
-      fetchStaff();
+      invalidateStaffCaches();
+      await fetchStaff({ force: true });
     } catch {
       toast.error("Gagal menambahkan anggota tim");
     } finally {
@@ -254,7 +267,8 @@ export default function StaffPage() {
       }
       toast.success("Anggota tim berhasil diperbarui!");
       setEditMember(null);
-      fetchStaff();
+      invalidateStaffCaches();
+      await fetchStaff({ force: true });
     } catch {
       toast.error("Gagal memperbarui anggota tim");
     } finally {
@@ -275,7 +289,8 @@ export default function StaffPage() {
       });
       if (res.ok) {
         toast.success("Anggota tim berhasil dihapus");
-        fetchStaff();
+        invalidateStaffCaches();
+        await fetchStaff({ force: true });
       } else {
         toast.error("Gagal menghapus anggota tim");
       }
@@ -342,6 +357,14 @@ export default function StaffPage() {
         <Shield className="w-16 h-16 mb-4 opacity-40" />
         <h2 className="text-xl font-bold text-gray-600">Akses Ditolak</h2>
         <p className="text-sm mt-2">Hanya pemilik bisnis yang bisa mengelola staff.</p>
+      </div>
+    );
+  }
+
+  if (staffQuery.errorMessage && members.length === 0) {
+    return (
+      <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-5 text-sm text-red-700">
+        {staffQuery.errorMessage}
       </div>
     );
   }

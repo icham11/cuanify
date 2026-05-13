@@ -25,6 +25,12 @@ import {
   DollarSign,
 } from "lucide-react";
 import { ShiftProvider, useShift } from "@/context/ShiftContext";
+import {
+  invalidateSalesCaches,
+  invalidateDebtsCaches,
+  invalidateProductionDependencyCaches,
+  invalidateAiInsightsCaches,
+} from "@/lib/api/cache-keys";
 
 // ─── Types ───
 interface RecipeIngredient {
@@ -517,6 +523,9 @@ function POSPageContent() {
         const data = await response.json();
         if (data.success) {
           const { saleId, orderId, snapToken } = data.data;
+          invalidateSalesCaches();
+          invalidateProductionDependencyCaches();
+          invalidateAiInsightsCaches();
 
           // Check if Midtrans Snap script is loaded
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -575,6 +584,10 @@ function POSPageContent() {
         });
         const data = await response.json();
         if (data.success) {
+          invalidateSalesCaches();
+          invalidateDebtsCaches();
+          invalidateProductionDependencyCaches();
+          invalidateAiInsightsCaches();
           window.location.href = `/pos/payment-success?saleId=${data.data.id}&orderId=${data.data.transactionNumber}&kasbon=true`;
         } else {
           alert(`Error: ${data.error}`);
@@ -598,6 +611,9 @@ function POSPageContent() {
         });
         const data = await response.json();
         if (data.success) {
+          invalidateSalesCaches();
+          invalidateProductionDependencyCaches();
+          invalidateAiInsightsCaches();
           window.location.href = `/pos/payment-success?saleId=${data.data.id}&orderId=${data.data.transactionNumber}`;
         } else {
           alert(`Error: ${data.error}`);

@@ -12,6 +12,7 @@ import {
   type BakeryOperationalExpenseSetting,
   type BakeryStaffSetting,
 } from "@/lib/bakery/settings";
+import { syncCapacityMaxTokenForBusiness } from "@/lib/bookings/token-capacity-service";
 import {
   normalizeProductionStageProfiles,
   type ProductionStageCategoryProfile,
@@ -165,6 +166,13 @@ export async function PATCH(request: NextRequest) {
             : undefined,
       },
     });
+
+    if (body.dailyProductionTokenLimit !== undefined) {
+      await syncCapacityMaxTokenForBusiness(
+        auth.businessId,
+        nextSettings.dailyProductionTokenLimit,
+      );
+    }
 
     return NextResponse.json({ success: true, data: nextSettings });
   } catch (error) {

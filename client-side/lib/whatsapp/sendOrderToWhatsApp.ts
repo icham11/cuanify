@@ -4,8 +4,7 @@ import {
   type WhatsAppOrderImagePayload,
 } from "@/lib/whatsapp/generateOrderImage";
 import {
-  formatWhatsAppDeliveryDate,
-  formatWhatsAppDeliveryTime,
+  buildOrderDeliveryDetailsWhatsAppText,
   type WhatsAppRecapItem,
 } from "@/lib/bookings/whatsapp-message-template";
 import { uploadToCloudinary } from "@/lib/whatsapp/uploadToCloudinary";
@@ -35,6 +34,7 @@ export interface SendOrderToWhatsAppResult {
 }
 
 const OUTBOUND_WA_IMAGE_TTL_MS = 24 * 60 * 60 * 1000;
+const INTER_MESSAGE_DELAY_MS = 750;
 
 function sanitizeBookingCode(value?: string): string {
   const raw = (value || "").trim();
@@ -62,44 +62,45 @@ function isMeaningfulImageCaption(value?: string): boolean {
 export function buildProductionCaption(
   order: SendOrderToWhatsAppInput,
 ): string {
-  const lines: string[] = [];
-
-  lines.push("Tanggal Pengiriman :");
-  lines.push(formatWhatsAppDeliveryDate(order.deliveryDate));
-  lines.push("");
-
-  lines.push(`KODE BOOKING : ${sanitizeBookingCode(order.bookingCode)}`);
-  lines.push("");
-
-  lines.push("Order :");
-  const itemSummary =
-    (order.captionItems ?? []).map((it) => it.productName).join(", ") ||
-    order.item ||
-    "-";
-  lines.push(itemSummary);
-  lines.push("");
-
-  if (order.designNotes || order.customerNotes) {
-    const notes = (order.designNotes || order.customerNotes || "").trim();
-    if (notes) {
-      lines.push(`Design cake : ${notes}`);
-      lines.push("");
-    }
+  const fallbackDetailLines: Array<{ label: string; value: string }> = [];
+  if ((order.designNotes || "").trim()) {
+    fallbackDetailLines.push({
+      label: "Design",
+      value: order.designNotes!.trim(),
+    });
+  }
+  if ((order.customerNotes || "").trim()) {
+    fallbackDetailLines.push({
+      label: "Catatan",
+      value: order.customerNotes!.trim(),
+    });
   }
 
-  lines.push(
-    `Jam Pengiriman: ${formatWhatsAppDeliveryTime(order.deliveryTime)}`,
-  );
-  lines.push(`Metode Pengiriman : ${order.shippingMethod || "-"}`);
-  lines.push(
-    `Nama penerima : ${order.recipientName || order.customerName || "-"}`,
-  );
-  lines.push(
-    `No. telp penerima : ${order.recipientPhone || order.phone || "-"}`,
-  );
-  lines.push(`Alamat lengkap : ${order.fullAddress || order.address || "-"}`);
+  return buildOrderDeliveryDetailsWhatsAppText({
+    items:
+      order.captionItems && order.captionItems.length > 0
+        ? order.captionItems
+        : [
+            {
+              productName: order.item || "-",
+              orderLabel: order.item || "-",
+              detailLines: fallbackDetailLines,
+            },
+          ],
+    deliveryDate: order.deliveryDate,
+    bookingCode: sanitizeBookingCode(order.bookingCode),
+    deliveryTime: order.deliveryTime,
+    shippingMethod: order.shippingMethod || "-",
+    recipientName: order.recipientName || order.customerName || "-",
+    recipientPhone: order.recipientPhone || order.phone || "-",
+    fullAddress: order.fullAddress || order.address || "-",
+  });
+}
 
-  return lines.join("\n");
+function waitForMessageOrdering(delayMs = INTER_MESSAGE_DELAY_MS) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, delayMs);
+  });
 }
 
 function normalizeReferenceImageUrl(url?: string): string | null {
@@ -331,13 +332,16 @@ export async function sendOrderToWhatsApp(
       };
     }
     try {
+      const recapText = buildProductionCaption(payload);
+      await sendWhatsAppText(recapText);
+      await waitForMessageOrdering();
       await sendWhatsAppImage(
         generatedOrderImageUrl,
-        buildProductionCaption(payload),
+        "Crumbella_id",
       );
       console.info(`[sendOrderToWhatsApp] Template image sent successfully:`, {
         imageUrl: generatedOrderImageUrl,
-        caption: buildProductionCaption(payload).substring(0, 50),
+        caption: recapText.substring(0, 50),
       });
       return {
         ok: true,
@@ -370,43 +374,14 @@ export async function sendOrderToWhatsApp(
     message: "No messages sent",
   };
   try {
-    const lines: string[] = [];
-    lines.push(
-      `Tanggal Pengiriman :\n${formatWhatsAppDeliveryDate(order.deliveryDate)}`,
-    );
-    lines.push("");
-    lines.push(`KODE BOOKING : ${sanitizeBookingCode(order.bookingCode)}`);
-    lines.push("");
-    if (order.captionItems && order.captionItems.length > 0) {
-      for (const item of order.captionItems) {
-        lines.push(`Order :\n${item.productName || "-"}`);
-        if (item.detailLines && item.detailLines.length > 0) {
-          for (const d of item.detailLines) {
-            lines.push(`${d.label} : ${d.value}`);
-          }
-        }
-        lines.push("");
-      }
-    }
-    lines.push(
-      `Jam Pengiriman: ${formatWhatsAppDeliveryTime(order.deliveryTime)}`,
-    );
-    lines.push(`Metode Pengiriman : ${order.shippingMethod || "-"}`);
-    lines.push(
-      `Nama penerima : ${order.recipientName || order.customerName || "-"}`,
-    );
-    lines.push(
-      `No. telp penerima : ${order.recipientPhone || order.phone || "-"}`,
-    );
-    lines.push(`Alamat lengkap : ${order.fullAddress || order.address || "-"}`);
-
-    await sendWhatsAppText(lines.join("\n"));
+    await sendWhatsAppText(buildProductionCaption(order));
     lastResult = {
       ok: true,
       stage: "send",
       message: "WhatsApp order recap text sent successfully.",
       imageUrl: undefined,
     };
+    await waitForMessageOrdering();
   } catch (error) {
     lastResult = {
       ok: false,
@@ -447,6 +422,7 @@ export async function sendOrderToWhatsApp(
         imageUrl: imgUrl.substring(0, 60),
         caption,
       });
+      await waitForMessageOrdering(400);
       lastResult = {
         ok: true,
         stage: "send",

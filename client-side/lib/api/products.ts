@@ -248,21 +248,46 @@ export async function getCategoryOptions(): Promise<
   return data.data ?? [];
 }
 
-/** PATCH /api/products/[id] — update selling price only */
-export async function updateProductPrice(
+export async function updateProduct(
   id: number,
-  sellingPrice: number,
+  input: {
+    name?: string;
+    categoryId?: number;
+    categoryName?: string;
+    sellingPrice?: number;
+    cogs?: number;
+    productionToken?: number;
+    manualStock?: number;
+    productType?: "ReadyStock" | "PreOrder";
+    createdAt?: string;
+    recipe?: Array<{ ingredientId: number; quantity: number }>;
+    manualCogs?: number;
+  },
 ): Promise<Product> {
   const res = await fetch(`/api/products/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
-    body: JSON.stringify({ sellingPrice }),
+    body: JSON.stringify(input),
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error ?? "Failed to update product");
-  invalidateApiCache(/\/api\/products/);
+  if (!res.ok) {
+    throw new Error(await extractApiErrorMessage(res, "Failed to update product"));
+  }
+
+  const data = (await res.json().catch(() => ({}))) as { data?: Product };
+  invalidateApiCache(/\/api\/(products|categories|bookings\/catalog-config)/);
+  if (!data.data) {
+    throw new Error("Failed to update product");
+  }
   return data.data;
+}
+
+/** PATCH /api/products/[id] — update selling price only */
+export async function updateProductPrice(
+  id: number,
+  sellingPrice: number,
+): Promise<Product> {
+  return updateProduct(id, { sellingPrice });
 }
 
 /** DELETE /api/products/[id] — permanently delete product and its recipes */

@@ -25,6 +25,14 @@ import {
   Filter,
 } from "lucide-react";
 import StatTile from "@/app/components/StatTile";
+import { useApiQuery } from "@/hooks/useApiQuery";
+import {
+  debtsListUrl,
+  invalidateDebtsCaches,
+  invalidateSalesCaches,
+  invalidateAiInsightsCaches,
+  API_CACHE_TTL_5_MIN_MS,
+} from "@/lib/api/cache-keys";
 import { useBusiness } from "@/context/BusinessContext";
 
 const formatRupiah = (val: number) => `Rp ${val.toLocaleString("id-ID")}`;
@@ -68,6 +76,12 @@ interface CustomerSummary {
   overdueCount: number;
 }
 
+interface DebtsResponse {
+  success?: boolean;
+  data?: Debt[];
+  summary?: Summary;
+}
+
 const STATUS_CONFIG = {
   Unpaid: { label: "Belum Bayar", color: "red", icon: AlertCircle },
   Partial: { label: "Cicilan", color: "amber", icon: Clock },
@@ -93,13 +107,7 @@ function daysUntilDue(debt: Debt): number | null {
 
 export default function DebtsPage() {
   const { business } = useBusiness();
-  const [debts, setDebts] = useState<Debt[]>([]);
-  const [summary, setSummary] = useState<Summary>({
-    totalDebt: 0,
-    unpaidCount: 0,
-    totalCount: 0,
-  });
-  const [loading, setLoading] = useState(true);
+  const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [expandedId, setExpandedId] = useState<number | null>(null);
@@ -121,36 +129,44 @@ export default function DebtsPage() {
   // Receipt
   const receiptRef = useRef<HTMLDivElement>(null);
 
-  const fetchDebts = useCallback(async () => {
-    try {
-      const params = new URLSearchParams();
-      if (statusFilter !== "all" && statusFilter !== "overdue") params.set("status", statusFilter);
-      if (search) params.set("search", search);
-      const res = await fetch(`/api/debts?${params}`, {
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Gagal memuat");
-      const data = await res.json();
-      setDebts(data.data || []);
-      setSummary(data.summary || { totalDebt: 0, unpaidCount: 0, totalCount: 0 });
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Gagal memuat kasbon");
-    } finally {
-      setLoading(false);
-    }
-  }, [statusFilter, search]);
-
   useEffect(() => {
-    const timer = setTimeout(() => fetchDebts(), 300);
+    const timer = setTimeout(() => setSearch(searchInput.trim()), 300);
     return () => clearTimeout(timer);
-  }, [fetchDebts]);
+  }, [searchInput]);
+
+  const debtsQueryKey = useMemo(() => {
+    const params = new URLSearchParams();
+    if (statusFilter !== "all" && statusFilter !== "overdue") {
+      params.set("status", statusFilter);
+    }
+    if (search) params.set("search", search);
+    return debtsListUrl(params);
+  }, [search, statusFilter]);
+
+  const debtsQuery = useApiQuery<DebtsResponse>(debtsQueryKey, {
+    ttlMs: API_CACHE_TTL_5_MIN_MS,
+  });
+  const debts = debtsQuery.data?.data ?? [];
+  const summary = debtsQuery.data?.summary ?? {
+    totalDebt: 0,
+    unpaidCount: 0,
+    totalCount: 0,
+  };
+  const loading = debts.length === 0 && debtsQuery.isLoading;
+
+  const fetchDebts = useCallback(
+    async (options?: { force?: boolean }) => {
+      await debtsQuery.refresh(options);
+    },
+    [debtsQuery],
+  );
 
   // Computed data
   const overdueDebts = useMemo(() => debts.filter(isOverdue), [debts]);
   const overdueTotal = useMemo(() => overdueDebts.reduce((s, d) => s + d.remaining, 0), [overdueDebts]);
 
   const filteredDebts = useMemo(() => {
-    let result = debts;
+    let result = debts.slice();
     if (statusFilter === "overdue") {
       result = result.filter(isOverdue);
     }
@@ -204,6 +220,49 @@ export default function DebtsPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Gagal");
+      await debtsQuery.mutate(
+        (current) => {
+          if (!current?.data) return current;
+          const nextDebts = current.data
+            .map((debt) => {
+              if (debt.id !== payDebt.id) return debt;
+              const totalPaid = debt.paidAmount + Number(data.data.amountPaid ?? 0);
+              const remaining = Number(data.data.remaining ?? 0);
+              return {
+                ...debt,
+                paidAmount: totalPaid,
+                remaining,
+                status: (data.data.isFullyPaid ? "Paid" : "Partial") as Debt["status"],
+                payments: [
+                  {
+                    id: Date.now(),
+                    amount: Number(data.data.amountPaid ?? 0),
+                    notes: payNotes || null,
+                    createdAt: new Date().toISOString(),
+                  },
+                  ...debt.payments,
+                ],
+              };
+            })
+            .filter((debt) => {
+              if (statusFilter === "Unpaid") return debt.status === "Unpaid";
+              if (statusFilter === "Partial") return debt.status === "Partial";
+              if (statusFilter === "Paid") return debt.status === "Paid";
+              return true;
+            });
+
+          return {
+            ...current,
+            data: nextDebts,
+            summary: {
+              totalDebt: nextDebts.reduce((sum, debt) => sum + debt.remaining, 0),
+              unpaidCount: nextDebts.filter((debt) => debt.status !== "Paid").length,
+              totalCount: nextDebts.length,
+            },
+          };
+        },
+        { revalidate: false },
+      );
       setPaySuccess({
         debtId: payDebt.id,
         amount: data.data.amountPaid,
@@ -218,7 +277,10 @@ export default function DebtsPage() {
       );
       setPayAmount("");
       setPayNotes("");
-      fetchDebts();
+      invalidateDebtsCaches();
+      invalidateSalesCaches();
+      invalidateAiInsightsCaches();
+      await fetchDebts({ force: true });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Gagal memproses pembayaran");
     } finally {
@@ -299,6 +361,12 @@ export default function DebtsPage() {
         <p className="text-gray-500 mt-1 text-sm">Catat dan kelola piutang pelanggan. Bayar sebagian atau lunas.</p>
       </motion.div>
 
+      {debtsQuery.errorMessage && debts.length === 0 && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {debtsQuery.errorMessage}
+        </div>
+      )}
+
       {/* ══ Overdue Warning Banner ══ */}
       {overdueDebts.length > 0 && (
         <motion.div
@@ -376,6 +444,7 @@ export default function DebtsPage() {
                         <p className="text-sm font-bold text-red-600">{formatRupiah(c.totalRemaining)}</p>
                         <button
                           onClick={() => {
+                            setSearchInput(c.name);
                             setSearch(c.name);
                             setStatusFilter("all");
                           }}
@@ -399,8 +468,8 @@ export default function DebtsPage() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input
             type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
             placeholder="Cari nama pelanggan..."
             className="w-full pl-9 pr-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-300 focus:outline-none text-black placeholder-gray-400"
           />

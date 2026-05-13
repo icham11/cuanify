@@ -145,6 +145,24 @@ function parseNumericId(value: unknown): number | null {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
+function toJakartaDateKey(value: unknown): string {
+  if (!value) return "";
+  const parsed = new Date(String(value));
+  if (Number.isNaN(parsed.getTime())) return "";
+
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Jakarta",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(parsed);
+
+  const year = parts.find((part) => part.type === "year")?.value || "1970";
+  const month = parts.find((part) => part.type === "month")?.value || "01";
+  const day = parts.find((part) => part.type === "day")?.value || "01";
+  return `${year}-${month}-${day}`;
+}
+
 function formatGroupDate(dateKey: string): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return "Tanpa tanggal";
   const parsed = new Date(`${dateKey}T00:00:00`);
@@ -524,14 +542,14 @@ export default function ProductionTable() {
   }, [isPrivilegedManager, isStaff, orders, teamMembers, viewer, userName]);
 
   const staffDailyIndicatorDateKey = filterDate.trim();
-  const usesExplicitDailyDate = staffDailyIndicatorDateKey.length > 0;
+  const effectiveStaffStatsDateKey = staffDailyIndicatorDateKey || todayDateKey;
 
   const staffDailyTokenByDate = useMemo(() => {
     const usage = new Map<string, number>();
 
     for (const order of orders) {
-      const deliveryDate = (order.deliveryDate || "").trim();
-      if (!deliveryDate) continue;
+      const assignmentDateKey = toJakartaDateKey(order.productionAssignedAt);
+      if (!assignmentDateKey) continue;
 
       const status = normalizeOrderStatus(order.orderStatus);
       if (["Delivery", "Completed", "Cancelled"].includes(status)) {
@@ -539,7 +557,7 @@ export default function ProductionTable() {
       }
 
       for (const assignment of getOrderStaffTokenAssignments(order)) {
-        const key = `${assignment.staffUserId}:${deliveryDate}`;
+        const key = `${assignment.staffUserId}:${assignmentDateKey}`;
         usage.set(key, (usage.get(key) ?? 0) + assignment.token);
       }
     }
@@ -570,7 +588,12 @@ export default function ProductionTable() {
     }
 
     for (const order of orders) {
-      if (!matchesDateFilter(order.deliveryDate)) continue;
+      if (
+        toJakartaDateKey(order.productionAssignedAt) !==
+        effectiveStaffStatsDateKey
+      ) {
+        continue;
+      }
 
       const status = normalizeOrderStatus(order.orderStatus);
       for (const assignment of getOrderStaffTokenAssignments(order)) {
@@ -598,11 +621,10 @@ export default function ProductionTable() {
 
     return Array.from(statsMap.values())
       .map((entry) => {
-        const dailyToken = usesExplicitDailyDate
-          ? (staffDailyTokenByDate.get(
-              `${entry.userId}:${staffDailyIndicatorDateKey}`,
-            ) ?? 0)
-          : entry.assignedActive;
+        const dailyToken =
+          staffDailyTokenByDate.get(
+            `${entry.userId}:${effectiveStaffStatsDateKey}`,
+          ) ?? 0;
         const limit =
           staffTokenLimitByUserId.get(entry.userId) ?? staffDailyTokenLimit;
         return {
@@ -620,10 +642,8 @@ export default function ProductionTable() {
   }, [
     orders,
     staffDailyTokenByDate,
-    staffDailyIndicatorDateKey,
+    effectiveStaffStatsDateKey,
     trackedStaff,
-    usesExplicitDailyDate,
-    matchesDateFilter,
     staffDailyTokenLimit,
     staffTokenLimitByUserId,
   ]);
@@ -1897,9 +1917,10 @@ export default function ProductionTable() {
                     : dailyPct >= 100
                       ? "Limit tercapai"
                       : `Sisa ${remainingDailyToken} token`;
-                const tokenLabel = usesExplicitDailyDate
-                  ? "Token hari ini"
-                  : "Token aktif";
+                const tokenLabel =
+                  effectiveStaffStatsDateKey === todayDateKey
+                    ? "Token hari ini"
+                    : "Token tanggal";
 
                 return (
                   <div
@@ -1916,7 +1937,7 @@ export default function ProductionTable() {
                             {staff.name}
                           </p>
                           <p className="mt-1 text-[11px] text-[var(--crumbella-muted)]">
-                            Token aktif {staff.assignedActive} • In progress{" "}
+                            Token hari ini {staff.assignedActive} • In progress{" "}
                             {staff.inProgress}
                           </p>
                         </div>
@@ -1978,7 +1999,7 @@ export default function ProductionTable() {
 
       {isStaff && currentViewerStaffStat ? (
         <div className="rounded-[22px] border border-[var(--crumbella-border)] bg-white px-4 py-3 text-[11px] text-[var(--crumbella-muted)] shadow-[0_10px_18px_-20px_rgba(30,18,10,0.7)]">
-          Token aktif {currentViewerStaffStat.assignedActive} • In progress{" "}
+          Token hari ini {currentViewerStaffStat.assignedActive} • In progress{" "}
           {currentViewerStaffStat.inProgress} • Selesai{" "}
           {currentViewerStaffStat.doneVisible}
         </div>
