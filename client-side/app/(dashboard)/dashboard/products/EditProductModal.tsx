@@ -440,6 +440,13 @@ export default function EditProductModal({ product, categories, onClose, onSaved
   const [saving, setSaving] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const bookingFieldsEditedRef = useRef(false);
+  const resolvedInitialCatalogEntryRef = useRef<CustomProductEntry>({
+    category: initialProductCategory.trim(),
+    subcategory: initialSubcategory.trim(),
+    productName: initialBookingFields.itemName.trim(),
+    variantLabel: initialBookingFields.variantLabel.trim(),
+    price: Number(product.sellingPrice || 0),
+  });
 
   const productCategoryOptions = useMemo(
     () => BOOKING_PRODUCT_CATALOG.map((entry) => entry.category),
@@ -487,6 +494,14 @@ export default function EditProductModal({ product, categories, onClose, onSaved
 
       if (!mapping || cancelled || bookingFieldsEditedRef.current) return;
 
+      resolvedInitialCatalogEntryRef.current = {
+        category: mapping.category.trim(),
+        subcategory: mapping.subcategory.trim(),
+        productName: mapping.itemName.trim(),
+        variantLabel: mapping.variantLabel.trim(),
+        price: Number(product.sellingPrice || 0),
+      };
+
       setProductCategory(mapping.category);
       setBookingSubcategory(mapping.subcategory);
       setItemName(mapping.itemName);
@@ -497,7 +512,7 @@ export default function EditProductModal({ product, categories, onClose, onSaved
     return () => {
       cancelled = true;
     };
-  }, [initialSubcategory, product.name]);
+  }, [initialSubcategory, product.name, product.sellingPrice]);
 
   useEffect(() => {
     if (!productCategory.trim()) return;
@@ -590,13 +605,7 @@ export default function EditProductModal({ product, categories, onClose, onSaved
             variantLabel: bookingVariantLabel.trim(),
             price: Number(sellingPrice),
           },
-          {
-            category: initialProductCategory.trim(),
-            subcategory: initialSubcategory.trim(),
-            productName: initialBookingFields.itemName.trim(),
-            variantLabel: initialBookingFields.variantLabel.trim(),
-            price: Number(product.sellingPrice || 0),
-          },
+          resolvedInitialCatalogEntryRef.current,
         );
         setCatalogSyncWarning(
           productSyncError

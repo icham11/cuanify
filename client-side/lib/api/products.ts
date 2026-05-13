@@ -117,8 +117,11 @@ export function peekCachedProducts(
 
 export async function getProducts(
   params?: GetProductsParams,
+  options?: { signal?: AbortSignal },
 ): Promise<{ data: Product[]; meta: PaginationMeta }> {
-  const json = (await apiFetch(buildProductsUrl(params))) as ProductsApiPayload;
+  const json = (await apiFetch(buildProductsUrl(params), {
+    signal: options?.signal,
+  })) as ProductsApiPayload;
   return {
     data: json.data ?? [],
     meta: json.meta ?? getDefaultPaginationMeta(),

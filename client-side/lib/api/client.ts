@@ -120,6 +120,23 @@ function shouldIncludeJsonContentType(init?: RequestInit) {
   return method !== "GET" && method !== "HEAD";
 }
 
+function buildRequestSignal(
+  timeoutSignal: AbortSignal,
+  externalSignal?: AbortSignal,
+): AbortSignal {
+  if (!externalSignal) return timeoutSignal;
+  if (externalSignal.aborted) return externalSignal;
+  if (typeof AbortSignal.any === "function") {
+    return AbortSignal.any([timeoutSignal, externalSignal]);
+  }
+
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  timeoutSignal.addEventListener("abort", abort, { once: true });
+  externalSignal.addEventListener("abort", abort, { once: true });
+  return controller.signal;
+}
+
 export function peekApiCache<T>(
   input: RequestInfo,
   init?: RequestInit,
@@ -208,8 +225,9 @@ export async function apiFetch(
       }
     }
 
-    const signal = init?.signal || controller.signal;
-    const { cacheTtlMs: _cacheTtlMs, ...requestInit } = init ?? {};
+    const signal = buildRequestSignal(controller.signal, init?.signal);
+    const requestInit = { ...(init ?? {}) };
+    delete (requestInit as { cacheTtlMs?: number }).cacheTtlMs;
     const headers = {
       ...(shouldIncludeJsonContentType(requestInit)
         ? { "Content-Type": "application/json" }

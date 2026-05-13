@@ -85,23 +85,36 @@ function getCatalogTokenMapFromCatalog(
   return map;
 }
 
+let productColumnAvailabilityPromise:
+  | Promise<{ hasProductionToken: boolean; hasManualStock: boolean }>
+  | null = null;
+
 async function getProductColumnAvailability(): Promise<{
   hasProductionToken: boolean;
   hasManualStock: boolean;
 }> {
-  const rows = await prisma.$queryRaw<
-    Array<{ column_name: string }>
-  >`SELECT column_name
-     FROM information_schema.columns
-     WHERE table_schema = current_schema()
-       AND table_name = 'Product'
-       AND column_name IN ('productionToken', 'manualStock')`;
+  if (!productColumnAvailabilityPromise) {
+    productColumnAvailabilityPromise = prisma.$queryRaw<
+      Array<{ column_name: string }>
+    >`SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = current_schema()
+         AND table_name = 'Product'
+         AND column_name IN ('productionToken', 'manualStock')`
+      .then((rows) => {
+        const cols = new Set(rows.map((r) => r.column_name));
+        return {
+          hasProductionToken: cols.has("productionToken"),
+          hasManualStock: cols.has("manualStock"),
+        };
+      })
+      .catch((error) => {
+        productColumnAvailabilityPromise = null;
+        throw error;
+      });
+  }
 
-  const cols = new Set(rows.map((r) => r.column_name));
-  return {
-    hasProductionToken: cols.has("productionToken"),
-    hasManualStock: cols.has("manualStock"),
-  };
+  return productColumnAvailabilityPromise;
 }
 
 /** Find-or-create a category within the business (case-insensitive). */
@@ -172,14 +185,6 @@ export async function GET(request: NextRequest) {
     const mode = url.searchParams.get("mode");
     const isFinancialMode = mode === "financial";
 
-    if (auth.role === "Owner" && !isFinancialMode) {
-      try {
-        await ensureOwnerDefaultProducts({ businessId });
-      } catch (bootstrapError) {
-        console.error("GET /api/products owner product bootstrap error:", bootstrapError);
-      }
-    }
-
     const search = url.searchParams.get("search") || "";
     const categoryId = url.searchParams.get("categoryId");
     const categoryIds = (url.searchParams.get("categoryIds") || "")
@@ -213,6 +218,21 @@ export async function GET(request: NextRequest) {
     const page = Math.max(1, Number(url.searchParams.get("page") ?? "1"));
     const limit = Math.min(999, Math.max(1, Number(url.searchParams.get("limit") ?? "10")));
     const skip = (page - 1) * limit;
+
+    const shouldBootstrapOwnerDefaults =
+      auth.role === "Owner" &&
+      !isFinancialMode &&
+      !search &&
+      categoryFilterIds.length === 0 &&
+      page === 1;
+
+    if (shouldBootstrapOwnerDefaults) {
+      try {
+        await ensureOwnerDefaultProducts({ businessId });
+      } catch (bootstrapError) {
+        console.error("GET /api/products owner product bootstrap error:", bootstrapError);
+      }
+    }
 
     if (isFinancialMode) {
       const products = await prisma.product.findMany({
@@ -282,33 +302,43 @@ export async function GET(request: NextRequest) {
     }
     const whereRaw = Prisma.join(whereParts, " AND ");
 
-    const total = await prisma.product.count({ where });
+    const [total, statsRows, { hasProductionToken, hasManualStock }] =
+      await Promise.all([
+        prisma.product.count({ where }),
+        prisma.$queryRaw<{ avg_price: string | null; avg_margin: string | null }[]>`
+          SELECT
+            AVG("sellingPrice")::text                                                     AS avg_price,
+            AVG(
+              CASE WHEN "sellingPrice" > 0 AND "cogs" > 0
+                   THEN GREATEST(-200, LEAST(100,
+                        ("sellingPrice" - "cogs") / "sellingPrice" * 100))
+                   ELSE NULL
+              END
+            )::text                                                                       AS avg_margin
+          FROM "Product"
+          WHERE ${whereRaw}
+        `,
+        getProductColumnAvailability(),
+      ]);
     const totalPages = Math.ceil(total / limit) || 1;
 
     // Global stats — computed over ALL matching products, not just the current page
     // avgMargin: excludes products with no recipe (cogs=0) and clamps outliers to [-200, 100]
     // so a single mis-entered product with -1000% margin doesn't destroy the stat.
-    const statsRows = await prisma.$queryRaw<{ avg_price: string | null; avg_margin: string | null }[]>`
-      SELECT
-        AVG("sellingPrice")::text                                                     AS avg_price,
-        AVG(
-          CASE WHEN "sellingPrice" > 0 AND "cogs" > 0
-               THEN GREATEST(-200, LEAST(100,
-                    ("sellingPrice" - "cogs") / "sellingPrice" * 100))
-               ELSE NULL
-          END
-        )::text                                                                       AS avg_margin
-      FROM "Product"
-      WHERE ${whereRaw}
-    `;
     const sr = statsRows[0];
     const avgSellingPrice = sr?.avg_price ? Math.round(Number(sr.avg_price)) : 0;
     const avgMargin = sr?.avg_margin ? Math.round(Number(sr.avg_margin)) : 0;
     const meta = { total, page, limit, totalPages, avgSellingPrice, avgMargin };
-    const { productCatalog } = await loadEffectiveBookingCatalog(businessId);
-    const catalogTokenMap = getCatalogTokenMapFromCatalog(productCatalog);
-    const { hasProductionToken, hasManualStock } =
-      await getProductColumnAvailability();
+
+    let catalogTokenMapPromise: Promise<Map<string, number>> | null = null;
+    const getCatalogTokenMap = () => {
+      if (!catalogTokenMapPromise) {
+        catalogTokenMapPromise = loadEffectiveBookingCatalog(businessId).then(
+          ({ productCatalog }) => getCatalogTokenMapFromCatalog(productCatalog),
+        );
+      }
+      return catalogTokenMapPromise;
+    };
 
     const selectBase: Record<string, boolean> = {
       id: true,
@@ -339,6 +369,18 @@ export async function GET(request: NextRequest) {
           category: { select: { id: true, name: true } },
         },
       })) as Array<Record<string, unknown> & { name: string; category: { id: number; name: string } | null }>;
+      const needsCatalogFallback =
+        !hasProductionToken ||
+        products.some(
+          (product) =>
+            Math.max(
+              0,
+              Number((product as { productionToken?: number }).productionToken ?? 0),
+            ) <= 0,
+        );
+      const catalogTokenMap = needsCatalogFallback
+        ? await getCatalogTokenMap()
+        : null;
       const data = products.map((p) => ({
         ...p,
         productionToken: (() => {
@@ -347,7 +389,7 @@ export async function GET(request: NextRequest) {
             Number((p as { productionToken?: number }).productionToken ?? 0),
           );
           if (current > 0) return current;
-          const fallback = catalogTokenMap.get(normalizeTokenKey(p.name)) ?? 0;
+          const fallback = catalogTokenMap?.get(normalizeTokenKey(p.name)) ?? 0;
           return fallback;
         })(),
         availableStock: Math.max(
@@ -428,6 +470,18 @@ export async function GET(request: NextRequest) {
         }>;
       }
     >;
+    const needsCatalogFallback =
+      !hasProductionToken ||
+      products.some(
+        (product) =>
+          Math.max(
+            0,
+            Number((product as { productionToken?: number }).productionToken ?? 0),
+          ) <= 0,
+      );
+    const catalogTokenMap = needsCatalogFallback
+      ? await getCatalogTokenMap()
+      : null;
 
     // Enrich recipe rows for backward-compatible API shape. Active COGS is always
     // the direct currency value stored on the product.
@@ -468,7 +522,8 @@ export async function GET(request: NextRequest) {
             ),
           );
           if (current > 0) return current;
-          const fallback = catalogTokenMap.get(normalizeTokenKey(product.name)) ?? 0;
+          const fallback =
+            catalogTokenMap?.get(normalizeTokenKey(product.name)) ?? 0;
           return fallback;
         })(),
         recipes: recipesWithCost,

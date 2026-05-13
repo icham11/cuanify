@@ -55,6 +55,14 @@ const PRODUCT_SORT_OPTIONS: Array<{
 ];
 
 const REMOVED_SUBCATEGORY_NAMES = Array.from(REMOVED_BAKERY_SUBCATEGORIES);
+const PRODUCT_PAGE_SIZE = 10;
+const ALL_PRODUCTS_QUERY = {
+  excludeCategoryNames: REMOVED_SUBCATEGORY_NAMES,
+  sortBy: "createdAt" as const,
+  sortOrder: "desc" as const,
+  page: 1,
+  limit: 999,
+};
 
 function getProductGroupName(product: Product): string {
   const subcategory = product.category?.name ?? "";
@@ -356,40 +364,21 @@ export default function ProductsPage() {
   const initialSearch = searchParams.get("search") ?? "";
   const initialProductsSnapshot =
     typeof window !== "undefined"
-      ? peekCachedProducts({
-          search: initialSearch || undefined,
-          excludeCategoryNames: REMOVED_SUBCATEGORY_NAMES,
-          sortBy: "name",
-          sortOrder: "asc",
-          page: 1,
-        })
+      ? peekCachedProducts(ALL_PRODUCTS_QUERY)
       : null;
 
-  const [products, setProducts] = useState<Product[]>(
+  const [allProducts, setAllProducts] = useState<Product[]>(
     () => initialProductsSnapshot?.data ?? [],
   );
   const [categories, setCategories] = useState<ProductCategory[]>(
     () => peekCachedCategoryOptions(),
   );
   const [searchInput, setSearchInput] = useState(initialSearch);
-  const [search, setSearch] = useState(initialSearch);
   const [productGroupFilter, setProductGroupFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<number | null>(null);
   const [sortBy, setSortBy] = useState<SortByField>("name");
   const [sortOrder, setSortOrder] = useState<SortOrderType>("asc");
-  const [page, setPage] = useState(initialProductsSnapshot?.meta.page ?? 1);
-  const [totalPages, setTotalPages] = useState(
-    initialProductsSnapshot?.meta.totalPages ?? 1,
-  );
-  const [totalCount, setTotalCount] = useState(
-    initialProductsSnapshot?.meta.total ?? 0,
-  );
-  const [avgSellingPrice, setAvgSellingPrice] = useState(
-    initialProductsSnapshot?.meta.avgSellingPrice ?? 0,
-  );
-  const [avgMargin, setAvgMargin] = useState(
-    initialProductsSnapshot?.meta.avgMargin ?? 0,
-  );
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(() => !initialProductsSnapshot);
   const [error, setError] = useState<string | null>(null);
   const [syncingCatalog, setSyncingCatalog] = useState(false);
@@ -400,6 +389,7 @@ export default function ProductsPage() {
   const [deleteModal, setDeleteModal] = useState<Product | null>(null);
   const [recipeModal, setRecipeModal] = useState<Product | null>(null);
   const [addProductModalOpen, setAddProductModalOpen] = useState(false);
+  const activeFetchControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     void getCategoryOptionsCached()
@@ -434,20 +424,93 @@ export default function ProductsPage() {
     );
   }, [productGroupFilter, visibleCategories]);
 
-  const selectedProductGroupCategoryIds = useMemo(
-    () => filteredSubcategoryOptions.map((category) => category.id),
-    [filteredSubcategoryOptions],
-  );
+  const normalizedSearch = searchInput.trim().toLowerCase();
 
-  const selectedProductGroupCategoryKey =
-    selectedProductGroupCategoryIds.join(",");
+  const filteredProducts = useMemo(() => {
+    const matchesSearch = (product: Product) => {
+      if (!normalizedSearch) return true;
+      const haystacks = [
+        product.name,
+        product.category?.name ?? "",
+        getProductGroupName(product),
+      ];
+      return haystacks.some((value) =>
+        value.toLowerCase().includes(normalizedSearch),
+      );
+    };
+
+    return allProducts.filter((product) => {
+      if (!matchesSearch(product)) return false;
+      if (normalizedSearch) return true;
+      if (categoryFilter !== null) {
+        return product.category?.id === categoryFilter;
+      }
+      if (productGroupFilter) {
+        return getProductGroupName(product) === productGroupFilter;
+      }
+      return true;
+    });
+  }, [allProducts, categoryFilter, normalizedSearch, productGroupFilter]);
+
+  const sortedProducts = useMemo(() => {
+    const next = [...filteredProducts];
+    next.sort((left, right) => {
+      if (sortBy === "name") {
+        const comparison = left.name.localeCompare(right.name, "id");
+        return sortOrder === "asc" ? comparison : -comparison;
+      }
+      if (sortBy === "sellingPrice") {
+        const comparison =
+          Number(left.sellingPrice || 0) - Number(right.sellingPrice || 0);
+        return sortOrder === "asc" ? comparison : -comparison;
+      }
+
+      const leftTime = left.createdAt ? new Date(left.createdAt).getTime() : 0;
+      const rightTime = right.createdAt ? new Date(right.createdAt).getTime() : 0;
+      const comparison = leftTime - rightTime;
+      return sortOrder === "asc" ? comparison : -comparison;
+    });
+    return next;
+  }, [filteredProducts, sortBy, sortOrder]);
+
+  const totalCount = sortedProducts.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / PRODUCT_PAGE_SIZE));
+  const avgSellingPrice =
+    totalCount > 0
+      ? Math.round(
+          sortedProducts.reduce(
+            (sum, product) => sum + Number(product.sellingPrice || 0),
+            0,
+          ) / totalCount,
+        )
+      : 0;
+  const marginValues = sortedProducts
+    .map((product) => {
+      const sellingPrice = Number(product.sellingPrice || 0);
+      const cogs = Number(product.cogs || 0);
+      if (sellingPrice <= 0 || cogs <= 0) return null;
+      return Math.max(-200, Math.min(100, ((sellingPrice - cogs) / sellingPrice) * 100));
+    })
+    .filter((value): value is number => value !== null);
+  const avgMargin =
+    marginValues.length > 0
+      ? Math.round(
+          marginValues.reduce((sum, value) => sum + value, 0) /
+            marginValues.length,
+        )
+      : 0;
+  const pageProducts = useMemo(() => {
+    const startIndex = (page - 1) * PRODUCT_PAGE_SIZE;
+    return sortedProducts.slice(startIndex, startIndex + PRODUCT_PAGE_SIZE);
+  }, [page, sortedProducts]);
 
   useEffect(() => {
     const searchFromUrl = searchParams.get("search") ?? "";
-    if (!searchFromUrl) return;
-
     setSearchInput(searchFromUrl);
-    setSearch(searchFromUrl);
+    if (searchFromUrl.trim()) {
+      setProductGroupFilter("");
+      setCategoryFilter(null);
+    }
     setPage(1);
   }, [searchParams]);
 
@@ -461,68 +524,49 @@ export default function ProductsPage() {
     router.replace("/dashboard/products", { scroll: false });
   }, [canManageProducts, router, searchParams]);
 
-  const fetchProducts = async (
-    pageOverride?: number,
-    categoryOverride?: number | null,
-  ) => {
+  const refreshProducts = async () => {
+    activeFetchControllerRef.current?.abort();
+    const controller = new AbortController();
+    activeFetchControllerRef.current = controller;
     const requestId = latestRequestRef.current + 1;
     latestRequestRef.current = requestId;
     setError(null);
 
-    const params = {
-      search,
-      categoryId:
-        categoryOverride === undefined
-          ? (categoryFilter ?? undefined)
-          : (categoryOverride ?? undefined),
-      categoryIds:
-        categoryOverride === undefined && !categoryFilter && productGroupFilter
-          ? selectedProductGroupCategoryIds
-          : undefined,
-      excludeCategoryNames: REMOVED_SUBCATEGORY_NAMES,
-      sortBy,
-      sortOrder,
-      page: pageOverride ?? page,
-    };
-
-    const cachedSnapshot = peekCachedProducts(params);
+    const cachedSnapshot = peekCachedProducts(ALL_PRODUCTS_QUERY);
     if (cachedSnapshot) {
-      setProducts(cachedSnapshot.data);
-      setTotalPages(Math.max(1, cachedSnapshot.meta.totalPages));
-      setTotalCount(cachedSnapshot.meta.total);
-      setAvgSellingPrice(cachedSnapshot.meta.avgSellingPrice);
-      setAvgMargin(cachedSnapshot.meta.avgMargin);
-      setPage(
-        Math.min(
-          Math.max(1, cachedSnapshot.meta.page),
-          Math.max(1, cachedSnapshot.meta.totalPages),
-        ),
-      );
+      setAllProducts(cachedSnapshot.data);
       setLoading(false);
     } else {
       setLoading(true);
     }
 
     try {
-      const { data, meta } = await getProducts(params);
+      const { data } = await getProducts(ALL_PRODUCTS_QUERY, {
+        signal: controller.signal,
+      });
 
       if (requestId !== latestRequestRef.current) return;
-
-      setProducts(data);
-      setTotalPages(Math.max(1, meta.totalPages));
-      setTotalCount(meta.total);
-      setAvgSellingPrice(meta.avgSellingPrice);
-      setAvgMargin(meta.avgMargin);
-      setPage(Math.min(Math.max(1, meta.page), Math.max(1, meta.totalPages)));
+      setAllProducts(data);
     } catch (err) {
       if (requestId !== latestRequestRef.current) return;
+      if (controller.signal.aborted) return;
       setError(err instanceof Error ? err.message : "Failed to fetch products");
     } finally {
+      if (activeFetchControllerRef.current === controller) {
+        activeFetchControllerRef.current = null;
+      }
       if (requestId === latestRequestRef.current) {
         setLoading(false);
       }
     }
   };
+
+  useEffect(
+    () => () => {
+      activeFetchControllerRef.current?.abort();
+    },
+    [],
+  );
 
   const refreshCategories = async () => {
     try {
@@ -542,9 +586,10 @@ export default function ProductsPage() {
       const result = await syncBakeryCatalogProducts();
       setProductGroupFilter("");
       setCategoryFilter(null);
+      setSearchInput("");
       setPage(1);
       await refreshCategories();
-      await fetchProducts(1, null);
+      await refreshProducts();
       setSyncCatalogMessage(
         `Synced ${result.createdCount} product dari bakery catalog.`,
       );
@@ -560,16 +605,8 @@ export default function ProductsPage() {
   };
 
   useEffect(() => {
-    void fetchProducts(1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    search,
-    categoryFilter,
-    productGroupFilter,
-    selectedProductGroupCategoryKey,
-    sortBy,
-    sortOrder,
-  ]);
+    void refreshProducts();
+  }, []);
 
   useEffect(() => {
     if (!categoryFilter) return;
@@ -583,15 +620,8 @@ export default function ProductsPage() {
   }, [categoryFilter, filteredSubcategoryOptions]);
 
   useEffect(() => {
-    if (searchInput === search) return;
-
-    const timeoutId = window.setTimeout(() => {
-      setPage(1);
-      setSearch(searchInput);
-    }, 500);
-
-    return () => window.clearTimeout(timeoutId);
-  }, [searchInput, search]);
+    setPage((currentPage) => Math.min(currentPage, totalPages));
+  }, [totalPages]);
 
   const activeSortLabel = useMemo(
     () =>
@@ -619,7 +649,7 @@ export default function ProductsPage() {
   const handlePageChange = (nextPage: number) => {
     const boundedPage = Math.min(Math.max(1, nextPage), totalPages);
     if (boundedPage === page || loading) return;
-    void fetchProducts(boundedPage);
+    setPage(boundedPage);
   };
 
   return (
@@ -675,7 +705,15 @@ export default function ProductsPage() {
                 placeholder="Cari nama produk..."
                 className="h-6 w-full bg-transparent text-sm text-[#1e120a] outline-none placeholder:text-[#b89080]"
                 value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
+                onChange={(e) => {
+                  const nextValue = e.target.value;
+                  setSearchInput(nextValue);
+                  if (nextValue.trim()) {
+                    setProductGroupFilter("");
+                    setCategoryFilter(null);
+                  }
+                  setPage(1);
+                }}
               />
             </div>
 
@@ -767,7 +805,7 @@ export default function ProductsPage() {
             Urutan aktif: {activeSortLabel}
           </p>
 
-          {loading && products.length === 0 ? (
+          {loading && allProducts.length === 0 ? (
             <div className="rounded-[24px] border border-[#e0d0c4] bg-[#fdfaf7] px-6 py-16 text-center">
               <Loader2 size={28} className="mx-auto animate-spin text-[#c86030]" />
               <p className="mt-3 text-sm font-semibold text-[#8d6a55]">
@@ -779,16 +817,16 @@ export default function ProductsPage() {
               <AlertTriangle size={28} className="mx-auto" />
               <p className="mt-3 text-sm font-semibold">{error}</p>
               <button
-                onClick={() => void fetchProducts()}
+                onClick={() => void refreshProducts()}
                 className="mt-4 rounded-full border border-[#e8b8b1] bg-white px-4 py-2 text-sm font-semibold text-[#a83030]"
               >
                 Coba lagi
               </button>
             </div>
-          ) : products.length === 0 ? (
+          ) : pageProducts.length === 0 ? (
             <div className="rounded-[24px] border border-[#e0d0c4] bg-[#fdfaf7] px-6 py-14 text-center text-[#8d6a55]">
               <ChefHat size={34} className="mx-auto text-[#c9a48f]" />
-              {search || productGroupFilter || categoryFilter ? (
+              {normalizedSearch || productGroupFilter || categoryFilter ? (
                 <>
                   <p className="mt-3 text-base font-bold text-[#1e120a]">
                     Produk tidak ditemukan
@@ -816,7 +854,7 @@ export default function ProductsPage() {
           ) : (
             <>
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                {products.map((product) => {
+                {pageProducts.map((product) => {
                   const sellingPrice = Number(product.sellingPrice || 0);
                   const cogs = Number(product.cogs || 0);
                   const margin =
@@ -968,11 +1006,11 @@ export default function ProductsPage() {
           categories={visibleCategories}
           onClose={() => setEditModal(null)}
           onSaved={(updated) => {
-            setProducts((prev) =>
+            setAllProducts((prev) =>
               prev.map((product) => (product.id === updated.id ? updated : product)),
             );
+            setRecipeModal((prev) => (prev?.id === updated.id ? updated : prev));
             void refreshCategories();
-            void fetchProducts(page);
             setEditModal(null);
           }}
         />
@@ -982,11 +1020,14 @@ export default function ProductsPage() {
         <DeleteConfirmModal
           product={deleteModal}
           onClose={() => setDeleteModal(null)}
-          onDeleted={async () => {
+          onDeleted={() => {
             const nextPage =
-              products.length <= 1 && page > 1 ? page - 1 : page;
+              pageProducts.length <= 1 && page > 1 ? page - 1 : page;
+            setAllProducts((prev) =>
+              prev.filter((product) => product.id !== deleteModal.id),
+            );
             setDeleteModal(null);
-            await fetchProducts(nextPage);
+            setPage(nextPage);
           }}
         />
       ) : null}
@@ -995,7 +1036,7 @@ export default function ProductsPage() {
         open={addProductModalOpen}
         onClose={() => setAddProductModalOpen(false)}
         onSaved={() => {
-          void fetchProducts(page);
+          void refreshProducts();
           void refreshCategories();
         }}
       />
