@@ -35,7 +35,12 @@ import {
   estimateOperationalWeightGram,
   parseServiceChargeFromNotes,
   resolveShippingParcelCount,
+  type DeliveryMethod,
 } from "@/lib/bookings/delivery-rules";
+import {
+  resolveDeliveryMethodLabel,
+  resolveOrderDeliveryMethod,
+} from "@/lib/bookings/delivery-method";
 import { invalidateApiCache } from "@/lib/api/client";
 import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 import {
@@ -148,6 +153,7 @@ export interface BakeryOrder {
   id: string;
   resi: string;
   bookingCode: string;
+  deliveryMethod?: DeliveryMethod;
   customerName: string;
   customerPhone: string;
   customerAddress?: string;
@@ -207,6 +213,7 @@ export interface NewOrderInput {
   customerPhone: string;
   deliveryDate: string;
   deliverySlot: string;
+  deliveryMethod: DeliveryMethod;
   notes?: string;
   items: OrderItem[];
   deliveryAddresses: DeliveryAddress[];
@@ -492,8 +499,14 @@ function buildMessageDetailLines(order: BakeryOrder, item: OrderItem) {
 }
 
 function resolveShippingMethodLabel(order: BakeryOrder): string {
-  const parsedMethod = order.whatsAppParsedData?.common?.deliveryMethod?.trim();
-  if (parsedMethod) return parsedMethod;
+  const deliveryMethod = resolveOrderDeliveryMethod({
+    parsedDeliveryMethod: order.whatsAppParsedData?.common?.deliveryMethod,
+    notes: order.notes,
+    shippingQuote: order.shippingQuote,
+  });
+  if (deliveryMethod) {
+    return resolveDeliveryMethodLabel(deliveryMethod);
+  }
 
   if (
     order.shippingQuote?.provider ||
@@ -695,6 +708,7 @@ function buildNewOrderSubmissionFingerprint(order: NewOrderInput): string {
     customerName: normalizeBookingFingerprintText(order.customerName),
     customerPhone: String(order.customerPhone || "").replace(/\D/g, ""),
     deliveryDate: normalizeDateInput(order.deliveryDate) ?? order.deliveryDate,
+    deliveryMethod: order.deliveryMethod,
     deliverySlot: normalizeBookingFingerprintText(order.deliverySlot),
     notes: normalizeBookingFingerprintText(order.notes),
     basePrice: normalizeMoney(order.basePrice),
@@ -1854,6 +1868,7 @@ export function OrdersProvider({
           id,
           resi: "",
           bookingCode,
+          deliveryMethod: order.deliveryMethod,
           shippingReferenceId: generateShippingReferenceId(bookingCode, id),
           customerName: order.customerName,
           customerPhone: order.customerPhone,

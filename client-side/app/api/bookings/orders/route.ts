@@ -39,6 +39,10 @@ import {
 } from "@/lib/bakery/settings";
 import { calculateShippingInsuranceFee } from "@/lib/bookings/shipping-insurance";
 import {
+  resolveDeliveryMethodLabel,
+  resolveOrderDeliveryMethod,
+} from "@/lib/bookings/delivery-method";
+import {
   distributeProductionTokens,
   getProductionStagePercentagesFromTemplates,
   normalizeProductionStageKey,
@@ -1374,8 +1378,14 @@ function resolveShippingMethodLabel(
   order: NormalizedOrder,
   common: JsonRecord | null,
 ): string {
-  const parsedMethod = asString(common?.deliveryMethod).trim();
-  if (parsedMethod) return parsedMethod;
+  const deliveryMethod = resolveOrderDeliveryMethod({
+    parsedDeliveryMethod: asString(common?.deliveryMethod).trim(),
+    notes: order.notes,
+    shippingQuote: asRecord(order.shippingQuote),
+  });
+  if (deliveryMethod) {
+    return resolveDeliveryMethodLabel(deliveryMethod);
+  }
 
   const shippingQuote = asRecord(order.shippingQuote);
   const provider = asString(shippingQuote?.provider).trim();

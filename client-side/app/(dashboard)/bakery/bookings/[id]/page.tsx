@@ -41,35 +41,10 @@ import {
 } from "@/lib/bookings/shipping-schedule";
 import { normalizeDateInput } from "@/lib/helpers/date-normalization";
 import { useRole } from "@/context/RoleContext";
-
-function inferDeliveryMethodFromNotes(notes?: string): string | undefined {
-  const match = notes?.match(/delivery\s*method\s*:\s*([^\n]+)/i);
-  const raw = (match?.[1] || "").trim().toLowerCase();
-  if (!raw) return undefined;
-
-  if (raw.includes("pickup")) return "PICKUP";
-  if (raw.includes("customer")) return "CUSTOMER_APP_COURIER";
-  if (raw.includes("gosend") || raw.includes("go send")) {
-    return "ASSISTED_GOSEND";
-  }
-  if (raw.includes("gocar") || raw.includes("go car")) {
-    return "ASSISTED_GOCAR";
-  }
-  if (raw.includes("grab")) return "ASSISTED_GRAB";
-  if (raw.includes("paxel")) return "ASSISTED_PAXEL";
-  if (
-    raw.includes("same day") ||
-    raw.includes("same-day") ||
-    raw.includes("sameday")
-  ) {
-    return "ASSISTED_SAME_DAY";
-  }
-  if (raw.includes("jne") || raw.includes("j&t") || raw.includes("jnt")) {
-    return "REGULAR_JNE_JNT";
-  }
-
-  return undefined;
-}
+import {
+  resolveDeliveryMethodLabel,
+  resolveOrderDeliveryMethod,
+} from "@/lib/bookings/delivery-method";
 
 function formatDisplayDate(value?: string): string {
   if (!value) return "-";
@@ -149,8 +124,13 @@ export default function OrderDetailPage() {
     isScheduledShipmentProviderOrder &&
     Boolean(normalizedDeliveryDate && normalizedDeliveryDate > todayJakarta);
   const deliveryMethod = useMemo(
-    () => inferDeliveryMethodFromNotes(order?.notes),
-    [order?.notes],
+    () =>
+      resolveOrderDeliveryMethod({
+        parsedDeliveryMethod: order?.whatsAppParsedData?.common?.deliveryMethod,
+        notes: order?.notes,
+        shippingQuote: order?.shippingQuote,
+      }),
+    [order?.notes, order?.shippingQuote, order?.whatsAppParsedData?.common?.deliveryMethod],
   );
   const hasAnyProductionAssignment = Boolean(
     order?.assignedStaffUserId ||
@@ -294,24 +274,7 @@ export default function OrderDetailPage() {
   const primaryAddress =
     order.deliveryAddresses?.[0]?.addressLine || order.customerAddress || "-";
   const bookingCodeValue = order.resi || order.bookingCode || order.id;
-  const readableMethod =
-    deliveryMethod === "PICKUP"
-      ? "Pickup"
-      : deliveryMethod === "CUSTOMER_APP_COURIER"
-        ? "Kurir Pesanan Customer"
-        : deliveryMethod === "ASSISTED_GOSEND"
-          ? "GoSend (Admin)"
-          : deliveryMethod === "ASSISTED_GOCAR"
-            ? "GoCar (Admin)"
-            : deliveryMethod === "ASSISTED_GRAB"
-              ? "Grab (Admin)"
-              : deliveryMethod === "ASSISTED_PAXEL"
-                ? "Paxel (Admin)"
-                : deliveryMethod === "ASSISTED_SAME_DAY"
-                  ? "Same Day (Admin)"
-                  : deliveryMethod === "REGULAR_JNE_JNT"
-                    ? "JNE/JNT"
-                    : "Pickup";
+  const readableMethod = resolveDeliveryMethodLabel(deliveryMethod, "Pickup");
   const parsedReferenceNotes = collectReferenceImageNotes(order);
   const customNotesOnly = (order.notes || "")
     .split(/\r?\n/g)

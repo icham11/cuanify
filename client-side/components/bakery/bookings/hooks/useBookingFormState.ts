@@ -68,6 +68,7 @@ import {
 import { calculateOrderTokenFromItems } from "@/lib/bookings/order-token-calculator";
 import type { Product } from "@/types/product";
 import { buildDashboardProductName } from "@/lib/products/dashboard-name";
+import { resolveDeliveryMethodLabel } from "@/lib/bookings/delivery-method";
 import {
   normalizeDateInput,
   parseSafeDate,
@@ -1071,23 +1072,6 @@ export function useBookingFormState() {
     [filteredShippingQuotes, selectedShippingQuoteId],
   );
 
-  const shouldAutoSwitchGoSendToSameDay =
-    deliveryMethod === "ASSISTED_GOSEND" &&
-    filteredShippingQuotes.length > 0 &&
-    !filteredShippingQuotes.some((quote) => quote.provider === "GOJEK");
-
-  const shouldAutoSwitchGoCarToGrab =
-    deliveryMethod === "ASSISTED_GOCAR" &&
-    filteredShippingQuotes.length > 0 &&
-    !filteredShippingQuotes.some((quote) => quote.provider === "GOJEK") &&
-    filteredShippingQuotes.some((quote) => quote.provider === "GRAB");
-
-  const shouldAutoSwitchGrabToGoCar =
-    deliveryMethod === "ASSISTED_GRAB" &&
-    filteredShippingQuotes.length > 0 &&
-    !filteredShippingQuotes.some((quote) => quote.provider === "GRAB") &&
-    filteredShippingQuotes.some((quote) => quote.provider === "GOJEK");
-
   useEffect(() => {
     setShowAllShippingOptions(false);
 
@@ -1106,39 +1090,6 @@ export function useBookingFormState() {
       return filteredShippingQuotes[0]?.id || "";
     });
   }, [filteredShippingQuotes]);
-
-  useEffect(() => {
-    if (!shouldAutoSwitchGoSendToSameDay) return;
-
-    setValue("deliveryMethod", "ASSISTED_SAME_DAY", {
-      shouldValidate: true,
-    });
-    toast.message(
-      "GoSend belum tersedia untuk alamat ini. Metode dialihkan ke Same Day dengan kurir yang tersedia.",
-    );
-  }, [setValue, shouldAutoSwitchGoSendToSameDay]);
-
-  useEffect(() => {
-    if (!shouldAutoSwitchGoCarToGrab) return;
-
-    setValue("deliveryMethod", "ASSISTED_GRAB", {
-      shouldValidate: true,
-    });
-    toast.message(
-      "GoCar belum tersedia untuk alamat ini. Metode dialihkan ke Grab (dibantu admin) dengan layanan car yang tersedia.",
-    );
-  }, [setValue, shouldAutoSwitchGoCarToGrab]);
-
-  useEffect(() => {
-    if (!shouldAutoSwitchGrabToGoCar) return;
-
-    setValue("deliveryMethod", "ASSISTED_GOCAR", {
-      shouldValidate: true,
-    });
-    toast.message(
-      "Grab belum tersedia untuk alamat ini. Metode dialihkan ke GoCar (dibantu admin) dengan layanan car yang tersedia.",
-    );
-  }, [setValue, shouldAutoSwitchGrabToGoCar]);
 
   const fragileOrderReasons = useMemo(
     () => getGrabCarOnlyReasons(watchedItems),
@@ -2060,45 +2011,50 @@ export function useBookingFormState() {
     const explicitRequestedImageLabels = normalizeReferenceLabelInput(
       referenceImageLabelsInput,
     );
-    const normalizedParsedPreview = parsedPreview
-      ? ({
-          ...parsedPreview,
-          referenceImages: buildParsedReferenceImages({
-            parsed: parsedPreview,
-            requestedLabels: explicitRequestedImageLabels,
-          }),
-          requestedImageLabels: [
-            ...(Array.isArray(parsedPreview.requestedImageLabels)
-              ? parsedPreview.requestedImageLabels
-              : []),
-            ...explicitRequestedImageLabels,
-          ].filter((value, index, array) => {
-            const normalized = value.trim().toLowerCase();
-            if (!normalized) return false;
-            return (
-              array.findIndex(
-                (entry) => entry.trim().toLowerCase() === normalized,
-              ) === index
-            );
-          }),
-        } satisfies ParsedWhatsAppOrder)
-      : undefined;
+    const canonicalDeliveryMethodLabel =
+      resolveDeliveryMethodLabel(deliveryMethod);
+    const normalizedParsedPreview = ({
+      ...((parsedPreview
+        ? {
+            ...parsedPreview,
+            referenceImages: buildParsedReferenceImages({
+              parsed: parsedPreview,
+              requestedLabels: explicitRequestedImageLabels,
+            }),
+            requestedImageLabels: [
+              ...(Array.isArray(parsedPreview.requestedImageLabels)
+                ? parsedPreview.requestedImageLabels
+                : []),
+              ...explicitRequestedImageLabels,
+            ].filter((value, index, array) => {
+              const normalized = value.trim().toLowerCase();
+              if (!normalized) return false;
+              return (
+                array.findIndex(
+                  (entry) => entry.trim().toLowerCase() === normalized,
+                ) === index
+              );
+            }),
+          }
+        : {}) as Partial<ParsedWhatsAppOrder>),
+      common: {
+        ...(((parsedPreview?.common ?? {}) as Record<string, unknown>) || {}),
+        deliveryMethod: canonicalDeliveryMethodLabel,
+      },
+    } satisfies Partial<ParsedWhatsAppOrder>) as ParsedWhatsAppOrder;
 
     const submissionPayload: NewOrderInput = {
       customerName: values.customerName,
       customerPhone: values.phoneNumber,
       deliveryDate: normalizedDeliveryDate,
       deliverySlot: values.deliverySlot,
+      deliveryMethod,
       notes: [
         values.customNotes ?? "",
         Number(values.wholesaleDiscountPercent || 0) > 0
           ? `Wholesale Discount: ${Number(values.wholesaleDiscountPercent || 0)}% (-${formatCurrency(wholesaleDiscountAmount)})`
           : "",
-        `Delivery Method: ${
-          DELIVERY_METHOD_OPTIONS.find(
-            (option) => option.value === values.deliveryMethod,
-          )?.label || values.deliveryMethod
-        }`,
+        `Delivery Method: ${canonicalDeliveryMethodLabel}`,
         serviceCharge > 0 ? `Service Charge: ${serviceCharge}` : "",
         insuranceFee > 0 ? `Insurance Fee: ${insuranceFee}` : "",
       ]
@@ -2122,7 +2078,7 @@ export function useBookingFormState() {
       imageUrl: normalizedParsedPreview?.imageUrl,
       imageUrls: normalizedParsedPreview?.uploadedImageUrls,
       referenceImages: normalizedParsedPreview?.referenceImages,
-      shippingQuote: selectedShippingQuote,
+      shippingQuote: shouldUseShippingEngine ? selectedShippingQuote : null,
     };
 
     const predictedBookingCode = generateBookingCode(

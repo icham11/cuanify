@@ -1,5 +1,9 @@
 import { normalizeDateInput } from "@/lib/helpers/date-normalization";
 import type { ShippingProvider } from "@/lib/bookings/shipping-types";
+import {
+  inferDeliveryMethodFromQuote,
+  resolveOrderDeliveryMethod,
+} from "@/lib/bookings/delivery-method";
 
 type ShippingQuoteLike = {
   provider?: string | null;
@@ -12,7 +16,13 @@ type ShippingScheduleOrderLike = {
   deliveryDate?: string | null;
   deliverySlot?: string | null;
   orderStatus?: string | null;
+  deliveryMethod?: string | null;
   notes?: string | null;
+  whatsAppParsedData?: {
+    common?: {
+      deliveryMethod?: string | null;
+    } | null;
+  } | null;
   shippingQuote?: ShippingQuoteLike | null;
   shipment?: unknown;
 };
@@ -55,30 +65,6 @@ function inferProviderFromText(value: string): ShippingProvider | null {
   }
 
   return null;
-}
-
-function inferDeliveryMethodFromNotes(notes?: string | null): string | undefined {
-  const match = notes?.match(/delivery\s*method\s*:\s*([^\n]+)/i);
-  const raw = (match?.[1] || "").trim().toLowerCase();
-  if (!raw) return undefined;
-
-  if (raw.includes("gosend") || raw.includes("go send")) {
-    return "ASSISTED_GOSEND";
-  }
-  if (raw.includes("gocar") || raw.includes("go car")) {
-    return "ASSISTED_GOCAR";
-  }
-  if (
-    raw.includes("same day") ||
-    raw.includes("same-day") ||
-    raw.includes("sameday")
-  ) {
-    return "ASSISTED_SAME_DAY";
-  }
-  if (raw.includes("grab")) return "ASSISTED_GRAB";
-  if (raw.includes("paxel")) return "ASSISTED_PAXEL";
-
-  return undefined;
 }
 
 function resolveProviderFromDeliveryMethod(
@@ -173,13 +159,24 @@ export function inferScheduledProviderFromQuote(
 export function resolveShippingProvider(
   order: ShippingScheduleOrderLike,
 ): ShippingProvider | null {
+  const deliveryMethod = resolveOrderDeliveryMethod({
+    deliveryMethod: order.deliveryMethod,
+    parsedDeliveryMethod: order.whatsAppParsedData?.common?.deliveryMethod,
+    notes: order.notes,
+    shippingQuote: order.shippingQuote,
+  });
+  const deliveryMethodProvider = resolveProviderFromDeliveryMethod(
+    deliveryMethod ?? undefined,
+  );
+  if (deliveryMethodProvider) return deliveryMethodProvider;
+
   const quoteProvider = inferScheduledProviderFromQuote(order.shippingQuote);
   if (quoteProvider) {
     return quoteProvider;
   }
 
   return resolveProviderFromDeliveryMethod(
-    inferDeliveryMethodFromNotes(order.notes),
+    inferDeliveryMethodFromQuote(order.shippingQuote) ?? undefined,
   );
 }
 

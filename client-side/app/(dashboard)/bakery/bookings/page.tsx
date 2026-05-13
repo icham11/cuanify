@@ -8,6 +8,7 @@ import OrderTable from "@/components/bakery/bookings/OrderTable";
 import { Select } from "@/components/ui/select";
 import { useOrders } from "@/components/bakery/store";
 import { normalizeOrderStatus } from "@/lib/bookings/order-status";
+import { resolveOrderDeliveryMethod } from "@/lib/bookings/delivery-method";
 import {
   getJakartaTodayIsoDate,
   resolveShippingProvider,
@@ -33,43 +34,21 @@ function addDaysToIsoDate(isoDate: string, days: number): string {
   return value.toISOString().slice(0, 10);
 }
 
-function inferDeliveryMethodFromText(rawValue?: string): string | undefined {
-  const raw = (rawValue || "").trim().toLowerCase();
-  if (!raw) return undefined;
-
-  if (raw.includes("pickup")) return "PICKUP";
-  if (raw.includes("customer_app_courier") || raw.includes("pesan customer") || raw.includes("customer")) {
-    return "CUSTOMER_APP_COURIER";
-  }
-  if (raw.includes("assisted_")) return raw.toUpperCase();
-  if (raw.includes("gosend") || raw.includes("go send")) return "ASSISTED_GOSEND";
-  if (raw.includes("gocar") || raw.includes("go car")) return "ASSISTED_GOCAR";
-  if (raw.includes("grab")) return "ASSISTED_GRAB";
-  if (raw.includes("paxel")) return "ASSISTED_PAXEL";
-  if (raw.includes("same day") || raw.includes("same-day") || raw.includes("sameday")) {
-    return "ASSISTED_SAME_DAY";
-  }
-  if (raw.includes("jne") || raw.includes("j&t") || raw.includes("jnt")) {
-    return "REGULAR_JNE_JNT";
-  }
-
-  return undefined;
-}
-
-function inferDeliveryMethodFromNotes(notes?: string): string | undefined {
-  const match = notes?.match(/delivery\s*method\s*:\s*([^\n]+)/i);
-  return inferDeliveryMethodFromText(match?.[1]);
-}
-
 function resolveOrderSource(order: {
   notes?: string;
   whatsAppParsedData?: { common?: { deliveryMethod?: string } };
+  shippingQuote?: {
+    provider?: string;
+    courierCode?: string;
+    courierServiceCode?: string;
+    courierServiceName?: string;
+  } | null;
 }): "customer" | "admin" | null {
-  const parsedMethod = inferDeliveryMethodFromText(
-    order.whatsAppParsedData?.common?.deliveryMethod,
-  );
-  const noteMethod = inferDeliveryMethodFromNotes(order.notes);
-  const deliveryMethod = parsedMethod || noteMethod;
+  const deliveryMethod = resolveOrderDeliveryMethod({
+    parsedDeliveryMethod: order.whatsAppParsedData?.common?.deliveryMethod,
+    notes: order.notes,
+    shippingQuote: order.shippingQuote,
+  });
 
   if (!deliveryMethod || deliveryMethod === "PICKUP") return null;
   if (deliveryMethod === "CUSTOMER_APP_COURIER") return "customer";

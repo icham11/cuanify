@@ -94,6 +94,7 @@ import {
   type DeliveryMethod,
   usesShippingEngine,
 } from "@/lib/bookings/delivery-rules";
+import { resolveDeliveryMethodLabel } from "@/lib/bookings/delivery-method";
 import { useCalendarCapacity } from "@/hooks/useCalendarCapacity";
 import { useBakerySettings } from "@/hooks/useBakerySettings";
 import {
@@ -3047,10 +3048,7 @@ export default function BookingForm() {
     : "Ada yang salah? Kembali ke halaman sebelumnya dan cek lagi data booking sebelum disimpan.";
 
   const deliveryMethodLabel = useMemo(
-    () =>
-      DELIVERY_METHOD_OPTIONS.find(
-        (option) => option.value === effectiveDeliveryMethod,
-      )?.label || effectiveDeliveryMethod,
+    () => resolveDeliveryMethodLabel(effectiveDeliveryMethod),
     [effectiveDeliveryMethod],
   );
 
@@ -3539,23 +3537,6 @@ export default function BookingForm() {
     [filteredShippingQuotes, selectedShippingQuoteId],
   );
 
-  const shouldAutoSwitchGoSendToSameDay =
-    effectiveDeliveryMethod === "ASSISTED_GOSEND" &&
-    filteredShippingQuotes.length > 0 &&
-    !filteredShippingQuotes.some((quote) => quote.provider === "GOJEK");
-
-  const shouldAutoSwitchGoCarToGrab =
-    effectiveDeliveryMethod === "ASSISTED_GOCAR" &&
-    filteredShippingQuotes.length > 0 &&
-    !filteredShippingQuotes.some((quote) => quote.provider === "GOJEK") &&
-    filteredShippingQuotes.some((quote) => quote.provider === "GRAB");
-
-  const shouldAutoSwitchGrabToGoCar =
-    effectiveDeliveryMethod === "ASSISTED_GRAB" &&
-    filteredShippingQuotes.length > 0 &&
-    !filteredShippingQuotes.some((quote) => quote.provider === "GRAB") &&
-    filteredShippingQuotes.some((quote) => quote.provider === "GOJEK");
-
   useEffect(() => {
     setShowAllShippingOptions(false);
 
@@ -3574,39 +3555,6 @@ export default function BookingForm() {
       return filteredShippingQuotes[0]?.id || "";
     });
   }, [filteredShippingQuotes]);
-
-  useEffect(() => {
-    if (!shouldAutoSwitchGoSendToSameDay) return;
-
-    setValue("deliveryMethod", "ASSISTED_SAME_DAY", {
-      shouldValidate: true,
-    });
-    toast.message(
-      "GoSend belum tersedia untuk alamat ini. Metode dialihkan ke Same Day dengan kurir yang tersedia.",
-    );
-  }, [setValue, shouldAutoSwitchGoSendToSameDay]);
-
-  useEffect(() => {
-    if (!shouldAutoSwitchGoCarToGrab) return;
-
-    setValue("deliveryMethod", "ASSISTED_GRAB", {
-      shouldValidate: true,
-    });
-    toast.message(
-      "GoCar belum tersedia untuk alamat ini. Metode dialihkan ke Grab (dibantu admin) dengan layanan car yang tersedia.",
-    );
-  }, [setValue, shouldAutoSwitchGoCarToGrab]);
-
-  useEffect(() => {
-    if (!shouldAutoSwitchGrabToGoCar) return;
-
-    setValue("deliveryMethod", "ASSISTED_GOCAR", {
-      shouldValidate: true,
-    });
-    toast.message(
-      "Grab belum tersedia untuk alamat ini. Metode dialihkan ke GoCar (dibantu admin) dengan layanan car yang tersedia.",
-    );
-  }, [setValue, shouldAutoSwitchGrabToGoCar]);
 
   const isAllowedFragileOrderMethod = FRAGILE_ORDER_ALLOWED_METHODS.includes(
     effectiveDeliveryMethod,
@@ -4594,45 +4542,50 @@ export default function BookingForm() {
     const explicitRequestedImageLabels = normalizeReferenceLabelInput(
       referenceImageLabelsInput,
     );
-    const normalizedParsedPreview = parsedPreview
-      ? ({
-          ...parsedPreview,
-          referenceImages: buildParsedReferenceImages({
-            parsed: parsedPreview,
-            requestedLabels: explicitRequestedImageLabels,
-          }),
-          requestedImageLabels: [
-            ...(Array.isArray(parsedPreview.requestedImageLabels)
-              ? parsedPreview.requestedImageLabels
-              : []),
-            ...explicitRequestedImageLabels,
-          ].filter((value, index, array) => {
-            const normalized = value.trim().toLowerCase();
-            if (!normalized) return false;
-            return (
-              array.findIndex(
-                (entry) => entry.trim().toLowerCase() === normalized,
-              ) === index
-            );
-          }),
-        } satisfies ParsedWhatsAppOrder)
-      : undefined;
+    const canonicalDeliveryMethodLabel =
+      resolveDeliveryMethodLabel(effectiveDeliveryMethod);
+    const normalizedParsedPreview = ({
+      ...((parsedPreview
+        ? {
+            ...parsedPreview,
+            referenceImages: buildParsedReferenceImages({
+              parsed: parsedPreview,
+              requestedLabels: explicitRequestedImageLabels,
+            }),
+            requestedImageLabels: [
+              ...(Array.isArray(parsedPreview.requestedImageLabels)
+                ? parsedPreview.requestedImageLabels
+                : []),
+              ...explicitRequestedImageLabels,
+            ].filter((value, index, array) => {
+              const normalized = value.trim().toLowerCase();
+              if (!normalized) return false;
+              return (
+                array.findIndex(
+                  (entry) => entry.trim().toLowerCase() === normalized,
+                ) === index
+              );
+            }),
+          }
+        : {}) as Partial<ParsedWhatsAppOrder>),
+      common: {
+        ...(((parsedPreview?.common ?? {}) as Record<string, unknown>) || {}),
+        deliveryMethod: canonicalDeliveryMethodLabel,
+      },
+    } satisfies Partial<ParsedWhatsAppOrder>) as ParsedWhatsAppOrder;
 
     const submissionPayload: NewOrderInput = {
       customerName: values.customerName,
       customerPhone: values.phoneNumber,
       deliveryDate: normalizedDeliveryDate,
       deliverySlot: values.deliverySlot,
+      deliveryMethod: effectiveDeliveryMethod,
       notes: [
         values.customNotes ?? "",
         Number(values.wholesaleDiscountPercent || 0) > 0
           ? `Wholesale Discount: ${Number(values.wholesaleDiscountPercent || 0)}% (-${formatCurrency(wholesaleDiscountAmount)})`
           : "",
-        `Delivery Method: ${
-          DELIVERY_METHOD_OPTIONS.find(
-            (option) => option.value === values.deliveryMethod,
-          )?.label || values.deliveryMethod
-        }`,
+        `Delivery Method: ${canonicalDeliveryMethodLabel}`,
         serviceCharge > 0 ? `Service Charge: ${serviceCharge}` : "",
         insuranceFee > 0 ? `Insurance Fee: ${insuranceFee}` : "",
       ]
@@ -4656,7 +4609,7 @@ export default function BookingForm() {
       imageUrl: normalizedParsedPreview?.imageUrl,
       imageUrls: normalizedParsedPreview?.uploadedImageUrls,
       referenceImages: normalizedParsedPreview?.referenceImages,
-      shippingQuote: selectedShippingQuote,
+      shippingQuote: shouldUseShippingEngine ? selectedShippingQuote : null,
     };
 
     const predictedBookingCode = generateBookingCode(

@@ -1,4 +1,8 @@
 import type { BakeryOrder, OrderItem } from "@/components/bakery/store";
+import {
+  resolveDeliveryMethodLabel,
+  resolveOrderDeliveryMethod,
+} from "@/lib/bookings/delivery-method";
 
 function escapeHtml(value: string): string {
   return value
@@ -74,8 +78,11 @@ function resolveRecipientPhone(order: BakeryOrder): string {
 
 function resolveFullAddress(order: BakeryOrder): string {
   const pickupFallback =
-    normalizeText(order.whatsAppParsedData?.common?.deliveryMethod).toLowerCase().includes("pickup") ||
-    normalizeText(order.notes).toLowerCase().includes("pickup")
+    resolveOrderDeliveryMethod({
+      parsedDeliveryMethod: order.whatsAppParsedData?.common?.deliveryMethod,
+      notes: order.notes,
+      shippingQuote: order.shippingQuote,
+    }) === "PICKUP"
       ? "Pickup langsung di lokasi Crumbella"
       : "";
 
@@ -88,43 +95,33 @@ function resolveFullAddress(order: BakeryOrder): string {
   );
 }
 
-function inferDeliveryMethodFromNotes(notes?: string): string {
-  const match = notes?.match(/delivery\s*method\s*:\s*([^\n]+)/i);
-  return normalizeText(match?.[1]);
-}
-
 function resolveShippingMethod(order: BakeryOrder): string {
-  const parsedMethod = normalizeText(order.whatsAppParsedData?.common?.deliveryMethod);
-  const shippingQuote = [
-    normalizeText(order.shippingQuote?.provider),
-    normalizeText(order.shippingQuote?.courierServiceName),
-  ]
-    .filter(Boolean)
-    .join(" ");
-  const raw = [parsedMethod, shippingQuote, inferDeliveryMethodFromNotes(order.notes)]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
+  const method = resolveOrderDeliveryMethod({
+    parsedDeliveryMethod: order.whatsAppParsedData?.common?.deliveryMethod,
+    notes: order.notes,
+    shippingQuote: order.shippingQuote,
+  });
 
-  if (!raw) return "PICKUP";
-  if (raw.includes("pickup")) return "PICKUP";
-  if (
-    raw.includes("grab") ||
-    raw.includes("gojek") ||
-    raw.includes("gosend") ||
-    raw.includes("go send") ||
-    raw.includes("gocar") ||
-    raw.includes("go car")
-  ) {
-    return "GOJEK / GRAB";
+  if (method === "ASSISTED_GOSEND" || method === "ASSISTED_GOCAR") {
+    return "GOJEK";
   }
-  if (raw.includes("paxel")) return "PAXEL";
-  if (raw.includes("jne") || raw.includes("jnt") || raw.includes("j&t")) {
+  if (method === "ASSISTED_GRAB") {
+    return "GRAB";
+  }
+  if (method === "ASSISTED_PAXEL") {
+    return "PAXEL";
+  }
+  if (method === "REGULAR_JNE_JNT") {
     return "JNE / J&T";
   }
-  if (raw.includes("customer")) return "KURIR CUSTOMER";
+  if (method === "CUSTOMER_APP_COURIER") {
+    return "KURIR CUSTOMER";
+  }
+  if (method === "PICKUP") {
+    return "PICKUP";
+  }
 
-  return raw.toUpperCase();
+  return resolveDeliveryMethodLabel(method, "PICKUP").toUpperCase();
 }
 
 function resolveShippingEmoji(method: string): string {
