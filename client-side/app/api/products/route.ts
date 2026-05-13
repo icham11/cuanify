@@ -162,8 +162,11 @@ export async function GET(request: NextRequest) {
   try {
     const auth = await requireAuth();
     const { businessId } = auth;
+    const url = new URL(request.url);
+    const mode = url.searchParams.get("mode");
+    const isFinancialMode = mode === "financial";
 
-    if (auth.role === "Owner") {
+    if (auth.role === "Owner" && !isFinancialMode) {
       try {
         await ensureOwnerDefaultProducts({ businessId });
       } catch (bootstrapError) {
@@ -171,7 +174,6 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const url = new URL(request.url);
     const search = url.searchParams.get("search") || "";
     const categoryId = url.searchParams.get("categoryId");
     const categoryIds = (url.searchParams.get("categoryIds") || "")
@@ -205,6 +207,31 @@ export async function GET(request: NextRequest) {
     const page = Math.max(1, Number(url.searchParams.get("page") ?? "1"));
     const limit = Math.min(999, Math.max(1, Number(url.searchParams.get("limit") ?? "10")));
     const skip = (page - 1) * limit;
+
+    if (isFinancialMode) {
+      const products = await prisma.product.findMany({
+        where: {
+          businessId,
+          deletedAt: null,
+        },
+        orderBy: { createdAt: "desc" },
+        take: limit,
+        select: {
+          id: true,
+          name: true,
+          cogs: true,
+        },
+      });
+
+      return NextResponse.json({
+        success: true,
+        data: products.map((product) => ({
+          id: product.id,
+          name: product.name,
+          cogs: Number(product.cogs),
+        })),
+      });
+    }
 
     const where = {
       businessId,

@@ -345,8 +345,8 @@ export default function BusinessPage() {
         productsPayload,
       ] = await Promise.all([
         safeApiFetch<BakerySettingsResponse>("/api/bakery/settings"),
-        safeApiFetch<BakeryOrdersResponse>("/api/bookings/orders"),
-        safeApiFetch<ProductsResponse>("/api/products?limit=999&withRecipe=false"),
+        safeApiFetch<BakeryOrdersResponse>("/api/bookings/orders?mode=financial"),
+        safeApiFetch<ProductsResponse>("/api/products?mode=financial&limit=999"),
       ]);
 
       if (!active) return;
@@ -435,7 +435,7 @@ export default function BusinessPage() {
     return () => {
       active = false;
     };
-  }, [business?.id, business?.name, selectedMonth, refreshToken, userName]);
+  }, [business?.id, business?.name, business?.location, selectedMonth, refreshToken, userName]);
 
   const monthLabel = useMemo(
     () => getMonthLabel(selectedMonth),

@@ -39,7 +39,7 @@ export async function GET() {
         stats: {
           businessCount,
           totalProducts: overview?.counts.products ?? 0,
-          totalSales: overview?.counts.sales ?? 0,
+          totalSales: overview?.stats.paidSalesCount ?? 0,
           totalRevenue: overview?.stats.totalRevenue ?? 0,
         },
       },

@@ -449,12 +449,10 @@ export default function EditProductModal({ product, categories, onClose, onSaved
           },
         );
       } catch (syncError) {
-        const message =
-          syncError instanceof Error
-            ? syncError.message
-            : "Produk dashboard berhasil diupdate, tapi sinkron ke booking catalog gagal.";
-        setCatalogSyncWarning(`${message} Klik Simpan lagi untuk retry sync.`);
-        return;
+        console.warn(
+          "[EditProductModal] Produk dashboard tersimpan, tetapi sinkron booking catalog gagal.",
+          syncError,
+        );
       }
 
       onSaved(updatedProduct);
@@ -712,7 +710,6 @@ export default function EditProductModal({ product, categories, onClose, onSaved
             Batal
           </button>
           <button
-            onClick={() => void handleSave()}
             disabled={saving}
             className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-yellow-500 text-white font-bold text-sm rounded-xl hover:bg-yellow-600 transition disabled:opacity-50"
             type="submit"

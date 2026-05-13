@@ -405,7 +405,7 @@ export default function ProfilePage() {
             icon={ShoppingCart}
             label="Penjualan"
             value={String(stats.totalSales)}
-            sub="Transaksi lunas"
+            sub="Order dibayar"
             color="blue"
           />
           <AccountStat

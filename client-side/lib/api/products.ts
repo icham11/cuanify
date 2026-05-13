@@ -76,7 +76,18 @@ export async function getProducts(
   if (params?.page) url.searchParams.set("page", String(params.page));
   if (params?.limit) url.searchParams.set("limit", String(params.limit));
 
-  const json = (await apiFetch(url.toString())) as {
+  const response = await fetch(url.toString(), {
+    credentials: "include",
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      await extractApiErrorMessage(response, "Failed to fetch products"),
+    );
+  }
+
+  const json = (await response.json().catch(() => ({}))) as {
     data?: Product[];
     meta?: PaginationMeta;
   };

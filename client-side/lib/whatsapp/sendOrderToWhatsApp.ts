@@ -35,6 +35,9 @@ export interface SendOrderToWhatsAppResult {
 
 const OUTBOUND_WA_IMAGE_TTL_MS = 24 * 60 * 60 * 1000;
 const INTER_MESSAGE_DELAY_MS = 750;
+const WA_TEXT_DELAY_SECONDS = 2;
+const WA_IMAGE_BASE_DELAY_SECONDS = 5;
+const WA_IMAGE_DELAY_STEP_SECONDS = 3;
 
 function sanitizeBookingCode(value?: string): string {
   const raw = (value || "").trim();
@@ -333,11 +336,13 @@ export async function sendOrderToWhatsApp(
     }
     try {
       const recapText = buildProductionCaption(payload);
-      await sendWhatsAppText(recapText);
+      await sendWhatsAppText(recapText, undefined, WA_TEXT_DELAY_SECONDS);
       await waitForMessageOrdering();
       await sendWhatsAppImage(
         generatedOrderImageUrl,
         "Crumbella_id",
+        undefined,
+        WA_IMAGE_BASE_DELAY_SECONDS,
       );
       console.info(`[sendOrderToWhatsApp] Template image sent successfully:`, {
         imageUrl: generatedOrderImageUrl,
@@ -374,7 +379,11 @@ export async function sendOrderToWhatsApp(
     message: "No messages sent",
   };
   try {
-    await sendWhatsAppText(buildProductionCaption(order));
+    await sendWhatsAppText(
+      buildProductionCaption(order),
+      undefined,
+      WA_TEXT_DELAY_SECONDS,
+    );
     lastResult = {
       ok: true,
       stage: "send",
@@ -417,7 +426,12 @@ export async function sendOrderToWhatsApp(
     }
     try {
       const imgUrl = await prepareOutboundWhatsAppImageUrl(sourceImgUrl, i);
-      await sendWhatsAppImage(imgUrl, caption);
+      await sendWhatsAppImage(
+        imgUrl,
+        caption,
+        undefined,
+        WA_IMAGE_BASE_DELAY_SECONDS + i * WA_IMAGE_DELAY_STEP_SECONDS,
+      );
       console.info(`[sendOrderToWhatsApp] User image ${i + 1} sent successfully:`, {
         imageUrl: imgUrl.substring(0, 60),
         caption,

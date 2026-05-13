@@ -55,6 +55,7 @@ async function sendFonnteMessage(
   message: string,
   customTarget?: string,
   imageUrl?: string,
+  delaySeconds = 2,
 ): Promise<void> {
   const token = process.env.FONNTE_TOKEN?.trim();
   const defaultTarget = process.env.FONNTE_PRODUCTION_TARGET?.trim();
@@ -89,7 +90,7 @@ async function sendFonnteMessage(
   const formData = new FormData();
   formData.set("target", normalizedTarget);
   formData.set("message", message);
-  formData.set("delay", "2");
+  formData.set("delay", String(Math.max(0, Math.round(delaySeconds))));
 
   if (imageUrl) {
     // Menggunakan field 'url' untuk mengirimkan link publik gambar ke Fonnte
@@ -149,8 +150,9 @@ async function sendFonnteMessage(
 export async function sendWhatsAppText(
   message: string,
   customTarget?: string,
+  delaySeconds?: number,
 ): Promise<void> {
-  await sendFonnteMessage(message, customTarget);
+  await sendFonnteMessage(message, customTarget, undefined, delaySeconds);
 }
 
 /**
@@ -160,6 +162,7 @@ export async function sendWhatsAppImage(
   imageUrl: string,
   caption = "ORDER BARU MASUK - PRODUKSI",
   customTarget?: string, // Opsional: jika ingin mengirim ke target selain target produksi default
+  delaySeconds?: number,
 ): Promise<void> {
   if (!imageUrl || !isValidHttpUrl(imageUrl)) {
     throw new Error(
@@ -167,5 +170,5 @@ export async function sendWhatsAppImage(
     );
   }
 
-  await sendFonnteMessage(caption, customTarget, imageUrl);
+  await sendFonnteMessage(caption, customTarget, imageUrl, delaySeconds);
 }

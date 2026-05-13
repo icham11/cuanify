@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, AuthError } from "@/lib/auth/session";
-import { ensureOwnerDefaultProducts } from "@/lib/bookings/owner-product-bootstrap";
 
 /**
  * GET /api/auth/post-login
@@ -30,14 +29,6 @@ export async function GET(request: NextRequest) {
     const auth = await requireAuth();
 
     if (auth.role === "Owner") {
-      try {
-        await ensureOwnerDefaultProducts({ businessId: auth.businessId });
-      } catch (bootstrapError) {
-        console.error(
-          "GET /api/auth/post-login owner product bootstrap error:",
-          bootstrapError,
-        );
-      }
       return NextResponse.redirect(new URL("/dashboard/business", baseUrl));
     }
     if (auth.role === "Admin") {

@@ -905,6 +905,40 @@ function collectReferenceImagesFromValue(
   }
 }
 
+function toFinancialOrderItems(value: unknown) {
+  return asArrayOfRecords(value).map((item) => ({
+    productName: asString(item.productName),
+    size: asString(item.size),
+    quantity: asNumber(item.quantity),
+    basePrice: asNumber(item.basePrice),
+    selectedPrice: asNumber(item.selectedPrice),
+    lineTotal: asNumber(item.lineTotal),
+  }));
+}
+
+function toFinancialOrderFromRecord(record: JsonRecord) {
+  return {
+    deliveryDate: asString(record.deliveryDate),
+    product: asString(record.product),
+    totalPrice: asNumber(record.totalPrice),
+    totalPaidAmount: asNumber(record.totalPaidAmount),
+    dpPaidAmount: asNumber(record.dpPaidAmount),
+    finalPaidAmount: asNumber(record.finalPaidAmount),
+    paymentStatus: asString(record.paymentStatus),
+    orderStatus: asString(record.orderStatus),
+    paymentTransactions: asArrayOfRecords(record.paymentTransactions).map(
+      (transaction) => ({
+        timestamp: asString(transaction.timestamp),
+        amount: asNumber(transaction.amount),
+        type: asString(transaction.type),
+      }),
+    ),
+    createdAt: asString(record.createdAt),
+    updatedAt: asString(record.updatedAt),
+    items: toFinancialOrderItems(record.items),
+  };
+}
+
 function dedupeReferenceImages(
   references: Array<{
     url: string;
@@ -2298,60 +2332,81 @@ async function ensureBakeryTables() {
   }
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const { businessId } = await requireAuth();
+    const url = new URL(request.url);
+    const mode = url.searchParams.get("mode");
+    const isFinancialMode = mode === "financial";
 
     let rowReadFailed = false;
     try {
       await ensureBakeryTables();
 
-      const orderRows = await prisma.$queryRaw<DbOrderRow[]>`
-        SELECT
-          order_uuid,
-          external_id,
-          booking_code,
-          resi,
-          customer_name,
-          customer_phone,
-          customer_address,
-          delivery_date,
-          delivery_slot,
-          notes,
-          base_price,
-          add_on_total,
-          delivery_fee,
-          manual_adjustment,
-          dp_paid_amount,
-          final_paid_amount,
-          total_paid_amount,
-          down_payment_amount,
-          remaining_balance,
-          product,
-          total_price,
-          insurance_fee,
-          sales_channel,
-          payment_status,
-          order_status,
-          assigned_staff_user_id,
-          assigned_staff_name,
-          production_assigned_at,
-          shipping_quote,
-          shipment,
-          simulations,
-          whatsapp_parsed_data,
-          status_history,
-          automation_logs,
-          payment_transactions,
-          created_at,
-          updated_at
-        FROM bakery_orders
-        WHERE business_id = ${businessId}
-        ORDER BY updated_at DESC
-      `;
+      const orderRows = isFinancialMode
+        ? await prisma.$queryRaw<DbOrderRow[]>`
+            SELECT
+              external_id,
+              delivery_date,
+              dp_paid_amount,
+              final_paid_amount,
+              total_paid_amount,
+              product,
+              total_price,
+              payment_status,
+              order_status,
+              payment_transactions,
+              created_at,
+              updated_at
+            FROM bakery_orders
+            WHERE business_id = ${businessId}
+            ORDER BY updated_at DESC
+          `
+        : await prisma.$queryRaw<DbOrderRow[]>`
+            SELECT
+              order_uuid,
+              external_id,
+              booking_code,
+              resi,
+              customer_name,
+              customer_phone,
+              customer_address,
+              delivery_date,
+              delivery_slot,
+              notes,
+              base_price,
+              add_on_total,
+              delivery_fee,
+              manual_adjustment,
+              dp_paid_amount,
+              final_paid_amount,
+              total_paid_amount,
+              down_payment_amount,
+              remaining_balance,
+              product,
+              total_price,
+              insurance_fee,
+              sales_channel,
+              payment_status,
+              order_status,
+              assigned_staff_user_id,
+              assigned_staff_name,
+              production_assigned_at,
+              shipping_quote,
+              shipment,
+              simulations,
+              whatsapp_parsed_data,
+              status_history,
+              automation_logs,
+              payment_transactions,
+              created_at,
+              updated_at
+            FROM bakery_orders
+            WHERE business_id = ${businessId}
+            ORDER BY updated_at DESC
+          `;
 
       if (orderRows.length > 0) {
-        const bakerySettings = await getBakeryBusinessSettings(businessId);
         const itemRows = await prisma.$queryRaw<DbItemRow[]>`
           SELECT order_external_id, item_index, payload
           FROM bakery_order_items
@@ -2359,13 +2414,56 @@ export async function GET() {
           ORDER BY order_external_id ASC, item_index ASC
         `;
 
+        const itemsMap = new Map<string, JsonRecord[]>();
+        for (const row of itemRows) {
+          const current = itemsMap.get(row.order_external_id) ?? [];
+          const payload = asRecord(parseJsonField(row.payload));
+          if (payload) current.push(payload);
+          itemsMap.set(row.order_external_id, current);
+        }
+
+        if (isFinancialMode) {
+          const orders = orderRows.map((row) => ({
+            deliveryDate:
+              normalizeDateInput(row.delivery_date ?? "") ??
+              row.delivery_date ??
+              "",
+            product: row.product ?? "",
+            totalPrice: asNumber(row.total_price),
+            totalPaidAmount: asNumber(row.total_paid_amount),
+            dpPaidAmount: asNumber(row.dp_paid_amount),
+            finalPaidAmount: asNumber(row.final_paid_amount),
+            paymentStatus: row.payment_status ?? "Pending",
+            orderStatus: row.order_status ?? "Inquiry",
+            paymentTransactions: asArrayOfRecords(
+              parseJsonField(row.payment_transactions),
+            ).map((transaction) => ({
+              timestamp: asString(transaction.timestamp),
+              amount: asNumber(transaction.amount),
+              type: asString(transaction.type),
+            })),
+            createdAt: row.created_at.toISOString(),
+            updatedAt: row.updated_at.toISOString(),
+            items: toFinancialOrderItems(itemsMap.get(row.external_id) ?? []),
+          }));
+
+          return NextResponse.json({
+            success: true,
+            data: {
+              source: "rows",
+              orders,
+              updatedAt: orderRows[0]?.updated_at?.toISOString() ?? null,
+            },
+          });
+        }
+
+        const bakerySettings = await getBakeryBusinessSettings(businessId);
         const addressRows = await prisma.$queryRaw<DbAddressRow[]>`
           SELECT order_external_id, address_index, payload
           FROM bakery_order_addresses
           WHERE business_id = ${businessId}
           ORDER BY order_external_id ASC, address_index ASC
         `;
-
         const staffMembers = await prisma.businessMember.findMany({
           where: { businessId },
           select: { userId: true },
@@ -2389,15 +2487,6 @@ export async function GET() {
                 ORDER BY order_id ASC, stage ASC
               `
             : [];
-
-        const itemsMap = new Map<string, JsonRecord[]>();
-        for (const row of itemRows) {
-          const current = itemsMap.get(row.order_external_id) ?? [];
-          const payload = asRecord(parseJsonField(row.payload));
-          if (payload) current.push(payload);
-          itemsMap.set(row.order_external_id, current);
-        }
-
         const addressesMap = new Map<string, JsonRecord[]>();
         for (const row of addressRows) {
           const current = addressesMap.get(row.order_external_id) ?? [];
@@ -2405,7 +2494,6 @@ export async function GET() {
           if (payload) current.push(payload);
           addressesMap.set(row.order_external_id, current);
         }
-
         const stagesMap = new Map<string, ProductionStageAssignment[]>();
         for (const row of stageRows) {
           const externalId = orderExternalByUuid.get(row.order_id);
@@ -2540,13 +2628,29 @@ export async function GET() {
     }
 
     const snapshot = await readOrdersSnapshot(businessId);
+    const snapshotOrders = parseOrdersContent(snapshot?.content);
+
+    if (isFinancialMode) {
+      return NextResponse.json({
+        success: true,
+        data: {
+          source: rowReadFailed ? "snapshot-fallback" : "snapshot",
+          id: snapshot?.id ?? null,
+          orders: snapshotOrders
+            .map((entry) => asRecord(entry))
+            .filter((entry): entry is JsonRecord => Boolean(entry))
+            .map((entry) => toFinancialOrderFromRecord(entry)),
+          updatedAt: snapshot?.updatedAt?.toISOString() ?? null,
+        },
+      });
+    }
 
     return NextResponse.json({
       success: true,
       data: {
         source: rowReadFailed ? "snapshot-fallback" : "snapshot",
         id: snapshot?.id ?? null,
-        orders: parseOrdersContent(snapshot?.content),
+        orders: snapshotOrders,
         updatedAt: snapshot?.updatedAt?.toISOString() ?? null,
       },
     });
