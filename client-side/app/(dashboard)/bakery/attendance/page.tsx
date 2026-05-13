@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, Calendar } from "lucide-react";
 import { useRole } from "@/context/RoleContext";
+import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 
 type OwnerAttendanceMember = {
   memberId: number;
@@ -164,22 +165,14 @@ export default function BakeryAttendancePage() {
   };
 
   return (
-    <div className="mx-auto max-w-7xl pb-10 text-[#2f1e13]">
-      <div className="rounded-[34px] border border-[#dec8b6] bg-[#fffaf4] px-4 pb-5 pt-3 shadow-[0_26px_55px_-42px_rgba(94,53,30,0.5)]">
-        <div className="border-b border-[#ead6c8] pb-3">
-          <div className="flex items-center gap-2">
-            <span className="text-[1rem] leading-none text-[#cb6531]">≡</span>
-            <h1 className="text-[1.1rem] font-bold leading-none text-[#1f140d]">
-              Absensi
-            </h1>
-          </div>
-          <p className="mt-1 text-[11px] text-[#b0734d]">
-            {isOwner
-              ? "Pantau kehadiran admin & staff"
-              : `Absensi harian untuk ${userName || (isAdmin ? "Admin" : isStaff ? "Staff" : "Team")}`}
-          </p>
-        </div>
+    <div className="mx-auto max-w-7xl space-y-4 pb-10">
+      <GradientPageHeader
+        title="Absensi"
+        description={isOwner ? "Pantau kehadiran admin & staff" : `Absensi harian untuk ${userName || (isAdmin ? "Admin" : isStaff ? "Staff" : "Team")}`}
+        icon={Calendar}
+      />
 
+      <section className="space-y-3 rounded-[28px] border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] p-4 shadow-[0_16px_30px_-24px_rgba(30,18,10,0.45)]">
         <div className="mt-4 flex items-center gap-2">
           <input
             type="month"
@@ -353,7 +346,7 @@ export default function BakeryAttendancePage() {
             </div>
           </div>
         )}
-      </div>
+      </section>
     </div>
   );
 }

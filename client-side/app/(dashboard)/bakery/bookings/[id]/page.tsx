@@ -20,6 +20,7 @@ import {
   Truck,
   UserRound,
 } from "lucide-react";
+import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import { useOrders } from "@/components/bakery/store";
 import { useParams } from "next/navigation";
 import { formatCurrency } from "@/components/orders/formatters";
@@ -340,14 +341,15 @@ export default function OrderDetailPage() {
   });
 
   return (
-    <div className="mx-auto max-w-6xl space-y-4 pb-10">
-      <div className="flex justify-center">
-        <div className="inline-flex items-center rounded-full border border-[var(--crumbella-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.95)_0%,rgba(246,233,219,0.92)_100%)] px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.28em] text-[var(--crumbella-primary)] shadow-[0_12px_24px_-22px_rgba(30,18,10,0.7)]">
-          Booking
-        </div>
-      </div>
+    <div className="mx-auto max-w-7xl space-y-4 pb-10">
+      <GradientPageHeader
+        title={`Booking ${bookingCodeValue}`}
+        description={`Dibuat ${createdDisplayTime}`}
+        icon={FileText}
+      />
 
-      <div className="space-y-4 px-1 sm:px-2">
+      <section className="space-y-3 rounded-[28px] border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] p-4 shadow-[0_16px_30px_-24px_rgba(30,18,10,0.45)]">
+        <div className="space-y-4 px-1 sm:px-2">
         <div className="flex items-start justify-between gap-3 border-b border-[var(--crumbella-border)] pb-4">
           <div className="flex items-start gap-3">
             <Link
@@ -684,7 +686,7 @@ export default function OrderDetailPage() {
           )}
 
         </div>
-      </div>
+      </section>
     </div>
   );
 }

@@ -18,6 +18,8 @@ import {
 import type { BakeryBusinessSettings } from "@/lib/bakery/settings";
 import type { Product } from "@/types/product";
 import { useRole } from "@/context/RoleContext";
+import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
+import { ChartPie } from "lucide-react";
 
 type AttendanceMember = {
   memberId: number;
@@ -637,6 +639,7 @@ export default function ReportsPage() {
 
   return (
     <div className="mx-auto max-w-7xl pb-10 text-[#2f1e13]">
+      <GradientPageHeader title="Reports" description="Data & Ringkasan Bisnis" icon={ChartPie} />
       {typeof document !== "undefined" &&
         isExportPickerOpen &&
         createPortal(
@@ -678,7 +681,7 @@ export default function ReportsPage() {
           document.body,
         )}
 
-      <div className="rounded-[34px] border border-[#dec8b6] bg-[#fffaf4] px-4 pb-5 pt-3 shadow-[0_26px_55px_-42px_rgba(94,53,30,0.5)]">
+      <section className="space-y-3 rounded-[28px] border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] p-4 shadow-[0_16px_30px_-24px_rgba(30,18,10,0.45)]">
         <div className="flex items-start justify-between gap-3 border-b border-[#ead6c8] pb-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
@@ -968,8 +971,6 @@ export default function ReportsPage() {
             )}
           </div>
         </section>
-        </div>
-      </div>
     </div>
   );
 }

@@ -24,7 +24,8 @@ import {
 import { id as localeId } from "date-fns/locale";
 import "react-big-calendar/lib/css/react-big-calendar.css";
 import { type BakeryOrder, useOrders } from "@/components/bakery/store";
-import { ChevronLeft, ChevronRight, X, Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, X, Loader2, Calendar as IconCalendar } from "lucide-react";
+import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import { toast } from "sonner";
 import {
   DEFAULT_MAX_TOKEN,
@@ -651,7 +652,10 @@ export default function BakeryCalendarPage() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-4 pb-10 text-[#2f1e13]">
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,0.9fr)]">
+      <GradientPageHeader title="Calendar" description={`Kapasitas ${calendarMaxToken} tok/hari · ${isRoleLoading ? "..." : ""}`} icon={IconCalendar} />
+
+      <section className="space-y-3 rounded-[28px] border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] p-4 shadow-[0_16px_30px_-24px_rgba(30,18,10,0.45)]">
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,0.9fr)]">
         <div className="rounded-[34px] border border-[#dec8b6] bg-[#fffaf4] p-4 shadow-[0_24px_60px_-38px_rgba(94,53,30,0.45)]">
         <div className="flex items-start justify-between gap-3 border-b border-[#ead6c8] pb-4">
           <div className="min-w-0">
@@ -1012,6 +1016,9 @@ export default function BakeryCalendarPage() {
           </div>
         </div>
       ) : null}
+
+        </div>
+      </section>
 
       {/* Global Styles */}
       <style jsx global>{`

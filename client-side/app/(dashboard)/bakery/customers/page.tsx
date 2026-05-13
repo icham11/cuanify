@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useOrders } from "@/components/bakery/store";
 import { useRole } from "@/context/RoleContext";
+import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 
 type CustomerSegment = "all" | "vip" | "repeat" | "new";
 
@@ -220,31 +221,19 @@ export default function BakeryCustomersPage() {
   const todayLabel = useMemo(() => formatHeaderDate(new Date()), []);
 
   return (
-    <div className="mx-auto max-w-7xl px-3 pb-10 pt-4 text-[#221710] sm:px-4">
-      <div className="rounded-[34px] border border-[#e4d2c4] bg-[#f8efe5] px-4 pb-6 pt-3 shadow-[0_26px_55px_-42px_rgba(94,53,30,0.6)] sm:px-5 xl:px-6">
-        <div className="border-b border-[#decec1] pb-3">
-          <div className="flex items-start justify-between px-1">
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              className="flex h-8 w-8 items-center justify-center rounded-full text-[#7c4420] transition hover:bg-[#f0e4d7]"
-              aria-label="Menu"
-            >
-              <Menu className="h-[18px] w-[18px]" />
-            </button>
-            <div>
-              <p className="text-[29px] font-black leading-none tracking-[-0.035em] text-[#221710]">
-                Data Customer
-              </p>
-              <p className="mt-0.5 text-[12px] leading-none text-[#9a7861]">{todayLabel}</p>
-            </div>
-          </div>
+    <div className="mx-auto max-w-7xl space-y-4 pb-10">
+      <GradientPageHeader
+        title="Data Customer"
+        description={todayLabel}
+        icon={Users}
+        actions={
           <div className="flex h-8 min-w-8 items-center justify-center rounded-full px-2 text-[12px] font-bold text-[#9e4e1f]">
             FE
           </div>
-        </div>
-        </div>
+        }
+      />
 
+      <section className="space-y-3 rounded-[28px] border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] p-4 shadow-[0_16px_30px_-24px_rgba(30,18,10,0.45)]">
         <div className="mt-5 rounded-[24px] border border-[#eadbce] bg-transparent">
           <div className="flex items-center gap-2 rounded-[14px] border border-[#d9c7b8] bg-white px-4 py-[11px] shadow-[0_4px_12px_-10px_rgba(76,47,25,0.45)]">
             <Search className="h-[15px] w-[15px] text-[#dc6f2d]" />
@@ -434,7 +423,7 @@ export default function BakeryCustomersPage() {
             );
           })}
         </div>
-      </div>
+      </section>
     </div>
   );
 }
