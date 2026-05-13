@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { EditProductModalProps } from "@/types/product";
 import type { DraftRecipeRow } from "@/types/product";
@@ -11,6 +11,7 @@ import {
   type CatalogAdminState,
   type CustomProductEntry,
 } from "@/lib/bookings/catalog-admin";
+import { buildEffectiveProductCatalog as buildEffectiveCatalogFromState } from "@/lib/bookings/catalog-state";
 import { BOOKING_PRODUCT_CATALOG } from "@/lib/bookings/pricelist";
 import { Plus, X, Loader2, CheckCircle2, AlertTriangle } from "lucide-react";
 
@@ -138,20 +139,54 @@ function removeCustomProduct(
   return { ...state, customProducts: nextCustomProducts };
 }
 
+function hasBaseCatalogVariant(entry: CustomProductEntry): boolean {
+  const normalizedCategory = entry.category.trim().toLowerCase();
+  const normalizedSubcategory = entry.subcategory.trim().toLowerCase();
+  const normalizedProductName = entry.productName.trim().toLowerCase();
+  const normalizedVariantLabel = entry.variantLabel.trim().toLowerCase();
+
+  return BOOKING_PRODUCT_CATALOG.some(
+    (category) =>
+      category.category.trim().toLowerCase() === normalizedCategory &&
+      category.subcategories.some(
+        (subcategory) =>
+          subcategory.name.trim().toLowerCase() === normalizedSubcategory &&
+          subcategory.products.some(
+            (product) =>
+              product.name.trim().toLowerCase() === normalizedProductName &&
+              product.variants.some(
+                (variant) =>
+                  variant.label.trim().toLowerCase() === normalizedVariantLabel,
+              ),
+          ),
+      ),
+  );
+}
+
 async function syncToBookingCatalogPrice(
   entry: CustomProductEntry,
   previousEntry?: CustomProductEntry,
-): Promise<void> {
+): Promise<string | null> {
   const getResponse = await fetch("/api/bookings/catalog-config", {
     method: "GET",
     cache: "no-store",
   });
+  if (!getResponse.ok) {
+    const payload = (await getResponse.json().catch(() => ({}))) as {
+      error?: string;
+    };
+    throw new Error(payload.error || "Gagal memuat catalog booking terbaru.");
+  }
   const getPayload = (await getResponse.json().catch(() => ({}))) as {
     success?: boolean;
     data?: unknown;
   };
+  if (!getPayload.success) {
+    throw new Error("Catalog booking tidak bisa dibaca saat proses sinkron.");
+  }
 
   let nextState = normalizeCatalogState(getPayload.data);
+  const currentEntryIsBaseCatalog = hasBaseCatalogVariant(entry);
 
   const nextPrice = Math.max(0, Math.round(Number(entry.price || 0)));
   const nextVariantKey = makeVariantKey(
@@ -168,6 +203,9 @@ async function syncToBookingCatalogPrice(
       [nextVariantKey]: nextPrice,
     },
   };
+  nextState = currentEntryIsBaseCatalog
+    ? removeCustomProduct(nextState, entry)
+    : upsertCustomProduct(nextState, entry);
 
   if (previousEntry) {
     const previousVariantKey = makeVariantKey(
@@ -184,7 +222,18 @@ async function syncToBookingCatalogPrice(
         productVariantPriceOverrides: nextOverrides,
       };
     }
-    nextState = removeCustomProduct(nextState, previousEntry);
+    if (
+      previousEntry.category.trim().toLowerCase() !==
+        entry.category.trim().toLowerCase() ||
+      previousEntry.subcategory.trim().toLowerCase() !==
+        entry.subcategory.trim().toLowerCase() ||
+      previousEntry.productName.trim().toLowerCase() !==
+        entry.productName.trim().toLowerCase() ||
+      previousEntry.variantLabel.trim().toLowerCase() !==
+        entry.variantLabel.trim().toLowerCase()
+    ) {
+      nextState = removeCustomProduct(nextState, previousEntry);
+    }
   }
 
   const putResponse = await fetch("/api/bookings/catalog-config", {
@@ -194,15 +243,19 @@ async function syncToBookingCatalogPrice(
     },
     body: JSON.stringify(nextState),
   });
+  const putPayload = (await putResponse.json().catch(() => ({}))) as {
+    error?: string;
+    productSyncError?: string | null;
+  };
 
   if (!putResponse.ok) {
-    const payload = (await putResponse.json().catch(() => ({}))) as {
-      error?: string;
-    };
-    throw new Error(payload.error || "Gagal sinkron produk ke catalog booking.");
+    throw new Error(
+      putPayload.error || "Gagal sinkron produk ke catalog booking.",
+    );
   }
 
   broadcastCatalogAdminState(nextState);
+  return putPayload.productSyncError ?? null;
 }
 
 function buildDashboardProductName(args: {
@@ -228,6 +281,66 @@ function resolveProductCategoryBySubcategory(subcategory: string): string {
     entry.subcategories.some((sub) => sub.name.trim().toLowerCase() === normalized),
   );
   return match?.category ?? "";
+}
+
+function findProductMappingInCatalog(args: {
+  dashboardName: string;
+  subcategoryName: string;
+  state: CatalogAdminState;
+}):
+  | {
+      category: string;
+      subcategory: string;
+      itemName: string;
+      variantLabel: string;
+      appendVariantToDashboardName: boolean;
+    }
+  | null {
+  const dashboardName = args.dashboardName.trim().toLowerCase();
+  const subcategoryName = args.subcategoryName.trim().toLowerCase();
+  if (!dashboardName) return null;
+
+  const catalog = buildEffectiveCatalogFromState(args.state);
+
+  for (const category of catalog) {
+    for (const subcategory of category.subcategories) {
+      if (
+        subcategoryName &&
+        subcategory.name.trim().toLowerCase() !== subcategoryName
+      ) {
+        continue;
+      }
+
+      for (const product of subcategory.products) {
+        const variantCount = product.variants.length;
+        for (const variant of product.variants) {
+          const appendVariantToDashboardName = !(
+            variantCount === 1 &&
+            ["standard", "start from"].includes(
+              variant.label.trim().toLowerCase(),
+            )
+          );
+          const candidateName = buildDashboardProductName({
+            productName: product.name,
+            variantLabel: variant.label,
+            appendVariant: appendVariantToDashboardName,
+          });
+
+          if (candidateName.trim().toLowerCase() !== dashboardName) continue;
+
+          return {
+            category: category.category,
+            subcategory: subcategory.name,
+            itemName: product.name,
+            variantLabel: variant.label,
+            appendVariantToDashboardName,
+          };
+        }
+      }
+    }
+  }
+
+  return null;
 }
 
 function inferBookingFieldsFromDashboardName(args: {
@@ -326,6 +439,7 @@ export default function EditProductModal({ product, categories, onClose, onSaved
   const [catalogSyncWarning, setCatalogSyncWarning] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const bookingFieldsEditedRef = useRef(false);
 
   const productCategoryOptions = useMemo(
     () => BOOKING_PRODUCT_CATALOG.map((entry) => entry.category),
@@ -348,6 +462,42 @@ export default function EditProductModal({ product, categories, onClose, onSaved
       .then((opts) => setIngredientOptions(opts))
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      const response = await fetch("/api/bookings/catalog-config", {
+        method: "GET",
+        cache: "no-store",
+      }).catch(() => null);
+      if (!response || !response.ok) return;
+
+      const payload = (await response.json().catch(() => ({}))) as {
+        success?: boolean;
+        data?: unknown;
+      };
+      if (!payload.success) return;
+
+      const mapping = findProductMappingInCatalog({
+        dashboardName: product.name,
+        subcategoryName: initialSubcategory,
+        state: normalizeCatalogState(payload.data),
+      });
+
+      if (!mapping || cancelled || bookingFieldsEditedRef.current) return;
+
+      setProductCategory(mapping.category);
+      setBookingSubcategory(mapping.subcategory);
+      setItemName(mapping.itemName);
+      setBookingVariantLabel(mapping.variantLabel);
+      setAppendVariantToDashboardName(mapping.appendVariantToDashboardName);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [initialSubcategory, product.name]);
 
   useEffect(() => {
     if (!productCategory.trim()) return;
@@ -432,7 +582,7 @@ export default function EditProductModal({ product, categories, onClose, onSaved
       });
 
       try {
-        await syncToBookingCatalogPrice(
+        const productSyncError = await syncToBookingCatalogPrice(
           {
             category: productCategory.trim(),
             subcategory: bookingSubcategory.trim(),
@@ -448,10 +598,18 @@ export default function EditProductModal({ product, categories, onClose, onSaved
             price: Number(product.sellingPrice || 0),
           },
         );
+        setCatalogSyncWarning(
+          productSyncError
+            ? `Perubahan catalog booking berhasil disimpan, tetapi sinkron dashboard product belum sempurna: ${productSyncError}`
+            : null,
+        );
       } catch (syncError) {
-        console.warn(
-          "[EditProductModal] Produk dashboard tersimpan, tetapi sinkron booking catalog gagal.",
-          syncError,
+        setCatalogSyncWarning(
+          `Produk dashboard tersimpan, tetapi sinkron booking catalog gagal: ${
+            syncError instanceof Error
+              ? syncError.message
+              : "Terjadi error sinkronisasi."
+          }`,
         );
       }
 
@@ -511,14 +669,20 @@ export default function EditProductModal({ product, categories, onClose, onSaved
                   <input
                     type="text"
                     value={productCategory}
-                    onChange={(e) => setProductCategory(e.target.value)}
+                    onChange={(e) => {
+                      bookingFieldsEditedRef.current = true;
+                      setProductCategory(e.target.value);
+                    }}
                     placeholder="cth. Cookies"
                     className="w-full border border-indigo-200 rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-700 bg-white focus:ring-2 focus:ring-indigo-400 outline-none"
                   />
                   <select
                     className="h-[42px] rounded-xl border border-indigo-200 bg-white px-3 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-indigo-400"
                     value={productCategoryOptions.includes(productCategory) ? productCategory : ""}
-                    onChange={(e) => setProductCategory(e.target.value)}
+                    onChange={(e) => {
+                      bookingFieldsEditedRef.current = true;
+                      setProductCategory(e.target.value);
+                    }}
                   >
                     <option value="">Pilih</option>
                     {productCategoryOptions.map((category) => (
@@ -536,7 +700,10 @@ export default function EditProductModal({ product, categories, onClose, onSaved
                   <input
                     type="text"
                     value={bookingSubcategory}
-                    onChange={(e) => setBookingSubcategory(e.target.value)}
+                    onChange={(e) => {
+                      bookingFieldsEditedRef.current = true;
+                      setBookingSubcategory(e.target.value);
+                    }}
                     placeholder="cth. Event Cookies"
                     className="w-full border border-indigo-200 rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-700 bg-white focus:ring-2 focus:ring-indigo-400 outline-none"
                   />
@@ -544,7 +711,10 @@ export default function EditProductModal({ product, categories, onClose, onSaved
                     <select
                       className="h-[42px] rounded-xl border border-indigo-200 bg-white px-3 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-indigo-400"
                       value={subcategoryOptions.includes(bookingSubcategory) ? bookingSubcategory : ""}
-                      onChange={(e) => setBookingSubcategory(e.target.value)}
+                      onChange={(e) => {
+                        bookingFieldsEditedRef.current = true;
+                        setBookingSubcategory(e.target.value);
+                      }}
                     >
                     <option value="" disabled>
                       Pilih
@@ -564,7 +734,10 @@ export default function EditProductModal({ product, categories, onClose, onSaved
                 <input
                   type="text"
                   value={itemName}
-                  onChange={(e) => setItemName(e.target.value)}
+                  onChange={(e) => {
+                    bookingFieldsEditedRef.current = true;
+                    setItemName(e.target.value);
+                  }}
                   placeholder="cth. Lotus Box"
                   className="w-full border border-indigo-200 rounded-xl px-4 py-2.5 text-base font-semibold text-slate-700 bg-white focus:ring-2 focus:ring-indigo-400 outline-none"
                   required
@@ -576,7 +749,10 @@ export default function EditProductModal({ product, categories, onClose, onSaved
                   <label className="block text-xs font-bold text-gray-600 uppercase">Variant / Size</label>
                   <button
                     type="button"
-                    onClick={() => setBookingVariantLabel("Standard")}
+                    onClick={() => {
+                      bookingFieldsEditedRef.current = true;
+                      setBookingVariantLabel("Standard");
+                    }}
                     className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800"
                   >
                     Set Standard
@@ -585,7 +761,10 @@ export default function EditProductModal({ product, categories, onClose, onSaved
                 <input
                   type="text"
                   value={bookingVariantLabel}
-                  onChange={(e) => setBookingVariantLabel(e.target.value)}
+                  onChange={(e) => {
+                    bookingFieldsEditedRef.current = true;
+                    setBookingVariantLabel(e.target.value);
+                  }}
                   placeholder="cth. Standard"
                   className="w-full border border-indigo-200 rounded-xl px-4 py-2.5 text-base font-semibold text-slate-700 bg-white focus:ring-2 focus:ring-indigo-400 outline-none"
                   required
@@ -598,7 +777,10 @@ export default function EditProductModal({ product, categories, onClose, onSaved
                 <input
                   type="checkbox"
                   checked={appendVariantToDashboardName}
-                  onChange={(e) => setAppendVariantToDashboardName(e.target.checked)}
+                  onChange={(e) => {
+                    bookingFieldsEditedRef.current = true;
+                    setAppendVariantToDashboardName(e.target.checked);
+                  }}
                 />
                 Tambahkan suffix variant di nama dashboard
               </label>
@@ -711,6 +893,7 @@ export default function EditProductModal({ product, categories, onClose, onSaved
           </button>
           <button
             disabled={saving}
+            onClick={() => void handleSave()}
             className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-yellow-500 text-white font-bold text-sm rounded-xl hover:bg-yellow-600 transition disabled:opacity-50"
             type="submit"
           >

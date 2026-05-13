@@ -7,7 +7,7 @@ const bcrypt = require("bcryptjs");
 
 require("dotenv").config({ path: ".env" });
 
-const BASE_URL = "http://127.0.0.1:3000";
+const BASE_URL = process.env.SMOKE_BASE_URL || "http://localhost:3000";
 
 function createPrismaClient() {
   const rawUrl = process.env.DATABASE_URL || "";
@@ -832,6 +832,209 @@ async function createProductViaDashboard(page, runId) {
   };
 }
 
+async function editProductViaDashboard(page, product, runId) {
+  const editedItemName = `${product.productName} Edited`;
+  const editedVariantLabel = `Edited ${runId}`;
+  const expectedDashboardName = `${editedItemName} - ${editedVariantLabel}`;
+  const nextSellingPrice = 175000;
+  const nextCogs = 95000;
+  const nextToken = 11;
+  const nextStock = 7;
+
+  await page.goto(
+    `/dashboard/products?search=${encodeURIComponent(product.productName)}`,
+    { waitUntil: "domcontentloaded" },
+  );
+
+  const card = page
+    .locator("article")
+    .filter({ hasText: product.productName })
+    .first();
+  await card.waitFor({ state: "visible", timeout: 30000 });
+
+  await card.getByTitle("Edit produk").click();
+
+  const modal = page.locator('[style*="z-index: 200"]').filter({
+    hasText: "Edit Produk",
+  });
+  await modal.getByText("Edit Produk", { exact: true }).waitFor({
+    state: "visible",
+    timeout: 30000,
+  });
+
+  const productCategoryInput = modal.getByPlaceholder("cth. Cookies");
+  const subcategoryInput = modal.getByPlaceholder("cth. Event Cookies");
+  const waitStart = Date.now();
+  let catalogMappingReady = false;
+  while (Date.now() - waitStart < 30000) {
+    const categoryValue = await productCategoryInput.inputValue();
+    const subcategoryValue = await subcategoryInput.inputValue();
+    if (
+      categoryValue.trim() === product.categoryName &&
+      subcategoryValue.trim() === product.subcategory
+    ) {
+      catalogMappingReady = true;
+      break;
+    }
+    await sleep(250);
+  }
+  if (!catalogMappingReady) {
+    throw new Error("Product edit modal did not hydrate booking mapping in time.");
+  }
+
+  await modal.getByPlaceholder("cth. Lotus Box").fill(editedItemName);
+  await modal.getByPlaceholder("cth. Standard").fill(editedVariantLabel);
+
+  const numberInputs = modal.locator('input[type="number"]');
+  await numberInputs.nth(0).fill(String(nextSellingPrice));
+  await numberInputs.nth(1).fill(String(nextCogs));
+  await numberInputs.nth(2).fill(String(nextToken));
+  await numberInputs.nth(3).fill(String(nextStock));
+
+  const patchResponsePromise = page.waitForResponse(
+    (response) =>
+      response.url().includes(`/api/products/${product.productId}`) &&
+      response.request().method() === "PATCH",
+    { timeout: 30000 },
+  );
+  const catalogPutPromise = page.waitForResponse(
+    (response) =>
+      response.url().includes("/api/bookings/catalog-config") &&
+      response.request().method() === "PUT",
+    { timeout: 30000 },
+  );
+
+  await modal.getByRole("button", { name: /^Simpan$/ }).click();
+
+  const patchResponse = await patchResponsePromise;
+  if (!patchResponse.ok()) {
+    throw new Error(
+      `Product edit failed (${patchResponse.status()}): ${await patchResponse.text()}`,
+    );
+  }
+
+  const catalogPutResponse = await catalogPutPromise;
+  if (!catalogPutResponse.ok()) {
+    throw new Error(
+      `Product catalog sync after edit failed (${catalogPutResponse.status()}): ${await catalogPutResponse.text()}`,
+    );
+  }
+
+  await modal
+    .getByText("Edit Produk", { exact: true })
+    .waitFor({ state: "hidden", timeout: 15000 });
+
+  const products = await fetchProducts(page, editedItemName);
+  const savedProduct = products.find((entry) => entry.id === product.productId);
+  if (!savedProduct) {
+    throw new Error("Edited product was not returned by /api/products.");
+  }
+
+  if (
+    savedProduct.name !== expectedDashboardName ||
+    Number(savedProduct.sellingPrice) !== nextSellingPrice ||
+    Number(savedProduct.cogs) !== nextCogs ||
+    Number(savedProduct.productionToken || 0) !== nextToken ||
+    Number(savedProduct.manualStock || savedProduct.availableStock || 0) !== nextStock
+  ) {
+    throw new Error("Edited product did not persist the expected values.");
+  }
+
+  const catalogConfig = await fetchCatalogConfig(page);
+  const overrideKeys = Object.keys(catalogConfig.productVariantPriceOverrides || {});
+  const matchingKey = overrideKeys.find((key) =>
+    key.includes(product.categoryName) &&
+    key.includes(product.subcategory) &&
+    key.includes(editedItemName) &&
+    key.includes(editedVariantLabel),
+  );
+  if (!matchingKey) {
+    throw new Error("Edited product price override was not saved to booking catalog.");
+  }
+
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.getByText(expectedDashboardName, { exact: false }).waitFor({
+    state: "visible",
+    timeout: 20000,
+  });
+
+  return {
+    ...product,
+    productName: editedItemName,
+    dashboardProductName: expectedDashboardName,
+    variantLabel: editedVariantLabel,
+    sellingPrice: nextSellingPrice,
+    cogs: nextCogs,
+    productionToken: nextToken,
+    manualStock: nextStock,
+  };
+}
+
+async function editAddOnViaDashboard(page) {
+  const nextPrice = 43210;
+  const nextCogs = 1234;
+
+  await page.goto("/dashboard/add-ons", { waitUntil: "domcontentloaded" });
+
+  const firstCard = page.locator("article").first();
+  await firstCard.waitFor({ state: "visible", timeout: 30000 });
+
+  const addOnLabel =
+    (await firstCard.locator("h3").first().textContent())?.trim() || "";
+  if (!addOnLabel) {
+    throw new Error("Unable to resolve an add-on row to edit.");
+  }
+
+  await firstCard.getByTitle("Edit add-on").click();
+
+  const modal = page.locator("body");
+  await modal.getByText("Harga Baru", { exact: false }).waitFor({
+    state: "visible",
+    timeout: 30000,
+  });
+
+  const numberInputs = page.locator('input[type="number"]');
+  await numberInputs.nth(0).fill(String(nextPrice));
+  await numberInputs.nth(1).fill(String(nextCogs));
+
+  await page.getByRole("button", { name: /^Simpan$/ }).click();
+
+  await page.getByText("Status sinkron: synced", { exact: false }).waitFor({
+    state: "visible",
+    timeout: 30000,
+  });
+
+  const catalogConfig = await fetchCatalogConfig(page);
+  const overrideEntries = Object.entries(
+    catalogConfig.addOnPriceOverrides || {},
+  ).filter(([, value]) => Number(value) === nextPrice);
+  const cogsEntries = Object.entries(catalogConfig.addOnCogsOverrides || {}).filter(
+    ([, value]) => Number(value) === nextCogs,
+  );
+
+  if (overrideEntries.length === 0 || cogsEntries.length === 0) {
+    throw new Error("Edited add-on values were not saved to booking catalog.");
+  }
+
+  await page.reload({ waitUntil: "domcontentloaded" });
+  const reloadedCard = page
+    .locator("article")
+    .filter({ hasText: addOnLabel })
+    .first();
+  await reloadedCard.waitFor({ state: "visible", timeout: 20000 });
+  await reloadedCard.getByText("43.210", { exact: false }).waitFor({
+    state: "visible",
+    timeout: 10000,
+  });
+
+  return {
+    label: addOnLabel,
+    price: nextPrice,
+    cogs: nextCogs,
+    overrideCount: overrideEntries.length,
+  };
+}
+
 async function waitForSelectOptionValue(selectLocator, expectedText, timeoutMs = 20000) {
   const startedAt = Date.now();
   const normalizedExpected = expectedText.trim().toLowerCase();
@@ -954,6 +1157,8 @@ const DOMAIN_CHECKLISTS = {
   ],
   "products-catalog": [
     "ownerCanCreateProductViaDashboard",
+    "ownerCanEditProductViaDashboard",
+    "ownerCanEditAddOnViaDashboard",
     "newProductVisibleInBookingForm",
   ],
 };
@@ -990,6 +1195,8 @@ function createChecklist() {
     ownerSeesStaffAttendance: false,
     ownerCanSaveBakerySettings: false,
     ownerCanCreateProductViaDashboard: false,
+    ownerCanEditProductViaDashboard: false,
+    ownerCanEditAddOnViaDashboard: false,
     newProductVisibleInBookingForm: false,
   };
 }
@@ -1128,11 +1335,23 @@ async function runRegressionSmokeSuite(options = {}) {
     }
 
     if (hasDomain("products-catalog")) {
-      const product = await createProductViaDashboard(page, seeded.runId);
+      const createdProduct = await createProductViaDashboard(page, seeded.runId);
       summary.checklist.ownerCanCreateProductViaDashboard = true;
-      summary.product = product;
+      summary.product = createdProduct;
 
-      await verifyBookingFormContainsProduct(page, product);
+      const editedProduct = await editProductViaDashboard(
+        page,
+        createdProduct,
+        seeded.runId,
+      );
+      summary.checklist.ownerCanEditProductViaDashboard = true;
+      summary.product = editedProduct;
+
+      const editedAddOn = await editAddOnViaDashboard(page);
+      summary.checklist.ownerCanEditAddOnViaDashboard = true;
+      summary.product.addOnEdit = editedAddOn;
+
+      await verifyBookingFormContainsProduct(page, editedProduct);
       summary.checklist.newProductVisibleInBookingForm = true;
     }
   } catch (error) {

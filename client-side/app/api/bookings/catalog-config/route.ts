@@ -185,14 +185,31 @@ export async function PUT(request: NextRequest) {
     }
 
     const normalizedState = normalizeCatalogAdminState(payload);
-    const productSync = await syncBakeryCatalogToDashboardProducts({
-      businessId,
-      productCatalog: buildEffectiveProductCatalog(normalizedState),
-    });
+    let productSync: Awaited<
+      ReturnType<typeof syncBakeryCatalogToDashboardProducts>
+    > | null = null;
+    let productSyncError: string | null = null;
+
+    try {
+      productSync = await syncBakeryCatalogToDashboardProducts({
+        businessId,
+        productCatalog: buildEffectiveProductCatalog(normalizedState),
+      });
+    } catch (error: unknown) {
+      productSyncError =
+        normalizeError(error) || "Failed to sync dashboard products.";
+      console.error(
+        "PUT /api/bookings/catalog-config dashboard product sync error:",
+        error,
+      );
+    }
 
     revalidateTag("catalog", "max");
 
-    return NextResponse.json({ success: true, productSync }, { status: 200 });
+    return NextResponse.json(
+      { success: true, productSync, productSyncError },
+      { status: 200 },
+    );
   } catch (error: unknown) {
     if (error instanceof AuthError) {
       return NextResponse.json({ error: error.message }, { status: 401 });

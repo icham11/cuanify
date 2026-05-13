@@ -149,10 +149,19 @@ async function syncToBookingCatalog(entry: CustomProductEntry): Promise<void> {
     method: "GET",
     cache: "no-store",
   });
+  if (!getResponse.ok) {
+    const payload = (await getResponse.json().catch(() => ({}))) as {
+      error?: string;
+    };
+    throw new Error(payload.error || "Gagal memuat catalog booking terbaru.");
+  }
   const getPayload = (await getResponse.json().catch(() => ({}))) as {
     success?: boolean;
     data?: unknown;
   };
+  if (!getPayload.success) {
+    throw new Error("Catalog booking tidak bisa dibaca saat proses sinkron.");
+  }
 
   const currentState = normalizeCatalogState(getPayload.data);
   const nextState = upsertCustomProduct(currentState, entry);
@@ -164,15 +173,24 @@ async function syncToBookingCatalog(entry: CustomProductEntry): Promise<void> {
     },
     body: JSON.stringify(nextState),
   });
+  const putPayload = (await putResponse.json().catch(() => ({}))) as {
+    error?: string;
+    productSyncError?: string | null;
+  };
 
   if (!putResponse.ok) {
-    const payload = (await putResponse.json().catch(() => ({}))) as {
-      error?: string;
-    };
-    throw new Error(payload.error || "Gagal sinkron produk ke catalog booking.");
+    throw new Error(
+      putPayload.error || "Gagal sinkron produk ke catalog booking.",
+    );
   }
 
   broadcastCatalogAdminState(nextState);
+
+  if (putPayload.productSyncError) {
+    throw new Error(
+      `Catalog booking tersimpan, tetapi sinkron dashboard product bermasalah: ${putPayload.productSyncError}`,
+    );
+  }
 }
 
 export default function ProductForm({ initialDraft, onSuccess }: Props) {

@@ -307,7 +307,6 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
             matched.categoryId !== resolvedCategoryId ||
             normalizeProductName(matched.name) !== normalizedName ||
             Number(matched.sellingPrice) !== product.sellingPrice ||
-            Number(matched.productionToken ?? 0) !== product.productionToken ||
             matched.productType !== "PreOrder" ||
             matched.isActive !== true ||
             matched.deletedAt !== null;
@@ -319,7 +318,6 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
                 categoryId: resolvedCategoryId,
                 name: normalizedName,
                 sellingPrice: product.sellingPrice,
-                productionToken: product.productionToken,
                 productType: "PreOrder",
                 isActive: true,
                 ...(shouldReactivateDeleted ? { deletedAt: null } : {}),
