@@ -2498,6 +2498,8 @@ export default function BookingForm() {
   const [showAllShippingOptions, setShowAllShippingOptions] = useState(false);
   const [isCheckingShipping, setIsCheckingShipping] = useState(false);
   const [isCapacityValidating, setIsCapacityValidating] = useState(false);
+  const [manualCheckShippingTrigger, setManualCheckShippingTrigger] =
+    useState(0);
   const [submitError, setSubmitError] = useState("");
   const [submitSuccess, setSubmitSuccess] = useState("");
   const [submitSuccessMeta, setSubmitSuccessMeta] = useState<{
@@ -2853,6 +2855,10 @@ export default function BookingForm() {
     [setValue],
   );
 
+  const handleCheckShipping = useCallback(() => {
+    setManualCheckShippingTrigger((prev) => prev + 1);
+  }, []);
+
   useEffect(() => {
     if (deliveryMethod === effectiveDeliveryMethod) return;
 
@@ -3024,11 +3030,8 @@ export default function BookingForm() {
       parsedPreview.referenceImages.length > 0
     ) {
       return parsedPreview.referenceImages.map((entry, index) => ({
-        label:
-          entry.label?.trim() ||
-          `Gambar ${index + 1}`,
-        note:
-          entry.note?.trim() || "",
+        label: entry.label?.trim() || `Gambar ${index + 1}`,
+        note: entry.note?.trim() || "",
         url: entry.url?.trim() || "",
       }));
     }
@@ -4025,7 +4028,7 @@ export default function BookingForm() {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [shippingQuoteSignature]);
+  }, [manualCheckShippingTrigger]);
 
   const showSubmitFeedback = useCallback((message: string) => {
     setSubmitError(message);
@@ -4542,9 +4545,10 @@ export default function BookingForm() {
     const explicitRequestedImageLabels = normalizeReferenceLabelInput(
       referenceImageLabelsInput,
     );
-    const canonicalDeliveryMethodLabel =
-      resolveDeliveryMethodLabel(effectiveDeliveryMethod);
-    const normalizedParsedPreview = ({
+    const canonicalDeliveryMethodLabel = resolveDeliveryMethodLabel(
+      effectiveDeliveryMethod,
+    );
+    const normalizedParsedPreview = {
       ...((parsedPreview
         ? {
             ...parsedPreview,
@@ -4572,7 +4576,7 @@ export default function BookingForm() {
         ...(((parsedPreview?.common ?? {}) as Record<string, unknown>) || {}),
         deliveryMethod: canonicalDeliveryMethodLabel,
       },
-    } satisfies Partial<ParsedWhatsAppOrder>) as ParsedWhatsAppOrder;
+    } satisfies Partial<ParsedWhatsAppOrder> as ParsedWhatsAppOrder;
 
     const submissionPayload: NewOrderInput = {
       customerName: values.customerName,
@@ -8359,7 +8363,7 @@ export default function BookingForm() {
                       </p>
                       {isCheckingShipping && (
                         <span className="text-xs text-indigo-600">
-                          Menghitung ongkir otomatis...
+                          Sedang cek ongkir...
                         </span>
                       )}
                     </div>
@@ -8395,6 +8399,19 @@ export default function BookingForm() {
                         ))}
                       </Select>
                     </label>
+
+                    {shouldUseShippingEngine && (
+                      <Button
+                        type="button"
+                        onClick={handleCheckShipping}
+                        disabled={isCheckingShipping}
+                        className="w-full"
+                      >
+                        {isCheckingShipping
+                          ? "Sedang cek ongkir..."
+                          : "Cek Ongkir"}
+                      </Button>
+                    )}
 
                     <p className="text-xs text-gray-500">
                       {
