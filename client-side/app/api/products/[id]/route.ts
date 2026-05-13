@@ -15,6 +15,11 @@ import {
 } from "@/lib/products/uniqueness";
 import { recipeItemSchema } from "@/lib/validations/product";
 import { normalizeDirectCogs } from "@/lib/cogs/config";
+import {
+  isPrismaConnectionTimeout,
+  prismaConnectionErrorResponse,
+  throwIfPrismaTimeoutCooldownActive,
+} from "@/lib/prisma-errors";
 
 export const runtime = "nodejs";
 
@@ -47,6 +52,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    throwIfPrismaTimeoutCooldownActive();
     const auth = await requireAuth();
     requireRole(auth, "Owner");
     const { businessId } = auth;
@@ -188,6 +194,11 @@ export async function PATCH(
         { status: 409 },
       );
     }
+    if (isPrismaConnectionTimeout(error)) {
+      return prismaConnectionErrorResponse(
+        "Koneksi database sedang penuh saat mengubah produk. Coba lagi beberapa saat.",
+      );
+    }
     console.error("PATCH /api/products/[id] error:", error);
     return NextResponse.json(
       { error: "Failed to update product" },
@@ -201,6 +212,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    throwIfPrismaTimeoutCooldownActive();
     const auth = await requireAuth();
     requireRole(auth, "Owner");
     const { businessId } = auth;
@@ -233,6 +245,11 @@ export async function DELETE(
     }
     if (error instanceof ForbiddenError) {
       return NextResponse.json({ error: error.message }, { status: 403 });
+    }
+    if (isPrismaConnectionTimeout(error)) {
+      return prismaConnectionErrorResponse(
+        "Koneksi database sedang penuh saat menghapus produk. Coba lagi beberapa saat.",
+      );
     }
     console.error("DELETE /api/products/[id] error:", error);
     return NextResponse.json(

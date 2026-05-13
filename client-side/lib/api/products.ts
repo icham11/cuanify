@@ -1,5 +1,5 @@
 import type { Product, CreateProductInput } from "@/types/product";
-import { apiFetch, invalidateApiCache } from "./client";
+import { apiFetch, invalidateApiCache, peekApiCache } from "./client";
 
 async function extractApiErrorMessage(
   response: Response,
@@ -56,9 +56,23 @@ export type GetProductsParams = {
   limit?: number;
 };
 
-export async function getProducts(
-  params?: GetProductsParams,
-): Promise<{ data: Product[]; meta: PaginationMeta }> {
+type ProductsApiPayload = {
+  data?: Product[];
+  meta?: PaginationMeta;
+};
+
+function getDefaultPaginationMeta(): PaginationMeta {
+  return {
+    total: 0,
+    page: 1,
+    limit: 10,
+    totalPages: 1,
+    avgSellingPrice: 0,
+    avgMargin: 0,
+  };
+}
+
+export function buildProductsUrl(params?: GetProductsParams): string {
   const url = new URL("/api/products", window.location.origin);
   if (params?.search) url.searchParams.set("search", params.search);
   if (params?.categoryId)
@@ -75,32 +89,39 @@ export async function getProducts(
   if (params?.withRecipe === false) url.searchParams.set("withRecipe", "false");
   if (params?.page) url.searchParams.set("page", String(params.page));
   if (params?.limit) url.searchParams.set("limit", String(params.limit));
+  return url.toString();
+}
 
-  const response = await fetch(url.toString(), {
-    credentials: "include",
-    cache: "no-store",
-  });
+function buildCategoriesUrl(): string {
+  return new URL("/api/categories", window.location.origin).toString();
+}
 
-  if (!response.ok) {
-    throw new Error(
-      await extractApiErrorMessage(response, "Failed to fetch products"),
-    );
-  }
+export function peekCachedProducts(
+  params?: GetProductsParams,
+): { data: Product[]; meta: PaginationMeta } | null {
+  if (typeof window === "undefined") return null;
 
-  const json = (await response.json().catch(() => ({}))) as {
-    data?: Product[];
-    meta?: PaginationMeta;
+  const payload = peekApiCache<ProductsApiPayload>(
+    buildProductsUrl(params),
+    undefined,
+    { allowStale: true },
+  );
+
+  if (!payload) return null;
+
+  return {
+    data: payload.data ?? [],
+    meta: payload.meta ?? getDefaultPaginationMeta(),
   };
+}
+
+export async function getProducts(
+  params?: GetProductsParams,
+): Promise<{ data: Product[]; meta: PaginationMeta }> {
+  const json = (await apiFetch(buildProductsUrl(params))) as ProductsApiPayload;
   return {
     data: json.data ?? [],
-    meta: json.meta ?? {
-      total: 0,
-      page: 1,
-      limit: 10,
-      totalPages: 1,
-      avgSellingPrice: 0,
-      avgMargin: 0,
-    },
+    meta: json.meta ?? getDefaultPaginationMeta(),
   };
 }
 
@@ -245,6 +266,27 @@ export async function getIngredientOptions(): Promise<IngredientOption[]> {
       currentStock: ing.currentStock ?? 0,
     }),
   );
+}
+
+export async function getCategoryOptionsCached(): Promise<
+  { id: number; name: string }[]
+> {
+  const payload = (await apiFetch(buildCategoriesUrl())) as {
+    data?: Array<{ id: number; name: string }>;
+  };
+  return payload.data ?? [];
+}
+
+export function peekCachedCategoryOptions(): { id: number; name: string }[] {
+  if (typeof window === "undefined") return [];
+
+  const payload = peekApiCache<{ data?: Array<{ id: number; name: string }> }>(
+    buildCategoriesUrl(),
+    undefined,
+    { allowStale: true },
+  );
+
+  return payload?.data ?? [];
 }
 
 export async function getCategoryOptions(): Promise<

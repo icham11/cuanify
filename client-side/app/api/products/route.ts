@@ -18,6 +18,11 @@ import {
 import { ensureOwnerDefaultProducts } from "@/lib/bookings/owner-product-bootstrap";
 import { loadEffectiveBookingCatalog } from "@/lib/bookings/catalog-config-server";
 import { flattenCatalogProductsForDashboard } from "@/lib/bookings/product-sync";
+import {
+  isPrismaConnectionTimeout,
+  prismaConnectionErrorResponse,
+  throwIfPrismaTimeoutCooldownActive,
+} from "@/lib/prisma-errors";
 
 export const runtime = "nodejs";
 
@@ -160,6 +165,7 @@ async function validateIngredients(
  */
 export async function GET(request: NextRequest) {
   try {
+    throwIfPrismaTimeoutCooldownActive();
     const auth = await requireAuth();
     const { businessId } = auth;
     const url = new URL(request.url);
@@ -488,6 +494,11 @@ export async function GET(request: NextRequest) {
     if (isAuthError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    if (isPrismaConnectionTimeout(error)) {
+      return prismaConnectionErrorResponse(
+        "Koneksi database sedang penuh saat memuat produk. Coba lagi beberapa saat.",
+      );
+    }
     console.error("GET /api/products error:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to fetch products" },
@@ -533,6 +544,7 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
+    throwIfPrismaTimeoutCooldownActive();
     const auth = await requireAuth();
     requireRole(auth, "Owner");
     const { businessId } = auth;
@@ -755,6 +767,11 @@ export async function POST(request: NextRequest) {
         { status: 503 },
       );
     }
+    if (isPrismaConnectionTimeout(error)) {
+      return prismaConnectionErrorResponse(
+        "Koneksi database sedang penuh saat menyimpan produk. Coba lagi beberapa saat.",
+      );
+    }
     if (error instanceof Error && error.message.includes("not found")) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
@@ -776,6 +793,7 @@ export async function POST(request: NextRequest) {
  */
 export async function DELETE(request: NextRequest) {
   try {
+    throwIfPrismaTimeoutCooldownActive();
     const auth = await requireAuth();
     requireRole(auth, "Owner");
     const { businessId } = auth;
@@ -806,6 +824,11 @@ export async function DELETE(request: NextRequest) {
     }
     if (error instanceof ForbiddenError) {
       return NextResponse.json({ error: error.message }, { status: 403 });
+    }
+    if (isPrismaConnectionTimeout(error)) {
+      return prismaConnectionErrorResponse(
+        "Koneksi database sedang penuh saat menghapus produk. Coba lagi beberapa saat.",
+      );
     }
     console.error("DELETE /api/products error:", error);
     return NextResponse.json(

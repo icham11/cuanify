@@ -15,6 +15,11 @@ import {
   normalizeCatalogAdminState,
 } from "@/lib/bookings/catalog-state";
 import { syncBakeryCatalogToDashboardProducts } from "@/lib/bookings/product-sync";
+import {
+  isPrismaConnectionTimeout,
+  prismaConnectionErrorResponse,
+  throwIfPrismaTimeoutCooldownActive,
+} from "@/lib/prisma-errors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -76,6 +81,7 @@ function isExpiredTransactionError(error: unknown): boolean {
 
 export async function GET() {
   try {
+    throwIfPrismaTimeoutCooldownActive();
     const { businessId } = await requireAuth();
 
     const rows = await prisma.$queryRaw<
@@ -127,6 +133,11 @@ export async function GET() {
     if (error instanceof AuthError) {
       return NextResponse.json({ error: error.message }, { status: 401 });
     }
+    if (isPrismaConnectionTimeout(error)) {
+      return prismaConnectionErrorResponse(
+        "Koneksi database sedang penuh saat memuat catalog booking. Coba lagi beberapa saat.",
+      );
+    }
 
     return NextResponse.json(
       { error: normalizeError(error) || "Failed to load catalog config." },
@@ -137,6 +148,7 @@ export async function GET() {
 
 export async function PUT(request: NextRequest) {
   try {
+    throwIfPrismaTimeoutCooldownActive();
     const auth = await requireAuth();
     requireRole(auth, "Owner");
     const { businessId } = auth;
@@ -224,6 +236,11 @@ export async function PUT(request: NextRequest) {
             "Sinkronisasi catalog masih diproses dan database sedang sibuk. Coba lagi beberapa detik lagi.",
         },
         { status: 503 },
+      );
+    }
+    if (isPrismaConnectionTimeout(error)) {
+      return prismaConnectionErrorResponse(
+        "Koneksi database sedang penuh saat menyimpan catalog booking. Coba lagi beberapa saat.",
       );
     }
 

@@ -4,6 +4,7 @@ import {
   type CatalogAddOn,
   type PricelistCategory,
 } from "@/lib/bookings/pricelist";
+import { buildDashboardProductName } from "@/lib/products/dashboard-name";
 
 export interface CustomProductEntry {
   category: string;
@@ -59,6 +60,44 @@ function normalizeMoney(value: unknown): number {
   return Math.max(0, Math.round(parsed));
 }
 
+function normalizeNameKey(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function buildDashboardNameKey(productName: string, variantLabel: string): string {
+  return normalizeNameKey(
+    buildDashboardProductName({
+      productName: productName.trim(),
+      variantLabel: variantLabel.trim(),
+      variantCount: 1,
+    }),
+  );
+}
+
+function getReservedDashboardNameKeys(): Set<string> {
+  const keys = new Set<string>();
+
+  BOOKING_PRODUCT_CATALOG.forEach((category) => {
+    category.subcategories.forEach((subcategory) => {
+      subcategory.products.forEach((product) => {
+        product.variants.forEach((variant) => {
+          keys.add(
+            normalizeNameKey(
+              buildDashboardProductName({
+                productName: product.name,
+                variantLabel: variant.label,
+                variantCount: product.variants.length,
+              }),
+            ),
+          );
+        });
+      });
+    });
+  });
+
+  return keys;
+}
+
 function normalizeNumberRecord(value: unknown): Record<string, number> {
   if (!isRecord(value)) return {};
 
@@ -78,6 +117,9 @@ export function normalizeCatalogAdminState(
   value: unknown,
 ): CatalogAdminState {
   if (!isRecord(value)) return EMPTY_CATALOG_ADMIN_STATE;
+
+  const reservedDashboardNameKeys = getReservedDashboardNameKeys();
+  const seenCustomDashboardNameKeys = new Set<string>();
 
   return {
     productVariantPriceOverrides: normalizeNumberRecord(
@@ -104,6 +146,21 @@ export function normalizeCatalogAdminState(
               entry.productName &&
               entry.variantLabel,
           )
+          .filter((entry) => {
+            const dashboardNameKey = buildDashboardNameKey(
+              entry.productName,
+              entry.variantLabel,
+            );
+            if (!dashboardNameKey) return false;
+            if (reservedDashboardNameKeys.has(dashboardNameKey)) {
+              return false;
+            }
+            if (seenCustomDashboardNameKeys.has(dashboardNameKey)) {
+              return false;
+            }
+            seenCustomDashboardNameKeys.add(dashboardNameKey);
+            return true;
+          })
       : [],
     customAddOns: Array.isArray(value.customAddOns)
       ? value.customAddOns

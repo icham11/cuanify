@@ -41,15 +41,31 @@ function createPrismaClient() {
     isSupabaseSessionPooler = false;
   }
 
-  // Dev often runs multiple hot-reload/server workers at once. Keep the pool
-  // conservative so session-mode DBs do not exhaust client slots.
-  const defaultPoolMax = isSupabaseSessionPooler ? 5 : isProduction ? 10 : 5;
-  const poolMax = Number(process.env.PGPOOL_MAX ?? defaultPoolMax);
+  function parsePositiveInteger(value: string | undefined, fallback: number) {
+    if (!value) return fallback;
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+    return parsed;
+  }
+
+  // Supabase session mode on port 5432 has a very small hard client cap.
+  // In Next.js, multiple route workers can exist at once, so even a modest
+  // per-process pool quickly exhausts that limit. Force a single DB session
+  // per runtime process for this transport and let requests queue instead.
+  const defaultPoolMax = isSupabaseSessionPooler ? 1 : isProduction ? 10 : 5;
+  const requestedPoolMax = parsePositiveInteger(
+    process.env.PGPOOL_MAX,
+    defaultPoolMax,
+  );
+  const poolMax = isSupabaseSessionPooler
+    ? 1
+    : requestedPoolMax;
   const connectionTimeoutMillis = Number(
     process.env.PGPOOL_CONNECTION_TIMEOUT_MS ?? 15000,
   );
   const idleTimeoutMillis = Number(
-    process.env.PGPOOL_IDLE_TIMEOUT_MS ?? 10000,
+    process.env.PGPOOL_IDLE_TIMEOUT_MS ??
+      (isSupabaseSessionPooler ? 5000 : 10000),
   );
 
   const pool =

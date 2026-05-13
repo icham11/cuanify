@@ -17,8 +17,10 @@ import {
 } from "lucide-react";
 import {
   getProducts,
-  getCategoryOptions,
+  getCategoryOptionsCached,
   deleteProduct,
+  peekCachedCategoryOptions,
+  peekCachedProducts,
   syncBakeryCatalogProducts,
 } from "@/lib/api/products";
 import type { Product, ProductCategory } from "@/types/product";
@@ -51,6 +53,8 @@ const PRODUCT_SORT_OPTIONS: Array<{
   { label: "Harga Terendah", sortBy: "sellingPrice", sortOrder: "asc" },
   { label: "Terbaru", sortBy: "createdAt", sortOrder: "desc" },
 ];
+
+const REMOVED_SUBCATEGORY_NAMES = Array.from(REMOVED_BAKERY_SUBCATEGORIES);
 
 function getProductGroupName(product: Product): string {
   const subcategory = product.category?.name ?? "";
@@ -349,21 +353,44 @@ export default function ProductsPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const latestRequestRef = useRef(0);
+  const initialSearch = searchParams.get("search") ?? "";
+  const initialProductsSnapshot =
+    typeof window !== "undefined"
+      ? peekCachedProducts({
+          search: initialSearch || undefined,
+          excludeCategoryNames: REMOVED_SUBCATEGORY_NAMES,
+          sortBy: "name",
+          sortOrder: "asc",
+          page: 1,
+        })
+      : null;
 
-  const [products, setProducts] = useState<Product[]>([]);
-  const [categories, setCategories] = useState<ProductCategory[]>([]);
-  const [searchInput, setSearchInput] = useState("");
-  const [search, setSearch] = useState("");
+  const [products, setProducts] = useState<Product[]>(
+    () => initialProductsSnapshot?.data ?? [],
+  );
+  const [categories, setCategories] = useState<ProductCategory[]>(
+    () => peekCachedCategoryOptions(),
+  );
+  const [searchInput, setSearchInput] = useState(initialSearch);
+  const [search, setSearch] = useState(initialSearch);
   const [productGroupFilter, setProductGroupFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<number | null>(null);
   const [sortBy, setSortBy] = useState<SortByField>("name");
   const [sortOrder, setSortOrder] = useState<SortOrderType>("asc");
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalCount, setTotalCount] = useState(0);
-  const [avgSellingPrice, setAvgSellingPrice] = useState(0);
-  const [avgMargin, setAvgMargin] = useState(0);
-  const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(initialProductsSnapshot?.meta.page ?? 1);
+  const [totalPages, setTotalPages] = useState(
+    initialProductsSnapshot?.meta.totalPages ?? 1,
+  );
+  const [totalCount, setTotalCount] = useState(
+    initialProductsSnapshot?.meta.total ?? 0,
+  );
+  const [avgSellingPrice, setAvgSellingPrice] = useState(
+    initialProductsSnapshot?.meta.avgSellingPrice ?? 0,
+  );
+  const [avgMargin, setAvgMargin] = useState(
+    initialProductsSnapshot?.meta.avgMargin ?? 0,
+  );
+  const [loading, setLoading] = useState(() => !initialProductsSnapshot);
   const [error, setError] = useState<string | null>(null);
   const [syncingCatalog, setSyncingCatalog] = useState(false);
   const [syncCatalogMessage, setSyncCatalogMessage] = useState<string | null>(
@@ -375,7 +402,7 @@ export default function ProductsPage() {
   const [addProductModalOpen, setAddProductModalOpen] = useState(false);
 
   useEffect(() => {
-    void getCategoryOptions()
+    void getCategoryOptionsCached()
       .then((data) => {
         setCategories(data);
       })
@@ -440,25 +467,44 @@ export default function ProductsPage() {
   ) => {
     const requestId = latestRequestRef.current + 1;
     latestRequestRef.current = requestId;
-    setLoading(true);
     setError(null);
 
+    const params = {
+      search,
+      categoryId:
+        categoryOverride === undefined
+          ? (categoryFilter ?? undefined)
+          : (categoryOverride ?? undefined),
+      categoryIds:
+        categoryOverride === undefined && !categoryFilter && productGroupFilter
+          ? selectedProductGroupCategoryIds
+          : undefined,
+      excludeCategoryNames: REMOVED_SUBCATEGORY_NAMES,
+      sortBy,
+      sortOrder,
+      page: pageOverride ?? page,
+    };
+
+    const cachedSnapshot = peekCachedProducts(params);
+    if (cachedSnapshot) {
+      setProducts(cachedSnapshot.data);
+      setTotalPages(Math.max(1, cachedSnapshot.meta.totalPages));
+      setTotalCount(cachedSnapshot.meta.total);
+      setAvgSellingPrice(cachedSnapshot.meta.avgSellingPrice);
+      setAvgMargin(cachedSnapshot.meta.avgMargin);
+      setPage(
+        Math.min(
+          Math.max(1, cachedSnapshot.meta.page),
+          Math.max(1, cachedSnapshot.meta.totalPages),
+        ),
+      );
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+
     try {
-      const { data, meta } = await getProducts({
-        search,
-        categoryId:
-          categoryOverride === undefined
-            ? (categoryFilter ?? undefined)
-            : (categoryOverride ?? undefined),
-        categoryIds:
-          categoryOverride === undefined && !categoryFilter && productGroupFilter
-            ? selectedProductGroupCategoryIds
-            : undefined,
-        excludeCategoryNames: Array.from(REMOVED_BAKERY_SUBCATEGORIES),
-        sortBy,
-        sortOrder,
-        page: pageOverride ?? page,
-      });
+      const { data, meta } = await getProducts(params);
 
       if (requestId !== latestRequestRef.current) return;
 
@@ -480,7 +526,7 @@ export default function ProductsPage() {
 
   const refreshCategories = async () => {
     try {
-      const data = await getCategoryOptions();
+      const data = await getCategoryOptionsCached();
       setCategories(data);
     } catch {
       // Optional path only.
