@@ -133,6 +133,21 @@ function statusColor(status: BakeryOrder["orderStatus"]) {
   return "#4f46e5";
 }
 
+function getCalendarOrderTotalQuantity(order: BakeryOrder) {
+  return (
+    order.items?.reduce((sum, item) => sum + Math.max(1, item.quantity ?? 1), 0) ??
+    1
+  );
+}
+
+function getCalendarOrderProductLabel(order: BakeryOrder) {
+  return order.items?.[0]?.productName?.trim() || order.product || "Order";
+}
+
+function getCalendarOrderItemSummary(order: BakeryOrder) {
+  return `${getCalendarOrderProductLabel(order)} x${getCalendarOrderTotalQuantity(order)}`;
+}
+
 function getCalendarRange(date: Date, view: View) {
   if (view === Views.WEEK) {
     return {
@@ -297,14 +312,11 @@ export default function BakeryCalendarPage() {
   const getEffectiveCapacity = useMemo(() => {
     return (dateKey: string) => {
       const serverCapacity = getCapacity(dateKey);
-      const liveUsedToken = liveUsedTokenByDate.get(dateKey);
+      const liveUsedToken = liveUsedTokenByDate.get(dateKey) ?? 0;
 
       return {
         date: dateKey,
-        usedToken:
-          liveUsedToken !== undefined
-            ? liveUsedToken
-            : serverCapacity.usedToken,
+        usedToken: liveUsedToken,
         maxToken:
           Number(serverCapacity.maxToken) > 0
             ? serverCapacity.maxToken
@@ -472,15 +484,9 @@ export default function BakeryCalendarPage() {
     return filteredInternalOrders.flatMap((order) => {
       const start = parseOrderDateTime(order.deliveryDate, order.deliverySlot);
       if (!start) return [];
-      const firstItem = order.items?.[0];
-      const productName = firstItem?.productName ?? order.product;
-      const quantity = firstItem?.quantity ?? 1;
-      const totalQty =
-        order.items?.reduce((sum, item) => sum + (item.quantity ?? 1), 0) ??
-        quantity;
       return {
         id: order.id,
-        title: `${order.customerName} - ${productName} x${totalQty}`,
+        title: `${order.customerName} - ${getCalendarOrderItemSummary(order)}`,
         start,
         end: addHours(start, 1),
         resource: { source: "internal" as const, order },
@@ -1032,8 +1038,7 @@ export default function BakeryCalendarPage() {
                           {order.customerName}
                         </p>
                         <p className="mt-1 truncate text-xs text-gray-500">
-                          {order.items?.[0]?.productName ?? order.product} x
-                          {order.items?.reduce((sum, item) => sum + (item.quantity ?? 1), 0) ?? 1} -{" "}
+                          {getCalendarOrderItemSummary(order)} -{" "}
                           {order.deliverySlot || "-"}
                         </p>
                       </div>

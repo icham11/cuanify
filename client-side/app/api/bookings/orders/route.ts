@@ -7,7 +7,6 @@ import {
   isPrismaConnectionTimeout,
   prismaConnectionErrorResponse,
 } from "@/lib/prisma-errors";
-import { evaluateProductionTokenCapacity } from "@/lib/bookings/operations";
 import { z } from "zod";
 import {
   ensureCapacityTable,
@@ -42,6 +41,10 @@ import {
   resolveDeliveryMethodLabel,
   resolveOrderDeliveryMethod,
 } from "@/lib/bookings/delivery-method";
+import {
+  buildOrderFingerprint,
+  normalizeBookingReference,
+} from "@/lib/bookings/order-fingerprint";
 import {
   distributeProductionTokens,
   getProductionStagePercentagesFromTemplates,
@@ -476,6 +479,57 @@ function haveComparableValuesChanged(current: unknown, next: unknown): boolean {
   return stableSerializeForComparison(current) !== stableSerializeForComparison(next);
 }
 
+function resolveParsedBookingReference(
+  whatsAppParsedData: unknown,
+  fallbackBookingCode?: string | null,
+): string {
+  const parsedData = asRecord(whatsAppParsedData);
+  const common = asRecord(parsedData?.common);
+  return normalizeBookingReference(common?.bookingCode ?? fallbackBookingCode);
+}
+
+function buildParsedOrderFingerprint(order: {
+  customerName?: unknown;
+  customerPhone?: unknown;
+  deliveryDate?: unknown;
+  deliverySlot?: unknown;
+  notes?: unknown;
+  basePrice?: unknown;
+  addOnTotal?: unknown;
+  deliveryFee?: unknown;
+  insuranceFee?: unknown;
+  manualAdjustment?: unknown;
+  dpPaidAmount?: unknown;
+  finalPaidAmount?: unknown;
+  totalPrice?: unknown;
+  sales_channel?: unknown;
+  items?: unknown[];
+  deliveryAddresses?: unknown[];
+}): string {
+  return buildOrderFingerprint({
+    customerName: order.customerName,
+    customerPhone: order.customerPhone,
+    deliveryDate:
+      normalizeDateInput(asString(order.deliveryDate)) ??
+      asString(order.deliveryDate),
+    deliverySlot: order.deliverySlot,
+    notes: order.notes,
+    basePrice: order.basePrice,
+    addOnTotal: order.addOnTotal,
+    deliveryFee: order.deliveryFee,
+    insuranceFee: order.insuranceFee,
+    manualAdjustment: order.manualAdjustment,
+    dpPaidAmount: order.dpPaidAmount,
+    finalPaidAmount: order.finalPaidAmount,
+    totalPrice: order.totalPrice,
+    sales_channel: order.sales_channel,
+    items: Array.isArray(order.items) ? order.items : [],
+    deliveryAddresses: Array.isArray(order.deliveryAddresses)
+      ? order.deliveryAddresses
+      : [],
+  });
+}
+
 function serializeProductionStagesForComparison(
   stages: ProductionStageAssignment[] | undefined,
 ): string {
@@ -902,6 +956,25 @@ function collectReferenceImagesFromValue(
       note: resolvedNote,
       orderIndex: resolvedOrderIndex,
     });
+  }
+}
+
+class DuplicateOrderError extends Error {
+  public readonly existingOrderId: string;
+  public readonly existingBookingCode: string;
+
+  constructor(args: {
+    existingOrderId: string;
+    existingBookingCode: string;
+    message?: string;
+  }) {
+    super(
+      args.message ||
+        `Duplicate booking detected. Existing order: ${args.existingBookingCode || args.existingOrderId}.`,
+    );
+    this.name = "DuplicateOrderError";
+    this.existingOrderId = args.existingOrderId;
+    this.existingBookingCode = args.existingBookingCode;
   }
 }
 
@@ -1627,67 +1700,6 @@ function extractErrorDetails(error: unknown): {
   const code = typeof record?.code === "string" ? record.code : undefined;
   const meta = record?.meta;
   return { message, name, code, meta };
-}
-
-function toTokenOpsOrders(orders: NormalizedOrder[]) {
-  return orders.map((order) => {
-    const items = (order.items ?? []).map((item) => ({
-      category: asString(item.category),
-      subcategory: asString(item.subcategory),
-      productName: asString(item.productName),
-      size: asString(item.size),
-      quantity: asNumber(item.quantity),
-      tokenDifficulty: asString(item.tokenDifficulty) || undefined,
-      customTokenPerUnit: asNumber(item.customTokenPerUnit) || undefined,
-    }));
-
-    return {
-      id: order.id,
-      deliveryDate: order.deliveryDate,
-      deliverySlot: order.deliverySlot,
-      orderStatus: order.orderStatus,
-      items,
-    };
-  });
-}
-
-function validateDailyTokenCapacity(orders: NormalizedOrder[]) {
-  const tokenOrders = toTokenOpsOrders(orders);
-  const activeDates = Array.from(
-    new Set(
-      tokenOrders
-        .filter(
-          (order) =>
-            Boolean(order.deliveryDate) &&
-            !["Cancelled", "Completed", "Delivery", "Delivered"].includes(
-              order.orderStatus || "",
-            ),
-        )
-        .map((order) => order.deliveryDate),
-    ),
-  );
-
-  const overflows = activeDates
-    .map((deliveryDate) => {
-      const capacity = evaluateProductionTokenCapacity({
-        orders: tokenOrders,
-        deliveryDate,
-        incomingItems: [],
-      });
-
-      return {
-        deliveryDate,
-        used: capacity.usedToday,
-        allowed: capacity.allowed,
-        overflow: Math.max(0, capacity.usedToday - capacity.allowed),
-      };
-    })
-    .filter((entry) => entry.overflow > 0);
-
-  return {
-    isValid: overflows.length === 0,
-    overflows,
-  };
 }
 
 function hasCapacityAffectingChange(
@@ -2918,6 +2930,96 @@ export async function POST(request: NextRequest) {
       existingAddressesMap.set(row.order_external_id, current);
     }
 
+    const existingDuplicateRows = await prisma.$queryRaw<
+      {
+        external_id: string;
+        booking_code: string | null;
+        resi: string | null;
+        customer_name: string | null;
+        customer_phone: string | null;
+        delivery_date: string | null;
+        delivery_slot: string | null;
+        notes: string | null;
+        base_price: unknown;
+        add_on_total: unknown;
+        delivery_fee: unknown;
+        insurance_fee: unknown;
+        manual_adjustment: unknown;
+        dp_paid_amount: unknown;
+        final_paid_amount: unknown;
+        total_price: unknown;
+        sales_channel: string | null;
+        whatsapp_parsed_data: unknown;
+      }[]
+    >`
+      SELECT
+        external_id,
+        booking_code,
+        resi,
+        customer_name,
+        customer_phone,
+        delivery_date,
+        delivery_slot,
+        notes,
+        base_price,
+        add_on_total,
+        delivery_fee,
+        insurance_fee,
+        manual_adjustment,
+        dp_paid_amount,
+        final_paid_amount,
+        total_price,
+        sales_channel,
+        whatsapp_parsed_data
+      FROM bakery_orders
+      WHERE business_id = ${businessId}
+    `;
+
+    const existingFingerprintMatches = new Map<
+      string,
+      { existingOrderId: string; existingBookingCode: string }
+    >();
+    const existingParsedBookingCodeMatches = new Map<
+      string,
+      { existingOrderId: string; existingBookingCode: string }
+    >();
+
+    for (const row of existingDuplicateRows) {
+      const orderFingerprint = buildParsedOrderFingerprint({
+        customerName: row.customer_name,
+        customerPhone: row.customer_phone,
+        deliveryDate: row.delivery_date,
+        deliverySlot: row.delivery_slot,
+        notes: row.notes,
+        basePrice: row.base_price,
+        addOnTotal: row.add_on_total,
+        deliveryFee: row.delivery_fee,
+        insuranceFee: row.insurance_fee,
+        manualAdjustment: row.manual_adjustment,
+        dpPaidAmount: row.dp_paid_amount,
+        finalPaidAmount: row.final_paid_amount,
+        totalPrice: row.total_price,
+        sales_channel: row.sales_channel,
+        items: existingCapacityItemsMap.get(row.external_id) ?? [],
+        deliveryAddresses: existingAddressesMap.get(row.external_id) ?? [],
+      });
+      existingFingerprintMatches.set(orderFingerprint, {
+        existingOrderId: row.external_id,
+        existingBookingCode: row.booking_code || row.resi || row.external_id,
+      });
+
+      const parsedBookingReference = resolveParsedBookingReference(
+        row.whatsapp_parsed_data,
+        row.booking_code,
+      );
+      if (parsedBookingReference) {
+        existingParsedBookingCodeMatches.set(parsedBookingReference, {
+          existingOrderId: row.external_id,
+          existingBookingCode: row.booking_code || row.resi || row.external_id,
+        });
+      }
+    }
+
     const existingCapacityById = new Map(
       existingCapacityRows.map((row) => [
         row.external_id,
@@ -2931,6 +3033,59 @@ export async function POST(request: NextRequest) {
         },
       ]),
     );
+
+    const seenIncomingCreateFingerprints = new Map<
+      string,
+      { existingOrderId: string; existingBookingCode: string }
+    >();
+    const seenIncomingParsedBookingReferences = new Map<
+      string,
+      { existingOrderId: string; existingBookingCode: string }
+    >();
+
+    for (const order of orders) {
+      if (existingCapacityById.has(order.id)) continue;
+
+      const duplicateFingerprint = buildParsedOrderFingerprint(order);
+      const duplicateExisting =
+        existingFingerprintMatches.get(duplicateFingerprint) ??
+        seenIncomingCreateFingerprints.get(duplicateFingerprint);
+
+      if (duplicateExisting) {
+        throw new DuplicateOrderError({
+          existingOrderId: duplicateExisting.existingOrderId,
+          existingBookingCode: duplicateExisting.existingBookingCode,
+          message: `Duplicate booking detected. Order yang sama sudah ada dengan kode ${duplicateExisting.existingBookingCode}.`,
+        });
+      }
+
+      seenIncomingCreateFingerprints.set(duplicateFingerprint, {
+        existingOrderId: order.id,
+        existingBookingCode: order.bookingCode || order.resi || order.id,
+      });
+
+      const parsedBookingReference = resolveParsedBookingReference(
+        order.whatsAppParsedData,
+        order.bookingCode,
+      );
+      if (!parsedBookingReference) continue;
+
+      const duplicateParsedReference =
+        existingParsedBookingCodeMatches.get(parsedBookingReference) ??
+        seenIncomingParsedBookingReferences.get(parsedBookingReference);
+      if (duplicateParsedReference) {
+        throw new DuplicateOrderError({
+          existingOrderId: duplicateParsedReference.existingOrderId,
+          existingBookingCode: duplicateParsedReference.existingBookingCode,
+          message: `Duplicate booking code parsed terdeteksi. Order terkait sudah ada dengan kode ${duplicateParsedReference.existingBookingCode}.`,
+        });
+      }
+
+      seenIncomingParsedBookingReferences.set(parsedBookingReference, {
+        existingOrderId: order.id,
+        existingBookingCode: order.bookingCode || order.resi || order.id,
+      });
+    }
 
     if (isStaffRequest) {
       const existingRows = await prisma.$queryRaw<DbOrderRow[]>`
@@ -3103,7 +3258,6 @@ export async function POST(request: NextRequest) {
         };
       });
 
-      const incomingById = new Map(orders.map((order) => [order.id, order]));
       const existingById = new Map(
         existingOrders.map((order) => [order.id, order]),
       );
@@ -3263,8 +3417,6 @@ export async function POST(request: NextRequest) {
         assignableStaffUserIds,
       });
     }
-
-    const existingById = new Map(existingOrders.map((order) => [order.id, order]));
 
     ensureAssignableStaffTargets({
       orders,
@@ -4194,6 +4346,18 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      if (rowError instanceof DuplicateOrderError) {
+        return NextResponse.json(
+          {
+            error: "Duplicate booking detected.",
+            details: rowError.message,
+            duplicateOrderId: rowError.existingOrderId,
+            duplicateBookingCode: rowError.existingBookingCode,
+          },
+          { status: 409 },
+        );
+      }
+
       if (isPrismaConnectionTimeout(rowError)) {
         return prismaConnectionErrorResponse(
           "Koneksi database timeout saat menyimpan order bakery.",
@@ -4280,6 +4444,18 @@ export async function POST(request: NextRequest) {
           details: `Tanggal ${error.date} berada di masa lalu.`,
         },
         { status: 400 },
+      );
+    }
+
+    if (error instanceof DuplicateOrderError) {
+      return NextResponse.json(
+        {
+          error: "Duplicate booking detected.",
+          details: error.message,
+          duplicateOrderId: error.existingOrderId,
+          duplicateBookingCode: error.existingBookingCode,
+        },
+        { status: 409 },
       );
     }
 

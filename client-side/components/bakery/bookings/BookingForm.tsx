@@ -29,6 +29,7 @@ import { formatCurrency } from "@/components/orders/formatters";
 import {
   useOrders,
   type BakeryOrder,
+  DuplicateExistingBookingError,
   type NewOrderInput,
   type OrderItem,
 } from "@/components/bakery/store";
@@ -2501,6 +2502,10 @@ export default function BookingForm() {
   const [manualCheckShippingTrigger, setManualCheckShippingTrigger] =
     useState(0);
   const [submitError, setSubmitError] = useState("");
+  const [submitDuplicateMeta, setSubmitDuplicateMeta] = useState<{
+    orderId: string;
+    bookingCode?: string;
+  } | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState("");
   const [submitSuccessMeta, setSubmitSuccessMeta] = useState<{
     id: string;
@@ -2928,7 +2933,6 @@ export default function BookingForm() {
   const { settings: bakerySettings } = useBakerySettings();
   const blockedDates = bakerySettings?.blockedDates ?? BAKERY_BLOCKED_DATES;
   const cutoffHour = bakerySettings?.cutoffHour ?? 10;
-  const cutoffEnabled = bakerySettings?.cutoffEnabled ?? true;
   const defaultDpPercentage = bakerySettings?.defaultDpPercentage ?? 50;
   const canBackfillPastOrders = !isRoleLoading && (isOwner || isAdmin);
   const allowHistoricalBackfillForSelectedDate =
@@ -3924,21 +3928,6 @@ export default function BookingForm() {
     shippingItems,
   ]);
 
-  const shippingQuoteSignature = useMemo(() => {
-    if (!shippingPayload) return "";
-
-    return JSON.stringify({
-      destinationAddress: shippingPayload.destinationAddress.trim(),
-      destinationArea: shippingPayload.destinationArea.trim(),
-      destinationPostalCode: shippingPayload.destinationPostalCode || "",
-      items: shippingPayload.items.map((item) => ({
-        name: item.name,
-        quantity: item.quantity,
-        weightGram: item.weightGram,
-      })),
-    });
-  }, [shippingPayload]);
-
   const shippingPayloadRef = useRef(shippingPayload);
 
   useEffect(() => {
@@ -4030,8 +4019,22 @@ export default function BookingForm() {
     };
   }, [manualCheckShippingTrigger]);
 
-  const showSubmitFeedback = useCallback((message: string) => {
+  const showSubmitFeedback = useCallback((
+    message: string,
+    options?: {
+      duplicateOrderId?: string | null;
+      duplicateBookingCode?: string | null;
+    },
+  ) => {
     setSubmitError(message);
+    setSubmitDuplicateMeta(
+      options?.duplicateOrderId
+        ? {
+            orderId: options.duplicateOrderId,
+            bookingCode: options.duplicateBookingCode || undefined,
+          }
+        : null,
+    );
     toast.error(message);
 
     window.requestAnimationFrame(() => {
@@ -4051,6 +4054,7 @@ export default function BookingForm() {
             deliveryMethod: effectiveDeliveryMethod,
           };
     setSubmitError("");
+    setSubmitDuplicateMeta(null);
     setSubmitSuccess("");
     setSubmitSuccessMeta(null);
     const isPreviewSubmit = composerStep === "preview";
@@ -4713,11 +4717,18 @@ export default function BookingForm() {
         }, 800);
       }
     } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Gagal menyimpan booking ke server.";
-      showSubmitFeedback(message);
+      if (error instanceof DuplicateExistingBookingError) {
+        showSubmitFeedback(error.message, {
+          duplicateOrderId: error.duplicateOrderId,
+          duplicateBookingCode: error.duplicateBookingCode,
+        });
+      } else {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Gagal menyimpan booking ke server.";
+        showSubmitFeedback(message);
+      }
     } finally {
       bookingCreateInFlightRef.current = false;
       setIsBookingCreationInFlight(false);
@@ -4831,6 +4842,7 @@ export default function BookingForm() {
     reset();
     setComposerStep("input");
     setSubmitError("");
+    setSubmitDuplicateMeta(null);
     setSubmitSuccess("");
     setSubmitSuccessMeta(null);
     setQuickPaste("");
@@ -4858,6 +4870,15 @@ export default function BookingForm() {
 
   const openDetectedDuplicateBooking = () => {
     const targetOrderId = duplicateTemplateWarning?.matches[0]?.id;
+    const targetUrl = targetOrderId
+      ? `/bakery/bookings/${targetOrderId}`
+      : "/bakery/bookings";
+
+    window.open(targetUrl, "_blank", "noopener,noreferrer");
+  };
+
+  const openExistingDuplicateBookingFromSubmitError = () => {
+    const targetOrderId = submitDuplicateMeta?.orderId;
     const targetUrl = targetOrderId
       ? `/bakery/bookings/${targetOrderId}`
       : "/bakery/bookings";
@@ -5703,6 +5724,22 @@ export default function BookingForm() {
     >
       <p className="font-semibold">Booking belum bisa dilanjutkan</p>
       <p className="mt-1">{submitError}</p>
+      {submitDuplicateMeta ? (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={openExistingDuplicateBookingFromSubmitError}
+            className="inline-flex h-9 items-center justify-center rounded-full border border-rose-300 bg-white px-4 text-xs font-semibold text-rose-700 transition hover:border-rose-400 hover:bg-rose-100"
+          >
+            Buka order yang sudah ada
+          </button>
+          {submitDuplicateMeta.bookingCode ? (
+            <span className="text-[11px] font-medium text-rose-600">
+              Terdeteksi di booking {submitDuplicateMeta.bookingCode}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   ) : null;
 
