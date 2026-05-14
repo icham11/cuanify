@@ -40,11 +40,41 @@ import {
 
 type AITab = "chat" | "insights" | "documents" | "image";
 
-const tabs: { id: AITab; label: string; icon: typeof Bot; desc: string; gradient: string }[] = [
-  { id: "chat", label: "AI Assistant", icon: Bot, desc: "Tanya jawab cerdas", gradient: "from-indigo-500 to-violet-500" },
-  { id: "insights", label: "Smart Insights", icon: Brain, desc: "Analisis & prediksi", gradient: "from-emerald-500 to-teal-500" },
-  { id: "documents", label: "Dokumen", icon: FileText, desc: "Upload PDF ke AI", gradient: "from-amber-500 to-orange-500" },
-  { id: "image", label: "Analisis Gambar", icon: Camera, desc: "Foto invoice & stok", gradient: "from-rose-500 to-pink-500" },
+const tabs: {
+  id: AITab;
+  label: string;
+  icon: typeof Bot;
+  desc: string;
+  gradient: string;
+}[] = [
+  {
+    id: "chat",
+    label: "AI Assistant",
+    icon: Bot,
+    desc: "Tanya jawab cerdas",
+    gradient: "from-indigo-500 to-violet-500",
+  },
+  {
+    id: "insights",
+    label: "Smart Insights",
+    icon: Brain,
+    desc: "Analisis & prediksi",
+    gradient: "from-emerald-500 to-teal-500",
+  },
+  {
+    id: "documents",
+    label: "Dokumen",
+    icon: FileText,
+    desc: "Upload PDF ke AI",
+    gradient: "from-amber-500 to-orange-500",
+  },
+  {
+    id: "image",
+    label: "Analisis Gambar",
+    icon: Camera,
+    desc: "Foto invoice & stok",
+    gradient: "from-rose-500 to-pink-500",
+  },
 ];
 
 interface BakeryOrdersApiResponse {
@@ -139,13 +169,17 @@ function summarizeProductionSnapshot(
   const recentCutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
   const recentBatches = safeBatches.filter((batch) => {
     const producedAt = new Date(batch.producedAt);
-    return !Number.isNaN(producedAt.getTime()) && producedAt.getTime() >= recentCutoff;
+    return (
+      !Number.isNaN(producedAt.getTime()) &&
+      producedAt.getTime() >= recentCutoff
+    );
   }).length;
   const topProductName =
     safeSummary
       .slice()
-      .sort((a, b) => Number(b.availableStock || 0) - Number(a.availableStock || 0))[0]
-      ?.productName ?? null;
+      .sort(
+        (a, b) => Number(b.availableStock || 0) - Number(a.availableStock || 0),
+      )[0]?.productName ?? null;
 
   return {
     totalBatches: safeBatches.length,
@@ -166,7 +200,11 @@ const containerVariants: any = {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const itemVariants: any = {
   hidden: { opacity: 0, y: 20 },
-  visible: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 260, damping: 24 } },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { type: "spring", stiffness: 260, damping: 24 },
+  },
 };
 
 export default function AIAnalysisPage() {
@@ -174,12 +212,18 @@ export default function AIAnalysisPage() {
   const [mounted, setMounted] = useState(false);
   const [syncingRag, setSyncingRag] = useState(false);
 
-  const bakeryOrdersQuery = useApiQuery<BakeryOrdersApiResponse>(bakeryOrdersUrl, {
-    ttlMs: API_CACHE_TTL_5_MIN_MS,
-  });
-  const productionQuery = useApiQuery<ProductionApiResponse>(productionListUrl(50), {
-    ttlMs: API_CACHE_TTL_5_MIN_MS,
-  });
+  const bakeryOrdersQuery = useApiQuery<BakeryOrdersApiResponse>(
+    bakeryOrdersUrl,
+    {
+      ttlMs: API_CACHE_TTL_5_MIN_MS,
+    },
+  );
+  const productionQuery = useApiQuery<ProductionApiResponse>(
+    productionListUrl(50),
+    {
+      ttlMs: API_CACHE_TTL_5_MIN_MS,
+    },
+  );
   const ragStatusQuery = useApiQuery<RagIndexResponse>(aiRagIndexUrl, {
     ttlMs: API_CACHE_TTL_5_MIN_MS,
   });
@@ -226,13 +270,16 @@ export default function AIAnalysisPage() {
     return () => clearTimeout(t);
   }, []);
 
-  const refreshSnapshot = useCallback(async (options?: { force?: boolean }) => {
-    await Promise.all([
-      bakeryOrdersQuery.refresh(options),
-      productionQuery.refresh(options),
-      ragStatusQuery.refresh(options),
-    ]);
-  }, [bakeryOrdersQuery, productionQuery, ragStatusQuery]);
+  const refreshSnapshot = useCallback(
+    async (options?: { force?: boolean }) => {
+      await Promise.all([
+        bakeryOrdersQuery.refresh(options),
+        productionQuery.refresh(options),
+        ragStatusQuery.refresh(options),
+      ]);
+    },
+    [bakeryOrdersQuery, productionQuery, ragStatusQuery],
+  );
 
   const syncRagIndex = useCallback(async () => {
     if (syncingRag) return;
@@ -305,7 +352,10 @@ export default function AIAnalysisPage() {
 
       <div className="mx-auto max-w-7xl space-y-4 pb-10 px-3 sm:px-4 py-4 sm:py-6">
         {/* ─── Header ─── */}
-        <motion.div variants={itemVariants} className="relative overflow-hidden rounded-xl sm:rounded-2xl bg-white/80 backdrop-blur-xl border border-white/60 shadow-lg shadow-indigo-500/5">
+        <motion.div
+          variants={itemVariants}
+          className="relative overflow-hidden rounded-xl sm:rounded-2xl bg-white/80 backdrop-blur-xl border border-white/60 shadow-lg shadow-indigo-500/5"
+        >
           <div className="absolute inset-0 bg-gradient-to-br from-indigo-50/50 via-transparent to-violet-50/50" />
           <div className="relative px-4 sm:px-6 py-4 sm:py-5 flex items-center gap-3 sm:gap-4">
             <motion.div
@@ -317,14 +367,21 @@ export default function AIAnalysisPage() {
               <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-400 rounded-full border-2 border-white animate-pulse" />
             </motion.div>
             <div>
-              <h1 className="text-xl sm:text-2xl font-bold text-gray-900 tracking-tight">AI Center</h1>
-              <p className="text-sm text-gray-500">Pusat AI untuk analisis bisnis, prediksi, dan rekomendasi</p>
+              <h1 className="text-xl sm:text-2xl font-bold text-gray-900 tracking-tight">
+                AI Center
+              </h1>
+              <p className="text-sm text-gray-500">
+                Pusat AI untuk analisis bisnis, prediksi, dan rekomendasi
+              </p>
             </div>
           </div>
         </motion.div>
 
         {/* ─── Tab Navigation ─── */}
-        <motion.div variants={itemVariants} className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-3">
+        <motion.div
+          variants={itemVariants}
+          className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-3"
+        >
           {tabs.map((tab, i) => {
             const isActive = activeTab === tab.id;
             return (
@@ -340,24 +397,39 @@ export default function AIAnalysisPage() {
                 whileTap={{ scale: 0.98 }}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.05, type: "spring", stiffness: 260, damping: 24 }}
+                transition={{
+                  delay: i * 0.05,
+                  type: "spring",
+                  stiffness: 260,
+                  damping: 24,
+                }}
               >
                 {/* Active indicator top line */}
-                <div className={`absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r ${tab.gradient} transition-opacity duration-300 ${isActive ? "opacity-100" : "opacity-0"}`} />
+                <div
+                  className={`absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r ${tab.gradient} transition-opacity duration-300 ${isActive ? "opacity-100" : "opacity-0"}`}
+                />
 
                 <div className="flex items-start gap-3">
-                  <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-lg flex items-center justify-center transition-all duration-300 shrink-0 ${
-                    isActive
-                      ? `bg-gradient-to-br ${tab.gradient} shadow-md`
-                      : "bg-gray-100 group-hover:bg-gray-200"
-                  }`}>
-                    <tab.icon className={`w-4 h-4 sm:w-[18px] sm:h-[18px] transition-colors ${isActive ? "text-white" : "text-gray-500 group-hover:text-gray-700"}`} />
+                  <div
+                    className={`w-8 h-8 sm:w-9 sm:h-9 rounded-lg flex items-center justify-center transition-all duration-300 shrink-0 ${
+                      isActive
+                        ? `bg-gradient-to-br ${tab.gradient} shadow-md`
+                        : "bg-gray-100 group-hover:bg-gray-200"
+                    }`}
+                  >
+                    <tab.icon
+                      className={`w-4 h-4 sm:w-[18px] sm:h-[18px] transition-colors ${isActive ? "text-white" : "text-gray-500 group-hover:text-gray-700"}`}
+                    />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className={`text-[13px] sm:text-sm font-semibold leading-tight transition-colors ${isActive ? "text-gray-900" : "text-gray-600 group-hover:text-gray-800"}`}>
+                    <p
+                      className={`text-[13px] sm:text-sm font-semibold leading-tight transition-colors ${isActive ? "text-gray-900" : "text-gray-600 group-hover:text-gray-800"}`}
+                    >
                       {tab.label}
                     </p>
-                    <p className={`text-[11px] mt-0.5 leading-tight transition-colors ${isActive ? "text-gray-500" : "text-gray-400"}`}>
+                    <p
+                      className={`text-[11px] mt-0.5 leading-tight transition-colors ${isActive ? "text-gray-500" : "text-gray-400"}`}
+                    >
                       {tab.desc}
                     </p>
                   </div>
@@ -377,11 +449,16 @@ export default function AIAnalysisPage() {
         </motion.div>
 
         {/* ─── Live Data Sync ─── */}
-        <motion.div variants={itemVariants} className="grid gap-4 lg:grid-cols-3">
+        <motion.div
+          variants={itemVariants}
+          className="grid gap-4 lg:grid-cols-3"
+        >
           <div className="rounded-xl sm:rounded-2xl border border-amber-100 bg-linear-to-br from-amber-50 via-orange-50 to-rose-50 p-4 sm:p-5">
             <div className="mb-3 flex items-start justify-between gap-3">
               <div>
-                <h3 className="text-sm font-semibold text-amber-900">Bakery Operations</h3>
+                <h3 className="text-sm font-semibold text-amber-900">
+                  Bakery Operations
+                </h3>
                 <p className="text-xs text-amber-700/80">
                   Live dari /api/bookings/orders
                 </p>
@@ -396,7 +473,9 @@ export default function AIAnalysisPage() {
                   <PackageCheck className="h-3.5 w-3.5" />
                   Total Booking
                 </p>
-                <p className="mt-1 text-xl font-bold text-gray-900">{bakerySummary.totalOrders}</p>
+                <p className="mt-1 text-xl font-bold text-gray-900">
+                  {bakerySummary.totalOrders}
+                </p>
               </div>
               <div className="rounded-lg border border-white/70 bg-white/75 p-3">
                 <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
@@ -412,28 +491,35 @@ export default function AIAnalysisPage() {
                   <CalendarClock className="h-3.5 w-3.5" />
                   Kirim Hari Ini
                 </p>
-                <p className="mt-1 text-xl font-bold text-gray-900">{bakerySummary.deliveryToday}</p>
+                <p className="mt-1 text-xl font-bold text-gray-900">
+                  {bakerySummary.deliveryToday}
+                </p>
               </div>
               <div className="rounded-lg border border-white/70 bg-white/75 p-3">
                 <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
                   <BellRing className="h-3.5 w-3.5" />
                   Pending Automasi
                 </p>
-                <p className="mt-1 text-xl font-bold text-gray-900">{bakerySummary.pendingAutomation}</p>
+                <p className="mt-1 text-xl font-bold text-gray-900">
+                  {bakerySummary.pendingAutomation}
+                </p>
               </div>
             </div>
             <p className="mt-3 text-[11px] text-amber-800/80">
               Sync terakhir: {formatJakartaDateTime(bakeryUpdatedAt)}
             </p>
             <p className="mt-1 text-[11px] text-amber-700/80">
-              Omzet booking: Rp {Math.round(bakerySummary.totalRevenue).toLocaleString("id-ID")}
+              Omzet booking: Rp{" "}
+              {Math.round(bakerySummary.totalRevenue).toLocaleString("id-ID")}
             </p>
           </div>
 
           <div className="rounded-xl sm:rounded-2xl border border-violet-100 bg-linear-to-br from-violet-50 via-fuchsia-50 to-indigo-50 p-4 sm:p-5">
             <div className="mb-3 flex items-start justify-between gap-3">
               <div>
-                <h3 className="text-sm font-semibold text-violet-900">Production Queue</h3>
+                <h3 className="text-sm font-semibold text-violet-900">
+                  Production Queue
+                </h3>
                 <p className="text-xs text-violet-700/80">
                   Live dari /api/production
                 </p>
@@ -448,14 +534,18 @@ export default function AIAnalysisPage() {
                   <Factory className="h-3.5 w-3.5" />
                   Batch Total
                 </p>
-                <p className="mt-1 text-xl font-bold text-gray-900">{productionSummary.totalBatches}</p>
+                <p className="mt-1 text-xl font-bold text-gray-900">
+                  {productionSummary.totalBatches}
+                </p>
               </div>
               <div className="rounded-lg border border-white/70 bg-white/75 p-3">
                 <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
                   <Database className="h-3.5 w-3.5" />
                   Produk Aktif
                 </p>
-                <p className="mt-1 text-xl font-bold text-gray-900">{productionSummary.activeProducts}</p>
+                <p className="mt-1 text-xl font-bold text-gray-900">
+                  {productionSummary.activeProducts}
+                </p>
               </div>
               <div className="rounded-lg border border-white/70 bg-white/75 p-3">
                 <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
@@ -468,24 +558,29 @@ export default function AIAnalysisPage() {
               </div>
               <div className="rounded-lg border border-white/70 bg-white/75 p-3">
                 <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                  <CalendarClock className="h-3.5 w-3.5" />
-                  7 Hari
+                  <CalendarClock className="h-3.5 w-3.5" />7 Hari
                 </p>
-                <p className="mt-1 text-xl font-bold text-gray-900">{productionSummary.recentBatches}</p>
+                <p className="mt-1 text-xl font-bold text-gray-900">
+                  {productionSummary.recentBatches}
+                </p>
               </div>
             </div>
             <p className="mt-3 text-[11px] text-violet-800/80">
-              Batch terbaru: {formatJakartaDateTime(productionSummary.latestProducedAt)}
+              Batch terbaru:{" "}
+              {formatJakartaDateTime(productionSummary.latestProducedAt)}
             </p>
             <p className="mt-1 text-[11px] text-violet-700/80">
-              Produk dengan stok terbesar: {productionSummary.topProductName || "-"}
+              Produk dengan stok terbesar:{" "}
+              {productionSummary.topProductName || "-"}
             </p>
           </div>
 
           <div className="rounded-xl sm:rounded-2xl border border-sky-100 bg-linear-to-br from-sky-50 via-indigo-50 to-cyan-50 p-4 sm:p-5">
             <div className="mb-3 flex items-start justify-between gap-3">
               <div>
-                <h3 className="text-sm font-semibold text-sky-900">AI Sync Status</h3>
+                <h3 className="text-sm font-semibold text-sky-900">
+                  AI Sync Status
+                </h3>
                 <p className="text-xs text-sky-700/80">
                   RAG index untuk bakery, production, dan data bisnis lain
                 </p>
@@ -500,7 +595,9 @@ export default function AIAnalysisPage() {
                   <Database className="h-3.5 w-3.5" />
                   Dokumen Vektor
                 </p>
-                <p className="mt-1 text-xl font-bold text-gray-900">{ragStatus.documentCount}</p>
+                <p className="mt-1 text-xl font-bold text-gray-900">
+                  {ragStatus.documentCount}
+                </p>
               </div>
               <div className="rounded-lg border border-white/70 bg-white/75 p-3">
                 <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
@@ -513,7 +610,8 @@ export default function AIAnalysisPage() {
               </div>
             </div>
             <p className="mt-3 text-[11px] text-sky-800/80">
-              Index AI sekarang ikut memasukkan bakery snapshot dan production batch terbaru.
+              Index AI sekarang ikut memasukkan bakery snapshot dan production
+              batch terbaru.
             </p>
             <button
               type="button"
@@ -523,7 +621,11 @@ export default function AIAnalysisPage() {
               disabled={syncingRag}
               className="mt-3 inline-flex items-center gap-2 rounded-full bg-sky-600 px-3.5 py-2 text-xs font-semibold text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {syncingRag ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              {syncingRag ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5" />
+              )}
               {syncingRag ? "Syncing..." : "Sinkron AI"}
             </button>
           </div>
@@ -553,9 +655,13 @@ export default function AIAnalysisPage() {
                 >
                   <Camera className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
                   <div>
-                    <h3 className="font-semibold text-amber-800 text-sm">Catatan</h3>
+                    <h3 className="font-semibold text-amber-800 text-sm">
+                      Catatan
+                    </h3>
                     <p className="text-sm text-amber-700/80 mt-0.5">
-                      Gambar yang diupload akan <strong>otomatis terhapus setelah 1 menit</strong> untuk menghemat storage.
+                      Gambar yang diupload akan{" "}
+                      <strong>otomatis terhapus setelah 1 menit</strong> untuk
+                      menghemat storage.
                     </p>
                   </div>
                 </motion.div>

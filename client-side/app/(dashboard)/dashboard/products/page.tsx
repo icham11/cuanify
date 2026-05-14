@@ -370,8 +370,8 @@ export default function ProductsPage() {
   const [allProducts, setAllProducts] = useState<Product[]>(
     () => initialProductsSnapshot?.data ?? [],
   );
-  const [categories, setCategories] = useState<ProductCategory[]>(
-    () => peekCachedCategoryOptions(),
+  const [categories, setCategories] = useState<ProductCategory[]>(() =>
+    peekCachedCategoryOptions(),
   );
   const [searchInput, setSearchInput] = useState(initialSearch);
   const [productGroupFilter, setProductGroupFilter] = useState("");
@@ -409,8 +409,8 @@ export default function ProductsPage() {
 
   const productGroupOptions = useMemo(() => {
     const groups = new Set(
-      visibleCategories.map(
-        (category) => resolveMainProductCategory(category.name),
+      visibleCategories.map((category) =>
+        resolveMainProductCategory(category.name),
       ),
     );
     return Array.from(groups).sort((a, b) => a.localeCompare(b));
@@ -466,7 +466,9 @@ export default function ProductsPage() {
       }
 
       const leftTime = left.createdAt ? new Date(left.createdAt).getTime() : 0;
-      const rightTime = right.createdAt ? new Date(right.createdAt).getTime() : 0;
+      const rightTime = right.createdAt
+        ? new Date(right.createdAt).getTime()
+        : 0;
       const comparison = leftTime - rightTime;
       return sortOrder === "asc" ? comparison : -comparison;
     });
@@ -489,7 +491,10 @@ export default function ProductsPage() {
       const sellingPrice = Number(product.sellingPrice || 0);
       const cogs = Number(product.cogs || 0);
       if (sellingPrice <= 0 || cogs <= 0) return null;
-      return Math.max(-200, Math.min(100, ((sellingPrice - cogs) / sellingPrice) * 100));
+      return Math.max(
+        -200,
+        Math.min(100, ((sellingPrice - cogs) / sellingPrice) * 100),
+      );
     })
     .filter((value): value is number => value !== null);
   const avgMargin =
@@ -611,7 +616,9 @@ export default function ProductsPage() {
   useEffect(() => {
     if (!categoryFilter) return;
     if (
-      filteredSubcategoryOptions.some((category) => category.id === categoryFilter)
+      filteredSubcategoryOptions.some(
+        (category) => category.id === categoryFilter,
+      )
     ) {
       return;
     }
@@ -637,9 +644,7 @@ export default function ProductsPage() {
     );
     const nextOption =
       PRODUCT_SORT_OPTIONS[
-        currentIndex >= 0
-          ? (currentIndex + 1) % PRODUCT_SORT_OPTIONS.length
-          : 0
+        currentIndex >= 0 ? (currentIndex + 1) % PRODUCT_SORT_OPTIONS.length : 0
       ];
     setSortBy(nextOption.sortBy);
     setSortOrder(nextOption.sortOrder);
@@ -694,7 +699,8 @@ export default function ProductsPage() {
 
             {!roleLoading && isAdmin ? (
               <div className="rounded-2xl border border-[#eadccf] bg-[#fff8f2] px-4 py-3 text-sm font-medium text-[#8c6248]">
-                Role Admin hanya bisa melihat data product. Ubah, hapus, tambah, dan sync hanya untuk Owner.
+                Role Admin hanya bisa melihat data product. Ubah, hapus, tambah,
+                dan sync hanya untuk Owner.
               </div>
             ) : null}
 
@@ -786,7 +792,8 @@ export default function ProductsPage() {
                 {totalCount} produk
               </h2>
               <p className="text-xs text-[#8d6a55]">
-                Rata-rata harga {totalCount > 0 ? formatCurrency(avgSellingPrice) : "—"}
+                Rata-rata harga{" "}
+                {totalCount > 0 ? formatCurrency(avgSellingPrice) : "—"}
                 {" · "}
                 margin {totalCount > 0 ? `${avgMargin}%` : "—"}
               </p>
@@ -807,7 +814,10 @@ export default function ProductsPage() {
 
           {loading && allProducts.length === 0 ? (
             <div className="rounded-[24px] border border-[#e0d0c4] bg-[#fdfaf7] px-6 py-16 text-center">
-              <Loader2 size={28} className="mx-auto animate-spin text-[#c86030]" />
+              <Loader2
+                size={28}
+                className="mx-auto animate-spin text-[#c86030]"
+              />
               <p className="mt-3 text-sm font-semibold text-[#8d6a55]">
                 Memuat produk...
               </p>
@@ -927,7 +937,9 @@ export default function ProductsPage() {
                           </p>
                         </div>
                         <div className="border-r border-[#e0d0c4] px-1 text-center">
-                          <p className="text-[10px] text-[#b89080]">COGS / HPP</p>
+                          <p className="text-[10px] text-[#b89080]">
+                            COGS / HPP
+                          </p>
                           <p className="mt-1 text-sm font-semibold text-[#1e120a]">
                             {cogs > 0 ? formatCompactCurrency(cogs) : "—"}
                           </p>
@@ -935,7 +947,11 @@ export default function ProductsPage() {
                         <div className="border-r border-[#e0d0c4] px-1 text-center">
                           <p className="text-[10px] text-[#b89080]">Margin</p>
                           <p className="mt-1 text-sm font-bold">
-                            {margin !== null ? <MarginBadge margin={margin} /> : "—"}
+                            {margin !== null ? (
+                              <MarginBadge margin={margin} />
+                            ) : (
+                              "—"
+                            )}
                           </p>
                         </div>
                         <div className="border-r border-[#e0d0c4] px-1 text-center">
@@ -1007,9 +1023,13 @@ export default function ProductsPage() {
           onClose={() => setEditModal(null)}
           onSaved={(updated) => {
             setAllProducts((prev) =>
-              prev.map((product) => (product.id === updated.id ? updated : product)),
+              prev.map((product) =>
+                product.id === updated.id ? updated : product,
+              ),
             );
-            setRecipeModal((prev) => (prev?.id === updated.id ? updated : prev));
+            setRecipeModal((prev) =>
+              prev?.id === updated.id ? updated : prev,
+            );
             void refreshCategories();
             setEditModal(null);
           }}

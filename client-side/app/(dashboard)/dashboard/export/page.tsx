@@ -19,7 +19,12 @@ import {
 } from "lucide-react";
 
 type ExportFormat = "csv" | "xlsx";
-type ExportType = "sales" | "stock" | "movements" | "inventory-all" | "bakery-bookings";
+type ExportType =
+  | "sales"
+  | "stock"
+  | "movements"
+  | "inventory-all"
+  | "bakery-bookings";
 
 interface ExportOption {
   id: ExportType;
@@ -34,7 +39,8 @@ const EXPORT_OPTIONS: ExportOption[] = [
   {
     id: "sales",
     title: "Data Penjualan",
-    description: "Semua transaksi dengan detail produk, pendapatan, HPP, profit, dan margin",
+    description:
+      "Semua transaksi dengan detail produk, pendapatan, HPP, profit, dan margin",
     icon: ShoppingCart,
     color: "indigo",
     endpoint: "/api/export/sales",
@@ -42,7 +48,8 @@ const EXPORT_OPTIONS: ExportOption[] = [
   {
     id: "stock",
     title: "Stok Inventori",
-    description: "Daftar bahan, stok saat ini, status, dan nilai total inventori",
+    description:
+      "Daftar bahan, stok saat ini, status, dan nilai total inventori",
     icon: Boxes,
     color: "emerald",
     endpoint: "/api/export/inventory?type=stock",
@@ -66,14 +73,18 @@ const EXPORT_OPTIONS: ExportOption[] = [
   {
     id: "bakery-bookings",
     title: "Bakery Bookings",
-    description: "Order bakery live dari server yang sama dengan bookings, calendar, dan production",
+    description:
+      "Order bakery live dari server yang sama dengan bookings, calendar, dan production",
     icon: Boxes,
     color: "amber",
     endpoint: "",
   },
 ];
 
-const COLOR_MAP: Record<string, { bg: string; border: string; icon: string; text: string; ring: string }> = {
+const COLOR_MAP: Record<
+  string,
+  { bg: string; border: string; icon: string; text: string; ring: string }
+> = {
   indigo: {
     bg: "bg-indigo-50",
     border: "border-indigo-100 hover:border-indigo-300",
@@ -232,10 +243,18 @@ function buildBakeryExportRows(orders: BakeryExportOrder[]) {
       "Nomor Pelacakan (Tracking)": order.shipment?.trackingNumber || "",
       "Status Pengiriman": order.shipment?.status || "",
       "ID Order Pengiriman": order.shipment?.externalOrderId || "",
-      "Notifikasi WA Produksi": order.simulations?.productionWhatsappSent ? "Ya" : "Tidak",
-      "Notifikasi WA Customer": order.simulations?.customerWhatsappSent ? "Ya" : "Tidak",
-      "Event Kalender Aktif": order.simulations?.calendarEventCreated ? "Ya" : "Tidak",
-      "Tersinkronisasi Sheets": order.simulations?.googleSheetsSynced ? "Ya" : "Tidak",
+      "Notifikasi WA Produksi": order.simulations?.productionWhatsappSent
+        ? "Ya"
+        : "Tidak",
+      "Notifikasi WA Customer": order.simulations?.customerWhatsappSent
+        ? "Ya"
+        : "Tidak",
+      "Event Kalender Aktif": order.simulations?.calendarEventCreated
+        ? "Ya"
+        : "Tidak",
+      "Tersinkronisasi Sheets": order.simulations?.googleSheetsSynced
+        ? "Ya"
+        : "Tidak",
     };
   });
 }
@@ -260,22 +279,33 @@ export default function ExportPage() {
           cache: "no-store",
           credentials: "include",
         });
-        const payload =
-          (await response.json().catch(() => ({}))) as BakeryOrdersApiResponse;
+        const payload = (await response
+          .json()
+          .catch(() => ({}))) as BakeryOrdersApiResponse;
 
-        if (!response.ok || !payload.success || !Array.isArray(payload.data?.orders)) {
-          throw new Error(payload.error || "Gagal memuat data bakery dari server");
+        if (
+          !response.ok ||
+          !payload.success ||
+          !Array.isArray(payload.data?.orders)
+        ) {
+          throw new Error(
+            payload.error || "Gagal memuat data bakery dari server",
+          );
         }
 
         const orders = payload.data.orders;
         const filteredOrders = orders.filter((order) => {
-          if (startDate && order.deliveryDate && order.deliveryDate < startDate) return false;
-          if (endDate && order.deliveryDate && order.deliveryDate > endDate) return false;
+          if (startDate && order.deliveryDate && order.deliveryDate < startDate)
+            return false;
+          if (endDate && order.deliveryDate && order.deliveryDate > endDate)
+            return false;
           return true;
         });
 
         if (filteredOrders.length === 0) {
-          toast.error("Data bakery belum ada untuk di-export pada rentang tanggal tersebut.");
+          toast.error(
+            "Data bakery belum ada untuk di-export pada rentang tanggal tersebut.",
+          );
           return;
         }
 
@@ -292,21 +322,31 @@ export default function ExportPage() {
           const sheet = XLSX.utils.json_to_sheet(rows);
           const workbook = XLSX.utils.book_new();
           XLSX.utils.book_append_sheet(workbook, sheet, "Bakery Bookings");
-          const binary = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
+          const binary = XLSX.write(workbook, {
+            bookType: "xlsx",
+            type: "array",
+          });
           downloadBlob(
             new Blob([binary], {
               type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             }),
-            filename
+            filename,
           );
         } else {
           const headers = Object.keys(rows[0] || {});
           const lines = [
             headers.map(csvEscape).join(","),
-            ...rows.map((row) => headers.map((header) => csvEscape(row[header as keyof typeof row])).join(",")),
+            ...rows.map((row) =>
+              headers
+                .map((header) => csvEscape(row[header as keyof typeof row]))
+                .join(","),
+            ),
           ];
           const csv = "\uFEFF" + lines.join("\n");
-          downloadBlob(new Blob([csv], { type: "text/csv;charset=utf-8;" }), filename);
+          downloadBlob(
+            new Blob([csv], { type: "text/csv;charset=utf-8;" }),
+            filename,
+          );
         }
 
         setLastExport(filename);
@@ -353,201 +393,244 @@ export default function ExportPage() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-4 pb-10">
-    <div className="space-y-8 max-w-full">
-      {/* Header */}
-      <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
-        <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-900 flex items-center gap-3">
-          <div className="p-2 sm:p-2.5 bg-linear-to-br from-green-500 to-emerald-500 rounded-xl text-white">
-            <Download className="w-5 h-5 sm:w-7 sm:h-7" />
-          </div>
-          Export Data
-        </h1>
-        <p className="text-gray-500 mt-1 text-sm">
-          Download data transaksi &amp; inventori dalam format CSV atau Excel untuk laporan akhir bulan, pajak, atau
-          pembukuan
-        </p>
-      </motion.div>
-
-      {/* Data Type Selection */}
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
-        <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Pilih Data</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {EXPORT_OPTIONS.map((opt) => {
-            const c = COLOR_MAP[opt.color];
-            const isActive = selected === opt.id;
-            return (
-              <button
-                key={opt.id}
-                onClick={() => {
-                  setSelected(opt.id);
-                  // Force xlsx for inventory-all
-                  if (opt.id === "inventory-all") setFormat("xlsx");
-                }}
-                className={`text-left p-4 rounded-xl border-2 transition-all cursor-pointer ${
-                  isActive ? `${c.border} ${c.bg} ring-2 ${c.ring}` : "border-gray-100 hover:border-gray-200 bg-white"
-                }`}
-              >
-                <div className="flex items-start gap-3">
-                  <div
-                    className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${isActive ? c.icon : "bg-gray-100 text-gray-400"}`}
-                  >
-                    <opt.icon className="w-5 h-5" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className={`font-semibold ${isActive ? c.text : "text-gray-700"}`}>{opt.title}</p>
-                    <p className="text-xs text-gray-400 mt-0.5 line-clamp-2">{opt.description}</p>
-                  </div>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      </motion.div>
-
-      {/* Settings Card */}
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
-        className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden"
-      >
-        <div className="p-6 border-b border-gray-100">
-          <h3 className="text-lg font-bold text-gray-900">Pengaturan Export</h3>
-        </div>
-
-        <div className="p-6 space-y-6">
-          {/* Format Selection */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Format File</label>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setFormat("xlsx")}
-                disabled={selected === "inventory-all"}
-                className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl border-2 transition cursor-pointer ${
-                  format === "xlsx"
-                    ? "border-green-400 bg-green-50 text-green-700"
-                    : "border-gray-100 bg-white text-gray-500 hover:border-gray-200"
-                }`}
-              >
-                <FileSpreadsheet className="w-5 h-5" />
-                <div className="text-left">
-                  <p className="font-semibold text-sm">Excel (.xlsx)</p>
-                  <p className="text-xs opacity-70">Kompatibel dengan Excel &amp; Google Sheets</p>
-                </div>
-              </button>
-              <button
-                onClick={() => setFormat("csv")}
-                disabled={selected === "inventory-all"}
-                className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl border-2 transition cursor-pointer ${
-                  format === "csv"
-                    ? "border-blue-400 bg-blue-50 text-blue-700"
-                    : "border-gray-100 bg-white text-gray-500 hover:border-gray-200"
-                } ${selected === "inventory-all" ? "opacity-40 cursor-not-allowed" : ""}`}
-              >
-                <FileText className="w-5 h-5" />
-                <div className="text-left">
-                  <p className="font-semibold text-sm">CSV (.csv)</p>
-                  <p className="text-xs opacity-70">Format universal, ukuran kecil</p>
-                </div>
-              </button>
+      <div className="space-y-8 max-w-full">
+        {/* Header */}
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-900 flex items-center gap-3">
+            <div className="p-2 sm:p-2.5 bg-linear-to-br from-green-500 to-emerald-500 rounded-xl text-white">
+              <Download className="w-5 h-5 sm:w-7 sm:h-7" />
             </div>
+            Export Data
+          </h1>
+          <p className="text-gray-500 mt-1 text-sm">
+            Download data transaksi &amp; inventori dalam format CSV atau Excel
+            untuk laporan akhir bulan, pajak, atau pembukuan
+          </p>
+        </motion.div>
+
+        {/* Data Type Selection */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05 }}
+        >
+          <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">
+            Pilih Data
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {EXPORT_OPTIONS.map((opt) => {
+              const c = COLOR_MAP[opt.color];
+              const isActive = selected === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  onClick={() => {
+                    setSelected(opt.id);
+                    // Force xlsx for inventory-all
+                    if (opt.id === "inventory-all") setFormat("xlsx");
+                  }}
+                  className={`text-left p-4 rounded-xl border-2 transition-all cursor-pointer ${
+                    isActive
+                      ? `${c.border} ${c.bg} ring-2 ${c.ring}`
+                      : "border-gray-100 hover:border-gray-200 bg-white"
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <div
+                      className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${isActive ? c.icon : "bg-gray-100 text-gray-400"}`}
+                    >
+                      <opt.icon className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <p
+                        className={`font-semibold ${isActive ? c.text : "text-gray-700"}`}
+                      >
+                        {opt.title}
+                      </p>
+                      <p className="text-xs text-gray-400 mt-0.5 line-clamp-2">
+                        {opt.description}
+                      </p>
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </motion.div>
+
+        {/* Settings Card */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden"
+        >
+          <div className="p-6 border-b border-gray-100">
+            <h3 className="text-lg font-bold text-gray-900">
+              Pengaturan Export
+            </h3>
           </div>
 
-          {/* Date Range (only for sales) */}
-          {(selected === "sales" || selected === "bakery-bookings") && (
+          <div className="p-6 space-y-6">
+            {/* Format Selection */}
             <div>
-              <label className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
-                <Calendar className="w-4 h-4" />
-                Rentang Tanggal (opsional)
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Format File
               </label>
-              <div className="flex flex-col sm:flex-row gap-3">
-                <div className="flex-1">
-                  <label className="block text-xs text-gray-400 mb-1">Dari</label>
-                  <input
-                    type="date"
-                    value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-300 text-black placeholder-gray-400"
-                  />
-                </div>
-                <div className="flex items-end pb-2.5">
-                  <ArrowRight className="w-4 h-4 text-gray-300" />
-                </div>
-                <div className="flex-1">
-                  <label className="block text-xs text-gray-400 mb-1">Sampai</label>
-                  <input
-                    type="date"
-                    value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-300 text-black placeholder-gray-400"
-                  />
-                </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setFormat("xlsx")}
+                  disabled={selected === "inventory-all"}
+                  className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl border-2 transition cursor-pointer ${
+                    format === "xlsx"
+                      ? "border-green-400 bg-green-50 text-green-700"
+                      : "border-gray-100 bg-white text-gray-500 hover:border-gray-200"
+                  }`}
+                >
+                  <FileSpreadsheet className="w-5 h-5" />
+                  <div className="text-left">
+                    <p className="font-semibold text-sm">Excel (.xlsx)</p>
+                    <p className="text-xs opacity-70">
+                      Kompatibel dengan Excel &amp; Google Sheets
+                    </p>
+                  </div>
+                </button>
+                <button
+                  onClick={() => setFormat("csv")}
+                  disabled={selected === "inventory-all"}
+                  className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl border-2 transition cursor-pointer ${
+                    format === "csv"
+                      ? "border-blue-400 bg-blue-50 text-blue-700"
+                      : "border-gray-100 bg-white text-gray-500 hover:border-gray-200"
+                  } ${selected === "inventory-all" ? "opacity-40 cursor-not-allowed" : ""}`}
+                >
+                  <FileText className="w-5 h-5" />
+                  <div className="text-left">
+                    <p className="font-semibold text-sm">CSV (.csv)</p>
+                    <p className="text-xs opacity-70">
+                      Format universal, ukuran kecil
+                    </p>
+                  </div>
+                </button>
               </div>
-              <p className="text-xs text-gray-400 mt-2">Kosongkan untuk mengexport semua data</p>
             </div>
-          )}
-        </div>
 
-        {/* Export Button */}
-        <div className="p-6 bg-gray-50 border-t border-gray-100">
-          <div className="flex flex-col sm:flex-row items-center gap-4">
-            <button
-              onClick={handleExport}
-              disabled={exporting}
-              className="w-full sm:w-auto flex items-center justify-center gap-2 px-8 py-3 bg-linear-to-r from-green-500 to-emerald-500 text-white rounded-xl text-sm font-bold hover:from-green-600 hover:to-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition shadow-lg shadow-green-100 active:scale-[0.98]"
-            >
-              {exporting ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  Mengexport...
-                </>
-              ) : (
-                <>
-                  <FileDown className="w-5 h-5" />
-                  Unduh {format.toUpperCase()}
-                </>
-              )}
-            </button>
-
-            {lastExport && (
-              <motion.div
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                className="flex items-center gap-2 text-sm text-green-600"
-              >
-                <CheckCircle2 className="w-4 h-4" />
-                <span className="font-medium">{lastExport}</span>
-              </motion.div>
+            {/* Date Range (only for sales) */}
+            {(selected === "sales" || selected === "bakery-bookings") && (
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+                  <Calendar className="w-4 h-4" />
+                  Rentang Tanggal (opsional)
+                </label>
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <div className="flex-1">
+                    <label className="block text-xs text-gray-400 mb-1">
+                      Dari
+                    </label>
+                    <input
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-300 text-black placeholder-gray-400"
+                    />
+                  </div>
+                  <div className="flex items-end pb-2.5">
+                    <ArrowRight className="w-4 h-4 text-gray-300" />
+                  </div>
+                  <div className="flex-1">
+                    <label className="block text-xs text-gray-400 mb-1">
+                      Sampai
+                    </label>
+                    <input
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-300 text-black placeholder-gray-400"
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-gray-400 mt-2">
+                  Kosongkan untuk mengexport semua data
+                </p>
+              </div>
             )}
           </div>
-        </div>
-      </motion.div>
 
-      {/* Info Cards */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.2 }}
-        className="grid grid-cols-1 sm:grid-cols-3 gap-4"
-      >
-        <InfoCard
-          icon="📊"
-          title="Laporan Pajak"
-          description="Export data penjualan bulanan untuk pelaporan pajak UMKM"
-        />
-        <InfoCard icon="📋" title="Audit Stok" description="Bandingkan stok digital dengan stok fisik di toko Anda" />
-        <InfoCard
-          icon="💰"
-          title="Analisis Profit"
-          description="Buka di Excel untuk analisis margin dan HPP lebih detail"
-        />
-      </motion.div>
-    </div>
+          {/* Export Button */}
+          <div className="p-6 bg-gray-50 border-t border-gray-100">
+            <div className="flex flex-col sm:flex-row items-center gap-4">
+              <button
+                onClick={handleExport}
+                disabled={exporting}
+                className="w-full sm:w-auto flex items-center justify-center gap-2 px-8 py-3 bg-linear-to-r from-green-500 to-emerald-500 text-white rounded-xl text-sm font-bold hover:from-green-600 hover:to-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition shadow-lg shadow-green-100 active:scale-[0.98]"
+              >
+                {exporting ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Mengexport...
+                  </>
+                ) : (
+                  <>
+                    <FileDown className="w-5 h-5" />
+                    Unduh {format.toUpperCase()}
+                  </>
+                )}
+              </button>
+
+              {lastExport && (
+                <motion.div
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className="flex items-center gap-2 text-sm text-green-600"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span className="font-medium">{lastExport}</span>
+                </motion.div>
+              )}
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Info Cards */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.2 }}
+          className="grid grid-cols-1 sm:grid-cols-3 gap-4"
+        >
+          <InfoCard
+            icon="📊"
+            title="Laporan Pajak"
+            description="Export data penjualan bulanan untuk pelaporan pajak UMKM"
+          />
+          <InfoCard
+            icon="📋"
+            title="Audit Stok"
+            description="Bandingkan stok digital dengan stok fisik di toko Anda"
+          />
+          <InfoCard
+            icon="💰"
+            title="Analisis Profit"
+            description="Buka di Excel untuk analisis margin dan HPP lebih detail"
+          />
+        </motion.div>
+      </div>
     </div>
   );
 }
 
-function InfoCard({ icon, title, description }: { icon: string; title: string; description: string }) {
+function InfoCard({
+  icon,
+  title,
+  description,
+}: {
+  icon: string;
+  title: string;
+  description: string;
+}) {
   return (
     <div className="p-4 bg-white rounded-xl border border-gray-100">
       <span className="text-2xl">{icon}</span>

@@ -68,7 +68,9 @@ export default function DashboardPage() {
     lowStock: [] as AlertItem[],
   });
 
-  const [aiInsight] = useState("Your revenue is stable this month. Consider increasing volume to boost growth.");
+  const [aiInsight] = useState(
+    "Your revenue is stable this month. Consider increasing volume to boost growth.",
+  );
 
   const [loading, setLoading] = useState(true);
   const [isAlertOpen, setIsAlertOpen] = useState(false);
@@ -76,7 +78,10 @@ export default function DashboardPage() {
 
   // Move totalAlertCount up so it's defined before alertPulse
   const totalAlertCount =
-    alerts.expired.length + alerts.expiring3.length + alerts.expiring7.length + alerts.lowStock.length;
+    alerts.expired.length +
+    alerts.expiring3.length +
+    alerts.expiring7.length +
+    alerts.lowStock.length;
   // Animation for alert icon
   const alertPulse = totalAlertCount > 0 ? "animate-pulse" : "";
 
@@ -116,11 +121,13 @@ export default function DashboardPage() {
         const salesUrlString = salesUrl.toString();
         const ingredientsUrl = "/api/ingredients?withBatches=true";
 
-        const cachedSalesData = peekApiCache<SalesSummaryResponse>(salesUrlString);
+        const cachedSalesData =
+          peekApiCache<SalesSummaryResponse>(salesUrlString);
         const cachedIngredientData =
           peekApiCache<IngredientsResponse>(ingredientsUrl);
         const hasCachedPayload =
-          Boolean(cachedSalesData?.success) || Boolean(cachedIngredientData?.success);
+          Boolean(cachedSalesData?.success) ||
+          Boolean(cachedIngredientData?.success);
 
         if (!hasCachedPayload) {
           setLoading(true);
@@ -157,7 +164,8 @@ export default function DashboardPage() {
               if (!batch.expirationDate) return;
 
               const expDate = new Date(batch.expirationDate);
-              const diffDays = (expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24);
+              const diffDays =
+                (expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24);
 
               if (diffDays < 0)
                 expired.push({
@@ -253,7 +261,11 @@ export default function DashboardPage() {
           <GlassCard title="Profit" value={formatCurrency(monthProfit)} />
           <GlassCard
             title="Avg Margin"
-            value={todayRevenue > 0 ? `${((monthProfit / todayRevenue) * 100).toFixed(1)}%` : "0%"}
+            value={
+              todayRevenue > 0
+                ? `${((monthProfit / todayRevenue) * 100).toFixed(1)}%`
+                : "0%"
+            }
           />
         </div>
 
@@ -263,7 +275,9 @@ export default function DashboardPage() {
           onClick={() => setIsAlertOpen(true)}
         >
           <div className="flex items-center gap-4">
-            <span className={`rounded-full bg-amber-200 p-3 shadow-md ${alertPulse}`}>
+            <span
+              className={`rounded-full bg-amber-200 p-3 shadow-md ${alertPulse}`}
+            >
               <AlertTriangle className="text-amber-600" size={28} />
             </span>
             <div>
@@ -276,12 +290,16 @@ export default function DashboardPage() {
                 )}
               </p>
               <p className="text-sm text-amber-600 mt-1">
-                {totalAlertCount > 0 ? `${totalAlertCount} items need attention` : "All inventory is healthy!"}
+                {totalAlertCount > 0
+                  ? `${totalAlertCount} items need attention`
+                  : "All inventory is healthy!"}
               </p>
             </div>
           </div>
           <div className="absolute right-6 top-6">
-            {totalAlertCount > 0 && <span className="animate-ping inline-block w-3 h-3 bg-amber-400 rounded-full" />}
+            {totalAlertCount > 0 && (
+              <span className="animate-ping inline-block w-3 h-3 bg-amber-400 rounded-full" />
+            )}
           </div>
         </div>
 
@@ -296,19 +314,29 @@ export default function DashboardPage() {
 
         {/* AI Insight */}
         <div className="rounded-2xl border border-[#ffd8b7] bg-linear-to-br from-white via-[#fffaf1] to-[#fff2df] p-4 shadow-sm sm:p-6 lg:p-8">
-          <h2 className="mb-4 text-base font-semibold text-[#243b5a] sm:text-lg">🤖 AI Insight</h2>
+          <h2 className="mb-4 text-base font-semibold text-[#243b5a] sm:text-lg">
+            🤖 AI Insight
+          </h2>
           <p className="text-gray-600 text-sm leading-relaxed">{aiInsight}</p>
         </div>
       </div>
 
-      {isAlertOpen && <PremiumModal alerts={alerts} onClose={() => setIsAlertOpen(false)} />}
+      {isAlertOpen && (
+        <PremiumModal alerts={alerts} onClose={() => setIsAlertOpen(false)} />
+      )}
     </div>
   );
 }
 
 /* Extra Components */
 
-function GlassCard({ title, value }: { title: string; value: string | number }) {
+function GlassCard({
+  title,
+  value,
+}: {
+  title: string;
+  value: string | number;
+}) {
   const toneClass =
     title === "Revenue"
       ? "before:bg-[#f26a21]"
@@ -319,9 +347,13 @@ function GlassCard({ title, value }: { title: string; value: string | number }) 
           : "before:bg-[#2a4d91]";
 
   return (
-    <div className={`relative rounded-xl border border-[#ffd8b7] bg-white/90 p-4 pt-5 shadow-sm transition before:absolute before:left-4 before:top-0 before:h-1 before:w-14 before:rounded-full hover:-translate-y-0.5 hover:border-[#ffc894] hover:shadow-md sm:rounded-2xl sm:p-6 sm:pt-7 ${toneClass}`}>
+    <div
+      className={`relative rounded-xl border border-[#ffd8b7] bg-white/90 p-4 pt-5 shadow-sm transition before:absolute before:left-4 before:top-0 before:h-1 before:w-14 before:rounded-full hover:-translate-y-0.5 hover:border-[#ffc894] hover:shadow-md sm:rounded-2xl sm:p-6 sm:pt-7 ${toneClass}`}
+    >
       <p className="text-xs text-[#6b7280] sm:text-sm">{title}</p>
-      <h2 className="mt-1 truncate text-lg font-bold text-[#243b5a] sm:mt-2 sm:text-2xl">{value}</h2>
+      <h2 className="mt-1 truncate text-lg font-bold text-[#243b5a] sm:mt-2 sm:text-2xl">
+        {value}
+      </h2>
     </div>
   );
 }
@@ -339,12 +371,18 @@ function PremiumModal({
   onClose: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#111827]/45 backdrop-blur-sm" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[#111827]/45 backdrop-blur-sm"
+      onClick={onClose}
+    >
       <div
         className="relative w-full max-w-lg rounded-3xl border border-[#ffd8b7] bg-white p-8 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <button className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 text-xl" onClick={onClose}>
+        <button
+          className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 text-xl"
+          onClick={onClose}
+        >
           ×
         </button>
         <h2 className="text-2xl font-bold mb-6 text-amber-700 flex items-center gap-2">
@@ -377,7 +415,9 @@ function PremiumModal({
                   <li key={i} className="flex items-center gap-2 text-sm">
                     <span className="inline-block w-2 h-2 bg-amber-700 rounded-full mr-1" />
                     <span className="font-medium">{a.name}</span>
-                    <span className="text-xs text-slate-500">({a.expirationDate})</span>
+                    <span className="text-xs text-slate-500">
+                      ({a.expirationDate})
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -386,13 +426,17 @@ function PremiumModal({
           {/* Expiring in 3 days */}
           {alerts.expiring3.length > 0 && (
             <div>
-              <p className="font-semibold text-orange-500 mb-2">Expiring Soon (≤3 days)</p>
+              <p className="font-semibold text-orange-500 mb-2">
+                Expiring Soon (≤3 days)
+              </p>
               <ul className="space-y-1">
                 {alerts.expiring3.map((a, i) => (
                   <li key={i} className="flex items-center gap-2 text-sm">
                     <span className="inline-block w-2 h-2 bg-orange-400 rounded-full mr-1" />
                     <span className="font-medium">{a.name}</span>
-                    <span className="text-xs text-slate-500">({a.expirationDate})</span>
+                    <span className="text-xs text-slate-500">
+                      ({a.expirationDate})
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -401,13 +445,17 @@ function PremiumModal({
           {/* Expiring in 7 days */}
           {alerts.expiring7.length > 0 && (
             <div>
-              <p className="font-semibold text-yellow-500 mb-2">Expiring Soon (≤7 days)</p>
+              <p className="font-semibold text-yellow-500 mb-2">
+                Expiring Soon (≤7 days)
+              </p>
               <ul className="space-y-1">
                 {alerts.expiring7.map((a, i) => (
                   <li key={i} className="flex items-center gap-2 text-sm">
                     <span className="inline-block w-2 h-2 bg-yellow-400 rounded-full mr-1" />
                     <span className="font-medium">{a.name}</span>
-                    <span className="text-xs text-slate-500">({a.expirationDate})</span>
+                    <span className="text-xs text-slate-500">
+                      ({a.expirationDate})
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -418,7 +466,9 @@ function PremiumModal({
             alerts.expired.length === 0 &&
             alerts.expiring3.length === 0 &&
             alerts.expiring7.length === 0 && (
-              <div className="text-green-600 text-center font-semibold text-lg">🎉 All inventory is healthy!</div>
+              <div className="text-green-600 text-center font-semibold text-lg">
+                🎉 All inventory is healthy!
+              </div>
             )}
         </div>
       </div>
