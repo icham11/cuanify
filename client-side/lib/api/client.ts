@@ -137,6 +137,16 @@ function buildRequestSignal(
   return controller.signal;
 }
 
+function createAbortError(): Error {
+  if (typeof DOMException !== "undefined") {
+    return new DOMException("The operation was aborted.", "AbortError");
+  }
+
+  const error = new Error("The operation was aborted.");
+  error.name = "AbortError";
+  return error;
+}
+
 export function peekApiCache<T>(
   input: RequestInfo,
   init?: RequestInit,
@@ -219,9 +229,13 @@ export async function apiFetch(
         return cachedEntry.data;
       }
 
-      const inFlightRequest = apiInFlightRequests.get(cacheKey);
-      if (inFlightRequest) {
-        return inFlightRequest;
+      // Don't reuse an in-flight GET when the caller supplies its own abort
+      // signal. Otherwise a newer caller can inherit an older aborted promise.
+      if (!init?.signal) {
+        const inFlightRequest = apiInFlightRequests.get(cacheKey);
+        if (inFlightRequest) {
+          return inFlightRequest;
+        }
       }
     }
 
@@ -236,12 +250,20 @@ export async function apiFetch(
     };
 
     const requestPromise = (async () => {
-      const res = await fetch(input, {
-        credentials: "include",
-        ...requestInit,
-        signal,
-        headers,
-      });
+      let res: Response;
+      try {
+        res = await fetch(input, {
+          credentials: "include",
+          ...requestInit,
+          signal,
+          headers,
+        });
+      } catch (error) {
+        if (signal.aborted) {
+          throw createAbortError();
+        }
+        throw error;
+      }
 
       if (res.status === 401) {
         throw new Error("Unauthorized");
@@ -259,7 +281,7 @@ export async function apiFetch(
       return json;
     })();
 
-    if (cacheKey) {
+    if (cacheKey && !init?.signal) {
       apiInFlightRequests.set(cacheKey, requestPromise);
     }
 

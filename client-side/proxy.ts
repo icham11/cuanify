@@ -147,7 +147,6 @@ const ADMIN_ALLOWED_API_RULES: Array<{
   { prefix: "/api/sales", methods: ["GET"] },
   { prefix: "/api/categories", methods: ["GET"] },
   { prefix: "/api/products", methods: ["GET", "POST", "DELETE"] },
-  { prefix: "/api/products/sync-bakery-catalog", methods: ["POST"] },
 ];
 
 const MOBILE_USER_AGENT_PATTERN = /Android|iPhone|iPad|iPod|Mobile/i;

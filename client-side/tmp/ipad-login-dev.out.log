@@ -1,0 +1,13 @@
+
+> client-side@0.1.0 dev:webpack
+> node ./scripts/clean-next-dev-cache.mjs && next dev --hostname localhost --port 3000 --webpack --port 3001
+
+[dev-cache] Skip cache cleanup because active Next dev lock exists in: .
+▲ Next.js 16.1.6 (webpack)
+- Local:         http://localhost:3001
+- Network:       http://localhost:3001
+- Environments: .env
+
+✓ Starting...
+  Suggestion: If you intended to restart next dev, terminate the other process, and then try again.
+[?25h

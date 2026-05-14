@@ -762,7 +762,7 @@ export default function ReportsPage() {
         <p className="mt-3 text-[11px] text-[#9b775e]">Laporan aktif: {reportScopeLabel}</p>
 
         <div className="mt-5 grid gap-5 xl:grid-cols-2">
-        <section>
+          <section>
           <h2 className="mb-2 flex items-center gap-2 text-[1rem] font-bold text-[#23160f]">
             <span>💰</span> Keuangan
           </h2>
@@ -805,7 +805,7 @@ export default function ReportsPage() {
           ) : null}
         </section>
 
-        <section>
+          <section>
           <h2 className="mb-2 flex items-center gap-2 text-[1rem] font-bold text-[#23160f]">
             <span>📦</span> Orders
           </h2>
@@ -821,7 +821,7 @@ export default function ReportsPage() {
           </div>
         </section>
 
-        <section>
+          <section>
           <h2 className="mb-2 flex items-center gap-2 text-[1rem] font-bold text-[#23160f]">
             <span>🏆</span> Produk Terjual
           </h2>
@@ -850,7 +850,7 @@ export default function ReportsPage() {
           </div>
         </section>
 
-        <section>
+          <section>
           <h2 className="mb-2 flex items-center gap-2 text-[1rem] font-bold text-[#23160f]">
             <span>👥</span> Customer
           </h2>
@@ -875,7 +875,7 @@ export default function ReportsPage() {
           </div>
         </section>
 
-        <section>
+          <section>
           <h2 className="mb-2 flex items-center gap-2 text-[1rem] font-bold text-[#23160f]">
             <span>👤</span> Kinerja Staff
           </h2>
@@ -931,7 +931,7 @@ export default function ReportsPage() {
           </div>
         </section>
 
-        <section>
+          <section>
           <h2 className="mb-2 flex items-center gap-2 text-[1rem] font-bold text-[#23160f]">
             <span>🪪</span> Absensi Staff
           </h2>
@@ -971,6 +971,8 @@ export default function ReportsPage() {
             )}
           </div>
         </section>
+        </div>
+      </section>
     </div>
   );
 }

@@ -686,6 +686,7 @@ export default function OrderDetailPage() {
           )}
 
         </div>
+        </div>
       </section>
     </div>
   );
