@@ -24,7 +24,13 @@ import {
 import { id as localeId } from "date-fns/locale";
 import "react-big-calendar/lib/css/react-big-calendar.css";
 import { type BakeryOrder, useOrders } from "@/components/bakery/store";
-import { ChevronLeft, ChevronRight, X, Loader2, Calendar as IconCalendar } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  X,
+  Loader2,
+  Calendar as IconCalendar,
+} from "lucide-react";
 import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import { toast } from "sonner";
 import {
@@ -466,9 +472,15 @@ export default function BakeryCalendarPage() {
     return filteredInternalOrders.flatMap((order) => {
       const start = parseOrderDateTime(order.deliveryDate, order.deliverySlot);
       if (!start) return [];
+      const firstItem = order.items?.[0];
+      const productName = firstItem?.productName ?? order.product;
+      const quantity = firstItem?.quantity ?? 1;
+      const totalQty =
+        order.items?.reduce((sum, item) => sum + (item.quantity ?? 1), 0) ??
+        quantity;
       return {
         id: order.id,
-        title: `${order.customerName} - ${order.items?.[0]?.productName ?? order.product}`,
+        title: `${order.customerName} - ${productName} x${totalQty}`,
         start,
         end: addHours(start, 1),
         resource: { source: "internal" as const, order },
@@ -580,7 +592,7 @@ export default function BakeryCalendarPage() {
       case "AVAILABLE":
       default:
         return "Kapasitas masih tersedia";
-      }
+    }
   }, [selectedStatus, selectedCapacity, cutoffHour]);
 
   const selectedUsagePercent = selectedCapacity
@@ -652,371 +664,394 @@ export default function BakeryCalendarPage() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-4 pb-10 text-[#2f1e13]">
-      <GradientPageHeader title="Calendar" description={`Kapasitas ${calendarMaxToken} tok/hari · ${isRoleLoading ? "..." : ""}`} icon={IconCalendar} />
+      <GradientPageHeader
+        title="Calendar"
+        description={`Kapasitas ${calendarMaxToken} tok/hari · ${isRoleLoading ? "..." : ""}`}
+        icon={IconCalendar}
+      />
 
-      <section className="space-y-3 rounded-[28px] border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] p-4 shadow-[0_16px_30px_-24px_rgba(30,18,10,0.45)]">
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,0.9fr)]">
-        <div className="rounded-[34px] border border-[#dec8b6] bg-[#fffaf4] p-4 shadow-[0_24px_60px_-38px_rgba(94,53,30,0.45)]">
-        <div className="flex items-start justify-between gap-3 border-b border-[#ead6c8] pb-4">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h1 className="text-[1.05rem] font-bold leading-none text-[#1f140d]">
-                Calendar
-              </h1>
-            </div>
-            <p className="mt-1 text-[11px] text-[#b0734d]">
-              Kapasitas {calendarMaxToken} tok/hari · 2 staff aktif
-            </p>
-          </div>
-
-          <div className="inline-flex rounded-full border border-[#e1c9b6] bg-[#fff1e6] p-1">
-            <button
-              type="button"
-              onClick={() => setCurrentView(Views.WEEK)}
-              className={`rounded-full px-3 py-1.5 text-[11px] font-semibold transition ${
-                currentView === Views.WEEK
-                  ? "bg-white text-[#4c2b15] shadow-sm"
-                  : "text-[#ab7757]"
-              }`}
-            >
-              Minggu
-            </button>
-            <button
-              type="button"
-              onClick={() => setCurrentView(Views.MONTH)}
-              className={`rounded-full px-3 py-1.5 text-[11px] font-semibold transition ${
-                currentView === Views.MONTH
-                  ? "bg-[#d9692d] text-white shadow-sm"
-                  : "text-[#ab7757]"
-              }`}
-            >
-              Bulan
-            </button>
-          </div>
-        </div>
-
-        {capacityError ? (
-          <div className="mt-4 rounded-[16px] border border-[#f2b0a7] bg-[#fff1ef] px-4 py-3 text-xs text-[#ba5644]">
-            Failed to load capacity data: {capacityError}
-          </div>
-        ) : null}
-
-          <div className="mt-4 rounded-[20px] border border-[#dec8b6] bg-[#fffdf9] p-3 lg:p-4">
-          {isCapacityLoading ? (
-            <div className="flex items-center justify-center gap-2 pb-3 text-xs font-medium text-[#8c5f44]">
-              <Loader2 className="h-4 w-4 animate-spin text-[#cb6531]" />
-              Loading capacity data...
-            </div>
-          ) : null}
-
-            <div
-              className={
-                currentView === Views.MONTH
-                  ? "h-[392px] md:h-[500px] xl:h-[640px]"
-                  : "h-[540px] md:h-[640px] xl:h-[760px]"
-              }
-            >
-            <Calendar
-              localizer={localizer}
-              culture="id"
-              events={visibleEvents}
-              startAccessor="start"
-              endAccessor="end"
-              date={currentDate}
-              view={currentView}
-              defaultView={Views.MONTH}
-              views={[Views.MONTH, Views.WEEK]}
-              selectable
-              popup
-              onNavigate={(newDate) => setCurrentDate(newDate)}
-              onView={(nextView) => setCurrentView(nextView)}
-              onSelectSlot={(slotInfo) => {
-                openDateOrdersPopup(slotInfo.start);
-              }}
-              onSelectEvent={(event) => {
-                if (event.resource.source === "internal") {
-                  router.push(`/bakery/bookings/${event.resource.order.id}`);
-                  return;
-                }
-                if (event.resource.htmlLink) {
-                  window.open(
-                    event.resource.htmlLink,
-                    "_blank",
-                    "noopener,noreferrer",
-                  );
-                }
-              }}
-              eventPropGetter={(event) => ({
-                style: {
-                  backgroundColor:
-                    event.resource.source === "internal"
-                      ? statusColor(event.resource.order.orderStatus)
-                      : "#0ea5e9",
-                  color: "#ffffff",
-                  border: "none",
-                  borderRadius: "6px",
-                  padding: "1px 4px",
-                  fontSize: "10px",
-                },
-              })}
-              dayPropGetter={(date) => {
-                const dateKey = toDateKey(date);
-                const status = statusByDate.get(dateKey) ?? "AVAILABLE";
-
-                if (status === "PAST") return { className: "rbc-day-past" };
-                if (status === "BLOCKED") return { className: "rbc-day-blocked" };
-                if (status === "FULL") return { className: "rbc-day-full" };
-                if (status === "CUTOFF") return { className: "rbc-day-cutoff" };
-                if (status === "WARNING") return { className: "rbc-day-warning" };
-                return { className: "rbc-day-normal" };
-              }}
-              components={{
-                toolbar: CalendarToolbar,
-                event: CalendarEventItem,
-                month: {
-                  dateHeader: DateHeader,
-                },
-              }}
-            />
-          </div>
-
-            <div className="mt-3 flex flex-wrap gap-x-3 gap-y-2 rounded-[16px] border border-[#ead6c8] bg-white px-3 py-2 text-[10px] font-medium text-[#8a6a54]">
-            <span className="inline-flex items-center gap-1">
-              <span className="h-2 w-2 rounded-full bg-[#bdb4ae]" /> Passed
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <span className="h-2 w-2 rounded-full bg-[#ec9e9e]" /> Libur
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <span className="h-2 w-2 rounded-full bg-[#3d9958]" /> Available
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <span className="h-2 w-2 rounded-full bg-[#d3a423]" /> {">=80% penuh"}
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <span className="h-2 w-2 rounded-full bg-[#db6b2e]" /> Terlambat
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <span className="h-2 w-2 rounded-full bg-[#d24f40]" /> Closed H-1
-            </span>
-            </div>
-          </div>
-        </div>
-
-        {selectedDate && selectedCapacity ? (
-          <div className="overflow-hidden rounded-[20px] border border-[#dd8c5a] bg-[#fffdf9] xl:sticky xl:top-4 xl:self-start">
-            <div className="flex items-start justify-between gap-3 border-b border-[#ebc8b0] bg-[#fff1e6] px-4 py-3">
-              <div>
-                <p className="text-lg font-semibold leading-tight text-[#cb6531]">
-                  {selectedDateLabel}
-                </p>
-                <p
-                  className={`mt-1 text-xs font-medium ${
-                    selectedStatus === "PAST"
-                      ? "text-[#8d837c]"
-                      : selectedStatus === "BLOCKED"
-                        ? "text-[#dc6e59]"
-                        : selectedStatus === "FULL"
-                          ? "text-[#d7662d]"
-                          : selectedStatus === "WARNING"
-                            ? "text-[#a27516]"
-                            : selectedStatus === "CUTOFF"
-                              ? "text-[#d24f40]"
-                              : "text-[#4f8b57]"
-                  }`}
-                >
-                  {selectedStatusMessage}
+      <section className="space-y-3 rounded-3xl border border-[#e2d1c3] bg-white p-3 shadow-sm md:p-4 lg:p-5 lg:shadow-[0_8px_16px_-8px_rgba(30,18,10,0.1)]">
+        <div className="grid gap-3 lg:gap-4 lg:grid-cols-[1fr_minmax(300px,0.85fr)]">
+          <div className="rounded-3xl border border-[#e2d1c3] bg-gradient-to-br from-[#fffaf4] to-[#fffdf9] p-3 md:p-4 lg:p-5">
+            <div className="flex flex-col items-start justify-between gap-3 border-b border-[#e8dcd0] pb-3 md:gap-4 md:pb-4 sm:flex-row sm:items-center">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <h1 className="text-lg font-bold leading-tight text-[#1f140d] md:text-xl">
+                    📅 Calendar
+                  </h1>
+                </div>
+                <p className="mt-1.5 text-xs text-[#8a6a54] md:text-sm">
+                  Kapasitas {calendarMaxToken} tok/hari · 2 staff aktif
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => router.push("/bakery/bookings/new")}
-                className="rounded-full bg-[#d3662d] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#bc5925]"
+
+              <div className="inline-flex shrink-0 rounded-full border border-[#dcc7b8] bg-[#f8f1e8] p-1">
+                <button
+                  type="button"
+                  onClick={() => setCurrentView(Views.WEEK)}
+                  className={`rounded-full px-2.5 py-1 text-xs font-semibold transition md:px-3 md:py-1.5 md:text-sm ${
+                    currentView === Views.WEEK
+                      ? "bg-white text-[#4c2b15] shadow-sm"
+                      : "text-[#8a6a54] hover:text-[#5c3e2e]"
+                  }`}
+                >
+                  Minggu
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentView(Views.MONTH)}
+                  className={`rounded-full px-2.5 py-1 text-xs font-semibold transition md:px-3 md:py-1.5 md:text-sm ${
+                    currentView === Views.MONTH
+                      ? "bg-[#cb6837] text-white shadow-sm"
+                      : "text-[#8a6a54] hover:text-[#5c3e2e]"
+                  }`}
+                >
+                  Bulan
+                </button>
+              </div>
+            </div>
+
+            {capacityError && (
+              <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600 md:mt-4 md:px-4 md:py-3">
+                ⚠️ Gagal memuat data kapasitas: {capacityError}
+              </div>
+            )}
+
+            <div className="mt-3 rounded-2xl border border-[#dcc7b8] bg-[#fffdf9] p-3 md:mt-4 md:p-4">
+              {isCapacityLoading && (
+                <div className="flex items-center justify-center gap-2 pb-3 text-xs font-medium text-[#8c5f44] md:text-sm">
+                  <Loader2 className="h-4 w-4 animate-spin text-[#cb6837]" />
+                  Loading...
+                </div>
+              )}
+
+              <div
+                className={`w-full overflow-hidden rounded-xl border border-[#e2d1c3] bg-white ${
+                  currentView === Views.MONTH
+                    ? "h-[300px] sm:h-[400px] md:h-[500px] lg:h-[580px]"
+                    : "h-[400px] sm:h-[500px] md:h-[600px] lg:h-[680px]"
+                }`}
               >
-                + Booking
-              </button>
-            </div>
+                <Calendar
+                  localizer={localizer}
+                  culture="id"
+                  events={visibleEvents}
+                  startAccessor="start"
+                  endAccessor="end"
+                  date={currentDate}
+                  view={currentView}
+                  defaultView={Views.MONTH}
+                  views={[Views.MONTH, Views.WEEK]}
+                  selectable
+                  popup
+                  onNavigate={(newDate) => setCurrentDate(newDate)}
+                  onView={(nextView) => setCurrentView(nextView)}
+                  onSelectSlot={(slotInfo) => {
+                    openDateOrdersPopup(slotInfo.start);
+                  }}
+                  onSelectEvent={(event) => {
+                    if (event.resource.source === "internal") {
+                      router.push(
+                        `/bakery/bookings/${event.resource.order.id}`,
+                      );
+                      return;
+                    }
+                    if (event.resource.htmlLink) {
+                      window.open(
+                        event.resource.htmlLink,
+                        "_blank",
+                        "noopener,noreferrer",
+                      );
+                    }
+                  }}
+                  eventPropGetter={(event) => ({
+                    style: {
+                      backgroundColor:
+                        event.resource.source === "internal"
+                          ? statusColor(event.resource.order.orderStatus)
+                          : "#0ea5e9",
+                      color: "#ffffff",
+                      border: "none",
+                      borderRadius: "6px",
+                      padding: "1px 4px",
+                      fontSize: "10px",
+                    },
+                  })}
+                  dayPropGetter={(date) => {
+                    const dateKey = toDateKey(date);
+                    const status = statusByDate.get(dateKey) ?? "AVAILABLE";
 
-            <div className="grid grid-cols-2 gap-3 px-4 py-4 text-center sm:grid-cols-4 xl:grid-cols-2">
-              <div>
-                <p className="text-[2rem] font-bold leading-none text-[#1e140e]">
-                  {selectedCapacity.usedToken}
-                </p>
-                <p className="mt-1 text-[11px] text-[#8a6a54]">Terpakai</p>
-              </div>
-              <div>
-                <p className="text-[2rem] font-bold leading-none text-[#1e140e]">
-                  {selectedCapacity.maxToken}
-                </p>
-                <p className="mt-1 text-[11px] text-[#8a6a54]">Maks</p>
-              </div>
-              <div>
-                <p
-                  className={`text-[2rem] font-bold leading-none ${
-                    selectedCapacity.maxToken - selectedCapacity.usedToken <= 0
-                      ? "text-[#d24f40]"
-                      : selectedCapacity.maxToken - selectedCapacity.usedToken <=
-                          selectedCapacity.maxToken * 0.2
-                        ? "text-[#a27516]"
-                        : "text-[#2d8a55]"
-                  }`}
-                >
-                  {selectedCapacity.maxToken - selectedCapacity.usedToken}
-                </p>
-                <p className="mt-1 text-[11px] text-[#8a6a54]">Sisa</p>
-              </div>
-              <div>
-                <p className="text-[2rem] font-bold leading-none text-[#1e140e]">
-                  {selectedDateOrdersAll.length}
-                </p>
-                <p className="mt-1 text-[11px] text-[#8a6a54]">Orders</p>
-              </div>
-            </div>
-
-            <div className="px-4 pb-4">
-              <div className="h-2 rounded-full bg-[#eadbcf]">
-                <div
-                  className={`h-2 rounded-full transition-all duration-500 ${
-                    selectedCapacity.usedToken >= selectedCapacity.maxToken
-                      ? "bg-[#d24f40]"
-                      : selectedCapacity.usedToken >=
-                          selectedCapacity.maxToken * 0.8
-                        ? "bg-[#d3a423]"
-                        : "bg-[#3d9958]"
-                  }`}
-                  style={{ width: `${selectedUsagePercent}%` }}
+                    if (status === "PAST") return { className: "rbc-day-past" };
+                    if (status === "BLOCKED")
+                      return { className: "rbc-day-blocked" };
+                    if (status === "FULL") return { className: "rbc-day-full" };
+                    if (status === "CUTOFF")
+                      return { className: "rbc-day-cutoff" };
+                    if (status === "WARNING")
+                      return { className: "rbc-day-warning" };
+                    return { className: "rbc-day-normal" };
+                  }}
+                  components={{
+                    toolbar: CalendarToolbar,
+                    event: CalendarEventItem,
+                    month: {
+                      dateHeader: DateHeader,
+                    },
+                  }}
                 />
               </div>
-              <p className="mt-2 text-right text-[11px] text-[#b28061]">
-                {selectedUsagePercent}% kapasitas terpakai
-              </p>
+
+              <div className="mt-3 flex flex-wrap gap-x-2 gap-y-1.5 rounded-xl border border-[#dcc7b8] bg-[#faf7f3] px-3 py-2.5 text-[10px] font-medium text-[#8a6a54] md:gap-x-3 md:gap-y-2 md:px-4 md:py-3 md:text-xs">
+                <span className="inline-flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full bg-[#bdb4ae]" /> Passed
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full bg-[#ec9e9e]" /> Libur
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full bg-[#3d9958]" />{" "}
+                  Available
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full bg-[#d3a423]" />{" "}
+                  {">=80% penuh"}
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full bg-[#db6b2e]" />{" "}
+                  Terlambat
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full bg-[#d24f40]" /> Closed
+                  H-1
+                </span>
+              </div>
             </div>
           </div>
-        ) : null}
-      </div>
 
-      {/* Date Orders Popup */}
-      {isDateOrdersPopupOpen ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="date-orders-popup-title"
-          onClick={() => setIsDateOrdersPopupOpen(false)}
-        >
-          <div
-            className="w-full max-w-2xl overflow-hidden rounded-3xl border border-[#ffd8b7] bg-white shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-start justify-between border-b border-gray-100 px-5 py-4">
-              <div>
-                <h3
-                  id="date-orders-popup-title"
-                  className="text-base font-semibold text-gray-900"
-                >
-                  Orders on {selectedDateLabel}
-                </h3>
-                <div className="mt-1 flex flex-wrap items-center gap-2">
-                  <p className="text-xs text-gray-500">
-                    {selectedDateOrdersAll.length} order(s)
+          {selectedDate && selectedCapacity ? (
+            <div className="mt-4 overflow-hidden rounded-3xl border border-[#dcc7b8] bg-gradient-to-br from-[#fffaf4] to-[#fffdf9] lg:mt-0 lg:sticky lg:top-4 lg:self-start">
+              <div className="flex flex-col items-start justify-between gap-3 border-b border-[#e8dcd0] bg-[#f8f1e8] px-4 py-3 md:flex-row md:items-center md:px-5 md:py-4">
+                <div className="min-w-0 flex-1">
+                  <p className="text-base font-bold leading-tight text-[#cb6837] md:text-lg">
+                    {selectedDateLabel}
                   </p>
-                  {selectedCapacity ? (
-                    <span
-                      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                        selectedStatus === "PAST"
-                          ? "bg-gray-200 text-gray-700"
-                          : selectedStatus === "BLOCKED"
-                            ? "bg-rose-100 text-rose-700"
-                            : selectedStatus === "FULL"
-                              ? "bg-red-100 text-red-700"
-                              : selectedStatus === "WARNING"
-                                ? "bg-amber-100 text-amber-700"
-                                : selectedStatus === "CUTOFF"
-                                  ? "bg-rose-100 text-rose-700"
-                                  : "bg-emerald-100 text-emerald-700"
-                      }`}
-                    >
-                      {selectedCapacity.usedToken} / {selectedCapacity.maxToken}{" "}
-                      token &mdash; sisa{" "}
-                      {selectedCapacity.maxToken - selectedCapacity.usedToken}
-                    </span>
-                  ) : null}
-                </div>
-                {selectedStatusMessage ? (
                   <p
-                    className={`mt-1 text-xs font-medium ${
+                    className={`mt-1 text-xs font-medium md:text-sm ${
                       selectedStatus === "PAST"
-                        ? "text-gray-600"
+                        ? "text-[#8d837c]"
                         : selectedStatus === "BLOCKED"
-                          ? "text-rose-600"
+                          ? "text-[#dc6e59]"
                           : selectedStatus === "FULL"
-                            ? "text-red-600"
+                            ? "text-[#d7662d]"
                             : selectedStatus === "WARNING"
-                              ? "text-amber-600"
+                              ? "text-[#a27516]"
                               : selectedStatus === "CUTOFF"
-                                ? "text-rose-600"
-                                : "text-emerald-600"
+                                ? "text-[#d24f40]"
+                                : "text-[#4f8b57]"
                     }`}
                   >
                     {selectedStatusMessage}
                   </p>
-                ) : null}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => router.push("/bakery/bookings/new")}
+                  className="shrink-0 rounded-full bg-[#cb6837] px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#b15a31] md:px-4 md:py-2.5 md:text-sm"
+                >
+                  + Booking
+                </button>
               </div>
-              <button
-                type="button"
-                aria-label="Close popup"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 text-gray-600 transition hover:bg-gray-100"
-                onClick={() => setIsDateOrdersPopupOpen(false)}
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
 
-            <div className="max-h-[70vh] space-y-2 overflow-y-auto px-5 py-4">
-              {!selectedDate ? (
-                <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/60 px-4 py-5 text-sm text-gray-500">
-                  Pilih tanggal di kalender untuk melihat order.
+              <div className="grid grid-cols-2 gap-2 px-4 py-4 text-center md:gap-3 md:px-5 md:py-5 lg:grid-cols-2">
+                <div className="rounded-lg border border-[#e2d1c3] bg-white p-2 md:p-3">
+                  <p className="text-xl font-bold leading-none text-[#1e140e] md:text-2xl">
+                    {selectedCapacity.usedToken}
+                  </p>
+                  <p className="mt-1.5 text-[10px] text-[#8a6a54] md:text-xs">
+                    Terpakai
+                  </p>
                 </div>
-              ) : selectedDateOrdersAll.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/60 px-4 py-5 text-sm text-gray-500">
-                  Tidak ada order pada tanggal ini.
+                <div className="rounded-lg border border-[#e2d1c3] bg-white p-2 md:p-3">
+                  <p className="text-xl font-bold leading-none text-[#1e140e] md:text-2xl">
+                    {selectedCapacity.maxToken}
+                  </p>
+                  <p className="mt-1.5 text-[10px] text-[#8a6a54] md:text-xs">
+                    Maks
+                  </p>
                 </div>
-              ) : (
-                selectedDateOrdersAll.map((order) => (
-                  <button
-                    key={order.id}
-                    type="button"
-                    className="flex w-full flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-100 bg-gray-50/70 px-4 py-3 text-left transition hover:border-[#ffd8b7] hover:bg-[#fff4df]"
-                    onClick={() => {
-                      setIsDateOrdersPopupOpen(false);
-                      router.push(`/bakery/bookings/${order.id}`);
-                    }}
+                <div className="rounded-lg border border-[#e2d1c3] bg-white p-2 md:p-3">
+                  <p
+                    className={`text-xl font-bold leading-none md:text-2xl ${
+                      selectedCapacity.maxToken - selectedCapacity.usedToken <=
+                      0
+                        ? "text-[#d24f40]"
+                        : selectedCapacity.maxToken -
+                              selectedCapacity.usedToken <=
+                            selectedCapacity.maxToken * 0.2
+                          ? "text-[#a27516]"
+                          : "text-[#2d8a55]"
+                    }`}
                   >
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-semibold text-gray-900">
-                        {order.customerName}
-                      </p>
-                      <p className="mt-1 truncate text-xs text-gray-500">
-                        {order.items?.[0]?.productName ?? order.product} -{" "}
-                        {order.deliverySlot || "-"}
-                      </p>
-                    </div>
-                    <span
-                      className="rounded-full px-3 py-1 text-xs font-semibold text-white"
-                      style={{
-                        backgroundColor: statusColor(order.orderStatus),
+                    {selectedCapacity.maxToken - selectedCapacity.usedToken}
+                  </p>
+                  <p className="mt-1.5 text-[10px] text-[#8a6a54] md:text-xs">
+                    Sisa
+                  </p>
+                </div>
+                <div className="rounded-lg border border-[#e2d1c3] bg-white p-2 md:p-3">
+                  <p className="text-xl font-bold leading-none text-[#1e140e] md:text-2xl">
+                    {selectedDateOrdersAll.length}
+                  </p>
+                  <p className="mt-1.5 text-[10px] text-[#8a6a54] md:text-xs">
+                    Orders
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-4 px-4 pb-4 md:px-5 md:pb-5">
+                <div className="h-2 rounded-full bg-[#e8dcd0]">
+                  <div
+                    className={`h-2 rounded-full transition-all duration-500 ${
+                      selectedCapacity.usedToken >= selectedCapacity.maxToken
+                        ? "bg-[#d24f40]"
+                        : selectedCapacity.usedToken >=
+                            selectedCapacity.maxToken * 0.8
+                          ? "bg-[#d3a423]"
+                          : "bg-[#3d9958]"
+                    }`}
+                    style={{ width: `${selectedUsagePercent}%` }}
+                  />
+                </div>
+                <p className="mt-2.5 text-right text-xs font-medium text-[#8a6a54] md:text-sm">
+                  {selectedUsagePercent}% terpakai
+                </p>
+              </div>
+            </div>
+          ) : null}
+        </div>
+
+        {/* Date Orders Popup */}
+        {isDateOrdersPopupOpen ? (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="date-orders-popup-title"
+            onClick={() => setIsDateOrdersPopupOpen(false)}
+          >
+            <div
+              className="w-full max-w-2xl overflow-hidden rounded-3xl border border-[#ffd8b7] bg-white shadow-2xl"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="flex items-start justify-between border-b border-gray-100 px-5 py-4">
+                <div>
+                  <h3
+                    id="date-orders-popup-title"
+                    className="text-base font-semibold text-gray-900"
+                  >
+                    Orders on {selectedDateLabel}
+                  </h3>
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    <p className="text-xs text-gray-500">
+                      {selectedDateOrdersAll.length} order(s)
+                    </p>
+                    {selectedCapacity ? (
+                      <span
+                        className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                          selectedStatus === "PAST"
+                            ? "bg-gray-200 text-gray-700"
+                            : selectedStatus === "BLOCKED"
+                              ? "bg-rose-100 text-rose-700"
+                              : selectedStatus === "FULL"
+                                ? "bg-red-100 text-red-700"
+                                : selectedStatus === "WARNING"
+                                  ? "bg-amber-100 text-amber-700"
+                                  : selectedStatus === "CUTOFF"
+                                    ? "bg-rose-100 text-rose-700"
+                                    : "bg-emerald-100 text-emerald-700"
+                        }`}
+                      >
+                        {selectedCapacity.usedToken} /{" "}
+                        {selectedCapacity.maxToken} token &mdash; sisa{" "}
+                        {selectedCapacity.maxToken - selectedCapacity.usedToken}
+                      </span>
+                    ) : null}
+                  </div>
+                  {selectedStatusMessage ? (
+                    <p
+                      className={`mt-1 text-xs font-medium ${
+                        selectedStatus === "PAST"
+                          ? "text-gray-600"
+                          : selectedStatus === "BLOCKED"
+                            ? "text-rose-600"
+                            : selectedStatus === "FULL"
+                              ? "text-red-600"
+                              : selectedStatus === "WARNING"
+                                ? "text-amber-600"
+                                : selectedStatus === "CUTOFF"
+                                  ? "text-rose-600"
+                                  : "text-emerald-600"
+                      }`}
+                    >
+                      {selectedStatusMessage}
+                    </p>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  aria-label="Close popup"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 text-gray-600 transition hover:bg-gray-100"
+                  onClick={() => setIsDateOrdersPopupOpen(false)}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="max-h-[70vh] space-y-2 overflow-y-auto px-5 py-4">
+                {!selectedDate ? (
+                  <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/60 px-4 py-5 text-sm text-gray-500">
+                    Pilih tanggal di kalender untuk melihat order.
+                  </div>
+                ) : selectedDateOrdersAll.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/60 px-4 py-5 text-sm text-gray-500">
+                    Tidak ada order pada tanggal ini.
+                  </div>
+                ) : (
+                  selectedDateOrdersAll.map((order) => (
+                    <button
+                      key={order.id}
+                      type="button"
+                      className="flex w-full flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-100 bg-gray-50/70 px-4 py-3 text-left transition hover:border-[#ffd8b7] hover:bg-[#fff4df]"
+                      onClick={() => {
+                        setIsDateOrdersPopupOpen(false);
+                        router.push(`/bakery/bookings/${order.id}`);
                       }}
                     >
-                      {order.orderStatus}
-                    </span>
-                  </button>
-                ))
-              )}
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-semibold text-gray-900">
+                          {order.customerName}
+                        </p>
+                        <p className="mt-1 truncate text-xs text-gray-500">
+                          {order.items?.[0]?.productName ?? order.product} x
+                          {order.items?.reduce((sum, item) => sum + (item.quantity ?? 1), 0) ?? 1} -{" "}
+                          {order.deliverySlot || "-"}
+                        </p>
+                      </div>
+                      <span
+                        className="rounded-full px-3 py-1 text-xs font-semibold text-white"
+                        style={{
+                          backgroundColor: statusColor(order.orderStatus),
+                        }}
+                      >
+                        {order.orderStatus}
+                      </span>
+                    </button>
+                  ))
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      ) : null}
-
+        ) : null}
       </section>
 
       {/* Global Styles */}
@@ -1024,21 +1059,23 @@ export default function BakeryCalendarPage() {
         .rbc-calendar {
           font-family: inherit;
           color: #2f1e13;
+          font-size: clamp(0.8rem, 1.5vw, 1rem);
         }
 
         .rbc-header {
-          padding: 0.7rem 0;
-          font-size: 0.68rem;
+          padding: clamp(0.5rem, 1.5vw, 0.9rem) 0;
+          font-size: clamp(0.65rem, 1.2vw, 0.75rem);
           font-weight: 700;
-          color: #9b775e;
-          border-bottom: 1px solid #ead9cd;
-          background: #fff8f1;
+          color: #8a6a54;
+          border-bottom: 1px solid #dcc7b8;
+          background: linear-gradient(135deg, #fffaf4 0%, #fffdf9 100%);
           text-transform: uppercase;
           letter-spacing: 0.08em;
         }
 
         .rbc-day-bg {
           transition: background-color 180ms ease;
+          border: 1px solid #e8dcd0;
         }
 
         .rbc-day-normal {
@@ -1078,24 +1115,26 @@ export default function BakeryCalendarPage() {
         .rbc-day-slot .rbc-time-slot,
         .rbc-timeslot-group,
         .rbc-time-gutter {
-          border-color: #ead9cd;
+          border-color: #e2d1c3;
         }
 
         .rbc-month-view,
         .rbc-time-view {
-          border-radius: 18px;
+          border-radius: 12px;
           overflow: hidden;
-          border: 1px solid #ead9cd;
-          background: #fffdf9;
+          border: 1px solid #dcc7b8;
+          background: white;
+          box-shadow: 0 1px 3px rgba(47, 30, 19, 0.05);
         }
 
         .rbc-event,
         .rbc-day-slot .rbc-background-event {
-          box-shadow: none;
+          box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+          border-radius: 4px !important;
         }
 
         .rbc-month-row {
-          min-height: 96px;
+          min-height: clamp(60px, 12vw, 96px);
         }
 
         @media (min-width: 1280px) {
@@ -1167,5 +1206,3 @@ export default function BakeryCalendarPage() {
     </div>
   );
 }
-
-
