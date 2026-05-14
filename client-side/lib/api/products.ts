@@ -374,25 +374,6 @@ export async function bulkDeleteProducts(ids: number[]): Promise<void> {
   invalidateApiCache(/\/api\/products/);
 }
 
-/** POST /api/ingredients — create a new ingredient (find-or-create), always seats an initial batch */
-/** POST /api/products/sync-bakery-catalog - replace dashboard products from bakery catalog */
-export async function syncBakeryCatalogProducts(): Promise<{
-  deletedCount: number;
-  createdCount: number;
-  subcategoryCount: number;
-}> {
-  const res = await fetch("/api/products/sync-bakery-catalog", {
-    method: "POST",
-    credentials: "include",
-  });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.error ?? "Failed to sync bakery catalog products");
-  }
-  invalidateApiCache(/\/api\/(products|categories|bookings\/catalog-config)/);
-  return data.data;
-}
-
 /** POST /api/ingredients - create a new ingredient (find-or-create), always seats an initial batch */
 export async function createIngredient(data: {
   name: string;

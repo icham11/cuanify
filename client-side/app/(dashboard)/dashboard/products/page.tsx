@@ -21,7 +21,6 @@ import {
   deleteProduct,
   peekCachedCategoryOptions,
   peekCachedProducts,
-  syncBakeryCatalogProducts,
 } from "@/lib/api/products";
 import type { Product, ProductCategory } from "@/types/product";
 import EditProductModal from "./EditProductModal";
@@ -381,10 +380,6 @@ export default function ProductsPage() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(() => !initialProductsSnapshot);
   const [error, setError] = useState<string | null>(null);
-  const [syncingCatalog, setSyncingCatalog] = useState(false);
-  const [syncCatalogMessage, setSyncCatalogMessage] = useState<string | null>(
-    null,
-  );
   const [editModal, setEditModal] = useState<Product | null>(null);
   const [deleteModal, setDeleteModal] = useState<Product | null>(null);
   const [recipeModal, setRecipeModal] = useState<Product | null>(null);
@@ -582,33 +577,6 @@ export default function ProductsPage() {
     }
   };
 
-  const handleSyncBakeryCatalog = async () => {
-    if (!canManageProducts) return;
-    setSyncingCatalog(true);
-    setError(null);
-    setSyncCatalogMessage(null);
-    try {
-      const result = await syncBakeryCatalogProducts();
-      setProductGroupFilter("");
-      setCategoryFilter(null);
-      setSearchInput("");
-      setPage(1);
-      await refreshCategories();
-      await refreshProducts();
-      setSyncCatalogMessage(
-        `Synced ${result.createdCount} product dari bakery catalog.`,
-      );
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Gagal sync product dari bakery catalog",
-      );
-    } finally {
-      setSyncingCatalog(false);
-    }
-  };
-
   useEffect(() => {
     void refreshProducts();
   }, []);
@@ -671,13 +639,6 @@ export default function ProductsPage() {
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <button
-                onClick={handleSyncBakeryCatalog}
-                disabled={syncingCatalog || !canManageProducts}
-                className="hidden rounded-full border border-[#d7b6a1] bg-white px-3 py-2 text-xs font-semibold text-[#7c3410] transition hover:bg-[#fff7f1] disabled:opacity-60 sm:inline-flex"
-              >
-                {syncingCatalog ? "Sync..." : "Sync Catalog"}
-              </button>
               {canManageProducts ? (
                 <button
                   onClick={() => setAddProductModalOpen(true)}
@@ -691,16 +652,10 @@ export default function ProductsPage() {
           </div>
 
           <div className="space-y-4 px-4 py-4 sm:px-5">
-            {syncCatalogMessage ? (
-              <div className="rounded-2xl border border-[#d8eadf] bg-[#f4fbf7] px-4 py-3 text-sm font-semibold text-[#2a5c3f]">
-                {syncCatalogMessage}
-              </div>
-            ) : null}
-
             {!roleLoading && isAdmin ? (
               <div className="rounded-2xl border border-[#eadccf] bg-[#fff8f2] px-4 py-3 text-sm font-medium text-[#8c6248]">
-                Role Admin hanya bisa melihat data product. Ubah, hapus, tambah,
-                dan sync hanya untuk Owner.
+                Role Admin hanya bisa melihat data product. Ubah, hapus, dan
+                tambah hanya untuk Owner.
               </div>
             ) : null}
 

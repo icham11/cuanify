@@ -74,5 +74,34 @@ export async function POST(req: Request) {
     maxAge: 7 * 24 * 60 * 60, // 7 days
   });
 
+  if (businessId) {
+    response.cookies.set("active_business_id", String(businessId), {
+      httpOnly: false,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 7 * 24 * 60 * 60,
+    });
+  }
+
+  for (const legacyCookieName of [
+    "next-auth.session-token",
+    "__Secure-next-auth.session-token",
+    "next-auth.callback-url",
+    "__Secure-next-auth.callback-url",
+    "next-auth.csrf-token",
+    "__Host-next-auth.csrf-token",
+  ]) {
+    response.cookies.set(legacyCookieName, "", {
+      httpOnly: true,
+      secure:
+        process.env.NODE_ENV === "production" ||
+        legacyCookieName.startsWith("__"),
+      sameSite: "lax",
+      path: "/",
+      maxAge: 0,
+    });
+  }
+
   return response;
 }

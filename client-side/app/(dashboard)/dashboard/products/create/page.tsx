@@ -160,25 +160,24 @@ export default function CreateProductsPage() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-4 pb-10">
-    <div className="space-y-8">
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={() => router.push("/dashboard/products")}
-          className="rounded-full p-2 text-gray-500 transition hover:bg-indigo-50 hover:text-indigo-600"
-        >
-          <ChevronLeft size={22} />
-        </button>
+      <div className="space-y-8">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => router.push("/dashboard/products")}
+            className="rounded-full p-2 text-gray-500 transition hover:bg-indigo-50 hover:text-indigo-600"
+          >
+            <ChevronLeft size={22} />
+          </button>
+          <div>
+            <h1 className="text-xl font-bold text-slate-800 sm:text-2xl">
+              Tambah Produk
+            </h1>
+            <p className="mt-0.5 text-sm text-gray-400">
+              COGS/HPP diisi langsung sebagai nominal produk.
+            </p>
+          </div>
         </div>
-      </div>
-      </div>
-            Tambah Produk
-          </h1>
-          <p className="mt-0.5 text-sm text-gray-400">
-            COGS/HPP diisi langsung sebagai nominal produk.
-          </p>
-        </div>
-      </div>
 
       {mode === "idle" && (
         <div className="space-y-4">
@@ -328,21 +327,22 @@ export default function CreateProductsPage() {
         </div>
       )}
 
-      {photoModalOpen && (
-        <PhotoUploadModal
-          onClose={() => setPhotoModalOpen(false)}
-          onSuccess={(generatedDrafts) => {
-            setPhotoModalOpen(false);
-            setDrafts(
-              generatedDrafts.map((draft) => ({
-                ...draft,
-                recipe: [],
-              })),
-            );
-            setMode("bulk-drafts");
-          }}
-        />
-      )}
+        {photoModalOpen && (
+          <PhotoUploadModal
+            onClose={() => setPhotoModalOpen(false)}
+            onSuccess={(generatedDrafts) => {
+              setPhotoModalOpen(false);
+              setDrafts(
+                generatedDrafts.map((draft) => ({
+                  ...draft,
+                  recipe: [],
+                })),
+              );
+              setMode("bulk-drafts");
+            }}
+          />
+        )}
+      </div>
     </div>
   );
 }

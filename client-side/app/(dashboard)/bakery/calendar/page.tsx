@@ -1017,7 +1017,6 @@ export default function BakeryCalendarPage() {
         </div>
       ) : null}
 
-        </div>
       </section>
 
       {/* Global Styles */}

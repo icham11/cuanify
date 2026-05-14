@@ -1,15 +1,34 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getSession } from "next-auth/react";
 import { Eye, EyeOff } from "lucide-react";
 
-// Helper to read cookie value
-function getCookie(name: string): string | undefined {
-  if (typeof document === "undefined") return undefined;
-  const match = document.cookie.match(new RegExp("(^| )" + name + "=([^;]+)"));
-  return match ? decodeURIComponent(match[2]) : undefined;
+async function hasActiveSession(): Promise<boolean> {
+  try {
+    const response = await fetch("/api/auth/me", {
+      method: "GET",
+      credentials: "same-origin",
+      cache: "no-store",
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForActiveSession(timeoutMs = 5000): Promise<boolean> {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    if (await hasActiveSession()) {
+      return true;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+
+  return false;
 }
 
 export function LoginForm() {
@@ -21,38 +40,40 @@ export function LoginForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // Redirect if already authenticated — role-aware
   useEffect(() => {
     async function checkAuth() {
-      // 1. Check custom JWT cookie
-      const token = getCookie("token");
-      
-      // 2. Check NextAuth session on client side
-      const session = await getSession();
+      const authenticated = await hasActiveSession();
 
-      if (token || session) {
-        // Anti-loop protection: if we've redirected more than 3 times in 10 seconds, stop.
+      if (authenticated) {
         const now = Date.now();
-        const lastRedirect = Number(sessionStorage.getItem("last_auth_redirect") || 0);
-        const redirectCount = Number(sessionStorage.getItem("auth_redirect_count") || 0);
+        const lastRedirect = Number(
+          sessionStorage.getItem("last_auth_redirect") || 0,
+        );
+        const redirectCount = Number(
+          sessionStorage.getItem("auth_redirect_count") || 0,
+        );
 
         if (now - lastRedirect < 10000 && redirectCount > 3) {
           console.warn("Auth loop detected. Stopping automatic redirect.");
-          setError("Terdeteksi masalah login (loop). Silakan hapus cache browser Anda.");
+          setError(
+            "Terdeteksi masalah login (loop). Silakan hapus cache browser Anda.",
+          );
           return;
         }
 
         sessionStorage.setItem("last_auth_redirect", String(now));
-        sessionStorage.setItem("auth_redirect_count", String(redirectCount + 1));
+        sessionStorage.setItem(
+          "auth_redirect_count",
+          String(redirectCount + 1),
+        );
 
         window.location.replace("/api/auth/post-login");
       } else {
-        // Reset count if we are finally showing the login page
         sessionStorage.removeItem("auth_redirect_count");
       }
     }
-    
-    checkAuth();
+
+    void checkAuth();
   }, []);
 
   const handleEmailLogin = async () => {
@@ -68,6 +89,8 @@ export function LoginForm() {
 
       const res = await fetch("/api/auth/login", {
         method: "POST",
+        credentials: "same-origin",
+        cache: "no-store",
         headers: {
           "Content-Type": "application/json",
         },
@@ -79,9 +102,11 @@ export function LoginForm() {
         throw new Error(text);
       }
 
-      // Login success — redirect through server-side post-login route
-      // which checks role (Cashier → /pos, Owner → /dashboard, no business → /onboarding)
-      await new Promise((r) => setTimeout(r, 200)); // wait for cookie to set
+      const sessionReady = await waitForActiveSession();
+      if (!sessionReady) {
+        throw new Error("Sesi login belum siap. Coba klik masuk sekali lagi.");
+      }
+
       window.location.replace("/api/auth/post-login");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Login gagal");
@@ -99,17 +124,15 @@ export function LoginForm() {
         Masuk ke dashboard Crumbella untuk kelola operasional cake shop
       </p>
 
-      {/* Error message */}
       {error && (
-        <div className="mb-4 text-sm text-red-600 bg-red-50 border border-red-200 p-3 rounded-xl">
+        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-600">
           {error}
         </div>
       )}
 
-      {/* Email Login Form */}
       <div className="space-y-3">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="mb-1 block text-sm font-medium text-gray-700">
             Email
           </label>
           <input
@@ -122,7 +145,7 @@ export function LoginForm() {
           />
         </div>
         <div className="relative">
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="mb-1 block text-sm font-medium text-gray-700">
             Password
           </label>
           <input
@@ -135,10 +158,12 @@ export function LoginForm() {
           />
           <button
             type="button"
-            aria-label={showPassword ? "Sembunyikan password" : "Tampilkan password"}
+            aria-label={
+              showPassword ? "Sembunyikan password" : "Tampilkan password"
+            }
             aria-pressed={showPassword}
             className="absolute right-3 top-8.5 text-gray-400 transition hover:text-gray-600"
-            onClick={() => setShowPassword((v) => !v)}
+            onClick={() => setShowPassword((value) => !value)}
           >
             {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
           </button>
@@ -153,7 +178,6 @@ export function LoginForm() {
         {loading ? "Memproses..." : "Masuk"}
       </button>
 
-      {/* Register Link */}
       <div className="mt-6 text-center">
         <p className="text-sm text-gray-500">
           Belum punya akun?{" "}

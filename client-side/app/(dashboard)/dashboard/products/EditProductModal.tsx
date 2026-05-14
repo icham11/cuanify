@@ -13,6 +13,7 @@ import {
 } from "@/lib/bookings/catalog-admin";
 import { buildEffectiveProductCatalog as buildEffectiveCatalogFromState } from "@/lib/bookings/catalog-state";
 import { BOOKING_PRODUCT_CATALOG } from "@/lib/bookings/pricelist";
+import { resolveMainProductCategory } from "@/lib/products/main-category";
 import { Plus, X, Loader2, CheckCircle2, AlertTriangle } from "lucide-react";
 
 // _clientId is present in ProductDraft, but we use it in DraftRecipeRow for UI keys
@@ -399,7 +400,10 @@ function inferBookingFieldsFromDashboardName(args: {
 
 export default function EditProductModal({ product, categories, onClose, onSaved }: EditProductModalProps) {
   const initialSubcategory = product.category?.name ?? "";
-  const initialProductCategory = resolveProductCategoryBySubcategory(initialSubcategory);
+  const initialProductCategory = initialSubcategory
+    ? resolveProductCategoryBySubcategory(initialSubcategory) ||
+      resolveMainProductCategory(initialSubcategory)
+    : "";
   const initialBookingFields = inferBookingFieldsFromDashboardName({
     dashboardName: product.name,
     subcategoryName: initialSubcategory,
@@ -440,6 +444,7 @@ export default function EditProductModal({ product, categories, onClose, onSaved
   const [saving, setSaving] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const bookingFieldsEditedRef = useRef(false);
+  const originalCogs = Math.max(0, Number(product.cogs || 0));
   const resolvedInitialCatalogEntryRef = useRef<CustomProductEntry>({
     category: initialProductCategory.trim(),
     subcategory: initialSubcategory.trim(),
@@ -449,8 +454,16 @@ export default function EditProductModal({ product, categories, onClose, onSaved
   });
 
   const productCategoryOptions = useMemo(
-    () => BOOKING_PRODUCT_CATALOG.map((entry) => entry.category),
-    [],
+    () =>
+      Array.from(
+        new Set(
+          [
+            ...BOOKING_PRODUCT_CATALOG.map((entry) => entry.category),
+            productCategory.trim(),
+          ].filter(Boolean),
+        ),
+      ),
+    [productCategory],
   );
 
   const subcategoryOptions = useMemo(() => {
@@ -459,10 +472,15 @@ export default function EditProductModal({ product, categories, onClose, onSaved
     );
     const fromCatalog = category?.subcategories.map((entry) => entry.name) ?? [];
     const fromDashboard = categories.map((entry) => entry.name);
-    return productCategory
-      ? fromCatalog
-      : Array.from(new Set([...fromCatalog, ...fromDashboard]));
-  }, [productCategory, categories]);
+    const fallbackOptions =
+      fromCatalog.length > 0 ? fromCatalog : fromDashboard;
+
+    return Array.from(
+      new Set(
+        [...fallbackOptions, bookingSubcategory.trim()].filter(Boolean),
+      ),
+    );
+  }, [productCategory, categories, bookingSubcategory]);
 
   useEffect(() => {
     getIngredientOptions()
@@ -540,7 +558,10 @@ export default function EditProductModal({ product, categories, onClose, onSaved
     if (!bookingVariantLabel.trim()) return "Variant/size booking wajib diisi.";
     if (!dashboardProductName.trim()) return "Nama produk dashboard belum valid.";
     if (!sellingPrice || sellingPrice <= 0) return "Harga jual harus lebih dari 0.";
-    if (!directCogs || directCogs <= 0) return "COGS/HPP wajib diisi dan harus lebih dari 0.";
+    if (directCogs < 0) return "COGS/HPP tidak boleh negatif.";
+    if (directCogs <= 0 && originalCogs > 0) {
+      return "COGS/HPP wajib diisi dan harus lebih dari 0.";
+    }
     const filledRecipe = recipe.filter((r) => r.ingredientName.trim() || r.ingredientId > 0);
     const hasInvalid = filledRecipe.some((r) => !r.ingredientName.trim() || r.quantity <= 0);
     if (filledRecipe.length > 0 && hasInvalid) return "Setiap bahan membutuhkan nama dan jumlah yang valid.";
@@ -589,11 +610,12 @@ export default function EditProductModal({ product, categories, onClose, onSaved
         name: dashboardProductName,
         categoryName: bookingSubcategory.trim(),
         sellingPrice: Number(sellingPrice),
-        cogs: Number(directCogs),
+        ...(Number(directCogs) > 0 ? { cogs: Number(directCogs) } : {}),
         productionToken: Number(productionToken),
         manualStock: Number(manualStock),
         productType,
         recipe: recipePayload,
+        ...(recipePayload.length === 0 ? { manualCogs: Number(directCogs) } : {}),
       });
 
       try {
