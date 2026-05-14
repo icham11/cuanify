@@ -339,15 +339,16 @@ export default function BusinessPage() {
       const currentRange = getMonthRange(selectedMonth);
       const previousRange = getMonthRange(currentRange.prevMonthKey);
 
-      const [
-        bakerySettingsPayload,
-        ordersPayload,
-        productsPayload,
-      ] = await Promise.all([
-        safeApiFetch<BakerySettingsResponse>("/api/bakery/settings"),
-        safeApiFetch<BakeryOrdersResponse>("/api/bookings/orders?mode=financial"),
-        safeApiFetch<ProductsResponse>("/api/products?mode=financial&limit=999"),
-      ]);
+      const [bakerySettingsPayload, ordersPayload, productsPayload] =
+        await Promise.all([
+          safeApiFetch<BakerySettingsResponse>("/api/bakery/settings"),
+          safeApiFetch<BakeryOrdersResponse>(
+            "/api/bookings/orders?mode=financial",
+          ),
+          safeApiFetch<ProductsResponse>(
+            "/api/products?mode=financial&limit=999",
+          ),
+        ]);
 
       if (!active) return;
 
@@ -382,9 +383,7 @@ export default function BusinessPage() {
       const totalCost = currentSummary.cogsCost;
       const previousRevenue = previousSummary.totalRevenue;
       const avgMargin =
-        currentRevenue > 0
-          ? (currentProfit / currentRevenue) * 100
-          : 0;
+        currentRevenue > 0 ? (currentProfit / currentRevenue) * 100 : 0;
 
       const nextViewState: ViewState = {
         viewerName: userName?.trim() || "",
@@ -399,7 +398,8 @@ export default function BusinessPage() {
         paidSalesCount: deliveryRangeOrders.filter((order) => {
           const totalPaid = Number(order.totalPaidAmount ?? 0);
           const fallbackPaid =
-            Number(order.dpPaidAmount ?? 0) + Number(order.finalPaidAmount ?? 0);
+            Number(order.dpPaidAmount ?? 0) +
+            Number(order.finalPaidAmount ?? 0);
           return totalPaid > 0 || fallbackPaid > 0;
         }).length,
         topProducts: currentSummary.topProducts,
@@ -418,9 +418,7 @@ export default function BusinessPage() {
         deliveryRangeOrders.length > 0 ||
         currentSummary.paidOrdersCount > 0 ||
         currentSummary.topProducts.length > 0;
-      const hasBackendFailure =
-        ordersRequestFailed ||
-        productsRequestFailed;
+      const hasBackendFailure = ordersRequestFailed || productsRequestFailed;
 
       setError(
         hasBackendFailure && !hasPrimaryData
@@ -435,7 +433,14 @@ export default function BusinessPage() {
     return () => {
       active = false;
     };
-  }, [business?.id, business?.name, business?.location, selectedMonth, refreshToken, userName]);
+  }, [
+    business?.id,
+    business?.name,
+    business?.location,
+    selectedMonth,
+    refreshToken,
+    userName,
+  ]);
 
   const monthLabel = useMemo(
     () => getMonthLabel(selectedMonth),
@@ -536,258 +541,257 @@ export default function BusinessPage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl px-3 pb-10 pt-4 text-[#23150f] sm:px-4">
+    <div className="mx-auto max-w-7xl space-y-4 pb-10 text-[#23150f]">
       <div className="overflow-hidden rounded-[34px] border border-[#e4d2c4] bg-[#f8efe5] px-4 pb-6 pt-3 shadow-[0_26px_55px_-42px_rgba(94,53,30,0.6)] sm:px-5 xl:px-6">
-      <div className="overflow-hidden rounded-[30px] border border-[#dcc8b8] bg-[#f7efe7] shadow-[0_14px_36px_rgba(84,56,36,0.10)]">
-        <div className="flex flex-wrap items-center gap-3 border-b border-[#e5d4c7] px-5 py-4">
-          <button
-            type="button"
-            className="rounded-full p-2 text-[#7d553f] transition hover:bg-[#efe3d8]"
-            aria-label="Business menu"
-          >
-            <Menu size={18} />
-          </button>
-          <div className="min-w-0 flex-1">
-            <h1 className="text-[26px] font-extrabold leading-none tracking-[-0.03em] text-[#1f120e]">
-              Business
-            </h1>
-            <p className="mt-1 truncate text-[12px] text-[#bf8c73]">
-              {viewState.businessName}
-              {viewState.viewerName ? ` / ${viewState.viewerName}` : ""}
-            </p>
-          </div>
-          <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#f0d6c2] text-sm font-bold text-[#a24d22]">
-            {avatarLabel || "BS"}
-          </div>
-        </div>
-
-        <div className="space-y-5 px-4 py-4 sm:px-5 lg:px-6">
-          <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto]">
-            <label className="relative flex-1">
-              <select
-                value={selectedMonth}
-                onChange={(event) => setSelectedMonth(event.target.value)}
-                className="h-11 w-full appearance-none rounded-xl border border-[#dbcabc] bg-white px-3 pr-10 text-sm font-semibold text-[#23150f] shadow-[0_2px_8px_rgba(84,56,36,0.06)] outline-none transition focus:border-[#d88a5d]"
-              >
-                {monthOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown
-                size={16}
-                className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#b58872]"
-              />
-            </label>
+        <div className="overflow-hidden rounded-[30px] border border-[#dcc8b8] bg-[#f7efe7] shadow-[0_14px_36px_rgba(84,56,36,0.10)]">
+          <div className="flex flex-wrap items-center gap-3 border-b border-[#e5d4c7] px-5 py-4">
             <button
               type="button"
-              onClick={handleExport}
-              className="inline-flex h-11 items-center gap-2 rounded-xl bg-[#c86030] px-4 text-sm font-bold text-white shadow-[0_6px_18px_rgba(200,96,48,0.28)] transition hover:bg-[#b85628]"
+              className="rounded-full p-2 text-[#7d553f] transition hover:bg-[#efe3d8]"
+              aria-label="Business menu"
             >
-              <Download size={15} />
-              Export
+              <Menu size={18} />
             </button>
+            <div className="min-w-0 flex-1">
+              <h1 className="text-[26px] font-extrabold leading-none tracking-[-0.03em] text-[#1f120e]">
+                Business
+              </h1>
+              <p className="mt-1 truncate text-[12px] text-[#bf8c73]">
+                {viewState.businessName}
+                {viewState.viewerName ? ` / ${viewState.viewerName}` : ""}
+              </p>
+            </div>
+            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#f0d6c2] text-sm font-bold text-[#a24d22]">
+              {avatarLabel || "BS"}
+            </div>
           </div>
 
-          <section className="overflow-hidden rounded-[18px] border border-[#dbcabc] bg-white shadow-[0_2px_10px_rgba(84,56,36,0.06)]">
-            <div className="grid grid-cols-1 divide-y divide-[#ead8cb] px-4 py-4 sm:grid-cols-2 sm:divide-x sm:divide-y-0">
-              <div className="pr-3">
-                <p className="text-[11px] text-[#b58872]">Total Revenue</p>
-                <p className="mt-1 text-[20px] font-extrabold leading-none text-[#1f120e]">
-                  {formatCompactRupiah(viewState.currentRevenue)}
-                </p>
-                <p
-                  className={`mt-2 text-[11px] font-semibold ${
-                    revenueGrowth >= 0 ? "text-[#17653d]" : "text-[#c85d34]"
-                  }`}
+          <div className="space-y-5 px-4 py-4 sm:px-5 lg:px-6">
+            <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto]">
+              <label className="relative flex-1">
+                <select
+                  value={selectedMonth}
+                  onChange={(event) => setSelectedMonth(event.target.value)}
+                  className="h-11 w-full appearance-none rounded-xl border border-[#dbcabc] bg-white px-3 pr-10 text-sm font-semibold text-[#23150f] shadow-[0_2px_8px_rgba(84,56,36,0.06)] outline-none transition focus:border-[#d88a5d]"
                 >
-                  {revenueGrowth >= 0 ? "+" : "-"}{" "}
-                  {`${revenueGrowth >= 0 ? "+" : ""}${Math.round(revenueGrowth)}%`}{" "}
-                  vs {previousMonthLabel}
-                </p>
-              </div>
-              <div className="pt-4 sm:pl-3 sm:pt-0">
-                <p className="text-[11px] text-[#b58872]">Profit Bersih</p>
-                <p
-                  className={`mt-1 text-[20px] font-extrabold leading-none ${
-                    netProfit >= 0 ? "text-[#17653d]" : "text-[#c85d34]"
-                  }`}
-                >
-                  {formatCompactRupiah(netProfit)}
-                </p>
-                <p className="mt-2 text-[11px] text-[#b58872]">
-                  setelah semua biaya yang tersedia
-                </p>
-              </div>
-            </div>
-            <div className="border-t border-[#ead8cb] bg-[#fff8f3] px-4 py-3">
-              <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#7d675a]">
-                <span className="font-semibold text-[#1f120e]">
-                  Sales:
-                </span>
-                <span className="rounded-full bg-[#fbf0d8] px-2.5 py-1 font-semibold text-[#9a6b10]">
-                  Total {viewState.totalSalesCount}
-                </span>
-                <span className="rounded-full bg-[#e4f4ee] px-2.5 py-1 font-semibold text-[#17653d]">
-                  Paid {viewState.paidSalesCount}
-                </span>
-              </div>
-            </div>
-          </section>
-
-          <div className="grid gap-5 lg:grid-cols-[minmax(0,1.08fr)_minmax(320px,0.92fr)]">
-            <section className="space-y-5">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h2 className="text-[28px] font-extrabold leading-none tracking-[-0.03em] text-[#1f120e]">
-                  Rincian Biaya
-                </h2>
-                {viewState.businessLocation ? (
-                  <span className="text-[11px] font-medium text-[#bf8c73]">
-                    {viewState.businessLocation}
-                  </span>
-                ) : null}
-              </div>
-
-            <div className="overflow-hidden rounded-[18px] border border-[#dbcabc] bg-white shadow-[0_2px_10px_rgba(84,56,36,0.06)]">
-              <BreakdownRow
-                label="Revenue"
-                amount={viewState.currentRevenue}
-                tone="positive"
-              />
-              <BreakdownRow
-                label="COGS / HPP"
-                note="Otomatis dari produk"
-                amount={viewState.totalCost}
-              />
-              <BreakdownRow
-                label="Gaji Staff"
-                note={
-                  staffPayrollRows.length > 0
-                    ? "Payroll bulanan aktif"
-                    : "Belum ada payroll aktif"
-                }
-                amount={staffCost}
-              >
-                {staffPayrollRows.length > 0 ? (
-                  <div className="space-y-1 border-l-2 border-[#ead8cb] pl-3">
-                    {staffPayrollRows.slice(0, 4).map((entry) => (
-                      <div
-                        key={entry.userId}
-                        className="flex items-center justify-between gap-3 text-[11px] text-[#7d675a]"
-                      >
-                        <span className="truncate">{entry.name}</span>
-                        <span className="font-mono">
-                          {formatCurrency(Number(entry.takeHomePay || 0))}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-              </BreakdownRow>
-              <BreakdownRow
-                label="Retur / Refund"
-                note="Input bulanan owner"
-                amount={refundCost}
-              />
-              <BreakdownRow
-                label="Biaya Iklan"
-                note="Input bulanan owner"
-                amount={adsCost}
-              />
-              {customExpenses.length > 0 ? (
-                customExpenses.map((entry) => (
-                  <BreakdownRow
-                    key={entry.id}
-                    label={entry.name}
-                    note={entry.note || "Custom / Input bulanan"}
-                    amount={Number(entry.amount || 0)}
-                  />
-                ))
-              ) : (
-                <BreakdownRow
-                  label="Packaging Tambahan"
-                  note="Custom / Input bulanan"
-                  amount={0}
+                  {monthOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown
+                  size={16}
+                  className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#b58872]"
                 />
-              )}
-              <BreakdownRow
-                label="Profit Bersih"
-                amount={netProfit}
-                tone="profit"
-              />
+              </label>
+              <button
+                type="button"
+                onClick={handleExport}
+                className="inline-flex h-11 items-center gap-2 rounded-xl bg-[#c86030] px-4 text-sm font-bold text-white shadow-[0_6px_18px_rgba(200,96,48,0.28)] transition hover:bg-[#b85628]"
+              >
+                <Download size={15} />
+                Export
+              </button>
             </div>
+
+            <section className="overflow-hidden rounded-[18px] border border-[#dbcabc] bg-white shadow-[0_2px_10px_rgba(84,56,36,0.06)]">
+              <div className="grid grid-cols-1 divide-y divide-[#ead8cb] px-4 py-4 sm:grid-cols-2 sm:divide-x sm:divide-y-0">
+                <div className="pr-3">
+                  <p className="text-[11px] text-[#b58872]">Total Revenue</p>
+                  <p className="mt-1 text-[20px] font-extrabold leading-none text-[#1f120e]">
+                    {formatCompactRupiah(viewState.currentRevenue)}
+                  </p>
+                  <p
+                    className={`mt-2 text-[11px] font-semibold ${
+                      revenueGrowth >= 0 ? "text-[#17653d]" : "text-[#c85d34]"
+                    }`}
+                  >
+                    {revenueGrowth >= 0 ? "+" : "-"}{" "}
+                    {`${revenueGrowth >= 0 ? "+" : ""}${Math.round(revenueGrowth)}%`}{" "}
+                    vs {previousMonthLabel}
+                  </p>
+                </div>
+                <div className="pt-4 sm:pl-3 sm:pt-0">
+                  <p className="text-[11px] text-[#b58872]">Profit Bersih</p>
+                  <p
+                    className={`mt-1 text-[20px] font-extrabold leading-none ${
+                      netProfit >= 0 ? "text-[#17653d]" : "text-[#c85d34]"
+                    }`}
+                  >
+                    {formatCompactRupiah(netProfit)}
+                  </p>
+                  <p className="mt-2 text-[11px] text-[#b58872]">
+                    setelah semua biaya yang tersedia
+                  </p>
+                </div>
+              </div>
+              <div className="border-t border-[#ead8cb] bg-[#fff8f3] px-4 py-3">
+                <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#7d675a]">
+                  <span className="font-semibold text-[#1f120e]">Sales:</span>
+                  <span className="rounded-full bg-[#fbf0d8] px-2.5 py-1 font-semibold text-[#9a6b10]">
+                    Total {viewState.totalSalesCount}
+                  </span>
+                  <span className="rounded-full bg-[#e4f4ee] px-2.5 py-1 font-semibold text-[#17653d]">
+                    Paid {viewState.paidSalesCount}
+                  </span>
+                </div>
+              </div>
             </section>
 
-            <aside className="space-y-5">
-              <section className="grid grid-cols-2 gap-3 sm:grid-cols-2">
-                <div className="rounded-[18px] border border-[#dbcabc] bg-white px-4 py-4 shadow-[0_2px_10px_rgba(84,56,36,0.06)]">
-                  <p className="text-[11px] text-[#7d675a]">Sales Tercatat</p>
-                  <p className="mt-1 text-[22px] font-extrabold leading-none text-[#1f120e]">
-                    {viewState.totalSalesCount}
-                  </p>
-                </div>
-                <div className="rounded-[18px] border border-[#dbcabc] bg-white px-4 py-4 shadow-[0_2px_10px_rgba(84,56,36,0.06)]">
-                  <p className="text-[11px] text-[#7d675a]">Margin Kotor</p>
-                  <p className="mt-1 text-[22px] font-extrabold leading-none text-[#17653d]">
-                    {Math.round(viewState.avgMargin)}%
-                  </p>
-                </div>
-              </section>
-
-              <section>
-                <div className="mb-3 flex items-center justify-between">
-                  <h2 className="inline-flex items-center gap-2 text-[28px] font-extrabold leading-none tracking-[-0.03em] text-[#1f120e]">
-                    <Trophy size={18} className="text-[#cc8a27]" />
-                    Top Produk
+            <div className="grid gap-5 lg:grid-cols-[minmax(0,1.08fr)_minmax(320px,0.92fr)]">
+              <section className="space-y-5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h2 className="text-[28px] font-extrabold leading-none tracking-[-0.03em] text-[#1f120e]">
+                    Rincian Biaya
                   </h2>
-                  <span className="text-[12px] font-semibold text-[#b0663f]">
-                    by Revenue
-                  </span>
+                  {viewState.businessLocation ? (
+                    <span className="text-[11px] font-medium text-[#bf8c73]">
+                      {viewState.businessLocation}
+                    </span>
+                  ) : null}
                 </div>
 
                 <div className="overflow-hidden rounded-[18px] border border-[#dbcabc] bg-white shadow-[0_2px_10px_rgba(84,56,36,0.06)]">
-                  {viewState.topProducts.length > 0 ? (
-                    viewState.topProducts.slice(0, 5).map((item, index) => (
-                      <div
-                        key={`${item.productName}-${index}`}
-                        className={`flex items-center gap-3 px-4 py-3 ${
-                          index < Math.min(viewState.topProducts.length, 5) - 1
-                            ? "border-b border-[#ead8cb]"
-                            : ""
-                        }`}
-                      >
-                        <div className="text-base">{getRankEmoji(index)}</div>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-[15px] font-bold leading-tight text-[#1f120e]">
-                            {item.productName}
-                          </p>
-                          <p className="mt-1 text-[11px] text-[#7d675a]">
-                            {item.quantitySold} order
-                          </p>
-                        </div>
-                        <p className="shrink-0 font-mono text-[14px] font-bold text-[#c86030]">
-                          {formatCurrency(item.revenue)}
-                        </p>
+                  <BreakdownRow
+                    label="Revenue"
+                    amount={viewState.currentRevenue}
+                    tone="positive"
+                  />
+                  <BreakdownRow
+                    label="COGS / HPP"
+                    note="Otomatis dari produk"
+                    amount={viewState.totalCost}
+                  />
+                  <BreakdownRow
+                    label="Gaji Staff"
+                    note={
+                      staffPayrollRows.length > 0
+                        ? "Payroll bulanan aktif"
+                        : "Belum ada payroll aktif"
+                    }
+                    amount={staffCost}
+                  >
+                    {staffPayrollRows.length > 0 ? (
+                      <div className="space-y-1 border-l-2 border-[#ead8cb] pl-3">
+                        {staffPayrollRows.slice(0, 4).map((entry) => (
+                          <div
+                            key={entry.userId}
+                            className="flex items-center justify-between gap-3 text-[11px] text-[#7d675a]"
+                          >
+                            <span className="truncate">{entry.name}</span>
+                            <span className="font-mono">
+                              {formatCurrency(Number(entry.takeHomePay || 0))}
+                            </span>
+                          </div>
+                        ))}
                       </div>
+                    ) : null}
+                  </BreakdownRow>
+                  <BreakdownRow
+                    label="Retur / Refund"
+                    note="Input bulanan owner"
+                    amount={refundCost}
+                  />
+                  <BreakdownRow
+                    label="Biaya Iklan"
+                    note="Input bulanan owner"
+                    amount={adsCost}
+                  />
+                  {customExpenses.length > 0 ? (
+                    customExpenses.map((entry) => (
+                      <BreakdownRow
+                        key={entry.id}
+                        label={entry.name}
+                        note={entry.note || "Custom / Input bulanan"}
+                        amount={Number(entry.amount || 0)}
+                      />
                     ))
                   ) : (
-                    <div className="px-4 py-8 text-center text-sm text-[#9b7b69]">
-                      Belum ada data produk untuk {monthLabel}.
-                    </div>
+                    <BreakdownRow
+                      label="Packaging Tambahan"
+                      note="Custom / Input bulanan"
+                      amount={0}
+                    />
                   )}
+                  <BreakdownRow
+                    label="Profit Bersih"
+                    amount={netProfit}
+                    tone="profit"
+                  />
                 </div>
               </section>
-            </aside>
-          </div>
 
-          {error ? (
-            <div className="rounded-2xl border border-[#f1c5b8] bg-[#fff1eb] px-4 py-3 text-sm text-[#a54a2d]">
-              {error}
+              <aside className="space-y-5">
+                <section className="grid grid-cols-2 gap-3 sm:grid-cols-2">
+                  <div className="rounded-[18px] border border-[#dbcabc] bg-white px-4 py-4 shadow-[0_2px_10px_rgba(84,56,36,0.06)]">
+                    <p className="text-[11px] text-[#7d675a]">Sales Tercatat</p>
+                    <p className="mt-1 text-[22px] font-extrabold leading-none text-[#1f120e]">
+                      {viewState.totalSalesCount}
+                    </p>
+                  </div>
+                  <div className="rounded-[18px] border border-[#dbcabc] bg-white px-4 py-4 shadow-[0_2px_10px_rgba(84,56,36,0.06)]">
+                    <p className="text-[11px] text-[#7d675a]">Margin Kotor</p>
+                    <p className="mt-1 text-[22px] font-extrabold leading-none text-[#17653d]">
+                      {Math.round(viewState.avgMargin)}%
+                    </p>
+                  </div>
+                </section>
+
+                <section>
+                  <div className="mb-3 flex items-center justify-between">
+                    <h2 className="inline-flex items-center gap-2 text-[28px] font-extrabold leading-none tracking-[-0.03em] text-[#1f120e]">
+                      <Trophy size={18} className="text-[#cc8a27]" />
+                      Top Produk
+                    </h2>
+                    <span className="text-[12px] font-semibold text-[#b0663f]">
+                      by Revenue
+                    </span>
+                  </div>
+
+                  <div className="overflow-hidden rounded-[18px] border border-[#dbcabc] bg-white shadow-[0_2px_10px_rgba(84,56,36,0.06)]">
+                    {viewState.topProducts.length > 0 ? (
+                      viewState.topProducts.slice(0, 5).map((item, index) => (
+                        <div
+                          key={`${item.productName}-${index}`}
+                          className={`flex items-center gap-3 px-4 py-3 ${
+                            index <
+                            Math.min(viewState.topProducts.length, 5) - 1
+                              ? "border-b border-[#ead8cb]"
+                              : ""
+                          }`}
+                        >
+                          <div className="text-base">{getRankEmoji(index)}</div>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-[15px] font-bold leading-tight text-[#1f120e]">
+                              {item.productName}
+                            </p>
+                            <p className="mt-1 text-[11px] text-[#7d675a]">
+                              {item.quantitySold} order
+                            </p>
+                          </div>
+                          <p className="shrink-0 font-mono text-[14px] font-bold text-[#c86030]">
+                            {formatCurrency(item.revenue)}
+                          </p>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="px-4 py-8 text-center text-sm text-[#9b7b69]">
+                        Belum ada data produk untuk {monthLabel}.
+                      </div>
+                    )}
+                  </div>
+                </section>
+              </aside>
             </div>
-          ) : null}
+
+            {error ? (
+              <div className="rounded-2xl border border-[#f1c5b8] bg-[#fff1eb] px-4 py-3 text-sm text-[#a54a2d]">
+                {error}
+              </div>
+            ) : null}
+          </div>
         </div>
-      </div>
       </div>
     </div>
   );
