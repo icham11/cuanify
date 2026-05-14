@@ -76,7 +76,11 @@ function toMonthKey(dateValue: string): string {
 function toBusinessDateKey(value: string | Date | null | undefined): string {
   if (!value) return "";
   const date =
-    value instanceof Date ? value : typeof value === "string" ? new Date(value) : null;
+    value instanceof Date
+      ? value
+      : typeof value === "string"
+        ? new Date(value)
+        : null;
   if (!date || Number.isNaN(date.getTime())) return "";
 
   return new Intl.DateTimeFormat("en-CA", {
@@ -88,7 +92,10 @@ function toBusinessDateKey(value: string | Date | null | undefined): string {
 }
 
 function getMonthKeysInRange(fromDate: string, toDate: string): string[] {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(toDate)) {
+  if (
+    !/^\d{4}-\d{2}-\d{2}$/.test(fromDate) ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(toDate)
+  ) {
     return [];
   }
 
@@ -112,7 +119,10 @@ function getMonthKeysInRange(fromDate: string, toDate: string): string[] {
 }
 
 function getPaymentIn(order: BakeryFinancialOrder): number {
-  if (Array.isArray(order.paymentTransactions) && order.paymentTransactions.length > 0) {
+  if (
+    Array.isArray(order.paymentTransactions) &&
+    order.paymentTransactions.length > 0
+  ) {
     return order.paymentTransactions.reduce((sum, transaction) => {
       const amount = Number(transaction?.amount || 0);
       return sum + (Number.isFinite(amount) ? amount : 0);
@@ -136,11 +146,19 @@ function isCancelledOrder(order: BakeryFinancialOrder): boolean {
 }
 
 function isOrderPaid(order: BakeryFinancialOrder): boolean {
-  const paymentStatus = String(order.paymentStatus || "").trim().toLowerCase();
-  return paymentStatus === "paid" || paymentStatus === "dp paid" || getPaymentIn(order) > 0;
+  const paymentStatus = String(order.paymentStatus || "")
+    .trim()
+    .toLowerCase();
+  return (
+    paymentStatus === "paid" ||
+    paymentStatus === "dp paid" ||
+    getPaymentIn(order) > 0
+  );
 }
 
-function buildProductCostMap(products: BakeryFinancialProduct[]): Map<string, number> {
+function buildProductCostMap(
+  products: BakeryFinancialProduct[],
+): Map<string, number> {
   const map = new Map<string, number>();
   products.forEach((product) => {
     const name = String(product.name || "").trim();
@@ -311,7 +329,7 @@ export function calculateBakeryFinancialSummary(args: {
     { productName: string; quantitySold: number; revenue: number }
   >();
 
-  args.orders.forEach((order) => {
+  filteredOrders.forEach((order) => {
     if (isCancelledOrder(order)) return;
 
     const totalPrice = Math.max(0, Number(order.totalPrice || 0));
