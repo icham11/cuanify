@@ -3,48 +3,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { useBusiness } from "@/context/BusinessContext";
 import { useRole } from "@/context/RoleContext";
+import { OrdersProvider, useOrders } from "@/components/bakery/store";
 import { BAKERY_SETTINGS_UPDATED_EVENT } from "@/hooks/useBakerySettings";
 import { apiFetch } from "@/lib/api/client";
-import {
-  calculateBakeryFinancialSummary,
-  filterBakeryOrdersByDateRange,
-} from "@/lib/bakery/financial-summary";
+import { calculateBakeryFinancialSummary } from "@/lib/bakery/financial-summary";
 import type { BakeryBusinessSettings } from "@/lib/bakery/settings";
 import type { Product } from "@/types/product";
 import { ChevronDown, Download, Loader2, Menu, Trophy } from "lucide-react";
 
 type BakerySettingsResponse = {
   data?: BakeryBusinessSettings;
-};
-
-type BakeryOrdersResponse = {
-  data?: {
-    orders?: Array<{
-      deliveryDate?: string;
-      product?: string;
-      totalPrice?: number;
-      totalPaidAmount?: number;
-      dpPaidAmount?: number;
-      finalPaidAmount?: number;
-      paymentStatus?: string;
-      orderStatus?: string;
-      paymentTransactions?: Array<{
-        timestamp?: string;
-        amount?: number;
-        type?: string;
-      }>;
-      createdAt?: string;
-      updatedAt?: string;
-      items?: Array<{
-        productName?: string;
-        size?: string;
-        quantity?: number;
-        basePrice?: number;
-        selectedPrice?: number;
-        lineTotal?: number;
-      }>;
-    }>;
-  };
 };
 
 type ProductsResponse = {
@@ -160,6 +128,18 @@ function getRankEmoji(index: number) {
   if (index === 1) return "#2";
   if (index === 2) return "#3";
   return `#${index + 1}`;
+}
+
+function filterOrdersByDeliveryDateRange<
+  T extends { deliveryDate?: string | null },
+>(orders: T[], fromDate: string, toDate: string): T[] {
+  return orders.filter((order) => {
+    const deliveryDate = String(order.deliveryDate || "").trim();
+    if (!deliveryDate) return false;
+    if (fromDate && deliveryDate < fromDate) return false;
+    if (toDate && deliveryDate > toDate) return false;
+    return true;
+  });
 }
 
 function buildExportCsv(args: {
@@ -288,9 +268,10 @@ function BreakdownRow({
   );
 }
 
-export default function BusinessPage() {
+function BusinessPageContent() {
   const { business, loading: businessLoading } = useBusiness();
   const { userName } = useRole();
+  const { orders } = useOrders();
   const [selectedMonth, setSelectedMonth] = useState(getMonthKey(new Date()));
   const [viewState, setViewState] = useState<ViewState>(EMPTY_VIEW_STATE);
   const [loading, setLoading] = useState(true);
@@ -339,26 +320,18 @@ export default function BusinessPage() {
       const currentRange = getMonthRange(selectedMonth);
       const previousRange = getMonthRange(currentRange.prevMonthKey);
 
-      const [bakerySettingsPayload, ordersPayload, productsPayload] =
-        await Promise.all([
-          safeApiFetch<BakerySettingsResponse>("/api/bakery/settings"),
-          safeApiFetch<BakeryOrdersResponse>(
-            "/api/bookings/orders?mode=financial",
-          ),
-          safeApiFetch<ProductsResponse>(
-            "/api/products?mode=financial&limit=999",
-          ),
-        ]);
+      const [bakerySettingsPayload, productsPayload] = await Promise.all([
+        safeApiFetch<BakerySettingsResponse>("/api/bakery/settings"),
+        safeApiFetch<ProductsResponse>("/api/products?mode=financial&limit=999"),
+      ]);
 
       if (!active) return;
 
-      const ordersRequestFailed = didRequestFail(ordersPayload);
       const productsRequestFailed = didRequestFail(productsPayload);
 
       const bakerySettings = bakerySettingsPayload?.data ?? null;
-      const orders = ordersPayload?.data?.orders ?? [];
       const products = productsPayload?.data ?? [];
-      const deliveryRangeOrders = filterBakeryOrdersByDateRange(
+      const deliveryRangeOrders = filterOrdersByDeliveryDateRange(
         orders,
         currentRange.startDate,
         currentRange.endDate,
@@ -418,7 +391,7 @@ export default function BusinessPage() {
         deliveryRangeOrders.length > 0 ||
         currentSummary.paidOrdersCount > 0 ||
         currentSummary.topProducts.length > 0;
-      const hasBackendFailure = ordersRequestFailed || productsRequestFailed;
+      const hasBackendFailure = productsRequestFailed;
 
       setError(
         hasBackendFailure && !hasPrimaryData
@@ -437,6 +410,7 @@ export default function BusinessPage() {
     business?.id,
     business?.name,
     business?.location,
+    orders,
     selectedMonth,
     refreshToken,
     userName,
@@ -794,5 +768,13 @@ export default function BusinessPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function BusinessPage() {
+  return (
+    <OrdersProvider enabled>
+      <BusinessPageContent />
+    </OrdersProvider>
   );
 }

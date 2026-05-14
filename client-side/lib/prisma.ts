@@ -26,20 +26,41 @@ function normalizeSupabaseDatabaseUrl(rawUrl: string) {
   return rawUrl;
 }
 
+function isSupabaseSessionPoolerUrl(rawUrl: string): boolean {
+  if (!rawUrl) return false;
+
+  try {
+    const parsed = new URL(rawUrl);
+    return (
+      parsed.hostname.endsWith(".pooler.supabase.com") &&
+      (parsed.port === "" || parsed.port === "5432")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function resolveDatabaseUrl() {
+  const databaseUrl = normalizeSupabaseDatabaseUrl(
+    process.env.DATABASE_URL ?? "",
+  );
+  const directUrl = normalizeSupabaseDatabaseUrl(process.env.DIRECT_URL ?? "");
+
+  // Prefer a true direct connection when available so write-heavy routes
+  // don't compete for Supavisor session-mode client slots.
+  if (directUrl && !isSupabaseSessionPoolerUrl(directUrl)) {
+    return directUrl;
+  }
+
+  return databaseUrl;
+}
+
 function createPrismaClient() {
-  const rawUrl = normalizeSupabaseDatabaseUrl(process.env.DATABASE_URL ?? "");
+  const rawUrl = resolveDatabaseUrl();
   const cleanUrl = rawUrl.replace(/[?&]sslmode=[^&]*/g, "").replace(/\?$/, "");
   const isProduction = process.env.NODE_ENV === "production";
 
-  let isSupabaseSessionPooler = false;
-  try {
-    const parsed = new URL(cleanUrl);
-    isSupabaseSessionPooler =
-      parsed.hostname.endsWith(".pooler.supabase.com") &&
-      (parsed.port === "" || parsed.port === "5432");
-  } catch {
-    isSupabaseSessionPooler = false;
-  }
+  const isSupabaseSessionPooler = isSupabaseSessionPoolerUrl(cleanUrl);
 
   function parsePositiveInteger(value: string | undefined, fallback: number) {
     if (!value) return fallback;

@@ -1819,6 +1819,8 @@ export function OrdersProvider({
       }
 
       pendingBookingCreateFingerprintsRef.current.add(submissionFingerprint);
+      let createdOrderId = "";
+      let createdOrder: BakeryOrder | null = null;
 
       try {
         const latestServerOrders = await fetchLatestOrdersFromServer();
@@ -1830,6 +1832,7 @@ export function OrdersProvider({
         }, 9300);
         const timestampId = Date.now();
         const id = String(Math.max(localMaxId + 1, timestampId));
+        createdOrderId = id;
         const sequence = getDailyBookingSequence(baseOrders, order.deliveryDate);
         const bookingCode = generateBookingCode(
           order.customerName,
@@ -1959,6 +1962,7 @@ export function OrdersProvider({
             googleSheetsSynced: false,
           },
         };
+        createdOrder = newOrder;
         const nextOrders = [newOrder, ...baseOrders];
 
         await syncOrdersToServer([newOrder]);
@@ -1992,6 +1996,40 @@ export function OrdersProvider({
         // Hindari double-send dengan hanya sync kalender di sisi frontend.
         void runAutomationsForOrder("order_calendar_sync", id);
         return id;
+      } catch (error) {
+        if (
+          error instanceof OrdersSyncRequestError &&
+          error.retryable &&
+          createdOrder &&
+          createdOrderId
+        ) {
+          const latestLocalOrders = getLatestOrdersSnapshot();
+          const alreadyExists = latestLocalOrders.some(
+            (existingOrder) => existingOrder.id === createdOrderId,
+          );
+          const queuedOrders = alreadyExists
+            ? latestLocalOrders
+            : [createdOrder, ...latestLocalOrders];
+
+          persistOrders(queuedOrders);
+          recentBookingCreateFingerprintsRef.current.set(
+            submissionFingerprint,
+            {
+              orderId: createdOrderId,
+              at: Date.now(),
+            },
+          );
+
+          toast.warning(
+            "Booking disimpan lokal. Sinkron server tertunda karena database sedang sibuk.",
+          );
+          toast.message(
+            "Resi dan automasi lanjutan akan berjalan setelah sinkron server berhasil.",
+          );
+          return createdOrderId;
+        }
+
+        throw error;
       } finally {
         pendingBookingCreateFingerprintsRef.current.delete(
           submissionFingerprint,
@@ -2005,6 +2043,8 @@ export function OrdersProvider({
       createShipmentForOrder,
       syncOrdersToServer,
       fetchLatestOrdersFromServer,
+      getLatestOrdersSnapshot,
+      persistOrders,
     ],
   );
 
