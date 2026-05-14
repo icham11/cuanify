@@ -472,9 +472,15 @@ export default function BakeryCalendarPage() {
     return filteredInternalOrders.flatMap((order) => {
       const start = parseOrderDateTime(order.deliveryDate, order.deliverySlot);
       if (!start) return [];
+      const firstItem = order.items?.[0];
+      const productName = firstItem?.productName ?? order.product;
+      const quantity = firstItem?.quantity ?? 1;
+      const totalQty =
+        order.items?.reduce((sum, item) => sum + (item.quantity ?? 1), 0) ??
+        quantity;
       return {
         id: order.id,
-        title: `${order.customerName} - ${order.items?.[0]?.productName ?? order.product}`,
+        title: `${order.customerName} - ${productName} x${totalQty}`,
         start,
         end: addHours(start, 1),
         resource: { source: "internal" as const, order },
@@ -1026,7 +1032,8 @@ export default function BakeryCalendarPage() {
                           {order.customerName}
                         </p>
                         <p className="mt-1 truncate text-xs text-gray-500">
-                          {order.items?.[0]?.productName ?? order.product} -{" "}
+                          {order.items?.[0]?.productName ?? order.product} x
+                          {order.items?.reduce((sum, item) => sum + (item.quantity ?? 1), 0) ?? 1} -{" "}
                           {order.deliverySlot || "-"}
                         </p>
                       </div>

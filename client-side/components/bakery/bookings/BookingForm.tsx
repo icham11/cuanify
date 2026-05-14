@@ -6230,6 +6230,34 @@ export default function BookingForm() {
                               ribbonColor: "",
                               notes: "",
                             }) ?? 1;
+
+                          // Check for identical items
+                          const newItem = {
+                            category: nextDefault.category,
+                            subcategory: nextDefault.subcategory,
+                            productName: nextDefault.productName,
+                            size: nextDefault.size,
+                            quantity: autoQuantity,
+                            tokenDifficulty: nextTokenDifficulty,
+                          };
+
+                          const isDuplicate = watchedItems?.some(
+                            (item) =>
+                              item.category === newItem.category &&
+                              item.subcategory === newItem.subcategory &&
+                              item.productName === newItem.productName &&
+                              item.size === newItem.size &&
+                              item.quantity === newItem.quantity,
+                          );
+
+                          if (isDuplicate) {
+                            toast.warning(
+                              "Item identik sudah ada di daftar pesanan. Silakan ubah quantity item yang sudah ada atau gunakan item berbeda.",
+                              { duration: 4000 },
+                            );
+                            return;
+                          }
+
                           appendItem({
                             category: nextDefault.category,
                             subcategory: nextDefault.subcategory,

@@ -214,6 +214,44 @@ function getPaymentAmountInRange(
   return getCappedTotalPaid(order);
 }
 
+function getRevenueAmountInRange(
+  order: BakeryFinancialOrder,
+  fromDate: string,
+  toDate: string,
+): number {
+  // Revenue is recognized on delivery date, not payment date
+  const deliveryDateKey = String(order.deliveryDate || "").trim();
+
+  if (
+    !deliveryDateKey ||
+    !isDateKeyWithinRange(deliveryDateKey, fromDate, toDate)
+  ) {
+    return 0;
+  }
+
+  // Return the total paid amount capped by total price
+  return getCappedTotalPaid(order);
+}
+
+function getCashFlowInAmountInRange(
+  order: BakeryFinancialOrder,
+  fromDate: string,
+  toDate: string,
+): number {
+  // Cashflow is recognized on booking created date, regardless of payment or delivery
+  const createdDateKey = toBusinessDateKey(order.createdAt);
+
+  if (
+    !createdDateKey ||
+    !isDateKeyWithinRange(createdDateKey, fromDate, toDate)
+  ) {
+    return 0;
+  }
+
+  // Return the total paid amount capped by total price (cash actually received)
+  return getCappedTotalPaid(order);
+}
+
 function buildProductNameCandidates(
   item: BakeryFinancialOrderItem,
   orderProductName?: string,
@@ -256,28 +294,11 @@ export function filterBakeryOrdersByDateRange(
   return orders.filter((order) => {
     if (isCancelledOrder(order)) return false;
 
-    // Prefer payment transaction timestamps: if any payment occurred within
-    // the requested range, include the order.
-    const paymentInRange = getPaymentAmountInRange(order, fromDate, toDate);
-    if (paymentInRange > 0) return true;
-
-    // Otherwise fall back to delivery date (legacy behavior).
-    const deliveryDate = String(order.deliveryDate || "").trim();
-    if (deliveryDate) {
-      if (fromDate && deliveryDate < fromDate) return false;
-      if (toDate && deliveryDate > toDate) return false;
-      return true;
-    }
-
-    // As a final fallback, consider created/updated timestamps.
-    const createdKey = toBusinessDateKey(order.createdAt ?? null);
-    if (createdKey) {
-      if (fromDate && createdKey < fromDate) return false;
-      if (toDate && createdKey > toDate) return false;
-      return true;
-    }
-
-    return false;
+    // Include orders that have either revenue (delivery) or cashflow (booking) in range
+    const hasRevenue = getRevenueAmountInRange(order, fromDate, toDate) > 0;
+    const hasCashFlow = getCashFlowInAmountInRange(order, fromDate, toDate) > 0;
+    
+    return hasRevenue || hasCashFlow;
   });
 }
 
@@ -355,27 +376,37 @@ export function calculateBakeryFinancialSummary(args: {
     if (isCancelledOrder(order)) return;
 
     const totalPrice = Math.max(0, Number(order.totalPrice || 0));
-    const paymentAmountInRange = getPaymentAmountInRange(
+    
+    // Calculate revenue based on delivery date
+    const revenueAmountInRange = getRevenueAmountInRange(
       order,
       args.fromDate,
       args.toDate,
     );
-    if (paymentAmountInRange === 0) return;
+    
+    // Calculate cashflow based on booking created date
+    const cashFlowInAmountInRange = getCashFlowInAmountInRange(
+      order,
+      args.fromDate,
+      args.toDate,
+    );
 
-    if (paymentAmountInRange > 0) {
+    if (revenueAmountInRange === 0 && cashFlowInAmountInRange === 0) return;
+
+    if (cashFlowInAmountInRange > 0) {
       paidOrdersCount += 1;
     }
 
-    totalRevenue += paymentAmountInRange;
-    totalCashFlowIn += paymentAmountInRange;
+    totalRevenue += revenueAmountInRange;
+    totalCashFlowIn += cashFlowInAmountInRange;
 
     // recognitionRatio represents portion of the order that should be
-    // recognised as revenue in the requested range. Use 0..1 to avoid
-    // negative recognition which caused inconsistent signs between
-    // revenue/COGS and quantity.
+    // recognised as revenue in the requested range based on delivery date.
+    // Use 0..1 to avoid negative recognition which caused inconsistent signs
+    // between revenue/COGS and quantity.
     const recognitionRatio =
       totalPrice > 0
-        ? Math.max(0, Math.min(1, paymentAmountInRange / totalPrice))
+        ? Math.max(0, Math.min(1, revenueAmountInRange / totalPrice))
         : 0;
 
     (order.items || []).forEach((item) => {
