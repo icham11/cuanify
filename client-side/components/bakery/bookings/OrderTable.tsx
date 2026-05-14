@@ -9,6 +9,7 @@ import OrderHighlightBadge from "@/components/bakery/bookings/OrderHighlightBadg
 import { type BakeryOrder, useOrders } from "@/components/bakery/store";
 import { BOOKING_STATUS_OPTIONS } from "@/lib/bookings/order-status";
 import { normalizeOrderStatus } from "@/lib/bookings/order-status";
+import { getOrderItemsSummary } from "@/lib/bookings/order-display";
 import {
   isGrabOrGojekOrder,
   resolveShippingProvider,
@@ -171,11 +172,9 @@ export default function OrderTable({ orders }: OrderTableProps) {
         const message = getCustomerMessagePreview(order.id);
         const messageLink = messagePhone ? `https://wa.me/${messagePhone}?text=${encodeURIComponent(message)}` : null;
         const highlight = highlightMap.get(order.id);
-        const productSummary = order.items?.length
-          ? order.items
-              .map((item) => `${Math.max(1, Number(item.quantity) || 1)}x ${compactText(item.productName || "Produk")}`)
-              .join(" + ")
-          : compactText(order.product || "Custom Cake");
+        const productSummary = compactText(
+          getOrderItemsSummary(order.items, order.product || "Custom Cake"),
+        );
         const normalizedStatus = normalizeOrderStatus(order.orderStatus);
         const difficultyLabel = inferDifficultyLabel(order);
         const stageLabels = getProductionStageLabels(

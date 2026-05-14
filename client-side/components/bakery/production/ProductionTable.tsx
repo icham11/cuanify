@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import StatusDropdown from "@/components/bakery/production/StatusDropdown";
 import { useOrders, type BakeryOrder } from "@/components/bakery/store";
 import { useRole } from "@/context/RoleContext";
+import { getOrderItemsSummary } from "@/lib/bookings/order-display";
 import { summarizeProductionTokensByItems } from "@/lib/bookings/operations";
 import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 import { BAKERY_STAFF_DAILY_TOKEN_LIMIT } from "@/lib/bookings/config";
@@ -2370,10 +2371,8 @@ export default function ProductionTable() {
                         {order.customerName || "Walk-in Customer"}
                       </p>
                       <p className="mt-1 truncate text-xs text-gray-500">
-                        {order.items?.[0]?.productName ||
-                          order.product ||
-                          "Produk"}{" "}
-                        - {order.deliverySlot || "-"}
+                        {getOrderItemsSummary(order.items, order.product)} -{" "}
+                        {order.deliverySlot || "-"}
                       </p>
                     </div>
                     <span

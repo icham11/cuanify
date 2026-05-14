@@ -44,6 +44,7 @@ import { useBakerySettings } from "@/hooks/useBakerySettings";
 import CalendarCell from "@/components/calendar/CalendarCell";
 import { useRole } from "@/context/RoleContext";
 import { summarizeProductionTokensByItems } from "@/lib/bookings/operations";
+import { getOrderItemsSummary } from "@/lib/bookings/order-display";
 import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 
 const locales = { id: localeId };
@@ -133,19 +134,8 @@ function statusColor(status: BakeryOrder["orderStatus"]) {
   return "#4f46e5";
 }
 
-function getCalendarOrderTotalQuantity(order: BakeryOrder) {
-  return (
-    order.items?.reduce((sum, item) => sum + Math.max(1, item.quantity ?? 1), 0) ??
-    1
-  );
-}
-
-function getCalendarOrderProductLabel(order: BakeryOrder) {
-  return order.items?.[0]?.productName?.trim() || order.product || "Order";
-}
-
 function getCalendarOrderItemSummary(order: BakeryOrder) {
-  return `${getCalendarOrderProductLabel(order)} x${getCalendarOrderTotalQuantity(order)}`;
+  return getOrderItemsSummary(order.items, order.product);
 }
 
 function getCalendarRange(date: Date, view: View) {
