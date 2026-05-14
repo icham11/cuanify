@@ -158,6 +158,18 @@ export async function PATCH(request: NextRequest) {
           body.cutoffEnabled !== undefined
             ? Boolean(body.cutoffEnabled)
             : undefined,
+        attendanceWindowEnabled:
+          body.attendanceWindowEnabled !== undefined
+            ? Boolean(body.attendanceWindowEnabled)
+            : undefined,
+        attendanceWindowStart:
+          body.attendanceWindowStart !== undefined
+            ? String(body.attendanceWindowStart)
+            : undefined,
+        attendanceWindowEnd:
+          body.attendanceWindowEnd !== undefined
+            ? String(body.attendanceWindowEnd)
+            : undefined,
         defaultDpPercentage:
           body.defaultDpPercentage !== undefined
             ? Number(body.defaultDpPercentage)

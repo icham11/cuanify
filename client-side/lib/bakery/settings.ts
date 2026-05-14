@@ -19,6 +19,8 @@ const MIN_PERCENT = 0;
 const MAX_PERCENT = 100;
 const MIN_CUTOFF_HOUR = 0;
 const MAX_CUTOFF_HOUR = 23;
+const DEFAULT_ATTENDANCE_WINDOW_START = "06:00";
+const DEFAULT_ATTENDANCE_WINDOW_END = "07:00";
 
 export interface BakeryStaffSetting {
   userId: number;
@@ -60,6 +62,9 @@ export interface BakeryBusinessSettings {
   staffDailyTokenLimit: number;
   cutoffHour: number;
   cutoffEnabled: boolean;
+  attendanceWindowEnabled: boolean;
+  attendanceWindowStart: string;
+  attendanceWindowEnd: string;
   defaultDpPercentage: number;
   notifyProductionWhatsapp: boolean;
   blockedDates: string[];
@@ -107,6 +112,28 @@ function clampMoney(value: unknown): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return 0;
   return Math.max(0, Math.round(parsed));
+}
+
+function normalizeAttendanceTime(
+  value: unknown,
+  fallback: string,
+): string {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!/^\d{2}:\d{2}$/.test(raw)) return fallback;
+
+  const [hour, minute] = raw.split(":").map(Number);
+  if (
+    !Number.isInteger(hour) ||
+    !Number.isInteger(minute) ||
+    hour < 0 ||
+    hour > 23 ||
+    minute < 0 ||
+    minute > 59
+  ) {
+    return fallback;
+  }
+
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 }
 
 function normalizeMonthKey(value: unknown): string {
@@ -273,6 +300,9 @@ export function getDefaultBakerySettings(): BakeryBusinessSettings {
     staffDailyTokenLimit: BAKERY_STAFF_DAILY_TOKEN_LIMIT,
     cutoffHour: BAKERY_H_MINUS_1_CUTOFF_HOUR,
     cutoffEnabled: true,
+    attendanceWindowEnabled: true,
+    attendanceWindowStart: DEFAULT_ATTENDANCE_WINDOW_START,
+    attendanceWindowEnd: DEFAULT_ATTENDANCE_WINDOW_END,
     defaultDpPercentage: 50,
     notifyProductionWhatsapp: true,
     blockedDates: holidayEntries.map((entry) => entry.date),
@@ -303,6 +333,15 @@ function parseMetadataToSettings(metadata: unknown): BakeryBusinessSettings {
     staffDailyTokenLimit: clampStaffTokenLimit(record.staffDailyTokenLimit),
     cutoffHour: clampCutoffHour(record.cutoffHour),
     cutoffEnabled: record.cutoffEnabled !== false,
+    attendanceWindowEnabled: record.attendanceWindowEnabled !== false,
+    attendanceWindowStart: normalizeAttendanceTime(
+      record.attendanceWindowStart,
+      DEFAULT_ATTENDANCE_WINDOW_START,
+    ),
+    attendanceWindowEnd: normalizeAttendanceTime(
+      record.attendanceWindowEnd,
+      DEFAULT_ATTENDANCE_WINDOW_END,
+    ),
     defaultDpPercentage: clampPercent(record.defaultDpPercentage, 50),
     notifyProductionWhatsapp: record.notifyProductionWhatsapp !== false,
     blockedDates: holidayEntries.map((entry) => entry.date),
@@ -372,6 +411,24 @@ export async function upsertBakeryBusinessSettings(args: {
       args.input.cutoffEnabled !== undefined
         ? Boolean(args.input.cutoffEnabled)
         : current.cutoffEnabled,
+    attendanceWindowEnabled:
+      args.input.attendanceWindowEnabled !== undefined
+        ? Boolean(args.input.attendanceWindowEnabled)
+        : current.attendanceWindowEnabled,
+    attendanceWindowStart:
+      args.input.attendanceWindowStart !== undefined
+        ? normalizeAttendanceTime(
+            args.input.attendanceWindowStart,
+            current.attendanceWindowStart,
+          )
+        : current.attendanceWindowStart,
+    attendanceWindowEnd:
+      args.input.attendanceWindowEnd !== undefined
+        ? normalizeAttendanceTime(
+            args.input.attendanceWindowEnd,
+            current.attendanceWindowEnd,
+          )
+        : current.attendanceWindowEnd,
     defaultDpPercentage:
       args.input.defaultDpPercentage !== undefined
         ? clampPercent(args.input.defaultDpPercentage, current.defaultDpPercentage)

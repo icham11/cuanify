@@ -253,4 +253,42 @@ describe("Revenue vs Cashflow Calculation", () => {
     // Revenue should be capped at total price
     expect(result.totalRevenue).toBe(100000);
   });
+
+  it("should recognize monthly revenue on delivery month, not booking month", () => {
+    const orders: BakeryFinancialOrder[] = [
+      {
+        deliveryDate: "2024-06-03",
+        totalPrice: 250000,
+        totalPaidAmount: 250000,
+        paymentStatus: "Paid",
+        orderStatus: "Completed",
+        createdAt: new Date("2024-05-28"),
+        items: [
+          {
+            productName: "Kue Coklat",
+            quantity: 1,
+            basePrice: 250000,
+            lineTotal: 250000,
+          },
+        ],
+      },
+    ];
+
+    const maySummary = calculateBakeryFinancialSummary({
+      orders,
+      products: mockProducts,
+      fromDate: "2024-05-01",
+      toDate: "2024-05-31",
+    });
+
+    const juneSummary = calculateBakeryFinancialSummary({
+      orders,
+      products: mockProducts,
+      fromDate: "2024-06-01",
+      toDate: "2024-06-30",
+    });
+
+    expect(maySummary.totalRevenue).toBe(0);
+    expect(juneSummary.totalRevenue).toBe(250000);
+  });
 });

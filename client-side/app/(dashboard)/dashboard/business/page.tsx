@@ -4,12 +4,15 @@ import { useEffect, useMemo, useState } from "react";
 import { useBusiness } from "@/context/BusinessContext";
 import { useRole } from "@/context/RoleContext";
 import { OrdersProvider, useOrders } from "@/components/bakery/store";
+import MonthYearPicker, {
+  buildSelectableMonthKeys,
+} from "@/components/bakery/shared/MonthYearPicker";
 import { BAKERY_SETTINGS_UPDATED_EVENT } from "@/hooks/useBakerySettings";
 import { apiFetch } from "@/lib/api/client";
 import { calculateBakeryFinancialSummary } from "@/lib/bakery/financial-summary";
 import type { BakeryBusinessSettings } from "@/lib/bakery/settings";
 import type { Product } from "@/types/product";
-import { ChevronDown, Download, Loader2, Menu, Trophy } from "lucide-react";
+import { Download, Loader2, Menu, Trophy } from "lucide-react";
 
 type BakerySettingsResponse = {
   data?: BakeryBusinessSettings;
@@ -94,6 +97,10 @@ function getMonthKey(date: Date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   return `${year}-${month}`;
+}
+
+function getMonthKeyFromDateValue(value: string | null | undefined) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value || "") ? String(value).slice(0, 7) : "";
 }
 
 function getMonthLabel(monthKey: string) {
@@ -277,14 +284,20 @@ function BusinessPageContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const monthOptions = useMemo(() => {
-    const now = new Date();
-    return Array.from({ length: 12 }, (_, index) => {
-      const date = new Date(now.getFullYear(), now.getMonth() - index, 1);
-      const value = getMonthKey(date);
-      return { value, label: getMonthLabel(value) };
-    });
-  }, []);
+  const selectableMonthKeys = useMemo(
+    () =>
+      buildSelectableMonthKeys({
+        monthsBack: 18,
+        monthsForward: 5,
+        includeMonthKeys: [
+          ...orders.map((order) => getMonthKeyFromDateValue(order.deliveryDate)),
+          ...(viewState.bakerySettings?.monthlyExpenses ?? []).map(
+            (entry) => entry.monthKey,
+          ),
+        ],
+      }),
+    [orders, viewState.bakerySettings?.monthlyExpenses],
+  );
 
   const reloadKey = useMemo(() => BAKERY_SETTINGS_UPDATED_EVENT, []);
   const [refreshToken, setRefreshToken] = useState(0);
@@ -542,23 +555,13 @@ function BusinessPageContent() {
 
           <div className="space-y-5 px-4 py-4 sm:px-5 lg:px-6">
             <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto]">
-              <label className="relative flex-1">
-                <select
-                  value={selectedMonth}
-                  onChange={(event) => setSelectedMonth(event.target.value)}
-                  className="h-11 w-full appearance-none rounded-xl border border-[#dbcabc] bg-white px-3 pr-10 text-sm font-semibold text-[#23150f] shadow-[0_2px_8px_rgba(84,56,36,0.06)] outline-none transition focus:border-[#d88a5d]"
-                >
-                  {monthOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown
-                  size={16}
-                  className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#b58872]"
-                />
-              </label>
+              <MonthYearPicker
+                value={selectedMonth}
+                onChange={setSelectedMonth}
+                monthKeys={selectableMonthKeys}
+                formatLabel={getMonthLabel}
+                buttonClassName="justify-between border-[#dbcabc] text-[#23150f]"
+              />
               <button
                 type="button"
                 onClick={handleExport}

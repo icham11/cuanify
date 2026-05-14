@@ -105,6 +105,11 @@ function toTakeHome(monthlySalary: number, mealAllowance: number) {
   );
 }
 
+function timeStringToMinutes(value: string) {
+  const [hour, minute] = value.split(":").map(Number);
+  return (Number.isFinite(hour) ? hour : 0) * 60 + (Number.isFinite(minute) ? minute : 0);
+}
+
 function defaultMonthlyExpenses(monthKey: string): EditableExpense[] {
   return [
     {
@@ -282,6 +287,9 @@ export default function BakerySettingsPage() {
   const [staffDailyTokenLimit, setStaffDailyTokenLimit] = useState(500);
   const [cutoffHour, setCutoffHour] = useState(10);
   const [cutoffEnabled, setCutoffEnabled] = useState(true);
+  const [attendanceWindowEnabled, setAttendanceWindowEnabled] = useState(true);
+  const [attendanceWindowStart, setAttendanceWindowStart] = useState("06:00");
+  const [attendanceWindowEnd, setAttendanceWindowEnd] = useState("07:00");
   const [defaultDpPercentage, setDefaultDpPercentage] = useState(50);
   const [notifyProductionWhatsapp, setNotifyProductionWhatsapp] =
     useState(true);
@@ -388,6 +396,9 @@ export default function BakerySettingsPage() {
     setStaffDailyTokenLimit(settings.staffDailyTokenLimit);
     setCutoffHour(settings.cutoffHour);
     setCutoffEnabled(settings.cutoffEnabled);
+    setAttendanceWindowEnabled(settings.attendanceWindowEnabled);
+    setAttendanceWindowStart(settings.attendanceWindowStart);
+    setAttendanceWindowEnd(settings.attendanceWindowEnd);
     setDefaultDpPercentage(settings.defaultDpPercentage);
     setNotifyProductionWhatsapp(settings.notifyProductionWhatsapp);
     setHolidayEntries(settings.holidayEntries);
@@ -685,6 +696,14 @@ export default function BakerySettingsPage() {
       toast.error(productionStageValidationError);
       return;
     }
+    if (
+      attendanceWindowEnabled &&
+      timeStringToMinutes(attendanceWindowEnd) <=
+        timeStringToMinutes(attendanceWindowStart)
+    ) {
+      toast.error("Jam akhir absen harus lebih besar dari jam mulai.");
+      return;
+    }
 
     setIsSaving(true);
     try {
@@ -693,6 +712,9 @@ export default function BakerySettingsPage() {
         staffDailyTokenLimit,
         cutoffHour,
         cutoffEnabled,
+        attendanceWindowEnabled,
+        attendanceWindowStart,
+        attendanceWindowEnd,
         defaultDpPercentage,
         notifyProductionWhatsapp,
         holidayEntries,
@@ -992,6 +1014,85 @@ export default function BakerySettingsPage() {
               </p>
             </div>
             <div className="space-y-4 px-4 py-4">
+              <label className="flex items-center justify-between gap-4 rounded-[20px] border border-[#dcc7b8] bg-[#fbf4ed] px-4 py-3.5">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold text-[#2f1e13]">
+                      Absensi Otomatis
+                    </p>
+                    <span
+                      className={`inline-flex min-w-[44px] items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-bold tracking-[0.08em] ${
+                        attendanceWindowEnabled
+                          ? "bg-[#f7d8bf] text-[#b35b2a]"
+                          : "bg-[#e7ddd4] text-[#8b6d5b]"
+                      }`}
+                    >
+                      {attendanceWindowEnabled ? "ON" : "OFF"}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs leading-5 text-[#b58872]">
+                    ON: staff/admin hanya bisa absen di jam yang owner tentukan.
+                    Jika lewat jam akhir dan belum check-in, reports otomatis
+                    menambah 1x telat.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={attendanceWindowEnabled}
+                  disabled={!isOwner}
+                  onClick={() =>
+                    setAttendanceWindowEnabled((current) => !current)
+                  }
+                  className={`relative inline-flex h-[34px] w-[62px] shrink-0 items-center rounded-full border transition-all duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#cb6837]/30 focus-visible:ring-offset-2 focus-visible:ring-offset-[#fbf4ed] disabled:cursor-not-allowed disabled:opacity-50 ${
+                    attendanceWindowEnabled
+                      ? "border-[#bf6435] bg-linear-to-r from-[#cf7442] to-[#c86131] shadow-[inset_0_1px_0_rgba(255,255,255,0.28),0_8px_16px_-12px_rgba(156,79,36,0.8)]"
+                      : "border-[#d9c6b7] bg-[#e8ddd3] shadow-[inset_0_1px_0_rgba(255,255,255,0.55)]"
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-[26px] w-[26px] rounded-full bg-white transition-all duration-200 ease-out ${
+                      attendanceWindowEnabled
+                        ? "translate-x-[32px] shadow-[0_3px_10px_rgba(110,54,24,0.28)]"
+                        : "translate-x-[3px] shadow-[0_2px_8px_rgba(109,83,64,0.18)]"
+                    }`}
+                  />
+                </button>
+              </label>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="grid gap-1 text-sm font-semibold text-[#2f1e13]">
+                  Jam Mulai Absen
+                  <input
+                    type="time"
+                    value={attendanceWindowStart}
+                    disabled={!isOwner}
+                    onChange={(event) =>
+                      setAttendanceWindowStart(event.target.value)
+                    }
+                    className="h-11 rounded-2xl border border-[#dcc7b8] bg-[#fbf4ed] px-3 text-sm outline-none"
+                  />
+                  <span className="text-xs font-normal text-[#b58872]">
+                    Contoh 06:00.
+                  </span>
+                </label>
+                <label className="grid gap-1 text-sm font-semibold text-[#2f1e13]">
+                  Jam Akhir Absen
+                  <input
+                    type="time"
+                    value={attendanceWindowEnd}
+                    disabled={!isOwner}
+                    onChange={(event) =>
+                      setAttendanceWindowEnd(event.target.value)
+                    }
+                    className="h-11 rounded-2xl border border-[#dcc7b8] bg-[#fbf4ed] px-3 text-sm outline-none"
+                  />
+                  <span className="text-xs font-normal text-[#b58872]">
+                    Setelah jam ini, yang belum absen dihitung telat otomatis.
+                  </span>
+                </label>
+              </div>
+
               <label className="grid gap-1 text-sm font-semibold text-[#2f1e13]">
                 ⏰ Cut-off Time Order (H-1)
                 <select

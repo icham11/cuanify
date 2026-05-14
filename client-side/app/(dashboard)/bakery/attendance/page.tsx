@@ -4,6 +4,20 @@ import { useEffect, useState } from "react";
 import { Loader2, Calendar } from "lucide-react";
 import { useRole } from "@/context/RoleContext";
 import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
+import { getJakartaDateKey } from "@/lib/bakery/attendance";
+
+type AttendanceWindowData = {
+  enabled: boolean;
+  startTime: string;
+  endTime: string;
+  label: string;
+  todayKey: string;
+  isHolidayToday: boolean;
+  hasWindowStarted: boolean;
+  hasWindowEnded: boolean;
+  canCheckInNow: boolean;
+  message: string;
+};
 
 type OwnerAttendanceMember = {
   memberId: number;
@@ -12,18 +26,30 @@ type OwnerAttendanceMember = {
   email: string;
   role: "Admin" | "Staff";
   attendanceCount: number;
+  expectedAttendanceDays: number;
   lateCount: number;
+  systemLateCount: number;
+  manualLateCount: number;
+  isManualOverride: boolean;
+  missingDates: string[];
   daily: Array<{
     date: string;
     status: "present";
     checkInAt: string;
     isLate: boolean;
+    notes: string | null;
   }>;
 };
 
 type SelfAttendanceData = {
   attendanceCount: number;
+  expectedAttendanceDays: number;
   lateCount: number;
+  systemLateCount: number;
+  manualLateCount: number;
+  isManualOverride: boolean;
+  missingDates: string[];
+  attendanceWindow?: AttendanceWindowData;
   records: Array<{
     date: string;
     status: "present";
@@ -41,7 +67,7 @@ type SelfAttendanceData = {
 };
 
 function getCurrentMonth() {
-  return new Date().toISOString().slice(0, 7);
+  return getJakartaDateKey(new Date()).slice(0, 7);
 }
 
 function formatMonthLabel(month: string) {
@@ -95,6 +121,7 @@ export default function BakeryAttendancePage() {
           data?: {
             mode?: "owner" | "self";
             team?: OwnerAttendanceMember[];
+            attendanceWindow?: AttendanceWindowData;
           } & SelfAttendanceData;
         };
 
@@ -233,12 +260,31 @@ export default function BakeryAttendancePage() {
                     </div>
                     <div className="text-right">
                       <p className="text-sm font-bold text-[#1f140d]">
-                        {member.attendanceCount} hari
+                        {member.attendanceCount}/{member.expectedAttendanceDays}
                       </p>
+                      <p className="text-[11px] text-[#8a6a54]">hari hadir</p>
                       <p className="text-[11px] text-[#cf4028]">
                         {member.lateCount}x telat
                       </p>
                     </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 border-b border-[#f2e3d8] px-4 py-3">
+                    <MiniMetric
+                      title={String(member.systemLateCount)}
+                      subtitle="Sistem"
+                      danger={member.systemLateCount > 0}
+                    />
+                    <MiniMetric
+                      title={String(member.manualLateCount)}
+                      subtitle="Owner"
+                      danger={member.manualLateCount > 0}
+                    />
+                    <MiniMetric
+                      title={String(member.missingDates.length)}
+                      subtitle="Belum absen"
+                      danger={member.missingDates.length > 0}
+                    />
                   </div>
 
                   <div className="grid grid-cols-2 gap-2 px-4 py-4 sm:grid-cols-3 lg:grid-cols-4">
@@ -277,17 +323,33 @@ export default function BakeryAttendancePage() {
                     Absensi Hari Ini
                   </p>
                   <p className="mt-1 text-xs text-[#8a6a54]">
-                    Tekan tombol di bawah untuk check-in harian.
+                    {selfData?.attendanceWindow?.message ||
+                      "Tekan tombol di bawah untuk check-in harian."}
                   </p>
+                  {selfData?.attendanceWindow ? (
+                    <p className="mt-1 text-[11px] font-semibold text-[#a85d31]">
+                      Window: {selfData.attendanceWindow.label}
+                    </p>
+                  ) : null}
                 </div>
                 <button
                   type="button"
                   onClick={() => void submitAttendance()}
-                  disabled={isSubmitting || Boolean(selfData?.todayRecord)}
+                  disabled={
+                    isSubmitting ||
+                    Boolean(selfData?.todayRecord) ||
+                    (selfData?.attendanceWindow?.enabled === true &&
+                      !selfData.attendanceWindow.canCheckInNow)
+                  }
                   className="rounded-full bg-[#d3662d] px-3 py-2 text-xs font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {selfData?.todayRecord
                     ? "Sudah Absen"
+                    : selfData?.attendanceWindow?.enabled === true &&
+                        !selfData.attendanceWindow.canCheckInNow
+                      ? selfData.attendanceWindow.hasWindowStarted
+                        ? "Sudah Tutup"
+                        : "Belum Dibuka"
                     : isSubmitting
                       ? "Menyimpan..."
                       : "+ Absen"}
@@ -296,7 +358,7 @@ export default function BakeryAttendancePage() {
 
               <div className="grid grid-cols-3 gap-2 px-4 py-4">
                 <MiniMetric
-                  title={String(selfData?.attendanceCount ?? 0)}
+                  title={`${selfData?.attendanceCount ?? 0}/${selfData?.expectedAttendanceDays ?? 0}`}
                   subtitle="Hadir"
                 />
                 <MiniMetric
@@ -311,6 +373,24 @@ export default function BakeryAttendancePage() {
                       : "--:--"
                   }
                   subtitle="Check-in"
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 border-t border-[#f1e1d5] px-4 py-4">
+                <MiniMetric
+                  title={String(selfData?.systemLateCount ?? 0)}
+                  subtitle="Hitung sistem"
+                  danger={(selfData?.systemLateCount ?? 0) > 0}
+                />
+                <MiniMetric
+                  title={String(selfData?.manualLateCount ?? 0)}
+                  subtitle="Input owner"
+                  danger={(selfData?.manualLateCount ?? 0) > 0}
+                />
+                <MiniMetric
+                  title={String(selfData?.missingDates.length ?? 0)}
+                  subtitle="Belum absen"
+                  danger={(selfData?.missingDates.length ?? 0) > 0}
                 />
               </div>
             </div>

@@ -5,12 +5,22 @@ import {
   ForbiddenError,
   requireAuth,
 } from "@/lib/auth/session";
+import { getBakeryBusinessSettings } from "@/lib/bakery/settings";
+import {
+  calculateAttendanceMetrics,
+  getAttendanceWindowState,
+  getDateDiffInDaysInclusive,
+  getJakartaDateKey,
+  getManualLateCountForMonth,
+  getManualLateCountForRange,
+  isDateKey,
+  isHolidayDate,
+  normalizeAttendanceDateKey,
+  isAttendanceRecordLate,
+} from "@/lib/bakery/attendance";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-
-const BUSINESS_TIME_ZONE = "Asia/Jakarta";
-const LATE_THRESHOLD_HOUR = 9;
 
 type AttendanceStatus = "present";
 
@@ -26,19 +36,11 @@ type AttendanceRow = {
   updated_at: Date;
 };
 
-function isDateKey(value: string | null): value is string {
-  return /^\d{4}-\d{2}-\d{2}$/.test(value || "");
-}
-
-function getDateDiffInDaysInclusive(start: string, end: string) {
-  const [startYear, startMonth, startDay] = start.split("-").map(Number);
-  const [endYear, endMonth, endDay] = end.split("-").map(Number);
-  const startUtc = Date.UTC(startYear, startMonth - 1, startDay);
-  const endUtc = Date.UTC(endYear, endMonth - 1, endDay);
-  return Math.max(1, Math.floor((endUtc - startUtc) / 86400000) + 1);
-}
-
-function parseMonthKey(value: string | null): { monthKey: string; start: string; end: string } {
+function parseMonthKey(value: string | null): {
+  monthKey: string;
+  start: string;
+  end: string;
+} {
   const today = getJakartaDateKey(new Date()).slice(0, 7);
   const monthKey = /^\d{4}-\d{2}$/.test(value || "") ? (value as string) : today;
   const [year, month] = monthKey.split("-").map(Number);
@@ -54,6 +56,8 @@ function parseAttendanceRange(searchParams: URLSearchParams) {
   if (isDateKey(fromParam) && isDateKey(toParam)) {
     const [start, end] = fromParam <= toParam ? [fromParam, toParam] : [toParam, fromParam];
     return {
+      isExactMonthScope: false,
+      monthKey: null,
       scopeLabel:
         start.slice(0, 7) === end.slice(0, 7) ? start.slice(0, 7) : `${start}:${end}`,
       start,
@@ -64,53 +68,13 @@ function parseAttendanceRange(searchParams: URLSearchParams) {
 
   const { monthKey, start, end } = parseMonthKey(searchParams.get("month"));
   return {
+    isExactMonthScope: true,
+    monthKey,
     scopeLabel: monthKey,
     start,
     end,
     totalDays: getDateDiffInDaysInclusive(start, end),
   };
-}
-
-function getJakartaParts(date: Date) {
-  const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone: BUSINESS_TIME_ZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  });
-
-  const parts = formatter.formatToParts(date);
-  const get = (type: string) => Number(parts.find((part) => part.type === type)?.value || 0);
-  return {
-    year: get("year"),
-    month: get("month"),
-    day: get("day"),
-    hour: get("hour"),
-    minute: get("minute"),
-    second: get("second"),
-  };
-}
-
-function getJakartaDateKey(date: Date) {
-  const parts = getJakartaParts(date);
-  return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
-}
-
-function normalizeAttendanceDateKey(value: string | Date) {
-  if (typeof value === "string") {
-    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
-    const parsed = new Date(value);
-    if (Number.isFinite(parsed.getTime())) {
-      return parsed.toISOString().slice(0, 10);
-    }
-    return value;
-  }
-
-  return value.toISOString().slice(0, 10);
 }
 
 async function ensureAttendanceTable() {
@@ -135,11 +99,41 @@ async function ensureAttendanceTable() {
   `);
 }
 
+async function getAttendanceRows(
+  businessId: number,
+  start: string,
+  end: string,
+  userId?: number,
+) {
+  if (userId) {
+    return prisma.$queryRaw<AttendanceRow[]>`
+      SELECT *
+      FROM bakery_attendance
+      WHERE business_id = ${businessId}
+        AND user_id = ${userId}
+        AND attendance_date >= ${start}::date
+        AND attendance_date <= ${end}::date
+      ORDER BY attendance_date ASC, check_in_at ASC
+    `;
+  }
+
+  return prisma.$queryRaw<AttendanceRow[]>`
+    SELECT *
+    FROM bakery_attendance
+    WHERE business_id = ${businessId}
+      AND attendance_date >= ${start}::date
+      AND attendance_date <= ${end}::date
+    ORDER BY attendance_date ASC, check_in_at ASC
+  `;
+}
+
 async function getOwnerAttendanceSummary(
   businessId: number,
-  monthStart: string,
-  monthEnd: string,
+  rangeStart: string,
+  rangeEnd: string,
+  monthKey: string | null,
 ) {
+  const settings = await getBakeryBusinessSettings(businessId);
   const members = await prisma.businessMember.findMany({
     where: {
       businessId,
@@ -153,80 +147,120 @@ async function getOwnerAttendanceSummary(
     orderBy: [{ role: "asc" }, { user: { name: "asc" } }],
   });
 
-  const rows = await prisma.$queryRaw<AttendanceRow[]>`
-    SELECT *
-    FROM bakery_attendance
-    WHERE business_id = ${businessId}
-      AND attendance_date >= ${monthStart}::date
-      AND attendance_date <= ${monthEnd}::date
-    ORDER BY attendance_date ASC, check_in_at ASC
-  `;
-
+  const rows = await getAttendanceRows(businessId, rangeStart, rangeEnd);
   const rowsByUser = new Map<number, AttendanceRow[]>();
+
   rows.forEach((row) => {
     const bucket = rowsByUser.get(row.user_id) ?? [];
     bucket.push(row);
     rowsByUser.set(row.user_id, bucket);
   });
 
-  return members.map((member) => {
-    const userRows = rowsByUser.get(member.userId) ?? [];
-    const daily = userRows.map((row) => {
-      const localParts = getJakartaParts(new Date(row.check_in_at));
-      return {
-        date: normalizeAttendanceDateKey(row.attendance_date),
-        status: row.status,
-        checkInAt: row.check_in_at,
-        isLate: localParts.hour >= LATE_THRESHOLD_HOUR,
-      };
-    });
+  return {
+    settings,
+    team: members.map((member) => {
+      const userRows = rowsByUser.get(member.userId) ?? [];
+      const manualLateCount = getManualLateCountForRange(
+        settings,
+        member.userId,
+        rangeStart,
+        rangeEnd,
+      );
+      const scopedManualLateCount = monthKey
+        ? getManualLateCountForMonth(settings, member.userId, monthKey)
+        : manualLateCount;
+      const metrics = calculateAttendanceMetrics({
+        rows: userRows,
+        rangeStart,
+        rangeEnd,
+        settings,
+        memberSinceDate: normalizeAttendanceDateKey(member.createdAt),
+        manualLateCount: scopedManualLateCount ?? undefined,
+      });
 
-    return {
-      memberId: member.id,
-      userId: member.userId,
-      name: member.user.name || "Team Member",
-      email: member.user.email || "",
-      role: member.role,
-      attendanceCount: daily.length,
-      lateCount: daily.filter((entry) => entry.isLate).length,
-      daily,
-    };
-  });
+      return {
+        memberId: member.id,
+        userId: member.userId,
+        name: member.user.name || "Team Member",
+        email: member.user.email || "",
+        role: member.role,
+        attendanceCount: metrics.attendanceCount,
+        expectedAttendanceDays: metrics.expectedAttendanceDays,
+        lateCount: metrics.lateCount,
+        systemLateCount: metrics.systemLateCount,
+        manualLateCount: metrics.manualLateCount,
+        isManualOverride: metrics.isManualOverride,
+        missingDates: metrics.missingDates,
+        daily: userRows.map((row) => ({
+          date: normalizeAttendanceDateKey(row.attendance_date),
+          status: row.status,
+          checkInAt: row.check_in_at,
+          isLate: isAttendanceRecordLate(row, settings),
+          notes: row.notes,
+        })),
+      };
+    }),
+  };
 }
 
 async function getSelfAttendanceSummary(
   businessId: number,
   userId: number,
-  monthStart: string,
-  monthEnd: string,
+  rangeStart: string,
+  rangeEnd: string,
+  monthKey: string | null,
 ) {
-  const rows = await prisma.$queryRaw<AttendanceRow[]>`
-    SELECT *
-    FROM bakery_attendance
-    WHERE business_id = ${businessId}
-      AND user_id = ${userId}
-      AND attendance_date >= ${monthStart}::date
-      AND attendance_date <= ${monthEnd}::date
-    ORDER BY attendance_date ASC, check_in_at ASC
-  `;
-
+  const settings = await getBakeryBusinessSettings(businessId);
+  const rows = await getAttendanceRows(businessId, rangeStart, rangeEnd, userId);
   const todayKey = getJakartaDateKey(new Date());
   const todayRecord =
     rows.find(
       (row) => normalizeAttendanceDateKey(row.attendance_date) === todayKey,
     ) ?? null;
+  const membership = await prisma.businessMember.findFirst({
+    where: {
+      businessId,
+      userId,
+    },
+    select: {
+      createdAt: true,
+      role: true,
+    },
+  });
+  const manualLateCount = getManualLateCountForRange(
+    settings,
+    userId,
+    rangeStart,
+    rangeEnd,
+  );
+  const scopedManualLateCount = monthKey
+    ? getManualLateCountForMonth(settings, userId, monthKey)
+    : manualLateCount;
+  const metrics = calculateAttendanceMetrics({
+    rows,
+    rangeStart,
+    rangeEnd,
+    settings,
+    memberSinceDate: membership?.createdAt
+      ? normalizeAttendanceDateKey(membership.createdAt)
+      : null,
+    manualLateCount: scopedManualLateCount ?? undefined,
+  });
 
   return {
-    attendanceCount: rows.length,
-    lateCount: rows.filter((row) => {
-      const localParts = getJakartaParts(new Date(row.check_in_at));
-      return localParts.hour >= LATE_THRESHOLD_HOUR;
-    }).length,
+    settings,
+    attendanceCount: metrics.attendanceCount,
+    expectedAttendanceDays: metrics.expectedAttendanceDays,
+    lateCount: metrics.lateCount,
+    systemLateCount: metrics.systemLateCount,
+    manualLateCount: metrics.manualLateCount,
+    isManualOverride: metrics.isManualOverride,
+    missingDates: metrics.missingDates,
     records: rows.map((row) => ({
       date: normalizeAttendanceDateKey(row.attendance_date),
       status: row.status,
       checkInAt: row.check_in_at,
-      isLate: getJakartaParts(new Date(row.check_in_at)).hour >= LATE_THRESHOLD_HOUR,
+      isLate: isAttendanceRecordLate(row, settings),
       notes: row.notes,
     })),
     todayRecord: todayRecord
@@ -234,9 +268,7 @@ async function getSelfAttendanceSummary(
           date: normalizeAttendanceDateKey(todayRecord.attendance_date),
           status: todayRecord.status,
           checkInAt: todayRecord.check_in_at,
-          isLate:
-            getJakartaParts(new Date(todayRecord.check_in_at)).hour >=
-            LATE_THRESHOLD_HOUR,
+          isLate: isAttendanceRecordLate(todayRecord, settings),
           notes: todayRecord.notes,
         }
       : null,
@@ -249,12 +281,17 @@ export async function GET(request: NextRequest) {
     await ensureAttendanceTable();
 
     const url = new URL(request.url);
-    const { scopeLabel, start, end, totalDays } = parseAttendanceRange(
+    const { scopeLabel, start, end, totalDays, monthKey } = parseAttendanceRange(
       url.searchParams,
     );
 
     if (auth.role === "Owner") {
-      const team = await getOwnerAttendanceSummary(auth.businessId, start, end);
+      const summary = await getOwnerAttendanceSummary(
+        auth.businessId,
+        start,
+        end,
+        monthKey,
+      );
       return NextResponse.json({
         success: true,
         data: {
@@ -263,7 +300,8 @@ export async function GET(request: NextRequest) {
           rangeStart: start,
           rangeEnd: end,
           totalDays,
-          team,
+          attendanceWindow: getAttendanceWindowState(summary.settings),
+          team: summary.team,
         },
       });
     }
@@ -277,7 +315,9 @@ export async function GET(request: NextRequest) {
       auth.userId,
       start,
       end,
+      monthKey,
     );
+    const { settings, ...selfData } = self;
 
     return NextResponse.json({
       success: true,
@@ -287,7 +327,11 @@ export async function GET(request: NextRequest) {
         rangeStart: start,
         rangeEnd: end,
         totalDays,
-        ...self,
+        attendanceWindow: getAttendanceWindowState(settings),
+        attendanceWindowEnabled: settings.attendanceWindowEnabled,
+        attendanceWindowStart: settings.attendanceWindowStart,
+        attendanceWindowEnd: settings.attendanceWindowEnd,
+        ...selfData,
       },
     });
   } catch (error) {
@@ -314,8 +358,33 @@ export async function POST(request: NextRequest) {
       throw new ForbiddenError("Hanya admin/staff yang bisa melakukan absensi.");
     }
 
+    const settings = await getBakeryBusinessSettings(auth.businessId);
+    const windowState = getAttendanceWindowState(settings);
+    const todayKey = windowState.todayKey;
+
+    if (isHolidayDate(todayKey, settings)) {
+      return NextResponse.json(
+        { error: "Hari ini ditandai libur. Absensi tidak dibutuhkan." },
+        { status: 400 },
+      );
+    }
+
+    if (settings.attendanceWindowEnabled !== false) {
+      if (!windowState.hasWindowStarted) {
+        return NextResponse.json(
+          { error: `Absensi dibuka mulai jam ${windowState.startTime} WIB.` },
+          { status: 400 },
+        );
+      }
+      if (!windowState.canCheckInNow) {
+        return NextResponse.json(
+          { error: `Jam absensi hari ini sudah tutup pada ${windowState.endTime} WIB.` },
+          { status: 400 },
+        );
+      }
+    }
+
     const body = (await request.json().catch(() => ({}))) as { notes?: string };
-    const todayKey = getJakartaDateKey(new Date());
     const now = new Date();
     const note = typeof body.notes === "string" ? body.notes.trim().slice(0, 200) : null;
 
@@ -354,15 +423,13 @@ export async function POST(request: NextRequest) {
     `;
 
     const record = rows[0];
-    const localParts = getJakartaParts(new Date(record.check_in_at));
-
     return NextResponse.json({
       success: true,
       data: {
         date: normalizeAttendanceDateKey(record.attendance_date),
         status: record.status,
         checkInAt: record.check_in_at,
-        isLate: localParts.hour >= LATE_THRESHOLD_HOUR,
+        isLate: isAttendanceRecordLate(record, settings),
         notes: record.notes,
       },
     });

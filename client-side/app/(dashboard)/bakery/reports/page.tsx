@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
 import { formatCurrency } from "@/components/orders/formatters";
 import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 import { generateExcel } from "@/lib/export/excel";
@@ -19,6 +18,9 @@ import type { BakeryBusinessSettings } from "@/lib/bakery/settings";
 import type { Product } from "@/types/product";
 import { useRole } from "@/context/RoleContext";
 import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
+import MonthYearPicker, {
+  buildSelectableMonthKeys,
+} from "@/components/bakery/shared/MonthYearPicker";
 import { ChartPie } from "lucide-react";
 
 type AttendanceMember = {
@@ -28,18 +30,29 @@ type AttendanceMember = {
   email: string;
   role: "Admin" | "Staff";
   attendanceCount: number;
+  expectedAttendanceDays: number;
   lateCount: number;
+  systemLateCount: number;
+  manualLateCount: number;
+  isManualOverride: boolean;
+  missingDates: string[];
   daily: Array<{
     date: string;
     status: "present";
     checkInAt: string;
     isLate: boolean;
+    notes: string | null;
   }>;
 };
 
 type AttendanceSelfData = {
   attendanceCount: number;
+  expectedAttendanceDays: number;
   lateCount: number;
+  systemLateCount: number;
+  manualLateCount: number;
+  isManualOverride: boolean;
+  missingDates: string[];
   totalDays: number;
   records: Array<{
     date: string;
@@ -159,17 +172,15 @@ export default function ReportsPage() {
       router.replace("/bakery/bookings");
     }
   }, [isOwner, roleLoading, router]);
-
-  if (roleLoading || !isOwner) {
-    return null;
-  }
   const [bakerySettings, setBakerySettings] =
     useState<BakeryBusinessSettings | null>(null);
   const [attendanceTeam, setAttendanceTeam] = useState<AttendanceMember[]>([]);
   const [attendanceSelf, setAttendanceSelf] = useState<AttendanceSelfData | null>(null);
-  const [attendanceTotalDays, setAttendanceTotalDays] = useState(0);
   const [isAttendanceLoading, setIsAttendanceLoading] = useState(true);
   const exportDialogTitleRef = useRef<HTMLParagraphElement | null>(null);
+  const isExactSelectedMonthRange =
+    fromDate === getMonthRange(selectedMonth).from &&
+    toDate === getMonthRange(selectedMonth).to;
 
   useEffect(() => {
     if (!isExportPickerOpen) return;
@@ -249,8 +260,11 @@ export default function ReportsPage() {
     const loadAttendance = async () => {
       setIsAttendanceLoading(true);
       try {
+        const attendanceQuery = isExactSelectedMonthRange
+          ? `/api/bakery/attendance?month=${selectedMonth}`
+          : `/api/bakery/attendance?from=${fromDate}&to=${toDate}`;
         const response = await fetch(
-          `/api/bakery/attendance?from=${fromDate}&to=${toDate}`,
+          attendanceQuery,
           { cache: "no-store" },
         );
         const payload = (await response.json().catch(() => ({}))) as {
@@ -266,17 +280,14 @@ export default function ReportsPage() {
         if (payload.data?.mode === "owner") {
           setAttendanceTeam(payload.data.team || []);
           setAttendanceSelf(null);
-          setAttendanceTotalDays(Math.max(0, Number(payload.data.totalDays || 0)));
         } else {
           setAttendanceSelf(payload.data || null);
           setAttendanceTeam([]);
-          setAttendanceTotalDays(Math.max(0, Number(payload.data?.totalDays || 0)));
         }
       } catch {
         if (!cancelled) {
           setAttendanceTeam([]);
           setAttendanceSelf(null);
-          setAttendanceTotalDays(0);
         }
       } finally {
         if (!cancelled) setIsAttendanceLoading(false);
@@ -287,21 +298,17 @@ export default function ReportsPage() {
     return () => {
       cancelled = true;
     };
-  }, [fromDate, toDate]);
+  }, [fromDate, isExactSelectedMonthRange, selectedMonth, toDate]);
 
-  const monthOptions = useMemo(() => {
-    const months = Array.from(
-      new Set([
-        currentMonth,
-        ...orders.map((order) => monthKeyFromDate(order.deliveryDate)).filter(Boolean),
-      ]),
-    ).sort((a, b) => b.localeCompare(a));
-
-    return months.map((month) => ({
-      value: month,
-      label: formatMonthLabel(month),
-    }));
-  }, [currentMonth, orders]);
+  const selectableMonthKeys = useMemo(
+    () =>
+      buildSelectableMonthKeys({
+        monthsBack: 18,
+        monthsForward: 5,
+        includeMonthKeys: orders.map((order) => monthKeyFromDate(order.deliveryDate)),
+      }).sort((left, right) => right.localeCompare(left)),
+    [orders],
+  );
 
   const filteredOrders = useMemo(() => {
     return orders.filter((order) => {
@@ -493,7 +500,11 @@ export default function ReportsPage() {
         role: member.role,
         attendanceCount: member.attendanceCount,
         lateCount: member.lateCount,
-        totalDays: Math.max(attendanceTotalDays, 1),
+        totalDays: Math.max(member.expectedAttendanceDays, 0),
+        systemLateCount: member.systemLateCount,
+        manualLateCount: member.manualLateCount,
+        missingCount: member.missingDates.length,
+        isManualOverride: member.isManualOverride,
       }));
     }
 
@@ -505,13 +516,17 @@ export default function ReportsPage() {
           role: "Staff",
           attendanceCount: attendanceSelf.attendanceCount,
           lateCount: attendanceSelf.lateCount,
-          totalDays: Math.max(attendanceSelf.totalDays || 0, 1),
+          totalDays: Math.max(attendanceSelf.expectedAttendanceDays || 0, 0),
+          systemLateCount: attendanceSelf.systemLateCount,
+          manualLateCount: attendanceSelf.manualLateCount,
+          missingCount: attendanceSelf.missingDates.length,
+          isManualOverride: attendanceSelf.isManualOverride,
         },
       ];
     }
 
     return [];
-  }, [attendanceSelf, attendanceTeam, attendanceTotalDays]);
+  }, [attendanceSelf, attendanceTeam]);
 
   const reportScopeLabel = useMemo(() => {
     const monthRange = getMonthRange(selectedMonth);
@@ -637,6 +652,10 @@ export default function ReportsPage() {
     URL.revokeObjectURL(url);
   };
 
+  if (roleLoading || !isOwner) {
+    return null;
+  }
+
   return (
     <div className="mx-auto max-w-7xl pb-10 text-[#2f1e13]">
       <GradientPageHeader title="Reports" description="Data & Ringkasan Bisnis" icon={ChartPie} />
@@ -698,24 +717,19 @@ export default function ReportsPage() {
         </div>
 
         <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-          <Select
+          <MonthYearPicker
             value={selectedMonth}
-            onChange={(event) => {
-              const nextMonth = event.target.value;
+            onChange={(nextMonth) => {
               setSelectedMonth(nextMonth);
               const range = getMonthRange(nextMonth);
               setFromDate(range.from);
               setToDate(range.to);
               setIsCustomOpen(false);
             }}
-            className="h-11 rounded-xl border-[#dfc9b7] bg-white text-sm font-semibold text-[#2f1e13]"
-          >
-            {monthOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </Select>
+            monthKeys={selectableMonthKeys}
+            formatLabel={formatMonthLabel}
+            buttonClassName="sm:min-w-[15rem]"
+          />
 
           <button
             type="button"
@@ -964,6 +978,12 @@ export default function ReportsPage() {
                       {member.attendanceCount}/{member.totalDays}
                     </p>
                     <p className="text-[11px] text-[#8a6a54]">hari hadir</p>
+                    <p className="text-[10px] text-[#b0734d]">
+                      Sistem {member.systemLateCount}x
+                      {member.manualLateCount > 0 || member.isManualOverride
+                        ? ` • Owner ${member.manualLateCount}x`
+                        : ""}
+                    </p>
                   </div>
                   <p className="text-sm font-bold text-[#cf4028]">{member.lateCount}x telat</p>
                 </div>

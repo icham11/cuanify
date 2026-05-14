@@ -16,6 +16,7 @@ import {
 import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import { type BakeryOrder, useOrders } from "@/components/bakery/store";
 import { useBusiness } from "@/context/BusinessContext";
+import { useRole } from "@/context/RoleContext";
 import { useBakerySettings } from "@/hooks/useBakerySettings";
 import { BAKERY_STAFF_DAILY_TOKEN_LIMIT } from "@/lib/bookings/config";
 import { getStaffTokenLimitForUser } from "@/lib/bakery/token-limits";
@@ -43,6 +44,31 @@ type StaffStat = {
   activeOrders: number;
   completedToday: number;
   dailyTokenLimit: number;
+};
+
+type DashboardAttendanceState = {
+  attendanceCount: number;
+  expectedAttendanceDays: number;
+  lateCount: number;
+  systemLateCount: number;
+  manualLateCount: number;
+  missingDates: string[];
+  attendanceWindow?: {
+    enabled: boolean;
+    startTime: string;
+    endTime: string;
+    label: string;
+    todayKey: string;
+    isHolidayToday: boolean;
+    hasWindowStarted: boolean;
+    hasWindowEnded: boolean;
+    canCheckInNow: boolean;
+    message: string;
+  };
+  todayRecord: {
+    date: string;
+    checkInAt: string;
+  } | null;
 };
 
 function formatRupiah(value: number) {
@@ -114,12 +140,17 @@ export default function BakeryDashboardPage() {
   const router = useRouter();
   const { orders } = useOrders();
   const { business } = useBusiness();
+  const { isAdmin, isStaff } = useRole();
   const { settings: bakerySettings } = useBakerySettings();
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [isTeamLoading, setIsTeamLoading] = useState(true);
   const [staffRoleFilter, setStaffRoleFilter] = useState<"all" | "staff" | "admin">("all");
   const [staffSearch, setStaffSearch] = useState("");
   const [isCashInModalOpen, setIsCashInModalOpen] = useState(false);
+  const [attendanceSummary, setAttendanceSummary] =
+    useState<DashboardAttendanceState | null>(null);
+  const [isAttendanceLoading, setIsAttendanceLoading] = useState(false);
+  const [isAttendanceSubmitting, setIsAttendanceSubmitting] = useState(false);
 
   const today = getJakartaTodayIsoDate();
   const staffDailyTokenLimit =
@@ -565,6 +596,66 @@ export default function BakeryDashboardPage() {
     },
   ];
 
+  useEffect(() => {
+    if (!isAdmin && !isStaff) return;
+
+    let active = true;
+
+    const loadAttendance = async () => {
+      setIsAttendanceLoading(true);
+      try {
+        const response = await fetch(`/api/bakery/attendance?month=${today.slice(0, 7)}`, {
+          cache: "no-store",
+        });
+        const payload = (await response.json().catch(() => ({}))) as {
+          data?: DashboardAttendanceState;
+        };
+        if (!response.ok || !active) return;
+        setAttendanceSummary(payload.data ?? null);
+      } catch {
+        if (active) {
+          setAttendanceSummary(null);
+        }
+      } finally {
+        if (active) {
+          setIsAttendanceLoading(false);
+        }
+      }
+    };
+
+    void loadAttendance();
+    return () => {
+      active = false;
+    };
+  }, [isAdmin, isStaff, today]);
+
+  const submitAttendance = useCallback(async () => {
+    setIsAttendanceSubmitting(true);
+    try {
+      const response = await fetch("/api/bakery/attendance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (!response.ok) {
+        return;
+      }
+
+      const reload = await fetch(`/api/bakery/attendance?month=${today.slice(0, 7)}`, {
+        cache: "no-store",
+      });
+      const payload = (await reload.json().catch(() => ({}))) as {
+        data?: DashboardAttendanceState;
+      };
+      if (!reload.ok) {
+        return;
+      }
+      setAttendanceSummary(payload.data ?? null);
+    } finally {
+      setIsAttendanceSubmitting(false);
+    }
+  }, [today]);
+
   return (
     <div className="mx-auto max-w-7xl space-y-4 pb-10">
       <GradientPageHeader
@@ -721,6 +812,87 @@ export default function BakeryDashboardPage() {
           );
         })}
       </section>
+
+      {isAdmin || isStaff ? (
+        <section className="rounded-[24px] border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] px-4 py-4 shadow-[0_16px_28px_-24px_rgba(30,18,10,0.56)]">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--crumbella-muted)]">
+                Absensi Hari Ini
+              </p>
+              <p className="mt-1 text-[1.35rem] font-extrabold leading-tight text-[var(--foreground)]">
+                {attendanceSummary?.attendanceWindow?.label || "Atur di owner"}
+              </p>
+              <p className="mt-1 text-[11px] text-[var(--crumbella-muted)]">
+                {attendanceSummary?.attendanceWindow?.message ||
+                  "Klik tombol di samping untuk check-in."}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void submitAttendance()}
+              disabled={
+                isAttendanceLoading ||
+                isAttendanceSubmitting ||
+                Boolean(attendanceSummary?.todayRecord) ||
+                (attendanceSummary?.attendanceWindow?.enabled === true &&
+                  !attendanceSummary.attendanceWindow.canCheckInNow)
+              }
+              className="rounded-full bg-[var(--crumbella-primary)] px-4 py-2 text-xs font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {attendanceSummary?.todayRecord
+                ? "Sudah Absen"
+                : isAttendanceSubmitting
+                  ? "Menyimpan..."
+                  : "Absen Sekarang"}
+            </button>
+          </div>
+
+          <div className="mt-4 grid grid-cols-3 gap-2">
+            <div className="rounded-[18px] bg-[var(--crumbella-accent-soft)]/35 px-3 py-3">
+              <p className="text-[1.25rem] font-extrabold leading-none text-[var(--foreground)]">
+                {attendanceSummary
+                  ? `${attendanceSummary.attendanceCount}/${attendanceSummary.expectedAttendanceDays}`
+                  : "--"}
+              </p>
+              <p className="mt-1 text-[10px] text-[var(--crumbella-muted)]">Hadir</p>
+            </div>
+            <div className="rounded-[18px] bg-[#fdeaea] px-3 py-3">
+              <p className="text-[1.25rem] font-extrabold leading-none text-[var(--crumbella-danger)]">
+                {attendanceSummary?.lateCount ?? 0}x
+              </p>
+              <p className="mt-1 text-[10px] text-[var(--crumbella-muted)]">Telat</p>
+            </div>
+            <div className="rounded-[18px] bg-[#e0f0e8] px-3 py-3">
+              <p className="text-[1.05rem] font-extrabold leading-none text-[var(--crumbella-success)]">
+                {attendanceSummary?.todayRecord?.checkInAt
+                  ? new Intl.DateTimeFormat("id-ID", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    }).format(new Date(attendanceSummary.todayRecord.checkInAt))
+                  : "--:--"}
+              </p>
+              <p className="mt-1 text-[10px] text-[var(--crumbella-muted)]">Check-in</p>
+            </div>
+          </div>
+
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <p className="text-[11px] text-[var(--crumbella-muted)]">
+              Sistem {attendanceSummary?.systemLateCount ?? 0}x
+              {attendanceSummary?.manualLateCount
+                ? ` - Owner ${attendanceSummary.manualLateCount}x`
+                : ""}
+            </p>
+            <button
+              type="button"
+              onClick={() => router.push("/bakery/attendance")}
+              className="text-[11px] font-semibold text-[var(--crumbella-primary)]"
+            >
+              Lihat riwayat
+            </button>
+          </div>
+        </section>
+      ) : null}
 
       {lateOrders.length > 0 ? (
         <div
