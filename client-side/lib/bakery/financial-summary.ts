@@ -250,12 +250,30 @@ export function filterBakeryOrdersByDateRange(
   toDate: string,
 ): BakeryFinancialOrder[] {
   return orders.filter((order) => {
-    const deliveryDate = String(order.deliveryDate || "");
-    if (!deliveryDate) return false;
-    if (fromDate && deliveryDate < fromDate) return false;
-    if (toDate && deliveryDate > toDate) return false;
     if (isCancelledOrder(order)) return false;
-    return true;
+
+    // Prefer payment transaction timestamps: if any payment occurred within
+    // the requested range, include the order.
+    const paymentInRange = getPaymentAmountInRange(order, fromDate, toDate);
+    if (paymentInRange > 0) return true;
+
+    // Otherwise fall back to delivery date (legacy behavior).
+    const deliveryDate = String(order.deliveryDate || "").trim();
+    if (deliveryDate) {
+      if (fromDate && deliveryDate < fromDate) return false;
+      if (toDate && deliveryDate > toDate) return false;
+      return true;
+    }
+
+    // As a final fallback, consider created/updated timestamps.
+    const createdKey = toBusinessDateKey(order.createdAt ?? null);
+    if (createdKey) {
+      if (fromDate && createdKey < fromDate) return false;
+      if (toDate && createdKey > toDate) return false;
+      return true;
+    }
+
+    return false;
   });
 }
 
