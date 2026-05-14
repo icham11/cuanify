@@ -11,6 +11,7 @@ import {
   type BakeryHolidaySetting,
   type BakeryOperationalExpenseSetting,
   type BakeryStaffSetting,
+  type BakeryAttendanceReconciliation,
 } from "@/lib/bakery/settings";
 import { syncCapacityMaxTokenForBusiness } from "@/lib/bookings/token-capacity-service";
 import {
@@ -90,6 +91,27 @@ function normalizeProductionStageProfilesInput(
   return normalizeProductionStageProfiles(value);
 }
 
+function normalizeAttendanceReconciliationInput(
+  value: unknown,
+): BakeryAttendanceReconciliation[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((entry) => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+      const record = entry as Record<string, unknown>;
+      return {
+        id: typeof record.id === "string" ? record.id : "",
+        monthKey: typeof record.monthKey === "string" ? record.monthKey : "",
+        staffUserId: Number(record.staffUserId),
+        staffName: typeof record.staffName === "string" ? record.staffName : "",
+        manualLateCount: Math.max(0, Number(record.manualLateCount) || 0),
+        note: typeof record.note === "string" ? record.note : "",
+      };
+    })
+    .filter((entry): entry is BakeryAttendanceReconciliation => Boolean(entry));
+}
+
 export async function GET() {
   try {
     const auth = await requireAuth();
@@ -163,6 +185,10 @@ export async function PATCH(request: NextRequest) {
         productionStageProfiles:
           body.productionStageProfiles !== undefined
             ? normalizeProductionStageProfilesInput(body.productionStageProfiles)
+            : undefined,
+        attendanceReconciliation:
+          body.attendanceReconciliation !== undefined
+            ? normalizeAttendanceReconciliationInput(body.attendanceReconciliation)
             : undefined,
       },
     });

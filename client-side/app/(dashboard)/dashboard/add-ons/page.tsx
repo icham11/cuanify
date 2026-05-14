@@ -11,7 +11,10 @@ import {
   Loader2,
   ArrowUpDown,
 } from "lucide-react";
-import { makeAddOnKey, useCatalogAdminState } from "@/lib/bookings/catalog-admin";
+import {
+  makeAddOnKey,
+  useCatalogAdminState,
+} from "@/lib/bookings/catalog-admin";
 import { useRole } from "@/context/RoleContext";
 
 function normalizeId(value: string): string {
@@ -163,7 +166,8 @@ function AddOnModal({
 export default function AddOnsPage() {
   const { isOwner, isAdmin, loading: roleLoading } = useRole();
   const canManageAddOns = isOwner;
-  const { addOnCatalog, syncStatus, setCatalogAdminState } = useCatalogAdminState();
+  const { addOnCatalog, syncStatus, setCatalogAdminState } =
+    useCatalogAdminState();
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("");
   const [sortIndex, setSortIndex] = useState(0);
@@ -205,7 +209,9 @@ export default function AddOnsPage() {
 
         if (!current.categories.includes(category)) {
           current.categories.push(category);
-          current.categories.sort((left, right) => left.localeCompare(right, "id"));
+          current.categories.sort((left, right) =>
+            left.localeCompare(right, "id"),
+          );
         }
       });
     });
@@ -215,7 +221,8 @@ export default function AddOnsPage() {
       if (
         selectedCategory &&
         !row.categories.some(
-          (category) => category.toLowerCase() === selectedCategory.toLowerCase(),
+          (category) =>
+            category.toLowerCase() === selectedCategory.toLowerCase(),
         )
       ) {
         return false;
@@ -228,7 +235,9 @@ export default function AddOnsPage() {
       );
     });
 
-    return filtered.sort(SORT_OPTIONS[sortIndex]?.compare ?? SORT_OPTIONS[0].compare);
+    return filtered.sort(
+      SORT_OPTIONS[sortIndex]?.compare ?? SORT_OPTIONS[0].compare,
+    );
   }, [addOnCatalog, search, selectedCategory, sortIndex]);
 
   const cycleSort = () => {
@@ -425,7 +434,8 @@ export default function AddOnsPage() {
 
           {!roleLoading && isAdmin ? (
             <div className="rounded-2xl border border-[#eadccf] bg-[#fff8f2] px-4 py-3 text-sm font-medium text-[#8c6248]">
-              Role Admin hanya bisa melihat data add-on. Tambah, edit, dan hapus hanya untuk Owner.
+              Role Admin hanya bisa melihat data add-on. Tambah, edit, dan hapus
+              hanya untuk Owner.
             </div>
           ) : null}
         </div>
@@ -530,7 +540,8 @@ export default function AddOnsPage() {
 
                 <div className="px-4 py-2.5">
                   <p className="text-[10px] text-[#b89080]">
-                    Berlaku untuk: {row.categories.join(", ")} · Tipe: {inferAddOnType(row)}
+                    Berlaku untuk: {row.categories.join(", ")} · Tipe:{" "}
+                    {inferAddOnType(row)}
                   </p>
                 </div>
               </article>

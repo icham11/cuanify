@@ -46,6 +46,15 @@ export interface BakeryHolidaySetting {
   tag: string;
 }
 
+export interface BakeryAttendanceReconciliation {
+  id: string;  // ${monthKey}-${staffUserId}
+  monthKey: string;  // YYYY-MM
+  staffUserId: number;
+  staffName: string;
+  manualLateCount: number;  // Input manual dari owner
+  note: string;  // Catatan/reason untuk perbedaan
+}
+
 export interface BakeryBusinessSettings {
   dailyProductionTokenLimit: number;
   staffDailyTokenLimit: number;
@@ -57,6 +66,7 @@ export interface BakeryBusinessSettings {
   holidayEntries: BakeryHolidaySetting[];
   staffSettings: BakeryStaffSetting[];
   monthlyExpenses: BakeryOperationalExpenseSetting[];
+  attendanceReconciliation: BakeryAttendanceReconciliation[];
   productionStageProfiles: ProductionStageCategoryProfile[];
 }
 
@@ -216,6 +226,43 @@ function normalizeMonthlyExpenses(
     });
 }
 
+function normalizeAttendanceReconciliation(
+  value: unknown,
+): BakeryAttendanceReconciliation[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((entry) => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+      const record = entry as Record<string, unknown>;
+      const monthKey = normalizeMonthKey(record.monthKey);
+      if (!monthKey) return null;
+
+      const staffUserId = Number(record.staffUserId);
+      if (!Number.isInteger(staffUserId) || staffUserId <= 0) return null;
+
+      const id =
+        typeof record.id === "string" && record.id.trim().length > 0
+          ? record.id.trim()
+          : `${monthKey}-${staffUserId}`;
+
+      return {
+        id,
+        monthKey,
+        staffUserId,
+        staffName: typeof record.staffName === "string" ? record.staffName.trim() : "",
+        manualLateCount: Math.max(0, Math.round(Number(record.manualLateCount || 0))),
+        note: typeof record.note === "string" ? record.note.trim() : "",
+      };
+    })
+    .filter((entry): entry is BakeryAttendanceReconciliation => Boolean(entry))
+    .sort((left, right) => {
+      const monthDiff = left.monthKey.localeCompare(right.monthKey);
+      if (monthDiff !== 0) return monthDiff;
+      return left.staffName.localeCompare(right.staffName, "id");
+    });
+}
+
 export function getDefaultBakerySettings(): BakeryBusinessSettings {
   const holidayEntries = normalizeHolidayEntries(
     BAKERY_BLOCKED_DATES.map((date) => ({ date, label: "", tag: "Libur" })),
@@ -232,6 +279,7 @@ export function getDefaultBakerySettings(): BakeryBusinessSettings {
     holidayEntries,
     staffSettings: [],
     monthlyExpenses: [],
+    attendanceReconciliation: [],
     productionStageProfiles: [],
   };
 }
@@ -261,6 +309,9 @@ function parseMetadataToSettings(metadata: unknown): BakeryBusinessSettings {
     holidayEntries,
     staffSettings: normalizeStaffSettings(record.staffSettings),
     monthlyExpenses: normalizeMonthlyExpenses(record.monthlyExpenses),
+    attendanceReconciliation: normalizeAttendanceReconciliation(
+      record.attendanceReconciliation,
+    ),
     productionStageProfiles: normalizeProductionStageProfiles(
       record.productionStageProfiles,
     ),
@@ -343,6 +394,10 @@ export async function upsertBakeryBusinessSettings(args: {
       args.input.productionStageProfiles !== undefined
         ? normalizeProductionStageProfiles(args.input.productionStageProfiles)
         : current.productionStageProfiles,
+    attendanceReconciliation:
+      args.input.attendanceReconciliation !== undefined
+        ? normalizeAttendanceReconciliation(args.input.attendanceReconciliation)
+        : current.attendanceReconciliation,
   };
 
   const metadata = JSON.parse(

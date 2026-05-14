@@ -13,6 +13,7 @@ import type {
   BakeryHolidaySetting,
   BakeryOperationalExpenseSetting,
   BakeryStaffSetting,
+  BakeryAttendanceReconciliation,
 } from "@/lib/bakery/settings";
 import type { ProductionStageCategoryProfile } from "@/lib/bookings/production-stages";
 import {
@@ -24,6 +25,7 @@ import {
   normalizeMainCategoryKey,
   resolveMainProductCategory,
 } from "@/lib/products/main-category";
+import AttendanceReconciliation from "./AttendanceReconciliation";
 
 type StaffApiResponse = {
   data?: {
@@ -302,6 +304,9 @@ export default function BakerySettingsPage() {
   >([]);
   const [selectedProductionStageCategory, setSelectedProductionStageCategory] =
     useState("");
+  const [attendanceReconciliation, setAttendanceReconciliation] = useState<
+    BakeryAttendanceReconciliation[]
+  >([]);
 
   useEffect(() => {
     let active = true;
@@ -406,6 +411,7 @@ export default function BakerySettingsPage() {
   useEffect(() => {
     if (!settings) return;
     setStaffSettings(mergeStaffSettings(staffOptions, settings.staffSettings));
+    setAttendanceReconciliation(settings.attendanceReconciliation || []);
   }, [settings, staffOptions]);
 
   useEffect(() => {
@@ -695,6 +701,7 @@ export default function BakerySettingsPage() {
           takeHomePay: toTakeHome(entry.monthlySalary, entry.mealAllowance),
         })),
         monthlyExpenses,
+        attendanceReconciliation,
         productionStageProfiles,
       });
       setProductionStageSaveMessage(
@@ -1447,6 +1454,14 @@ export default function BakerySettingsPage() {
                 )}
               </div>
             </div>
+
+            {/* Attendance Reconciliation */}
+            <AttendanceReconciliation
+              reconciliationData={attendanceReconciliation}
+              onUpdate={setAttendanceReconciliation}
+              staffSettings={staffSettings}
+              currentMonthKey={currentMonthKey}
+            />
           </section>
         </div>
 

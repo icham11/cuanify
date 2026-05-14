@@ -188,20 +188,24 @@ function getPaymentAmountInRange(
     ? order.paymentTransactions
     : [];
 
+  const fallbackDateKey =
+    String(order.deliveryDate || "").trim() ||
+    toBusinessDateKey(order.createdAt) ||
+    toBusinessDateKey(order.updatedAt);
+
   if (transactions.length > 0) {
     return transactions.reduce((sum, transaction) => {
-      const dateKey = toBusinessDateKey(transaction?.timestamp ?? null);
+      // Prefer transaction timestamp; if missing/invalid, fall back to
+      // the order-level fallbackDateKey so undated transactions are
+      // still considered when the order falls into the requested range.
+      const dateKey =
+        toBusinessDateKey(transaction?.timestamp ?? null) || fallbackDateKey;
       if (!isDateKeyWithinRange(dateKey, fromDate, toDate)) return sum;
 
       const amount = Number(transaction?.amount || 0);
       return sum + (Number.isFinite(amount) ? amount : 0);
     }, 0);
   }
-
-  const fallbackDateKey =
-    String(order.deliveryDate || "").trim() ||
-    toBusinessDateKey(order.createdAt) ||
-    toBusinessDateKey(order.updatedAt);
 
   if (!isDateKeyWithinRange(fallbackDateKey, fromDate, toDate)) {
     return 0;
@@ -365,9 +369,13 @@ export function calculateBakeryFinancialSummary(args: {
     totalRevenue += paymentAmountInRange;
     totalCashFlowIn += paymentAmountInRange;
 
+    // recognitionRatio represents portion of the order that should be
+    // recognised as revenue in the requested range. Use 0..1 to avoid
+    // negative recognition which caused inconsistent signs between
+    // revenue/COGS and quantity.
     const recognitionRatio =
       totalPrice > 0
-        ? Math.max(-1, Math.min(1, paymentAmountInRange / totalPrice))
+        ? Math.max(0, Math.min(1, paymentAmountInRange / totalPrice))
         : 0;
 
     (order.items || []).forEach((item) => {
