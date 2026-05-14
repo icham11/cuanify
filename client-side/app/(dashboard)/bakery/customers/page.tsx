@@ -2,13 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  Menu,
-  MessageCircle,
-  Search,
-  Star,
-  Users,
-} from "lucide-react";
+import { Menu, MessageCircle, Search, Star, Users } from "lucide-react";
 import { useOrders } from "@/components/bakery/store";
 import { useRole } from "@/context/RoleContext";
 import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
@@ -99,11 +93,7 @@ function getCustomerSegment(customer: {
 }
 
 function getInitials(name: string): string {
-  const parts = name
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2);
+  const parts = name.trim().split(/\s+/).filter(Boolean).slice(0, 2);
 
   if (parts.length === 0) return "C";
   return parts.map((part) => part[0]?.toUpperCase() || "").join("");
@@ -190,9 +180,16 @@ export default function BakeryCustomersPage() {
   }, [orders]);
 
   const summary = useMemo(() => {
-    const vipCount = allCustomers.filter((customer) => customer.segment === "vip").length;
-    const repeatCount = allCustomers.filter((customer) => customer.segment === "repeat").length;
-    const revenue = allCustomers.reduce((sum, customer) => sum + customer.totalSpent, 0);
+    const vipCount = allCustomers.filter(
+      (customer) => customer.segment === "vip",
+    ).length;
+    const repeatCount = allCustomers.filter(
+      (customer) => customer.segment === "repeat",
+    ).length;
+    const revenue = allCustomers.reduce(
+      (sum, customer) => sum + customer.totalSpent,
+      0,
+    );
 
     return {
       totalCustomers: allCustomers.length,
@@ -258,14 +255,18 @@ export default function BakeryCustomersPage() {
                 <button
                   key={filter.value}
                   type="button"
-                  onClick={() => setActiveFilter(filter.value as CustomerSegment)}
+                  onClick={() =>
+                    setActiveFilter(filter.value as CustomerSegment)
+                  }
                   className={`inline-flex h-9 items-center gap-1.5 rounded-full border px-4 text-[13px] font-semibold transition ${
                     isActive
                       ? "border-[#d96d28] bg-[#d96d28] text-white shadow-[0_8px_18px_-14px_rgba(217,109,40,0.9)]"
                       : "border-[#dec9b9] bg-white text-[#7a4928]"
                   }`}
                 >
-                  {filter.value === "vip" ? <Star className="h-3.5 w-3.5 fill-current" /> : null}
+                  {filter.value === "vip" ? (
+                    <Star className="h-3.5 w-3.5 fill-current" />
+                  ) : null}
                   {filter.label}
                 </button>
               );
@@ -368,7 +369,11 @@ export default function BakeryCustomersPage() {
                   </div>
 
                   <a
-                    href={whatsAppPhone ? `https://wa.me/${whatsAppPhone}` : undefined}
+                    href={
+                      whatsAppPhone
+                        ? `https://wa.me/${whatsAppPhone}`
+                        : undefined
+                    }
                     target="_blank"
                     rel="noreferrer"
                     aria-label={`Chat WhatsApp ${customer.name}`}

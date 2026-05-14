@@ -254,6 +254,7 @@ export default function SalesHistoryPage() {
   }
 
   return (
+    <div className="mx-auto max-w-7xl space-y-4 pb-10">
     <div className="space-y-4 sm:space-y-5">
       {/* ═══ Header ═══ */}
       <div className="bg-linear-to-br from-indigo-600 via-purple-600 to-indigo-700 rounded-2xl p-4 sm:p-6 shadow-lg shadow-indigo-200/30">
@@ -633,6 +634,7 @@ export default function SalesHistoryPage() {
           </button>
         </div>
       )}
+    </div>
     </div>
   );
 }

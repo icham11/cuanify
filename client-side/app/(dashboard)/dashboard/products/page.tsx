@@ -653,8 +653,8 @@ export default function ProductsPage() {
   };
 
   return (
-    <>
-      <div className="mx-auto max-w-6xl space-y-5 text-[#1e120a]">
+    <div className="mx-auto max-w-7xl space-y-4 pb-10 text-[#1e120a]">
+      <div className="space-y-5">
         <section className="overflow-hidden rounded-[30px] border border-[#d9cabc] bg-[#f2eae1] shadow-[0_24px_60px_-40px_rgba(30,18,10,0.35)]">
           <div className="flex items-center justify-between gap-3 border-b border-[#e0d0c4] px-4 py-4 sm:px-5">
             <div className="min-w-0">
@@ -1040,6 +1040,6 @@ export default function ProductsPage() {
           void refreshCategories();
         }}
       />
-    </>
+    </div>
   );
 }

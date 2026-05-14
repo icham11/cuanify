@@ -136,6 +136,7 @@ export default function ProductionPage() {
   };
 
   return (
+    <div className="mx-auto max-w-7xl space-y-4 pb-10">
     <div className="space-y-6">
       {/* Header — matches indigo/purple theme */}
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 bg-linear-to-r from-indigo-500 via-violet-500 to-indigo-400 rounded-2xl p-4 sm:p-6 shadow-lg">
@@ -354,6 +355,7 @@ export default function ProductionPage() {
           onProduce={handleProduce}
         />
       )}
+    </div>
     </div>
   );
 }

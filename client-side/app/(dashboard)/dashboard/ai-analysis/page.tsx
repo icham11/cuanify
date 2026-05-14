@@ -303,7 +303,7 @@ export default function AIAnalysisPage() {
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-blue-100/10 rounded-full blur-3xl" />
       </div>
 
-      <div className="max-w-5xl mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-6">
+      <div className="mx-auto max-w-7xl space-y-4 pb-10 px-3 sm:px-4 py-4 sm:py-6">
         {/* ─── Header ─── */}
         <motion.div variants={itemVariants} className="relative overflow-hidden rounded-xl sm:rounded-2xl bg-white/80 backdrop-blur-xl border border-white/60 shadow-lg shadow-indigo-500/5">
           <div className="absolute inset-0 bg-gradient-to-br from-indigo-50/50 via-transparent to-violet-50/50" />

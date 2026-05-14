@@ -5,7 +5,8 @@ import { AlertTriangle, ArrowLeft, Package } from "lucide-react";
 
 export default function IngredientsPage() {
   return (
-    <div className="mx-auto max-w-6xl space-y-6 py-8">
+    <div className="mx-auto max-w-7xl space-y-4 pb-10">
+    <div className="space-y-6">
       <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6">
         <div className="mb-3 flex items-center gap-2 text-amber-700">
           <AlertTriangle className="h-5 w-5" />
@@ -32,6 +33,7 @@ export default function IngredientsPage() {
           Kembali ke Dashboard
         </Link>
       </div>
+    </div>
     </div>
   );
 }

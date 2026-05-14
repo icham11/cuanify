@@ -159,7 +159,8 @@ export default function CreateProductsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-8">
+    <div className="mx-auto max-w-7xl space-y-4 pb-10">
+    <div className="space-y-8">
       <div className="flex items-center gap-3">
         <button
           type="button"
@@ -168,8 +169,9 @@ export default function CreateProductsPage() {
         >
           <ChevronLeft size={22} />
         </button>
-        <div>
-          <h1 className="text-2xl font-extrabold text-indigo-700">
+        </div>
+      </div>
+      </div>
             Tambah Produk
           </h1>
           <p className="mt-0.5 text-sm text-gray-400">

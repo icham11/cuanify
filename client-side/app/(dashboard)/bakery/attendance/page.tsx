@@ -113,7 +113,9 @@ export default function BakeryAttendancePage() {
       } catch (fetchError) {
         if (cancelled) return;
         setError(
-          fetchError instanceof Error ? fetchError.message : "Gagal memuat absensi",
+          fetchError instanceof Error
+            ? fetchError.message
+            : "Gagal memuat absensi",
         );
       } finally {
         if (!cancelled) setIsLoading(false);
@@ -168,7 +170,11 @@ export default function BakeryAttendancePage() {
     <div className="mx-auto max-w-7xl space-y-4 pb-10">
       <GradientPageHeader
         title="Absensi"
-        description={isOwner ? "Pantau kehadiran admin & staff" : `Absensi harian untuk ${userName || (isAdmin ? "Admin" : isStaff ? "Staff" : "Team")}`}
+        description={
+          isOwner
+            ? "Pantau kehadiran admin & staff"
+            : `Absensi harian untuk ${userName || (isAdmin ? "Admin" : isStaff ? "Staff" : "Team")}`
+        }
         icon={Calendar}
       />
 
@@ -217,8 +223,12 @@ export default function BakeryAttendancePage() {
                         {member.name.slice(0, 1).toUpperCase()}
                       </span>
                       <div>
-                        <p className="text-sm font-bold text-[#1f140d]">{member.name}</p>
-                        <p className="text-[11px] text-[#8a6a54]">{member.role}</p>
+                        <p className="text-sm font-bold text-[#1f140d]">
+                          {member.name}
+                        </p>
+                        <p className="text-[11px] text-[#8a6a54]">
+                          {member.role}
+                        </p>
                       </div>
                     </div>
                     <div className="text-right">
@@ -307,7 +317,9 @@ export default function BakeryAttendancePage() {
 
             <div className="overflow-hidden rounded-[18px] border border-[#dec8b6] bg-white">
               <div className="border-b border-[#ead6c8] px-4 py-3">
-                <p className="text-sm font-bold text-[#1f140d]">Riwayat Bulan Ini</p>
+                <p className="text-sm font-bold text-[#1f140d]">
+                  Riwayat Bulan Ini
+                </p>
               </div>
               <div className="px-4 py-3">
                 {!selfData || selfData.records.length === 0 ? (
@@ -361,8 +373,12 @@ function MiniMetric({
   danger?: boolean;
 }) {
   return (
-    <div className={`rounded-[12px] px-3 py-3 text-center ${danger ? "bg-[#fdecee]" : "bg-[#f6ede4]"}`}>
-      <p className={`text-[1.1rem] font-bold ${danger ? "text-[#cf4028]" : "text-[#1f140d]"}`}>
+    <div
+      className={`rounded-[12px] px-3 py-3 text-center ${danger ? "bg-[#fdecee]" : "bg-[#f6ede4]"}`}
+    >
+      <p
+        className={`text-[1.1rem] font-bold ${danger ? "text-[#cf4028]" : "text-[#1f140d]"}`}
+      >
         {title}
       </p>
       <p className="text-[11px] text-[#8a6a54]">{subtitle}</p>

@@ -213,7 +213,7 @@ export default function DashboardPage() {
     );
 
   return (
-    <>
+    <div className="mx-auto max-w-7xl space-y-4 pb-10">
       <div className="relative space-y-5 sm:space-y-6 lg:space-y-8">
         <div className="pointer-events-none absolute -left-8 top-24 h-24 w-24 rounded-full bg-[#f26a21]/14 blur-xl" />
         <div className="pointer-events-none absolute right-0 top-10 h-24 w-24 rounded-full bg-[#25b4c8]/14 blur-xl" />
@@ -302,7 +302,7 @@ export default function DashboardPage() {
       </div>
 
       {isAlertOpen && <PremiumModal alerts={alerts} onClose={() => setIsAlertOpen(false)} />}
-    </>
+    </div>
   );
 }
 

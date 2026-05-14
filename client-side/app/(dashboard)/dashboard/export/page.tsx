@@ -352,7 +352,8 @@ export default function ExportPage() {
   }
 
   return (
-    <div className="space-y-8 max-w-4xl mx-auto">
+    <div className="mx-auto max-w-7xl space-y-4 pb-10">
+    <div className="space-y-8 max-w-full">
       {/* Header */}
       <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
         <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-900 flex items-center gap-3">
@@ -541,6 +542,7 @@ export default function ExportPage() {
           description="Buka di Excel untuk analisis margin dan HPP lebih detail"
         />
       </motion.div>
+    </div>
     </div>
   );
 }

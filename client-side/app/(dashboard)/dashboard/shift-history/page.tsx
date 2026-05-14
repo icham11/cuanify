@@ -58,7 +58,8 @@ export default function ShiftHistoryPage() {
     load();
   }, [load]);
   return (
-    <div className="p-4 md:p-6 max-w-6xl mx-auto space-y-6">
+    <div className="mx-auto max-w-7xl space-y-4 pb-10">
+    <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
           <Clock className="w-6 h-6 text-indigo-600" />
@@ -267,6 +268,7 @@ export default function ShiftHistoryPage() {
           </div>
         </div>
       )}
+    </div>
     </div>
   );
 }
