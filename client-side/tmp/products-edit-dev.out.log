@@ -1,0 +1,797 @@
+
+> client-side@0.1.0 dev
+> node ./scripts/clean-next-dev-cache.mjs && next dev --hostname localhost --port 3000 --webpack
+
+[dev-cache] Cleared local and parent Next/Turbo caches
+▲ Next.js 16.1.6 (webpack)
+- Local:         http://localhost:3000
+- Network:       http://localhost:3000
+- Environments: .env
+
+✓ Starting...
+✓ Ready in 2.8s
+ GET /api/dev-login?userId=22&role=Owner&businessId=36 307 in 2.6s (compile: 2.3s, proxy.ts: 207ms, render: 31ms)
+ GET /api/dev-login?userId=22&role=Owner&businessId=36 307 in 114ms (compile: 5ms, proxy.ts: 97ms, render: 13ms)
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT "public"."BusinessMember"."id", "public"."BusinessMember"."businessId", "public"."BusinessMember"."role"::text FROM "public"."BusinessMember" WHERE ("public"."BusinessMember"."userId" = $1 AND "public"."BusinessMember"."businessId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT "public"."Business"."id", "public"."Business"."name", "public"."Business"."userId", "public"."Business"."location", "public"."Business"."createdAt", "public"."Business"."updatedAt" FROM "public"."Business" WHERE "public"."Business"."userId" = $1 ORDER BY "public"."Business"."createdAt" DESC LIMIT $2 OFFSET $3
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND 1=1) LIMIT $2 OFFSET $3
+prisma:query SELECT COUNT(*) AS "_count$_all" FROM (SELECT "public"."Product"."id" FROM "public"."Product" WHERE "public"."Product"."businessId" = $1 OFFSET $2) AS "sub"
+prisma:query SELECT COUNT(*) AS "_count$_all" FROM (SELECT "public"."Product"."id" FROM "public"."Product" WHERE ("public"."Product"."businessId" = $1 AND "public"."Product"."deletedAt" IS NULL) OFFSET $2) AS "sub"
+prisma:query SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = current_schema()
+         AND table_name = 'Product'
+         AND column_name IN ('productionToken', 'manualStock')
+prisma:query SELECT COUNT(*) AS "_count$_all" FROM (SELECT "public"."Product"."id" FROM "public"."Product" LEFT JOIN "public"."Category" AS "j0" ON ("j0"."id") = ("public"."Product"."categoryId") WHERE ("public"."Product"."businessId" = $1 AND "public"."Product"."deletedAt" IS NULL AND ("public"."Product"."categoryId" IS NULL OR ("j0"."name" NOT IN ($2,$3) AND ("j0"."id" IS NOT NULL)))) OFFSET $4) AS "sub"
+prisma:query 
+          SELECT
+            AVG("sellingPrice")::text                                                     AS avg_price,
+            AVG(
+              CASE WHEN "sellingPrice" > 0 AND "cogs" > 0
+                   THEN GREATEST(-200, LEAST(100,
+                        ("sellingPrice" - "cogs") / "sellingPrice" * 100))
+                   ELSE NULL
+              END
+            )::text                                                                       AS avg_margin
+          FROM "Product"
+          WHERE "businessId" = $1 AND "deletedAt" IS NULL AND (
+        "categoryId" IS NULL OR "categoryId" NOT IN (
+          SELECT id
+          FROM "Category"
+          WHERE "businessId" = $2
+            AND name IN ($3,$4)
+        )
+      )
+        
+prisma:query SELECT "public"."Product"."id", "public"."Product"."businessId", "public"."Product"."categoryId", "public"."Product"."name", "public"."Product"."sellingPrice", "public"."Product"."isActive", "public"."Product"."createdAt", "public"."Product"."updatedAt", "public"."Product"."recipeCost", "public"."Product"."deletedAt", "public"."Product"."productType"::text, "public"."Product"."cogs", "public"."Product"."productionToken", "public"."Product"."manualStock" FROM "public"."Product" LEFT JOIN "public"."Category" AS "j0" ON ("j0"."id") = ("public"."Product"."categoryId") WHERE ("public"."Product"."businessId" = $1 AND "public"."Product"."deletedAt" IS NULL AND ("public"."Product"."categoryId" IS NULL OR ("j0"."name" NOT IN ($2,$3) AND ("j0"."id" IS NOT NULL)))) ORDER BY "public"."Product"."createdAt" DESC LIMIT $4 OFFSET $5
+prisma:query SELECT "public"."ProductionBatch"."id", "public"."ProductionBatch"."remainingQty", "public"."ProductionBatch"."productId" FROM "public"."ProductionBatch" WHERE ("public"."ProductionBatch"."remainingQty" > $1 AND "public"."ProductionBatch"."productId" IN ($2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57,$58,$59,$60,$61,$62,$63,$64,$65,$66,$67,$68,$69,$70,$71,$72,$73,$74,$75,$76,$77,$78,$79,$80,$81,$82,$83,$84,$85,$86,$87,$88,$89,$90,$91,$92,$93,$94,$95,$96,$97,$98,$99,$100,$101,$102,$103,$104,$105,$106,$107,$108,$109,$110,$111,$112,$113,$114,$115,$116,$117,$118,$119,$120,$121,$122,$123,$124,$125,$126,$127,$128,$129,$130,$131,$132,$133,$134,$135,$136,$137,$138,$139,$140,$141,$142,$143,$144,$145,$146,$147,$148,$149,$150,$151,$152,$153,$154,$155,$156,$157,$158,$159)) OFFSET $160
+prisma:query SELECT "public"."Recipe"."id", "public"."Recipe"."productId", "public"."Recipe"."ingredientId", "public"."Recipe"."quantity", "public"."Recipe"."createdAt", "public"."Recipe"."updatedAt" FROM "public"."Recipe" WHERE "public"."Recipe"."productId" IN ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57,$58,$59,$60,$61,$62,$63,$64,$65,$66,$67,$68,$69,$70,$71,$72,$73,$74,$75,$76,$77,$78,$79,$80,$81,$82,$83,$84,$85,$86,$87,$88,$89,$90,$91,$92,$93,$94,$95,$96,$97,$98,$99,$100,$101,$102,$103,$104,$105,$106,$107,$108,$109,$110,$111,$112,$113,$114,$115,$116,$117,$118,$119,$120,$121,$122,$123,$124,$125,$126,$127,$128,$129,$130,$131,$132,$133,$134,$135,$136,$137,$138,$139,$140,$141,$142,$143,$144,$145,$146,$147,$148,$149,$150,$151,$152,$153,$154,$155,$156,$157,$158) OFFSET $159
+prisma:query SELECT "public"."Category"."id", "public"."Category"."name" FROM "public"."Category" WHERE "public"."Category"."id" IN ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57,$58,$59,$60,$61,$62,$63,$64,$65,$66,$67,$68,$69,$70,$71,$72,$73,$74,$75,$76,$77,$78,$79,$80,$81,$82,$83,$84,$85,$86,$87,$88,$89,$90,$91,$92,$93,$94,$95,$96,$97,$98,$99,$100,$101,$102,$103,$104,$105,$106,$107,$108,$109,$110,$111,$112,$113,$114,$115,$116,$117,$118,$119,$120,$121,$122,$123,$124,$125,$126,$127,$128,$129,$130,$131,$132,$133,$134,$135,$136,$137,$138,$139,$140,$141,$142,$143,$144,$145,$146,$147,$148,$149,$150,$151,$152,$153,$154,$155,$156,$157,$158) OFFSET $159
+prisma:query SELECT "public"."Ingredient"."id", "public"."Ingredient"."name", "public"."Ingredient"."unit" FROM "public"."Ingredient" WHERE "public"."Ingredient"."id" IN (NULL) OFFSET $1
+prisma:query SELECT "public"."InventoryBatch"."id", "public"."InventoryBatch"."costPerUnit", "public"."InventoryBatch"."remainingQty", "public"."InventoryBatch"."ingredientId" FROM "public"."InventoryBatch" WHERE "public"."InventoryBatch"."ingredientId" IN (NULL) ORDER BY "public"."InventoryBatch"."receivedAt" DESC OFFSET $1
+ GET /api/products?excludeCategoryNames=Best%20Seller%20Kids%20Edition%2CBest%20Seller%20Signature&sortBy=createdAt&sortOrder=desc&page=1&limit=999 200 in 4.8s (compile: 2.2s, proxy.ts: 8ms, render: 2.6s)
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT "public"."BusinessMember"."id", "public"."BusinessMember"."businessId", "public"."BusinessMember"."role"::text FROM "public"."BusinessMember" WHERE ("public"."BusinessMember"."userId" = $1 AND "public"."BusinessMember"."businessId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT "public"."Business"."id", "public"."Business"."name", "public"."Business"."userId", "public"."Business"."location", "public"."Business"."createdAt", "public"."Business"."updatedAt" FROM "public"."Business" WHERE "public"."Business"."userId" = $1 ORDER BY "public"."Business"."createdAt" DESC LIMIT $2 OFFSET $3
+prisma:query SELECT id, metadata
+       FROM "BusinessDocument"
+       WHERE "businessId" = $1
+         AND "sourceType" = 'bakery_catalog_config'
+       ORDER BY "updatedAt" DESC
+       LIMIT 1
+ GET /api/bookings/catalog-config 200 in 1191ms (compile: 570ms, proxy.ts: 100ms, render: 521ms)
+ GET /api/dev-login?userId=22&role=Owner&businessId=36 307 in 21ms (compile: 6ms, proxy.ts: 7ms, render: 8ms)
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT "public"."BusinessMember"."id", "public"."BusinessMember"."businessId", "public"."BusinessMember"."role"::text FROM "public"."BusinessMember" WHERE ("public"."BusinessMember"."userId" = $1 AND "public"."BusinessMember"."businessId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT "public"."Business"."id", "public"."Business"."name", "public"."Business"."userId", "public"."Business"."location", "public"."Business"."createdAt", "public"."Business"."updatedAt" FROM "public"."Business" WHERE "public"."Business"."userId" = $1 ORDER BY "public"."Business"."createdAt" DESC LIMIT $2 OFFSET $3
+prisma:query SELECT "public"."User"."id", "public"."User"."name", "public"."User"."email" FROM "public"."User" WHERE ("public"."User"."id" = $1 AND 1=1) LIMIT $2 OFFSET $3
+prisma:query SELECT "public"."Business"."id", "public"."Business"."name" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND 1=1) LIMIT $2 OFFSET $3
+ GET /api/auth/me 200 in 1380ms (compile: 401ms, proxy.ts: 6ms, render: 973ms)
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT "public"."BusinessMember"."id", "public"."BusinessMember"."businessId", "public"."BusinessMember"."role"::text FROM "public"."BusinessMember" WHERE ("public"."BusinessMember"."userId" = $1 AND "public"."BusinessMember"."businessId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT "public"."Business"."id", "public"."Business"."name", "public"."Business"."userId", "public"."Business"."location", "public"."Business"."createdAt", "public"."Business"."updatedAt" FROM "public"."Business" WHERE "public"."Business"."userId" = $1 ORDER BY "public"."Business"."createdAt" DESC LIMIT $2 OFFSET $3
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND 1=1) LIMIT $2 OFFSET $3
+prisma:query SELECT COUNT(*) AS "_count$_all" FROM (SELECT "public"."Product"."id" FROM "public"."Product" WHERE "public"."Product"."businessId" = $1 OFFSET $2) AS "sub"
+prisma:query SELECT COUNT(*) AS "_count$_all" FROM (SELECT "public"."Product"."id" FROM "public"."Product" WHERE ("public"."Product"."businessId" = $1 AND "public"."Product"."deletedAt" IS NULL) OFFSET $2) AS "sub"
+prisma:query SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = current_schema()
+         AND table_name = 'Product'
+         AND column_name IN ('productionToken', 'manualStock')
+prisma:query SELECT COUNT(*) AS "_count$_all" FROM (SELECT "public"."Product"."id" FROM "public"."Product" WHERE ("public"."Product"."businessId" = $1 AND "public"."Product"."deletedAt" IS NULL) OFFSET $2) AS "sub"
+prisma:query 
+          SELECT
+            AVG("sellingPrice")::text                                                     AS avg_price,
+            AVG(
+              CASE WHEN "sellingPrice" > 0 AND "cogs" > 0
+                   THEN GREATEST(-200, LEAST(100,
+                        ("sellingPrice" - "cogs") / "sellingPrice" * 100))
+                   ELSE NULL
+              END
+            )::text                                                                       AS avg_margin
+          FROM "Product"
+          WHERE "businessId" = $1 AND "deletedAt" IS NULL
+        
+prisma:query SELECT "public"."Product"."id", "public"."Product"."businessId", "public"."Product"."categoryId", "public"."Product"."name", "public"."Product"."sellingPrice", "public"."Product"."isActive", "public"."Product"."createdAt", "public"."Product"."updatedAt", "public"."Product"."recipeCost", "public"."Product"."deletedAt", "public"."Product"."productType"::text, "public"."Product"."cogs", "public"."Product"."productionToken", "public"."Product"."manualStock" FROM "public"."Product" WHERE ("public"."Product"."businessId" = $1 AND "public"."Product"."deletedAt" IS NULL) ORDER BY "public"."Product"."createdAt" DESC LIMIT $2 OFFSET $3
+prisma:query SELECT "public"."Category"."id", "public"."Category"."name" FROM "public"."Category" WHERE "public"."Category"."id" IN ($1,$2,$3,$4,$5) OFFSET $6
+prisma:query SELECT "public"."ProductionBatch"."id", "public"."ProductionBatch"."remainingQty", "public"."ProductionBatch"."productId" FROM "public"."ProductionBatch" WHERE ("public"."ProductionBatch"."remainingQty" > $1 AND "public"."ProductionBatch"."productId" IN ($2,$3,$4,$5,$6)) OFFSET $7
+prisma:query SELECT "public"."Recipe"."id", "public"."Recipe"."productId", "public"."Recipe"."ingredientId", "public"."Recipe"."quantity", "public"."Recipe"."createdAt", "public"."Recipe"."updatedAt" FROM "public"."Recipe" WHERE "public"."Recipe"."productId" IN ($1,$2,$3,$4,$5) OFFSET $6
+prisma:query SELECT "public"."Ingredient"."id", "public"."Ingredient"."name", "public"."Ingredient"."unit" FROM "public"."Ingredient" WHERE "public"."Ingredient"."id" IN (NULL) OFFSET $1
+prisma:query SELECT "public"."InventoryBatch"."id", "public"."InventoryBatch"."costPerUnit", "public"."InventoryBatch"."remainingQty", "public"."InventoryBatch"."ingredientId" FROM "public"."InventoryBatch" WHERE "public"."InventoryBatch"."ingredientId" IN (NULL) ORDER BY "public"."InventoryBatch"."receivedAt" DESC OFFSET $1
+ GET /api/products?sortBy=createdAt&sortOrder=desc&page=1&limit=5 200 in 1240ms (compile: 44ms, proxy.ts: 7ms, render: 1189ms)
+○ Compiling /dashboard/business ...
+ GET /api/dev-login?userId=39&role=Owner&businessId=36 307 in 772ms (compile: 29ms, proxy.ts: 730ms, render: 13ms)
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT "public"."BusinessMember"."id", "public"."BusinessMember"."businessId", "public"."BusinessMember"."role"::text FROM "public"."BusinessMember" WHERE ("public"."BusinessMember"."userId" = $1 AND "public"."BusinessMember"."businessId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT "public"."Business"."id", "public"."Business"."name", "public"."Business"."userId", "public"."Business"."location", "public"."Business"."createdAt", "public"."Business"."updatedAt" FROM "public"."Business" WHERE "public"."Business"."userId" = $1 ORDER BY "public"."Business"."createdAt" DESC LIMIT $2 OFFSET $3
+prisma:query SELECT "public"."User"."id", "public"."User"."name", "public"."User"."email" FROM "public"."User" WHERE ("public"."User"."id" = $1 AND 1=1) LIMIT $2 OFFSET $3
+prisma:query SELECT "public"."Business"."id", "public"."Business"."name" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND 1=1) LIMIT $2 OFFSET $3
+ GET /api/auth/me 200 in 2.9s (compile: 8ms, proxy.ts: 10ms, render: 2.8s)
+ GET /dashboard/business 200 in 19.3s (compile: 15.7s, proxy.ts: 12ms, render: 3.6s)
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT "public"."BusinessMember"."id", "public"."BusinessMember"."businessId", "public"."BusinessMember"."role"::text FROM "public"."BusinessMember" WHERE ("public"."BusinessMember"."userId" = $1 AND "public"."BusinessMember"."businessId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT "public"."Business"."id", "public"."Business"."name", "public"."Business"."userId", "public"."Business"."location", "public"."Business"."createdAt", "public"."Business"."updatedAt" FROM "public"."Business" WHERE "public"."Business"."userId" = $1 ORDER BY "public"."Business"."createdAt" DESC LIMIT $2 OFFSET $3
+prisma:query SELECT "public"."User"."id", "public"."User"."name", "public"."User"."email" FROM "public"."User" WHERE ("public"."User"."id" = $1 AND 1=1) LIMIT $2 OFFSET $3
+prisma:query SELECT "public"."Business"."id", "public"."Business"."name" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND 1=1) LIMIT $2 OFFSET $3
+ GET /api/auth/me 200 in 491ms (compile: 15ms, proxy.ts: 21ms, render: 455ms)
+prisma:query SELECT "public"."Business"."id", "public"."Business"."name", "public"."Business"."userId", "public"."Business"."location", "public"."Business"."createdAt", "public"."Business"."updatedAt" FROM "public"."Business" WHERE "public"."Business"."userId" = $1 ORDER BY "public"."Business"."createdAt" DESC OFFSET $2
+prisma:query SELECT "public"."BusinessMember"."id", "public"."BusinessMember"."businessId", "public"."BusinessMember"."userId", "public"."BusinessMember"."role"::text, "public"."BusinessMember"."createdAt", "public"."BusinessMember"."updatedAt" FROM "public"."BusinessMember" WHERE "public"."BusinessMember"."userId" = $1 ORDER BY "public"."BusinessMember"."createdAt" DESC OFFSET $2
+prisma:query SELECT "public"."Business"."id", "public"."Business"."name", "public"."Business"."userId", "public"."Business"."location", "public"."Business"."createdAt", "public"."Business"."updatedAt" FROM "public"."Business" WHERE "public"."Business"."id" IN (NULL) OFFSET $1
+ GET /api/businesses 200 in 2.9s (compile: 2.6s, proxy.ts: 21ms, render: 262ms)
+ GET /api/auth/session 200 in 3.5s (compile: 3.5s, proxy.ts: 21ms, render: 14ms)
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT "public"."BusinessMember"."id", "public"."BusinessMember"."businessId", "public"."BusinessMember"."role"::text FROM "public"."BusinessMember" WHERE ("public"."BusinessMember"."userId" = $1 AND "public"."BusinessMember"."businessId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT "public"."Business"."id", "public"."Business"."name", "public"."Business"."userId", "public"."Business"."location", "public"."Business"."createdAt", "public"."Business"."updatedAt" FROM "public"."Business" WHERE "public"."Business"."userId" = $1 ORDER BY "public"."Business"."createdAt" DESC LIMIT $2 OFFSET $3
+ GET /dashboard/business 200 in 482ms (compile: 81ms, proxy.ts: 97ms, render: 304ms)
+ GET /api/dev-login?userId=39&role=Owner&businessId=36 307 in 21ms (compile: 6ms, proxy.ts: 7ms, render: 9ms)
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND 1=1) LIMIT $2 OFFSET $3
+prisma:query SELECT COUNT(*) AS "_count$_all" FROM (SELECT "public"."Product"."id" FROM "public"."Product" WHERE "public"."Product"."businessId" = $1 OFFSET $2) AS "sub"
+prisma:query SELECT COUNT(*) AS "_count$_all" FROM (SELECT "public"."Product"."id" FROM "public"."Product" WHERE ("public"."Product"."businessId" = $1 AND "public"."Product"."deletedAt" IS NULL) OFFSET $2) AS "sub"
+prisma:query SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = current_schema()
+         AND table_name = 'Product'
+         AND column_name IN ('productionToken', 'manualStock')
+prisma:query 
+          SELECT
+            AVG("sellingPrice")::text                                                     AS avg_price,
+            AVG(
+              CASE WHEN "sellingPrice" > 0 AND "cogs" > 0
+                   THEN GREATEST(-200, LEAST(100,
+                        ("sellingPrice" - "cogs") / "sellingPrice" * 100))
+                   ELSE NULL
+              END
+            )::text                                                                       AS avg_margin
+          FROM "Product"
+          WHERE "businessId" = $1 AND "deletedAt" IS NULL AND (
+        "categoryId" IS NULL OR "categoryId" NOT IN (
+          SELECT id
+          FROM "Category"
+          WHERE "businessId" = $2
+            AND name IN ($3,$4)
+        )
+      )
+        
+prisma:query SELECT COUNT(*) AS "_count$_all" FROM (SELECT "public"."Product"."id" FROM "public"."Product" LEFT JOIN "public"."Category" AS "j0" ON ("j0"."id") = ("public"."Product"."categoryId") WHERE ("public"."Product"."businessId" = $1 AND "public"."Product"."deletedAt" IS NULL AND ("public"."Product"."categoryId" IS NULL OR ("j0"."name" NOT IN ($2,$3) AND ("j0"."id" IS NOT NULL)))) OFFSET $4) AS "sub"
+prisma:query SELECT "public"."Product"."id", "public"."Product"."businessId", "public"."Product"."categoryId", "public"."Product"."name", "public"."Product"."sellingPrice", "public"."Product"."isActive", "public"."Product"."createdAt", "public"."Product"."updatedAt", "public"."Product"."recipeCost", "public"."Product"."deletedAt", "public"."Product"."productType"::text, "public"."Product"."cogs", "public"."Product"."productionToken", "public"."Product"."manualStock" FROM "public"."Product" LEFT JOIN "public"."Category" AS "j0" ON ("j0"."id") = ("public"."Product"."categoryId") WHERE ("public"."Product"."businessId" = $1 AND "public"."Product"."deletedAt" IS NULL AND ("public"."Product"."categoryId" IS NULL OR ("j0"."name" NOT IN ($2,$3) AND ("j0"."id" IS NOT NULL)))) ORDER BY "public"."Product"."createdAt" DESC LIMIT $4 OFFSET $5
+prisma:query SELECT "public"."Category"."id", "public"."Category"."name" FROM "public"."Category" WHERE "public"."Category"."id" IN ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57,$58,$59,$60,$61,$62,$63,$64,$65,$66,$67,$68,$69,$70,$71,$72,$73,$74,$75,$76,$77,$78,$79,$80,$81) OFFSET $82
+prisma:query SELECT "public"."Recipe"."id", "public"."Recipe"."productId", "public"."Recipe"."ingredientId", "public"."Recipe"."quantity", "public"."Recipe"."createdAt", "public"."Recipe"."updatedAt" FROM "public"."Recipe" WHERE "public"."Recipe"."productId" IN ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57,$58,$59,$60,$61,$62,$63,$64,$65,$66,$67,$68,$69,$70,$71,$72,$73,$74,$75,$76,$77,$78,$79,$80,$81) OFFSET $82
+prisma:query SELECT "public"."ProductionBatch"."id", "public"."ProductionBatch"."remainingQty", "public"."ProductionBatch"."productId" FROM "public"."ProductionBatch" WHERE ("public"."ProductionBatch"."remainingQty" > $1 AND "public"."ProductionBatch"."productId" IN ($2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57,$58,$59,$60,$61,$62,$63,$64,$65,$66,$67,$68,$69,$70,$71,$72,$73,$74,$75,$76,$77,$78,$79,$80,$81,$82)) OFFSET $83
+prisma:query SELECT "public"."Ingredient"."id", "public"."Ingredient"."name", "public"."Ingredient"."unit" FROM "public"."Ingredient" WHERE "public"."Ingredient"."id" IN (NULL) OFFSET $1
+prisma:query SELECT "public"."InventoryBatch"."id", "public"."InventoryBatch"."costPerUnit", "public"."InventoryBatch"."remainingQty", "public"."InventoryBatch"."ingredientId" FROM "public"."InventoryBatch" WHERE "public"."InventoryBatch"."ingredientId" IN (NULL) ORDER BY "public"."InventoryBatch"."receivedAt" DESC OFFSET $1
+ GET /api/products?excludeCategoryNames=Best%20Seller%20Kids%20Edition%2CBest%20Seller%20Signature&sortBy=createdAt&sortOrder=desc&page=1&limit=999 200 in 1440ms (compile: 75ms, proxy.ts: 9ms, render: 1356ms)
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT id, metadata
+       FROM "BusinessDocument"
+       WHERE "businessId" = $1
+         AND "sourceType" = 'bakery_catalog_config'
+       ORDER BY "updatedAt" DESC
+       LIMIT 1
+ GET /api/bookings/catalog-config 200 in 192ms (compile: 16ms, proxy.ts: 10ms, render: 165ms)
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT pg_advisory_xact_lock($1, $2)
+prisma:query SELECT "public"."Product"."id", "public"."Product"."name" FROM "public"."Product" WHERE ("public"."Product"."id" = $1 AND "public"."Product"."businessId" = $2 AND "public"."Product"."deletedAt" IS NULL) LIMIT $3 OFFSET $4
+prisma:query SELECT "public"."Category"."id", "public"."Category"."businessId", "public"."Category"."name", "public"."Category"."createdAt", "public"."Category"."updatedAt" FROM "public"."Category" WHERE ("public"."Category"."businessId" = $1 AND "public"."Category"."name" ILIKE $2) LIMIT $3 OFFSET $4
+prisma:query 
+    SELECT DISTINCT p.name
+    FROM "Product" p
+    WHERE p."businessId" = $1
+      AND p."deletedAt" IS NULL
+      AND LOWER(REGEXP_REPLACE(BTRIM(p.name), E'\s+', ' ', 'g')) IN (
+        $2
+      )
+      AND p.id <> $3
+    ORDER BY p.name ASC
+  
+prisma:query UPDATE "public"."Product" SET "name" = $1, "categoryId" = $2, "sellingPrice" = $3, "cogs" = $4, "productionToken" = $5, "manualStock" = $6, "productType" = CAST($7::text AS "public"."ProductType"), "recipeCost" = $8, "updatedAt" = $9 WHERE ("public"."Product"."id" = $10 AND 1=1) RETURNING "public"."Product"."id", "public"."Product"."businessId", "public"."Product"."categoryId", "public"."Product"."name", "public"."Product"."sellingPrice", "public"."Product"."isActive", "public"."Product"."createdAt", "public"."Product"."updatedAt", "public"."Product"."recipeCost", "public"."Product"."deletedAt", "public"."Product"."productType"::text, "public"."Product"."cogs", "public"."Product"."productionToken", "public"."Product"."manualStock"
+prisma:query DELETE FROM "public"."Recipe" WHERE "public"."Recipe"."productId" = $1
+prisma:query COMMIT
+prisma:query SELECT "public"."Product"."id", "public"."Product"."businessId", "public"."Product"."categoryId", "public"."Product"."name", "public"."Product"."sellingPrice", "public"."Product"."isActive", "public"."Product"."createdAt", "public"."Product"."updatedAt", "public"."Product"."recipeCost", "public"."Product"."deletedAt", "public"."Product"."productType"::text, "public"."Product"."cogs", "public"."Product"."productionToken", "public"."Product"."manualStock" FROM "public"."Product" WHERE ("public"."Product"."id" = $1 AND 1=1) LIMIT $2 OFFSET $3
+prisma:query SELECT "public"."Category"."id", "public"."Category"."name" FROM "public"."Category" WHERE "public"."Category"."id" = $1 OFFSET $2
+prisma:query SELECT "public"."Recipe"."id", "public"."Recipe"."productId", "public"."Recipe"."ingredientId", "public"."Recipe"."quantity", "public"."Recipe"."createdAt", "public"."Recipe"."updatedAt" FROM "public"."Recipe" WHERE "public"."Recipe"."productId" = $1 OFFSET $2
+prisma:query SELECT "public"."Ingredient"."id", "public"."Ingredient"."businessId", "public"."Ingredient"."name", "public"."Ingredient"."unit", "public"."Ingredient"."minStock", "public"."Ingredient"."createdAt", "public"."Ingredient"."updatedAt" FROM "public"."Ingredient" WHERE "public"."Ingredient"."id" IN (NULL) OFFSET $1
+ PATCH /api/products/1881 200 in 2.7s (compile: 1819ms, proxy.ts: 13ms, render: 860ms)
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT id, metadata
+       FROM "BusinessDocument"
+       WHERE "businessId" = $1
+         AND "sourceType" = 'bakery_catalog_config'
+       ORDER BY "updatedAt" DESC
+       LIMIT 1
+ GET /api/bookings/catalog-config 200 in 197ms (compile: 17ms, proxy.ts: 6ms, render: 174ms)
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query 
+      SELECT id
+      FROM "BusinessDocument"
+      WHERE "businessId" = $1
+        AND "sourceType" = 'bakery_catalog_config'
+      ORDER BY "updatedAt" DESC
+      LIMIT 1
+prisma:query 
+        UPDATE "BusinessDocument"
+        SET content = $1,
+            "contentHash" = $2,
+            metadata = $3::jsonb,
+            "updatedAt" = NOW()
+        WHERE id = $4
+prisma:query SELECT pg_advisory_xact_lock($1, $2)
+prisma:query 
+    SELECT LOWER(REGEXP_REPLACE(BTRIM(p.name), E'\s+', ' ', 'g')) AS "normalizedName"
+    FROM "Product" p
+    WHERE p."businessId" = $1
+      AND p."deletedAt" IS NULL
+    GROUP BY LOWER(REGEXP_REPLACE(BTRIM(p.name), E'\s+', ' ', 'g'))
+    HAVING COUNT(*) > 1
+    LIMIT 1
+  
+prisma:query SELECT "public"."Category"."id", "public"."Category"."name" FROM "public"."Category" WHERE "public"."Category"."businessId" = $1 OFFSET $2
+prisma:query SELECT "public"."Product"."id", "public"."Product"."name", "public"."Product"."categoryId", "public"."Product"."sellingPrice", "public"."Product"."productionToken", "public"."Product"."productType"::text, "public"."Product"."isActive", "public"."Product"."deletedAt" FROM "public"."Product" WHERE "public"."Product"."businessId" = $1 ORDER BY "public"."Product"."deletedAt" ASC, "public"."Product"."createdAt" ASC, "public"."Product"."id" ASC OFFSET $2
+prisma:query UPDATE "public"."Product" SET "categoryId" = $1, "name" = $2, "sellingPrice" = $3, "productType" = CAST($4::text AS "public"."ProductType"), "isActive" = $5, "updatedAt" = $6 WHERE ("public"."Product"."id" = $7 AND 1=1) RETURNING "public"."Product"."id", "public"."Product"."businessId", "public"."Product"."categoryId", "public"."Product"."name", "public"."Product"."sellingPrice", "public"."Product"."isActive", "public"."Product"."createdAt", "public"."Product"."updatedAt", "public"."Product"."recipeCost", "public"."Product"."deletedAt", "public"."Product"."productType"::text, "public"."Product"."cogs", "public"."Product"."productionToken", "public"."Product"."manualStock"
+prisma:query UPDATE "public"."Product" SET "deletedAt" = $1, "updatedAt" = $2 WHERE ("public"."Product"."businessId" = $3 AND "public"."Product"."deletedAt" IS NULL AND "public"."Product"."name" NOT IN ($4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57,$58,$59,$60,$61,$62,$63,$64,$65,$66,$67,$68,$69,$70,$71,$72,$73,$74,$75,$76,$77,$78,$79,$80,$81,$82,$83,$84,$85,$86,$87,$88,$89,$90,$91,$92,$93,$94,$95,$96,$97,$98,$99,$100,$101,$102,$103,$104,$105,$106,$107,$108,$109,$110,$111,$112,$113,$114,$115,$116,$117,$118,$119,$120,$121,$122,$123,$124,$125,$126,$127,$128,$129,$130,$131,$132,$133,$134,$135,$136,$137,$138,$139,$140,$141,$142,$143,$144,$145,$146,$147,$148,$149,$150,$151,$152,$153,$154,$155,$156,$157,$158,$159,$160,$161,$162,$163,$164,$165,$166,$167,$168,$169,$170,$171,$172,$173,$174,$175,$176,$177,$178,$179,$180,$181,$182,$183,$184,$185,$186,$187,$188,$189,$190,$191,$192,$193,$194,$195,$196,$197,$198,$199,$200))
+prisma:query COMMIT
+ PUT /api/bookings/catalog-config 200 in 930ms (compile: 4ms, proxy.ts: 6ms, render: 920ms)
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT pg_advisory_xact_lock($1, $2)
+prisma:query SELECT "public"."Product"."id", "public"."Product"."name" FROM "public"."Product" WHERE ("public"."Product"."id" = $1 AND "public"."Product"."businessId" = $2 AND "public"."Product"."deletedAt" IS NULL) LIMIT $3 OFFSET $4
+prisma:query SELECT "public"."Category"."id", "public"."Category"."businessId", "public"."Category"."name", "public"."Category"."createdAt", "public"."Category"."updatedAt" FROM "public"."Category" WHERE ("public"."Category"."businessId" = $1 AND "public"."Category"."name" ILIKE $2) LIMIT $3 OFFSET $4
+prisma:query 
+    SELECT DISTINCT p.name
+    FROM "Product" p
+    WHERE p."businessId" = $1
+      AND p."deletedAt" IS NULL
+      AND LOWER(REGEXP_REPLACE(BTRIM(p.name), E'\s+', ' ', 'g')) IN (
+        $2
+      )
+      AND p.id <> $3
+    ORDER BY p.name ASC
+  
+prisma:query UPDATE "public"."Product" SET "name" = $1, "categoryId" = $2, "sellingPrice" = $3, "cogs" = $4, "productionToken" = $5, "manualStock" = $6, "productType" = CAST($7::text AS "public"."ProductType"), "recipeCost" = $8, "updatedAt" = $9 WHERE ("public"."Product"."id" = $10 AND 1=1) RETURNING "public"."Product"."id", "public"."Product"."businessId", "public"."Product"."categoryId", "public"."Product"."name", "public"."Product"."sellingPrice", "public"."Product"."isActive", "public"."Product"."createdAt", "public"."Product"."updatedAt", "public"."Product"."recipeCost", "public"."Product"."deletedAt", "public"."Product"."productType"::text, "public"."Product"."cogs", "public"."Product"."productionToken", "public"."Product"."manualStock"
+prisma:query DELETE FROM "public"."Recipe" WHERE "public"."Recipe"."productId" = $1
+prisma:query COMMIT
+prisma:query SELECT "public"."Product"."id", "public"."Product"."businessId", "public"."Product"."categoryId", "public"."Product"."name", "public"."Product"."sellingPrice", "public"."Product"."isActive", "public"."Product"."createdAt", "public"."Product"."updatedAt", "public"."Product"."recipeCost", "public"."Product"."deletedAt", "public"."Product"."productType"::text, "public"."Product"."cogs", "public"."Product"."productionToken", "public"."Product"."manualStock" FROM "public"."Product" WHERE ("public"."Product"."id" = $1 AND 1=1) LIMIT $2 OFFSET $3
+prisma:query SELECT "public"."Recipe"."id", "public"."Recipe"."productId", "public"."Recipe"."ingredientId", "public"."Recipe"."quantity", "public"."Recipe"."createdAt", "public"."Recipe"."updatedAt" FROM "public"."Recipe" WHERE "public"."Recipe"."productId" = $1 OFFSET $2
+prisma:query SELECT "public"."Category"."id", "public"."Category"."name" FROM "public"."Category" WHERE "public"."Category"."id" = $1 OFFSET $2
+prisma:query SELECT "public"."Ingredient"."id", "public"."Ingredient"."businessId", "public"."Ingredient"."name", "public"."Ingredient"."unit", "public"."Ingredient"."minStock", "public"."Ingredient"."createdAt", "public"."Ingredient"."updatedAt" FROM "public"."Ingredient" WHERE "public"."Ingredient"."id" IN (NULL) OFFSET $1
+ PATCH /api/products/1835 200 in 790ms (compile: 12ms, proxy.ts: 8ms, render: 771ms)
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT id, metadata
+       FROM "BusinessDocument"
+       WHERE "businessId" = $1
+         AND "sourceType" = 'bakery_catalog_config'
+       ORDER BY "updatedAt" DESC
+       LIMIT 1
+ GET /api/bookings/catalog-config 200 in 168ms (compile: 3ms, proxy.ts: 5ms, render: 160ms)
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query 
+      SELECT id
+      FROM "BusinessDocument"
+      WHERE "businessId" = $1
+        AND "sourceType" = 'bakery_catalog_config'
+      ORDER BY "updatedAt" DESC
+      LIMIT 1
+prisma:query 
+        UPDATE "BusinessDocument"
+        SET content = $1,
+            "contentHash" = $2,
+            metadata = $3::jsonb,
+            "updatedAt" = NOW()
+        WHERE id = $4
+prisma:query SELECT pg_advisory_xact_lock($1, $2)
+prisma:query 
+    SELECT LOWER(REGEXP_REPLACE(BTRIM(p.name), E'\s+', ' ', 'g')) AS "normalizedName"
+    FROM "Product" p
+    WHERE p."businessId" = $1
+      AND p."deletedAt" IS NULL
+    GROUP BY LOWER(REGEXP_REPLACE(BTRIM(p.name), E'\s+', ' ', 'g'))
+    HAVING COUNT(*) > 1
+    LIMIT 1
+  
+prisma:query SELECT "public"."Category"."id", "public"."Category"."name" FROM "public"."Category" WHERE "public"."Category"."businessId" = $1 OFFSET $2
+prisma:query SELECT "public"."Product"."id", "public"."Product"."name", "public"."Product"."categoryId", "public"."Product"."sellingPrice", "public"."Product"."productionToken", "public"."Product"."productType"::text, "public"."Product"."isActive", "public"."Product"."deletedAt" FROM "public"."Product" WHERE "public"."Product"."businessId" = $1 ORDER BY "public"."Product"."deletedAt" ASC, "public"."Product"."createdAt" ASC, "public"."Product"."id" ASC OFFSET $2
+prisma:query UPDATE "public"."Product" SET "categoryId" = $1, "name" = $2, "sellingPrice" = $3, "productType" = CAST($4::text AS "public"."ProductType"), "isActive" = $5, "updatedAt" = $6 WHERE ("public"."Product"."id" = $7 AND 1=1) RETURNING "public"."Product"."id", "public"."Product"."businessId", "public"."Product"."categoryId", "public"."Product"."name", "public"."Product"."sellingPrice", "public"."Product"."isActive", "public"."Product"."createdAt", "public"."Product"."updatedAt", "public"."Product"."recipeCost", "public"."Product"."deletedAt", "public"."Product"."productType"::text, "public"."Product"."cogs", "public"."Product"."productionToken", "public"."Product"."manualStock"
+prisma:query UPDATE "public"."Product" SET "deletedAt" = $1, "updatedAt" = $2 WHERE ("public"."Product"."businessId" = $3 AND "public"."Product"."deletedAt" IS NULL AND "public"."Product"."name" NOT IN ($4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57,$58,$59,$60,$61,$62,$63,$64,$65,$66,$67,$68,$69,$70,$71,$72,$73,$74,$75,$76,$77,$78,$79,$80,$81,$82,$83,$84,$85,$86,$87,$88,$89,$90,$91,$92,$93,$94,$95,$96,$97,$98,$99,$100,$101,$102,$103,$104,$105,$106,$107,$108,$109,$110,$111,$112,$113,$114,$115,$116,$117,$118,$119,$120,$121,$122,$123,$124,$125,$126,$127,$128,$129,$130,$131,$132,$133,$134,$135,$136,$137,$138,$139,$140,$141,$142,$143,$144,$145,$146,$147,$148,$149,$150,$151,$152,$153,$154,$155,$156,$157,$158,$159,$160,$161,$162,$163,$164,$165,$166,$167,$168,$169,$170,$171,$172,$173,$174,$175,$176,$177,$178,$179,$180,$181,$182,$183,$184,$185,$186,$187,$188,$189,$190,$191,$192,$193,$194,$195,$196,$197,$198,$199,$200))
+prisma:query COMMIT
+ PUT /api/bookings/catalog-config 200 in 950ms (compile: 3ms, proxy.ts: 8ms, render: 939ms)
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT pg_advisory_xact_lock($1, $2)
+prisma:query SELECT "public"."Product"."id", "public"."Product"."name" FROM "public"."Product" WHERE ("public"."Product"."id" = $1 AND "public"."Product"."businessId" = $2 AND "public"."Product"."deletedAt" IS NULL) LIMIT $3 OFFSET $4
+prisma:query SELECT "public"."Category"."id", "public"."Category"."businessId", "public"."Category"."name", "public"."Category"."createdAt", "public"."Category"."updatedAt" FROM "public"."Category" WHERE ("public"."Category"."businessId" = $1 AND "public"."Category"."name" ILIKE $2) LIMIT $3 OFFSET $4
+prisma:query 
+    SELECT DISTINCT p.name
+    FROM "Product" p
+    WHERE p."businessId" = $1
+      AND p."deletedAt" IS NULL
+      AND LOWER(REGEXP_REPLACE(BTRIM(p.name), E'\s+', ' ', 'g')) IN (
+        $2
+      )
+      AND p.id <> $3
+    ORDER BY p.name ASC
+  
+prisma:query UPDATE "public"."Product" SET "name" = $1, "categoryId" = $2, "sellingPrice" = $3, "cogs" = $4, "productionToken" = $5, "manualStock" = $6, "productType" = CAST($7::text AS "public"."ProductType"), "recipeCost" = $8, "updatedAt" = $9 WHERE ("public"."Product"."id" = $10 AND 1=1) RETURNING "public"."Product"."id", "public"."Product"."businessId", "public"."Product"."categoryId", "public"."Product"."name", "public"."Product"."sellingPrice", "public"."Product"."isActive", "public"."Product"."createdAt", "public"."Product"."updatedAt", "public"."Product"."recipeCost", "public"."Product"."deletedAt", "public"."Product"."productType"::text, "public"."Product"."cogs", "public"."Product"."productionToken", "public"."Product"."manualStock"
+prisma:query DELETE FROM "public"."Recipe" WHERE "public"."Recipe"."productId" = $1
+prisma:query COMMIT
+prisma:query SELECT "public"."Product"."id", "public"."Product"."businessId", "public"."Product"."categoryId", "public"."Product"."name", "public"."Product"."sellingPrice", "public"."Product"."isActive", "public"."Product"."createdAt", "public"."Product"."updatedAt", "public"."Product"."recipeCost", "public"."Product"."deletedAt", "public"."Product"."productType"::text, "public"."Product"."cogs", "public"."Product"."productionToken", "public"."Product"."manualStock" FROM "public"."Product" WHERE ("public"."Product"."id" = $1 AND 1=1) LIMIT $2 OFFSET $3
+prisma:query SELECT "public"."Category"."id", "public"."Category"."name" FROM "public"."Category" WHERE "public"."Category"."id" = $1 OFFSET $2
+prisma:query SELECT "public"."Recipe"."id", "public"."Recipe"."productId", "public"."Recipe"."ingredientId", "public"."Recipe"."quantity", "public"."Recipe"."createdAt", "public"."Recipe"."updatedAt" FROM "public"."Recipe" WHERE "public"."Recipe"."productId" = $1 OFFSET $2
+prisma:query SELECT "public"."Ingredient"."id", "public"."Ingredient"."businessId", "public"."Ingredient"."name", "public"."Ingredient"."unit", "public"."Ingredient"."minStock", "public"."Ingredient"."createdAt", "public"."Ingredient"."updatedAt" FROM "public"."Ingredient" WHERE "public"."Ingredient"."id" IN (NULL) OFFSET $1
+ PATCH /api/products/1799 200 in 810ms (compile: 13ms, proxy.ts: 7ms, render: 790ms)
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT id, metadata
+       FROM "BusinessDocument"
+       WHERE "businessId" = $1
+         AND "sourceType" = 'bakery_catalog_config'
+       ORDER BY "updatedAt" DESC
+       LIMIT 1
+ GET /api/bookings/catalog-config 200 in 176ms (compile: 3ms, proxy.ts: 6ms, render: 168ms)
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query 
+      SELECT id
+      FROM "BusinessDocument"
+      WHERE "businessId" = $1
+        AND "sourceType" = 'bakery_catalog_config'
+      ORDER BY "updatedAt" DESC
+      LIMIT 1
+prisma:query 
+        UPDATE "BusinessDocument"
+        SET content = $1,
+            "contentHash" = $2,
+            metadata = $3::jsonb,
+            "updatedAt" = NOW()
+        WHERE id = $4
+prisma:query SELECT pg_advisory_xact_lock($1, $2)
+prisma:query 
+    SELECT LOWER(REGEXP_REPLACE(BTRIM(p.name), E'\s+', ' ', 'g')) AS "normalizedName"
+    FROM "Product" p
+    WHERE p."businessId" = $1
+      AND p."deletedAt" IS NULL
+    GROUP BY LOWER(REGEXP_REPLACE(BTRIM(p.name), E'\s+', ' ', 'g'))
+    HAVING COUNT(*) > 1
+    LIMIT 1
+  
+prisma:query SELECT "public"."Category"."id", "public"."Category"."name" FROM "public"."Category" WHERE "public"."Category"."businessId" = $1 OFFSET $2
+prisma:query SELECT "public"."Product"."id", "public"."Product"."name", "public"."Product"."categoryId", "public"."Product"."sellingPrice", "public"."Product"."productionToken", "public"."Product"."productType"::text, "public"."Product"."isActive", "public"."Product"."deletedAt" FROM "public"."Product" WHERE "public"."Product"."businessId" = $1 ORDER BY "public"."Product"."deletedAt" ASC, "public"."Product"."createdAt" ASC, "public"."Product"."id" ASC OFFSET $2
+prisma:query UPDATE "public"."Product" SET "deletedAt" = $1, "updatedAt" = $2 WHERE ("public"."Product"."businessId" = $3 AND "public"."Product"."deletedAt" IS NULL AND "public"."Product"."name" NOT IN ($4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57,$58,$59,$60,$61,$62,$63,$64,$65,$66,$67,$68,$69,$70,$71,$72,$73,$74,$75,$76,$77,$78,$79,$80,$81,$82,$83,$84,$85,$86,$87,$88,$89,$90,$91,$92,$93,$94,$95,$96,$97,$98,$99,$100,$101,$102,$103,$104,$105,$106,$107,$108,$109,$110,$111,$112,$113,$114,$115,$116,$117,$118,$119,$120,$121,$122,$123,$124,$125,$126,$127,$128,$129,$130,$131,$132,$133,$134,$135,$136,$137,$138,$139,$140,$141,$142,$143,$144,$145,$146,$147,$148,$149,$150,$151,$152,$153,$154,$155,$156,$157,$158,$159,$160,$161,$162,$163,$164,$165,$166,$167,$168,$169,$170,$171,$172,$173,$174,$175,$176,$177,$178,$179,$180,$181,$182,$183,$184,$185,$186,$187,$188,$189,$190,$191,$192,$193,$194,$195,$196,$197,$198,$199,$200))
+prisma:query COMMIT
+ PUT /api/bookings/catalog-config 200 in 819ms (compile: 3ms, proxy.ts: 6ms, render: 810ms)
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT pg_advisory_xact_lock($1, $2)
+prisma:query SELECT "public"."Product"."id", "public"."Product"."name" FROM "public"."Product" WHERE ("public"."Product"."id" = $1 AND "public"."Product"."businessId" = $2 AND "public"."Product"."deletedAt" IS NULL) LIMIT $3 OFFSET $4
+prisma:query SELECT "public"."Category"."id", "public"."Category"."businessId", "public"."Category"."name", "public"."Category"."createdAt", "public"."Category"."updatedAt" FROM "public"."Category" WHERE ("public"."Category"."businessId" = $1 AND "public"."Category"."name" ILIKE $2) LIMIT $3 OFFSET $4
+prisma:query 
+    SELECT DISTINCT p.name
+    FROM "Product" p
+    WHERE p."businessId" = $1
+      AND p."deletedAt" IS NULL
+      AND LOWER(REGEXP_REPLACE(BTRIM(p.name), E'\s+', ' ', 'g')) IN (
+        $2
+      )
+      AND p.id <> $3
+    ORDER BY p.name ASC
+  
+prisma:query UPDATE "public"."Product" SET "name" = $1, "categoryId" = $2, "sellingPrice" = $3, "cogs" = $4, "productionToken" = $5, "manualStock" = $6, "productType" = CAST($7::text AS "public"."ProductType"), "recipeCost" = $8, "updatedAt" = $9 WHERE ("public"."Product"."id" = $10 AND 1=1) RETURNING "public"."Product"."id", "public"."Product"."businessId", "public"."Product"."categoryId", "public"."Product"."name", "public"."Product"."sellingPrice", "public"."Product"."isActive", "public"."Product"."createdAt", "public"."Product"."updatedAt", "public"."Product"."recipeCost", "public"."Product"."deletedAt", "public"."Product"."productType"::text, "public"."Product"."cogs", "public"."Product"."productionToken", "public"."Product"."manualStock"
+prisma:query DELETE FROM "public"."Recipe" WHERE "public"."Recipe"."productId" = $1
+prisma:query COMMIT
+prisma:query SELECT "public"."Product"."id", "public"."Product"."businessId", "public"."Product"."categoryId", "public"."Product"."name", "public"."Product"."sellingPrice", "public"."Product"."isActive", "public"."Product"."createdAt", "public"."Product"."updatedAt", "public"."Product"."recipeCost", "public"."Product"."deletedAt", "public"."Product"."productType"::text, "public"."Product"."cogs", "public"."Product"."productionToken", "public"."Product"."manualStock" FROM "public"."Product" WHERE ("public"."Product"."id" = $1 AND 1=1) LIMIT $2 OFFSET $3
+prisma:query SELECT "public"."Recipe"."id", "public"."Recipe"."productId", "public"."Recipe"."ingredientId", "public"."Recipe"."quantity", "public"."Recipe"."createdAt", "public"."Recipe"."updatedAt" FROM "public"."Recipe" WHERE "public"."Recipe"."productId" = $1 OFFSET $2
+prisma:query SELECT "public"."Category"."id", "public"."Category"."name" FROM "public"."Category" WHERE "public"."Category"."id" = $1 OFFSET $2
+prisma:query SELECT "public"."Ingredient"."id", "public"."Ingredient"."businessId", "public"."Ingredient"."name", "public"."Ingredient"."unit", "public"."Ingredient"."minStock", "public"."Ingredient"."createdAt", "public"."Ingredient"."updatedAt" FROM "public"."Ingredient" WHERE "public"."Ingredient"."id" IN (NULL) OFFSET $1
+ PATCH /api/products/1881 200 in 810ms (compile: 16ms, proxy.ts: 12ms, render: 782ms)
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT pg_advisory_xact_lock($1, $2)
+prisma:query SELECT "public"."Product"."id", "public"."Product"."name" FROM "public"."Product" WHERE ("public"."Product"."id" = $1 AND "public"."Product"."businessId" = $2 AND "public"."Product"."deletedAt" IS NULL) LIMIT $3 OFFSET $4
+prisma:query SELECT "public"."Category"."id", "public"."Category"."businessId", "public"."Category"."name", "public"."Category"."createdAt", "public"."Category"."updatedAt" FROM "public"."Category" WHERE ("public"."Category"."businessId" = $1 AND "public"."Category"."name" ILIKE $2) LIMIT $3 OFFSET $4
+prisma:query 
+    SELECT DISTINCT p.name
+    FROM "Product" p
+    WHERE p."businessId" = $1
+      AND p."deletedAt" IS NULL
+      AND LOWER(REGEXP_REPLACE(BTRIM(p.name), E'\s+', ' ', 'g')) IN (
+        $2
+      )
+      AND p.id <> $3
+    ORDER BY p.name ASC
+  
+prisma:query UPDATE "public"."Product" SET "name" = $1, "categoryId" = $2, "sellingPrice" = $3, "cogs" = $4, "productionToken" = $5, "manualStock" = $6, "productType" = CAST($7::text AS "public"."ProductType"), "recipeCost" = $8, "updatedAt" = $9 WHERE ("public"."Product"."id" = $10 AND 1=1) RETURNING "public"."Product"."id", "public"."Product"."businessId", "public"."Product"."categoryId", "public"."Product"."name", "public"."Product"."sellingPrice", "public"."Product"."isActive", "public"."Product"."createdAt", "public"."Product"."updatedAt", "public"."Product"."recipeCost", "public"."Product"."deletedAt", "public"."Product"."productType"::text, "public"."Product"."cogs", "public"."Product"."productionToken", "public"."Product"."manualStock"
+prisma:query DELETE FROM "public"."Recipe" WHERE "public"."Recipe"."productId" = $1
+prisma:query COMMIT
+prisma:query SELECT "public"."Product"."id", "public"."Product"."businessId", "public"."Product"."categoryId", "public"."Product"."name", "public"."Product"."sellingPrice", "public"."Product"."isActive", "public"."Product"."createdAt", "public"."Product"."updatedAt", "public"."Product"."recipeCost", "public"."Product"."deletedAt", "public"."Product"."productType"::text, "public"."Product"."cogs", "public"."Product"."productionToken", "public"."Product"."manualStock" FROM "public"."Product" WHERE ("public"."Product"."id" = $1 AND 1=1) LIMIT $2 OFFSET $3
+prisma:query SELECT "public"."Category"."id", "public"."Category"."name" FROM "public"."Category" WHERE "public"."Category"."id" = $1 OFFSET $2
+prisma:query SELECT "public"."Recipe"."id", "public"."Recipe"."productId", "public"."Recipe"."ingredientId", "public"."Recipe"."quantity", "public"."Recipe"."createdAt", "public"."Recipe"."updatedAt" FROM "public"."Recipe" WHERE "public"."Recipe"."productId" = $1 OFFSET $2
+prisma:query SELECT "public"."Ingredient"."id", "public"."Ingredient"."businessId", "public"."Ingredient"."name", "public"."Ingredient"."unit", "public"."Ingredient"."minStock", "public"."Ingredient"."createdAt", "public"."Ingredient"."updatedAt" FROM "public"."Ingredient" WHERE "public"."Ingredient"."id" IN (NULL) OFFSET $1
+ PATCH /api/products/1835 200 in 746ms (compile: 5ms, proxy.ts: 8ms, render: 733ms)
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT pg_advisory_xact_lock($1, $2)
+prisma:query SELECT "public"."Product"."id", "public"."Product"."name" FROM "public"."Product" WHERE ("public"."Product"."id" = $1 AND "public"."Product"."businessId" = $2 AND "public"."Product"."deletedAt" IS NULL) LIMIT $3 OFFSET $4
+prisma:query SELECT "public"."Category"."id", "public"."Category"."businessId", "public"."Category"."name", "public"."Category"."createdAt", "public"."Category"."updatedAt" FROM "public"."Category" WHERE ("public"."Category"."businessId" = $1 AND "public"."Category"."name" ILIKE $2) LIMIT $3 OFFSET $4
+prisma:query 
+    SELECT DISTINCT p.name
+    FROM "Product" p
+    WHERE p."businessId" = $1
+      AND p."deletedAt" IS NULL
+      AND LOWER(REGEXP_REPLACE(BTRIM(p.name), E'\s+', ' ', 'g')) IN (
+        $2
+      )
+      AND p.id <> $3
+    ORDER BY p.name ASC
+  
+prisma:query UPDATE "public"."Product" SET "name" = $1, "categoryId" = $2, "sellingPrice" = $3, "cogs" = $4, "productionToken" = $5, "manualStock" = $6, "productType" = CAST($7::text AS "public"."ProductType"), "recipeCost" = $8, "updatedAt" = $9 WHERE ("public"."Product"."id" = $10 AND 1=1) RETURNING "public"."Product"."id", "public"."Product"."businessId", "public"."Product"."categoryId", "public"."Product"."name", "public"."Product"."sellingPrice", "public"."Product"."isActive", "public"."Product"."createdAt", "public"."Product"."updatedAt", "public"."Product"."recipeCost", "public"."Product"."deletedAt", "public"."Product"."productType"::text, "public"."Product"."cogs", "public"."Product"."productionToken", "public"."Product"."manualStock"
+prisma:query DELETE FROM "public"."Recipe" WHERE "public"."Recipe"."productId" = $1
+prisma:query COMMIT
+prisma:query SELECT "public"."Product"."id", "public"."Product"."businessId", "public"."Product"."categoryId", "public"."Product"."name", "public"."Product"."sellingPrice", "public"."Product"."isActive", "public"."Product"."createdAt", "public"."Product"."updatedAt", "public"."Product"."recipeCost", "public"."Product"."deletedAt", "public"."Product"."productType"::text, "public"."Product"."cogs", "public"."Product"."productionToken", "public"."Product"."manualStock" FROM "public"."Product" WHERE ("public"."Product"."id" = $1 AND 1=1) LIMIT $2 OFFSET $3
+prisma:query SELECT "public"."Category"."id", "public"."Category"."name" FROM "public"."Category" WHERE "public"."Category"."id" = $1 OFFSET $2
+prisma:query SELECT "public"."Recipe"."id", "public"."Recipe"."productId", "public"."Recipe"."ingredientId", "public"."Recipe"."quantity", "public"."Recipe"."createdAt", "public"."Recipe"."updatedAt" FROM "public"."Recipe" WHERE "public"."Recipe"."productId" = $1 OFFSET $2
+prisma:query SELECT "public"."Ingredient"."id", "public"."Ingredient"."businessId", "public"."Ingredient"."name", "public"."Ingredient"."unit", "public"."Ingredient"."minStock", "public"."Ingredient"."createdAt", "public"."Ingredient"."updatedAt" FROM "public"."Ingredient" WHERE "public"."Ingredient"."id" IN (NULL) OFFSET $1
+ PATCH /api/products/1799 200 in 790ms (compile: 14ms, proxy.ts: 9ms, render: 767ms)
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query 
+      SELECT id
+      FROM "BusinessDocument"
+      WHERE "businessId" = $1
+        AND "sourceType" = 'bakery_catalog_config'
+      ORDER BY "updatedAt" DESC
+      LIMIT 1
+prisma:query 
+        UPDATE "BusinessDocument"
+        SET content = $1,
+            "contentHash" = $2,
+            metadata = $3::jsonb,
+            "updatedAt" = NOW()
+        WHERE id = $4
+prisma:query SELECT pg_advisory_xact_lock($1, $2)
+prisma:query 
+    SELECT LOWER(REGEXP_REPLACE(BTRIM(p.name), E'\s+', ' ', 'g')) AS "normalizedName"
+    FROM "Product" p
+    WHERE p."businessId" = $1
+      AND p."deletedAt" IS NULL
+    GROUP BY LOWER(REGEXP_REPLACE(BTRIM(p.name), E'\s+', ' ', 'g'))
+    HAVING COUNT(*) > 1
+    LIMIT 1
+  
+prisma:query SELECT "public"."Category"."id", "public"."Category"."name" FROM "public"."Category" WHERE "public"."Category"."businessId" = $1 OFFSET $2
+prisma:query SELECT "public"."Product"."id", "public"."Product"."name", "public"."Product"."categoryId", "public"."Product"."sellingPrice", "public"."Product"."productionToken", "public"."Product"."productType"::text, "public"."Product"."isActive", "public"."Product"."deletedAt" FROM "public"."Product" WHERE "public"."Product"."businessId" = $1 ORDER BY "public"."Product"."deletedAt" ASC, "public"."Product"."createdAt" ASC, "public"."Product"."id" ASC OFFSET $2
+prisma:query UPDATE "public"."Product" SET "deletedAt" = $1, "updatedAt" = $2 WHERE ("public"."Product"."businessId" = $3 AND "public"."Product"."deletedAt" IS NULL AND "public"."Product"."name" NOT IN ($4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57,$58,$59,$60,$61,$62,$63,$64,$65,$66,$67,$68,$69,$70,$71,$72,$73,$74,$75,$76,$77,$78,$79,$80,$81,$82,$83,$84,$85,$86,$87,$88,$89,$90,$91,$92,$93,$94,$95,$96,$97,$98,$99,$100,$101,$102,$103,$104,$105,$106,$107,$108,$109,$110,$111,$112,$113,$114,$115,$116,$117,$118,$119,$120,$121,$122,$123,$124,$125,$126,$127,$128,$129,$130,$131,$132,$133,$134,$135,$136,$137,$138,$139,$140,$141,$142,$143,$144,$145,$146,$147,$148,$149,$150,$151,$152,$153,$154,$155,$156,$157,$158,$159,$160,$161,$162,$163,$164,$165,$166,$167,$168,$169,$170,$171,$172,$173,$174,$175,$176,$177,$178,$179,$180,$181,$182,$183,$184,$185,$186,$187,$188,$189,$190,$191,$192,$193,$194,$195,$196,$197,$198,$199,$200))
+prisma:query COMMIT
+ PUT /api/bookings/catalog-config 200 in 810ms (compile: 6ms, proxy.ts: 9ms, render: 796ms)
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT "public"."BusinessMember"."id", "public"."BusinessMember"."businessId", "public"."BusinessMember"."role"::text FROM "public"."BusinessMember" WHERE ("public"."BusinessMember"."userId" = $1 AND "public"."BusinessMember"."businessId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT "public"."Business"."id", "public"."Business"."name", "public"."Business"."userId", "public"."Business"."location", "public"."Business"."createdAt", "public"."Business"."updatedAt" FROM "public"."Business" WHERE "public"."Business"."userId" = $1 ORDER BY "public"."Business"."createdAt" DESC LIMIT $2 OFFSET $3
+ GET /dashboard/business 200 in 1121ms (compile: 96ms, proxy.ts: 12ms, render: 1014ms)
+ GET /api/dev-login?userId=39&role=Owner&businessId=36 307 in 720ms (compile: 701ms, proxy.ts: 5ms, render: 15ms)
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND 1=1) LIMIT $2 OFFSET $3
+prisma:query SELECT COUNT(*) AS "_count$_all" FROM (SELECT "public"."Product"."id" FROM "public"."Product" WHERE "public"."Product"."businessId" = $1 OFFSET $2) AS "sub"
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT COUNT(*) AS "_count$_all" FROM (SELECT "public"."Product"."id" FROM "public"."Product" WHERE ("public"."Product"."businessId" = $1 AND "public"."Product"."deletedAt" IS NULL) OFFSET $2) AS "sub"
+prisma:query SELECT "public"."BusinessMember"."id", "public"."BusinessMember"."businessId", "public"."BusinessMember"."role"::text FROM "public"."BusinessMember" WHERE ("public"."BusinessMember"."userId" = $1 AND "public"."BusinessMember"."businessId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT "public"."Business"."id", "public"."Business"."name", "public"."Business"."userId", "public"."Business"."location", "public"."Business"."createdAt", "public"."Business"."updatedAt" FROM "public"."Business" WHERE "public"."Business"."userId" = $1 ORDER BY "public"."Business"."createdAt" DESC LIMIT $2 OFFSET $3
+prisma:query SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = current_schema()
+         AND table_name = 'Product'
+         AND column_name IN ('productionToken', 'manualStock')
+ GET /dashboard/business 200 in 995ms (compile: 53ms, proxy.ts: 7ms, render: 936ms)
+prisma:query SELECT COUNT(*) AS "_count$_all" FROM (SELECT "public"."Product"."id" FROM "public"."Product" LEFT JOIN "public"."Category" AS "j0" ON ("j0"."id") = ("public"."Product"."categoryId") WHERE ("public"."Product"."businessId" = $1 AND "public"."Product"."deletedAt" IS NULL AND ("public"."Product"."categoryId" IS NULL OR ("j0"."name" NOT IN ($2,$3) AND ("j0"."id" IS NOT NULL)))) OFFSET $4) AS "sub"
+prisma:query 
+          SELECT
+            AVG("sellingPrice")::text                                                     AS avg_price,
+            AVG(
+              CASE WHEN "sellingPrice" > 0 AND "cogs" > 0
+                   THEN GREATEST(-200, LEAST(100,
+                        ("sellingPrice" - "cogs") / "sellingPrice" * 100))
+                   ELSE NULL
+              END
+            )::text                                                                       AS avg_margin
+          FROM "Product"
+          WHERE "businessId" = $1 AND "deletedAt" IS NULL AND (
+        "categoryId" IS NULL OR "categoryId" NOT IN (
+          SELECT id
+          FROM "Category"
+          WHERE "businessId" = $2
+            AND name IN ($3,$4)
+        )
+      )
+        
+prisma:query SELECT "public"."Product"."id", "public"."Product"."businessId", "public"."Product"."categoryId", "public"."Product"."name", "public"."Product"."sellingPrice", "public"."Product"."isActive", "public"."Product"."createdAt", "public"."Product"."updatedAt", "public"."Product"."recipeCost", "public"."Product"."deletedAt", "public"."Product"."productType"::text, "public"."Product"."cogs", "public"."Product"."productionToken", "public"."Product"."manualStock" FROM "public"."Product" LEFT JOIN "public"."Category" AS "j0" ON ("j0"."id") = ("public"."Product"."categoryId") WHERE ("public"."Product"."businessId" = $1 AND "public"."Product"."deletedAt" IS NULL AND ("public"."Product"."categoryId" IS NULL OR ("j0"."name" NOT IN ($2,$3) AND ("j0"."id" IS NOT NULL)))) ORDER BY "public"."Product"."createdAt" DESC LIMIT $4 OFFSET $5
+prisma:query SELECT "public"."Category"."id", "public"."Category"."name" FROM "public"."Category" WHERE "public"."Category"."id" IN ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57,$58,$59,$60,$61,$62,$63,$64,$65,$66,$67,$68,$69,$70,$71,$72,$73,$74,$75,$76,$77,$78,$79,$80,$81) OFFSET $82
+prisma:query SELECT "public"."Recipe"."id", "public"."Recipe"."productId", "public"."Recipe"."ingredientId", "public"."Recipe"."quantity", "public"."Recipe"."createdAt", "public"."Recipe"."updatedAt" FROM "public"."Recipe" WHERE "public"."Recipe"."productId" IN ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57,$58,$59,$60,$61,$62,$63,$64,$65,$66,$67,$68,$69,$70,$71,$72,$73,$74,$75,$76,$77,$78,$79,$80,$81) OFFSET $82
+prisma:query SELECT "public"."ProductionBatch"."id", "public"."ProductionBatch"."remainingQty", "public"."ProductionBatch"."productId" FROM "public"."ProductionBatch" WHERE ("public"."ProductionBatch"."remainingQty" > $1 AND "public"."ProductionBatch"."productId" IN ($2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57,$58,$59,$60,$61,$62,$63,$64,$65,$66,$67,$68,$69,$70,$71,$72,$73,$74,$75,$76,$77,$78,$79,$80,$81,$82)) OFFSET $83
+prisma:query SELECT "public"."Ingredient"."id", "public"."Ingredient"."name", "public"."Ingredient"."unit" FROM "public"."Ingredient" WHERE "public"."Ingredient"."id" IN (NULL) OFFSET $1
+prisma:query SELECT "public"."InventoryBatch"."id", "public"."InventoryBatch"."costPerUnit", "public"."InventoryBatch"."remainingQty", "public"."InventoryBatch"."ingredientId" FROM "public"."InventoryBatch" WHERE "public"."InventoryBatch"."ingredientId" IN (NULL) ORDER BY "public"."InventoryBatch"."receivedAt" DESC OFFSET $1
+ GET /api/products?excludeCategoryNames=Best%20Seller%20Kids%20Edition%2CBest%20Seller%20Signature&sortBy=createdAt&sortOrder=desc&page=1&limit=999 200 in 2.7s (compile: 582ms, proxy.ts: 86ms, render: 2.1s)
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT id, metadata
+       FROM "BusinessDocument"
+       WHERE "businessId" = $1
+         AND "sourceType" = 'bakery_catalog_config'
+       ORDER BY "updatedAt" DESC
+       LIMIT 1
+ GET /api/bookings/catalog-config 200 in 831ms (compile: 631ms, proxy.ts: 10ms, render: 190ms)
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT pg_advisory_xact_lock($1, $2)
+prisma:query SELECT "public"."Product"."id", "public"."Product"."name" FROM "public"."Product" WHERE ("public"."Product"."id" = $1 AND "public"."Product"."businessId" = $2 AND "public"."Product"."deletedAt" IS NULL) LIMIT $3 OFFSET $4
+prisma:query SELECT "public"."Category"."id", "public"."Category"."businessId", "public"."Category"."name", "public"."Category"."createdAt", "public"."Category"."updatedAt" FROM "public"."Category" WHERE ("public"."Category"."businessId" = $1 AND "public"."Category"."name" ILIKE $2) LIMIT $3 OFFSET $4
+prisma:query 
+    SELECT DISTINCT p.name
+    FROM "Product" p
+    WHERE p."businessId" = $1
+      AND p."deletedAt" IS NULL
+      AND LOWER(REGEXP_REPLACE(BTRIM(p.name), E'\s+', ' ', 'g')) IN (
+        $2
+      )
+      AND p.id <> $3
+    ORDER BY p.name ASC
+  
+prisma:query UPDATE "public"."Product" SET "name" = $1, "categoryId" = $2, "sellingPrice" = $3, "cogs" = $4, "productionToken" = $5, "manualStock" = $6, "productType" = CAST($7::text AS "public"."ProductType"), "recipeCost" = $8, "updatedAt" = $9 WHERE ("public"."Product"."id" = $10 AND 1=1) RETURNING "public"."Product"."id", "public"."Product"."businessId", "public"."Product"."categoryId", "public"."Product"."name", "public"."Product"."sellingPrice", "public"."Product"."isActive", "public"."Product"."createdAt", "public"."Product"."updatedAt", "public"."Product"."recipeCost", "public"."Product"."deletedAt", "public"."Product"."productType"::text, "public"."Product"."cogs", "public"."Product"."productionToken", "public"."Product"."manualStock"
+prisma:query DELETE FROM "public"."Recipe" WHERE "public"."Recipe"."productId" = $1
+prisma:query COMMIT
+prisma:query SELECT "public"."Product"."id", "public"."Product"."businessId", "public"."Product"."categoryId", "public"."Product"."name", "public"."Product"."sellingPrice", "public"."Product"."isActive", "public"."Product"."createdAt", "public"."Product"."updatedAt", "public"."Product"."recipeCost", "public"."Product"."deletedAt", "public"."Product"."productType"::text, "public"."Product"."cogs", "public"."Product"."productionToken", "public"."Product"."manualStock" FROM "public"."Product" WHERE ("public"."Product"."id" = $1 AND 1=1) LIMIT $2 OFFSET $3
+prisma:query SELECT "public"."Category"."id", "public"."Category"."name" FROM "public"."Category" WHERE "public"."Category"."id" = $1 OFFSET $2
+prisma:query SELECT "public"."Recipe"."id", "public"."Recipe"."productId", "public"."Recipe"."ingredientId", "public"."Recipe"."quantity", "public"."Recipe"."createdAt", "public"."Recipe"."updatedAt" FROM "public"."Recipe" WHERE "public"."Recipe"."productId" = $1 OFFSET $2
+prisma:query SELECT "public"."Ingredient"."id", "public"."Ingredient"."businessId", "public"."Ingredient"."name", "public"."Ingredient"."unit", "public"."Ingredient"."minStock", "public"."Ingredient"."createdAt", "public"."Ingredient"."updatedAt" FROM "public"."Ingredient" WHERE "public"."Ingredient"."id" IN (NULL) OFFSET $1
+ PATCH /api/products/1881 200 in 1533ms (compile: 652ms, proxy.ts: 7ms, render: 874ms)
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT id, metadata
+       FROM "BusinessDocument"
+       WHERE "businessId" = $1
+         AND "sourceType" = 'bakery_catalog_config'
+       ORDER BY "updatedAt" DESC
+       LIMIT 1
+ GET /api/bookings/catalog-config 200 in 222ms (compile: 13ms, proxy.ts: 6ms, render: 203ms)
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query 
+      SELECT id
+      FROM "BusinessDocument"
+      WHERE "businessId" = $1
+        AND "sourceType" = 'bakery_catalog_config'
+      ORDER BY "updatedAt" DESC
+      LIMIT 1
+prisma:query 
+        UPDATE "BusinessDocument"
+        SET content = $1,
+            "contentHash" = $2,
+            metadata = $3::jsonb,
+            "updatedAt" = NOW()
+        WHERE id = $4
+prisma:query SELECT pg_advisory_xact_lock($1, $2)
+prisma:query 
+    SELECT LOWER(REGEXP_REPLACE(BTRIM(p.name), E'\s+', ' ', 'g')) AS "normalizedName"
+    FROM "Product" p
+    WHERE p."businessId" = $1
+      AND p."deletedAt" IS NULL
+    GROUP BY LOWER(REGEXP_REPLACE(BTRIM(p.name), E'\s+', ' ', 'g'))
+    HAVING COUNT(*) > 1
+    LIMIT 1
+  
+prisma:query SELECT "public"."Category"."id", "public"."Category"."name" FROM "public"."Category" WHERE "public"."Category"."businessId" = $1 OFFSET $2
+prisma:query SELECT "public"."Product"."id", "public"."Product"."name", "public"."Product"."categoryId", "public"."Product"."sellingPrice", "public"."Product"."productionToken", "public"."Product"."productType"::text, "public"."Product"."isActive", "public"."Product"."deletedAt" FROM "public"."Product" WHERE "public"."Product"."businessId" = $1 ORDER BY "public"."Product"."deletedAt" ASC, "public"."Product"."createdAt" ASC, "public"."Product"."id" ASC OFFSET $2
+prisma:query UPDATE "public"."Product" SET "deletedAt" = $1, "updatedAt" = $2 WHERE ("public"."Product"."businessId" = $3 AND "public"."Product"."deletedAt" IS NULL AND "public"."Product"."name" NOT IN ($4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57,$58,$59,$60,$61,$62,$63,$64,$65,$66,$67,$68,$69,$70,$71,$72,$73,$74,$75,$76,$77,$78,$79,$80,$81,$82,$83,$84,$85,$86,$87,$88,$89,$90,$91,$92,$93,$94,$95,$96,$97,$98,$99,$100,$101,$102,$103,$104,$105,$106,$107,$108,$109,$110,$111,$112,$113,$114,$115,$116,$117,$118,$119,$120,$121,$122,$123,$124,$125,$126,$127,$128,$129,$130,$131,$132,$133,$134,$135,$136,$137,$138,$139,$140,$141,$142,$143,$144,$145,$146,$147,$148,$149,$150,$151,$152,$153,$154,$155,$156,$157,$158,$159,$160,$161,$162,$163,$164,$165,$166,$167,$168,$169,$170,$171,$172,$173,$174,$175,$176,$177,$178,$179,$180,$181,$182,$183,$184,$185,$186,$187,$188,$189,$190,$191,$192,$193,$194,$195,$196,$197,$198,$199,$200))
+prisma:query COMMIT
+ PUT /api/bookings/catalog-config 200 in 954ms (compile: 3ms, proxy.ts: 5ms, render: 946ms)
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT pg_advisory_xact_lock($1, $2)
+prisma:query SELECT "public"."Product"."id", "public"."Product"."name" FROM "public"."Product" WHERE ("public"."Product"."id" = $1 AND "public"."Product"."businessId" = $2 AND "public"."Product"."deletedAt" IS NULL) LIMIT $3 OFFSET $4
+prisma:query SELECT "public"."Category"."id", "public"."Category"."businessId", "public"."Category"."name", "public"."Category"."createdAt", "public"."Category"."updatedAt" FROM "public"."Category" WHERE ("public"."Category"."businessId" = $1 AND "public"."Category"."name" ILIKE $2) LIMIT $3 OFFSET $4
+prisma:query 
+    SELECT DISTINCT p.name
+    FROM "Product" p
+    WHERE p."businessId" = $1
+      AND p."deletedAt" IS NULL
+      AND LOWER(REGEXP_REPLACE(BTRIM(p.name), E'\s+', ' ', 'g')) IN (
+        $2
+      )
+      AND p.id <> $3
+    ORDER BY p.name ASC
+  
+prisma:query UPDATE "public"."Product" SET "name" = $1, "categoryId" = $2, "sellingPrice" = $3, "cogs" = $4, "productionToken" = $5, "manualStock" = $6, "productType" = CAST($7::text AS "public"."ProductType"), "recipeCost" = $8, "updatedAt" = $9 WHERE ("public"."Product"."id" = $10 AND 1=1) RETURNING "public"."Product"."id", "public"."Product"."businessId", "public"."Product"."categoryId", "public"."Product"."name", "public"."Product"."sellingPrice", "public"."Product"."isActive", "public"."Product"."createdAt", "public"."Product"."updatedAt", "public"."Product"."recipeCost", "public"."Product"."deletedAt", "public"."Product"."productType"::text, "public"."Product"."cogs", "public"."Product"."productionToken", "public"."Product"."manualStock"
+prisma:query DELETE FROM "public"."Recipe" WHERE "public"."Recipe"."productId" = $1
+prisma:query COMMIT
+prisma:query SELECT "public"."Product"."id", "public"."Product"."businessId", "public"."Product"."categoryId", "public"."Product"."name", "public"."Product"."sellingPrice", "public"."Product"."isActive", "public"."Product"."createdAt", "public"."Product"."updatedAt", "public"."Product"."recipeCost", "public"."Product"."deletedAt", "public"."Product"."productType"::text, "public"."Product"."cogs", "public"."Product"."productionToken", "public"."Product"."manualStock" FROM "public"."Product" WHERE ("public"."Product"."id" = $1 AND 1=1) LIMIT $2 OFFSET $3
+prisma:query SELECT "public"."Category"."id", "public"."Category"."name" FROM "public"."Category" WHERE "public"."Category"."id" = $1 OFFSET $2
+prisma:query SELECT "public"."Recipe"."id", "public"."Recipe"."productId", "public"."Recipe"."ingredientId", "public"."Recipe"."quantity", "public"."Recipe"."createdAt", "public"."Recipe"."updatedAt" FROM "public"."Recipe" WHERE "public"."Recipe"."productId" = $1 OFFSET $2
+prisma:query SELECT "public"."Ingredient"."id", "public"."Ingredient"."businessId", "public"."Ingredient"."name", "public"."Ingredient"."unit", "public"."Ingredient"."minStock", "public"."Ingredient"."createdAt", "public"."Ingredient"."updatedAt" FROM "public"."Ingredient" WHERE "public"."Ingredient"."id" IN (NULL) OFFSET $1
+ PATCH /api/products/1835 200 in 812ms (compile: 10ms, proxy.ts: 7ms, render: 795ms)
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT id, metadata
+       FROM "BusinessDocument"
+       WHERE "businessId" = $1
+         AND "sourceType" = 'bakery_catalog_config'
+       ORDER BY "updatedAt" DESC
+       LIMIT 1
+ GET /api/bookings/catalog-config 200 in 183ms (compile: 5ms, proxy.ts: 22ms, render: 156ms)
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query 
+      SELECT id
+      FROM "BusinessDocument"
+      WHERE "businessId" = $1
+        AND "sourceType" = 'bakery_catalog_config'
+      ORDER BY "updatedAt" DESC
+      LIMIT 1
+prisma:query 
+        UPDATE "BusinessDocument"
+        SET content = $1,
+            "contentHash" = $2,
+            metadata = $3::jsonb,
+            "updatedAt" = NOW()
+        WHERE id = $4
+prisma:query SELECT pg_advisory_xact_lock($1, $2)
+prisma:query 
+    SELECT LOWER(REGEXP_REPLACE(BTRIM(p.name), E'\s+', ' ', 'g')) AS "normalizedName"
+    FROM "Product" p
+    WHERE p."businessId" = $1
+      AND p."deletedAt" IS NULL
+    GROUP BY LOWER(REGEXP_REPLACE(BTRIM(p.name), E'\s+', ' ', 'g'))
+    HAVING COUNT(*) > 1
+    LIMIT 1
+  
+prisma:query SELECT "public"."Category"."id", "public"."Category"."name" FROM "public"."Category" WHERE "public"."Category"."businessId" = $1 OFFSET $2
+prisma:query SELECT "public"."Product"."id", "public"."Product"."name", "public"."Product"."categoryId", "public"."Product"."sellingPrice", "public"."Product"."productionToken", "public"."Product"."productType"::text, "public"."Product"."isActive", "public"."Product"."deletedAt" FROM "public"."Product" WHERE "public"."Product"."businessId" = $1 ORDER BY "public"."Product"."deletedAt" ASC, "public"."Product"."createdAt" ASC, "public"."Product"."id" ASC OFFSET $2
+prisma:query UPDATE "public"."Product" SET "deletedAt" = $1, "updatedAt" = $2 WHERE ("public"."Product"."businessId" = $3 AND "public"."Product"."deletedAt" IS NULL AND "public"."Product"."name" NOT IN ($4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57,$58,$59,$60,$61,$62,$63,$64,$65,$66,$67,$68,$69,$70,$71,$72,$73,$74,$75,$76,$77,$78,$79,$80,$81,$82,$83,$84,$85,$86,$87,$88,$89,$90,$91,$92,$93,$94,$95,$96,$97,$98,$99,$100,$101,$102,$103,$104,$105,$106,$107,$108,$109,$110,$111,$112,$113,$114,$115,$116,$117,$118,$119,$120,$121,$122,$123,$124,$125,$126,$127,$128,$129,$130,$131,$132,$133,$134,$135,$136,$137,$138,$139,$140,$141,$142,$143,$144,$145,$146,$147,$148,$149,$150,$151,$152,$153,$154,$155,$156,$157,$158,$159,$160,$161,$162,$163,$164,$165,$166,$167,$168,$169,$170,$171,$172,$173,$174,$175,$176,$177,$178,$179,$180,$181,$182,$183,$184,$185,$186,$187,$188,$189,$190,$191,$192,$193,$194,$195,$196,$197,$198,$199,$200))
+prisma:query COMMIT
+ PUT /api/bookings/catalog-config 200 in 844ms (compile: 3ms, proxy.ts: 5ms, render: 836ms)
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT pg_advisory_xact_lock($1, $2)
+prisma:query SELECT "public"."Product"."id", "public"."Product"."name" FROM "public"."Product" WHERE ("public"."Product"."id" = $1 AND "public"."Product"."businessId" = $2 AND "public"."Product"."deletedAt" IS NULL) LIMIT $3 OFFSET $4
+prisma:query SELECT "public"."Category"."id", "public"."Category"."businessId", "public"."Category"."name", "public"."Category"."createdAt", "public"."Category"."updatedAt" FROM "public"."Category" WHERE ("public"."Category"."businessId" = $1 AND "public"."Category"."name" ILIKE $2) LIMIT $3 OFFSET $4
+prisma:query 
+    SELECT DISTINCT p.name
+    FROM "Product" p
+    WHERE p."businessId" = $1
+      AND p."deletedAt" IS NULL
+      AND LOWER(REGEXP_REPLACE(BTRIM(p.name), E'\s+', ' ', 'g')) IN (
+        $2
+      )
+      AND p.id <> $3
+    ORDER BY p.name ASC
+  
+prisma:query UPDATE "public"."Product" SET "name" = $1, "categoryId" = $2, "sellingPrice" = $3, "cogs" = $4, "productionToken" = $5, "manualStock" = $6, "productType" = CAST($7::text AS "public"."ProductType"), "recipeCost" = $8, "updatedAt" = $9 WHERE ("public"."Product"."id" = $10 AND 1=1) RETURNING "public"."Product"."id", "public"."Product"."businessId", "public"."Product"."categoryId", "public"."Product"."name", "public"."Product"."sellingPrice", "public"."Product"."isActive", "public"."Product"."createdAt", "public"."Product"."updatedAt", "public"."Product"."recipeCost", "public"."Product"."deletedAt", "public"."Product"."productType"::text, "public"."Product"."cogs", "public"."Product"."productionToken", "public"."Product"."manualStock"
+prisma:query DELETE FROM "public"."Recipe" WHERE "public"."Recipe"."productId" = $1
+prisma:query COMMIT
+prisma:query SELECT "public"."Product"."id", "public"."Product"."businessId", "public"."Product"."categoryId", "public"."Product"."name", "public"."Product"."sellingPrice", "public"."Product"."isActive", "public"."Product"."createdAt", "public"."Product"."updatedAt", "public"."Product"."recipeCost", "public"."Product"."deletedAt", "public"."Product"."productType"::text, "public"."Product"."cogs", "public"."Product"."productionToken", "public"."Product"."manualStock" FROM "public"."Product" WHERE ("public"."Product"."id" = $1 AND 1=1) LIMIT $2 OFFSET $3
+prisma:query SELECT "public"."Category"."id", "public"."Category"."name" FROM "public"."Category" WHERE "public"."Category"."id" = $1 OFFSET $2
+prisma:query SELECT "public"."Recipe"."id", "public"."Recipe"."productId", "public"."Recipe"."ingredientId", "public"."Recipe"."quantity", "public"."Recipe"."createdAt", "public"."Recipe"."updatedAt" FROM "public"."Recipe" WHERE "public"."Recipe"."productId" = $1 OFFSET $2
+prisma:query SELECT "public"."Ingredient"."id", "public"."Ingredient"."businessId", "public"."Ingredient"."name", "public"."Ingredient"."unit", "public"."Ingredient"."minStock", "public"."Ingredient"."createdAt", "public"."Ingredient"."updatedAt" FROM "public"."Ingredient" WHERE "public"."Ingredient"."id" IN (NULL) OFFSET $1
+ PATCH /api/products/1799 200 in 865ms (compile: 12ms, proxy.ts: 6ms, render: 847ms)
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT id, metadata
+       FROM "BusinessDocument"
+       WHERE "businessId" = $1
+         AND "sourceType" = 'bakery_catalog_config'
+       ORDER BY "updatedAt" DESC
+       LIMIT 1
+ GET /api/bookings/catalog-config 200 in 239ms (compile: 2ms, proxy.ts: 5ms, render: 232ms)
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query 
+      SELECT id
+      FROM "BusinessDocument"
+      WHERE "businessId" = $1
+        AND "sourceType" = 'bakery_catalog_config'
+      ORDER BY "updatedAt" DESC
+      LIMIT 1
+prisma:query 
+        UPDATE "BusinessDocument"
+        SET content = $1,
+            "contentHash" = $2,
+            metadata = $3::jsonb,
+            "updatedAt" = NOW()
+        WHERE id = $4
+prisma:query SELECT pg_advisory_xact_lock($1, $2)
+prisma:query 
+    SELECT LOWER(REGEXP_REPLACE(BTRIM(p.name), E'\s+', ' ', 'g')) AS "normalizedName"
+    FROM "Product" p
+    WHERE p."businessId" = $1
+      AND p."deletedAt" IS NULL
+    GROUP BY LOWER(REGEXP_REPLACE(BTRIM(p.name), E'\s+', ' ', 'g'))
+    HAVING COUNT(*) > 1
+    LIMIT 1
+  
+prisma:query SELECT "public"."Category"."id", "public"."Category"."name" FROM "public"."Category" WHERE "public"."Category"."businessId" = $1 OFFSET $2
+prisma:query SELECT "public"."Product"."id", "public"."Product"."name", "public"."Product"."categoryId", "public"."Product"."sellingPrice", "public"."Product"."productionToken", "public"."Product"."productType"::text, "public"."Product"."isActive", "public"."Product"."deletedAt" FROM "public"."Product" WHERE "public"."Product"."businessId" = $1 ORDER BY "public"."Product"."deletedAt" ASC, "public"."Product"."createdAt" ASC, "public"."Product"."id" ASC OFFSET $2
+prisma:query UPDATE "public"."Product" SET "deletedAt" = $1, "updatedAt" = $2 WHERE ("public"."Product"."businessId" = $3 AND "public"."Product"."deletedAt" IS NULL AND "public"."Product"."name" NOT IN ($4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57,$58,$59,$60,$61,$62,$63,$64,$65,$66,$67,$68,$69,$70,$71,$72,$73,$74,$75,$76,$77,$78,$79,$80,$81,$82,$83,$84,$85,$86,$87,$88,$89,$90,$91,$92,$93,$94,$95,$96,$97,$98,$99,$100,$101,$102,$103,$104,$105,$106,$107,$108,$109,$110,$111,$112,$113,$114,$115,$116,$117,$118,$119,$120,$121,$122,$123,$124,$125,$126,$127,$128,$129,$130,$131,$132,$133,$134,$135,$136,$137,$138,$139,$140,$141,$142,$143,$144,$145,$146,$147,$148,$149,$150,$151,$152,$153,$154,$155,$156,$157,$158,$159,$160,$161,$162,$163,$164,$165,$166,$167,$168,$169,$170,$171,$172,$173,$174,$175,$176,$177,$178,$179,$180,$181,$182,$183,$184,$185,$186,$187,$188,$189,$190,$191,$192,$193,$194,$195,$196,$197,$198,$199,$200))
+prisma:query COMMIT
+ PUT /api/bookings/catalog-config 200 in 847ms (compile: 3ms, proxy.ts: 6ms, render: 838ms)
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT pg_advisory_xact_lock($1, $2)
+prisma:query SELECT "public"."Product"."id", "public"."Product"."name" FROM "public"."Product" WHERE ("public"."Product"."id" = $1 AND "public"."Product"."businessId" = $2 AND "public"."Product"."deletedAt" IS NULL) LIMIT $3 OFFSET $4
+prisma:query SELECT "public"."Category"."id", "public"."Category"."businessId", "public"."Category"."name", "public"."Category"."createdAt", "public"."Category"."updatedAt" FROM "public"."Category" WHERE ("public"."Category"."businessId" = $1 AND "public"."Category"."name" ILIKE $2) LIMIT $3 OFFSET $4
+prisma:query 
+    SELECT DISTINCT p.name
+    FROM "Product" p
+    WHERE p."businessId" = $1
+      AND p."deletedAt" IS NULL
+      AND LOWER(REGEXP_REPLACE(BTRIM(p.name), E'\s+', ' ', 'g')) IN (
+        $2
+      )
+      AND p.id <> $3
+    ORDER BY p.name ASC
+  
+prisma:query UPDATE "public"."Product" SET "name" = $1, "categoryId" = $2, "sellingPrice" = $3, "cogs" = $4, "productionToken" = $5, "manualStock" = $6, "productType" = CAST($7::text AS "public"."ProductType"), "recipeCost" = $8, "updatedAt" = $9 WHERE ("public"."Product"."id" = $10 AND 1=1) RETURNING "public"."Product"."id", "public"."Product"."businessId", "public"."Product"."categoryId", "public"."Product"."name", "public"."Product"."sellingPrice", "public"."Product"."isActive", "public"."Product"."createdAt", "public"."Product"."updatedAt", "public"."Product"."recipeCost", "public"."Product"."deletedAt", "public"."Product"."productType"::text, "public"."Product"."cogs", "public"."Product"."productionToken", "public"."Product"."manualStock"
+prisma:query DELETE FROM "public"."Recipe" WHERE "public"."Recipe"."productId" = $1
+prisma:query COMMIT
+prisma:query SELECT "public"."Product"."id", "public"."Product"."businessId", "public"."Product"."categoryId", "public"."Product"."name", "public"."Product"."sellingPrice", "public"."Product"."isActive", "public"."Product"."createdAt", "public"."Product"."updatedAt", "public"."Product"."recipeCost", "public"."Product"."deletedAt", "public"."Product"."productType"::text, "public"."Product"."cogs", "public"."Product"."productionToken", "public"."Product"."manualStock" FROM "public"."Product" WHERE ("public"."Product"."id" = $1 AND 1=1) LIMIT $2 OFFSET $3
+prisma:query SELECT "public"."Recipe"."id", "public"."Recipe"."productId", "public"."Recipe"."ingredientId", "public"."Recipe"."quantity", "public"."Recipe"."createdAt", "public"."Recipe"."updatedAt" FROM "public"."Recipe" WHERE "public"."Recipe"."productId" = $1 OFFSET $2
+prisma:query SELECT "public"."Category"."id", "public"."Category"."name" FROM "public"."Category" WHERE "public"."Category"."id" = $1 OFFSET $2
+prisma:query SELECT "public"."Ingredient"."id", "public"."Ingredient"."businessId", "public"."Ingredient"."name", "public"."Ingredient"."unit", "public"."Ingredient"."minStock", "public"."Ingredient"."createdAt", "public"."Ingredient"."updatedAt" FROM "public"."Ingredient" WHERE "public"."Ingredient"."id" IN (NULL) OFFSET $1
+ PATCH /api/products/1881 200 in 870ms (compile: 14ms, proxy.ts: 9ms, render: 847ms)
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT pg_advisory_xact_lock($1, $2)
+prisma:query SELECT "public"."Product"."id", "public"."Product"."name" FROM "public"."Product" WHERE ("public"."Product"."id" = $1 AND "public"."Product"."businessId" = $2 AND "public"."Product"."deletedAt" IS NULL) LIMIT $3 OFFSET $4
+prisma:query SELECT "public"."Category"."id", "public"."Category"."businessId", "public"."Category"."name", "public"."Category"."createdAt", "public"."Category"."updatedAt" FROM "public"."Category" WHERE ("public"."Category"."businessId" = $1 AND "public"."Category"."name" ILIKE $2) LIMIT $3 OFFSET $4
+prisma:query 
+    SELECT DISTINCT p.name
+    FROM "Product" p
+    WHERE p."businessId" = $1
+      AND p."deletedAt" IS NULL
+      AND LOWER(REGEXP_REPLACE(BTRIM(p.name), E'\s+', ' ', 'g')) IN (
+        $2
+      )
+      AND p.id <> $3
+    ORDER BY p.name ASC
+  
+prisma:query UPDATE "public"."Product" SET "name" = $1, "categoryId" = $2, "sellingPrice" = $3, "cogs" = $4, "productionToken" = $5, "manualStock" = $6, "productType" = CAST($7::text AS "public"."ProductType"), "recipeCost" = $8, "updatedAt" = $9 WHERE ("public"."Product"."id" = $10 AND 1=1) RETURNING "public"."Product"."id", "public"."Product"."businessId", "public"."Product"."categoryId", "public"."Product"."name", "public"."Product"."sellingPrice", "public"."Product"."isActive", "public"."Product"."createdAt", "public"."Product"."updatedAt", "public"."Product"."recipeCost", "public"."Product"."deletedAt", "public"."Product"."productType"::text, "public"."Product"."cogs", "public"."Product"."productionToken", "public"."Product"."manualStock"
+prisma:query DELETE FROM "public"."Recipe" WHERE "public"."Recipe"."productId" = $1
+prisma:query COMMIT
+prisma:query SELECT "public"."Product"."id", "public"."Product"."businessId", "public"."Product"."categoryId", "public"."Product"."name", "public"."Product"."sellingPrice", "public"."Product"."isActive", "public"."Product"."createdAt", "public"."Product"."updatedAt", "public"."Product"."recipeCost", "public"."Product"."deletedAt", "public"."Product"."productType"::text, "public"."Product"."cogs", "public"."Product"."productionToken", "public"."Product"."manualStock" FROM "public"."Product" WHERE ("public"."Product"."id" = $1 AND 1=1) LIMIT $2 OFFSET $3
+prisma:query SELECT "public"."Category"."id", "public"."Category"."name" FROM "public"."Category" WHERE "public"."Category"."id" = $1 OFFSET $2
+prisma:query SELECT "public"."Recipe"."id", "public"."Recipe"."productId", "public"."Recipe"."ingredientId", "public"."Recipe"."quantity", "public"."Recipe"."createdAt", "public"."Recipe"."updatedAt" FROM "public"."Recipe" WHERE "public"."Recipe"."productId" = $1 OFFSET $2
+prisma:query SELECT "public"."Ingredient"."id", "public"."Ingredient"."businessId", "public"."Ingredient"."name", "public"."Ingredient"."unit", "public"."Ingredient"."minStock", "public"."Ingredient"."createdAt", "public"."Ingredient"."updatedAt" FROM "public"."Ingredient" WHERE "public"."Ingredient"."id" IN (NULL) OFFSET $1
+ PATCH /api/products/1835 200 in 885ms (compile: 11ms, proxy.ts: 5ms, render: 869ms)
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT pg_advisory_xact_lock($1, $2)
+prisma:query SELECT "public"."Product"."id", "public"."Product"."name" FROM "public"."Product" WHERE ("public"."Product"."id" = $1 AND "public"."Product"."businessId" = $2 AND "public"."Product"."deletedAt" IS NULL) LIMIT $3 OFFSET $4
+prisma:query SELECT "public"."Category"."id", "public"."Category"."businessId", "public"."Category"."name", "public"."Category"."createdAt", "public"."Category"."updatedAt" FROM "public"."Category" WHERE ("public"."Category"."businessId" = $1 AND "public"."Category"."name" ILIKE $2) LIMIT $3 OFFSET $4
+prisma:query 
+    SELECT DISTINCT p.name
+    FROM "Product" p
+    WHERE p."businessId" = $1
+      AND p."deletedAt" IS NULL
+      AND LOWER(REGEXP_REPLACE(BTRIM(p.name), E'\s+', ' ', 'g')) IN (
+        $2
+      )
+      AND p.id <> $3
+    ORDER BY p.name ASC
+  
+prisma:query UPDATE "public"."Product" SET "name" = $1, "categoryId" = $2, "sellingPrice" = $3, "cogs" = $4, "productionToken" = $5, "manualStock" = $6, "productType" = CAST($7::text AS "public"."ProductType"), "recipeCost" = $8, "updatedAt" = $9 WHERE ("public"."Product"."id" = $10 AND 1=1) RETURNING "public"."Product"."id", "public"."Product"."businessId", "public"."Product"."categoryId", "public"."Product"."name", "public"."Product"."sellingPrice", "public"."Product"."isActive", "public"."Product"."createdAt", "public"."Product"."updatedAt", "public"."Product"."recipeCost", "public"."Product"."deletedAt", "public"."Product"."productType"::text, "public"."Product"."cogs", "public"."Product"."productionToken", "public"."Product"."manualStock"
+prisma:query DELETE FROM "public"."Recipe" WHERE "public"."Recipe"."productId" = $1
+prisma:query COMMIT
+prisma:query SELECT "public"."Product"."id", "public"."Product"."businessId", "public"."Product"."categoryId", "public"."Product"."name", "public"."Product"."sellingPrice", "public"."Product"."isActive", "public"."Product"."createdAt", "public"."Product"."updatedAt", "public"."Product"."recipeCost", "public"."Product"."deletedAt", "public"."Product"."productType"::text, "public"."Product"."cogs", "public"."Product"."productionToken", "public"."Product"."manualStock" FROM "public"."Product" WHERE ("public"."Product"."id" = $1 AND 1=1) LIMIT $2 OFFSET $3
+prisma:query SELECT "public"."Category"."id", "public"."Category"."name" FROM "public"."Category" WHERE "public"."Category"."id" = $1 OFFSET $2
+prisma:query SELECT "public"."Recipe"."id", "public"."Recipe"."productId", "public"."Recipe"."ingredientId", "public"."Recipe"."quantity", "public"."Recipe"."createdAt", "public"."Recipe"."updatedAt" FROM "public"."Recipe" WHERE "public"."Recipe"."productId" = $1 OFFSET $2
+prisma:query SELECT "public"."Ingredient"."id", "public"."Ingredient"."businessId", "public"."Ingredient"."name", "public"."Ingredient"."unit", "public"."Ingredient"."minStock", "public"."Ingredient"."createdAt", "public"."Ingredient"."updatedAt" FROM "public"."Ingredient" WHERE "public"."Ingredient"."id" IN (NULL) OFFSET $1
+ PATCH /api/products/1799 200 in 862ms (compile: 10ms, proxy.ts: 6ms, render: 846ms)
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query 
+      SELECT id
+      FROM "BusinessDocument"
+      WHERE "businessId" = $1
+        AND "sourceType" = 'bakery_catalog_config'
+      ORDER BY "updatedAt" DESC
+      LIMIT 1
+prisma:query 
+        UPDATE "BusinessDocument"
+        SET content = $1,
+            "contentHash" = $2,
+            metadata = $3::jsonb,
+            "updatedAt" = NOW()
+        WHERE id = $4
+prisma:query SELECT pg_advisory_xact_lock($1, $2)
+prisma:query 
+    SELECT LOWER(REGEXP_REPLACE(BTRIM(p.name), E'\s+', ' ', 'g')) AS "normalizedName"
+    FROM "Product" p
+    WHERE p."businessId" = $1
+      AND p."deletedAt" IS NULL
+    GROUP BY LOWER(REGEXP_REPLACE(BTRIM(p.name), E'\s+', ' ', 'g'))
+    HAVING COUNT(*) > 1
+    LIMIT 1
+  
+prisma:query SELECT "public"."Category"."id", "public"."Category"."name" FROM "public"."Category" WHERE "public"."Category"."businessId" = $1 OFFSET $2
+prisma:query SELECT "public"."Product"."id", "public"."Product"."name", "public"."Product"."categoryId", "public"."Product"."sellingPrice", "public"."Product"."productionToken", "public"."Product"."productType"::text, "public"."Product"."isActive", "public"."Product"."deletedAt" FROM "public"."Product" WHERE "public"."Product"."businessId" = $1 ORDER BY "public"."Product"."deletedAt" ASC, "public"."Product"."createdAt" ASC, "public"."Product"."id" ASC OFFSET $2
+prisma:query UPDATE "public"."Product" SET "deletedAt" = $1, "updatedAt" = $2 WHERE ("public"."Product"."businessId" = $3 AND "public"."Product"."deletedAt" IS NULL AND "public"."Product"."name" NOT IN ($4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57,$58,$59,$60,$61,$62,$63,$64,$65,$66,$67,$68,$69,$70,$71,$72,$73,$74,$75,$76,$77,$78,$79,$80,$81,$82,$83,$84,$85,$86,$87,$88,$89,$90,$91,$92,$93,$94,$95,$96,$97,$98,$99,$100,$101,$102,$103,$104,$105,$106,$107,$108,$109,$110,$111,$112,$113,$114,$115,$116,$117,$118,$119,$120,$121,$122,$123,$124,$125,$126,$127,$128,$129,$130,$131,$132,$133,$134,$135,$136,$137,$138,$139,$140,$141,$142,$143,$144,$145,$146,$147,$148,$149,$150,$151,$152,$153,$154,$155,$156,$157,$158,$159,$160,$161,$162,$163,$164,$165,$166,$167,$168,$169,$170,$171,$172,$173,$174,$175,$176,$177,$178,$179,$180,$181,$182,$183,$184,$185,$186,$187,$188,$189,$190,$191,$192,$193,$194,$195,$196,$197,$198,$199,$200))
+prisma:query COMMIT
+ PUT /api/bookings/catalog-config 200 in 966ms (compile: 3ms, proxy.ts: 7ms, render: 957ms)
+prisma:query SELECT "public"."Business"."id" FROM "public"."Business" WHERE ("public"."Business"."id" = $1 AND "public"."Business"."userId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT "public"."BusinessMember"."id", "public"."BusinessMember"."businessId", "public"."BusinessMember"."role"::text FROM "public"."BusinessMember" WHERE ("public"."BusinessMember"."userId" = $1 AND "public"."BusinessMember"."businessId" = $2) LIMIT $3 OFFSET $4
+prisma:query SELECT "public"."Business"."id", "public"."Business"."name", "public"."Business"."userId", "public"."Business"."location", "public"."Business"."createdAt", "public"."Business"."updatedAt" FROM "public"."Business" WHERE "public"."Business"."userId" = $1 ORDER BY "public"."Business"."createdAt" DESC LIMIT $2 OFFSET $3
+ GET /dashboard/business 200 in 918ms (compile: 57ms, proxy.ts: 12ms, render: 849ms)

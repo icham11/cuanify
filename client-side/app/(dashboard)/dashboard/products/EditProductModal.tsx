@@ -275,19 +275,43 @@ function buildDashboardProductName(args: {
   return `${trimmedName} - ${trimmedVariant}`;
 }
 
-function resolveProductCategoryBySubcategory(subcategory: string): string {
+function getCatalogCategorySearchOrder(preferredCategory?: string): string[] {
+  const preferred = preferredCategory.trim();
+  const categories = BOOKING_PRODUCT_CATALOG.map((entry) => entry.category);
+  if (!preferred) return categories;
+  return [
+    preferred,
+    ...categories.filter((category) => category !== preferred),
+  ];
+}
+
+function resolveProductCategoryBySubcategory(
+  subcategory: string,
+  preferredCategory = "",
+): string {
   const normalized = subcategory.trim().toLowerCase();
   if (!normalized) return "";
-  const match = BOOKING_PRODUCT_CATALOG.find((entry) =>
-    entry.subcategories.some((sub) => sub.name.trim().toLowerCase() === normalized),
-  );
-  return match?.category ?? "";
+
+  const searchOrder = getCatalogCategorySearchOrder(preferredCategory);
+  for (const categoryName of searchOrder) {
+    const category = BOOKING_PRODUCT_CATALOG.find(
+      (entry) => entry.category === categoryName,
+    );
+    if (!category) continue;
+    const hasSubcategory = category.subcategories.some(
+      (sub) => sub.name.trim().toLowerCase() === normalized,
+    );
+    if (hasSubcategory) return category.category;
+  }
+
+  return "";
 }
 
 function findProductMappingInCatalog(args: {
   dashboardName: string;
   subcategoryName: string;
   state: CatalogAdminState;
+  preferredCategory?: string;
 }):
   | {
       category: string;
@@ -302,8 +326,15 @@ function findProductMappingInCatalog(args: {
   if (!dashboardName) return null;
 
   const catalog = buildEffectiveCatalogFromState(args.state);
+  const preferredCategory = args.preferredCategory?.trim();
+  const orderedCategories = preferredCategory
+    ? [
+        ...catalog.filter((category) => category.category === preferredCategory),
+        ...catalog.filter((category) => category.category !== preferredCategory),
+      ]
+    : catalog;
 
-  for (const category of catalog) {
+  for (const category of orderedCategories) {
     for (const subcategory of category.subcategories) {
       if (
         subcategoryName &&
@@ -347,6 +378,7 @@ function findProductMappingInCatalog(args: {
 function inferBookingFieldsFromDashboardName(args: {
   dashboardName: string;
   subcategoryName: string;
+  preferredCategory?: string;
 }): {
   itemName: string;
   variantLabel: string;
@@ -354,9 +386,21 @@ function inferBookingFieldsFromDashboardName(args: {
 } {
   const dashboardName = args.dashboardName.trim();
   const subcategoryName = args.subcategoryName.trim().toLowerCase();
+  const preferredCategory = args.preferredCategory?.trim();
 
   if (subcategoryName) {
-    for (const category of BOOKING_PRODUCT_CATALOG) {
+    const orderedCategories = preferredCategory
+      ? [
+          ...BOOKING_PRODUCT_CATALOG.filter(
+            (category) => category.category === preferredCategory,
+          ),
+          ...BOOKING_PRODUCT_CATALOG.filter(
+            (category) => category.category !== preferredCategory,
+          ),
+        ]
+      : BOOKING_PRODUCT_CATALOG;
+
+    for (const category of orderedCategories) {
       const subcategory = category.subcategories.find(
         (entry) => entry.name.trim().toLowerCase() === subcategoryName,
       );
@@ -400,13 +444,20 @@ function inferBookingFieldsFromDashboardName(args: {
 
 export default function EditProductModal({ product, categories, onClose, onSaved }: EditProductModalProps) {
   const initialSubcategory = product.category?.name ?? "";
+  const initialResolvedMainCategory = initialSubcategory
+    ? resolveMainProductCategory(initialSubcategory)
+    : "";
   const initialProductCategory = initialSubcategory
-    ? resolveProductCategoryBySubcategory(initialSubcategory) ||
-      resolveMainProductCategory(initialSubcategory)
+    ? initialResolvedMainCategory ||
+      resolveProductCategoryBySubcategory(
+        initialSubcategory,
+        initialResolvedMainCategory,
+      )
     : "";
   const initialBookingFields = inferBookingFieldsFromDashboardName({
     dashboardName: product.name,
     subcategoryName: initialSubcategory,
+    preferredCategory: initialProductCategory,
   });
 
   // Default to current product mapping so quick edits (e.g. margin only) don't require re-filling fields.
@@ -508,6 +559,7 @@ export default function EditProductModal({ product, categories, onClose, onSaved
         dashboardName: product.name,
         subcategoryName: initialSubcategory,
         state: normalizeCatalogState(payload.data),
+        preferredCategory: initialProductCategory,
       });
 
       if (!mapping || cancelled || bookingFieldsEditedRef.current) return;
@@ -530,7 +582,12 @@ export default function EditProductModal({ product, categories, onClose, onSaved
     return () => {
       cancelled = true;
     };
-  }, [initialSubcategory, product.name, product.sellingPrice]);
+  }, [
+    initialProductCategory,
+    initialSubcategory,
+    product.name,
+    product.sellingPrice,
+  ]);
 
   useEffect(() => {
     if (!productCategory.trim()) return;

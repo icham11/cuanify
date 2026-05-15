@@ -120,6 +120,46 @@ export function normalizeCatalogAdminState(
 
   const reservedDashboardNameKeys = getReservedDashboardNameKeys();
   const seenCustomDashboardNameKeys = new Set<string>();
+  const rawCustomProducts = Array.isArray(value.customProducts)
+    ? value.customProducts
+        .filter(isRecord)
+        .map((entry) => ({
+          category: String(entry.category || ""),
+          subcategory: String(entry.subcategory || ""),
+          productName: String(entry.productName || ""),
+          variantLabel: String(entry.variantLabel || ""),
+          price: normalizeMoney(entry.price),
+        }))
+        .filter(
+          (entry) =>
+            entry.category &&
+            entry.subcategory &&
+            entry.productName &&
+            entry.variantLabel,
+        )
+    : [];
+
+  // Keep the latest matching dashboard-name entry so newer edits can replace
+  // stale catalog mappings that used the wrong main category.
+  const normalizedCustomProducts = rawCustomProducts
+    .slice()
+    .reverse()
+    .filter((entry) => {
+      const dashboardNameKey = buildDashboardNameKey(
+        entry.productName,
+        entry.variantLabel,
+      );
+      if (!dashboardNameKey) return false;
+      if (reservedDashboardNameKeys.has(dashboardNameKey)) {
+        return false;
+      }
+      if (seenCustomDashboardNameKeys.has(dashboardNameKey)) {
+        return false;
+      }
+      seenCustomDashboardNameKeys.add(dashboardNameKey);
+      return true;
+    })
+    .reverse();
 
   return {
     productVariantPriceOverrides: normalizeNumberRecord(
@@ -129,39 +169,7 @@ export function normalizeCatalogAdminState(
     addOnCogsOverrides: normalizeNumberRecord(value.addOnCogsOverrides),
     inactiveProducts: normalizeStringList(value.inactiveProducts),
     inactiveAddOns: normalizeStringList(value.inactiveAddOns),
-    customProducts: Array.isArray(value.customProducts)
-      ? value.customProducts
-          .filter(isRecord)
-          .map((entry) => ({
-            category: String(entry.category || ""),
-            subcategory: String(entry.subcategory || ""),
-            productName: String(entry.productName || ""),
-            variantLabel: String(entry.variantLabel || ""),
-            price: normalizeMoney(entry.price),
-          }))
-          .filter(
-            (entry) =>
-              entry.category &&
-              entry.subcategory &&
-              entry.productName &&
-              entry.variantLabel,
-          )
-          .filter((entry) => {
-            const dashboardNameKey = buildDashboardNameKey(
-              entry.productName,
-              entry.variantLabel,
-            );
-            if (!dashboardNameKey) return false;
-            if (reservedDashboardNameKeys.has(dashboardNameKey)) {
-              return false;
-            }
-            if (seenCustomDashboardNameKeys.has(dashboardNameKey)) {
-              return false;
-            }
-            seenCustomDashboardNameKeys.add(dashboardNameKey);
-            return true;
-          })
-      : [],
+    customProducts: normalizedCustomProducts,
     customAddOns: Array.isArray(value.customAddOns)
       ? value.customAddOns
           .filter(isRecord)

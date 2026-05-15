@@ -255,12 +255,23 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
         string,
         (typeof existingProducts)[number]
       >();
+      const existingBucketsByName = new Map<
+        string,
+        Array<(typeof existingProducts)[number]>
+      >();
 
       existingProducts.forEach((product) => {
         const key = normalizeProductNameKey(product.name);
         const current = existingByName.get(key);
         if (!current || (current.deletedAt && !product.deletedAt)) {
           existingByName.set(key, product);
+        }
+
+        const bucket = existingBucketsByName.get(key);
+        if (bucket) {
+          bucket.push(product);
+        } else {
+          existingBucketsByName.set(key, [product]);
         }
       });
 
@@ -288,8 +299,14 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
         );
         const matchedByBaseName =
           product.variantCount === 1
-            ? existingByName.get(
-                normalizeProductNameKey(product.productName),
+            ? (
+                existingBucketsByName.get(
+                  normalizeProductNameKey(product.productName),
+                ) ?? []
+              ).find(
+                (candidate) =>
+                  candidate.categoryId === resolvedCategoryId &&
+                  (shouldReactivateDeleted || candidate.deletedAt === null),
               ) ?? null
             : null;
         const matched = matchedByName ?? matchedByBaseName;

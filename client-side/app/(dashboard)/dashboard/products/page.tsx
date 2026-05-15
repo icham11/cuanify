@@ -40,6 +40,12 @@ const formatCurrency = (value: number) =>
 
 type SortByField = "name" | "sellingPrice" | "createdAt";
 type SortOrderType = "asc" | "desc";
+type ProductFilterCategoryOption = {
+  id: number;
+  name: string;
+  group: string;
+  productCount: number;
+};
 
 const PRODUCT_SORT_OPTIONS: Array<{
   label: string;
@@ -69,9 +75,7 @@ function getProductGroupName(product: Product): string {
 }
 
 function getProductDeduplicationKey(product: Product): string {
-  return `${product.category?.name?.trim().toLowerCase() ?? ""}::${product.name
-    .trim()
-    .toLowerCase()}`;
+  return product.name.trim().toLowerCase();
 }
 
 function choosePreferredProduct(
@@ -116,6 +120,35 @@ function dedupeProducts(products: Product[]): Product[] {
   });
 
   return Array.from(deduped.values());
+}
+
+function buildFilterCategoryOptions(
+  products: Product[],
+): ProductFilterCategoryOption[] {
+  const optionsById = new Map<number, ProductFilterCategoryOption>();
+
+  products.forEach((product) => {
+    const categoryId = product.category?.id;
+    const categoryName = product.category?.name?.trim();
+    if (!categoryId || !categoryName) return;
+
+    const existing = optionsById.get(categoryId);
+    if (existing) {
+      existing.productCount += 1;
+      return;
+    }
+
+    optionsById.set(categoryId, {
+      id: categoryId,
+      name: categoryName,
+      group: getProductGroupName(product),
+      productCount: 1,
+    });
+  });
+
+  return Array.from(optionsById.values()).sort((left, right) =>
+    left.name.localeCompare(right.name, "id"),
+  );
 }
 
 function formatCompactCurrency(value: number): string {
@@ -451,29 +484,39 @@ export default function ProductsPage() {
       ),
     [categories],
   );
-
-  const productGroupOptions = useMemo(() => {
-    const groups = new Set(
-      visibleCategories.map((category) =>
-        resolveMainProductCategory(category.name),
-      ),
-    );
-    return Array.from(groups).sort((a, b) => a.localeCompare(b));
-  }, [visibleCategories]);
-
-  const filteredSubcategoryOptions = useMemo(() => {
-    if (!productGroupFilter) return visibleCategories;
-    return visibleCategories.filter(
-      (category) =>
-        resolveMainProductCategory(category.name) === productGroupFilter,
-    );
-  }, [productGroupFilter, visibleCategories]);
-
-  const normalizedSearch = searchInput.trim().toLowerCase();
   const dedupedProducts = useMemo(
     () => dedupeProducts(allProducts),
     [allProducts],
   );
+  const filterCategoryOptions = useMemo(
+    () => buildFilterCategoryOptions(dedupedProducts),
+    [dedupedProducts],
+  );
+
+  const productGroupOptions = useMemo(() => {
+    const groups = new Set(
+      filterCategoryOptions.map((category) => category.group).filter(Boolean),
+    );
+    return Array.from(groups).sort((a, b) => a.localeCompare(b, "id"));
+  }, [filterCategoryOptions]);
+
+  const filteredSubcategoryOptions = useMemo(() => {
+    if (!productGroupFilter) return filterCategoryOptions;
+    return filterCategoryOptions.filter(
+      (category) => category.group === productGroupFilter,
+    );
+  }, [filterCategoryOptions, productGroupFilter]);
+
+  const selectedCategoryOption = useMemo(
+    () =>
+      categoryFilter === null
+        ? null
+        : filterCategoryOptions.find((category) => category.id === categoryFilter) ??
+          null,
+    [categoryFilter, filterCategoryOptions],
+  );
+
+  const normalizedSearch = searchInput.trim().toLowerCase();
 
   const filteredProducts = useMemo(() => {
     const matchesSearch = (product: Product) => {
@@ -490,11 +533,14 @@ export default function ProductsPage() {
 
     return dedupedProducts.filter((product) => {
       if (!matchesSearch(product)) return false;
-      if (categoryFilter !== null) {
-        return product.category?.id === categoryFilter;
+      if (
+        productGroupFilter &&
+        getProductGroupName(product) !== productGroupFilter
+      ) {
+        return false;
       }
-      if (productGroupFilter) {
-        return getProductGroupName(product) === productGroupFilter;
+      if (categoryFilter !== null && product.category?.id !== categoryFilter) {
+        return false;
       }
       return true;
     });
@@ -560,10 +606,6 @@ export default function ProductsPage() {
   useEffect(() => {
     const searchFromUrl = searchParams.get("search") ?? "";
     setSearchInput(searchFromUrl);
-    if (searchFromUrl.trim()) {
-      setProductGroupFilter("");
-      setCategoryFilter(null);
-    }
     setPage(1);
   }, [searchParams]);
 
@@ -648,6 +690,15 @@ export default function ProductsPage() {
   }, [categoryFilter, filteredSubcategoryOptions]);
 
   useEffect(() => {
+    if (!selectedCategoryOption) return;
+    if (!productGroupFilter) return;
+    if (selectedCategoryOption.group === productGroupFilter) return;
+
+    setCategoryFilter(null);
+    setPage(1);
+  }, [productGroupFilter, selectedCategoryOption]);
+
+  useEffect(() => {
     setPage((currentPage) => Math.min(currentPage, totalPages));
   }, [totalPages]);
 
@@ -720,12 +771,7 @@ export default function ProductsPage() {
                 className="h-6 w-full bg-transparent text-sm text-[#1e120a] outline-none placeholder:text-[#b89080]"
                 value={searchInput}
                 onChange={(e) => {
-                  const nextValue = e.target.value;
-                  setSearchInput(nextValue);
-                  if (nextValue.trim()) {
-                    setProductGroupFilter("");
-                    setCategoryFilter(null);
-                  }
+                  setSearchInput(e.target.value);
                   setPage(1);
                 }}
               />

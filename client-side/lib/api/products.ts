@@ -1,6 +1,9 @@
 import type { Product, CreateProductInput } from "@/types/product";
 import { apiFetch, invalidateApiCache, peekApiCache } from "./client";
 
+const PRODUCT_API_CACHE_INVALIDATION_PATTERN =
+  /\/api\/(products(?:\/\d+\/recipe)?|categories|bookings\/catalog-config)/;
+
 async function extractApiErrorMessage(
   response: Response,
   fallback: string,
@@ -44,6 +47,16 @@ export type PaginationMeta = {
   avgMargin: number;
 };
 
+function getActiveBusinessCacheScope(): string | null {
+  if (typeof document === "undefined") return null;
+
+  const match = document.cookie.match(
+    /(?:^|;\s*)active_business_id=([^;]*)/,
+  );
+  const businessId = match ? decodeURIComponent(match[1] || "").trim() : "";
+  return businessId || null;
+}
+
 export type GetProductsParams = {
   search?: string;
   categoryId?: number;
@@ -74,6 +87,11 @@ function getDefaultPaginationMeta(): PaginationMeta {
 
 export function buildProductsUrl(params?: GetProductsParams): string {
   const url = new URL("/api/products", window.location.origin);
+  const activeBusinessScope = getActiveBusinessCacheScope();
+  if (activeBusinessScope) {
+    // Cache scope only. The server ignores this param.
+    url.searchParams.set("_activeBusinessId", activeBusinessScope);
+  }
   if (params?.search) url.searchParams.set("search", params.search);
   if (params?.categoryId)
     url.searchParams.set("categoryId", String(params.categoryId));
@@ -93,7 +111,13 @@ export function buildProductsUrl(params?: GetProductsParams): string {
 }
 
 function buildCategoriesUrl(): string {
-  return new URL("/api/categories", window.location.origin).toString();
+  const url = new URL("/api/categories", window.location.origin);
+  const activeBusinessScope = getActiveBusinessCacheScope();
+  if (activeBusinessScope) {
+    // Cache scope only. The server ignores this param.
+    url.searchParams.set("_activeBusinessId", activeBusinessScope);
+  }
+  return url.toString();
 }
 
 export function peekCachedProducts(
@@ -141,7 +165,7 @@ export async function createProduct(
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error ?? "Failed to create product");
-  invalidateApiCache(/\/api\/(products|categories|bookings\/catalog-config)/);
+  invalidateApiCache(PRODUCT_API_CACHE_INVALIDATION_PATTERN);
   return data.data;
 }
 
@@ -156,7 +180,7 @@ export async function createBulkProducts(
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error ?? "Failed to create products");
-  invalidateApiCache(/\/api\/(products|categories|bookings\/catalog-config)/);
+  invalidateApiCache(PRODUCT_API_CACHE_INVALIDATION_PATTERN);
   return data.data;
 }
 
@@ -331,7 +355,7 @@ export async function updateProduct(
   }
 
   const data = (await res.json().catch(() => ({}))) as { data?: Product };
-  invalidateApiCache(/\/api\/(products|categories|bookings\/catalog-config)/);
+  invalidateApiCache(PRODUCT_API_CACHE_INVALIDATION_PATTERN);
   if (!data.data) {
     throw new Error("Failed to update product");
   }
@@ -353,10 +377,22 @@ export async function deleteProduct(id: number): Promise<void> {
     credentials: "include",
   });
   if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error ?? "Failed to delete product");
+    const errorMessage = await extractApiErrorMessage(
+      res,
+      "Failed to delete product",
+    );
+
+    if (
+      res.status === 404 &&
+      /product not found|tidak ditemukan|sudah dihapus/i.test(errorMessage)
+    ) {
+      invalidateApiCache(PRODUCT_API_CACHE_INVALIDATION_PATTERN);
+      return;
+    }
+
+    throw new Error(errorMessage);
   }
-  invalidateApiCache(/\/api\/products/);
+  invalidateApiCache(PRODUCT_API_CACHE_INVALIDATION_PATTERN);
 }
 
 /** DELETE /api/products — permanently delete multiple products and their recipes */
@@ -371,7 +407,7 @@ export async function bulkDeleteProducts(ids: number[]): Promise<void> {
     const data = await res.json().catch(() => ({}));
     throw new Error(data.error ?? "Failed to delete products");
   }
-  invalidateApiCache(/\/api\/products/);
+  invalidateApiCache(PRODUCT_API_CACHE_INVALIDATION_PATTERN);
 }
 
 /** POST /api/ingredients - create a new ingredient (find-or-create), always seats an initial batch */
