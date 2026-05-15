@@ -34,10 +34,10 @@ export interface SendOrderToWhatsAppResult {
 }
 
 const OUTBOUND_WA_IMAGE_TTL_MS = 24 * 60 * 60 * 1000;
-const INTER_MESSAGE_DELAY_MS = 750;
-const WA_TEXT_DELAY_SECONDS = 2;
-const WA_IMAGE_BASE_DELAY_SECONDS = 5;
-const WA_IMAGE_DELAY_STEP_SECONDS = 3;
+const INTER_MESSAGE_DELAY_MS = 3500; // Increased to ensure text is fully sent before image
+const WA_TEXT_DELAY_SECONDS = 0; // Server-side delay di Fonnte (gunakan client-side delay saja)
+const WA_IMAGE_BASE_DELAY_SECONDS = 1; // Minimal delay, rely on INTER_MESSAGE_DELAY_MS
+const WA_IMAGE_DELAY_STEP_SECONDS = 2;
 
 function sanitizeBookingCode(value?: string): string {
   const raw = (value || "").trim();
@@ -208,19 +208,25 @@ async function prepareOutboundWhatsAppImageUrl(
     });
 
     if (mirroredUrl?.trim()) {
-      console.info("[sendOrderToWhatsApp] Mirrored outbound image to Cloudinary", {
-        index,
-        sourceUrl: sourceUrl.substring(0, 80),
-        mirroredUrl: mirroredUrl.substring(0, 80),
-      });
+      console.info(
+        "[sendOrderToWhatsApp] Mirrored outbound image to Cloudinary",
+        {
+          index,
+          sourceUrl: sourceUrl.substring(0, 80),
+          mirroredUrl: mirroredUrl.substring(0, 80),
+        },
+      );
       return mirroredUrl;
     }
   } catch (error) {
-    console.warn("[sendOrderToWhatsApp] Failed to mirror outbound image, falling back to source URL", {
-      index,
-      sourceUrl: sourceUrl.substring(0, 80),
-      error: error instanceof Error ? error.message : String(error),
-    });
+    console.warn(
+      "[sendOrderToWhatsApp] Failed to mirror outbound image, falling back to source URL",
+      {
+        index,
+        sourceUrl: sourceUrl.substring(0, 80),
+        error: error instanceof Error ? error.message : String(error),
+      },
+    );
   }
 
   return sourceUrl;
@@ -275,7 +281,10 @@ export async function sendOrderToWhatsApp(
     }
   }
 
-  console.info("[WA DEBUG] finalImagesToUpload (ordered):", finalImagesToUpload);
+  console.info(
+    "[WA DEBUG] finalImagesToUpload (ordered):",
+    finalImagesToUpload,
+  );
 
   if (!process.env.FONNTE_TOKEN) {
     return {
@@ -337,7 +346,7 @@ export async function sendOrderToWhatsApp(
     try {
       const recapText = buildProductionCaption(payload);
       await sendWhatsAppText(recapText, undefined, WA_TEXT_DELAY_SECONDS);
-      await waitForMessageOrdering();
+      await waitForMessageOrdering(INTER_MESSAGE_DELAY_MS); // Increased wait to ensure ordering
       await sendWhatsAppImage(
         generatedOrderImageUrl,
         "Crumbella_id",
@@ -390,7 +399,7 @@ export async function sendOrderToWhatsApp(
       message: "WhatsApp order recap text sent successfully.",
       imageUrl: undefined,
     };
-    await waitForMessageOrdering();
+    await waitForMessageOrdering(INTER_MESSAGE_DELAY_MS); // Increased wait to ensure ordering
   } catch (error) {
     lastResult = {
       ok: false,
@@ -412,7 +421,7 @@ export async function sendOrderToWhatsApp(
       note: referenceNote,
     } = finalImagesToUpload[i];
     let caption = "";
-    
+
     // Ambil label/notes dari referenceImages jika ada, jika tidak dari captionItems
     const productName = order.captionItems?.[i]?.productName;
     if (isMeaningfulImageCaption(referenceNote)) {
@@ -432,11 +441,14 @@ export async function sendOrderToWhatsApp(
         undefined,
         WA_IMAGE_BASE_DELAY_SECONDS + i * WA_IMAGE_DELAY_STEP_SECONDS,
       );
-      console.info(`[sendOrderToWhatsApp] User image ${i + 1} sent successfully:`, {
-        imageUrl: imgUrl.substring(0, 60),
-        caption,
-      });
-      await waitForMessageOrdering(400);
+      console.info(
+        `[sendOrderToWhatsApp] User image ${i + 1} sent successfully:`,
+        {
+          imageUrl: imgUrl.substring(0, 60),
+          caption,
+        },
+      );
+      await waitForMessageOrdering(INTER_MESSAGE_DELAY_MS); // Consistent ordering delay
       lastResult = {
         ok: true,
         stage: "send",
