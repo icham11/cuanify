@@ -644,7 +644,7 @@ export default function EditProductModal({ product, categories, onClose, onSaved
         );
       }
 
-      onSaved(updatedProduct);
+      await onSaved(updatedProduct);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Gagal update produk");
     } finally {

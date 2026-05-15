@@ -2,7 +2,7 @@ export type EditProductModalProps = {
   product: Product;
   categories: { id: number; name: string }[];
   onClose: () => void;
-  onSaved: (updated: Product) => void;
+  onSaved: (updated: Product) => void | Promise<void>;
 };
 // ─── Product types used across the Products feature ───────────────────────────
 

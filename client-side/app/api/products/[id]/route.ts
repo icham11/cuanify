@@ -60,7 +60,7 @@ export async function PATCH(
     const id = Number(idParam);
     if (!id || isNaN(id)) {
       return NextResponse.json(
-        { error: "Invalid product ID" },
+        { error: "ID produk tidak valid." },
         { status: 400 },
       );
     }
@@ -91,7 +91,7 @@ export async function PATCH(
         select: { id: true, name: true },
       });
       if (!existing) {
-        throw new Error("Product not found");
+        throw new Error("Produk tidak ditemukan atau sudah dihapus.");
       }
 
       let categoryId = parsed.data.categoryId;
@@ -179,7 +179,10 @@ export async function PATCH(
     if (error instanceof ForbiddenError) {
       return NextResponse.json({ error: error.message }, { status: 403 });
     }
-    if (error instanceof Error && error.message === "Product not found") {
+    if (
+      error instanceof Error &&
+      error.message === "Produk tidak ditemukan atau sudah dihapus."
+    ) {
       return NextResponse.json({ error: error.message }, { status: 404 });
     }
     if (error instanceof Error && error.message.includes("already exists")) {
@@ -201,7 +204,7 @@ export async function PATCH(
     }
     console.error("PATCH /api/products/[id] error:", error);
     return NextResponse.json(
-      { error: "Failed to update product" },
+      { error: "Gagal mengubah produk." },
       { status: 500 },
     );
   }
@@ -220,7 +223,7 @@ export async function DELETE(
     const id = Number(idParam);
     if (!id || isNaN(id)) {
       return NextResponse.json(
-        { error: "Invalid product ID" },
+        { error: "ID produk tidak valid." },
         { status: 400 },
       );
     }
@@ -230,7 +233,10 @@ export async function DELETE(
       select: { id: true },
     });
     if (!existing) {
-      return NextResponse.json({ error: "Product not found" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Produk tidak ditemukan atau sudah dihapus." },
+        { status: 404 },
+      );
     }
 
     await prisma.product.update({
@@ -253,7 +259,7 @@ export async function DELETE(
     }
     console.error("DELETE /api/products/[id] error:", error);
     return NextResponse.json(
-      { error: "Failed to delete product" },
+      { error: "Gagal menghapus produk." },
       { status: 500 },
     );
   }

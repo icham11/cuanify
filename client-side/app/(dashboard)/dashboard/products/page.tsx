@@ -68,6 +68,56 @@ function getProductGroupName(product: Product): string {
   return resolveMainProductCategory(subcategory);
 }
 
+function getProductDeduplicationKey(product: Product): string {
+  return `${product.category?.name?.trim().toLowerCase() ?? ""}::${product.name
+    .trim()
+    .toLowerCase()}`;
+}
+
+function choosePreferredProduct(
+  current: Product | undefined,
+  candidate: Product,
+): Product {
+  if (!current) return candidate;
+
+  const currentScore = [
+    current.isActive !== false ? 1 : 0,
+    current.category ? 1 : 0,
+    Number(current.cogs || 0) > 0 ? 1 : 0,
+    Number(current.sellingPrice || 0) > 0 ? 1 : 0,
+    Number(current.updatedAt ? new Date(current.updatedAt).getTime() : 0),
+    Number(current.createdAt ? new Date(current.createdAt).getTime() : 0),
+    current.id,
+  ];
+  const candidateScore = [
+    candidate.isActive !== false ? 1 : 0,
+    candidate.category ? 1 : 0,
+    Number(candidate.cogs || 0) > 0 ? 1 : 0,
+    Number(candidate.sellingPrice || 0) > 0 ? 1 : 0,
+    Number(candidate.updatedAt ? new Date(candidate.updatedAt).getTime() : 0),
+    Number(candidate.createdAt ? new Date(candidate.createdAt).getTime() : 0),
+    candidate.id,
+  ];
+
+  for (let index = 0; index < candidateScore.length; index += 1) {
+    if (candidateScore[index] === currentScore[index]) continue;
+    return candidateScore[index] > currentScore[index] ? candidate : current;
+  }
+
+  return current;
+}
+
+function dedupeProducts(products: Product[]): Product[] {
+  const deduped = new Map<string, Product>();
+
+  products.forEach((product) => {
+    const key = getProductDeduplicationKey(product);
+    deduped.set(key, choosePreferredProduct(deduped.get(key), product));
+  });
+
+  return Array.from(deduped.values());
+}
+
 function formatCompactCurrency(value: number): string {
   const amount = Math.max(0, Number(value || 0));
   if (amount >= 1_000_000) {
@@ -420,6 +470,10 @@ export default function ProductsPage() {
   }, [productGroupFilter, visibleCategories]);
 
   const normalizedSearch = searchInput.trim().toLowerCase();
+  const dedupedProducts = useMemo(
+    () => dedupeProducts(allProducts),
+    [allProducts],
+  );
 
   const filteredProducts = useMemo(() => {
     const matchesSearch = (product: Product) => {
@@ -434,9 +488,8 @@ export default function ProductsPage() {
       );
     };
 
-    return allProducts.filter((product) => {
+    return dedupedProducts.filter((product) => {
       if (!matchesSearch(product)) return false;
-      if (normalizedSearch) return true;
       if (categoryFilter !== null) {
         return product.category?.id === categoryFilter;
       }
@@ -445,7 +498,7 @@ export default function ProductsPage() {
       }
       return true;
     });
-  }, [allProducts, categoryFilter, normalizedSearch, productGroupFilter]);
+  }, [categoryFilter, dedupedProducts, normalizedSearch, productGroupFilter]);
 
   const sortedProducts = useMemo(() => {
     const next = [...filteredProducts];
@@ -976,7 +1029,7 @@ export default function ProductsPage() {
           product={editModal}
           categories={visibleCategories}
           onClose={() => setEditModal(null)}
-          onSaved={(updated) => {
+          onSaved={async (updated) => {
             setAllProducts((prev) =>
               prev.map((product) =>
                 product.id === updated.id ? updated : product,
@@ -985,7 +1038,8 @@ export default function ProductsPage() {
             setRecipeModal((prev) =>
               prev?.id === updated.id ? updated : prev,
             );
-            void refreshCategories();
+            await refreshProducts();
+            await refreshCategories();
             setEditModal(null);
           }}
         />
@@ -995,14 +1049,13 @@ export default function ProductsPage() {
         <DeleteConfirmModal
           product={deleteModal}
           onClose={() => setDeleteModal(null)}
-          onDeleted={() => {
-            const nextPage =
-              pageProducts.length <= 1 && page > 1 ? page - 1 : page;
+          onDeleted={async () => {
             setAllProducts((prev) =>
               prev.filter((product) => product.id !== deleteModal.id),
             );
             setDeleteModal(null);
-            setPage(nextPage);
+            await refreshProducts();
+            await refreshCategories();
           }}
         />
       ) : null}
