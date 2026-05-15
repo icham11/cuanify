@@ -276,7 +276,7 @@ function buildDashboardProductName(args: {
 }
 
 function getCatalogCategorySearchOrder(preferredCategory?: string): string[] {
-  const preferred = preferredCategory.trim();
+  const preferred = preferredCategory?.trim() ?? "";
   const categories = BOOKING_PRODUCT_CATALOG.map((entry) => entry.category);
   if (!preferred) return categories;
   return [
