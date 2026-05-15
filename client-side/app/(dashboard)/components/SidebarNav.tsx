@@ -25,9 +25,11 @@ export default function SidebarNav() {
   const isBakeryManager = isOwner || isAdmin;
   const pathname = usePathname();
 
-  const isActive = (href: string) =>
-    pathname === href ||
-    (href !== "/dashboard" && pathname?.startsWith(href + "/"));
+  const isActive = (href: string, options?: { exact?: boolean }) => {
+    if (!pathname) return false;
+    if (options?.exact) return pathname === href;
+    return pathname === href || pathname.startsWith(href + "/");
+  };
 
   if (loading) {
     return (
@@ -194,7 +196,7 @@ export default function SidebarNav() {
             href="/dashboard/business"
             icon={Building2}
             label="Business"
-            active={isActive("/dashboard/business")}
+            active={isActive("/dashboard/business", { exact: true })}
           />
           <SidebarLink
             href="/dashboard/business/bakery-settings"

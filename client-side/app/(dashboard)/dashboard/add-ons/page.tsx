@@ -4,6 +4,7 @@ import { useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Plus,
+  Package,
   Search,
   Trash2,
   Pencil,
@@ -15,6 +16,7 @@ import {
   makeAddOnKey,
   useCatalogAdminState,
 } from "@/lib/bookings/catalog-admin";
+import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import { useRole } from "@/context/RoleContext";
 
 function normalizeId(value: string): string {
@@ -370,33 +372,31 @@ export default function AddOnsPage() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-4 pb-10 text-[#1e120a]">
-      <section className="space-y-5">
-        <div className="flex items-center justify-between gap-3 border-b border-[#e0d0c4] px-4 py-4 sm:px-5">
-          <div className="min-w-0">
-            <h1 className="text-lg font-bold text-[#1e120a] sm:text-xl">
-              Add On
-            </h1>
-            <p className="mt-0.5 text-xs text-[#b89080]">
-              {groupedRows.length} add-on · semua produk
-            </p>
-          </div>
-          {canManageAddOns ? (
+      <GradientPageHeader
+        title="Add On"
+        description={`${groupedRows.length} add-on · semua produk`}
+        icon={Package}
+        actions={
+          canManageAddOns ? (
             <button
+              type="button"
               onClick={openAddModal}
-              className="inline-flex items-center gap-1 rounded-full bg-[#c86030] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-[#a84820]"
+              className="inline-flex h-9 items-center justify-center gap-1 rounded-full bg-[var(--crumbella-accent)] px-4 text-xs font-semibold text-white transition hover:bg-[var(--crumbella-accent-hover)]"
             >
               <Plus size={16} />
               Tambah
             </button>
-          ) : null}
-        </div>
+          ) : null
+        }
+      />
 
-        <div className="space-y-4 px-4 py-4 sm:px-5">
-          <div className="flex items-center gap-3 rounded-[18px] border border-[#e0d0c4] bg-[#fdfaf7] px-4 py-3 shadow-[0_1px_4px_rgba(30,18,10,0.06)]">
-            <Search size={18} className="shrink-0 text-[#c86030]" />
+      <section className="space-y-4 rounded-[28px] border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] p-4 shadow-[0_16px_30px_-24px_rgba(30,18,10,0.45)]">
+        <div className="space-y-4">
+          <div className="flex items-center gap-3 rounded-[18px] border border-[var(--crumbella-border)] bg-white px-4 py-3 shadow-[0_8px_18px_-18px_rgba(30,18,10,0.42)]">
+            <Search size={18} className="shrink-0 text-[var(--crumbella-accent)]" />
             <input
               placeholder="Cari nama add-on..."
-              className="h-6 w-full bg-transparent text-sm text-[#1e120a] outline-none placeholder:text-[#b89080]"
+              className="h-6 w-full bg-transparent text-sm text-[#1e120a] outline-none placeholder:text-[var(--crumbella-muted)]"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
@@ -409,8 +409,8 @@ export default function AddOnsPage() {
                 onClick={() => setSelectedCategory("")}
                 className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
                   !selectedCategory
-                    ? "border-[#c86030] bg-[#c86030] text-white"
-                    : "border-[#e0d0c4] bg-[#fdfaf7] text-[#6b4a38]"
+                    ? "border-[var(--crumbella-accent)] bg-[var(--crumbella-accent)] text-white"
+                    : "border-[var(--crumbella-border)] bg-white text-[#6b4a38]"
                 }`}
               >
                 Semua
@@ -422,8 +422,8 @@ export default function AddOnsPage() {
                   onClick={() => setSelectedCategory(category)}
                   className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
                     selectedCategory === category
-                      ? "border-[#c86030] bg-[#c86030] text-white"
-                      : "border-[#e0d0c4] bg-[#fdfaf7] text-[#6b4a38]"
+                      ? "border-[var(--crumbella-accent)] bg-[var(--crumbella-accent)] text-white"
+                      : "border-[var(--crumbella-border)] bg-white text-[#6b4a38]"
                   }`}
                 >
                   {category}
@@ -433,7 +433,7 @@ export default function AddOnsPage() {
           </div>
 
           {!roleLoading && isAdmin ? (
-            <div className="rounded-2xl border border-[#eadccf] bg-[#fff8f2] px-4 py-3 text-sm font-medium text-[#8c6248]">
+            <div className="rounded-2xl border border-[var(--crumbella-border)] bg-[#fff8f2] px-4 py-3 text-sm font-medium text-[#8c6248]">
               Role Admin hanya bisa melihat data add-on. Tambah, edit, dan hapus
               hanya untuk Owner.
             </div>

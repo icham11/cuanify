@@ -7,12 +7,13 @@ import { OrdersProvider, useOrders } from "@/components/bakery/store";
 import MonthYearPicker, {
   buildSelectableMonthKeys,
 } from "@/components/bakery/shared/MonthYearPicker";
+import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import { BAKERY_SETTINGS_UPDATED_EVENT } from "@/hooks/useBakerySettings";
 import { apiFetch } from "@/lib/api/client";
 import { calculateBakeryFinancialSummary } from "@/lib/bakery/financial-summary";
 import type { BakeryBusinessSettings } from "@/lib/bakery/settings";
 import type { Product } from "@/types/product";
-import { Download, Loader2, Menu, Trophy } from "lucide-react";
+import { Building2, Download, Loader2, Trophy } from "lucide-react";
 
 type BakerySettingsResponse = {
   data?: BakeryBusinessSettings;
@@ -529,30 +530,24 @@ function BusinessPageContent() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-4 pb-10 text-[#23150f]">
-      <div className="overflow-hidden rounded-[34px] border border-[#e4d2c4] bg-[#f8efe5] px-4 pb-6 pt-3 shadow-[0_26px_55px_-42px_rgba(94,53,30,0.6)] sm:px-5 xl:px-6">
-        <div className="overflow-hidden rounded-[30px] border border-[#dcc8b8] bg-[#f7efe7] shadow-[0_14px_36px_rgba(84,56,36,0.10)]">
-          <div className="flex flex-wrap items-center gap-3 border-b border-[#e5d4c7] px-5 py-4">
-            <button
-              type="button"
-              className="rounded-full p-2 text-[#7d553f] transition hover:bg-[#efe3d8]"
-              aria-label="Business menu"
-            >
-              <Menu size={18} />
-            </button>
-            <div className="min-w-0 flex-1">
-              <h1 className="text-[26px] font-extrabold leading-none tracking-[-0.03em] text-[#1f120e]">
-                Business
-              </h1>
-              <p className="mt-1 truncate text-[12px] text-[#bf8c73]">
-                {viewState.businessName}
-                {viewState.viewerName ? ` / ${viewState.viewerName}` : ""}
-              </p>
-            </div>
-            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#f0d6c2] text-sm font-bold text-[#a24d22]">
-              {avatarLabel || "BS"}
-            </div>
-          </div>
+      <GradientPageHeader
+        title="Business"
+        description={`${viewState.businessName || "Business"}${viewState.viewerName ? ` · ${viewState.viewerName}` : ""}`}
+        icon={Building2}
+        actions={
+          <button
+            type="button"
+            onClick={handleExport}
+            className="inline-flex h-9 items-center gap-2 rounded-full bg-[var(--crumbella-accent)] px-4 text-xs font-semibold text-white transition hover:bg-[var(--crumbella-accent-hover)]"
+          >
+            <Download size={15} />
+            Export
+          </button>
+        }
+      />
 
+      <div className="overflow-hidden rounded-[34px] border border-[#e4d2c4] bg-[#f8efe5] px-4 pb-6 pt-4 shadow-[0_26px_55px_-42px_rgba(94,53,30,0.6)] sm:px-5 xl:px-6">
+        <div className="overflow-hidden rounded-[30px] border border-[#dcc8b8] bg-[#f7efe7] shadow-[0_14px_36px_rgba(84,56,36,0.10)]">
           <div className="space-y-5 px-4 py-4 sm:px-5 lg:px-6">
             <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto]">
               <MonthYearPicker
@@ -562,14 +557,19 @@ function BusinessPageContent() {
                 formatLabel={getMonthLabel}
                 buttonClassName="justify-between border-[#dbcabc] text-[#23150f]"
               />
-              <button
-                type="button"
-                onClick={handleExport}
-                className="inline-flex h-11 items-center gap-2 rounded-xl bg-[#c86030] px-4 text-sm font-bold text-white shadow-[0_6px_18px_rgba(200,96,48,0.28)] transition hover:bg-[#b85628]"
-              >
-                <Download size={15} />
-                Export
-              </button>
+              <div className="flex items-center justify-between rounded-[18px] border border-[#dbcabc] bg-[#fff8f3] px-4 py-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-[#1f120e]">
+                    {viewState.businessLocation || "Ringkasan finansial bulanan"}
+                  </p>
+                  <p className="mt-1 text-[11px] text-[#b58872]">
+                    Data sinkron dari booking, payroll, dan biaya owner.
+                  </p>
+                </div>
+                <div className="ml-3 flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#f0d6c2] text-sm font-bold text-[#a24d22]">
+                  {avatarLabel || "BS"}
+                </div>
+              </div>
             </div>
 
             <section className="overflow-hidden rounded-[18px] border border-[#dbcabc] bg-white shadow-[0_2px_10px_rgba(84,56,36,0.06)]">

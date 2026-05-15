@@ -7,6 +7,7 @@ import Image from "next/image";
 import { useBusiness } from "@/context/BusinessContext";
 import { apiFetch } from "@/lib/api/client";
 import { toast } from "sonner";
+import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import {
   User,
   Mail,
@@ -229,25 +230,23 @@ export default function ProfilePage() {
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="flex flex-col justify-between gap-4 rounded-[30px] border border-[#dcc8b8] bg-[#f4e9dc] px-5 py-5 shadow-[0_16px_30px_-26px_rgba(52,31,20,0.35)] sm:flex-row sm:items-center sm:px-6"
+          className="overflow-hidden rounded-[28px]"
         >
-          <div>
-            <h1 className="flex items-center gap-3 text-xl font-extrabold text-[#2f1e13] sm:text-2xl md:text-3xl">
-              <div className="rounded-2xl bg-linear-to-br from-[#f7a56a] via-[#e77b39] to-[#cb6837] p-2 text-white shadow-[0_12px_22px_-18px_rgba(200,96,48,0.9)] sm:p-2.5">
-                <User className="w-5 h-5 sm:w-7 sm:h-7" />
-              </div>
-              Profile
-            </h1>
-            <p className="mt-1 text-sm text-[#8a6047]">
-              Kelola informasi akun dan keamanan Anda
-            </p>
-          </div>
-          <button
-            onClick={fetchProfile}
-            className="flex items-center gap-2 self-start rounded-xl border border-[#dcc7b8] bg-[#fff8f2] px-4 py-2 text-sm text-[#8a6047] transition hover:bg-[#fbf1e8] cursor-pointer"
-          >
-            <RefreshCw className="w-4 h-4" /> Refresh
-          </button>
+          <GradientPageHeader
+            title="Profile"
+            description="Kelola informasi akun dan keamanan Anda"
+            icon={User}
+            actions={
+              <button
+                type="button"
+                onClick={fetchProfile}
+                className="inline-flex h-9 items-center gap-2 rounded-full border border-[var(--crumbella-border)] bg-white px-4 text-xs font-semibold text-[#8a6047] transition hover:bg-[#fbf1e8]"
+              >
+                <RefreshCw className="h-4 w-4" />
+                Refresh
+              </button>
+            }
+          />
         </motion.div>
 
         {/* ───── Profile Hero Card ───── */}

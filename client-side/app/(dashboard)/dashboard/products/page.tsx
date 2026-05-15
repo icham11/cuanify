@@ -8,6 +8,7 @@ import {
   AlertTriangle,
   ChefHat,
   Eye,
+  Package,
   Pencil,
   Trash2,
   X,
@@ -25,6 +26,7 @@ import {
 import type { Product, ProductCategory } from "@/types/product";
 import EditProductModal from "./EditProductModal";
 import UnifiedAddProductModal from "@/components/products/UnifiedAddProductModal";
+import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import { useRole } from "@/context/RoleContext";
 import {
   REMOVED_BAKERY_SUBCATEGORIES,
@@ -732,43 +734,39 @@ export default function ProductsPage() {
   return (
     <div className="mx-auto max-w-7xl space-y-4 pb-10 text-[#1e120a]">
       <div className="space-y-5">
-        <section className="overflow-hidden rounded-[30px] border border-[#d9cabc] bg-[#f2eae1] shadow-[0_24px_60px_-40px_rgba(30,18,10,0.35)]">
-          <div className="flex items-center justify-between gap-3 border-b border-[#e0d0c4] px-4 py-4 sm:px-5">
-            <div className="min-w-0">
-              <h1 className="text-lg font-bold text-[#1e120a] sm:text-xl">
-                Products
-              </h1>
-              <p className="mt-0.5 text-xs text-[#b89080]">
-                {totalCount} produk · {visibleCategories.length} kategori
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              {canManageProducts ? (
-                <button
-                  onClick={() => setAddProductModalOpen(true)}
-                  className="inline-flex items-center gap-1 rounded-full bg-[#c86030] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-[#a84820]"
-                >
-                  <Plus size={16} />
-                  Tambah
-                </button>
-              ) : null}
-            </div>
-          </div>
+        <GradientPageHeader
+          title="Products"
+          description={`${totalCount} produk · ${visibleCategories.length} kategori`}
+          icon={Package}
+          actions={
+            canManageProducts ? (
+              <button
+                type="button"
+                onClick={() => setAddProductModalOpen(true)}
+                className="inline-flex h-9 items-center justify-center gap-1 rounded-full bg-[var(--crumbella-accent)] px-4 text-xs font-semibold text-white transition hover:bg-[var(--crumbella-accent-hover)]"
+              >
+                <Plus size={16} />
+                Tambah
+              </button>
+            ) : null
+          }
+        />
 
-          <div className="space-y-4 px-4 py-4 sm:px-5">
+        <section className="space-y-4 rounded-[28px] border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] p-4 shadow-[0_16px_30px_-24px_rgba(30,18,10,0.45)]">
+          <div className="space-y-4">
             {!roleLoading && isAdmin ? (
-              <div className="rounded-2xl border border-[#eadccf] bg-[#fff8f2] px-4 py-3 text-sm font-medium text-[#8c6248]">
+              <div className="rounded-2xl border border-[var(--crumbella-border)] bg-[#fff8f2] px-4 py-3 text-sm font-medium text-[#8c6248]">
                 Role Admin hanya bisa melihat data product. Ubah, hapus, dan
                 tambah hanya untuk Owner.
               </div>
             ) : null}
 
-            <div className="flex items-center gap-3 rounded-[18px] border border-[#e0d0c4] bg-[#fdfaf7] px-4 py-3 shadow-[0_1px_4px_rgba(30,18,10,0.06)]">
-              <Search size={18} className="shrink-0 text-[#c86030]" />
+            <div className="flex items-center gap-3 rounded-[18px] border border-[var(--crumbella-border)] bg-white px-4 py-3 shadow-[0_8px_18px_-18px_rgba(30,18,10,0.42)]">
+              <Search size={18} className="shrink-0 text-[var(--crumbella-accent)]" />
               <input
                 type="text"
                 placeholder="Cari nama produk..."
-                className="h-6 w-full bg-transparent text-sm text-[#1e120a] outline-none placeholder:text-[#b89080]"
+                className="h-6 w-full bg-transparent text-sm text-[#1e120a] outline-none placeholder:text-[var(--crumbella-muted)]"
                 value={searchInput}
                 onChange={(e) => {
                   setSearchInput(e.target.value);
@@ -789,8 +787,8 @@ export default function ProductsPage() {
                     }}
                     className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
                       !productGroupFilter
-                        ? "border-[#c86030] bg-[#c86030] text-white"
-                        : "border-[#e0d0c4] bg-[#fdfaf7] text-[#6b4a38]"
+                        ? "border-[var(--crumbella-accent)] bg-[var(--crumbella-accent)] text-white"
+                        : "border-[var(--crumbella-border)] bg-white text-[#6b4a38]"
                     }`}
                   >
                     Semua
@@ -806,8 +804,8 @@ export default function ProductsPage() {
                       }}
                       className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
                         productGroupFilter === group
-                          ? "border-[#c86030] bg-[#c86030] text-white"
-                          : "border-[#e0d0c4] bg-[#fdfaf7] text-[#6b4a38]"
+                          ? "border-[var(--crumbella-accent)] bg-[var(--crumbella-accent)] text-white"
+                          : "border-[var(--crumbella-border)] bg-white text-[#6b4a38]"
                       }`}
                     >
                       {group}
@@ -819,7 +817,7 @@ export default function ProductsPage() {
 
             {filteredSubcategoryOptions.length > 0 ? (
               <select
-                className="h-11 w-full rounded-2xl border border-[#e0d0c4] bg-[#fdfaf7] px-4 text-sm text-[#1e120a] outline-none"
+                className="h-11 w-full rounded-2xl border border-[var(--crumbella-border)] bg-white px-4 text-sm text-[#1e120a] outline-none"
                 value={categoryFilter ?? ""}
                 onChange={(e) => {
                   setCategoryFilter(

@@ -2,8 +2,9 @@
 
 import NextLink from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Plus, Save, Search, Trash2 } from "lucide-react";
+import { Loader2, Plus, Save, Search, Settings2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import { useRole } from "@/context/RoleContext";
 import {
   BAKERY_SETTINGS_UPDATED_EVENT,
@@ -792,23 +793,17 @@ export default function BakerySettingsPage() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-4 pb-10 text-[#2f1e13]">
-      <div className="space-y-5 rounded-[34px] border border-[#e4d2c4] bg-[#f8efe5] px-4 pb-6 pt-3 shadow-[0_26px_55px_-42px_rgba(94,53,30,0.6)] sm:px-5 xl:px-6">
-        <div className="overflow-hidden rounded-[32px] border border-[#ddcbbb] bg-[#f4e9dc] shadow-[0_16px_30px_-26px_rgba(52,31,20,0.35)]">
-          <div className="flex flex-col gap-3 px-5 py-5 sm:flex-row sm:items-end sm:justify-between sm:px-6">
-            <div className="space-y-1">
-              <h1 className="text-[1.95rem] font-extrabold tracking-[-0.04em]">
-                Bakery Settings
-              </h1>
-              <p className="text-sm text-[#b58872]">
-                🧁 Pengaturan operasional owner untuk staff, order, dan biaya
-                bulanan.
-              </p>
-            </div>
-            <div className="rounded-full border border-[#ebd2bf] bg-[#fff5ea] px-3 py-1.5 text-xs font-semibold text-[#b15d2f]">
-              Sinkron ke booking, calendar, dan business
-            </div>
-          </div>
+      <GradientPageHeader
+        title="Bakery Settings"
+        description="Pengaturan operasional owner untuk staff, order, dan biaya bulanan."
+        icon={Settings2}
+      >
+        <div className="mt-2 inline-flex rounded-full border border-[#ebd2bf] bg-[#fff5ea] px-3 py-1.5 text-[11px] font-semibold text-[#b15d2f]">
+          Sinkron ke booking, calendar, dan business
         </div>
+      </GradientPageHeader>
+
+      <div className="space-y-5 rounded-[34px] border border-[#e4d2c4] bg-[#f8efe5] px-4 pb-6 pt-4 shadow-[0_26px_55px_-42px_rgba(94,53,30,0.6)] sm:px-5 xl:px-6">
 
         {!isOwner ? (
           <div className="rounded-[22px] border border-[#e9cbb6] bg-[#f9e8dc] px-4 py-3 text-sm text-[#a45731]">

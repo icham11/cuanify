@@ -32,6 +32,7 @@ import {
   invalidateStaffCaches,
   API_CACHE_TTL_5_MIN_MS,
 } from "@/lib/api/cache-keys";
+import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import { useRole } from "@/context/RoleContext";
 import { TEAM_MEMBERS_UPDATED_EVENT } from "@/lib/staff/events";
 
@@ -123,8 +124,14 @@ export default function StaffPage() {
     ttlMs: API_CACHE_TTL_5_MIN_MS,
   });
   const owner = staffQuery.data?.data?.owner ?? null;
-  const members = staffQuery.data?.data?.members ?? [];
-  const businesses = staffQuery.data?.data?.businesses ?? [];
+  const members = useMemo(
+    () => staffQuery.data?.data?.members ?? [],
+    [staffQuery.data?.data?.members],
+  );
+  const businesses = useMemo(
+    () => staffQuery.data?.data?.businesses ?? [],
+    [staffQuery.data?.data?.businesses],
+  );
   const loading = isOwner && staffQuery.isLoading;
 
   // ── Fetch Staff ──
@@ -398,83 +405,70 @@ export default function StaffPage() {
   return (
     <div className="mx-auto max-w-7xl px-3 pb-10 pt-4 text-[#2f1e13] sm:px-4">
       <div className="space-y-5 rounded-[34px] border border-[#e4d2c4] bg-[#f8efe5] px-4 pb-6 pt-3 shadow-[0_26px_55px_-42px_rgba(94,53,30,0.6)] sm:px-5 xl:px-6">
-      {/* ═══ Header ═══ */}
-      <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="rounded-[30px] border border-[#dcc8b8] bg-[#f4e9dc] px-5 py-5 shadow-[0_16px_30px_-26px_rgba(52,31,20,0.35)] sm:px-6"
-      >
-        <h1 className="flex items-center gap-3 text-xl font-extrabold text-[#2f1e13] sm:text-2xl md:text-3xl">
-          <div className="rounded-2xl bg-linear-to-br from-[#f7a56a] via-[#e77b39] to-[#cb6837] p-2 text-white shadow-[0_12px_22px_-18px_rgba(200,96,48,0.9)] sm:p-2.5">
-            <Users className="w-5 h-5 sm:w-7 sm:h-7" />
-          </div>
-          Staff
-        </h1>
-        <p className="mt-1 max-w-3xl text-sm text-[#8a6047]">Daftarkan admin/staff/kasir, atur bisnis penempatan, dan kelola tim Anda.</p>
-      </motion.div>
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="overflow-hidden rounded-[28px]"
+        >
+          <GradientPageHeader
+            title="Staff"
+            description="Daftarkan admin, staff, dan kasir, lalu atur bisnis penempatan mereka."
+            icon={Users}
+          />
+        </motion.div>
 
-      {/* ═══ RBAC Explanation ═══ */}
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.05 }}
-        className="rounded-[24px] border border-[#dcc8b8] bg-[#fffaf6] p-5 shadow-[0_16px_30px_-26px_rgba(52,31,20,0.28)]"
-      >
-        <h3 className="mb-3 text-sm font-bold text-[#2f1e13]">Perbedaan Hak Akses</h3>
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-          <div className="rounded-[22px] border border-[#efd9b1] bg-[#fff3d9] p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <Crown className="w-4 h-4 text-amber-600" />
-              <span className="font-bold text-amber-800 text-sm">Owner (Bos)</span>
+        {/* ═══ RBAC Explanation ═══ */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05 }}
+          className="rounded-[24px] border border-[#dcc8b8] bg-[#fffaf6] p-5 shadow-[0_16px_30px_-26px_rgba(52,31,20,0.28)]"
+        >
+          <h3 className="mb-3 text-sm font-bold text-[#2f1e13]">Perbedaan Hak Akses</h3>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <div className="rounded-[22px] border border-[#efd9b1] bg-[#fff3d9] p-4">
+              <div className="mb-2 flex items-center gap-2">
+                <Crown className="h-4 w-4 text-amber-600" />
+                <span className="text-sm font-bold text-amber-800">Owner (Bos)</span>
+              </div>
+              <ul className="space-y-1 text-xs text-amber-700">
+                <li>✅ Akses semua fitur</li>
+                <li>✅ Lihat margin & profit</li>
+                <li>✅ Kelola produk & stok</li>
+                <li>✅ Analytics & AI</li>
+                <li>✅ Kelola staff</li>
+                <li>✅ Export data</li>
+              </ul>
             </div>
-            <ul className="text-xs text-amber-700 space-y-1">
-              <li>✅ Akses semua fitur</li>
-              <li>✅ Lihat margin & profit</li>
-              <li>✅ Kelola produk & stok</li>
-              <li>✅ Analytics & AI</li>
-              <li>✅ Kelola staff</li>
-              <li>✅ Export data</li>
-            </ul>
-          </div>
-          <div className="rounded-[22px] border border-[#e8d7cd] bg-[#fff8f3] p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <Shield className="w-4 h-4 text-violet-600" />
-              <span className="font-bold text-violet-800 text-sm">Admin</span>
+            <div className="rounded-[22px] border border-[#e8d7cd] bg-[#fff8f3] p-4">
+              <div className="mb-2 flex items-center gap-2">
+                <Shield className="h-4 w-4 text-[#b15d2f]" />
+                <span className="text-sm font-bold text-[#8a6047]">Admin</span>
+              </div>
+              <ul className="space-y-1 text-xs text-[#8a6047]">
+                <li>✅ Kelola operasional harian</li>
+                <li>✅ Akses penjualan & produksi</li>
+                <li>✅ Lihat data tim sesuai bisnis</li>
+                <li>❌ <s>Kelola owner & hak penuh bisnis</s></li>
+                <li>❌ <s>Ubah kepemilikan bisnis</s></li>
+              </ul>
             </div>
-            <ul className="text-xs text-violet-700 space-y-1">
-              <li>✅ Kelola operasional harian</li>
-              <li>✅ Akses penjualan & produksi</li>
-              <li>✅ Lihat data tim sesuai bisnis</li>
-              <li>
-                ❌ <s>Kelola owner & hak penuh bisnis</s>
-              </li>
-              <li>
-                ❌ <s>Ubah kepemilikan bisnis</s>
-              </li>
-            </ul>
-          </div>
-          <div className="rounded-[22px] border border-[#d8e6ef] bg-[#eef6fb] p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <BadgeCheck className="w-4 h-4 text-blue-600" />
-              <span className="font-bold text-blue-800 text-sm">Kasir</span>
+            <div className="rounded-[22px] border border-[#d8e6ef] bg-[#eef6fb] p-4">
+              <div className="mb-2 flex items-center gap-2">
+                <BadgeCheck className="h-4 w-4 text-[#43639b]" />
+                <span className="text-sm font-bold text-[#43639b]">Kasir</span>
+              </div>
+              <ul className="space-y-1 text-xs text-[#43639b]">
+                <li>✅ POS (input transaksi)</li>
+                <li>✅ Kasbon (catat piutang)</li>
+                <li>✅ Riwayat penjualan</li>
+                <li>❌ <s>Margin & profit</s></li>
+                <li>❌ <s>Kelola produk/stok</s></li>
+                <li>❌ <s>Analytics & AI</s></li>
+              </ul>
             </div>
-            <ul className="text-xs text-blue-700 space-y-1">
-              <li>✅ POS (input transaksi)</li>
-              <li>✅ Kasbon (catat piutang)</li>
-              <li>✅ Riwayat penjualan</li>
-              <li>
-                ❌ <s>Margin & profit</s>
-              </li>
-              <li>
-                ❌ <s>Kelola produk/stok</s>
-              </li>
-              <li>
-                ❌ <s>Analytics & AI</s>
-              </li>
-            </ul>
           </div>
-        </div>
-      </motion.div>
+        </motion.div>
 
       {/* ═══ Add Staff — Tabs ═══ */}
       <motion.div
