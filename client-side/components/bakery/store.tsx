@@ -63,10 +63,6 @@ import {
   type ProductionStage,
   type ProductionStageAssignment,
 } from "@/lib/bookings/production-stages";
-import {
-  buildOrderFingerprint,
-  normalizeBookingReference,
-} from "@/lib/bookings/order-fingerprint";
 
 export type OrderStatus =
   | "Inquiry"
@@ -350,44 +346,6 @@ class OrdersSyncRequestError extends Error {
     this.retryable = options?.retryable ?? false;
   }
 }
-
-class DuplicateBookingSyncError extends OrdersSyncRequestError {
-  public readonly duplicateOrderId: string | null;
-  public readonly duplicateBookingCode: string | null;
-
-  constructor(
-    message: string,
-    options?: {
-      status?: number | null;
-      duplicateOrderId?: string | null;
-      duplicateBookingCode?: string | null;
-    },
-  ) {
-    super(message, {
-      status: options?.status ?? 409,
-      retryable: false,
-    });
-    this.name = "DuplicateBookingSyncError";
-    this.duplicateOrderId = options?.duplicateOrderId ?? null;
-    this.duplicateBookingCode = options?.duplicateBookingCode ?? null;
-  }
-}
-
-export class DuplicateExistingBookingError extends Error {
-  public readonly duplicateOrderId: string | null;
-  public readonly duplicateBookingCode: string | null;
-
-  constructor(args: {
-    message: string;
-    duplicateOrderId?: string | null;
-    duplicateBookingCode?: string | null;
-  }) {
-    super(args.message);
-    this.name = "DuplicateExistingBookingError";
-    this.duplicateOrderId = args.duplicateOrderId ?? null;
-    this.duplicateBookingCode = args.duplicateBookingCode ?? null;
-  }
-}
 const AUTO_REQUOTE_ERROR_KEYWORDS = [
   "courier price is not found",
   "check your origin and destination location",
@@ -399,8 +357,6 @@ type OrdersSyncResponse = {
   success?: boolean;
   error?: string;
   details?: string[] | string;
-  duplicateOrderId?: string;
-  duplicateBookingCode?: string;
   data?: {
     mode?: string;
     itemCount?: number;
@@ -740,24 +696,66 @@ function normalizeMoney(value: number | undefined | null): number {
   return Math.max(0, Math.round(parsed));
 }
 
+function normalizeBookingFingerprintText(value?: string | null): string {
+  return String(value ?? "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
 function buildNewOrderSubmissionFingerprint(order: NewOrderInput): string {
-  return buildOrderFingerprint({
-    customerName: order.customerName,
-    customerPhone: order.customerPhone,
+  return JSON.stringify({
+    customerName: normalizeBookingFingerprintText(order.customerName),
+    customerPhone: String(order.customerPhone || "").replace(/\D/g, ""),
     deliveryDate: normalizeDateInput(order.deliveryDate) ?? order.deliveryDate,
-    deliverySlot: order.deliverySlot,
-    notes: order.notes,
-    basePrice: order.basePrice,
-    addOnTotal: order.addOnTotal,
-    deliveryFee: order.deliveryFee,
-    insuranceFee: order.insuranceFee,
-    manualAdjustment: order.manualAdjustment,
-    dpPaidAmount: order.dpPaidAmount,
-    finalPaidAmount: order.finalPaidAmount,
-    totalPrice: order.totalPrice,
-    sales_channel: order.sales_channel,
-    items: order.items,
-    deliveryAddresses: order.deliveryAddresses,
+    deliveryMethod: order.deliveryMethod,
+    deliverySlot: normalizeBookingFingerprintText(order.deliverySlot),
+    notes: normalizeBookingFingerprintText(order.notes),
+    basePrice: normalizeMoney(order.basePrice),
+    addOnTotal: normalizeMoney(order.addOnTotal),
+    deliveryFee: normalizeMoney(order.deliveryFee),
+    insuranceFee: normalizeMoney(order.insuranceFee),
+    manualAdjustment: normalizeMoney(order.manualAdjustment),
+    dpPaidAmount: normalizeMoney(order.dpPaidAmount),
+    finalPaidAmount: normalizeMoney(order.finalPaidAmount),
+    totalPrice: normalizeMoney(order.totalPrice),
+    salesChannel: order.sales_channel,
+    items: order.items.map((item) => ({
+      category: normalizeBookingFingerprintText(item.category),
+      subcategory: normalizeBookingFingerprintText(item.subcategory),
+      productName: normalizeBookingFingerprintText(item.productName),
+      size: normalizeBookingFingerprintText(item.size),
+      quantity: Math.max(0, Number(item.quantity) || 0),
+      tokenDifficulty: item.tokenDifficulty ?? "",
+      customTokenPerUnit: normalizeMoney(item.customTokenPerUnit),
+      basePrice: normalizeMoney(item.basePrice),
+      selectedPrice: normalizeMoney(item.selectedPrice),
+      cookiePrice: normalizeMoney(item.cookiePrice),
+      designCount: Math.max(0, Number(item.designCount) || 0),
+      additionalDesignCount: Math.max(
+        0,
+        Number(item.additionalDesignCount) || 0,
+      ),
+      lineTotal: normalizeMoney(item.lineTotal),
+      addOns: [...(item.addOns ?? [])]
+        .map((entry) => normalizeBookingFingerprintText(entry))
+        .filter(Boolean)
+        .sort((left, right) => left.localeCompare(right)),
+      addOnQuantities: Object.entries(item.addOnQuantities ?? {})
+        .map(([key, value]) => ({
+          key: normalizeBookingFingerprintText(key),
+          value: Math.max(0, Number(value) || 0),
+        }))
+        .filter((entry) => entry.key.length > 0 || entry.value > 0)
+        .sort((left, right) => left.key.localeCompare(right.key)),
+      addOnTotal: normalizeMoney(item.addOnTotal),
+      notes: normalizeBookingFingerprintText(item.notes),
+    })),
+    deliveryAddresses: order.deliveryAddresses.map((address) => ({
+      label: normalizeBookingFingerprintText(address.label),
+      area: normalizeBookingFingerprintText(address.area),
+      addressLine: normalizeBookingFingerprintText(address.addressLine),
+    })),
   });
 }
 
@@ -770,69 +768,6 @@ function pruneRecentBookingCreateFingerprints(
       entries.delete(fingerprint);
     }
   }
-}
-
-function buildExistingOrderFingerprint(order: BakeryOrder): string {
-  return buildOrderFingerprint({
-    customerName: order.customerName,
-    customerPhone: order.customerPhone,
-    deliveryDate: normalizeDateInput(order.deliveryDate) ?? order.deliveryDate,
-    deliverySlot: order.deliverySlot,
-    notes: order.notes,
-    basePrice: order.basePrice,
-    addOnTotal: order.addOnTotal,
-    deliveryFee: order.deliveryFee,
-    insuranceFee: order.insuranceFee,
-    manualAdjustment: order.manualAdjustment,
-    dpPaidAmount: order.dpPaidAmount,
-    finalPaidAmount: order.finalPaidAmount,
-    totalPrice: order.totalPrice,
-    sales_channel: order.sales_channel,
-    items: order.items,
-    deliveryAddresses: order.deliveryAddresses,
-  });
-}
-
-function resolveOrderParsedBookingReference(order: {
-  bookingCode?: string;
-  whatsAppParsedData?: ParsedWhatsAppOrder;
-}): string {
-  return normalizeBookingReference(
-    order.whatsAppParsedData?.common?.bookingCode || order.bookingCode,
-  );
-}
-
-function findMatchingOrderBySubmission(
-  serverOrders: BakeryOrder[],
-  args: {
-    orderId?: string | null;
-    fingerprint: string;
-    parsedBookingReference?: string;
-  },
-): BakeryOrder | null {
-  const targetReference = normalizeBookingReference(args.parsedBookingReference);
-
-  for (const order of serverOrders) {
-    if (args.orderId && order.id === args.orderId) {
-      return order;
-    }
-  }
-
-  for (const order of serverOrders) {
-    if (buildExistingOrderFingerprint(order) === args.fingerprint) {
-      return order;
-    }
-  }
-
-  if (!targetReference) return null;
-
-  for (const order of serverOrders) {
-    if (resolveOrderParsedBookingReference(order) === targetReference) {
-      return order;
-    }
-  }
-
-  return null;
 }
 
 function inferPaymentStatus(
@@ -980,21 +915,6 @@ function areOrdersSnapshotsEqual(
 ): boolean {
   if (left.length !== right.length) return false;
   return JSON.stringify(left) === JSON.stringify(right);
-}
-
-function sortOrdersForComparison(orders: BakeryOrder[]): BakeryOrder[] {
-  return [...orders].sort((left, right) => left.id.localeCompare(right.id));
-}
-
-function areOrderCollectionsEquivalent(
-  left: BakeryOrder[],
-  right: BakeryOrder[],
-): boolean {
-  if (left.length !== right.length) return false;
-  return (
-    JSON.stringify(sortOrdersForComparison(left)) ===
-    JSON.stringify(sortOrdersForComparison(right))
-  );
 }
 
 function getLatestOrderActivityTimestamp(order: BakeryOrder): number {
@@ -1198,18 +1118,6 @@ export function OrdersProvider({
       const fallback = `Booking sync failed (${response.status}).`;
       const message = parseOrdersSyncError(payload, fallback);
 
-      if (
-        response.status === 409 &&
-        (Boolean(payload.duplicateOrderId) ||
-          normalizeBookingReference(payload.error).includes("duplicate"))
-      ) {
-        throw new DuplicateBookingSyncError(message, {
-          status: response.status,
-          duplicateOrderId: payload.duplicateOrderId,
-          duplicateBookingCode: payload.duplicateBookingCode,
-        });
-      }
-
       // Jika server menolak karena kapasitas produksi penuh (HTTP 409),
       // lempar CapacityFullSyncError agar background sync tidak spam toast ke user.
       // Kapasitas penuh adalah kondisi valid — bukan kesalahan yang perlu dilaporkan.
@@ -1385,21 +1293,6 @@ export function OrdersProvider({
           ? error.message
           : "Gagal sinkron perubahan booking ke server.";
 
-      if (
-        error instanceof OrdersSyncRequestError &&
-        error.retryable
-      ) {
-        const latestServerOrders = await fetchLatestOrdersFromServer();
-        if (
-          latestServerOrders &&
-          areOrderCollectionsEquivalent(latestServerOrders, queuedOrders)
-        ) {
-          writeOrdersSnapshot(latestServerOrders);
-          lastLocalWriteAtRef.current = Date.now();
-          return;
-        }
-      }
-
       if (!syncQueuedOrdersRef.current) {
         if (
           error instanceof OrdersSyncRequestError &&
@@ -1437,12 +1330,7 @@ export function OrdersProvider({
         void flushQueuedOrdersSync();
       }
     }
-  }, [
-    fetchLatestOrdersFromServer,
-    hydrateOrdersFromServer,
-    scheduleQueuedOrdersSync,
-    syncOrdersToServer,
-  ]);
+  }, [hydrateOrdersFromServer, scheduleQueuedOrdersSync, syncOrdersToServer]);
 
   const persistOrders = useCallback(
     (nextOrders: BakeryOrder[], options?: { syncToServer?: boolean }) => {
@@ -1907,9 +1795,6 @@ export function OrdersProvider({
   const addOrder = useCallback(
     async (order: NewOrderInput) => {
       const submissionFingerprint = buildNewOrderSubmissionFingerprint(order);
-      const parsedBookingReference = normalizeBookingReference(
-        order.whatsAppParsedData?.common?.bookingCode,
-      );
       const now = Date.now();
       pruneRecentBookingCreateFingerprints(
         recentBookingCreateFingerprintsRef.current,
@@ -2112,47 +1997,12 @@ export function OrdersProvider({
         void runAutomationsForOrder("order_calendar_sync", id);
         return id;
       } catch (error) {
-        if (error instanceof DuplicateBookingSyncError) {
-          const latestServerOrders = await fetchLatestOrdersFromServer();
-          if (latestServerOrders) {
-            writeOrdersSnapshot(latestServerOrders);
-          }
-          throw new DuplicateExistingBookingError({
-            message: error.duplicateBookingCode
-              ? `Order yang sama sudah ada dengan booking ${error.duplicateBookingCode}. Booking baru tidak dibuat.`
-              : "Order yang sama sudah ada. Booking baru tidak dibuat.",
-            duplicateOrderId: error.duplicateOrderId,
-            duplicateBookingCode: error.duplicateBookingCode,
-          });
-        }
-
         if (
           error instanceof OrdersSyncRequestError &&
           error.retryable &&
           createdOrder &&
           createdOrderId
         ) {
-          const latestServerOrders = await fetchLatestOrdersFromServer();
-          const matchedServerOrder = latestServerOrders
-            ? findMatchingOrderBySubmission(latestServerOrders, {
-                orderId: createdOrderId,
-                fingerprint: submissionFingerprint,
-                parsedBookingReference,
-              })
-            : null;
-
-          if (latestServerOrders && matchedServerOrder) {
-            writeOrdersSnapshot(latestServerOrders);
-            recentBookingCreateFingerprintsRef.current.set(
-              submissionFingerprint,
-              {
-                orderId: matchedServerOrder.id,
-                at: Date.now(),
-              },
-            );
-            return matchedServerOrder.id;
-          }
-
           const latestLocalOrders = getLatestOrdersSnapshot();
           const alreadyExists = latestLocalOrders.some(
             (existingOrder) => existingOrder.id === createdOrderId,
