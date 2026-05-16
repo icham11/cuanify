@@ -41,6 +41,7 @@ const patchSchema = z.object({
   cogs: z.coerce.number().positive("COGS must be greater than 0").optional(),
   productionToken: z.coerce.number().int().min(0).optional(),
   manualStock: z.coerce.number().int().min(0).optional(),
+  minimumOrder: z.coerce.number().int().min(0).optional(),
   productType: z.enum(["ReadyStock", "PreOrder"]).optional(),
   createdAt: z.string().datetime().optional(),
   recipe: z.array(recipeItemSchema).optional(),
@@ -136,6 +137,8 @@ export async function PATCH(
         updateData.productionToken = parsed.data.productionToken;
       if (parsed.data.manualStock !== undefined)
         updateData.manualStock = parsed.data.manualStock;
+      if (parsed.data.minimumOrder !== undefined)
+        updateData.minimumOrder = parsed.data.minimumOrder;
       if (parsed.data.productType !== undefined)
         updateData.productType = parsed.data.productType;
       if (parsed.data.createdAt !== undefined)
