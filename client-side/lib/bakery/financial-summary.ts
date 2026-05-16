@@ -227,7 +227,19 @@ function getCashFlowInAmountInRange(
   fromDate: string,
   toDate: string,
 ): number {
-  // Cashflow should follow when money is actually received.
+  // Cashflow in this report follows when the booking is created.
+  const bookingDateKey =
+    toBusinessDateKey(order.createdAt) || toBusinessDateKey(order.updatedAt);
+
+  if (bookingDateKey) {
+    if (!isDateKeyWithinRange(bookingDateKey, fromDate, toDate)) {
+      return 0;
+    }
+
+    return getCappedTotalPaid(order);
+  }
+
+  // Legacy fallback for records that do not carry booking timestamps yet.
   return getPaymentAmountInRange(order, fromDate, toDate);
 }
 

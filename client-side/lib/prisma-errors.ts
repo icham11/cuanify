@@ -21,6 +21,10 @@ export class DatabaseTemporarilyUnavailableError extends Error {
 }
 
 export function isPrismaConnectionTimeout(error: unknown): boolean {
+  if (error instanceof DatabaseTemporarilyUnavailableError) {
+    return true;
+  }
+
   const message = getErrorMessage(error).toLowerCase();
 
   if (
@@ -35,6 +39,8 @@ export function isPrismaConnectionTimeout(error: unknown): boolean {
     message.includes("can't reach database server") ||
     message.includes("cant reach database server") ||
     message.includes("connection timeout") ||
+    message.includes("connection terminated due to connection timeout") ||
+    message.includes("connection terminated unexpectedly") ||
     message.includes("connect timeout") ||
     message.includes("max clients reached in session mode") ||
     message.includes("emaxconnsession") ||

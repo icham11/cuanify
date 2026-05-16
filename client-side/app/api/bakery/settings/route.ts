@@ -6,6 +6,7 @@ import {
   requireRole,
 } from "@/lib/auth/session";
 import {
+  getDefaultBakerySettings,
   getBakeryBusinessSettings,
   upsertBakeryBusinessSettings,
   type BakeryHolidaySetting,
@@ -18,9 +19,25 @@ import {
   normalizeProductionStageProfiles,
   type ProductionStageCategoryProfile,
 } from "@/lib/bookings/production-stages";
+import {
+  DatabaseTemporarilyUnavailableError,
+  isPrismaConnectionTimeout,
+  prismaConnectionErrorResponse,
+} from "@/lib/prisma-errors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const globalForBakerySettingsCache = globalThis as typeof globalThis & {
+  __bakerySettingsCache?: Map<number, ReturnType<typeof getDefaultBakerySettings>>;
+};
+
+function getBakerySettingsCache() {
+  if (!globalForBakerySettingsCache.__bakerySettingsCache) {
+    globalForBakerySettingsCache.__bakerySettingsCache = new Map();
+  }
+  return globalForBakerySettingsCache.__bakerySettingsCache;
+}
 
 function normalizeHolidayEntriesInput(value: unknown): BakeryHolidaySetting[] {
   if (!Array.isArray(value)) return [];
@@ -117,11 +134,43 @@ export async function GET() {
     const auth = await requireAuth();
 
     const settings = await getBakeryBusinessSettings(auth.businessId);
+    getBakerySettingsCache().set(auth.businessId, settings);
 
     return NextResponse.json({ success: true, data: settings });
   } catch (error) {
     if (error instanceof AuthError) {
       return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+    if (
+      error instanceof DatabaseTemporarilyUnavailableError ||
+      isPrismaConnectionTimeout(error)
+    ) {
+      const auth = await requireAuth().catch(() => null);
+      const cachedSettings = auth
+        ? getBakerySettingsCache().get(auth.businessId)
+        : null;
+
+      if (cachedSettings) {
+        return NextResponse.json({
+          success: true,
+          data: cachedSettings,
+          stale: true,
+          source: "memory-cache-fallback",
+        });
+      }
+
+      if (auth) {
+        return NextResponse.json({
+          success: true,
+          data: getDefaultBakerySettings(),
+          stale: true,
+          source: "default-fallback",
+        });
+      }
+
+      return prismaConnectionErrorResponse(
+        "Koneksi database timeout saat memuat bakery settings.",
+      );
     }
 
     const message =
@@ -212,6 +261,8 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
+    getBakerySettingsCache().set(auth.businessId, nextSettings);
+
     return NextResponse.json({ success: true, data: nextSettings });
   } catch (error) {
     if (error instanceof AuthError) {
@@ -219,6 +270,14 @@ export async function PATCH(request: NextRequest) {
     }
     if (error instanceof ForbiddenError) {
       return NextResponse.json({ error: error.message }, { status: 403 });
+    }
+    if (
+      error instanceof DatabaseTemporarilyUnavailableError ||
+      isPrismaConnectionTimeout(error)
+    ) {
+      return prismaConnectionErrorResponse(
+        "Koneksi database timeout saat mengubah bakery settings.",
+      );
     }
 
     const message =

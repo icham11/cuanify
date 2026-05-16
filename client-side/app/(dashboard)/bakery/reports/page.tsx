@@ -13,6 +13,7 @@ import { calculateOrderTokenFromItems } from "@/lib/bookings/order-token-calcula
 import {
   calculateBakeryFinancialSummary,
   getMonthKeyFromDateValue,
+  type BakeryFinancialOrder,
 } from "@/lib/bakery/financial-summary";
 import type { BakeryBusinessSettings } from "@/lib/bakery/settings";
 import type { Product } from "@/types/product";
@@ -165,6 +166,9 @@ export default function ReportsPage() {
   const [isCustomOpen, setIsCustomOpen] = useState(false);
   const [isExportPickerOpen, setIsExportPickerOpen] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
+  const [serverFinancialOrders, setServerFinancialOrders] = useState<
+    BakeryFinancialOrder[] | null
+  >(null);
 
   useEffect(() => {
     if (roleLoading) return;
@@ -257,6 +261,33 @@ export default function ReportsPage() {
   useEffect(() => {
     let cancelled = false;
 
+    const loadFinancialOrders = async () => {
+      try {
+        const response = await fetch("/api/bookings/orders?mode=financial", {
+          cache: "no-store",
+        });
+        const payload = (await response.json().catch(() => ({}))) as {
+          data?: { orders?: BakeryFinancialOrder[] };
+        };
+        if (!response.ok || cancelled) return;
+
+        setServerFinancialOrders(
+          Array.isArray(payload.data?.orders) ? payload.data.orders : [],
+        );
+      } catch {
+        if (!cancelled) setServerFinancialOrders(null);
+      }
+    };
+
+    void loadFinancialOrders();
+    return () => {
+      cancelled = true;
+    };
+  }, [orders]);
+
+  useEffect(() => {
+    let cancelled = false;
+
     const loadAttendance = async () => {
       setIsAttendanceLoading(true);
       try {
@@ -330,15 +361,33 @@ export default function ReportsPage() {
 
   const totalOrders = filteredOrders.length;
 
+  const financialOrders = useMemo<BakeryFinancialOrder[]>(
+    () =>
+      serverFinancialOrders ??
+      orders.map((order) => ({
+        deliveryDate: order.deliveryDate,
+        product: order.product,
+        totalPrice: order.totalPrice,
+        totalPaidAmount: order.totalPaidAmount,
+        dpPaidAmount: order.dpPaidAmount,
+        finalPaidAmount: order.finalPaidAmount,
+        paymentStatus: order.paymentStatus,
+        orderStatus: order.orderStatus,
+        paymentTransactions: order.paymentTransactions,
+        items: order.items,
+      })),
+    [orders, serverFinancialOrders],
+  );
+
   const financialSummary = useMemo(() => {
     return calculateBakeryFinancialSummary({
-      orders,
+      orders: financialOrders,
       products,
       settings: bakerySettings,
       fromDate,
       toDate,
     });
-  }, [bakerySettings, fromDate, orders, products, toDate]);
+  }, [bakerySettings, financialOrders, fromDate, products, toDate]);
 
   const totalRevenue = financialSummary.totalRevenue;
   const totalCashFlowIn = financialSummary.totalCashFlowIn;
@@ -804,9 +853,40 @@ export default function ReportsPage() {
               isLast
             />
           </div>
-          <p className="mt-2 text-[11px] text-[#9b775e]">
-            Revenue di laporan ini mengikuti pembayaran yang benar-benar diterima pada periode terpilih.
-          </p>
+          <div className="mt-3 rounded-[18px] border border-[#e8d7ca] bg-[#fffaf6] px-3 py-3">
+            <p className="px-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9b775e]">
+              Cara Baca Angka
+            </p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-3">
+              <div className="rounded-[16px] border border-[#eedfd3] bg-white px-3 py-3">
+                <p className="text-sm font-bold text-[#2f1e13]">Total Revenue</p>
+                <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#c16934]">
+                  Saat dikirim
+                </p>
+                <p className="mt-2 text-[11px] leading-5 text-[#7f6049]">
+                  Masuk mengikuti tanggal delivery dan hanya menghitung pembayaran order yang sudah masuk.
+                </p>
+              </div>
+              <div className="rounded-[16px] border border-[#eedfd3] bg-white px-3 py-3">
+                <p className="text-sm font-bold text-[#2f1e13]">Cash Flow In</p>
+                <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#0e7b3f]">
+                  Saat booking
+                </p>
+                <p className="mt-2 text-[11px] leading-5 text-[#7f6049]">
+                  Menunjukkan uang yang sudah dibayar customer dan diakui pada tanggal booking dibuat.
+                </p>
+              </div>
+              <div className="rounded-[16px] border border-[#eedfd3] bg-white px-3 py-3">
+                <p className="text-sm font-bold text-[#2f1e13]">Profit Bersih</p>
+                <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#0d6a4f]">
+                  Dari revenue
+                </p>
+                <p className="mt-2 text-[11px] leading-5 text-[#7f6049]">
+                  Rumusnya total revenue - COGS - biaya operasional. Cash flow in tidak mengubah profit bersih langsung.
+                </p>
+              </div>
+            </div>
+          </div>
           {financialSummary.totalOperationalCost > 0 ? (
             <p className="mt-2 text-[11px] text-[#9b775e]">
               Total biaya sudah termasuk payroll dan biaya operasional bulanan.

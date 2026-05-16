@@ -9,6 +9,7 @@ import {
   isPrismaConnectionTimeout,
   isPrismaTimeoutCooldownActive,
   DatabaseTemporarilyUnavailableError,
+  markPrismaTimeoutCooldown,
 } from "@/lib/prisma-errors"
 import type { UserRole } from "@prisma/client"
 
@@ -87,8 +88,13 @@ async function resolveUserIdFromCustomJwt(
 async function resolveUserIdFromNextAuthJwt(): Promise<number | undefined> {
   try {
     const session = await getServerSession(authOptions)
-    if (session?.user?.id) {
-      const directId = normalizeNumericId(session.user.id)
+    const sessionUser =
+      session?.user && typeof session.user === "object"
+        ? (session.user as Record<string, unknown>)
+        : null
+
+    if (sessionUser?.id) {
+      const directId = normalizeNumericId(sessionUser.id)
       if (directId) return directId
     }
 
@@ -132,14 +138,17 @@ async function resolveUserIdFromNextAuthJwt(): Promise<number | undefined> {
       return undefined
     }
 
-    if (session?.user?.email) {
+    if (typeof sessionUser?.email === "string" && sessionUser.email.trim() !== "") {
       const dbUser = await prisma.user.findUnique({
-        where: { email: session.user.email },
+        where: { email: sessionUser.email },
         select: { id: true },
       })
       if (dbUser) return dbUser.id
     }
   } catch (error) {
+    if (isPrismaConnectionTimeout(error)) {
+      markPrismaTimeoutCooldown()
+    }
     console.error("[Auth] resolveUserIdFromNextAuthJwt error:", error)
   }
 
@@ -247,6 +256,9 @@ export const requireAuth = cache(async (): Promise<AuthResult> => {
         }
       }
     } catch (error) {
+      if (isPrismaConnectionTimeout(error)) {
+        markPrismaTimeoutCooldown()
+      }
       if (
         isPrismaConnectionTimeout(error) &&
         jwtBusinessId &&
@@ -266,18 +278,55 @@ export const requireAuth = cache(async (): Promise<AuthResult> => {
   }
 
   if (!business) {
-    business = await prisma.business.findFirst({
-      where: { userId: Number(userId) },
-      orderBy: { createdAt: "desc" },
-    })
+    try {
+      business = await prisma.business.findFirst({
+        where: { userId: Number(userId) },
+        orderBy: { createdAt: "desc" },
+      })
+    } catch (error) {
+      if (isPrismaConnectionTimeout(error)) {
+        markPrismaTimeoutCooldown()
+        if (jwtBusinessId && jwtRole) {
+          console.warn(
+            "[Auth] Prisma timeout while loading owner business. Falling back to JWT business context.",
+          )
+          return {
+            userId: Number(userId),
+            businessId: jwtBusinessId,
+            role: jwtRole,
+          }
+        }
+        throw new DatabaseTemporarilyUnavailableError()
+      }
+      throw error
+    }
   }
 
   if (!business) {
-    const membership = await prisma.businessMember.findFirst({
-      where: { userId: Number(userId) },
-      include: { business: true },
-      orderBy: { createdAt: "desc" },
-    })
+    let membership = null
+    try {
+      membership = await prisma.businessMember.findFirst({
+        where: { userId: Number(userId) },
+        include: { business: true },
+        orderBy: { createdAt: "desc" },
+      })
+    } catch (error) {
+      if (isPrismaConnectionTimeout(error)) {
+        markPrismaTimeoutCooldown()
+        if (jwtBusinessId && jwtRole) {
+          console.warn(
+            "[Auth] Prisma timeout while loading business membership. Falling back to JWT business context.",
+          )
+          return {
+            userId: Number(userId),
+            businessId: jwtBusinessId,
+            role: jwtRole,
+          }
+        }
+        throw new DatabaseTemporarilyUnavailableError()
+      }
+      throw error
+    }
 
     if (membership) {
       return {

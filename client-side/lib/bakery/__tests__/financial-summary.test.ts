@@ -222,6 +222,43 @@ describe("Revenue vs Cashflow Calculation", () => {
     expect(mayOneResult.totalRevenue).toBe(0);
   });
 
+  it("should fall back to payment transaction dates for legacy orders without createdAt", () => {
+    const orders: BakeryFinancialOrder[] = [
+      {
+        deliveryDate: undefined,
+        totalPrice: 100000,
+        totalPaidAmount: 50000,
+        paymentStatus: "DP Paid",
+        orderStatus: "Pending",
+        paymentTransactions: [
+          {
+            timestamp: "2024-05-08T08:30:00.000Z",
+            amount: 50000,
+            type: "DP",
+          },
+        ],
+        items: [
+          {
+            productName: "Kue Coklat",
+            quantity: 1,
+            basePrice: 100000,
+            lineTotal: 100000,
+          },
+        ],
+      },
+    ];
+
+    const result = calculateBakeryFinancialSummary({
+      orders,
+      products: mockProducts,
+      fromDate: "2024-05-08",
+      toDate: "2024-05-08",
+    });
+
+    expect(result.totalCashFlowIn).toBe(50000);
+    expect(result.totalRevenue).toBe(0);
+  });
+
   it("should recognize revenue capped at total price", () => {
     const orders: BakeryFinancialOrder[] = [
       {

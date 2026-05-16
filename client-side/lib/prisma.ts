@@ -40,6 +40,17 @@ function isSupabaseSessionPoolerUrl(rawUrl: string): boolean {
   }
 }
 
+function isSupabasePoolerUrl(rawUrl: string): boolean {
+  if (!rawUrl) return false;
+
+  try {
+    const parsed = new URL(rawUrl);
+    return parsed.hostname.endsWith(".pooler.supabase.com");
+  } catch {
+    return false;
+  }
+}
+
 function resolveDatabaseUrl() {
   const databaseUrl = normalizeSupabaseDatabaseUrl(
     process.env.DATABASE_URL ?? "",
@@ -48,7 +59,7 @@ function resolveDatabaseUrl() {
 
   // Prefer a true direct connection when available so write-heavy routes
   // don't compete for Supavisor session-mode client slots.
-  if (directUrl && !isSupabaseSessionPoolerUrl(directUrl)) {
+  if (directUrl && !isSupabasePoolerUrl(directUrl)) {
     return directUrl;
   }
 
@@ -61,6 +72,7 @@ function createPrismaClient() {
   const isProduction = process.env.NODE_ENV === "production";
 
   const isSupabaseSessionPooler = isSupabaseSessionPoolerUrl(cleanUrl);
+  const usesSupabasePooler = isSupabasePoolerUrl(cleanUrl);
 
   function parsePositiveInteger(value: string | undefined, fallback: number) {
     if (!value) return fallback;
@@ -73,7 +85,13 @@ function createPrismaClient() {
   // In Next.js, multiple route workers can exist at once, so even a modest
   // per-process pool quickly exhausts that limit. Force a single DB session
   // per runtime process for this transport and let requests queue instead.
-  const defaultPoolMax = isSupabaseSessionPooler ? 1 : isProduction ? 10 : 5;
+  const defaultPoolMax = isSupabaseSessionPooler
+    ? 1
+    : usesSupabasePooler
+      ? 2
+      : isProduction
+        ? 10
+        : 5;
   const requestedPoolMax = parsePositiveInteger(
     process.env.PGPOOL_MAX,
     defaultPoolMax,
@@ -82,7 +100,8 @@ function createPrismaClient() {
     ? 1
     : requestedPoolMax;
   const connectionTimeoutMillis = Number(
-    process.env.PGPOOL_CONNECTION_TIMEOUT_MS ?? 15000,
+    process.env.PGPOOL_CONNECTION_TIMEOUT_MS ??
+      (usesSupabasePooler ? 5000 : 10000),
   );
   const idleTimeoutMillis = Number(
     process.env.PGPOOL_IDLE_TIMEOUT_MS ??

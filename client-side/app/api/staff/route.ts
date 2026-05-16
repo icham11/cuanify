@@ -2,11 +2,51 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireAuth, requireRole, AuthError, ForbiddenError } from "@/lib/auth/session";
 import {
+  DatabaseTemporarilyUnavailableError,
   isPrismaConnectionTimeout,
   prismaConnectionErrorResponse,
 } from "@/lib/prisma-errors";
 
 export const dynamic = "force-dynamic";
+
+type StaffListResponseData = {
+  owner: {
+    id: number;
+    name: string | null;
+    email: string | null;
+    createdAt: Date;
+  } | null;
+  businesses: Array<{ id: number; name: string }>;
+  members: Array<{
+    id: number;
+    userId: number;
+    name: string | null;
+    email: string | null;
+    role: string;
+    businessId: number;
+    businessName: string;
+    joinedAt: Date;
+  }>;
+};
+
+const globalForStaffCache = globalThis as typeof globalThis & {
+  __staffListCache?: Map<string, StaffListResponseData>;
+};
+
+function getStaffListCache() {
+  if (!globalForStaffCache.__staffListCache) {
+    globalForStaffCache.__staffListCache = new Map();
+  }
+  return globalForStaffCache.__staffListCache;
+}
+
+function getStaffCacheKey(auth: {
+  role: string;
+  userId: number;
+  businessId: number;
+}) {
+  return `${auth.role}:${auth.userId}:${auth.businessId}`;
+}
 
 const ALLOWED_MEMBER_ROLES = ["Admin", "Cashier", "Staff"] as const;
 type ManagedMemberRole = (typeof ALLOWED_MEMBER_ROLES)[number];
@@ -65,27 +105,59 @@ export async function GET() {
           })
         : null;
 
+    const responseData: StaffListResponseData = {
+      owner,
+      businesses,
+      members: members.map((m) => ({
+        id: m.id,
+        userId: m.userId,
+        name: m.user.name,
+        email: m.user.email,
+        role: m.role,
+        businessId: m.businessId,
+        businessName: m.business.name,
+        joinedAt: m.createdAt,
+      })),
+    };
+
+    getStaffListCache().set(getStaffCacheKey(auth), responseData);
+
     return NextResponse.json({
       success: true,
-      data: {
-        owner,
-        businesses,
-        members: members.map((m) => ({
-          id: m.id,
-          userId: m.userId,
-          name: m.user.name,
-          email: m.user.email,
-          role: m.role,
-          businessId: m.businessId,
-          businessName: m.business.name,
-          joinedAt: m.createdAt,
-        })),
-      },
+      data: responseData,
     });
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ error: error.message }, { status: 401 });
     if (error instanceof ForbiddenError) return NextResponse.json({ error: error.message }, { status: 403 });
-    if (isPrismaConnectionTimeout(error)) {
+    if (
+      error instanceof DatabaseTemporarilyUnavailableError ||
+      isPrismaConnectionTimeout(error)
+    ) {
+      const auth = await requireAuth().catch(() => null);
+      const cached = auth ? getStaffListCache().get(getStaffCacheKey(auth)) : null;
+
+      if (cached) {
+        return NextResponse.json({
+          success: true,
+          data: cached,
+          stale: true,
+          source: "memory-cache-fallback",
+        });
+      }
+
+      if (auth) {
+        return NextResponse.json({
+          success: true,
+          data: {
+            owner: null,
+            businesses: [],
+            members: [],
+          },
+          stale: true,
+          source: "empty-fallback",
+        });
+      }
+
       return prismaConnectionErrorResponse("Koneksi database timeout saat memuat anggota tim.");
     }
     console.error("GET /api/staff error:", error);
