@@ -3,6 +3,10 @@ import prisma from "@/lib/prisma";
 import { requireAuth, isAuthError } from "@/lib/auth/session";
 import { createSaleSchema } from "@/lib/validations/sale";
 import { createSnapTransaction } from "@/lib/midtrans/snap";
+import {
+  formatMinimumOrderViolation,
+  getMinimumOrderViolations,
+} from "@/lib/products/minimum-order";
 
 export const runtime = "nodejs";
 
@@ -159,7 +163,14 @@ export async function POST(request: NextRequest) {
         const productIds = [...new Set(items.map((i) => i.productId))];
         const products = await tx.product.findMany({
           where: { id: { in: productIds }, businessId, deletedAt: null },
-          select: { id: true, name: true, sellingPrice: true, productType: true, manualStock: true },
+          select: {
+            id: true,
+            name: true,
+            sellingPrice: true,
+            productType: true,
+            manualStock: true,
+            minimumOrder: true,
+          },
         });
 
         if (products.length !== productIds.length) {
@@ -175,9 +186,20 @@ export async function POST(request: NextRequest) {
               name: p.name,
               productType: p.productType,
               manualStock: Number(p.manualStock ?? 0),
+              minimumOrder: Number(p.minimumOrder ?? 0),
             },
           ]),
         );
+
+        const minimumOrderViolations = getMinimumOrderViolations(
+          items,
+          productInfoMap,
+        );
+        if (minimumOrderViolations.length > 0) {
+          throw new Error(
+            formatMinimumOrderViolation(minimumOrderViolations[0]),
+          );
+        }
 
         await validateInventoryAvailability(tx, items, productInfoMap);
 

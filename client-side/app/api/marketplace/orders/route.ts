@@ -13,6 +13,10 @@ import {
   updateBusinessMetrics,
   updateProductMetrics,
 } from "@/lib/services/saleHelpers";
+import {
+  formatMinimumOrderViolation,
+  getMinimumOrderViolations,
+} from "@/lib/products/minimum-order";
 
 export const runtime = "nodejs";
 
@@ -132,6 +136,7 @@ export async function POST(request: NextRequest) {
       select: {
         id: true,
         name: true,
+        minimumOrder: true,
       },
     });
 
@@ -147,6 +152,30 @@ export async function POST(request: NextRequest) {
     }
 
     const productNameById = new Map(products.map((product) => [product.id, product.name]));
+    const productMinimumOrderMap = new Map(
+      products.map((product) => [
+        product.id,
+        {
+          name: product.name,
+          minimumOrder: Number(product.minimumOrder ?? 0),
+        },
+      ]),
+    );
+    const minimumOrderViolations = getMinimumOrderViolations(
+      input.items.map((item) => ({
+        productId: item.productId,
+        quantity: item.quantity,
+      })),
+      productMinimumOrderMap,
+    );
+    if (minimumOrderViolations.length > 0) {
+      return NextResponse.json(
+        {
+          error: formatMinimumOrderViolation(minimumOrderViolations[0]),
+        },
+        { status: 400 },
+      );
+    }
     const paymentLabel = formatMarketplaceLabel(input.platform);
 
     const result = await prisma.$transaction(async (tx) => {

@@ -1021,11 +1021,16 @@ export default function ProductsPage() {
                       </div>
 
                       <div className="flex items-center justify-between gap-3 px-4 py-2.5">
-                        <span
-                          className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold ${status.badgeClassName}`}
-                        >
-                          • {status.label}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold ${status.badgeClassName}`}
+                          >
+                            • {status.label}
+                          </span>
+                          <span className="inline-flex rounded-full bg-[#f5e7dc] px-2.5 py-1 text-[10px] font-bold text-[#8d5a3d]">
+                            Min {Math.max(0, Number(product.minimumOrder ?? 0))} pcs
+                          </span>
+                        </div>
                         <p className="text-[10px] text-[#b89080]">
                           Diperbarui {formatProductTimestamp(product)}
                         </p>

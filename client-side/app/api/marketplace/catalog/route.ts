@@ -48,6 +48,7 @@ export async function GET() {
         id: true,
         name: true,
         cogs: true,
+        minimumOrder: true,
       },
     });
 
@@ -57,6 +58,7 @@ export async function GET() {
         {
           id: product.id,
           cogs: Number(product.cogs ?? 0),
+          minimumOrder: Number(product.minimumOrder ?? 0),
         },
       ]),
     );
@@ -73,6 +75,7 @@ export async function GET() {
           displayName: variant.name,
           price: variant.sellingPrice,
           cogs: mapped?.cogs ?? 0,
+          minimumOrder: mapped?.minimumOrder ?? 0,
           productId: mapped?.id ?? null,
         };
       },

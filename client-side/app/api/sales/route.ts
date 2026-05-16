@@ -10,6 +10,10 @@ import {
   updateProductMetrics,
 } from "@/lib/services/saleHelpers";
 import { deductProductionBatch } from "@/lib/inventory/production-engine";
+import {
+  formatMinimumOrderViolation,
+  getMinimumOrderViolations,
+} from "@/lib/products/minimum-order";
 
 export const runtime = "nodejs";
 
@@ -373,7 +377,15 @@ export async function POST(request: NextRequest) {
         const productIds = [...new Set(items.map((i) => i.productId))];
         const products = await tx.product.findMany({
           where: { id: { in: productIds }, businessId },
-          select: { id: true, sellingPrice: true, cogs: true, productType: true, manualStock: true },
+          select: {
+            id: true,
+            name: true,
+            sellingPrice: true,
+            cogs: true,
+            productType: true,
+            manualStock: true,
+            minimumOrder: true,
+          },
         });
 
         if (products.length !== productIds.length) {
@@ -386,6 +398,25 @@ export async function POST(request: NextRequest) {
         const productCogsMap = new Map(products.map((p) => [p.id, Number(p.cogs)]));
         const productTypeMap = new Map(products.map((p) => [p.id, p.productType]));
         const productStockMap = new Map(products.map((p) => [p.id, Number(p.manualStock ?? 0)]));
+        const productMinimumOrderMap = new Map(
+          products.map((p) => [
+            p.id,
+            {
+              name: p.name,
+              minimumOrder: Number(p.minimumOrder ?? 0),
+            },
+          ]),
+        );
+
+        const minimumOrderViolations = getMinimumOrderViolations(
+          items,
+          productMinimumOrderMap,
+        );
+        if (minimumOrderViolations.length > 0) {
+          throw new Error(
+            formatMinimumOrderViolation(minimumOrderViolations[0]),
+          );
+        }
 
         // 2. Check availability for stock-controlled products.
         for (const item of items) {
@@ -618,5 +649,4 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-
 

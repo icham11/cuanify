@@ -58,7 +58,7 @@ export default function RecipeModal({
         </div>
 
         {/* Pricing summary */}
-        <div className="grid grid-cols-3 divide-x divide-gray-100 border-b border-gray-100 text-center">
+        <div className="grid grid-cols-4 divide-x divide-gray-100 border-b border-gray-100 text-center">
           <div className="px-4 py-3">
             <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wide">
               Selling Price
@@ -89,6 +89,14 @@ export default function RecipeModal({
               }`}
             >
               {sellingPrice > 0 ? `${margin}%` : "—"}
+            </p>
+          </div>
+          <div className="px-4 py-3">
+            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wide">
+              Min Order
+            </p>
+            <p className="text-sm font-extrabold text-slate-700 mt-0.5">
+              {Math.max(0, Number(product.minimumOrder ?? 0)) || "—"}
             </p>
           </div>
         </div>
