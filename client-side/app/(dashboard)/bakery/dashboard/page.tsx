@@ -71,6 +71,23 @@ type DashboardAttendanceState = {
   } | null;
 };
 
+type CashFlowCustomerEntry = {
+  customerName: string;
+  customerPhone: string;
+  amountToday: number;
+  orderCount: number;
+  paymentLabel: string;
+  shortInfo: string;
+  bookingCode: string;
+};
+
+type CashFlowHistoryEntry = {
+  dateKey: string;
+  totalAmount: number;
+  customerCount: number;
+  transactionCount: number;
+};
+
 function formatRupiah(value: number) {
   return `Rp${Math.max(0, value).toLocaleString("id-ID")}`;
 }
@@ -109,6 +126,90 @@ function parseNumericId(value: unknown): number | null {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
+function buildCashFlowBreakdownForDate(
+  orders: BakeryOrder[],
+  dateKey: string,
+): CashFlowCustomerEntry[] {
+  const grouped = new Map<
+    string,
+    {
+      customerName: string;
+      customerPhone: string;
+      amountToday: number;
+      orderIds: Set<string>;
+      bookingCodes: Set<string>;
+      productLabels: string[];
+      paymentTypes: Set<string>;
+    }
+  >();
+
+  for (const order of orders) {
+    const datedTransactions = (order.paymentTransactions ?? []).filter(
+      (transaction) => toJakartaDateKey(transaction.timestamp) === dateKey,
+    );
+
+    if (datedTransactions.length === 0) continue;
+
+    const customerName = (order.customerName || "").trim() || "Customer";
+    const customerPhone = (order.customerPhone || "").trim();
+    const key = `${customerName.toLowerCase()}||${customerPhone.toLowerCase()}`;
+    const existing = grouped.get(key) ?? {
+      customerName,
+      customerPhone,
+      amountToday: 0,
+      orderIds: new Set<string>(),
+      bookingCodes: new Set<string>(),
+      productLabels: [],
+      paymentTypes: new Set<string>(),
+    };
+
+    for (const transaction of datedTransactions) {
+      existing.amountToday += Math.max(0, Number(transaction.amount || 0));
+      existing.paymentTypes.add(transaction.type || "Payment");
+    }
+
+    existing.orderIds.add(order.id);
+    if (order.bookingCode) {
+      existing.bookingCodes.add(order.bookingCode);
+    }
+
+    const productLabel =
+      order.items?.[0]?.productName?.trim() ||
+      order.product?.trim() ||
+      "Order custom";
+    if (
+      productLabel &&
+      !existing.productLabels.some(
+        (label) => label.toLowerCase() === productLabel.toLowerCase(),
+      )
+    ) {
+      existing.productLabels.push(productLabel);
+    }
+
+    grouped.set(key, existing);
+  }
+
+  return Array.from(grouped.values())
+    .map((entry) => ({
+      customerName: entry.customerName,
+      customerPhone: entry.customerPhone,
+      amountToday: entry.amountToday,
+      orderCount: entry.orderIds.size,
+      paymentLabel:
+        entry.paymentTypes.size > 1
+          ? "DP + pelunasan"
+          : entry.paymentTypes.has("Final")
+            ? "Pelunasan"
+            : "DP",
+      shortInfo: entry.productLabels.slice(0, 2).join(" - "),
+      bookingCode:
+        entry.bookingCodes.size === 1
+          ? Array.from(entry.bookingCodes)[0] || ""
+          : `${entry.bookingCodes.size} booking`,
+    }))
+    .sort((left, right) => right.amountToday - left.amountToday);
+}
+
 function getOrderStaffTokenAssignments(order: BakeryOrder): Array<{
   staffUserId: number;
   staffName: string;
@@ -142,17 +243,19 @@ export default function BakeryDashboardPage() {
   const { business } = useBusiness();
   const { isAdmin, isStaff } = useRole();
   const { settings: bakerySettings } = useBakerySettings();
+  const today = getJakartaTodayIsoDate();
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [isTeamLoading, setIsTeamLoading] = useState(true);
   const [staffRoleFilter, setStaffRoleFilter] = useState<"all" | "staff" | "admin">("all");
   const [staffSearch, setStaffSearch] = useState("");
   const [isCashInModalOpen, setIsCashInModalOpen] = useState(false);
+  const [cashFlowView, setCashFlowView] = useState<"today" | "history">("today");
+  const [selectedCashFlowDate, setSelectedCashFlowDate] = useState(today);
   const [attendanceSummary, setAttendanceSummary] =
     useState<DashboardAttendanceState | null>(null);
   const [isAttendanceLoading, setIsAttendanceLoading] = useState(false);
   const [isAttendanceSubmitting, setIsAttendanceSubmitting] = useState(false);
 
-  const today = getJakartaTodayIsoDate();
   const staffDailyTokenLimit =
     bakerySettings?.staffDailyTokenLimit ?? BAKERY_STAFF_DAILY_TOKEN_LIMIT;
   const settingsStaffByUserId = useMemo(
@@ -325,85 +428,58 @@ export default function BakeryDashboardPage() {
   );
 
   const todayPaymentBreakdown = useMemo(() => {
-    const grouped = new Map<
-      string,
-      {
-        customerName: string;
-        customerPhone: string;
-        amountToday: number;
-        orderIds: Set<string>;
-        bookingCodes: Set<string>;
-        productLabels: string[];
-        paymentTypes: Set<string>;
-      }
-    >();
-
-    for (const order of orders) {
-      const todaysTransactions = (order.paymentTransactions ?? []).filter(
-        (transaction) => toJakartaDateKey(transaction.timestamp) === today,
-      );
-
-      if (todaysTransactions.length === 0) continue;
-
-      const customerName = (order.customerName || "").trim() || "Customer";
-      const customerPhone = (order.customerPhone || "").trim();
-      const key = `${customerName.toLowerCase()}||${customerPhone.toLowerCase()}`;
-      const existing = grouped.get(key) ?? {
-        customerName,
-        customerPhone,
-        amountToday: 0,
-        orderIds: new Set<string>(),
-        bookingCodes: new Set<string>(),
-        productLabels: [],
-        paymentTypes: new Set<string>(),
-      };
-
-      for (const transaction of todaysTransactions) {
-        existing.amountToday += Math.max(0, Number(transaction.amount || 0));
-        existing.paymentTypes.add(transaction.type || "Payment");
-      }
-
-      existing.orderIds.add(order.id);
-      if (order.bookingCode) {
-        existing.bookingCodes.add(order.bookingCode);
-      }
-
-      const productLabel =
-        order.items?.[0]?.productName?.trim() ||
-        order.product?.trim() ||
-        "Order custom";
-      if (
-        productLabel &&
-        !existing.productLabels.some(
-          (label) => label.toLowerCase() === productLabel.toLowerCase(),
-        )
-      ) {
-        existing.productLabels.push(productLabel);
-      }
-
-      grouped.set(key, existing);
-    }
-
-    return Array.from(grouped.values())
-      .map((entry) => ({
-        customerName: entry.customerName,
-        customerPhone: entry.customerPhone,
-        amountToday: entry.amountToday,
-        orderCount: entry.orderIds.size,
-        paymentLabel:
-          entry.paymentTypes.size > 1
-            ? "DP + pelunasan"
-            : entry.paymentTypes.has("Final")
-              ? "Pelunasan"
-              : "DP",
-        shortInfo: entry.productLabels.slice(0, 2).join(" - "),
-        bookingCode:
-          entry.bookingCodes.size === 1
-            ? Array.from(entry.bookingCodes)[0] || ""
-            : `${entry.bookingCodes.size} booking`,
-      }))
-      .sort((left, right) => right.amountToday - left.amountToday);
+    return buildCashFlowBreakdownForDate(orders, today);
   }, [orders, today]);
+
+  const cashFlowBreakdownByDate = useMemo(() => {
+    const breakdown = new Map<string, CashFlowCustomerEntry[]>();
+    const dateKeys = new Set<string>();
+
+    orders.forEach((order) => {
+      (order.paymentTransactions ?? []).forEach((transaction) => {
+        const dateKey = toJakartaDateKey(transaction.timestamp);
+        if (dateKey) {
+          dateKeys.add(dateKey);
+        }
+      });
+    });
+
+    Array.from(dateKeys).forEach((dateKey) => {
+      breakdown.set(dateKey, buildCashFlowBreakdownForDate(orders, dateKey));
+    });
+
+    return breakdown;
+  }, [orders]);
+
+  const cashFlowHistory = useMemo<CashFlowHistoryEntry[]>(() => {
+    return Array.from(cashFlowBreakdownByDate.entries())
+      .map(([dateKey, entries]) => ({
+        dateKey,
+        totalAmount: entries.reduce((sum, entry) => sum + entry.amountToday, 0),
+        customerCount: entries.length,
+        transactionCount: entries.reduce((sum, entry) => sum + entry.orderCount, 0),
+      }))
+      .filter((entry) => entry.totalAmount > 0)
+      .sort((left, right) => right.dateKey.localeCompare(left.dateKey))
+      .slice(0, 7);
+  }, [cashFlowBreakdownByDate]);
+
+  const selectedCashFlowBreakdown = useMemo(
+    () => cashFlowBreakdownByDate.get(selectedCashFlowDate) ?? [],
+    [cashFlowBreakdownByDate, selectedCashFlowDate],
+  );
+
+  const selectedCashFlowSummary = useMemo(
+    () =>
+      cashFlowHistory.find((entry) => entry.dateKey === selectedCashFlowDate) ?? null,
+    [cashFlowHistory, selectedCashFlowDate],
+  );
+
+  useEffect(() => {
+    if (!isCashInModalOpen) return;
+    setCashFlowView("today");
+    setSelectedCashFlowDate(today);
+  }, [isCashInModalOpen, today]);
 
   const upcomingDeliveries = useMemo(
     () =>
@@ -733,7 +809,124 @@ export default function BakeryDashboardPage() {
             </div>
 
             <div className="max-h-[65vh] space-y-2 overflow-y-auto px-4 py-4">
-              {todayPaymentBreakdown.length === 0 ? (
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCashFlowView("today");
+                    setSelectedCashFlowDate(today);
+                  }}
+                  className={`inline-flex h-10 items-center justify-center rounded-full border px-4 text-xs font-semibold transition ${
+                    cashFlowView === "today"
+                      ? "border-[var(--crumbella-accent)] bg-[var(--crumbella-accent)] text-white"
+                      : "border-[var(--crumbella-border)] bg-white text-[var(--foreground)]"
+                  }`}
+                >
+                  Rincian Hari Ini
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCashFlowView("history");
+                    setSelectedCashFlowDate(cashFlowHistory[0]?.dateKey ?? today);
+                  }}
+                  className={`inline-flex h-10 items-center justify-center rounded-full border px-4 text-xs font-semibold transition ${
+                    cashFlowView === "history"
+                      ? "border-[var(--crumbella-accent)] bg-[var(--crumbella-accent)] text-white"
+                      : "border-[var(--crumbella-border)] bg-white text-[var(--foreground)]"
+                  }`}
+                >
+                  Lihat History Cashflow
+                </button>
+              </div>
+
+              {cashFlowView === "history" ? (
+                <>
+                  <div className="space-y-2">
+                    {cashFlowHistory.length === 0 ? (
+                      <div className="rounded-[22px] border border-dashed border-[var(--crumbella-border)] bg-[var(--crumbella-accent-soft)]/35 px-4 py-6 text-center text-sm text-[var(--crumbella-muted)]">
+                        Belum ada history cashflow yang tersimpan.
+                      </div>
+                    ) : (
+                      cashFlowHistory.map((entry) => (
+                        <button
+                          key={entry.dateKey}
+                          type="button"
+                          onClick={() => setSelectedCashFlowDate(entry.dateKey)}
+                          className={`w-full rounded-[22px] border px-4 py-3 text-left shadow-[0_12px_24px_-24px_rgba(30,18,10,0.55)] transition ${
+                            selectedCashFlowDate === entry.dateKey
+                              ? "border-[var(--crumbella-accent)] bg-[#fff7f0]"
+                              : "border-[var(--crumbella-border)] bg-white"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-[14px] font-semibold text-[var(--foreground)]">
+                                {formatDisplayDate(entry.dateKey)}
+                              </p>
+                              <p className="mt-1 text-[11px] text-[var(--crumbella-muted)]">
+                                {entry.customerCount} customer · {entry.transactionCount} order
+                              </p>
+                            </div>
+                            <p className="shrink-0 text-[14px] font-extrabold text-[var(--foreground)]">
+                              {formatRupiah(entry.totalAmount)}
+                            </p>
+                          </div>
+                        </button>
+                      ))
+                    )}
+                  </div>
+
+                  <div className="rounded-[22px] border border-[var(--crumbella-border)] bg-[#fffdfa] px-4 py-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--crumbella-muted)]">
+                          Rincian {formatDisplayDate(selectedCashFlowDate)}
+                        </p>
+                        <p className="mt-1 text-[1.2rem] font-extrabold leading-none text-[var(--foreground)]">
+                          {formatRupiah(selectedCashFlowSummary?.totalAmount ?? 0)}
+                        </p>
+                      </div>
+                      <p className="text-right text-[11px] text-[var(--crumbella-muted)]">
+                        {selectedCashFlowSummary?.customerCount ?? 0} customer
+                      </p>
+                    </div>
+                  </div>
+
+                  {selectedCashFlowBreakdown.length === 0 ? (
+                    <div className="rounded-[22px] border border-dashed border-[var(--crumbella-border)] bg-[var(--crumbella-accent-soft)]/35 px-4 py-6 text-center text-sm text-[var(--crumbella-muted)]">
+                      Belum ada rincian customer di tanggal ini.
+                    </div>
+                  ) : (
+                    selectedCashFlowBreakdown.map((entry) => (
+                      <div
+                        key={`${selectedCashFlowDate}-${entry.customerName}-${entry.customerPhone}`}
+                        className="rounded-[22px] border border-[var(--crumbella-border)] bg-white px-4 py-3 shadow-[0_12px_24px_-24px_rgba(30,18,10,0.55)]"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-[14px] font-semibold text-[var(--foreground)]">
+                              {entry.customerName}
+                            </p>
+                            <p className="mt-0.5 text-[11px] text-[var(--crumbella-muted)]">
+                              {entry.shortInfo || "Order custom"} - {entry.orderCount} order
+                            </p>
+                            <p className="mt-0.5 text-[10px] text-[var(--crumbella-muted)]">
+                              {entry.paymentLabel} - {entry.bookingCode}
+                            </p>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <p className="text-[10px] text-[var(--crumbella-muted)]">Masuk</p>
+                            <p className="mt-1 text-[15px] font-extrabold leading-none text-[var(--foreground)]">
+                              {formatRupiah(entry.amountToday)}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </>
+              ) : todayPaymentBreakdown.length === 0 ? (
                 <div className="rounded-[22px] border border-dashed border-[var(--crumbella-border)] bg-[var(--crumbella-accent-soft)]/35 px-4 py-6 text-center text-sm text-[var(--crumbella-muted)]">
                   Belum ada pembayaran customer yang masuk hari ini.
                 </div>

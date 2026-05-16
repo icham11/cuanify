@@ -145,17 +145,6 @@ function isCancelledOrder(order: BakeryFinancialOrder): boolean {
   return normalizeOrderStatus(order.orderStatus) === "Cancelled";
 }
 
-function isOrderPaid(order: BakeryFinancialOrder): boolean {
-  const paymentStatus = String(order.paymentStatus || "")
-    .trim()
-    .toLowerCase();
-  return (
-    paymentStatus === "paid" ||
-    paymentStatus === "dp paid" ||
-    getPaymentIn(order) > 0
-  );
-}
-
 function buildProductCostMap(
   products: BakeryFinancialProduct[],
 ): Map<string, number> {
@@ -238,18 +227,8 @@ function getCashFlowInAmountInRange(
   fromDate: string,
   toDate: string,
 ): number {
-  // Cashflow is recognized on booking created date, regardless of payment or delivery
-  const createdDateKey = toBusinessDateKey(order.createdAt);
-
-  if (
-    !createdDateKey ||
-    !isDateKeyWithinRange(createdDateKey, fromDate, toDate)
-  ) {
-    return 0;
-  }
-
-  // Return the total paid amount capped by total price (cash actually received)
-  return getCappedTotalPaid(order);
+  // Cashflow should follow when money is actually received.
+  return getPaymentAmountInRange(order, fromDate, toDate);
 }
 
 function buildProductNameCandidates(
@@ -294,7 +273,7 @@ export function filterBakeryOrdersByDateRange(
   return orders.filter((order) => {
     if (isCancelledOrder(order)) return false;
 
-    // Include orders that have either revenue (delivery) or cashflow (booking) in range
+    // Include orders that have either recognized revenue or incoming cash in range.
     const hasRevenue = getRevenueAmountInRange(order, fromDate, toDate) > 0;
     const hasCashFlow = getCashFlowInAmountInRange(order, fromDate, toDate) > 0;
     
