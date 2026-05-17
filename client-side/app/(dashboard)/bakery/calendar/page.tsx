@@ -722,10 +722,10 @@ export default function BakeryCalendarPage() {
               )}
 
               <div
-                className={`w-full overflow-hidden rounded-xl border border-[#e2d1c3] bg-white ${
+                className={`w-full overflow-auto rounded-xl border border-[#e2d1c3] bg-white ${
                   currentView === Views.MONTH
-                    ? "h-[300px] sm:h-[400px] md:h-[500px] lg:h-[580px]"
-                    : "h-[400px] sm:h-[500px] md:h-[600px] lg:h-[680px]"
+                    ? "min-h-[640px] sm:min-h-[700px] md:min-h-[760px] lg:min-h-[820px]"
+                    : "min-h-[420px] sm:min-h-[520px] md:min-h-[620px] lg:min-h-[700px]"
                 }`}
               >
                 <Calendar
@@ -1122,6 +1122,10 @@ export default function BakeryCalendarPage() {
           box-shadow: 0 1px 3px rgba(47, 30, 19, 0.05);
         }
 
+        .rbc-month-view {
+          height: 100%;
+        }
+
         .rbc-event,
         .rbc-day-slot .rbc-background-event {
           box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
@@ -1129,12 +1133,12 @@ export default function BakeryCalendarPage() {
         }
 
         .rbc-month-row {
-          min-height: clamp(60px, 12vw, 96px);
+          min-height: clamp(72px, 13vw, 108px);
         }
 
         @media (min-width: 1280px) {
           .rbc-month-row {
-            min-height: 128px;
+            min-height: 140px;
           }
         }
 
