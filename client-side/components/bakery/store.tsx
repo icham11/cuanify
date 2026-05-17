@@ -963,13 +963,13 @@ function parseOrdersSyncError(
   payload: OrdersSyncResponse,
   fallback: string,
 ): string {
-  if (payload.error) return payload.error;
   if (Array.isArray(payload.details) && payload.details.length > 0) {
     return payload.details.join("; ");
   }
   if (typeof payload.details === "string" && payload.details.trim()) {
     return payload.details;
   }
+  if (payload.error) return payload.error;
   return fallback;
 }
 

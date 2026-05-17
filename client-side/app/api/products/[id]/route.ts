@@ -13,6 +13,7 @@ import {
   findProductNameConflicts,
   normalizeProductName,
 } from "@/lib/products/uniqueness";
+import { getProductFieldAvailability } from "@/lib/products/prisma-product-capabilities";
 import { recipeItemSchema } from "@/lib/validations/product";
 import { normalizeDirectCogs } from "@/lib/cogs/config";
 import {
@@ -83,6 +84,8 @@ export async function PATCH(
         { status: 400 },
       );
     }
+    const { hasProductionToken, hasManualStock, hasMinimumOrder } =
+      await getProductFieldAvailability();
 
     await prisma.$transaction(async (tx) => {
       await acquireProductWriteLock(tx, businessId);
@@ -133,11 +136,11 @@ export async function PATCH(
         updateData.sellingPrice = parsed.data.sellingPrice;
       if (parsed.data.cogs !== undefined)
         updateData.cogs = normalizeDirectCogs(parsed.data.cogs);
-      if (parsed.data.productionToken !== undefined)
+      if (hasProductionToken && parsed.data.productionToken !== undefined)
         updateData.productionToken = parsed.data.productionToken;
-      if (parsed.data.manualStock !== undefined)
+      if (hasManualStock && parsed.data.manualStock !== undefined)
         updateData.manualStock = parsed.data.manualStock;
-      if (parsed.data.minimumOrder !== undefined)
+      if (hasMinimumOrder && parsed.data.minimumOrder !== undefined)
         updateData.minimumOrder = parsed.data.minimumOrder;
       if (parsed.data.productType !== undefined)
         updateData.productType = parsed.data.productType;

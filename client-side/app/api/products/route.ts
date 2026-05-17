@@ -15,6 +15,7 @@ import {
   findProductNameConflicts,
   normalizeProductName,
 } from "@/lib/products/uniqueness";
+import { getProductFieldAvailability } from "@/lib/products/prisma-product-capabilities";
 import { ensureOwnerDefaultProducts } from "@/lib/bookings/owner-product-bootstrap";
 import { loadEffectiveBookingCatalog } from "@/lib/bookings/catalog-config-server";
 import { flattenCatalogProductsForDashboard } from "@/lib/bookings/product-sync";
@@ -83,44 +84,6 @@ function getCatalogTokenMapFromCatalog(
     );
   });
   return map;
-}
-
-let productColumnAvailabilityPromise:
-  | Promise<{
-      hasProductionToken: boolean;
-      hasManualStock: boolean;
-      hasMinimumOrder: boolean;
-    }>
-  | null = null;
-
-async function getProductColumnAvailability(): Promise<{
-  hasProductionToken: boolean;
-  hasManualStock: boolean;
-  hasMinimumOrder: boolean;
-}> {
-  if (!productColumnAvailabilityPromise) {
-    productColumnAvailabilityPromise = prisma.$queryRaw<
-      Array<{ column_name: string }>
-    >`SELECT column_name
-       FROM information_schema.columns
-       WHERE table_schema = current_schema()
-         AND table_name = 'Product'
-         AND column_name IN ('productionToken', 'manualStock', 'minimumOrder')`
-      .then((rows) => {
-        const cols = new Set(rows.map((r) => r.column_name));
-        return {
-          hasProductionToken: cols.has("productionToken"),
-          hasManualStock: cols.has("manualStock"),
-          hasMinimumOrder: cols.has("minimumOrder"),
-        };
-      })
-      .catch((error) => {
-        productColumnAvailabilityPromise = null;
-        throw error;
-      });
-  }
-
-  return productColumnAvailabilityPromise;
 }
 
 /** Find-or-create a category within the business (case-insensitive). */
@@ -324,7 +287,7 @@ export async function GET(request: NextRequest) {
           FROM "Product"
           WHERE ${whereRaw}
         `,
-        getProductColumnAvailability(),
+        getProductFieldAvailability(),
       ]);
     const totalPages = Math.ceil(total / limit) || 1;
 
@@ -359,7 +322,6 @@ export async function GET(request: NextRequest) {
       deletedAt: true,
       productType: true,
       cogs: true,
-      minimumOrder: true,
     };
     if (hasProductionToken) selectBase.productionToken = true;
     if (hasManualStock) selectBase.manualStock = true;
@@ -403,6 +365,10 @@ export async function GET(request: NextRequest) {
         availableStock: Math.max(
           0,
           Number((p as { manualStock?: number }).manualStock ?? 0),
+        ),
+        minimumOrder: Math.max(
+          0,
+          Number((p as { minimumOrder?: number }).minimumOrder ?? 0),
         ),
       }));
       return NextResponse.json({ success: true, data, meta });
@@ -540,6 +506,10 @@ export async function GET(request: NextRequest) {
           0,
           Number((product as { manualStock?: number }).manualStock ?? 0),
         ),
+        minimumOrder: Math.max(
+          0,
+          Number((product as { minimumOrder?: number }).minimumOrder ?? 0),
+        ),
         productionBatches: undefined,
       };
     });
@@ -612,6 +582,8 @@ export async function POST(request: NextRequest) {
     requireRole(auth, "Owner");
     const { businessId } = auth;
     const body = await request.json();
+    const { hasProductionToken, hasManualStock, hasMinimumOrder } =
+      await getProductFieldAvailability();
 
     // Determine single vs bulk
     const isBulk = body.products && Array.isArray(body.products);
@@ -661,18 +633,26 @@ export async function POST(request: NextRequest) {
             const categoryId = await resolveCategory(tx, businessId, item.categoryName);
             const normalizedName = normalizeProductName(item.name);
 
+            const productData: Record<string, unknown> = {
+              businessId,
+              categoryId,
+              name: normalizedName,
+              sellingPrice: item.sellingPrice,
+              cogs: normalizeDirectCogs(item.cogs),
+              productType: item.productType ?? "PreOrder",
+            };
+            if (hasProductionToken) {
+              productData.productionToken = item.productionToken ?? 0;
+            }
+            if (hasManualStock) {
+              productData.manualStock = item.manualStock ?? 0;
+            }
+            if (hasMinimumOrder) {
+              productData.minimumOrder = item.minimumOrder ?? 0;
+            }
+
             const product = await tx.product.create({
-              data: {
-                businessId,
-                categoryId,
-                name: normalizedName,
-                sellingPrice: item.sellingPrice,
-                cogs: normalizeDirectCogs(item.cogs),
-                productionToken: item.productionToken ?? 0,
-                manualStock: item.manualStock ?? 0,
-                minimumOrder: item.minimumOrder ?? 0,
-                productType: item.productType ?? "PreOrder",
-              },
+              data: productData,
             });
 
             if (item.recipe.length > 0) {
@@ -759,20 +739,28 @@ export async function POST(request: NextRequest) {
         const categoryId = await resolveCategory(tx, businessId, categoryName);
 
         // Create product
+        const productData: Record<string, unknown> = {
+          businessId,
+          categoryId,
+          name: normalizedName,
+          sellingPrice,
+          cogs: normalizeDirectCogs(cogs),
+          productType: productType ?? "PreOrder",
+          recipeCost:
+            recipe.length === 0 && manualCogs !== undefined ? manualCogs : 0,
+        };
+        if (hasProductionToken) {
+          productData.productionToken = productionToken ?? 0;
+        }
+        if (hasManualStock) {
+          productData.manualStock = manualStock ?? 0;
+        }
+        if (hasMinimumOrder) {
+          productData.minimumOrder = minimumOrder ?? 0;
+        }
+
         const product = await tx.product.create({
-          data: {
-            businessId,
-            categoryId,
-            name: normalizedName,
-            sellingPrice,
-            cogs: normalizeDirectCogs(cogs),
-            productionToken: productionToken ?? 0,
-            manualStock: manualStock ?? 0,
-            minimumOrder: minimumOrder ?? 0,
-            productType: productType ?? "PreOrder",
-            recipeCost:
-              recipe.length === 0 && manualCogs !== undefined ? manualCogs : 0,
-          },
+          data: productData,
         });
 
         // Create recipe entries

@@ -485,7 +485,30 @@ function resolveParsedBookingReference(
 ): string {
   const parsedData = asRecord(whatsAppParsedData);
   const common = asRecord(parsedData?.common);
-  return normalizeBookingReference(common?.bookingCode ?? fallbackBookingCode);
+  const rawReference = String(common?.bookingCode ?? fallbackBookingCode ?? "")
+    .trim();
+  if (!rawReference) return "";
+
+  const normalized = normalizeBookingReference(rawReference);
+  if (!normalized) return "";
+
+  const alphanumericOnly = normalized.replace(/[^a-z0-9]/g, "");
+  if (!alphanumericOnly) return "";
+
+  const placeholderTokens = new Set([
+    "booking",
+    "kodebooking",
+    "kodebookings",
+    "bookingcode",
+    "kode",
+  ]);
+  if (placeholderTokens.has(alphanumericOnly)) return "";
+
+  if (!/[a-z]/i.test(rawReference) || !/\d/.test(rawReference)) {
+    return "";
+  }
+
+  return normalized;
 }
 
 function buildParsedOrderFingerprint(order: {
