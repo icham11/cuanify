@@ -338,6 +338,7 @@ export async function updateProduct(
     cogs?: number;
     productionToken?: number;
     manualStock?: number;
+    minimumOrder?: number;
     productType?: "ReadyStock" | "PreOrder";
     createdAt?: string;
     recipe?: Array<{ ingredientId: number; quantity: number }>;

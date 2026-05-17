@@ -35,6 +35,7 @@ interface Props {
     categoryName?: string;
     sellingPrice?: number;
     cogs?: number;
+    minimumOrder?: number;
     recipe?: DraftRecipeRow[];
   };
   onSuccess?: () => void;
@@ -205,6 +206,9 @@ export default function ProductForm({ initialDraft, onSuccess }: Props) {
   const [directCogs, setDirectCogs] = useState<number>(
     initialDraft?.cogs ?? 0,
   );
+  const [minimumOrder, setMinimumOrder] = useState<number>(
+    initialDraft?.minimumOrder ?? 0,
+  );
   const [productType, setProductType] = useState<"ReadyStock" | "PreOrder">(
     "PreOrder",
   );
@@ -310,6 +314,7 @@ export default function ProductForm({ initialDraft, onSuccess }: Props) {
         categoryName: categoryName.trim(),
         sellingPrice,
         cogs: directCogs,
+        minimumOrder: minimumOrder > 0 ? minimumOrder : 0,
         productType,
         recipe: [],
       });
@@ -504,6 +509,26 @@ export default function ProductForm({ initialDraft, onSuccess }: Props) {
           <p className="text-xs text-gray-400">
             Masukkan nominal modal langsung per produk, sesuai database atau
             perhitungan internal Anda.
+          </p>
+        </div>
+
+        <div className="space-y-2 rounded-2xl border border-gray-100 bg-white p-5 shadow">
+          <label className="text-sm font-bold text-gray-700">
+            Minimal Order
+          </label>
+          <input
+            type="number"
+            min={0}
+            value={minimumOrder}
+            onChange={(event) =>
+              setMinimumOrder(Math.max(0, Number(event.target.value) || 0))
+            }
+            placeholder="0"
+            className="w-full rounded-xl border border-indigo-200 bg-white px-4 py-2.5 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-indigo-400"
+          />
+          <p className="text-xs text-gray-400">
+            Kosongkan atau isi 0 kalau tidak ada batas minimal. Isi angka kalau
+            produk hanya boleh dipesan mulai jumlah tertentu.
           </p>
         </div>
 

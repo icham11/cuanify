@@ -2990,7 +2990,6 @@ export async function POST(request: NextRequest) {
         customerPhone: row.customer_phone,
         deliveryDate: row.delivery_date,
         deliverySlot: row.delivery_slot,
-        notes: row.notes,
         basePrice: row.base_price,
         addOnTotal: row.add_on_total,
         deliveryFee: row.delivery_fee,
@@ -3001,7 +3000,6 @@ export async function POST(request: NextRequest) {
         totalPrice: row.total_price,
         sales_channel: row.sales_channel,
         items: existingCapacityItemsMap.get(row.external_id) ?? [],
-        deliveryAddresses: existingAddressesMap.get(row.external_id) ?? [],
       });
       existingFingerprintMatches.set(orderFingerprint, {
         existingOrderId: row.external_id,

@@ -471,6 +471,9 @@ export default function EditProductModal({ product, categories, onClose, onSaved
 
   const [sellingPrice, setSellingPrice] = useState<number>(Number(product.sellingPrice));
   const [directCogs, setDirectCogs] = useState<number>(Number(product.cogs || 0));
+  const [minimumOrder, setMinimumOrder] = useState<number>(
+    Math.max(0, Number(product.minimumOrder ?? 0)),
+  );
   const [productionToken, setProductionToken] = useState<number>(
     Math.max(0, Number(product.productionToken || 0)),
   );
@@ -668,6 +671,7 @@ export default function EditProductModal({ product, categories, onClose, onSaved
         categoryName: bookingSubcategory.trim(),
         sellingPrice: Number(sellingPrice),
         ...(Number(directCogs) > 0 ? { cogs: Number(directCogs) } : {}),
+        minimumOrder: Number(minimumOrder) > 0 ? Number(minimumOrder) : 0,
         productionToken: Number(productionToken),
         manualStock: Number(manualStock),
         productType,
@@ -941,6 +945,19 @@ export default function EditProductModal({ product, categories, onClose, onSaved
                 onChange={(e) => setManualStock(Math.max(0, Number(e.target.value) || 0))}
                 className="w-full border border-indigo-200 rounded-xl px-4 py-2.5 text-base font-semibold text-slate-700 bg-white focus:ring-2 focus:ring-indigo-400 outline-none"
               />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Minimal Order</label>
+              <input
+                type="number"
+                min={0}
+                value={minimumOrder}
+                onChange={(e) => setMinimumOrder(Math.max(0, Number(e.target.value) || 0))}
+                className="w-full border border-indigo-200 rounded-xl px-4 py-2.5 text-base font-semibold text-slate-700 bg-white focus:ring-2 focus:ring-indigo-400 outline-none"
+              />
+              <p className="mt-1 text-[11px] text-gray-400">
+                Isi 0 kalau produk ini tidak punya minimal order.
+              </p>
             </div>
           </div>
 

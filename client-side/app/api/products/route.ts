@@ -86,12 +86,17 @@ function getCatalogTokenMapFromCatalog(
 }
 
 let productColumnAvailabilityPromise:
-  | Promise<{ hasProductionToken: boolean; hasManualStock: boolean }>
+  | Promise<{
+      hasProductionToken: boolean;
+      hasManualStock: boolean;
+      hasMinimumOrder: boolean;
+    }>
   | null = null;
 
 async function getProductColumnAvailability(): Promise<{
   hasProductionToken: boolean;
   hasManualStock: boolean;
+  hasMinimumOrder: boolean;
 }> {
   if (!productColumnAvailabilityPromise) {
     productColumnAvailabilityPromise = prisma.$queryRaw<
@@ -100,12 +105,13 @@ async function getProductColumnAvailability(): Promise<{
        FROM information_schema.columns
        WHERE table_schema = current_schema()
          AND table_name = 'Product'
-         AND column_name IN ('productionToken', 'manualStock')`
+         AND column_name IN ('productionToken', 'manualStock', 'minimumOrder')`
       .then((rows) => {
         const cols = new Set(rows.map((r) => r.column_name));
         return {
           hasProductionToken: cols.has("productionToken"),
           hasManualStock: cols.has("manualStock"),
+          hasMinimumOrder: cols.has("minimumOrder"),
         };
       })
       .catch((error) => {
@@ -302,7 +308,7 @@ export async function GET(request: NextRequest) {
     }
     const whereRaw = Prisma.join(whereParts, " AND ");
 
-    const [total, statsRows, { hasProductionToken, hasManualStock }] =
+    const [total, statsRows, { hasProductionToken, hasManualStock, hasMinimumOrder }] =
       await Promise.all([
         prisma.product.count({ where }),
         prisma.$queryRaw<{ avg_price: string | null; avg_margin: string | null }[]>`
@@ -353,9 +359,11 @@ export async function GET(request: NextRequest) {
       deletedAt: true,
       productType: true,
       cogs: true,
+      minimumOrder: true,
     };
     if (hasProductionToken) selectBase.productionToken = true;
     if (hasManualStock) selectBase.manualStock = true;
+    if (hasMinimumOrder) selectBase.minimumOrder = true;
 
     // Split query paths so Prisma can infer ingredient.inventoryBatches type
     if (!withRecipe) {
@@ -662,6 +670,7 @@ export async function POST(request: NextRequest) {
                 cogs: normalizeDirectCogs(item.cogs),
                 productionToken: item.productionToken ?? 0,
                 manualStock: item.manualStock ?? 0,
+                minimumOrder: item.minimumOrder ?? 0,
                 productType: item.productType ?? "PreOrder",
               },
             });
@@ -722,6 +731,7 @@ export async function POST(request: NextRequest) {
       manualCogs,
       productionToken,
       manualStock,
+      minimumOrder,
     } = parsed.data;
 
     // Run creates inside a transaction (refetch outside to avoid timeout)
@@ -758,6 +768,7 @@ export async function POST(request: NextRequest) {
             cogs: normalizeDirectCogs(cogs),
             productionToken: productionToken ?? 0,
             manualStock: manualStock ?? 0,
+            minimumOrder: minimumOrder ?? 0,
             productType: productType ?? "PreOrder",
             recipeCost:
               recipe.length === 0 && manualCogs !== undefined ? manualCogs : 0,

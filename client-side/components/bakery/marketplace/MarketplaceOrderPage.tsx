@@ -26,6 +26,7 @@ type CatalogVariantRecord = {
   displayName: string;
   price: number;
   cogs: number;
+  minimumOrder: number;
   productId: number | null;
 };
 
@@ -235,6 +236,15 @@ function getGroupSubtotal(group: MarketplaceItemGroup) {
   return productTotal + addOnTotal;
 }
 
+function getMinimumOrderViolationText(args: {
+  productName: string;
+  quantity: number;
+  minimumOrder: number;
+}) {
+  if (args.minimumOrder <= 0 || args.quantity >= args.minimumOrder) return null;
+  return `Minimal order ${args.productName} adalah ${args.minimumOrder} pcs. Qty sekarang ${args.quantity}.`;
+}
+
 function getCategoryOptions(productCatalog: PricelistCategory[]) {
   return productCatalog.map((entry) => entry.category);
 }
@@ -340,6 +350,10 @@ export default function MarketplaceOrderPage() {
   const availableAddOns = addOnCatalog[draftSelection.category] ?? [];
   const pendingAddOnOption =
     availableAddOns.find((addOn) => addOn.id === pendingAddOnId) ?? null;
+  const currentVariantMinimumOrder = Math.max(
+    0,
+    Number(currentVariant?.minimumOrder ?? 0),
+  );
   useEffect(() => {
     if (!catalog?.variants.length) return;
     const nextVariant = catalog.variants.find(
@@ -354,6 +368,26 @@ export default function MarketplaceOrderPage() {
     setDraftUnitCost(nextVariant.cogs);
   }, [catalog, draftSelection]);
   const totalIncome = items.reduce((sum, item) => sum + getGroupSubtotal(item), 0);
+  const minimumOrderViolations = items
+    .map((item) => {
+      const variant = catalog?.variants.find(
+        (entry) =>
+          entry.productId === item.productId &&
+          entry.category === item.selection.category &&
+          entry.subcategory === item.selection.subcategory &&
+          entry.productName === item.selection.productName &&
+          entry.size === item.selection.size,
+      );
+      const minimumOrder = Math.max(0, Number(variant?.minimumOrder ?? 0));
+      const message = getMinimumOrderViolationText({
+        productName: item.displayName,
+        quantity: item.quantity,
+        minimumOrder,
+      });
+      if (!message) return null;
+      return { itemId: item.id, minimumOrder, message };
+    })
+    .filter(Boolean) as Array<{ itemId: string; minimumOrder: number; message: string }>;
 
   const updateDraftSelection = (partial: Partial<CatalogSelection>) => {
     if (productCatalog.length === 0) return;
@@ -420,6 +454,17 @@ export default function MarketplaceOrderPage() {
       return;
     }
 
+    const nextQuantity = toPositiveInt(draftQuantity, 1);
+    const minimumOrderWarning = getMinimumOrderViolationText({
+      productName: currentVariant.displayName,
+      quantity: nextQuantity,
+      minimumOrder: currentVariantMinimumOrder,
+    });
+    if (minimumOrderWarning) {
+      toast.error(minimumOrderWarning);
+      return;
+    }
+
     setItems((current) => [
       ...current,
       {
@@ -427,7 +472,7 @@ export default function MarketplaceOrderPage() {
         selection: draftSelection,
         displayName: currentVariant.displayName,
         productId: currentVariant.productId,
-        quantity: toPositiveInt(draftQuantity, 1),
+        quantity: nextQuantity,
         unitPrice: roundMoney(draftUnitPrice),
         unitCost: roundMoney(draftUnitCost),
         addOns: draftAddOns.map((addOn) => ({ ...addOn })),
@@ -629,6 +674,11 @@ export default function MarketplaceOrderPage() {
       toast.error(
         `Produk "${invalidItem.displayName}" belum terhubung ke data produk bisnis.`,
       );
+      return;
+    }
+
+    if (minimumOrderViolations.length > 0) {
+      toast.error(minimumOrderViolations[0].message);
       return;
     }
 
@@ -1046,6 +1096,11 @@ Add-On: Dark Color x1`}
                   >
                     Tambah ke Daftar
                   </Button>
+                  {currentVariantMinimumOrder > 0 ? (
+                    <p className="text-[11px] text-[#9c643f]">
+                      Minimal order untuk item ini: {currentVariantMinimumOrder} pcs.
+                    </p>
+                  ) : null}
                 </div>
               )}
             </div>
@@ -1099,6 +1154,17 @@ Add-On: Dark Color x1`}
                         <p className="mt-1 text-[10px] text-[#aa7a58]">
                           {item.selection.category} • {item.source === "parsed" ? "Parsed" : "Manual"}
                         </p>
+                        {(() => {
+                          const violation = minimumOrderViolations.find(
+                            (entry) => entry.itemId === item.id,
+                          );
+                          if (!violation) return null;
+                          return (
+                            <p className="mt-1 text-[10px] font-semibold text-[#c04b2f]">
+                              {violation.message}
+                            </p>
+                          );
+                        })()}
                       </div>
                       <Input
                         type="number"

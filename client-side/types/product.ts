@@ -42,6 +42,7 @@ export type Product = {
   cogs: number;
   productionToken?: number;
   manualStock?: number;
+  minimumOrder?: number;
 };
 
 // ─── Draft / AI-generated types ───────────────────────────────────────────────
@@ -70,6 +71,7 @@ export type ProductDraft = {
   productType?: "ReadyStock" | "PreOrder";
   recipe: DraftRecipeRow[];
   cogs: number;
+  minimumOrder?: number;
   /** Flag set when populated by AI */
   aiGenerated?: boolean;
 };
@@ -88,6 +90,7 @@ export type CreateProductInput = {
   cogs: number;
   productionToken?: number;
   manualStock?: number;
+  minimumOrder?: number;
   productType?: "ReadyStock" | "PreOrder";
   recipe?: RecipeItemInput[];
   manualCogs?: number;
