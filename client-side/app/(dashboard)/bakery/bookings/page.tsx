@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowUpDown, BookOpen, Search } from "lucide-react";
 import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import OrderTable from "@/components/bakery/bookings/OrderTable";
@@ -17,6 +18,55 @@ import {
 type CourierFilter = "" | "grab-gojek" | "paxel";
 type OrderSourceFilter = "" | "customer" | "admin";
 type SavedView = "all" | "active" | "today" | "tomorrow" | "production";
+type SortOption = "delivery-asc" | "delivery-desc" | "name-asc" | "value-desc";
+
+const SAVED_VIEW_OPTIONS: SavedView[] = [
+  "all",
+  "active",
+  "today",
+  "tomorrow",
+  "production",
+];
+const SORT_OPTIONS: SortOption[] = [
+  "delivery-asc",
+  "delivery-desc",
+  "name-asc",
+  "value-desc",
+];
+const COURIER_FILTER_OPTIONS: CourierFilter[] = ["", "grab-gojek", "paxel"];
+const ORDER_SOURCE_FILTER_OPTIONS: OrderSourceFilter[] = [
+  "",
+  "customer",
+  "admin",
+];
+
+function parseSavedView(value: string | null): SavedView | null {
+  return value && SAVED_VIEW_OPTIONS.includes(value as SavedView)
+    ? (value as SavedView)
+    : null;
+}
+
+function parseSortOption(value: string | null): SortOption | null {
+  return value && SORT_OPTIONS.includes(value as SortOption)
+    ? (value as SortOption)
+    : null;
+}
+
+function parseCourierFilter(value: string | null): CourierFilter | null {
+  return value && COURIER_FILTER_OPTIONS.includes(value as CourierFilter)
+    ? (value as CourierFilter)
+    : value === ""
+      ? ""
+      : null;
+}
+
+function parseOrderSourceFilter(value: string | null): OrderSourceFilter | null {
+  return value && ORDER_SOURCE_FILTER_OPTIONS.includes(value as OrderSourceFilter)
+    ? (value as OrderSourceFilter)
+    : value === ""
+      ? ""
+      : null;
+}
 
 function addDaysToIsoDate(isoDate: string, days: number): string {
   const matched = isoDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -60,22 +110,45 @@ function resolveOrderSource(order: {
 }
 
 export default function BookingListPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { orders } = useOrders();
+  const initialQuery = searchParams.get("query") ?? "";
+  const initialStatusFilter = searchParams.get("status") ?? "";
+  const initialDateFilter = searchParams.get("date") ?? "";
+  const initialCourierFilter = parseCourierFilter(searchParams.get("courier")) ?? "";
+  const initialOrderSourceFilter =
+    parseOrderSourceFilter(searchParams.get("orderSource")) ?? "";
+  const initialSortBy = parseSortOption(searchParams.get("sort")) ?? "delivery-asc";
+  const requestedView = parseSavedView(searchParams.get("view"));
+  const requestedPage = Number.parseInt(searchParams.get("page") ?? "1", 10);
+  const initialHasExplicitFilters = Boolean(
+    initialQuery ||
+      initialStatusFilter ||
+      initialDateFilter ||
+      initialCourierFilter ||
+      initialOrderSourceFilter ||
+      initialSortBy !== "delivery-asc",
+  );
 
-  const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
-  const [dateFilter, setDateFilter] = useState("");
-  const [courierFilter, setCourierFilter] = useState<CourierFilter>("");
+  const [query, setQuery] = useState(initialQuery);
+  const [statusFilter, setStatusFilter] = useState(initialStatusFilter);
+  const [dateFilter, setDateFilter] = useState(initialDateFilter);
+  const [courierFilter, setCourierFilter] = useState<CourierFilter>(initialCourierFilter);
   const [orderSourceFilter, setOrderSourceFilter] =
-    useState<OrderSourceFilter>("");
-  const [sortBy, setSortBy] = useState<
-    "delivery-asc" | "delivery-desc" | "name-asc" | "value-desc"
-  >("delivery-asc");
-  const [currentPage, setCurrentPage] = useState(1);
-  const [activeSavedView, setActiveSavedView] = useState<SavedView>("active");
+    useState<OrderSourceFilter>(initialOrderSourceFilter);
+  const [sortBy, setSortBy] = useState<SortOption>(initialSortBy);
+  const [currentPage, setCurrentPage] = useState(
+    Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1,
+  );
+  const [activeSavedView, setActiveSavedView] = useState<SavedView>(
+    requestedView ?? (initialHasExplicitFilters ? "all" : "active"),
+  );
   const today = getJakartaTodayIsoDate();
   const tomorrow = useMemo(() => addDaysToIsoDate(today, 1), [today]);
   const PAGE_SIZE = 10;
+  const linkedSource = searchParams.get("source");
+  const isCalendarLinkedView = linkedSource === "calendar";
 
   const filteredOrders = useMemo(() => {
     const filtered = orders.filter((order) => {
@@ -185,6 +258,7 @@ export default function BookingListPage() {
     setSortBy("delivery-asc");
     setCurrentPage(1);
     setActiveSavedView("active");
+    router.replace("/bakery/bookings", { scroll: false });
   };
 
   const applySavedView = (view: SavedView) => {
@@ -235,6 +309,28 @@ export default function BookingListPage() {
           </Link>
         }
       />
+
+      {isCalendarLinkedView ? (
+        <section className="rounded-[24px] border border-[#ffd8b7] bg-[#fff7ed] px-4 py-3 text-sm text-[#8a4b22] shadow-[0_14px_24px_-24px_rgba(138,75,34,0.45)]">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="font-semibold">Filter dibuka dari Calendar</p>
+              <p className="mt-1 text-xs text-[#a16234]">
+                {dateFilter
+                  ? `Menampilkan booking untuk tanggal ${dateFilter}.`
+                  : "Menampilkan hasil yang dikirim dari halaman Calendar."}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={resetFilters}
+              className="inline-flex h-9 items-center justify-center rounded-full border border-[#efc9a7] bg-white px-4 text-xs font-semibold text-[#8a4b22] transition hover:bg-[#fff1e3]"
+            >
+              Lihat semua booking
+            </button>
+          </div>
+        </section>
+      ) : null}
 
       <section className="space-y-3 rounded-[28px] border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] p-4 shadow-[0_16px_30px_-24px_rgba(30,18,10,0.45)]">
         <div className="relative">
@@ -361,11 +457,7 @@ export default function BookingListPage() {
               value={sortBy}
               onChange={(event) => {
                 setSortBy(
-                  event.target.value as
-                    | "delivery-asc"
-                    | "delivery-desc"
-                    | "name-asc"
-                    | "value-desc",
+                  event.target.value as SortOption,
                 );
                 setCurrentPage(1);
               }}

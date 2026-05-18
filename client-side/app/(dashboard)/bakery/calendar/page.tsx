@@ -30,6 +30,7 @@ import {
   X,
   Loader2,
   Calendar as IconCalendar,
+  BookOpen,
 } from "lucide-react";
 import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import { toast } from "sonner";
@@ -540,6 +541,20 @@ export default function BakeryCalendarPage() {
       .sort((a, b) => a.deliverySlot.localeCompare(b.deliverySlot));
   }, [orders, selectedDateKey]);
 
+  const openSelectedDateInBookings = () => {
+    if (!selectedDateKey) return;
+
+    const nextParams = new URLSearchParams({
+      source: "calendar",
+      view: "all",
+      date: selectedDateKey,
+      sort: "delivery-asc",
+    });
+
+    setIsDateOrdersPopupOpen(false);
+    router.push(`/bakery/bookings?${nextParams.toString()}`);
+  };
+
   const todayKey = toDateKey(new Date());
   const internalTodayCount = orders.filter(
     (order) => normalizeCalendarDeliveryDate(order.deliveryDate) === todayKey,
@@ -993,14 +1008,26 @@ export default function BakeryCalendarPage() {
                     </p>
                   ) : null}
                 </div>
-                <button
-                  type="button"
-                  aria-label="Close popup"
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 text-gray-600 transition hover:bg-gray-100"
-                  onClick={() => setIsDateOrdersPopupOpen(false)}
-                >
-                  <X className="h-4 w-4" />
-                </button>
+                <div className="flex items-center gap-2">
+                  {selectedDate ? (
+                    <button
+                      type="button"
+                      className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-[#ffd8b7] bg-[#fff4df] px-3 text-[11px] font-semibold text-[#8a4b22] transition hover:bg-[#ffedd1]"
+                      onClick={openSelectedDateInBookings}
+                    >
+                      <BookOpen className="h-3.5 w-3.5" />
+                      Lihat di Bookings
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    aria-label="Close popup"
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 text-gray-600 transition hover:bg-gray-100"
+                    onClick={() => setIsDateOrdersPopupOpen(false)}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
 
               <div className="max-h-[70vh] space-y-2 overflow-y-auto px-5 py-4">

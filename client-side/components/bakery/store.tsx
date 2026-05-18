@@ -360,6 +360,18 @@ type OrdersSyncResponse = {
   data?: {
     mode?: string;
     itemCount?: number;
+    waNotificationMode?: "sent" | "partial" | "failed" | "skipped";
+    waNotificationEligible?: number;
+    waNotificationQueued?: number;
+    warnings?: string[];
+    waNotificationResults?: Array<{
+      orderId: string;
+      bookingCode: string;
+      ok: boolean;
+      stage: "preflight" | "generate" | "upload" | "send";
+      message: string;
+      imageUrl?: string;
+    }>;
   };
 };
 
@@ -703,6 +715,116 @@ function normalizeBookingFingerprintText(value?: string | null): string {
     .toLowerCase();
 }
 
+function normalizeBookingReference(value?: string | null): string {
+  return String(value ?? "")
+    .trim()
+    .replace(/\s+/g, "")
+    .toUpperCase();
+}
+
+function resolveParsedBookingReferenceForOrder(order: {
+  bookingCode?: string | null;
+  whatsAppParsedData?: ParsedWhatsAppOrder;
+}): string {
+  const rawReference = String(
+    order.whatsAppParsedData?.common?.bookingCode ?? order.bookingCode ?? "",
+  ).trim();
+  if (!rawReference) return "";
+
+  const normalized = normalizeBookingReference(rawReference);
+  if (!normalized) return "";
+
+  const alphanumericOnly = normalized.replace(/[^A-Z0-9]/g, "");
+  if (!alphanumericOnly) return "";
+
+  const placeholderTokens = new Set([
+    "BOOKING",
+    "KODEBOOKING",
+    "KODEBOOKINGS",
+    "BOOKINGCODE",
+    "KODE",
+  ]);
+  if (placeholderTokens.has(alphanumericOnly)) return "";
+
+  if (!/[A-Z]/i.test(rawReference) || !/\d/.test(rawReference)) {
+    return "";
+  }
+
+  return normalized;
+}
+
+function buildOrderDeduplicationFingerprint(order: {
+  customerName?: string;
+  customerPhone?: string;
+  deliveryDate?: string;
+  deliverySlot?: string;
+  notes?: string;
+  basePrice?: number;
+  addOnTotal?: number;
+  deliveryFee?: number;
+  insuranceFee?: number;
+  manualAdjustment?: number;
+  dpPaidAmount?: number;
+  finalPaidAmount?: number;
+  totalPrice?: number;
+  sales_channel?: BakeryOrder["sales_channel"];
+  items: OrderItem[];
+  deliveryAddresses: DeliveryAddress[];
+}): string {
+  return JSON.stringify({
+    customerName: normalizeBookingFingerprintText(order.customerName),
+    customerPhone: String(order.customerPhone || "").replace(/\D/g, ""),
+    deliveryDate: normalizeDateInput(order.deliveryDate ?? "") ?? order.deliveryDate,
+    deliverySlot: normalizeBookingFingerprintText(order.deliverySlot),
+    notes: normalizeBookingFingerprintText(order.notes),
+    basePrice: normalizeMoney(order.basePrice),
+    addOnTotal: normalizeMoney(order.addOnTotal),
+    deliveryFee: normalizeMoney(order.deliveryFee),
+    insuranceFee: normalizeMoney(order.insuranceFee),
+    manualAdjustment: normalizeMoney(order.manualAdjustment),
+    dpPaidAmount: normalizeMoney(order.dpPaidAmount),
+    finalPaidAmount: normalizeMoney(order.finalPaidAmount),
+    totalPrice: normalizeMoney(order.totalPrice),
+    salesChannel: order.sales_channel,
+    items: order.items.map((item) => ({
+      category: normalizeBookingFingerprintText(item.category),
+      subcategory: normalizeBookingFingerprintText(item.subcategory),
+      productName: normalizeBookingFingerprintText(item.productName),
+      size: normalizeBookingFingerprintText(item.size),
+      quantity: Math.max(0, Number(item.quantity) || 0),
+      tokenDifficulty: item.tokenDifficulty ?? "",
+      customTokenPerUnit: normalizeMoney(item.customTokenPerUnit),
+      basePrice: normalizeMoney(item.basePrice),
+      selectedPrice: normalizeMoney(item.selectedPrice),
+      cookiePrice: normalizeMoney(item.cookiePrice),
+      designCount: Math.max(0, Number(item.designCount) || 0),
+      additionalDesignCount: Math.max(
+        0,
+        Number(item.additionalDesignCount) || 0,
+      ),
+      lineTotal: normalizeMoney(item.lineTotal),
+      addOns: [...(item.addOns ?? [])]
+        .map((entry) => normalizeBookingFingerprintText(entry))
+        .filter(Boolean)
+        .sort((left, right) => left.localeCompare(right)),
+      addOnQuantities: Object.entries(item.addOnQuantities ?? {})
+        .map(([key, value]) => ({
+          key: normalizeBookingFingerprintText(key),
+          value: Math.max(0, Number(value) || 0),
+        }))
+        .filter((entry) => entry.key.length > 0 || entry.value > 0)
+        .sort((left, right) => left.key.localeCompare(right.key)),
+      addOnTotal: normalizeMoney(item.addOnTotal),
+      notes: normalizeBookingFingerprintText(item.notes),
+    })),
+    deliveryAddresses: order.deliveryAddresses.map((address) => ({
+      label: normalizeBookingFingerprintText(address.label),
+      area: normalizeBookingFingerprintText(address.area),
+      addressLine: normalizeBookingFingerprintText(address.addressLine),
+    })),
+  });
+}
+
 function buildNewOrderSubmissionFingerprint(order: NewOrderInput): string {
   return JSON.stringify({
     customerName: normalizeBookingFingerprintText(order.customerName),
@@ -932,6 +1054,42 @@ function getLatestOrderActivityTimestamp(order: BakeryOrder): number {
   }, 0);
 }
 
+function areOrdersLikelySameBooking(
+  left: BakeryOrder,
+  right: BakeryOrder,
+): boolean {
+  const leftParsedReference = resolveParsedBookingReferenceForOrder(left);
+  const rightParsedReference = resolveParsedBookingReferenceForOrder(right);
+  if (leftParsedReference && leftParsedReference === rightParsedReference) {
+    return true;
+  }
+
+  return (
+    buildOrderDeduplicationFingerprint(left) ===
+    buildOrderDeduplicationFingerprint(right)
+  );
+}
+
+function mergeOrderIntoCanonicalIdentity(
+  canonicalOrder: BakeryOrder,
+  duplicateOrder: BakeryOrder,
+): BakeryOrder {
+  return {
+    ...canonicalOrder,
+    ...duplicateOrder,
+    id: canonicalOrder.id,
+    bookingCode: canonicalOrder.bookingCode || duplicateOrder.bookingCode,
+    resi: canonicalOrder.resi || duplicateOrder.resi,
+    shippingReferenceId:
+      canonicalOrder.shippingReferenceId || duplicateOrder.shippingReferenceId,
+    shipment: duplicateOrder.shipment ?? canonicalOrder.shipment ?? null,
+    deliveryMethod:
+      duplicateOrder.deliveryMethod ?? canonicalOrder.deliveryMethod,
+    customerAddress:
+      duplicateOrder.customerAddress || canonicalOrder.customerAddress,
+  };
+}
+
 function mergeOrdersPreferLatestLocal(
   localOrders: BakeryOrder[],
   serverOrders: BakeryOrder[],
@@ -947,10 +1105,119 @@ function mergeOrdersPreferLatestLocal(
     return localLatest > serverLatest ? localOrder : serverOrder;
   });
 
-  const serverIds = new Set(serverOrders.map((order) => order.id));
+  const serverIds = new Set(mergedOrders.map((order) => order.id));
   const localOnlyOrders = localOrders.filter((order) => !serverIds.has(order.id));
 
-  return [...mergedOrders, ...localOnlyOrders];
+  for (const localOrder of localOnlyOrders) {
+    const matchingServerIndex = mergedOrders.findIndex((serverOrder) =>
+      areOrdersLikelySameBooking(serverOrder, localOrder),
+    );
+    if (matchingServerIndex === -1) {
+      mergedOrders.push(localOrder);
+      continue;
+    }
+
+    const canonicalServerOrder = mergedOrders[matchingServerIndex];
+    const localLatest = getLatestOrderActivityTimestamp(localOrder);
+    const serverLatest = getLatestOrderActivityTimestamp(canonicalServerOrder);
+
+    if (localLatest > serverLatest) {
+      mergedOrders[matchingServerIndex] = mergeOrderIntoCanonicalIdentity(
+        canonicalServerOrder,
+        localOrder,
+      );
+    }
+  }
+
+  return mergedOrders;
+}
+
+function chooseOrderForSync(
+  current: BakeryOrder,
+  candidate: BakeryOrder,
+): BakeryOrder {
+  const currentLatest = getLatestOrderActivityTimestamp(current);
+  const candidateLatest = getLatestOrderActivityTimestamp(candidate);
+
+  if (candidateLatest > currentLatest) return candidate;
+  if (currentLatest > candidateLatest) return current;
+
+  const currentIdentityScore =
+    (current.bookingCode ? 1 : 0) +
+    (current.resi ? 1 : 0) +
+    (current.shippingReferenceId ? 1 : 0);
+  const candidateIdentityScore =
+    (candidate.bookingCode ? 1 : 0) +
+    (candidate.resi ? 1 : 0) +
+    (candidate.shippingReferenceId ? 1 : 0);
+
+  if (candidateIdentityScore > currentIdentityScore) return candidate;
+  return current;
+}
+
+function dedupeOrdersForSync(orders: BakeryOrder[]): BakeryOrder[] {
+  const dedupedOrders: BakeryOrder[] = [];
+  const dedupedOrderIndexesById = new Map<string, number>();
+  const dedupedOrderIndexesByParsedReference = new Map<string, number>();
+  const dedupedOrderIndexesByFingerprint = new Map<string, number>();
+
+  const unregisterOrderKeys = (order: BakeryOrder, index: number) => {
+    if (dedupedOrderIndexesById.get(order.id) === index) {
+      dedupedOrderIndexesById.delete(order.id);
+    }
+
+    const parsedReference = resolveParsedBookingReferenceForOrder(order);
+    if (
+      parsedReference &&
+      dedupedOrderIndexesByParsedReference.get(parsedReference) === index
+    ) {
+      dedupedOrderIndexesByParsedReference.delete(parsedReference);
+    }
+
+    const fingerprint = buildOrderDeduplicationFingerprint(order);
+    if (dedupedOrderIndexesByFingerprint.get(fingerprint) === index) {
+      dedupedOrderIndexesByFingerprint.delete(fingerprint);
+    }
+  };
+
+  const registerOrderKeys = (order: BakeryOrder, index: number) => {
+    dedupedOrderIndexesById.set(order.id, index);
+
+    const parsedReference = resolveParsedBookingReferenceForOrder(order);
+    if (parsedReference) {
+      dedupedOrderIndexesByParsedReference.set(parsedReference, index);
+    }
+
+    dedupedOrderIndexesByFingerprint.set(
+      buildOrderDeduplicationFingerprint(order),
+      index,
+    );
+  };
+
+  for (const order of orders) {
+    const parsedReference = resolveParsedBookingReferenceForOrder(order);
+    const fingerprint = buildOrderDeduplicationFingerprint(order);
+    const existingIndex =
+      dedupedOrderIndexesById.get(order.id) ??
+      (parsedReference
+        ? dedupedOrderIndexesByParsedReference.get(parsedReference)
+        : undefined) ??
+      dedupedOrderIndexesByFingerprint.get(fingerprint);
+
+    if (existingIndex === undefined) {
+      dedupedOrders.push(order);
+      registerOrderKeys(order, dedupedOrders.length - 1);
+      continue;
+    }
+
+    const existingOrder = dedupedOrders[existingIndex];
+    const preferredOrder = chooseOrderForSync(existingOrder, order);
+    unregisterOrderKeys(existingOrder, existingIndex);
+    dedupedOrders[existingIndex] = preferredOrder;
+    registerOrderKeys(preferredOrder, existingIndex);
+  }
+
+  return dedupedOrders;
 }
 
 function writeOrdersSnapshot(nextOrders: BakeryOrder[]) {
@@ -971,6 +1238,53 @@ function parseOrdersSyncError(
   }
   if (payload.error) return payload.error;
   return fallback;
+}
+
+function isDuplicateBookingSyncMessage(message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  return (
+    normalized.includes("duplicate booking detected") ||
+    normalized.includes("duplicate booking code parsed")
+  );
+}
+
+function applyServerWhatsAppSyncResultToOrder(
+  order: BakeryOrder,
+  payload: OrdersSyncResponse | null,
+): BakeryOrder {
+  const waResult = payload?.data?.waNotificationResults?.find(
+    (entry) => entry.orderId === order.id,
+  );
+  if (!waResult) return order;
+
+  return {
+    ...order,
+    simulations: {
+      whatsappSent:
+        order.simulations?.whatsappSent || waResult.ok || false,
+      productionWhatsappSent: waResult.ok,
+      customerWhatsappSent:
+        order.simulations?.customerWhatsappSent ?? false,
+      calendarEventCreated:
+        order.simulations?.calendarEventCreated ?? false,
+      calendarEventId: order.simulations?.calendarEventId,
+      calendarEventLink: order.simulations?.calendarEventLink,
+      googleSheetsSynced: order.simulations?.googleSheetsSynced ?? false,
+      googleSheetsRange: order.simulations?.googleSheetsRange,
+      lastAutomationMessage: waResult.ok
+        ? "WA produksi berhasil dikirim."
+        : `WA produksi gagal: ${waResult.message}`,
+      lastAutomationAt: new Date().toISOString(),
+    },
+    automationLogs: appendAutomationLog(
+      order.automationLogs,
+      "order_created",
+      waResult.ok,
+      waResult.ok
+        ? "WA produksi berhasil dikirim."
+        : `WA produksi gagal: ${waResult.message}`,
+    ),
+  };
 }
 
 export function OrdersProvider({
@@ -1054,8 +1368,9 @@ export function OrdersProvider({
       return null as OrdersSyncResponse | null;
     }
 
+    const sanitizedOrders = dedupeOrdersForSync(nextOrders);
     const requestBody = {
-      orders: nextOrders.map((order) => {
+      orders: sanitizedOrders.map((order) => {
         const {
           insuranceFee: _insuranceFee,
           shippingQuote,
@@ -1076,8 +1391,8 @@ export function OrdersProvider({
     console.info("[bookings][frontend] sync request", {
       endpoint: ORDERS_SYNC_ENDPOINT,
       method: "POST",
-      orderCount: nextOrders.length,
-      ids: nextOrders.map((order) => order.id),
+      orderCount: sanitizedOrders.length,
+      ids: sanitizedOrders.map((order) => order.id),
     });
 
     let response: Response;
@@ -1315,7 +1630,11 @@ export function OrdersProvider({
       });
 
       if (!(error instanceof CapacityFullSyncError)) {
-        if (error instanceof OrdersSyncRequestError && error.retryable) {
+        if (isDuplicateBookingSyncMessage(message)) {
+          toast.message(
+            "Server sudah punya booking yang sama. Data lokal sedang diselaraskan ulang.",
+          );
+        } else if (error instanceof OrdersSyncRequestError && error.retryable) {
           toast.error(
             `Sinkron server sedang gagal sementara. Input tetap disimpan lokal: ${message}`,
           );
@@ -1963,9 +2282,13 @@ export function OrdersProvider({
           },
         };
         createdOrder = newOrder;
-        const nextOrders = [newOrder, ...baseOrders];
-
-        await syncOrdersToServer([newOrder]);
+        const syncPayload = await syncOrdersToServer([newOrder]);
+        const persistedOrder = applyServerWhatsAppSyncResultToOrder(
+          newOrder,
+          syncPayload,
+        );
+        createdOrder = persistedOrder;
+        const nextOrders = [persistedOrder, ...baseOrders];
         writeOrdersSnapshot(nextOrders);
 
         recentBookingCreateFingerprintsRef.current.set(submissionFingerprint, {
@@ -1974,6 +2297,18 @@ export function OrdersProvider({
         });
 
         toast.success(`Booking masuk produksi: ${bookingCode}`);
+        if (
+          syncPayload?.data?.waNotificationMode === "failed" ||
+          syncPayload?.data?.waNotificationMode === "partial"
+        ) {
+          const warningMessage =
+            syncPayload.data.warnings?.[0] ||
+            "Booking tersimpan ke database, tapi notif WA produksi belum terkirim.";
+          toast.warning(warningMessage);
+          window.setTimeout(() => {
+            void runAutomationsForOrder("order_created", id);
+          }, 5_000);
+        }
         if (isHistoricalBackfill) {
           toast.message(
             "Booking backfill historis disimpan. Laporan dan kalender internal akan ikut terbarui tanpa trigger operasional baru.",

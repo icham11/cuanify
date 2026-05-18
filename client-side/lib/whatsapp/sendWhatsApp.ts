@@ -51,6 +51,19 @@ type FonnteResponse = {
   id?: string[];
 };
 
+const FONNTE_MAX_ATTEMPTS = 3;
+const FONNTE_RETRY_DELAY_MS = 2_000;
+
+function waitBeforeRetry(delayMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, delayMs);
+  });
+}
+
+function shouldRetryFonnteHttpStatus(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500;
+}
+
 async function sendFonnteMessage(
   message: string,
   customTarget?: string,
@@ -106,45 +119,90 @@ async function sendFonnteMessage(
     urlPreview: imageUrl ? imageUrl.substring(0, 80) : undefined,
   });
 
-  try {
-    const response = await fetch(FONNTE_ENDPOINT, {
-      method: "POST",
-      // Tidak set Content-Type header secara manual saat pakai FormData:
-      // browser/Node akan otomatis set multipart/form-data + boundary yang benar
-      headers: {
-        Authorization: token,
-      },
-      body: formData,
-    });
+  let lastError: Error | null = null;
 
-    const rawText = await response.text();
-
-    if (!response.ok) {
-      console.error(`${logLabel} Fonnte HTTP Error:`, {
-        status: response.status,
-        statusText: response.statusText,
-        body: rawText,
+  for (let attempt = 1; attempt <= FONNTE_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await fetch(FONNTE_ENDPOINT, {
+        method: "POST",
+        // Tidak set Content-Type header secara manual saat pakai FormData:
+        // browser/Node akan otomatis set multipart/form-data + boundary yang benar
+        headers: {
+          Authorization: token,
+        },
+        body: formData,
       });
-      throw new Error(`Fonnte API Error (${response.status}): ${rawText}`);
+
+      const rawText = await response.text();
+
+      if (!response.ok) {
+        console.error(`${logLabel} Fonnte HTTP Error:`, {
+          attempt,
+          status: response.status,
+          statusText: response.statusText,
+          body: rawText,
+        });
+
+        if (
+          attempt < FONNTE_MAX_ATTEMPTS &&
+          shouldRetryFonnteHttpStatus(response.status)
+        ) {
+          await waitBeforeRetry(FONNTE_RETRY_DELAY_MS * attempt);
+          continue;
+        }
+
+        throw new Error(`Fonnte API Error (${response.status}): ${rawText}`);
+      }
+
+      const result = JSON.parse(rawText) as FonnteResponse;
+
+      if (result.status === false) {
+        console.error(`${logLabel} Fonnte menolak pesan:`, {
+          attempt,
+          reason: result.reason,
+        });
+        throw new Error(`Fonnte rejection: ${result.reason || rawText}`);
+      }
+
+      console.info(`${logLabel} Berhasil mengirim pesan WhatsApp:`, {
+        attempt,
+        status: result.status,
+        messageIds: result.id,
+        hasImage: !!imageUrl,
+        rawResponse: rawText.substring(0, 200),
+      });
+      return;
+    } catch (error) {
+      lastError =
+        error instanceof Error ? error : new Error(String(error || "Unknown"));
+
+      const message = lastError.message.toLowerCase();
+      const isRetryableNetworkIssue =
+        message.includes("fetch failed") ||
+        message.includes("network") ||
+        message.includes("timeout") ||
+        message.includes("econnreset") ||
+        message.includes("socket hang up");
+
+      if (attempt < FONNTE_MAX_ATTEMPTS && isRetryableNetworkIssue) {
+        console.warn(`${logLabel} Retry pengiriman WhatsApp ke Fonnte`, {
+          attempt,
+          nextAttempt: attempt + 1,
+          error: lastError.message,
+        });
+        await waitBeforeRetry(FONNTE_RETRY_DELAY_MS * attempt);
+        continue;
+      }
+
+      console.error(`${logLabel} Gagal dalam proses pengiriman:`, {
+        attempt,
+        error: lastError.message,
+      });
+      throw lastError;
     }
-
-    const result = JSON.parse(rawText) as FonnteResponse;
-
-    if (result.status === false) {
-      console.error(`${logLabel} Fonnte menolak pesan:`, result.reason);
-      throw new Error(`Fonnte rejection: ${result.reason || rawText}`);
-    }
-
-    console.info(`${logLabel} Berhasil mengirim pesan WhatsApp:`, {
-      status: result.status,
-      messageIds: result.id,
-      hasImage: !!imageUrl,
-      rawResponse: rawText.substring(0, 200),
-    });
-  } catch (error) {
-    console.error(`${logLabel} Gagal dalam proses pengiriman:`, error);
-    throw error;
   }
+
+  throw lastError ?? new Error("Fonnte send failed.");
 }
 
 export async function sendWhatsAppText(

@@ -350,6 +350,18 @@ function asString(value: unknown): string {
   return "";
 }
 
+function asBoolean(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    return (
+      normalized === "true" || normalized === "1" || normalized === "yes"
+    );
+  }
+  return false;
+}
+
 function asNumber(value: unknown): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -998,6 +1010,92 @@ class DuplicateOrderError extends Error {
     this.name = "DuplicateOrderError";
     this.existingOrderId = args.existingOrderId;
     this.existingBookingCode = args.existingBookingCode;
+  }
+}
+
+type QueuedWhatsAppNotification = {
+  orderId: string;
+  bookingCode: string;
+  payload: SendOrderToWhatsAppInput;
+};
+
+type PersistedWhatsAppNotificationResult = SendOrderToWhatsAppResult & {
+  orderId: string;
+  bookingCode: string;
+};
+
+function buildWhatsAppNotificationSummary(
+  result: PersistedWhatsAppNotificationResult,
+): string {
+  if (result.ok) {
+    return "WA produksi berhasil dikirim.";
+  }
+
+  return `WA produksi gagal: ${result.message}`;
+}
+
+async function persistWhatsAppNotificationResults(params: {
+  businessId: number;
+  results: PersistedWhatsAppNotificationResult[];
+}) {
+  const { businessId, results } = params;
+  if (results.length === 0) return;
+
+  const existingRows = await prisma.$queryRaw<
+    {
+      external_id: string;
+      simulations: unknown;
+      automation_logs: unknown;
+    }[]
+  >`
+    SELECT external_id, simulations, automation_logs
+    FROM bakery_orders
+    WHERE business_id = ${businessId}
+      AND external_id IN (${Prisma.join(results.map((entry) => entry.orderId))})
+  `;
+
+  const existingById = new Map(
+    existingRows.map((row) => [row.external_id, row]),
+  );
+
+  for (const result of results) {
+    const existing = existingById.get(result.orderId);
+    if (!existing) continue;
+
+    const timestamp = new Date().toISOString();
+    const summary = buildWhatsAppNotificationSummary(result);
+    const currentSimulations = asRecord(existing.simulations) ?? {};
+    const nextSimulations: JsonRecord = {
+      ...currentSimulations,
+      productionWhatsappSent: result.ok,
+      lastAutomationMessage: summary,
+      lastAutomationAt: timestamp,
+    };
+    if (result.ok) {
+      nextSimulations.whatsappSent =
+        asBoolean(currentSimulations.whatsappSent) || true;
+    }
+
+    const nextAutomationLogs = [
+      ...asArrayOfRecords(existing.automation_logs),
+      {
+        id: `automation-${result.orderId}-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        eventType: "order_created",
+        timestamp,
+        success: result.ok,
+        summary,
+      },
+    ];
+
+    await prisma.$executeRaw`
+      UPDATE bakery_orders
+      SET
+        simulations = ${JSON.stringify(nextSimulations)}::jsonb,
+        automation_logs = ${JSON.stringify(nextAutomationLogs)}::jsonb,
+        updated_at = NOW()
+      WHERE business_id = ${businessId}
+        AND external_id = ${result.orderId}
+    `;
   }
 }
 
@@ -3489,7 +3587,7 @@ export async function POST(request: NextRequest) {
           let insertedAddressCount = 0;
           let capacityReconcileNeeded = false;
           const inventoryWarnings = new Set<string>();
-          const createdOrdersForWhatsApp: SendOrderToWhatsAppInput[] = [];
+          const createdOrdersForWhatsApp: QueuedWhatsAppNotification[] = [];
 
           const existingRows = await tx.$queryRaw<
             {
@@ -3499,6 +3597,7 @@ export async function POST(request: NextRequest) {
               token_used: number;
               order_status: string | null;
               assigned_staff_user_id: number | null;
+              simulations: unknown;
             }[]
           >`
           SELECT
@@ -3507,7 +3606,8 @@ export async function POST(request: NextRequest) {
             delivery_date,
             token_used,
             order_status,
-            assigned_staff_user_id
+            assigned_staff_user_id,
+            simulations
           FROM bakery_orders
           WHERE business_id = ${businessId}
         `;
@@ -4097,7 +4197,11 @@ export async function POST(request: NextRequest) {
             const isBecomingActive = wasInactive && isActiveStatus;
 
             if (isBecomingActive) {
-              createdOrdersForWhatsApp.push(toWhatsAppPayload(order));
+              createdOrdersForWhatsApp.push({
+                orderId: order.id,
+                bookingCode: order.bookingCode || order.resi || order.id,
+                payload: toWhatsAppPayload(order),
+              });
             }
 
             existingOrderMap.set(order.id, {
@@ -4107,6 +4211,7 @@ export async function POST(request: NextRequest) {
               token_used: finalTokenUsed,
               order_status: order.orderStatus || null,
               assigned_staff_user_id: order.assignedStaffUserId ?? null,
+              simulations: order.simulations ?? null,
             });
           }
 
@@ -4223,68 +4328,90 @@ export async function POST(request: NextRequest) {
         createdOrdersForWhatsApp.length > 0
       ) {
         const waSettledResults = await Promise.allSettled(
-          createdOrdersForWhatsApp.map((orderPayload) =>
-            sendOrderToWhatsApp(orderPayload),
-          ),
+          createdOrdersForWhatsApp.map(async (notification) => {
+            const result = await sendOrderToWhatsApp(notification.payload);
+            return {
+              orderId: notification.orderId,
+              bookingCode: notification.bookingCode,
+              ...result,
+            } satisfies PersistedWhatsAppNotificationResult;
+          }),
         );
-        const waNotificationResults = waSettledResults
-          .filter(
-            (
-              result,
-            ): result is PromiseFulfilledResult<SendOrderToWhatsAppResult> =>
-              result.status === "fulfilled",
-          )
-          .map((result) => result.value);
+        const waNotificationResults = waSettledResults.map((result, index) => {
+          if (result.status === "fulfilled") {
+            return result.value;
+          }
+
+          return {
+            orderId: createdOrdersForWhatsApp[index]?.orderId ?? "",
+            bookingCode:
+              createdOrdersForWhatsApp[index]?.bookingCode ??
+              createdOrdersForWhatsApp[index]?.orderId ??
+              "",
+            ok: false,
+            stage: "send" as const,
+            message:
+              result.reason instanceof Error
+                ? result.reason.message
+                : String(result.reason),
+          } satisfies PersistedWhatsAppNotificationResult;
+        });
+
+        try {
+          await persistWhatsAppNotificationResults({
+            businessId,
+            results: waNotificationResults,
+          });
+        } catch (statusPersistError) {
+          console.error(
+            "[api/bookings/orders] failed to persist WA notification status",
+            {
+              businessId,
+              userId,
+              error:
+                statusPersistError instanceof Error
+                  ? statusPersistError.message
+                  : String(statusPersistError),
+            },
+          );
+        }
+
         const failedResults = waNotificationResults.filter(
           (result) => !result.ok,
         );
-        const rejectedResults = waSettledResults.filter(
-          (result): result is PromiseRejectedResult =>
-            result.status === "rejected",
+        const waNotificationMode =
+          failedResults.length === 0
+            ? "sent"
+            : failedResults.length === waNotificationResults.length
+              ? "failed"
+              : "partial";
+        const warnings = failedResults.map(
+          (failure) =>
+            `WA produksi belum terkirim untuk ${failure.bookingCode || failure.orderId}: ${failure.message}`,
         );
 
-        if (failedResults.length > 0 || rejectedResults.length > 0) {
+        if (failedResults.length > 0) {
           console.error("[api/bookings/orders] WA notification failures", {
             businessId,
             userId,
             failureCount: failedResults.length,
-            rejectedCount: rejectedResults.length,
             failures: failedResults.map((failure) => ({
+              orderId: failure.orderId,
+              bookingCode: failure.bookingCode,
               stage: failure.stage,
               message: failure.message,
             })),
-            rejected: rejectedResults.map((failure) =>
-              failure.reason instanceof Error
-                ? failure.reason.message
-                : String(failure.reason),
-            ),
           });
-
-          const firstFailedResult = failedResults[0];
-          const firstRejectedResult = rejectedResults[0];
-          const errorMessage =
-            firstFailedResult?.message ||
-            (firstRejectedResult?.reason instanceof Error
-              ? firstRejectedResult.reason.message
-              : firstRejectedResult
-                ? String(firstRejectedResult.reason)
-                : "WA Produksi gagal dikirim.");
-
-          return NextResponse.json(
-            {
-              success: false,
-              error: { message: `WA Produksi Gagal: ${errorMessage}` },
-            },
-            { status: 500 },
-          );
         }
 
         console.info(
-          "[api/bookings/orders] WA notifications sent successfully.",
+          "[api/bookings/orders] WA notification dispatch completed.",
           {
             businessId,
             userId,
             count: waNotificationResults.length,
+            failedCount: failedResults.length,
+            mode: waNotificationMode,
           },
         );
 
@@ -4295,10 +4422,11 @@ export async function POST(request: NextRequest) {
             itemCount: orders.length,
             durationMs,
             ...summaryStats,
-            waNotificationMode: "sent",
+            waNotificationMode,
             waNotificationEligible: createdOrdersForWhatsApp.length,
             waNotificationQueued: createdOrdersForWhatsApp.length,
             waNotificationResults,
+            warnings,
             skipWhatsAppNotification: false,
           },
         });
