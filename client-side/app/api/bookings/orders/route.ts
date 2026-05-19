@@ -3520,6 +3520,40 @@ export async function POST(request: NextRequest) {
         (existingOrder) => !incomingIds.has(existingOrder.id),
       );
       orders = [...mergedIncomingOrders, ...missingExistingOrders];
+    } else if (!canManageAssignments) {
+      const existingById = new Map(
+        existingOrders.map((order) => [order.id, order]),
+      );
+
+      orders = orders.map((incomingOrder) => {
+        const existingOrder = existingById.get(incomingOrder.id);
+
+        if (!existingOrder) {
+          return {
+            ...incomingOrder,
+            assignedStaffUserId: null,
+            assignedStaffName: "",
+            productionAssignedAt: null,
+            productionStages: [],
+          };
+        }
+
+        return {
+          ...incomingOrder,
+          assignedStaffUserId: existingOrder.assignedStaffUserId,
+          assignedStaffName: existingOrder.assignedStaffName,
+          productionAssignedAt: existingOrder.productionAssignedAt,
+          productionStages: existingOrder.productionStages,
+        };
+      });
+
+      validateAssignmentTransitionRules({
+        orders,
+        existingAssignments: existingAssignmentRows,
+        roleName,
+        userId,
+        isPrivilegedRequest: canManageAssignments,
+      });
     } else {
       validateAssignmentTransitionRules({
         orders,

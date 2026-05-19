@@ -51,19 +51,39 @@ function isSupabasePoolerUrl(rawUrl: string): boolean {
   }
 }
 
+function isSupabaseDirectUrl(rawUrl: string): boolean {
+  if (!rawUrl) return false;
+
+  try {
+    const parsed = new URL(rawUrl);
+    return (
+      parsed.hostname.endsWith(".supabase.co") &&
+      !parsed.hostname.endsWith(".pooler.supabase.com")
+    );
+  } catch {
+    return false;
+  }
+}
+
 function resolveDatabaseUrl() {
   const databaseUrl = normalizeSupabaseDatabaseUrl(
     process.env.DATABASE_URL ?? "",
   );
   const directUrl = normalizeSupabaseDatabaseUrl(process.env.DIRECT_URL ?? "");
+  const forceDirectRuntime = process.env.PRISMA_RUNTIME_USE_DIRECT_URL === "true";
 
-  // Prefer a true direct connection when available so write-heavy routes
-  // don't compete for Supavisor session-mode client slots.
+  // For the app runtime, prefer the pooled URL when available so background
+  // polling and concurrent route handlers do not exhaust direct Supabase slots.
+  // Direct URLs remain available for scripts/migrations via prisma.config.ts.
+  if (!forceDirectRuntime && databaseUrl && isSupabasePoolerUrl(databaseUrl)) {
+    return databaseUrl;
+  }
+
   if (directUrl && !isSupabasePoolerUrl(directUrl)) {
     return directUrl;
   }
 
-  return databaseUrl;
+  return databaseUrl || directUrl;
 }
 
 function createPrismaClient() {
@@ -73,6 +93,7 @@ function createPrismaClient() {
 
   const isSupabaseSessionPooler = isSupabaseSessionPoolerUrl(cleanUrl);
   const usesSupabasePooler = isSupabasePoolerUrl(cleanUrl);
+  const usesSupabaseDirect = isSupabaseDirectUrl(cleanUrl);
 
   function parsePositiveInteger(value: string | undefined, fallback: number) {
     if (!value) return fallback;
@@ -89,6 +110,8 @@ function createPrismaClient() {
     ? 1
     : usesSupabasePooler
       ? 2
+      : usesSupabaseDirect
+        ? 2
       : isProduction
         ? 10
         : 5;

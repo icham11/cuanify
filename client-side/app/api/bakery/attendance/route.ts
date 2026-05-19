@@ -5,14 +5,20 @@ import {
   ForbiddenError,
   requireAuth,
 } from "@/lib/auth/session";
-import { getBakeryBusinessSettings } from "@/lib/bakery/settings";
+import {
+  getBakeryBusinessSettings,
+  upsertBakeryBusinessSettings,
+} from "@/lib/bakery/settings";
 import {
   calculateAttendanceMetrics,
+  DEFAULT_ATTENDANCE_WINDOW_START,
+  getEligibleAttendanceDates,
   getAttendanceWindowState,
   getDateDiffInDaysInclusive,
   getJakartaDateKey,
   getManualLateCountForMonth,
   getManualLateCountForRange,
+  getMonthKeysInRange,
   isDateKey,
   isHolidayDate,
   normalizeAttendanceDateKey,
@@ -34,6 +40,18 @@ type AttendanceRow = {
   notes: string | null;
   created_at: Date;
   updated_at: Date;
+};
+
+type AttendancePatchBody = {
+  action?: "upsert-record" | "set-manual-late-count" | "reset-late-for-user";
+  userId?: unknown;
+  date?: unknown;
+  checkInTime?: unknown;
+  monthKey?: unknown;
+  manualLateCount?: unknown;
+  from?: unknown;
+  to?: unknown;
+  notes?: unknown;
 };
 
 function parseMonthKey(value: string | null): {
@@ -75,6 +93,75 @@ function parseAttendanceRange(searchParams: URLSearchParams) {
     end,
     totalDays: getDateDiffInDaysInclusive(start, end),
   };
+}
+
+function parseAttendanceRangeFromInput(input: {
+  monthKey?: unknown;
+  from?: unknown;
+  to?: unknown;
+}) {
+  const fromParam =
+    typeof input.from === "string" ? input.from.trim() : null;
+  const toParam = typeof input.to === "string" ? input.to.trim() : null;
+
+  if (isDateKey(fromParam) && isDateKey(toParam)) {
+    const [start, end] =
+      fromParam <= toParam ? [fromParam, toParam] : [toParam, fromParam];
+    return {
+      isExactMonthScope: false,
+      monthKey: null,
+      start,
+      end,
+    };
+  }
+
+  const monthInput =
+    typeof input.monthKey === "string" ? input.monthKey.trim() : null;
+  const { monthKey, start, end } = parseMonthKey(monthInput);
+  return {
+    isExactMonthScope: true,
+    monthKey,
+    start,
+    end,
+  };
+}
+
+function normalizeAttendanceTimeInput(
+  value: unknown,
+  fallback = DEFAULT_ATTENDANCE_WINDOW_START,
+) {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!/^\d{2}:\d{2}$/.test(raw)) return fallback;
+
+  const [hour, minute] = raw.split(":").map(Number);
+  if (
+    !Number.isInteger(hour) ||
+    !Number.isInteger(minute) ||
+    hour < 0 ||
+    hour > 23 ||
+    minute < 0 ||
+    minute > 59
+  ) {
+    return fallback;
+  }
+
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+function buildAttendanceTimestamp(dateKey: string, timeValue: string) {
+  return new Date(`${dateKey}T${timeValue}:00+07:00`);
+}
+
+function mergeAttendanceNotes(
+  currentNote: string | null,
+  nextNote: string | null,
+) {
+  const current = currentNote?.trim() ?? "";
+  const next = nextNote?.trim() ?? "";
+  if (!current) return next || null;
+  if (!next) return current;
+  if (current === next) return current;
+  return `${current}\n${next}`;
 }
 
 async function ensureAttendanceTable() {
@@ -443,6 +530,298 @@ export async function POST(request: NextRequest) {
     console.error("POST /api/bakery/attendance error:", error);
     return NextResponse.json(
       { error: "Gagal menyimpan absensi" },
+      { status: 500 },
+    );
+  }
+}
+
+export async function PATCH(request: NextRequest) {
+  try {
+    const auth = await requireAuth();
+    await ensureAttendanceTable();
+
+    if (auth.role !== "Owner") {
+      throw new ForbiddenError("Hanya owner yang bisa mengubah absensi staff.");
+    }
+
+    const body = (await request.json().catch(() => ({}))) as AttendancePatchBody;
+    const action = body.action ?? "upsert-record";
+    const userId = Number(body.userId);
+
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return NextResponse.json(
+        { error: "Staff yang dipilih tidak valid." },
+        { status: 400 },
+      );
+    }
+
+    const membership = await prisma.businessMember.findFirst({
+      where: {
+        businessId: auth.businessId,
+        userId,
+        role: { in: ["Admin", "Staff"] },
+      },
+      include: {
+        user: {
+          select: {
+            name: true,
+            email: true,
+          },
+        },
+      },
+    });
+
+    if (!membership) {
+      return NextResponse.json(
+        { error: "Admin/staff untuk aksi absensi tidak ditemukan." },
+        { status: 404 },
+      );
+    }
+
+    if (action === "upsert-record") {
+      const date =
+        typeof body.date === "string" ? body.date.trim() : "";
+      if (!isDateKey(date)) {
+        return NextResponse.json(
+          { error: "Tanggal absensi tidak valid. Gunakan format YYYY-MM-DD." },
+          { status: 400 },
+        );
+      }
+
+      const settings = await getBakeryBusinessSettings(auth.businessId);
+      const checkInTime = normalizeAttendanceTimeInput(
+        body.checkInTime,
+        settings.attendanceWindowStart || DEFAULT_ATTENDANCE_WINDOW_START,
+      );
+      const note =
+        typeof body.notes === "string" && body.notes.trim().length > 0
+          ? body.notes.trim().slice(0, 200)
+          : null;
+      const checkInAt = buildAttendanceTimestamp(date, checkInTime);
+
+      await prisma.$executeRaw`
+        INSERT INTO bakery_attendance (
+          business_id,
+          user_id,
+          attendance_date,
+          status,
+          check_in_at,
+          notes,
+          created_at,
+          updated_at
+        )
+        VALUES (
+          ${auth.businessId},
+          ${userId},
+          ${date}::date,
+          'present',
+          ${checkInAt},
+          ${note},
+          NOW(),
+          NOW()
+        )
+        ON CONFLICT (business_id, user_id, attendance_date)
+        DO UPDATE SET
+          status = EXCLUDED.status,
+          check_in_at = EXCLUDED.check_in_at,
+          notes = EXCLUDED.notes,
+          updated_at = NOW()
+      `;
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          action,
+          userId,
+          date,
+          checkInTime,
+          message: `Absensi ${membership.user.name || membership.user.email || `User #${userId}`} diperbarui.`,
+        },
+      });
+    }
+
+    if (action === "set-manual-late-count") {
+      const settings = await getBakeryBusinessSettings(auth.businessId);
+      const monthKey =
+        typeof body.monthKey === "string" && /^\d{4}-\d{2}$/.test(body.monthKey.trim())
+          ? body.monthKey.trim()
+          : getJakartaDateKey(new Date()).slice(0, 7);
+      const manualLateCount = Math.max(
+        0,
+        Math.round(Number(body.manualLateCount) || 0),
+      );
+      const note =
+        typeof body.notes === "string" ? body.notes.trim().slice(0, 200) : "";
+
+      const filtered = settings.attendanceReconciliation.filter(
+        (entry) =>
+          !(
+            entry.staffUserId === userId &&
+            entry.monthKey === monthKey
+          ),
+      );
+
+      if (manualLateCount > 0 || note.length > 0) {
+        filtered.push({
+          id: `${monthKey}-${userId}`,
+          monthKey,
+          staffUserId: userId,
+          staffName:
+            membership.user.name?.trim() ||
+            membership.user.email?.trim() ||
+            `User #${userId}`,
+          manualLateCount,
+          note,
+        });
+      }
+
+      await upsertBakeryBusinessSettings({
+        businessId: auth.businessId,
+        userId: auth.userId,
+        input: {
+          attendanceReconciliation: filtered,
+        },
+      });
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          action,
+          userId,
+          monthKey,
+          manualLateCount,
+          message: `Override telat untuk ${membership.user.name || membership.user.email || `User #${userId}`} disimpan.`,
+        },
+      });
+    }
+
+    if (action === "reset-late-for-user") {
+      const settings = await getBakeryBusinessSettings(auth.businessId);
+      const range = parseAttendanceRangeFromInput({
+        monthKey: body.monthKey,
+        from: body.from,
+        to: body.to,
+      });
+      const rows = await getAttendanceRows(
+        auth.businessId,
+        range.start,
+        range.end,
+        userId,
+      );
+      const rowsByDate = new Map(
+        rows.map((row) => [normalizeAttendanceDateKey(row.attendance_date), row]),
+      );
+      const memberSinceDate = normalizeAttendanceDateKey(membership.createdAt);
+      const eligibleDates = getEligibleAttendanceDates({
+        rangeStart: range.start,
+        rangeEnd: range.end,
+        settings,
+        memberSinceDate,
+      });
+      const lateRows = rows.filter((row) => isAttendanceRecordLate(row, settings));
+      const missingDates = eligibleDates.filter((dateKey) => !rowsByDate.has(dateKey));
+      const resetTime = normalizeAttendanceTimeInput(
+        settings.attendanceWindowStart,
+        DEFAULT_ATTENDANCE_WINDOW_START,
+      );
+      const actionNoteBase =
+        typeof body.notes === "string" && body.notes.trim().length > 0
+          ? body.notes.trim().slice(0, 200)
+          : "Reset telat oleh owner";
+
+      await prisma.$transaction(async (tx) => {
+        for (const row of lateRows) {
+          const attendanceDate = normalizeAttendanceDateKey(row.attendance_date);
+          await tx.$executeRaw`
+            UPDATE bakery_attendance
+            SET
+              check_in_at = ${buildAttendanceTimestamp(attendanceDate, resetTime)},
+              notes = ${mergeAttendanceNotes(row.notes, actionNoteBase)},
+              updated_at = NOW()
+            WHERE business_id = ${auth.businessId}
+              AND user_id = ${userId}
+              AND attendance_date = ${attendanceDate}::date
+          `;
+        }
+
+        for (const dateKey of missingDates) {
+          await tx.$executeRaw`
+            INSERT INTO bakery_attendance (
+              business_id,
+              user_id,
+              attendance_date,
+              status,
+              check_in_at,
+              notes,
+              created_at,
+              updated_at
+            )
+            VALUES (
+              ${auth.businessId},
+              ${userId},
+              ${dateKey}::date,
+              'present',
+              ${buildAttendanceTimestamp(dateKey, resetTime)},
+              ${actionNoteBase},
+              NOW(),
+              NOW()
+            )
+            ON CONFLICT (business_id, user_id, attendance_date)
+            DO UPDATE SET
+              status = EXCLUDED.status,
+              check_in_at = EXCLUDED.check_in_at,
+              notes = EXCLUDED.notes,
+              updated_at = NOW()
+          `;
+        }
+      });
+
+      const monthKeys = getMonthKeysInRange(range.start, range.end);
+      const nextReconciliation = settings.attendanceReconciliation.filter(
+        (entry) =>
+          !(
+            entry.staffUserId === userId &&
+            monthKeys.includes(entry.monthKey)
+          ),
+      );
+
+      await upsertBakeryBusinessSettings({
+        businessId: auth.businessId,
+        userId: auth.userId,
+        input: {
+          attendanceReconciliation: nextReconciliation,
+        },
+      });
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          action,
+          userId,
+          rangeStart: range.start,
+          rangeEnd: range.end,
+          updatedLateRecords: lateRows.length,
+          insertedMissingRecords: missingDates.length,
+          clearedManualMonths: monthKeys.length,
+          message: `Reset telat untuk ${membership.user.name || membership.user.email || `User #${userId}`} selesai.`,
+        },
+      });
+    }
+
+    return NextResponse.json(
+      { error: "Aksi absensi tidak dikenali." },
+      { status: 400 },
+    );
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+    if (error instanceof ForbiddenError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
+    console.error("PATCH /api/bakery/attendance error:", error);
+    return NextResponse.json(
+      { error: "Gagal mengubah data absensi staff" },
       { status: 500 },
     );
   }

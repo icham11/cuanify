@@ -19,11 +19,18 @@ type FingerprintItemInput = {
   notes?: unknown;
 };
 
+type FingerprintAddressInput = {
+  label?: unknown;
+  area?: unknown;
+  addressLine?: unknown;
+};
+
 export type OrderFingerprintInput = {
   customerName?: unknown;
   customerPhone?: unknown;
   deliveryDate?: unknown;
   deliverySlot?: unknown;
+  notes?: unknown;
   basePrice?: unknown;
   addOnTotal?: unknown;
   deliveryFee?: unknown;
@@ -35,6 +42,7 @@ export type OrderFingerprintInput = {
   sales_channel?: unknown;
   salesChannel?: unknown;
   items?: FingerprintItemInput[] | unknown[];
+  deliveryAddresses?: FingerprintAddressInput[] | unknown[];
 };
 
 export function normalizeBookingFingerprintText(value: unknown): string {
@@ -81,6 +89,9 @@ function normalizeFingerprintRecordNumbers(value: unknown) {
 
 export function buildOrderFingerprint(order: OrderFingerprintInput): string {
   const items = (Array.isArray(order.items) ? order.items : []) as FingerprintItemInput[];
+  const deliveryAddresses = (Array.isArray(order.deliveryAddresses)
+    ? order.deliveryAddresses
+    : []) as FingerprintAddressInput[];
 
   return JSON.stringify({
     customerName: normalizeBookingFingerprintText(order.customerName),
@@ -89,6 +100,7 @@ export function buildOrderFingerprint(order: OrderFingerprintInput): string {
       normalizeBookingFingerprintText(order.deliveryDate).slice(0, 10) ||
       String(order.deliveryDate ?? ""),
     deliverySlot: normalizeBookingFingerprintText(order.deliverySlot),
+    notes: normalizeBookingFingerprintText(order.notes),
     basePrice: normalizeFingerprintMoney(order.basePrice),
     addOnTotal: normalizeFingerprintMoney(order.addOnTotal),
     deliveryFee: normalizeFingerprintMoney(order.deliveryFee),
@@ -128,6 +140,11 @@ export function buildOrderFingerprint(order: OrderFingerprintInput): string {
       ),
       addOnTotal: normalizeFingerprintMoney(item?.addOnTotal),
       notes: normalizeBookingFingerprintText(item?.notes),
+    })),
+    deliveryAddresses: deliveryAddresses.map((address) => ({
+      label: normalizeBookingFingerprintText(address?.label),
+      area: normalizeBookingFingerprintText(address?.area),
+      addressLine: normalizeBookingFingerprintText(address?.addressLine),
     })),
   });
 }

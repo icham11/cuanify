@@ -34,6 +34,9 @@
   ],
   "exclude": [
     "node_modules",
-    "scratch"
+    "scratch",
+    "**/__tests__/**",
+    "**/*.test.ts",
+    "**/*.test.tsx"
   ]
 }

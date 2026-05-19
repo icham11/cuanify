@@ -633,7 +633,7 @@ export async function POST(request: NextRequest) {
             const categoryId = await resolveCategory(tx, businessId, item.categoryName);
             const normalizedName = normalizeProductName(item.name);
 
-            const productData: Record<string, unknown> = {
+            const productData: Prisma.ProductUncheckedCreateInput = {
               businessId,
               categoryId,
               name: normalizedName,
@@ -739,7 +739,7 @@ export async function POST(request: NextRequest) {
         const categoryId = await resolveCategory(tx, businessId, categoryName);
 
         // Create product
-        const productData: Record<string, unknown> = {
+        const productData: Prisma.ProductUncheckedCreateInput = {
           businessId,
           categoryId,
           name: normalizedName,

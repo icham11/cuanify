@@ -224,6 +224,29 @@ export function getManualLateCountForMonth(
   );
 }
 
+export function getEligibleAttendanceDates(args: {
+  rangeStart: string;
+  rangeEnd: string;
+  settings: BakeryBusinessSettings;
+  memberSinceDate?: string | null;
+  now?: Date;
+}) {
+  const now = args.now ?? new Date();
+  const todayKey = getJakartaDateKey(now);
+  const { enabled, hasWindowEnded } = getAttendanceWindowState(args.settings, now);
+
+  return getDateKeysInRange(args.rangeStart, args.rangeEnd).filter((dateKey) => {
+    if (!enabled) return false;
+    if (args.memberSinceDate && dateKey < args.memberSinceDate) return false;
+    if (isHolidayDate(dateKey, args.settings)) return false;
+    if (dateKey > todayKey) return false;
+    if (dateKey === todayKey) {
+      return hasWindowEnded;
+    }
+    return true;
+  });
+}
+
 export function calculateAttendanceMetrics(args: {
   rows: AttendanceLikeRow[];
   rangeStart: string;
@@ -234,26 +257,19 @@ export function calculateAttendanceMetrics(args: {
   manualLateCount?: number;
 }) {
   const now = args.now ?? new Date();
-  const todayKey = getJakartaDateKey(now);
-  const { enabled, hasWindowEnded } = getAttendanceWindowState(args.settings, now);
   const rowsByDate = new Map<string, AttendanceLikeRow>();
 
   args.rows.forEach((row) => {
     rowsByDate.set(normalizeAttendanceDateKey(row.attendance_date), row);
   });
 
-  const eligibleDates = getDateKeysInRange(args.rangeStart, args.rangeEnd).filter(
-    (dateKey) => {
-      if (!enabled) return false;
-      if (args.memberSinceDate && dateKey < args.memberSinceDate) return false;
-      if (isHolidayDate(dateKey, args.settings)) return false;
-      if (dateKey > todayKey) return false;
-      if (dateKey === todayKey) {
-        return hasWindowEnded;
-      }
-      return true;
-    },
-  );
+  const eligibleDates = getEligibleAttendanceDates({
+    rangeStart: args.rangeStart,
+    rangeEnd: args.rangeEnd,
+    settings: args.settings,
+    memberSinceDate: args.memberSinceDate,
+    now,
+  });
 
   const missingDates = eligibleDates.filter((dateKey) => !rowsByDate.has(dateKey));
   const lateCheckIns = Array.from(rowsByDate.values()).filter((row) =>

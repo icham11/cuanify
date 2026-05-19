@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Loader2, Calendar } from "lucide-react";
 import { useRole } from "@/context/RoleContext";
 import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
@@ -66,6 +66,13 @@ type SelfAttendanceData = {
   } | null;
 };
 
+type OwnerAttendanceEditorState = {
+  date: string;
+  checkInTime: string;
+  manualLateCount: string;
+  note: string;
+};
+
 function getCurrentMonth() {
   return getJakartaDateKey(new Date()).slice(0, 7);
 }
@@ -97,67 +104,93 @@ function formatTimeLabel(value: string) {
   }).format(parsed);
 }
 
+function getDefaultOwnerEditorState(
+  member: OwnerAttendanceMember,
+  month: string,
+  defaultTime: string,
+): OwnerAttendanceEditorState {
+  const latestDailyEntry =
+    member.daily.length > 0 ? member.daily[member.daily.length - 1] : null;
+  const fallbackDate =
+    member.missingDates[0] ?? latestDailyEntry?.date ?? `${month}-01`;
+
+  return {
+    date: fallbackDate,
+    checkInTime: defaultTime,
+    manualLateCount: String(member.manualLateCount ?? 0),
+    note: "",
+  };
+}
+
 export default function BakeryAttendancePage() {
   const { isOwner, isAdmin, isStaff, userName } = useRole();
   const [month, setMonth] = useState(getCurrentMonth());
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [ownerTeam, setOwnerTeam] = useState<OwnerAttendanceMember[]>([]);
+  const [ownerAttendanceWindow, setOwnerAttendanceWindow] =
+    useState<AttendanceWindowData | null>(null);
   const [selfData, setSelfData] = useState<SelfAttendanceData | null>(null);
   const [error, setError] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
+  const [activeEditorUserId, setActiveEditorUserId] = useState<number | null>(
+    null,
+  );
+  const [ownerEditorByUserId, setOwnerEditorByUserId] = useState<
+    Record<number, OwnerAttendanceEditorState>
+  >({});
+  const [ownerActionUserId, setOwnerActionUserId] = useState<number | null>(
+    null,
+  );
+
+  const loadAttendance = useCallback(async () => {
+    setIsLoading(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/bakery/attendance?month=${month}`, {
+        cache: "no-store",
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        data?: {
+          mode?: "owner" | "self";
+          team?: OwnerAttendanceMember[];
+          attendanceWindow?: AttendanceWindowData;
+        } & SelfAttendanceData;
+      };
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Gagal memuat absensi");
+      }
+
+      if (payload.data?.mode === "owner") {
+        setOwnerTeam(payload.data.team || []);
+        setOwnerAttendanceWindow(payload.data.attendanceWindow || null);
+        setSelfData(null);
+      } else {
+        setSelfData(payload.data || null);
+        setOwnerAttendanceWindow(null);
+        setOwnerTeam([]);
+      }
+    } catch (fetchError) {
+      setError(
+        fetchError instanceof Error
+          ? fetchError.message
+          : "Gagal memuat absensi",
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }, [month]);
 
   useEffect(() => {
-    let cancelled = false;
-
-    const loadAttendance = async () => {
-      setIsLoading(true);
-      setError("");
-      try {
-        const response = await fetch(`/api/bakery/attendance?month=${month}`, {
-          cache: "no-store",
-        });
-        const payload = (await response.json().catch(() => ({}))) as {
-          error?: string;
-          data?: {
-            mode?: "owner" | "self";
-            team?: OwnerAttendanceMember[];
-            attendanceWindow?: AttendanceWindowData;
-          } & SelfAttendanceData;
-        };
-
-        if (!response.ok) {
-          throw new Error(payload.error || "Gagal memuat absensi");
-        }
-
-        if (cancelled) return;
-        if (payload.data?.mode === "owner") {
-          setOwnerTeam(payload.data.team || []);
-          setSelfData(null);
-        } else {
-          setSelfData(payload.data || null);
-          setOwnerTeam([]);
-        }
-      } catch (fetchError) {
-        if (cancelled) return;
-        setError(
-          fetchError instanceof Error
-            ? fetchError.message
-            : "Gagal memuat absensi",
-        );
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
-    };
-
     void loadAttendance();
-    return () => {
-      cancelled = true;
-    };
-  }, [month]);
+  }, [loadAttendance]);
 
   const submitAttendance = async () => {
     setIsSubmitting(true);
     setError("");
+    setSuccessMessage("");
     try {
       const response = await fetch("/api/bakery/attendance", {
         method: "POST",
@@ -171,17 +204,8 @@ export default function BakeryAttendancePage() {
         throw new Error(payload.error || "Gagal menyimpan absensi");
       }
 
-      const reload = await fetch(`/api/bakery/attendance?month=${month}`, {
-        cache: "no-store",
-      });
-      const reloadPayload = (await reload.json().catch(() => ({}))) as {
-        data?: SelfAttendanceData;
-        error?: string;
-      };
-      if (!reload.ok) {
-        throw new Error(reloadPayload.error || "Gagal memuat ulang absensi");
-      }
-      setSelfData(reloadPayload.data || null);
+      setSuccessMessage("Absensi hari ini berhasil disimpan.");
+      await loadAttendance();
     } catch (submitError) {
       setError(
         submitError instanceof Error
@@ -192,6 +216,156 @@ export default function BakeryAttendancePage() {
       setIsSubmitting(false);
     }
   };
+
+  const ensureOwnerEditor = useCallback(
+    (member: OwnerAttendanceMember) => {
+      const defaultTime = ownerAttendanceWindow?.startTime || "06:00";
+      setOwnerEditorByUserId((current) => ({
+        ...current,
+        [member.userId]:
+          current[member.userId] ??
+          getDefaultOwnerEditorState(member, month, defaultTime),
+      }));
+      setActiveEditorUserId(member.userId);
+    },
+    [month, ownerAttendanceWindow],
+  );
+
+  const updateOwnerEditorField = useCallback(
+    (
+      userId: number,
+      field: keyof OwnerAttendanceEditorState,
+      value: string,
+      member?: OwnerAttendanceMember,
+    ) => {
+      setOwnerEditorByUserId((current) => {
+        const fallback =
+          member
+            ? getDefaultOwnerEditorState(
+                member,
+                month,
+                ownerAttendanceWindow?.startTime || "06:00",
+              )
+            : {
+                date: `${month}-01`,
+                checkInTime: ownerAttendanceWindow?.startTime || "06:00",
+                manualLateCount: "0",
+                note: "",
+              };
+
+        return {
+          ...current,
+          [userId]: {
+            ...(current[userId] ?? fallback),
+            [field]: value,
+          },
+        };
+      });
+    },
+    [month, ownerAttendanceWindow],
+  );
+
+  const runOwnerAttendanceAction = useCallback(
+    async (userId: number, body: Record<string, unknown>) => {
+      setOwnerActionUserId(userId);
+      setError("");
+      setSuccessMessage("");
+      try {
+        const response = await fetch("/api/bakery/attendance", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const payload = (await response.json().catch(() => ({}))) as {
+          error?: string;
+          data?: { message?: string };
+        };
+
+        if (!response.ok) {
+          throw new Error(payload.error || "Gagal mengubah absensi staff");
+        }
+
+        setSuccessMessage(payload.data?.message || "Perubahan absensi tersimpan.");
+        await loadAttendance();
+      } catch (actionError) {
+        setError(
+          actionError instanceof Error
+            ? actionError.message
+            : "Gagal mengubah absensi staff",
+        );
+      } finally {
+        setOwnerActionUserId(null);
+      }
+    },
+    [loadAttendance],
+  );
+
+  const saveOwnerAttendanceRecord = useCallback(
+    async (member: OwnerAttendanceMember) => {
+      const editor =
+        ownerEditorByUserId[member.userId] ??
+        getDefaultOwnerEditorState(
+          member,
+          month,
+          ownerAttendanceWindow?.startTime || "06:00",
+        );
+
+      await runOwnerAttendanceAction(member.userId, {
+        action: "upsert-record",
+        userId: member.userId,
+        date: editor.date,
+        checkInTime: editor.checkInTime,
+        notes: editor.note,
+      });
+    },
+    [month, ownerAttendanceWindow, ownerEditorByUserId, runOwnerAttendanceAction],
+  );
+
+  const saveOwnerManualLate = useCallback(
+    async (member: OwnerAttendanceMember) => {
+      const editor =
+        ownerEditorByUserId[member.userId] ??
+        getDefaultOwnerEditorState(
+          member,
+          month,
+          ownerAttendanceWindow?.startTime || "06:00",
+        );
+
+      await runOwnerAttendanceAction(member.userId, {
+        action: "set-manual-late-count",
+        userId: member.userId,
+        monthKey: month,
+        manualLateCount: Number(editor.manualLateCount || 0),
+        notes: editor.note,
+      });
+    },
+    [month, ownerAttendanceWindow, ownerEditorByUserId, runOwnerAttendanceAction],
+  );
+
+  const resetLateForMember = useCallback(
+    async (member: OwnerAttendanceMember) => {
+      const editor =
+        ownerEditorByUserId[member.userId] ??
+        getDefaultOwnerEditorState(
+          member,
+          month,
+          ownerAttendanceWindow?.startTime || "06:00",
+        );
+
+      const confirmed = window.confirm(
+        `Reset semua telat untuk ${member.name} di ${formatMonthLabel(month)}? Ini akan membersihkan override manual, mengubah check-in telat jadi on-time, dan mengisi tanggal yang dianggap belum absen di bulan ini.`,
+      );
+      if (!confirmed) return;
+
+      await runOwnerAttendanceAction(member.userId, {
+        action: "reset-late-for-user",
+        userId: member.userId,
+        monthKey: month,
+        notes: editor.note,
+      });
+    },
+    [month, ownerAttendanceWindow, ownerEditorByUserId, runOwnerAttendanceAction],
+  );
 
   return (
     <div className="mx-auto max-w-7xl space-y-4 pb-10">
@@ -227,6 +401,12 @@ export default function BakeryAttendancePage() {
           </div>
         ) : null}
 
+        {!error && successMessage ? (
+          <div className="mt-4 rounded-[16px] border border-[#bddfc4] bg-[#eefaf0] px-4 py-3 text-xs text-[#237247]">
+            {successMessage}
+          </div>
+        ) : null}
+
         {isLoading ? (
           <div className="mt-4 flex items-center justify-center gap-2 rounded-[18px] border border-[#ead6c8] bg-white px-4 py-10 text-sm text-[#8a6a54]">
             <Loader2 className="h-4 w-4 animate-spin text-[#cb6531]" />
@@ -258,14 +438,35 @@ export default function BakeryAttendancePage() {
                         </p>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <p className="text-sm font-bold text-[#1f140d]">
-                        {member.attendanceCount}/{member.expectedAttendanceDays}
-                      </p>
-                      <p className="text-[11px] text-[#8a6a54]">hari hadir</p>
-                      <p className="text-[11px] text-[#cf4028]">
-                        {member.lateCount}x telat
-                      </p>
+                    <div className="flex flex-col items-end gap-2 text-right">
+                      <div>
+                        <p className="text-sm font-bold text-[#1f140d]">
+                          {member.attendanceCount}/{member.expectedAttendanceDays}
+                        </p>
+                        <p className="text-[11px] text-[#8a6a54]">hari hadir</p>
+                        <p className="text-[11px] text-[#cf4028]">
+                          {member.lateCount}x telat
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => ensureOwnerEditor(member)}
+                          className="rounded-full border border-[#dfc9b7] bg-[#fff7f0] px-3 py-1.5 text-[11px] font-semibold text-[#7f4a24]"
+                        >
+                          Edit absensi
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void resetLateForMember(member)}
+                          disabled={ownerActionUserId === member.userId}
+                          className="rounded-full border border-[#efb5aa] bg-[#fff1ef] px-3 py-1.5 text-[11px] font-semibold text-[#c24f39] disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {ownerActionUserId === member.userId
+                            ? "Memproses..."
+                            : "Reset telat"}
+                        </button>
+                      </div>
                     </div>
                   </div>
 
@@ -286,6 +487,165 @@ export default function BakeryAttendancePage() {
                       danger={member.missingDates.length > 0}
                     />
                   </div>
+
+                  {activeEditorUserId === member.userId ? (
+                    <div className="border-b border-[#f2e3d8] bg-[#fffaf5] px-4 py-4">
+                      <div className="grid gap-3 md:grid-cols-4">
+                        <label className="space-y-1">
+                          <span className="text-[11px] font-semibold text-[#8a6a54]">
+                            Tanggal absensi
+                          </span>
+                          <input
+                            type="date"
+                            value={
+                              ownerEditorByUserId[member.userId]?.date ??
+                              getDefaultOwnerEditorState(
+                                member,
+                                month,
+                                ownerAttendanceWindow?.startTime || "06:00",
+                              ).date
+                            }
+                            onChange={(event) =>
+                              updateOwnerEditorField(
+                                member.userId,
+                                "date",
+                                event.target.value,
+                                member,
+                              )
+                            }
+                            className="h-10 w-full rounded-xl border border-[#dfc9b7] bg-white px-3 text-sm font-semibold text-[#2f1e13] outline-none"
+                          />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[11px] font-semibold text-[#8a6a54]">
+                            Jam check-in
+                          </span>
+                          <input
+                            type="time"
+                            value={
+                              ownerEditorByUserId[member.userId]?.checkInTime ??
+                              getDefaultOwnerEditorState(
+                                member,
+                                month,
+                                ownerAttendanceWindow?.startTime || "06:00",
+                              ).checkInTime
+                            }
+                            onChange={(event) =>
+                              updateOwnerEditorField(
+                                member.userId,
+                                "checkInTime",
+                                event.target.value,
+                                member,
+                              )
+                            }
+                            className="h-10 w-full rounded-xl border border-[#dfc9b7] bg-white px-3 text-sm font-semibold text-[#2f1e13] outline-none"
+                          />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[11px] font-semibold text-[#8a6a54]">
+                            Override telat
+                          </span>
+                          <input
+                            type="number"
+                            min={0}
+                            value={
+                              ownerEditorByUserId[member.userId]?.manualLateCount ??
+                              getDefaultOwnerEditorState(
+                                member,
+                                month,
+                                ownerAttendanceWindow?.startTime || "06:00",
+                              ).manualLateCount
+                            }
+                            onChange={(event) =>
+                              updateOwnerEditorField(
+                                member.userId,
+                                "manualLateCount",
+                                event.target.value,
+                                member,
+                              )
+                            }
+                            className="h-10 w-full rounded-xl border border-[#dfc9b7] bg-white px-3 text-sm font-semibold text-[#2f1e13] outline-none"
+                          />
+                        </label>
+                        <label className="space-y-1 md:col-span-1">
+                          <span className="text-[11px] font-semibold text-[#8a6a54]">
+                            Catatan owner
+                          </span>
+                          <input
+                            type="text"
+                            value={
+                              ownerEditorByUserId[member.userId]?.note ?? ""
+                            }
+                            onChange={(event) =>
+                              updateOwnerEditorField(
+                                member.userId,
+                                "note",
+                                event.target.value,
+                                member,
+                              )
+                            }
+                            placeholder="Contoh: lupa absen dari web"
+                            className="h-10 w-full rounded-xl border border-[#dfc9b7] bg-white px-3 text-sm text-[#2f1e13] outline-none"
+                          />
+                        </label>
+                      </div>
+
+                      {member.missingDates.length > 0 ? (
+                        <div className="mt-3">
+                          <p className="text-[11px] font-semibold text-[#8a6a54]">
+                            Tanggal belum absen
+                          </p>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {member.missingDates.map((dateKey) => (
+                              <button
+                                key={`${member.userId}-missing-${dateKey}`}
+                                type="button"
+                                onClick={() =>
+                                  updateOwnerEditorField(
+                                    member.userId,
+                                    "date",
+                                    dateKey,
+                                    member,
+                                  )
+                                }
+                                className="rounded-full border border-[#efcdb9] bg-white px-3 py-1 text-[11px] font-semibold text-[#8a5d3e]"
+                              >
+                                {formatDateLabel(dateKey)}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void saveOwnerAttendanceRecord(member)}
+                          disabled={ownerActionUserId === member.userId}
+                          className="rounded-full bg-[#d3662d] px-3 py-2 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {ownerActionUserId === member.userId
+                            ? "Menyimpan..."
+                            : "Simpan/Edit absensi"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void saveOwnerManualLate(member)}
+                          disabled={ownerActionUserId === member.userId}
+                          className="rounded-full border border-[#dfc9b7] bg-white px-3 py-2 text-[11px] font-semibold text-[#7f4a24] disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          Simpan override telat
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setActiveEditorUserId(null)}
+                          className="rounded-full border border-[#dfc9b7] bg-[#f6ede4] px-3 py-2 text-[11px] font-semibold text-[#6e513d]"
+                        >
+                          Tutup
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
 
                   <div className="grid grid-cols-2 gap-2 px-4 py-4 sm:grid-cols-3 lg:grid-cols-4">
                     {member.daily.length === 0 ? (

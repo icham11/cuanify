@@ -294,6 +294,7 @@ const SERVER_HYDRATION_INTERVAL_MS = 10000;
 const SHIPMENT_RETRY_BACKOFF_MS = 5 * 60 * 1000;
 const SHIPMENT_WARNING_COOLDOWN_MS = 10 * 60 * 1000;
 const BOOKING_CREATE_DEDUPE_WINDOW_MS = 15 * 1000;
+const SERVER_SYNC_ISSUE_TOAST_ID = "bakery-orders-server-sync-issue";
 
 /**
  * HTTP status code yang dikembalikan proxy saat role tidak punya akses.
@@ -1327,6 +1328,34 @@ export function OrdersProvider({
   const shipmentWarningStateRef = useRef<
     Map<string, { message: string; at: number }>
   >(new Map());
+  const lastSyncIssueToastMessageRef = useRef("");
+
+  const dismissSyncIssueToast = useCallback(() => {
+    if (!lastSyncIssueToastMessageRef.current) return;
+    lastSyncIssueToastMessageRef.current = "";
+    toast.dismiss(SERVER_SYNC_ISSUE_TOAST_ID);
+  }, []);
+
+  const showSyncIssueToast = useCallback(
+    (variant: "warning" | "error", message: string) => {
+      if (lastSyncIssueToastMessageRef.current === message) return;
+      lastSyncIssueToastMessageRef.current = message;
+
+      if (variant === "warning") {
+        toast.warning(message, {
+          id: SERVER_SYNC_ISSUE_TOAST_ID,
+          duration: 8_000,
+        });
+        return;
+      }
+
+      toast.error(message, {
+        id: SERVER_SYNC_ISSUE_TOAST_ID,
+        duration: 8_000,
+      });
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!enabled) return;
@@ -1452,9 +1481,10 @@ export function OrdersProvider({
     invalidateApiCache(
       /\/api\/(bookings\/orders|bakery\/settings|products|businesses|sales|ingredients|debts)/,
     );
+    dismissSyncIssueToast();
 
     return payload;
-  }, []);
+  }, [dismissSyncIssueToast]);
 
   const scheduleQueuedOrdersSync = useCallback((
     delayMs: number,
@@ -1631,15 +1661,20 @@ export function OrdersProvider({
 
       if (!(error instanceof CapacityFullSyncError)) {
         if (isDuplicateBookingSyncMessage(message)) {
+          dismissSyncIssueToast();
           toast.message(
             "Server sudah punya booking yang sama. Data lokal sedang diselaraskan ulang.",
           );
         } else if (error instanceof OrdersSyncRequestError && error.retryable) {
-          toast.error(
+          showSyncIssueToast(
+            "warning",
             `Sinkron server sedang gagal sementara. Input tetap disimpan lokal: ${message}`,
           );
         } else {
-          toast.error(`Perubahan dibatalkan karena sinkron gagal: ${message}`);
+          showSyncIssueToast(
+            "error",
+            `Perubahan dibatalkan karena sinkron gagal: ${message}`,
+          );
         }
       }
     } finally {
@@ -1649,7 +1684,13 @@ export function OrdersProvider({
         void flushQueuedOrdersSync();
       }
     }
-  }, [hydrateOrdersFromServer, scheduleQueuedOrdersSync, syncOrdersToServer]);
+  }, [
+    dismissSyncIssueToast,
+    hydrateOrdersFromServer,
+    scheduleQueuedOrdersSync,
+    showSyncIssueToast,
+    syncOrdersToServer,
+  ]);
 
   const persistOrders = useCallback(
     (nextOrders: BakeryOrder[], options?: { syncToServer?: boolean }) => {
