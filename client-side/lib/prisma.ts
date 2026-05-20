@@ -70,7 +70,8 @@ function resolveDatabaseUrl() {
     process.env.DATABASE_URL ?? "",
   );
   const directUrl = normalizeSupabaseDatabaseUrl(process.env.DIRECT_URL ?? "");
-  const forceDirectRuntime = process.env.PRISMA_RUNTIME_USE_DIRECT_URL === "true";
+  const forceDirectRuntime =
+    process.env.PRISMA_RUNTIME_USE_DIRECT_URL === "true";
 
   if (forceDirectRuntime && directUrl && !isSupabasePoolerUrl(directUrl)) {
     return directUrl;
@@ -127,16 +128,14 @@ function createPrismaClient() {
         ? 2
         : usesSupabaseDirect
           ? 2
-        : isProduction
-          ? 10
-          : 5;
+          : isProduction
+            ? 10
+            : 5;
   const requestedPoolMax = parsePositiveInteger(
     process.env.PGPOOL_MAX,
     defaultPoolMax,
   );
-  const poolMax = isSupabaseSessionPooler
-    ? 1
-    : requestedPoolMax;
+  const poolMax = isSupabaseSessionPooler ? 1 : requestedPoolMax;
   const connectionTimeoutMillis = Number(
     process.env.PGPOOL_CONNECTION_TIMEOUT_MS ??
       (isDevelopment ? 30000 : usesSupabasePooler ? 5000 : 10000),

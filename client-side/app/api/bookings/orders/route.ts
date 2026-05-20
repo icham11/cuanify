@@ -355,9 +355,7 @@ function asBoolean(value: unknown): boolean {
   if (typeof value === "number") return value !== 0;
   if (typeof value === "string") {
     const normalized = value.trim().toLowerCase();
-    return (
-      normalized === "true" || normalized === "1" || normalized === "yes"
-    );
+    return normalized === "true" || normalized === "1" || normalized === "yes";
   }
   return false;
 }
@@ -488,7 +486,9 @@ function stableSerializeForComparison(value: unknown): string {
 }
 
 function haveComparableValuesChanged(current: unknown, next: unknown): boolean {
-  return stableSerializeForComparison(current) !== stableSerializeForComparison(next);
+  return (
+    stableSerializeForComparison(current) !== stableSerializeForComparison(next)
+  );
 }
 
 function resolveParsedBookingReference(
@@ -497,8 +497,9 @@ function resolveParsedBookingReference(
 ): string {
   const parsedData = asRecord(whatsAppParsedData);
   const common = asRecord(parsedData?.common);
-  const rawReference = String(common?.bookingCode ?? fallbackBookingCode ?? "")
-    .trim();
+  const rawReference = String(
+    common?.bookingCode ?? fallbackBookingCode ?? "",
+  ).trim();
   if (!rawReference) return "";
 
   const normalized = normalizeBookingReference(rawReference);
@@ -1185,17 +1186,17 @@ function normalizeReferenceImages(
     asArrayOfRecords(value).reduce<
       Array<{ url: string; label?: string; note?: string; orderIndex?: number }>
     >((images, entry) => {
-        const url = asString(entry.url).trim();
-        if (!url) return images;
+      const url = asString(entry.url).trim();
+      if (!url) return images;
 
-        images.push({
-          url,
-          label: asString(entry.label).trim() || undefined,
-          note: asString(entry.note).trim() || undefined,
-          orderIndex: parseImageOrderIndex(entry.orderIndex),
-        });
-        return images;
-      }, []),
+      images.push({
+        url,
+        label: asString(entry.label).trim() || undefined,
+        note: asString(entry.note).trim() || undefined,
+        orderIndex: parseImageOrderIndex(entry.orderIndex),
+      });
+      return images;
+    }, []),
   );
 }
 
@@ -1276,7 +1277,10 @@ function resolvePersistedImageFields(order: NormalizedOrder) {
     ),
   );
   const imageUrl =
-    asString(order.imageUrl).trim() || imageUrls[0] || referenceImages[0]?.url || "";
+    asString(order.imageUrl).trim() ||
+    imageUrls[0] ||
+    referenceImages[0]?.url ||
+    "";
 
   return {
     imageUrl,
@@ -1839,7 +1843,9 @@ function hasCapacityAffectingChange(
   const nextActive = !INACTIVE_STATUSES.includes(next.orderStatus || "");
   if (currentActive !== nextActive) return true;
 
-  return JSON.stringify(current.items ?? []) !== JSON.stringify(next.items ?? []);
+  return (
+    JSON.stringify(current.items ?? []) !== JSON.stringify(next.items ?? [])
+  );
 }
 
 function calculateOrderTokenForLimit(
@@ -1896,7 +1902,13 @@ function validateAssignmentTransitionRules(params: {
   userId: number;
   isPrivilegedRequest?: boolean;
 }) {
-  const { orders, existingAssignments, roleName, userId, isPrivilegedRequest = false } = params;
+  const {
+    orders,
+    existingAssignments,
+    roleName,
+    userId,
+    isPrivilegedRequest = false,
+  } = params;
   const isOwnerRequest = roleName === "Owner";
   const isStaffRequest = roleName === "Staff";
   const existingAssignmentMap = new Map(
@@ -1919,7 +1931,9 @@ function validateAssignmentTransitionRules(params: {
 
     if (statusChanged && !nextHasAssignment && nextStatus !== "Cancelled") {
       if (!isPrivilegedRequest) {
-        throw new ForbiddenError("Order must be assigned before changing status");
+        throw new ForbiddenError(
+          "Order must be assigned before changing status",
+        );
       }
     }
 
@@ -2139,16 +2153,16 @@ function normalizeOrder(raw: unknown, index: number): NormalizedOrder | null {
     assignedStaffUserId: asPositiveIntOrNull(record.assignedStaffUserId),
     assignedStaffName: asString(record.assignedStaffName),
     productionAssignedAt: toIsoOrNull(record.productionAssignedAt),
-      shippingQuote: record.shippingQuote ?? null,
-      shipment: record.shipment ?? null,
-      simulations: record.simulations ?? null,
-      whatsAppParsedData: record.whatsAppParsedData ?? null,
-      imageUrl: asString(record.imageUrl).trim(),
-      imageUrls: asStringArray(record.imageUrls),
-      referenceImages: normalizeReferenceImages(record.referenceImages),
-      statusHistory: asArrayOfRecords(record.statusHistory),
-      automationLogs: asArrayOfRecords(record.automationLogs),
-      paymentTransactions: asArrayOfRecords(record.paymentTransactions),
+    shippingQuote: record.shippingQuote ?? null,
+    shipment: record.shipment ?? null,
+    simulations: record.simulations ?? null,
+    whatsAppParsedData: record.whatsAppParsedData ?? null,
+    imageUrl: asString(record.imageUrl).trim(),
+    imageUrls: asStringArray(record.imageUrls),
+    referenceImages: normalizeReferenceImages(record.referenceImages),
+    statusHistory: asArrayOfRecords(record.statusHistory),
+    automationLogs: asArrayOfRecords(record.automationLogs),
+    paymentTransactions: asArrayOfRecords(record.paymentTransactions),
     productionStages: normalizeProductionStages(record.productionStages),
     items: asArrayOfRecords(record.items),
     deliveryAddresses: asArrayOfRecords(record.deliveryAddresses),
@@ -2166,7 +2180,9 @@ async function ensureBakeryTables() {
   // can cause connection timeouts with pooled DB proxies.
   if (process.env.SKIP_RUNTIME_DDL === "true") {
     // eslint-disable-next-line no-console
-    console.log("[DDL] SKIP_RUNTIME_DDL=true — skipping runtime bakery table ensures");
+    console.log(
+      "[DDL] SKIP_RUNTIME_DDL=true — skipping runtime bakery table ensures",
+    );
     return;
   }
 
@@ -2701,7 +2717,9 @@ export async function GET(request: NextRequest) {
             simulations: parseJsonField(row.simulations),
             whatsAppParsedData: parseJsonField(row.whatsapp_parsed_data),
             statusHistory: asArrayOfRecords(parseJsonField(row.status_history)),
-            automationLogs: asArrayOfRecords(parseJsonField(row.automation_logs)),
+            automationLogs: asArrayOfRecords(
+              parseJsonField(row.automation_logs),
+            ),
             paymentTransactions: asArrayOfRecords(
               parseJsonField(row.payment_transactions),
             ),
@@ -3628,26 +3646,27 @@ export async function POST(request: NextRequest) {
       while (true) {
         _attempt++;
         try {
-          transactionSummary = await prisma.$transaction(async (tx) => {
-          const deletedOrderCount = 0;
-          let upsertedOrderCount = 0;
-          let insertedItemCount = 0;
-          let insertedAddressCount = 0;
-          let capacityReconcileNeeded = false;
-          const inventoryWarnings = new Set<string>();
-          const createdOrdersForWhatsApp: QueuedWhatsAppNotification[] = [];
+          transactionSummary = await prisma.$transaction(
+            async (tx) => {
+              const deletedOrderCount = 0;
+              let upsertedOrderCount = 0;
+              let insertedItemCount = 0;
+              let insertedAddressCount = 0;
+              let capacityReconcileNeeded = false;
+              const inventoryWarnings = new Set<string>();
+              const createdOrdersForWhatsApp: QueuedWhatsAppNotification[] = [];
 
-          const existingRows = await tx.$queryRaw<
-            {
-              order_uuid: string | null;
-              external_id: string;
-              delivery_date: string | null;
-              token_used: number;
-              order_status: string | null;
-              assigned_staff_user_id: number | null;
-              simulations: unknown;
-            }[]
-          >`
+              const existingRows = await tx.$queryRaw<
+                {
+                  order_uuid: string | null;
+                  external_id: string;
+                  delivery_date: string | null;
+                  token_used: number;
+                  order_status: string | null;
+                  assigned_staff_user_id: number | null;
+                  simulations: unknown;
+                }[]
+              >`
           SELECT
             order_uuid,
             external_id,
@@ -3660,277 +3679,300 @@ export async function POST(request: NextRequest) {
           WHERE business_id = ${businessId}
         `;
 
-          const existingOrderMap = new Map(
-            existingRows.map((row) => [row.external_id, row]),
-          );
-          const existingOrderExternalByUuid = new Map(
-            existingRows.map((row) => [
-              row.order_uuid ?? orderTaskUuid(businessId, row.external_id),
-              row.external_id,
-            ]),
-          );
-          const stageRows =
-            existingOrderExternalByUuid.size > 0
-              ? await tx.$queryRaw<DbProductionStageRow[]>`
+              const existingOrderMap = new Map(
+                existingRows.map((row) => [row.external_id, row]),
+              );
+              const existingOrderExternalByUuid = new Map(
+                existingRows.map((row) => [
+                  row.order_uuid ?? orderTaskUuid(businessId, row.external_id),
+                  row.external_id,
+                ]),
+              );
+              const stageRows =
+                existingOrderExternalByUuid.size > 0
+                  ? await tx.$queryRaw<DbProductionStageRow[]>`
                   SELECT order_id::text AS order_id, stage, staff_id::text AS staff_id, token_amount
                   FROM production_tasks
                   WHERE order_id::text IN (${Prisma.join([...existingOrderExternalByUuid.keys()])})
                   ORDER BY order_id ASC, stage ASC
                 `
-              : [];
-          const staffIdByUuid = buildStaffIdByUuid([
-            ...assignableStaffUserIds,
-          ]);
-          const existingStagesByExternalId = new Map<
-            string,
-            ProductionStageAssignment[]
-          >();
+                  : [];
+              const staffIdByUuid = buildStaffIdByUuid([
+                ...assignableStaffUserIds,
+              ]);
+              const existingStagesByExternalId = new Map<
+                string,
+                ProductionStageAssignment[]
+              >();
 
-          for (const row of stageRows) {
-            const externalId = existingOrderExternalByUuid.get(row.order_id);
-            if (!externalId) continue;
-            const stage = normalizeProductionStageKey(row.stage);
-            if (!stage) continue;
+              for (const row of stageRows) {
+                const externalId = existingOrderExternalByUuid.get(
+                  row.order_id,
+                );
+                if (!externalId) continue;
+                const stage = normalizeProductionStageKey(row.stage);
+                if (!stage) continue;
 
-            const current = existingStagesByExternalId.get(externalId) ?? [];
-            current.push({
-              stage,
-              staffId: row.staff_id
-                ? (staffIdByUuid.get(row.staff_id) ?? null)
-                : null,
-              tokenAmount: asNumber(row.token_amount),
-              percentage: 0,
-            });
-            existingStagesByExternalId.set(externalId, current);
-          }
+                const current =
+                  existingStagesByExternalId.get(externalId) ?? [];
+                current.push({
+                  stage,
+                  staffId: row.staff_id
+                    ? (staffIdByUuid.get(row.staff_id) ?? null)
+                    : null,
+                  tokenAmount: asNumber(row.token_amount),
+                  percentage: 0,
+                });
+                existingStagesByExternalId.set(externalId, current);
+              }
 
-          // Keep existing rows that are missing from incoming payload.
-          // Clients can send stale/partial snapshots across tabs/devices; hard
-          // delete here can drop valid orders created/edited by other users.
+              // Keep existing rows that are missing from incoming payload.
+              // Clients can send stale/partial snapshots across tabs/devices; hard
+              // delete here can drop valid orders created/edited by other users.
 
-          for (const order of orders) {
-            upsertedOrderCount += 1;
-            const orderUuid = orderTaskUuid(businessId, order.id);
+              for (const order of orders) {
+                upsertedOrderCount += 1;
+                const orderUuid = orderTaskUuid(businessId, order.id);
 
-            const orderLockKey = `bakery_orders:${businessId}:${order.id}`;
-            await tx.$executeRaw`
+                const orderLockKey = `bakery_orders:${businessId}:${order.id}`;
+                await tx.$executeRaw`
               SELECT pg_advisory_xact_lock(hashtext(${orderLockKey}))
             `;
 
-            // REMOVED redundant FOR UPDATE query inside loop to speed up bulk upserts.
-            // Data is already available in existingOrderMap and protected by advisory lock.
+                // REMOVED redundant FOR UPDATE query inside loop to speed up bulk upserts.
+                // Data is already available in existingOrderMap and protected by advisory lock.
 
-            // ── Token capacity: calculate tokens for this order ──
-            const orderItems = (order.items || []).map((item) => ({
-              category: typeof item.category === "string" ? item.category : "",
-              subcategory:
-                typeof item.subcategory === "string"
-                  ? item.subcategory
-                  : undefined,
-              productName:
-                typeof item.productName === "string"
-                  ? item.productName
-                  : undefined,
-              size: typeof item.size === "string" ? item.size : undefined,
-              quantity:
-                typeof item.quantity === "number" ? item.quantity : undefined,
-              tokenDifficulty:
-                typeof item.tokenDifficulty === "string"
-                  ? item.tokenDifficulty
-                  : undefined,
-              customTokenPerUnit:
-                typeof item.customTokenPerUnit === "number"
-                  ? item.customTokenPerUnit
-                  : undefined,
-              cookieDifficultyBreakdown:
-                typeof item.cookieDifficultyBreakdown === "string"
-                  ? item.cookieDifficultyBreakdown
-                  : undefined,
-            }));
-            const tokenForOrder = calculateOrderTokenFromItems(orderItems);
-            const stageTemplates = resolveProductionStageTemplatesForCategory({
-              category: resolvePrimaryProductionCategory(orderItems),
-              profiles: bakerySettings.productionStageProfiles,
-            });
-            const staffByStage = PRODUCTION_STAGE_ORDER.reduce(
-              (acc, stageKey) => {
-                const matchingStage = order.productionStages.find(
-                  (stage) => stage.stage === stageKey,
+                // ── Token capacity: calculate tokens for this order ──
+                const orderItems = (order.items || []).map((item) => ({
+                  category:
+                    typeof item.category === "string" ? item.category : "",
+                  subcategory:
+                    typeof item.subcategory === "string"
+                      ? item.subcategory
+                      : undefined,
+                  productName:
+                    typeof item.productName === "string"
+                      ? item.productName
+                      : undefined,
+                  size: typeof item.size === "string" ? item.size : undefined,
+                  quantity:
+                    typeof item.quantity === "number"
+                      ? item.quantity
+                      : undefined,
+                  tokenDifficulty:
+                    typeof item.tokenDifficulty === "string"
+                      ? item.tokenDifficulty
+                      : undefined,
+                  customTokenPerUnit:
+                    typeof item.customTokenPerUnit === "number"
+                      ? item.customTokenPerUnit
+                      : undefined,
+                  cookieDifficultyBreakdown:
+                    typeof item.cookieDifficultyBreakdown === "string"
+                      ? item.cookieDifficultyBreakdown
+                      : undefined,
+                }));
+                const tokenForOrder = calculateOrderTokenFromItems(orderItems);
+                const stageTemplates =
+                  resolveProductionStageTemplatesForCategory({
+                    category: resolvePrimaryProductionCategory(orderItems),
+                    profiles: bakerySettings.productionStageProfiles,
+                  });
+                const staffByStage = PRODUCTION_STAGE_ORDER.reduce(
+                  (acc, stageKey) => {
+                    const matchingStage = order.productionStages.find(
+                      (stage) => stage.stage === stageKey,
+                    );
+                    if (matchingStage) {
+                      acc[stageKey] = matchingStage.staffId ?? null;
+                    } else {
+                      acc[stageKey] = order.assignedStaffUserId ?? null;
+                    }
+                    return acc;
+                  },
+                  {} as Record<ProductionStage, number | null>,
                 );
-                if (matchingStage) {
-                  acc[stageKey] = matchingStage.staffId ?? null;
-                } else {
-                  acc[stageKey] = order.assignedStaffUserId ?? null;
+                const productionStages = distributeProductionTokens({
+                  totalTokens: tokenForOrder,
+                  staffByStage,
+                  percentages:
+                    getProductionStagePercentagesFromTemplates(stageTemplates),
+                });
+                const existingCapacityOrder = existingCapacityById.get(
+                  order.id,
+                );
+                const currentPersistedItems =
+                  existingCapacityItemsMap.get(order.id) ?? [];
+                const currentPersistedAddresses =
+                  existingAddressesMap.get(order.id) ?? [];
+                const currentPersistedStages =
+                  existingStagesByExternalId.get(order.id) ?? [];
+                const hasCapacityChange = hasCapacityAffectingChange(
+                  existingCapacityOrder,
+                  order,
+                );
+                const shouldRewriteProductionTasks =
+                  !existingOrderMap.has(order.id) ||
+                  serializeProductionStagesForComparison(
+                    currentPersistedStages,
+                  ) !==
+                    serializeProductionStagesForComparison(productionStages);
+                const shouldRewriteOrderItems =
+                  !existingOrderMap.has(order.id) ||
+                  haveComparableValuesChanged(
+                    currentPersistedItems,
+                    order.items,
+                  );
+                const shouldRewriteOrderAddresses =
+                  !existingOrderMap.has(order.id) ||
+                  haveComparableValuesChanged(
+                    currentPersistedAddresses,
+                    order.deliveryAddresses,
+                  );
+                const insuranceFee = computeInsuranceFee({
+                  shippingQuote: order.shippingQuote,
+                  shipment: order.shipment,
+                  totalPrice: order.totalPrice,
+                });
+
+                // Determine difficulty label based on token per item ratio
+                let difficulty: string | null = null;
+                if (tokenForOrder > 0) {
+                  const avgToken =
+                    orderItems.length > 0
+                      ? tokenForOrder / orderItems.length
+                      : tokenForOrder;
+                  if (avgToken >= 3) difficulty = "difficult";
+                  else if (avgToken >= 2) difficulty = "medium";
+                  else difficulty = "simple";
                 }
-                return acc;
-              },
-              {} as Record<ProductionStage, number | null>,
-            );
-            const productionStages = distributeProductionTokens({
-              totalTokens: tokenForOrder,
-              staffByStage,
-              percentages:
-                getProductionStagePercentagesFromTemplates(stageTemplates),
-            });
-            const existingCapacityOrder = existingCapacityById.get(order.id);
-            const currentPersistedItems =
-              existingCapacityItemsMap.get(order.id) ?? [];
-            const currentPersistedAddresses =
-              existingAddressesMap.get(order.id) ?? [];
-            const currentPersistedStages =
-              existingStagesByExternalId.get(order.id) ?? [];
-            const hasCapacityChange = hasCapacityAffectingChange(
-              existingCapacityOrder,
-              order,
-            );
-            const shouldRewriteProductionTasks =
-              !existingOrderMap.has(order.id) ||
-              serializeProductionStagesForComparison(currentPersistedStages) !==
-                serializeProductionStagesForComparison(productionStages);
-            const shouldRewriteOrderItems =
-              !existingOrderMap.has(order.id) ||
-              haveComparableValuesChanged(currentPersistedItems, order.items);
-            const shouldRewriteOrderAddresses =
-              !existingOrderMap.has(order.id) ||
-              haveComparableValuesChanged(
-                currentPersistedAddresses,
-                order.deliveryAddresses,
-              );
-            const insuranceFee = computeInsuranceFee({
-              shippingQuote: order.shippingQuote,
-              shipment: order.shipment,
-              totalPrice: order.totalPrice,
-            });
 
-            // Determine difficulty label based on token per item ratio
-            let difficulty: string | null = null;
-            if (tokenForOrder > 0) {
-              const avgToken =
-                orderItems.length > 0
-                  ? tokenForOrder / orderItems.length
-                  : tokenForOrder;
-              if (avgToken >= 3) difficulty = "difficult";
-              else if (avgToken >= 2) difficulty = "medium";
-              else difficulty = "simple";
-            }
-
-            // ── Handle token changes for existing orders ──
-            const existingOrder = existingOrderMap.get(order.id);
-            const isActiveStatus = !INACTIVE_STATUSES.includes(
-              order.orderStatus || "",
-            );
-            const wasActive = existingOrder
-              ? !INACTIVE_STATUSES.includes(existingOrder.order_status || "")
-              : false;
-
-            const shouldValidateSchedule =
-              hasCapacityChange &&
-              isActiveStatus &&
-              (!existingOrder ||
-                !wasActive ||
-                existingOrder.delivery_date !== (order.deliveryDate || null));
-
-            // Enforce H-1 cutoff policy in backend as final authority.
-            if (shouldValidateSchedule && order.deliveryDate) {
-              if (!canBackfillPastOrders && isPastDate(order.deliveryDate)) {
-                throw new PastDateError(order.deliveryDate);
-              }
-
-              const capacity = await getCapacityForDate(
-                businessId,
-                order.deliveryDate,
-                tx,
-              );
-              const status = getCalendarStatus(
-                {
-                  usedToken: capacity.usedToken,
-                  maxToken: capacity.maxToken,
-                  date: order.deliveryDate,
-                },
-                undefined,
-                {
-                  blockedDates: bakerySettings.blockedDates,
-                  cutoffHour: bakerySettings.cutoffHour,
-                },
-              );
-
-              if (status === "BLOCKED") {
-                throw new CapacityBlockedDateError(order.deliveryDate);
-              }
-
-              if (!canBackfillPastOrders && status === "CUTOFF") {
-                throw new CapacityCutoffError(
-                  order.deliveryDate,
-                  bakerySettings.cutoffHour,
+                // ── Handle token changes for existing orders ──
+                const existingOrder = existingOrderMap.get(order.id);
+                const isActiveStatus = !INACTIVE_STATUSES.includes(
+                  order.orderStatus || "",
                 );
-              }
-            }
+                const wasActive = existingOrder
+                  ? !INACTIVE_STATUSES.includes(
+                      existingOrder.order_status || "",
+                    )
+                  : false;
 
-            // ── Release token lama jika ada perubahan pada order yang sudah ada ──
-            // Kasus: tanggal berubah, status jadi inactive, atau jumlah token berubah.
-            // Harus dilakukan sebelum consume token baru agar slot terbebas dulu.
-            let tokenWasReleased = false;
-            let releasedFromDate: string | null = null;
+                const shouldValidateSchedule =
+                  hasCapacityChange &&
+                  isActiveStatus &&
+                  (!existingOrder ||
+                    !wasActive ||
+                    existingOrder.delivery_date !==
+                      (order.deliveryDate || null));
 
-            if (
-              hasCapacityChange &&
-              existingOrder &&
-              existingOrder.delivery_date &&
-              existingOrder.token_used > 0 &&
-              wasActive
-            ) {
-              // Release old tokens if date changed, status changed to inactive, or token amount changed
-              const dateChanged =
-                existingOrder.delivery_date !== (order.deliveryDate || null);
-              const becameInactive = !isActiveStatus;
-              const tokenChanged = existingOrder.token_used !== tokenForOrder;
+                // Enforce H-1 cutoff policy in backend as final authority.
+                if (shouldValidateSchedule && order.deliveryDate) {
+                  if (
+                    !canBackfillPastOrders &&
+                    isPastDate(order.deliveryDate)
+                  ) {
+                    throw new PastDateError(order.deliveryDate);
+                  }
 
-              if (dateChanged || becameInactive || tokenChanged) {
-                await releaseToken(
-                  businessId,
-                  existingOrder.delivery_date,
-                  existingOrder.token_used,
-                  tx,
-                );
-                tokenWasReleased = true;
-                releasedFromDate = existingOrder.delivery_date;
-              }
-            }
+                  const capacity = await getCapacityForDate(
+                    businessId,
+                    order.deliveryDate,
+                    tx,
+                  );
+                  const status = getCalendarStatus(
+                    {
+                      usedToken: capacity.usedToken,
+                      maxToken: capacity.maxToken,
+                      date: order.deliveryDate,
+                    },
+                    undefined,
+                    {
+                      blockedDates: bakerySettings.blockedDates,
+                      cutoffHour: bakerySettings.cutoffHour,
+                    },
+                  );
 
-            // ── Consume token baru untuk order aktif dengan tanggal delivery ──
-            let finalTokenUsed = 0;
-            if (
-              hasCapacityChange &&
-              isActiveStatus &&
-              order.deliveryDate &&
-              tokenForOrder > 0
-            ) {
-              const existingTokenUsed = existingOrder?.token_used ?? 0;
-              const existingDeliveryDate = existingOrder?.delivery_date ?? null;
-              const dateChanged =
-                existingDeliveryDate !== (order.deliveryDate || null);
-              const tokenChanged = existingTokenUsed !== tokenForOrder;
-              const wasAlreadyActive = existingOrder ? wasActive : false;
+                  if (status === "BLOCKED") {
+                    throw new CapacityBlockedDateError(order.deliveryDate);
+                  }
 
-              const shouldConsume =
-                !existingOrder ||
-                !wasAlreadyActive ||
-                dateChanged ||
-                tokenChanged;
+                  if (!canBackfillPastOrders && status === "CUTOFF") {
+                    throw new CapacityCutoffError(
+                      order.deliveryDate,
+                      bakerySettings.cutoffHour,
+                    );
+                  }
+                }
 
-              if (shouldConsume) {
-                // Kasus khusus: token berubah, tanggal sama, order sudah ada dan aktif.
-                // Token lama sudah di-release di atas (tokenWasReleased = true).
-                // Gunakan atomic direct-set daripada consumeToken yang bisa gagal
-                // karena ledger stale setelah reconcile.
-                const tokenOnlySameDate =
-                  tokenWasReleased &&
-                  releasedFromDate === (order.deliveryDate || null) &&
-                  !dateChanged;
+                // ── Release token lama jika ada perubahan pada order yang sudah ada ──
+                // Kasus: tanggal berubah, status jadi inactive, atau jumlah token berubah.
+                // Harus dilakukan sebelum consume token baru agar slot terbebas dulu.
+                let tokenWasReleased = false;
+                let releasedFromDate: string | null = null;
 
-                if (tokenOnlySameDate) {
-                  // Direct atomic set: kita tahu slot sudah dibebaskan, aman langsung tulis
-                  await tx.$executeRaw`
+                if (
+                  hasCapacityChange &&
+                  existingOrder &&
+                  existingOrder.delivery_date &&
+                  existingOrder.token_used > 0 &&
+                  wasActive
+                ) {
+                  // Release old tokens if date changed, status changed to inactive, or token amount changed
+                  const dateChanged =
+                    existingOrder.delivery_date !==
+                    (order.deliveryDate || null);
+                  const becameInactive = !isActiveStatus;
+                  const tokenChanged =
+                    existingOrder.token_used !== tokenForOrder;
+
+                  if (dateChanged || becameInactive || tokenChanged) {
+                    await releaseToken(
+                      businessId,
+                      existingOrder.delivery_date,
+                      existingOrder.token_used,
+                      tx,
+                    );
+                    tokenWasReleased = true;
+                    releasedFromDate = existingOrder.delivery_date;
+                  }
+                }
+
+                // ── Consume token baru untuk order aktif dengan tanggal delivery ──
+                let finalTokenUsed = 0;
+                if (
+                  hasCapacityChange &&
+                  isActiveStatus &&
+                  order.deliveryDate &&
+                  tokenForOrder > 0
+                ) {
+                  const existingTokenUsed = existingOrder?.token_used ?? 0;
+                  const existingDeliveryDate =
+                    existingOrder?.delivery_date ?? null;
+                  const dateChanged =
+                    existingDeliveryDate !== (order.deliveryDate || null);
+                  const tokenChanged = existingTokenUsed !== tokenForOrder;
+                  const wasAlreadyActive = existingOrder ? wasActive : false;
+
+                  const shouldConsume =
+                    !existingOrder ||
+                    !wasAlreadyActive ||
+                    dateChanged ||
+                    tokenChanged;
+
+                  if (shouldConsume) {
+                    // Kasus khusus: token berubah, tanggal sama, order sudah ada dan aktif.
+                    // Token lama sudah di-release di atas (tokenWasReleased = true).
+                    // Gunakan atomic direct-set daripada consumeToken yang bisa gagal
+                    // karena ledger stale setelah reconcile.
+                    const tokenOnlySameDate =
+                      tokenWasReleased &&
+                      releasedFromDate === (order.deliveryDate || null) &&
+                      !dateChanged;
+
+                    if (tokenOnlySameDate) {
+                      // Direct atomic set: kita tahu slot sudah dibebaskan, aman langsung tulis
+                      await tx.$executeRaw`
                     INSERT INTO production_capacity (business_id, date, max_token, used_token, created_at, updated_at)
                     VALUES (
                       ${businessId},
@@ -3950,19 +3992,19 @@ export async function POST(request: NextRequest) {
                       ),
                       updated_at = NOW()
                   `;
-                  finalTokenUsed = tokenForOrder;
-                } else {
-                  // Standard consume path: order baru atau tanggal berubah
-                  const consumeResult = await consumeToken(
-                    businessId,
-                    order.deliveryDate,
-                    tokenForOrder,
-                    tx,
-                  );
-                  if (!consumeResult.success) {
-                    if (isPrivilegedRequest) {
-                      // Admin/Owner bypass: force consume tokens even if it exceeds max_token
-                      await tx.$executeRaw`
+                      finalTokenUsed = tokenForOrder;
+                    } else {
+                      // Standard consume path: order baru atau tanggal berubah
+                      const consumeResult = await consumeToken(
+                        businessId,
+                        order.deliveryDate,
+                        tokenForOrder,
+                        tx,
+                      );
+                      if (!consumeResult.success) {
+                        if (isPrivilegedRequest) {
+                          // Admin/Owner bypass: force consume tokens even if it exceeds max_token
+                          await tx.$executeRaw`
                         UPDATE production_capacity
                         SET 
                           used_token = used_token + ${tokenForOrder},
@@ -3970,34 +4012,34 @@ export async function POST(request: NextRequest) {
                         WHERE business_id = ${businessId}
                           AND date = ${order.deliveryDate}::date
                       `;
-                    } else {
-                      // Kapasitas penuh — tolak seluruh sync ini
-                      throw new CapacityFullError(
-                        `Production capacity full for ${order.deliveryDate}. ` +
-                          `Used: ${consumeResult.usedToken}/${consumeResult.maxToken}, ` +
-                          `Needed: ${tokenForOrder} for order ${order.id}.`,
-                        order.deliveryDate,
-                        consumeResult.usedToken,
-                        consumeResult.maxToken,
-                        tokenForOrder,
-                      );
+                        } else {
+                          // Kapasitas penuh — tolak seluruh sync ini
+                          throw new CapacityFullError(
+                            `Production capacity full for ${order.deliveryDate}. ` +
+                              `Used: ${consumeResult.usedToken}/${consumeResult.maxToken}, ` +
+                              `Needed: ${tokenForOrder} for order ${order.id}.`,
+                            order.deliveryDate,
+                            consumeResult.usedToken,
+                            consumeResult.maxToken,
+                            tokenForOrder,
+                          );
+                        }
+                      }
+                      finalTokenUsed = tokenForOrder;
                     }
+                  } else {
+                    // Tidak ada perubahan — pertahankan token yang ada
+                    finalTokenUsed = existingOrder?.token_used ?? 0;
                   }
-                  finalTokenUsed = tokenForOrder;
+                  capacityReconcileNeeded = true;
+                } else if (existingOrder) {
+                  finalTokenUsed = existingOrder.token_used ?? 0;
+                } else {
+                  finalTokenUsed =
+                    isActiveStatus && order.deliveryDate ? tokenForOrder : 0;
                 }
-              } else {
-                // Tidak ada perubahan — pertahankan token yang ada
-                finalTokenUsed = existingOrder?.token_used ?? 0;
-              }
-              capacityReconcileNeeded = true;
-            } else if (existingOrder) {
-              finalTokenUsed = existingOrder.token_used ?? 0;
-            } else {
-              finalTokenUsed =
-                isActiveStatus && order.deliveryDate ? tokenForOrder : 0;
-            }
 
-            await tx.$executeRaw`
+                await tx.$executeRaw`
             INSERT INTO bakery_orders (
               business_id,
               order_uuid,
@@ -4120,14 +4162,14 @@ export async function POST(request: NextRequest) {
               updated_at = NOW()
           `;
 
-            if (shouldRewriteProductionTasks) {
-              await tx.$executeRaw`
+                if (shouldRewriteProductionTasks) {
+                  await tx.$executeRaw`
                 DELETE FROM production_tasks
                 WHERE order_id = ${orderUuid}::uuid
               `;
 
-              for (const stage of productionStages) {
-                await tx.$executeRaw`
+                  for (const stage of productionStages) {
+                    await tx.$executeRaw`
                   INSERT INTO production_tasks (
                     id,
                     order_id,
@@ -4151,18 +4193,18 @@ export async function POST(request: NextRequest) {
                     staff_id = EXCLUDED.staff_id,
                     token_amount = EXCLUDED.token_amount
                 `;
-              }
-            }
+                  }
+                }
 
-            if (shouldRewriteOrderItems) {
-              await tx.$executeRaw`
+                if (shouldRewriteOrderItems) {
+                  await tx.$executeRaw`
               DELETE FROM bakery_order_items
               WHERE business_id = ${businessId} AND order_external_id = ${order.id}
             `;
 
-              for (let index = 0; index < order.items.length; index += 1) {
-                const item = order.items[index];
-                await tx.$executeRaw`
+                  for (let index = 0; index < order.items.length; index += 1) {
+                    const item = order.items[index];
+                    await tx.$executeRaw`
                 INSERT INTO bakery_order_items (
                   business_id,
                   order_external_id,
@@ -4175,23 +4217,23 @@ export async function POST(request: NextRequest) {
                   ${JSON.stringify(item)}::jsonb
                 )
               `;
-                insertedItemCount += 1;
-              }
-            }
+                    insertedItemCount += 1;
+                  }
+                }
 
-            if (shouldRewriteOrderAddresses) {
-              await tx.$executeRaw`
+                if (shouldRewriteOrderAddresses) {
+                  await tx.$executeRaw`
               DELETE FROM bakery_order_addresses
               WHERE business_id = ${businessId} AND order_external_id = ${order.id}
             `;
 
-              for (
-                let index = 0;
-                index < order.deliveryAddresses.length;
-                index += 1
-              ) {
-                const address = order.deliveryAddresses[index];
-                await tx.$executeRaw`
+                  for (
+                    let index = 0;
+                    index < order.deliveryAddresses.length;
+                    index += 1
+                  ) {
+                    const address = order.deliveryAddresses[index];
+                    await tx.$executeRaw`
                 INSERT INTO bakery_order_addresses (
                   business_id,
                   order_external_id,
@@ -4204,68 +4246,72 @@ export async function POST(request: NextRequest) {
                   ${JSON.stringify(address)}::jsonb
                 )
               `;
-                insertedAddressCount += 1;
+                    insertedAddressCount += 1;
+                  }
+                }
+
+                if (
+                  shouldRewriteOrderItems ||
+                  (existingOrder?.order_status ?? null) !==
+                    (order.orderStatus || null)
+                ) {
+                  const inventorySync = await syncBakeryOrderInventory(tx, {
+                    businessId,
+                    orderId: order.id,
+                    orderStatus: order.orderStatus || "",
+                    items: order.items.map((item) => ({
+                      category:
+                        typeof item.category === "string" ? item.category : "",
+                      subcategory:
+                        typeof item.subcategory === "string"
+                          ? item.subcategory
+                          : "",
+                      productName:
+                        typeof item.productName === "string"
+                          ? item.productName
+                          : "",
+                      size: typeof item.size === "string" ? item.size : "",
+                      quantity:
+                        typeof item.quantity === "number" ? item.quantity : 0,
+                    })),
+                  });
+
+                  inventorySync.unresolvedProducts.forEach((name) => {
+                    inventoryWarnings.add(
+                      `Inventory sync skipped for "${name}" on order ${order.id}`,
+                    );
+                  });
+                }
+
+                // Root Cause: Strict !existingOrder check prevented WA for revived/updated orders.
+                // Solution: Send WA if order is becoming active (was inactive/new and is now active).
+                const wasInactive =
+                  !existingOrder ||
+                  INACTIVE_STATUSES.includes(existingOrder.order_status || "");
+                const isBecomingActive = wasInactive && isActiveStatus;
+
+                if (isBecomingActive) {
+                  createdOrdersForWhatsApp.push({
+                    orderId: order.id,
+                    bookingCode: order.bookingCode || order.resi || order.id,
+                    payload: toWhatsAppPayload(order),
+                  });
+                }
+
+                existingOrderMap.set(order.id, {
+                  order_uuid: orderUuid,
+                  external_id: order.id,
+                  delivery_date: order.deliveryDate || null,
+                  token_used: finalTokenUsed,
+                  order_status: order.orderStatus || null,
+                  assigned_staff_user_id: order.assignedStaffUserId ?? null,
+                  simulations: order.simulations ?? null,
+                });
               }
-            }
 
-            if (
-              shouldRewriteOrderItems ||
-              (existingOrder?.order_status ?? null) !==
-                (order.orderStatus || null)
-            ) {
-              const inventorySync = await syncBakeryOrderInventory(tx, {
-                businessId,
-                orderId: order.id,
-                orderStatus: order.orderStatus || "",
-                items: order.items.map((item) => ({
-                  category:
-                    typeof item.category === "string" ? item.category : "",
-                  subcategory:
-                    typeof item.subcategory === "string" ? item.subcategory : "",
-                  productName:
-                    typeof item.productName === "string" ? item.productName : "",
-                  size: typeof item.size === "string" ? item.size : "",
-                  quantity:
-                    typeof item.quantity === "number" ? item.quantity : 0,
-                })),
-              });
-
-              inventorySync.unresolvedProducts.forEach((name) => {
-                inventoryWarnings.add(
-                  `Inventory sync skipped for "${name}" on order ${order.id}`,
-                );
-              });
-            }
-
-            // Root Cause: Strict !existingOrder check prevented WA for revived/updated orders.
-            // Solution: Send WA if order is becoming active (was inactive/new and is now active).
-            const wasInactive =
-              !existingOrder ||
-              INACTIVE_STATUSES.includes(existingOrder.order_status || "");
-            const isBecomingActive = wasInactive && isActiveStatus;
-
-            if (isBecomingActive) {
-              createdOrdersForWhatsApp.push({
-                orderId: order.id,
-                bookingCode: order.bookingCode || order.resi || order.id,
-                payload: toWhatsAppPayload(order),
-              });
-            }
-
-            existingOrderMap.set(order.id, {
-              order_uuid: orderUuid,
-              external_id: order.id,
-              delivery_date: order.deliveryDate || null,
-              token_used: finalTokenUsed,
-              order_status: order.orderStatus || null,
-              assigned_staff_user_id: order.assignedStaffUserId ?? null,
-              simulations: order.simulations ?? null,
-            });
-          }
-
-          if (capacityReconcileNeeded) {
-            // Hard reconcile token ledger only when schedule/status/items changed.
-            await tx.$executeRaw`
+              if (capacityReconcileNeeded) {
+                // Hard reconcile token ledger only when schedule/status/items changed.
+                await tx.$executeRaw`
               WITH active_tokens AS (
                 SELECT
                   delivery_date::date AS delivery_date,
@@ -4302,7 +4348,7 @@ export async function POST(request: NextRequest) {
                 updated_at = NOW()
             `;
 
-            await tx.$executeRaw`
+                await tx.$executeRaw`
               UPDATE production_capacity pc
               SET used_token = 0,
                   updated_at = NOW()
@@ -4318,37 +4364,41 @@ export async function POST(request: NextRequest) {
                     AND bo.token_used > 0
                 )
             `;
-          }
+              }
 
-          await upsertOrdersSnapshot(tx, {
-            businessId,
-            userId,
-            orders,
-            source: "rows",
-          });
+              await upsertOrdersSnapshot(tx, {
+                businessId,
+                userId,
+                orders,
+                source: "rows",
+              });
 
-          return {
-            deletedOrderCount,
-            upsertedOrderCount,
-            insertedItemCount,
-            insertedAddressCount,
-            inventoryWarnings: Array.from(inventoryWarnings),
-            createdOrdersForWhatsApp,
-          };
-          },
-          {
-            maxWait: 30_000,
-            timeout: 90_000,
-          },
-        );
+              return {
+                deletedOrderCount,
+                upsertedOrderCount,
+                insertedItemCount,
+                insertedAddressCount,
+                inventoryWarnings: Array.from(inventoryWarnings),
+                createdOrdersForWhatsApp,
+              };
+            },
+            {
+              maxWait: 30_000,
+              timeout: 90_000,
+            },
+          );
           break;
         } catch (err) {
           if (isPrismaConnectionTimeout(err) && _attempt <= maxDbRetries) {
             // eslint-disable-next-line no-console
-            console.warn(`[api/bookings/orders] DB timeout, retrying attempt ${_attempt}/${maxDbRetries}`);
+            console.warn(
+              `[api/bookings/orders] DB timeout, retrying attempt ${_attempt}/${maxDbRetries}`,
+            );
             // backoff before retrying
             // eslint-disable-next-line no-await-in-loop
-            await new Promise((r) => setTimeout(r, Math.min(5000, _attempt * 1000)));
+            await new Promise((r) =>
+              setTimeout(r, Math.min(5000, _attempt * 1000)),
+            );
             continue;
           }
           throw err;

@@ -41,9 +41,9 @@ const ORDER_PAYLOAD = {
         },
       ],
       addOnTotal: 210000,
-      notes: "Nama di Cake: Happy Birth Day Ayangku🩷\nUmur: 26\nRasa: Double choco\nDesign: 3 large cookies full body",
-      designNotes:
-        "3 large cookies full body",
+      notes:
+        "Nama di Cake: Happy Birth Day Ayangku🩷\nUmur: 26\nRasa: Double choco\nDesign: 3 large cookies full body",
+      designNotes: "3 large cookies full body",
     },
   ],
   deliveryAddresses: [
@@ -85,21 +85,24 @@ async function testWhatsAppAutomation() {
   try {
     // Step 1: Dev login untuk mendapatkan session
     console.log("[STEP 1] Dev login...");
-    const loginRes = await fetch(`${API_BASE}/api/dev-login?role=Admin&userId=1&businessId=1`, {
-      method: "GET",
-      redirect: "manual", // Manual redirect handling to capture cookies
-    });
-    
+    const loginRes = await fetch(
+      `${API_BASE}/api/dev-login?role=Admin&userId=1&businessId=1`,
+      {
+        method: "GET",
+        redirect: "manual", // Manual redirect handling to capture cookies
+      },
+    );
+
     // Extract cookies from Set-Cookie header
     const setCookieHeaders = loginRes.headers.getSetCookie?.() || [];
     const loginCookie = setCookieHeaders
       .map((c) => c.split(";")[0]) // Get only cookie name=value, strip attributes
       .join("; ");
-    
+
     if (!loginCookie) {
       throw new Error("No cookies received from dev-login");
     }
-    
+
     console.log(`✓ Dev login successful`);
     console.log(`  Cookies found: ${setCookieHeaders.length}`);
     console.log(`  Cookie: ${loginCookie?.substring(0, 60)}...\n`);
@@ -108,7 +111,9 @@ async function testWhatsAppAutomation() {
     console.log("[STEP 2] Creating order with 3 reference images...");
     console.log(`  Images: ${TEST_IMAGES.join(", ")}`);
     console.log(`  Booking Code: ${ORDER_PAYLOAD.bookingCode}`);
-    console.log(`  Customer: ${ORDER_PAYLOAD.customerName} (${ORDER_PAYLOAD.customerPhone})\n`);
+    console.log(
+      `  Customer: ${ORDER_PAYLOAD.customerName} (${ORDER_PAYLOAD.customerPhone})\n`,
+    );
 
     // Create a unique order for this test
     const testOrderPayload = {
@@ -117,18 +122,21 @@ async function testWhatsAppAutomation() {
       bookingCode: uniqueOrderId,
     };
 
-      // Also trigger automation endpoint directly (bypass heavy DB upsert) to test WA send
-      console.log("[STEP 2a] Triggering automation endpoint for WA...");
-      const autoRes = await fetch(`${API_BASE}/api/bookings/automations`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Cookie: loginCookie || "",
-        },
-        body: JSON.stringify({ eventType: "order_created", order: testOrderPayload }),
-      });
-      const autoData = await autoRes.json().catch(() => ({}));
-      console.log("  automation response:", JSON.stringify(autoData, null, 2));
+    // Also trigger automation endpoint directly (bypass heavy DB upsert) to test WA send
+    console.log("[STEP 2a] Triggering automation endpoint for WA...");
+    const autoRes = await fetch(`${API_BASE}/api/bookings/automations`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: loginCookie || "",
+      },
+      body: JSON.stringify({
+        eventType: "order_created",
+        order: testOrderPayload,
+      }),
+    });
+    const autoData = await autoRes.json().catch(() => ({}));
+    console.log("  automation response:", JSON.stringify(autoData, null, 2));
 
     const createRes = await fetch(`${API_BASE}/api/bookings/orders`, {
       method: "POST",
@@ -152,14 +160,20 @@ async function testWhatsAppAutomation() {
     console.log("✓ Order created successfully");
     console.log(`  Full response:`, JSON.stringify(createData, null, 2));
     console.log(`  upsertedOrderCount: ${createData.data?.upsertedOrderCount}`);
-    console.log(`  waNotificationQueued: ${createData.data?.waNotificationQueued}`);
-    console.log(`  waNotificationResults: ${createData.data?.waNotificationResults?.length ?? 0}\n`);
+    console.log(
+      `  waNotificationQueued: ${createData.data?.waNotificationQueued}`,
+    );
+    console.log(
+      `  waNotificationResults: ${createData.data?.waNotificationResults?.length ?? 0}\n`,
+    );
 
     // Step 3: Simulate order confirmation (untuk test automasi order_confirmed juga)
     if (createData.data?.waNotificationResults?.length > 0) {
       console.log("[STEP 3] Testing order_confirmed automation...");
       console.log(`  WA notification already sent in Step 2`);
-      console.log(`  Result: ${JSON.stringify(createData.data.waNotificationResults[0], null, 2)}`);
+      console.log(
+        `  Result: ${JSON.stringify(createData.data.waNotificationResults[0], null, 2)}`,
+      );
     }
 
     console.log("\n[TEST] Completed successfully!");

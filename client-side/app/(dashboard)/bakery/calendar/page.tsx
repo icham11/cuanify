@@ -130,8 +130,7 @@ function statusColor(status: string) {
   if (normalized === "Cancelled") return "#d9534f";
   if (normalized === "Delivered" || normalized === "Completed")
     return "#2d8a55";
-  if (normalized === "Delivery" || normalized === "Ready")
-    return "#cb6531";
+  if (normalized === "Delivery" || normalized === "Ready") return "#cb6531";
   if (normalized === "DP Paid" || normalized === "Quoted") return "#d3a423";
   return "#8a6a54";
 }
@@ -200,7 +199,8 @@ function CalendarToolbar({
       </div>
       <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-[11px] leading-5 text-[#8c6b57]">
-          Lihat periode lain dengan panah, lalu pakai tombol ini untuk kembali ke tanggal hari ini.
+          Lihat periode lain dengan panah, lalu pakai tombol ini untuk kembali
+          ke tanggal hari ini.
         </p>
         <button
           type="button"
@@ -841,10 +841,12 @@ export default function BakeryCalendarPage() {
                       const dateKey = toDateKey(date);
                       const status = statusByDate.get(dateKey) ?? "AVAILABLE";
 
-                      if (status === "PAST") return { className: "rbc-day-past" };
+                      if (status === "PAST")
+                        return { className: "rbc-day-past" };
                       if (status === "BLOCKED")
                         return { className: "rbc-day-blocked" };
-                      if (status === "FULL") return { className: "rbc-day-full" };
+                      if (status === "FULL")
+                        return { className: "rbc-day-full" };
                       if (status === "CUTOFF")
                         return { className: "rbc-day-cutoff" };
                       if (status === "WARNING")
@@ -1028,11 +1030,15 @@ export default function BakeryCalendarPage() {
 
             <div className="mt-3 grid grid-cols-4 gap-2">
               <div className="rounded-2xl border border-[#eadbcf] bg-[#fffaf5] px-2 py-2 text-center">
-                <p className="text-base font-bold text-[#1e140e]">{selectedCapacity.usedToken}</p>
+                <p className="text-base font-bold text-[#1e140e]">
+                  {selectedCapacity.usedToken}
+                </p>
                 <p className="mt-0.5 text-[10px] text-[#8a6a54]">Terpakai</p>
               </div>
               <div className="rounded-2xl border border-[#eadbcf] bg-[#fffaf5] px-2 py-2 text-center">
-                <p className="text-base font-bold text-[#1e140e]">{selectedCapacity.maxToken}</p>
+                <p className="text-base font-bold text-[#1e140e]">
+                  {selectedCapacity.maxToken}
+                </p>
                 <p className="mt-0.5 text-[10px] text-[#8a6a54]">Maks</p>
               </div>
               <div className="rounded-2xl border border-[#eadbcf] bg-[#fffaf5] px-2 py-2 text-center">
@@ -1042,7 +1048,9 @@ export default function BakeryCalendarPage() {
                 <p className="mt-0.5 text-[10px] text-[#8a6a54]">Sisa</p>
               </div>
               <div className="rounded-2xl border border-[#eadbcf] bg-[#fffaf5] px-2 py-2 text-center">
-                <p className="text-base font-bold text-[#1e140e]">{selectedDateOrdersAll.length}</p>
+                <p className="text-base font-bold text-[#1e140e]">
+                  {selectedDateOrdersAll.length}
+                </p>
                 <p className="mt-0.5 text-[10px] text-[#8a6a54]">Order</p>
               </div>
             </div>
@@ -1054,14 +1062,17 @@ export default function BakeryCalendarPage() {
                     className={`h-2 rounded-full ${
                       selectedCapacity.usedToken >= selectedCapacity.maxToken
                         ? "bg-[#d24f40]"
-                        : selectedCapacity.usedToken >= selectedCapacity.maxToken * 0.8
+                        : selectedCapacity.usedToken >=
+                            selectedCapacity.maxToken * 0.8
                           ? "bg-[#d3a423]"
                           : "bg-[#3d9958]"
                     }`}
                     style={{ width: `${selectedUsagePercent}%` }}
                   />
                 </div>
-                <p className="mt-1 text-[10px] text-[#8a6a54]">{selectedUsagePercent}% terpakai</p>
+                <p className="mt-1 text-[10px] text-[#8a6a54]">
+                  {selectedUsagePercent}% terpakai
+                </p>
               </div>
               <button
                 type="button"

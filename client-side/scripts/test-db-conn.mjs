@@ -24,8 +24,11 @@ function parseEnv(content) {
 }
 
 const env = parseEnv(rawEnv);
-const useDirect = process.argv.includes("--direct") || process.env.USE_DIRECT === "true";
-const chosen = useDirect ? env.DIRECT_URL || env.DATABASE_URL : env.DATABASE_URL || env.DIRECT_URL;
+const useDirect =
+  process.argv.includes("--direct") || process.env.USE_DIRECT === "true";
+const chosen = useDirect
+  ? env.DIRECT_URL || env.DATABASE_URL
+  : env.DATABASE_URL || env.DIRECT_URL;
 if (!chosen) {
   console.error("No DATABASE_URL or DIRECT_URL found in .env");
   process.exit(2);
@@ -33,7 +36,10 @@ if (!chosen) {
 
 process.env.DATABASE_URL = chosen;
 
-console.log("[test-db-conn] Using DATABASE_URL:", process.env.DATABASE_URL.replace(/:[^:@]+@/, ":****@"));
+console.log(
+  "[test-db-conn] Using DATABASE_URL:",
+  process.env.DATABASE_URL.replace(/:[^:@]+@/, ":****@"),
+);
 
 try {
   const { PrismaClient } = await import("@prisma/client");
@@ -58,8 +64,12 @@ try {
     process.exit(0);
   } catch (err) {
     console.error("[test-db-conn] Query error:", err);
-    try { await prisma.$disconnect(); } catch {}
-    try { await pool.end(); } catch {}
+    try {
+      await prisma.$disconnect();
+    } catch {}
+    try {
+      await pool.end();
+    } catch {}
     process.exit(1);
   }
 } catch (err) {
