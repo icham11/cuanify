@@ -18,6 +18,7 @@ import {
   format,
   getDay,
   parse,
+  setHours,
   startOfMonth,
   startOfWeek,
 } from "date-fns";
@@ -87,56 +88,52 @@ function toDateKey(value: Date) {
   return `${year}-${month}-${day}`;
 }
 
-function safeToDateKey(value: Date) {
-  if (!Number.isFinite(value.getTime())) return "";
-  try {
-    return toDateKey(value);
-  } catch {
-    return "";
-  }
+function safeToDateKey(value: Date | string | null | undefined) {
+  if (!value) return "";
+  const date = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(date.getTime())) return "";
+  return toDateKey(date);
 }
 
-function normalizeCalendarDeliveryDate(deliveryDate?: string) {
-  const raw = (deliveryDate ?? "").trim();
-  if (!raw) return "";
-
-  const normalized = normalizeDateInput(raw);
-  if (normalized) return normalized;
-
-  const isoPrefix = raw.match(/^(\d{4}-\d{2}-\d{2})/)?.[1];
-  if (!isoPrefix) return "";
-
-  return normalizeDateInput(isoPrefix) ?? "";
+function normalizeCalendarDeliveryDate(value: string | null | undefined) {
+  return normalizeDateInput(value ?? "") ?? "";
 }
 
-function parseOrderDateTime(deliveryDate?: string, deliverySlot?: string) {
-  const normalizedDate = normalizeCalendarDeliveryDate(deliveryDate);
+function parseOrderDateTime(dateValue: string, slotValue?: string | null) {
+  const normalizedDate = normalizeCalendarDeliveryDate(dateValue);
   if (!normalizedDate) return null;
 
-  const [year, month, day] = normalizedDate.split("-").map(Number);
-  if (![year, month, day].every((part) => Number.isFinite(part))) return null;
-  const [hours, minutes] = (deliverySlot ?? "09:00").split(":").map(Number);
-  const parsed = new Date(
-    year,
-    (month || 1) - 1,
-    day || 1,
-    hours || 9,
-    minutes || 0,
+  const timeValue = (slotValue ?? "").trim();
+  const timeMatch = timeValue.match(/^(\d{1,2})(?::(\d{2}))?$/);
+  const hours = timeMatch ? Number(timeMatch[1]) : 0;
+  const minutes = timeMatch && timeMatch[2] ? Number(timeMatch[2]) : 0;
+
+  const parsed = new Date(`${normalizedDate}T00:00:00`);
+  if (!Number.isFinite(parsed.getTime())) return null;
+
+  parsed.setHours(
+    Number.isFinite(hours) ? hours : 0,
+    Number.isFinite(minutes) ? minutes : 0,
     0,
     0,
   );
-  return Number.isFinite(parsed.getTime()) ? parsed : null;
-}
 
-function statusColor(status: BakeryOrder["orderStatus"]) {
-  if (status === "Confirmed" || status === "In Production") return "#f97316";
-  if (status === "Ready") return "#7c3aed";
-  if (status === "Delivered" || status === "Completed") return "#16a34a";
-  return "#4f46e5";
+  return parsed;
 }
 
 function getCalendarOrderItemSummary(order: BakeryOrder) {
-  return getOrderItemsSummary(order.items, order.product);
+  return getOrderItemsSummary(order.items ?? [], order.product ?? "Order");
+}
+
+function statusColor(status: string) {
+  const normalized = normalizeOrderStatus(status);
+  if (normalized === "Cancelled") return "#d9534f";
+  if (normalized === "Delivered" || normalized === "Completed")
+    return "#2d8a55";
+  if (normalized === "Delivery" || normalized === "Ready")
+    return "#cb6531";
+  if (normalized === "DP Paid" || normalized === "Quoted") return "#d3a423";
+  return "#8a6a54";
 }
 
 function getCalendarRange(date: Date, view: View) {
@@ -146,6 +143,7 @@ function getCalendarRange(date: Date, view: View) {
       end: endOfWeek(date, { weekStartsOn: 1 }),
     };
   }
+
   return {
     start: startOfMonth(date),
     end: endOfMonth(date),
@@ -173,35 +171,46 @@ function CalendarToolbar({
   const label = format(date, "MMMM yyyy", { locale: localeId });
 
   return (
-    <div className="mb-3 flex items-center justify-between gap-3">
-      <div className="flex items-center gap-2">
+    <div className="mb-3 w-full rounded-[20px] border border-[#ead8cb] bg-[#fffdfb] px-3 py-3 shadow-[0_18px_34px_-26px_rgba(47,30,19,0.34)] sm:px-4">
+      <div className="grid grid-cols-[44px_1fr_44px] items-center gap-2">
         <button
           type="button"
           onClick={() => onNavigate("PREV")}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-[#e1c5ac] bg-white text-[#7d4b26] transition hover:bg-[#fff0e1]"
+          className="inline-flex h-11 w-11 items-center justify-center rounded-[14px] border border-[#e3c8b0] bg-[#fff8f2] text-[#8c5633] transition hover:bg-[#ffefdf]"
           aria-label="Previous month"
         >
           <ChevronLeft className="h-4 w-4" />
         </button>
+        <div className="min-w-0 text-center">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#b48c72]">
+            Periode Aktif
+          </p>
+          <h3 className="truncate text-lg font-bold leading-tight text-[#22150d] sm:text-xl">
+            {label}
+          </h3>
+        </div>
         <button
           type="button"
           onClick={() => onNavigate("NEXT")}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-[#e1c5ac] bg-white text-[#7d4b26] transition hover:bg-[#fff0e1]"
+          className="inline-flex h-11 w-11 items-center justify-center rounded-[14px] border border-[#e3c8b0] bg-[#fff8f2] text-[#8c5633] transition hover:bg-[#ffefdf]"
           aria-label="Next month"
         >
           <ChevronRight className="h-4 w-4" />
         </button>
       </div>
-      <h3 className="text-lg font-bold text-[#22150d] sm:text-[1.7rem]">
-        {label}
-      </h3>
-      <button
-        type="button"
-        onClick={() => onNavigate("TODAY")}
-        className="rounded-full border border-[#df642b] bg-white px-3 py-1.5 text-[11px] font-semibold text-[#df642b] transition hover:bg-[#fff2ea]"
-      >
-        Hari Ini
-      </button>
+      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-[11px] leading-5 text-[#8c6b57]">
+          Lihat periode lain dengan panah, lalu pakai tombol ini untuk kembali ke tanggal hari ini.
+        </p>
+        <button
+          type="button"
+          onClick={() => onNavigate("TODAY")}
+          className="inline-flex h-10 shrink-0 items-center justify-center rounded-full border border-[#df642b] bg-[#fff4ec] px-4 text-sm font-semibold text-[#d1642d] transition hover:bg-[#ffe9db]"
+          title="Kembali ke minggu atau bulan yang memuat tanggal hari ini"
+        >
+          Ke Periode Hari Ini
+        </button>
+      </div>
     </div>
   );
 }
@@ -232,11 +241,33 @@ export default function BakeryCalendarPage() {
     connectedEmail: string | null;
     calendarId: string | null;
   }>({ connected: false, connectedEmail: null, calendarId: null });
+  const [isNarrowLayout, setIsNarrowLayout] = useState(false);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(max-width: 768px)");
+    const syncViewport = (matches: boolean) => {
+      setIsNarrowLayout(matches);
+    };
+
+    syncViewport(mediaQuery.matches);
+
+    const handleChange = (event: MediaQueryListEvent) => {
+      syncViewport(event.matches);
+    };
+
+    mediaQuery.addEventListener("change", handleChange);
+    return () => {
+      mediaQuery.removeEventListener("change", handleChange);
+    };
+  }, []);
 
   const calendarRange = useMemo(
     () => getCalendarRange(currentDate, currentView),
     [currentDate, currentView],
   );
+  const calendarMinTime = useMemo(() => setHours(new Date(), 6), []);
+  const calendarMaxTime = useMemo(() => setHours(new Date(), 21), []);
+  const calendarScrollToTime = useMemo(() => setHours(new Date(), 8), []);
 
   const {
     getCapacity,
@@ -681,28 +712,28 @@ export default function BakeryCalendarPage() {
         icon={IconCalendar}
       />
 
-      <section className="space-y-3 rounded-3xl border border-[#e2d1c3] bg-white p-3 shadow-sm md:p-4 lg:p-5 lg:shadow-[0_8px_16px_-8px_rgba(30,18,10,0.1)]">
-        <div className="grid gap-3 lg:gap-4 lg:grid-cols-[1fr_minmax(300px,0.85fr)]">
-          <div className="rounded-3xl border border-[#e2d1c3] bg-gradient-to-br from-[#fffaf4] to-[#fffdf9] p-3 md:p-4 lg:p-5">
-            <div className="flex flex-col items-start justify-between gap-3 border-b border-[#e8dcd0] pb-3 md:gap-4 md:pb-4 sm:flex-row sm:items-center">
+      <section className="min-w-0 space-y-3 rounded-3xl border border-[#e2d1c3] bg-white p-3 shadow-sm md:p-4 lg:p-5 lg:shadow-[0_8px_16px_-8px_rgba(30,18,10,0.1)]">
+        <div className="min-w-0 grid gap-3 lg:gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(300px,0.85fr)]">
+          <div className="min-w-0 rounded-3xl border border-[#e2d1c3] bg-linear-to-br from-[#fffaf4] to-[#fffdf9] p-3 md:p-4 lg:p-5">
+            <div className="flex flex-col items-start justify-between gap-3 border-b border-[#e8dcd0] pb-3 md:flex-row md:items-center md:gap-4 md:pb-4">
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <h1 className="text-lg font-bold leading-tight text-[#1f140d] md:text-xl">
                     📅 Calendar
                   </h1>
                 </div>
-                <p className="mt-1.5 text-xs text-[#8a6a54] md:text-sm">
+                <p className="mt-1 text-xs text-[#8a6a54] md:text-sm">
                   Kapasitas {calendarMaxToken} tok/hari · 2 staff aktif
                 </p>
               </div>
 
-              <div className="inline-flex shrink-0 rounded-full border border-[#dcc7b8] bg-[#f8f1e8] p-1">
+              <div className="grid w-full shrink-0 grid-cols-2 rounded-full border border-[#e3cdbd] bg-[#fbf5ef] p-1 md:inline-flex md:w-auto">
                 <button
                   type="button"
                   onClick={() => setCurrentView(Views.WEEK)}
-                  className={`rounded-full px-2.5 py-1 text-xs font-semibold transition md:px-3 md:py-1.5 md:text-sm ${
+                  className={`rounded-full px-2.5 py-2 text-center text-xs font-semibold transition md:px-3 md:py-1.5 md:text-sm ${
                     currentView === Views.WEEK
-                      ? "bg-white text-[#4c2b15] shadow-sm"
+                      ? "bg-white text-[#4c2b15] shadow-[0_8px_18px_-14px_rgba(47,30,19,0.35)]"
                       : "text-[#8a6a54] hover:text-[#5c3e2e]"
                   }`}
                 >
@@ -711,9 +742,9 @@ export default function BakeryCalendarPage() {
                 <button
                   type="button"
                   onClick={() => setCurrentView(Views.MONTH)}
-                  className={`rounded-full px-2.5 py-1 text-xs font-semibold transition md:px-3 md:py-1.5 md:text-sm ${
+                  className={`rounded-full px-2.5 py-2 text-center text-xs font-semibold transition md:px-3 md:py-1.5 md:text-sm ${
                     currentView === Views.MONTH
-                      ? "bg-[#cb6837] text-white shadow-sm"
+                      ? "bg-[#cb6837] text-white shadow-[0_10px_18px_-14px_rgba(203,104,55,0.8)]"
                       : "text-[#8a6a54] hover:text-[#5c3e2e]"
                   }`}
                 >
@@ -728,7 +759,7 @@ export default function BakeryCalendarPage() {
               </div>
             )}
 
-            <div className="mt-3 rounded-2xl border border-[#dcc7b8] bg-[#fffdf9] p-3 md:mt-4 md:p-4">
+            <div className="mt-3 min-w-0 rounded-[24px] border border-[#dcc7b8] bg-[#fffdf9] p-2.5 md:mt-4 md:p-4">
               {isCapacityLoading && (
                 <div className="flex items-center justify-center gap-2 pb-3 text-xs font-medium text-[#8c5f44] md:text-sm">
                   <Loader2 className="h-4 w-4 animate-spin text-[#cb6837]" />
@@ -737,82 +768,101 @@ export default function BakeryCalendarPage() {
               )}
 
               <div
-                className={`w-full overflow-auto rounded-xl border border-[#e2d1c3] bg-white ${
-                  currentView === Views.MONTH
-                    ? "h-[640px] sm:h-[720px] md:h-[800px] lg:h-[920px] xl:h-[980px]"
-                    : "h-[420px] sm:h-[520px] md:h-[620px] lg:h-[700px]"
+                className={`w-full max-w-full rounded-xl border border-[#e2d1c3] bg-white overscroll-contain ${
+                  isNarrowLayout
+                    ? currentView === Views.MONTH
+                      ? "overflow-auto touch-pan-x touch-pan-y h-[22rem]"
+                      : "overflow-auto touch-pan-x touch-pan-y h-[28rem]"
+                    : currentView === Views.MONTH
+                      ? "overflow-x-auto overflow-y-hidden md:overflow-x-hidden h-[28rem] sm:h-[32rem] md:h-[36rem] lg:h-[41rem] xl:h-[44rem]"
+                      : "overflow-x-auto overflow-y-hidden md:overflow-x-hidden h-[25rem] sm:h-[30rem] md:h-[34rem] lg:h-[38rem]"
                 }`}
               >
-                <Calendar
-                  localizer={localizer}
-                  culture="id"
-                  events={visibleEvents}
-                  startAccessor="start"
-                  endAccessor="end"
-                  date={currentDate}
-                  view={currentView}
-                  defaultView={Views.MONTH}
-                  views={[Views.MONTH, Views.WEEK]}
-                  selectable
-                  popup
-                  onNavigate={(newDate) => setCurrentDate(newDate)}
-                  onView={(nextView) => setCurrentView(nextView)}
-                  onSelectSlot={(slotInfo) => {
-                    openDateOrdersPopup(slotInfo.start);
-                  }}
-                  onSelectEvent={(event) => {
-                    if (event.resource.source === "internal") {
-                      router.push(
-                        `/bakery/bookings/${event.resource.order.id}`,
-                      );
-                      return;
-                    }
-                    if (event.resource.htmlLink) {
-                      window.open(
-                        event.resource.htmlLink,
-                        "_blank",
-                        "noopener,noreferrer",
-                      );
-                    }
-                  }}
-                  eventPropGetter={(event) => ({
-                    style: {
-                      backgroundColor:
-                        event.resource.source === "internal"
-                          ? statusColor(event.resource.order.orderStatus)
-                          : "#0ea5e9",
-                      color: "#ffffff",
-                      border: "none",
-                      borderRadius: "6px",
-                      padding: "1px 4px",
-                      fontSize: "10px",
-                    },
-                  })}
-                  dayPropGetter={(date) => {
-                    const dateKey = toDateKey(date);
-                    const status = statusByDate.get(dateKey) ?? "AVAILABLE";
+                <div
+                  className={`h-full ${
+                    currentView === Views.MONTH
+                      ? isNarrowLayout
+                        ? "w-[560px] min-h-[31rem]"
+                        : "min-w-[720px] md:min-w-full"
+                      : isNarrowLayout
+                        ? "w-[620px] min-h-[32rem]"
+                        : "min-w-[840px] md:min-w-full"
+                  }`}
+                >
+                  <Calendar
+                    localizer={localizer}
+                    culture="id"
+                    events={visibleEvents}
+                    startAccessor="start"
+                    endAccessor="end"
+                    date={currentDate}
+                    view={currentView}
+                    defaultView={isNarrowLayout ? Views.WEEK : Views.MONTH}
+                    views={[Views.MONTH, Views.WEEK]}
+                    min={calendarMinTime}
+                    max={calendarMaxTime}
+                    scrollToTime={calendarScrollToTime}
+                    selectable
+                    popup
+                    onNavigate={(newDate) => setCurrentDate(newDate)}
+                    onView={(nextView) => setCurrentView(nextView)}
+                    onSelectSlot={(slotInfo) => {
+                      openDateOrdersPopup(slotInfo.start);
+                    }}
+                    onSelectEvent={(event) => {
+                      if (event.resource.source === "internal") {
+                        router.push(
+                          `/bakery/bookings/${event.resource.order.id}`,
+                        );
+                        return;
+                      }
+                      if (event.resource.htmlLink) {
+                        window.open(
+                          event.resource.htmlLink,
+                          "_blank",
+                          "noopener,noreferrer",
+                        );
+                      }
+                    }}
+                    eventPropGetter={(event) => ({
+                      style: {
+                        backgroundColor:
+                          event.resource.source === "internal"
+                            ? statusColor(event.resource.order.orderStatus)
+                            : "#0ea5e9",
+                        color: "#ffffff",
+                        border: "none",
+                        borderRadius: "6px",
+                        padding: "1px 4px",
+                        fontSize: "10px",
+                      },
+                    })}
+                    dayPropGetter={(date) => {
+                      const dateKey = toDateKey(date);
+                      const status = statusByDate.get(dateKey) ?? "AVAILABLE";
 
-                    if (status === "PAST") return { className: "rbc-day-past" };
-                    if (status === "BLOCKED")
-                      return { className: "rbc-day-blocked" };
-                    if (status === "FULL") return { className: "rbc-day-full" };
-                    if (status === "CUTOFF")
-                      return { className: "rbc-day-cutoff" };
-                    if (status === "WARNING")
-                      return { className: "rbc-day-warning" };
-                    return { className: "rbc-day-normal" };
-                  }}
-                  components={{
-                    toolbar: CalendarToolbar,
-                    event: CalendarEventItem,
-                    month: {
-                      dateHeader: DateHeader,
-                    },
-                  }}
-                />
+                      if (status === "PAST") return { className: "rbc-day-past" };
+                      if (status === "BLOCKED")
+                        return { className: "rbc-day-blocked" };
+                      if (status === "FULL") return { className: "rbc-day-full" };
+                      if (status === "CUTOFF")
+                        return { className: "rbc-day-cutoff" };
+                      if (status === "WARNING")
+                        return { className: "rbc-day-warning" };
+                      return { className: "rbc-day-normal" };
+                    }}
+                    components={{
+                      toolbar: CalendarToolbar,
+                      event: CalendarEventItem,
+                      month: {
+                        dateHeader: DateHeader,
+                      },
+                    }}
+                  />
+                </div>
               </div>
 
-              <div className="mt-3 flex flex-wrap gap-x-2 gap-y-1.5 rounded-xl border border-[#dcc7b8] bg-[#faf7f3] px-3 py-2.5 text-[10px] font-medium text-[#8a6a54] md:gap-x-3 md:gap-y-2 md:px-4 md:py-3 md:text-xs">
+              <div className="mt-3 flex flex-wrap gap-x-2 gap-y-1.5 rounded-[18px] border border-[#dcc7b8] bg-[#faf7f3] px-3 py-2.5 text-[10px] font-medium text-[#8a6a54] md:gap-x-3 md:gap-y-2 md:px-4 md:py-3 md:text-xs">
                 <span className="inline-flex items-center gap-1">
                   <span className="h-2 w-2 rounded-full bg-[#bdb4ae]" /> Passed
                 </span>
@@ -839,8 +889,8 @@ export default function BakeryCalendarPage() {
             </div>
           </div>
 
-          {selectedDate && selectedCapacity ? (
-            <div className="mt-4 overflow-hidden rounded-3xl border border-[#dcc7b8] bg-gradient-to-br from-[#fffaf4] to-[#fffdf9] lg:mt-0 lg:sticky lg:top-4 lg:self-start">
+          {!isNarrowLayout && selectedDate && selectedCapacity ? (
+            <div className="mt-4 overflow-hidden rounded-3xl border border-[#dcc7b8] bg-linear-to-br from-[#fffaf4] to-[#fffdf9] lg:mt-0 lg:sticky lg:top-4 lg:self-start">
               <div className="flex flex-col items-start justify-between gap-3 border-b border-[#e8dcd0] bg-[#f8f1e8] px-4 py-3 md:flex-row md:items-center md:px-5 md:py-4">
                 <div className="min-w-0 flex-1">
                   <p className="text-base font-bold leading-tight text-[#cb6837] md:text-lg">
@@ -940,6 +990,89 @@ export default function BakeryCalendarPage() {
             </div>
           ) : null}
         </div>
+
+        {isNarrowLayout && selectedDate && selectedCapacity ? (
+          <div className="fixed inset-x-3 bottom-3 z-40 rounded-[28px] border border-[#e5cdb8] bg-white/96 p-3 shadow-[0_28px_56px_-30px_rgba(47,30,19,0.5)] backdrop-blur">
+            <div className="mx-auto mb-2 h-1.5 w-14 rounded-full bg-[#ebd8cc]" />
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-bold text-[#c86432]">
+                  {selectedDateLabel}
+                </p>
+                <p
+                  className={`mt-1 text-xs font-medium ${
+                    selectedStatus === "PAST"
+                      ? "text-[#8d837c]"
+                      : selectedStatus === "BLOCKED"
+                        ? "text-[#dc6e59]"
+                        : selectedStatus === "FULL"
+                          ? "text-[#d7662d]"
+                          : selectedStatus === "WARNING"
+                            ? "text-[#a27516]"
+                            : selectedStatus === "CUTOFF"
+                              ? "text-[#d24f40]"
+                              : "text-[#4f8b57]"
+                  }`}
+                >
+                  {selectedStatusMessage}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => router.push("/bakery/bookings/new")}
+                className="shrink-0 rounded-full bg-[#cb6837] px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#b15a31]"
+              >
+                + Booking
+              </button>
+            </div>
+
+            <div className="mt-3 grid grid-cols-4 gap-2">
+              <div className="rounded-2xl border border-[#eadbcf] bg-[#fffaf5] px-2 py-2 text-center">
+                <p className="text-base font-bold text-[#1e140e]">{selectedCapacity.usedToken}</p>
+                <p className="mt-0.5 text-[10px] text-[#8a6a54]">Terpakai</p>
+              </div>
+              <div className="rounded-2xl border border-[#eadbcf] bg-[#fffaf5] px-2 py-2 text-center">
+                <p className="text-base font-bold text-[#1e140e]">{selectedCapacity.maxToken}</p>
+                <p className="mt-0.5 text-[10px] text-[#8a6a54]">Maks</p>
+              </div>
+              <div className="rounded-2xl border border-[#eadbcf] bg-[#fffaf5] px-2 py-2 text-center">
+                <p className="text-base font-bold text-[#2d8a55]">
+                  {selectedCapacity.maxToken - selectedCapacity.usedToken}
+                </p>
+                <p className="mt-0.5 text-[10px] text-[#8a6a54]">Sisa</p>
+              </div>
+              <div className="rounded-2xl border border-[#eadbcf] bg-[#fffaf5] px-2 py-2 text-center">
+                <p className="text-base font-bold text-[#1e140e]">{selectedDateOrdersAll.length}</p>
+                <p className="mt-0.5 text-[10px] text-[#8a6a54]">Order</p>
+              </div>
+            </div>
+
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="h-2 rounded-full bg-[#efe1d6]">
+                  <div
+                    className={`h-2 rounded-full ${
+                      selectedCapacity.usedToken >= selectedCapacity.maxToken
+                        ? "bg-[#d24f40]"
+                        : selectedCapacity.usedToken >= selectedCapacity.maxToken * 0.8
+                          ? "bg-[#d3a423]"
+                          : "bg-[#3d9958]"
+                    }`}
+                    style={{ width: `${selectedUsagePercent}%` }}
+                  />
+                </div>
+                <p className="mt-1 text-[10px] text-[#8a6a54]">{selectedUsagePercent}% terpakai</p>
+              </div>
+              <button
+                type="button"
+                onClick={openSelectedDateInBookings}
+                className="shrink-0 rounded-full border border-[#e6d1be] bg-[#fff7f0] px-3 py-2 text-[11px] font-semibold text-[#8a4b22]"
+              >
+                Lihat Booking
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         {/* Date Orders Popup */}
         {isDateOrdersPopupOpen ? (
@@ -1163,7 +1296,7 @@ export default function BakeryCalendarPage() {
         }
 
         .rbc-month-row {
-          min-height: clamp(72px, 13vw, 108px);
+          min-height: clamp(76px, 13vw, 112px);
         }
 
         @media (min-width: 1280px) {
@@ -1229,7 +1362,51 @@ export default function BakeryCalendarPage() {
         }
 
         .rbc-toolbar {
+          display: block;
+          width: 100%;
           margin-bottom: 0;
+        }
+
+        @media (max-width: 639px) {
+          .rbc-month-view {
+            min-height: 31rem;
+          }
+
+          .rbc-time-view {
+            min-height: 32rem;
+          }
+
+          .rbc-header {
+            padding: 0.45rem 0;
+            font-size: 0.6rem;
+            letter-spacing: 0.08em;
+          }
+
+          .rbc-month-row {
+            min-height: 62px;
+          }
+
+          .rbc-date-cell {
+            padding: 2px 3px 1px;
+          }
+
+          .rbc-show-more {
+            font-size: 0.58rem;
+          }
+
+          .rbc-date-cell > a {
+            font-size: 0.72rem;
+          }
+
+          .rbc-time-header-content,
+          .rbc-time-content {
+            min-width: 0;
+          }
+
+          .rbc-time-gutter,
+          .rbc-label {
+            font-size: 0.65rem;
+          }
         }
       `}</style>
     </div>

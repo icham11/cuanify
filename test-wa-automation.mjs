@@ -114,7 +114,21 @@ async function testWhatsAppAutomation() {
     const testOrderPayload = {
       ...ORDER_PAYLOAD,
       id: uniqueOrderId,
+      bookingCode: uniqueOrderId,
     };
+
+      // Also trigger automation endpoint directly (bypass heavy DB upsert) to test WA send
+      console.log("[STEP 2a] Triggering automation endpoint for WA...");
+      const autoRes = await fetch(`${API_BASE}/api/bookings/automations`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: loginCookie || "",
+        },
+        body: JSON.stringify({ eventType: "order_created", order: testOrderPayload }),
+      });
+      const autoData = await autoRes.json().catch(() => ({}));
+      console.log("  automation response:", JSON.stringify(autoData, null, 2));
 
     const createRes = await fetch(`${API_BASE}/api/bookings/orders`, {
       method: "POST",

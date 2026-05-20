@@ -72,10 +72,11 @@ function resolveDatabaseUrl() {
   const directUrl = normalizeSupabaseDatabaseUrl(process.env.DIRECT_URL ?? "");
   const forceDirectRuntime = process.env.PRISMA_RUNTIME_USE_DIRECT_URL === "true";
 
-  // For the app runtime, prefer the pooled URL when available so background
-  // polling and concurrent route handlers do not exhaust direct Supabase slots.
-  // Direct URLs remain available for scripts/migrations via prisma.config.ts.
-  if (!forceDirectRuntime && databaseUrl && isSupabasePoolerUrl(databaseUrl)) {
+  if (forceDirectRuntime && directUrl && !isSupabasePoolerUrl(directUrl)) {
+    return directUrl;
+  }
+
+  if (databaseUrl) {
     return databaseUrl;
   }
 
@@ -83,13 +84,24 @@ function resolveDatabaseUrl() {
     return directUrl;
   }
 
-  return databaseUrl || directUrl;
+  return directUrl;
 }
 
 function createPrismaClient() {
   const rawUrl = resolveDatabaseUrl();
   const cleanUrl = rawUrl.replace(/[?&]sslmode=[^&]*/g, "").replace(/\?$/, "");
+  try {
+    const parsed = new URL(cleanUrl);
+    const host = parsed.hostname || cleanUrl;
+    const info = `host=${host}`;
+    // Log which DB URL form we're using to aid debugging timeouts
+    // eslint-disable-next-line no-console
+    console.log(`[Prisma] Resolved DB -> ${info}`);
+  } catch (e) {
+    // ignore logging failures
+  }
   const isProduction = process.env.NODE_ENV === "production";
+  const isDevelopment = process.env.NODE_ENV !== "production";
 
   const isSupabaseSessionPooler = isSupabaseSessionPoolerUrl(cleanUrl);
   const usesSupabasePooler = isSupabasePoolerUrl(cleanUrl);
@@ -106,15 +118,18 @@ function createPrismaClient() {
   // In Next.js, multiple route workers can exist at once, so even a modest
   // per-process pool quickly exhausts that limit. Force a single DB session
   // per runtime process for this transport and let requests queue instead.
+  // More tolerant defaults in development to reduce transient timeouts.
   const defaultPoolMax = isSupabaseSessionPooler
     ? 1
-    : usesSupabasePooler
-      ? 2
-      : usesSupabaseDirect
+    : isDevelopment
+      ? 10
+      : usesSupabasePooler
         ? 2
-      : isProduction
-        ? 10
-        : 5;
+        : usesSupabaseDirect
+          ? 2
+        : isProduction
+          ? 10
+          : 5;
   const requestedPoolMax = parsePositiveInteger(
     process.env.PGPOOL_MAX,
     defaultPoolMax,
@@ -124,11 +139,11 @@ function createPrismaClient() {
     : requestedPoolMax;
   const connectionTimeoutMillis = Number(
     process.env.PGPOOL_CONNECTION_TIMEOUT_MS ??
-      (usesSupabasePooler ? 5000 : 10000),
+      (isDevelopment ? 30000 : usesSupabasePooler ? 5000 : 10000),
   );
   const idleTimeoutMillis = Number(
     process.env.PGPOOL_IDLE_TIMEOUT_MS ??
-      (isSupabaseSessionPooler ? 5000 : 10000),
+      (isDevelopment ? 30000 : isSupabaseSessionPooler ? 5000 : 10000),
   );
 
   const pool =

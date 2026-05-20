@@ -2161,6 +2161,15 @@ function normalizeOrder(raw: unknown, index: number): NormalizedOrder | null {
 }
 
 async function ensureBakeryTables() {
+  // Allow disabling runtime DDL in environments where migrations are
+  // applied ahead-of-time. This avoids long DDL runs during requests that
+  // can cause connection timeouts with pooled DB proxies.
+  if (process.env.SKIP_RUNTIME_DDL === "true") {
+    // eslint-disable-next-line no-console
+    console.log("[DDL] SKIP_RUNTIME_DDL=true — skipping runtime bakery table ensures");
+    return;
+  }
+
   if (bakeryTablesEnsuredPromise) {
     await bakeryTablesEnsuredPromise;
     return;
@@ -3613,8 +3622,13 @@ export async function POST(request: NextRequest) {
     try {
       await ensureBakeryTables();
 
-      const transactionSummary = await prisma.$transaction(
-        async (tx) => {
+      let transactionSummary: any;
+      const maxDbRetries = Number(process.env.DB_RETRY_COUNT ?? 2);
+      let _attempt = 0;
+      while (true) {
+        _attempt++;
+        try {
+          transactionSummary = await prisma.$transaction(async (tx) => {
           const deletedOrderCount = 0;
           let upsertedOrderCount = 0;
           let insertedItemCount = 0;
@@ -4321,12 +4335,25 @@ export async function POST(request: NextRequest) {
             inventoryWarnings: Array.from(inventoryWarnings),
             createdOrdersForWhatsApp,
           };
-        },
-        {
-          maxWait: 30_000,
-          timeout: 90_000,
-        },
-      );
+          },
+          {
+            maxWait: 30_000,
+            timeout: 90_000,
+          },
+        );
+          break;
+        } catch (err) {
+          if (isPrismaConnectionTimeout(err) && _attempt <= maxDbRetries) {
+            // eslint-disable-next-line no-console
+            console.warn(`[api/bookings/orders] DB timeout, retrying attempt ${_attempt}/${maxDbRetries}`);
+            // backoff before retrying
+            // eslint-disable-next-line no-await-in-loop
+            await new Promise((r) => setTimeout(r, Math.min(5000, _attempt * 1000)));
+            continue;
+          }
+          throw err;
+        }
+      }
 
       const { createdOrdersForWhatsApp, ...summaryStats } = transactionSummary;
 
