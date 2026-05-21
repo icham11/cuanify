@@ -8,7 +8,7 @@ async function hasActiveSession(): Promise<boolean> {
   try {
     const response = await fetch("/api/auth/me", {
       method: "GET",
-      credentials: "same-origin",
+      credentials: "include",
       cache: "no-store",
     });
     return response.ok;
@@ -89,7 +89,7 @@ export default function LoginPage() {
 
       const res = await fetch("/api/auth/login", {
         method: "POST",
-        credentials: "same-origin",
+        credentials: "include",
         cache: "no-store",
         headers: {
           "Content-Type": "application/json",
@@ -102,9 +102,11 @@ export default function LoginPage() {
         throw new Error(text);
       }
 
-      const sessionReady = await waitForActiveSession();
+      const sessionReady = await waitForActiveSession(1500);
       if (!sessionReady) {
-        throw new Error("Sesi login belum siap. Coba klik masuk sekali lagi.");
+        // Android WebView/tablet browsers can apply Set-Cookie slightly later
+        // for follow-up fetches even though the login itself already succeeded.
+        await new Promise((resolve) => setTimeout(resolve, 300));
       }
 
       window.location.replace("/api/auth/post-login");

@@ -2049,7 +2049,7 @@ async function upsertOrdersSnapshot(
   db: SnapshotStore,
   params: {
     businessId: number;
-    userId: number;
+    userId: number | null;
     orders: NormalizedOrder[];
     source: SnapshotSource;
   },
@@ -2758,6 +2758,31 @@ export async function GET(request: NextRequest) {
               updatedAt: snapshotUpdatedAt,
             },
           });
+        }
+
+        if (
+          !snapshotUpdatedAt ||
+          !rowUpdatedAt ||
+          new Date(snapshotUpdatedAt).getTime() <
+            new Date(rowUpdatedAt).getTime()
+        ) {
+          try {
+            await upsertOrdersSnapshot(prisma, {
+              businessId,
+              userId: null,
+              orders: orders as NormalizedOrder[],
+              source: "rows",
+            });
+          } catch (snapshotError) {
+            const detail = extractErrorDetails(snapshotError);
+            console.warn(
+              "[api/bookings/orders] snapshot refresh from rows failed",
+              {
+                businessId,
+                ...detail,
+              },
+            );
+          }
         }
 
         return NextResponse.json({
@@ -3706,7 +3731,14 @@ export async function POST(request: NextRequest) {
     try {
       await ensureBakeryTables();
 
-      let transactionSummary: any;
+      let transactionSummary: {
+        deletedOrderCount: number;
+        upsertedOrderCount: number;
+        insertedItemCount: number;
+        insertedAddressCount: number;
+        inventoryWarnings: string[];
+        createdOrdersForWhatsApp: QueuedWhatsAppNotification[];
+      };
       const maxDbRetries = Number(process.env.DB_RETRY_COUNT ?? 2);
       let _attempt = 0;
       while (true) {
@@ -4505,14 +4537,16 @@ export async function POST(request: NextRequest) {
         createdOrdersForWhatsApp.length > 0
       ) {
         const waSettledResults = await Promise.allSettled(
-          createdOrdersForWhatsApp.map(async (notification) => {
+          createdOrdersForWhatsApp.map(
+            async (notification: QueuedWhatsAppNotification) => {
             const result = await sendOrderToWhatsApp(notification.payload);
             return {
               orderId: notification.orderId,
               bookingCode: notification.bookingCode,
               ...result,
             } satisfies PersistedWhatsAppNotificationResult;
-          }),
+            },
+          ),
         );
         const waNotificationResults = waSettledResults.map((result, index) => {
           if (result.status === "fulfilled") {
