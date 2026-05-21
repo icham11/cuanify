@@ -1,10 +1,13 @@
+import "dotenv/config"
 import { PrismaClient } from "@prisma/client"
 import { PrismaPg } from "@prisma/adapter-pg"
 import { Pool } from "pg"
 
 async function main() {
-  const dbUrl = process.env.DATABASE_URL?.replace("?sslmode=require", "")
-  process.env.DATABASE_URL = dbUrl;
+  const dbUrl = process.env.DATABASE_URL
+  if (!dbUrl) {
+    throw new Error("DATABASE_URL is not configured.")
+  }
   const pool = new Pool({
     connectionString: dbUrl,
     ssl: { rejectUnauthorized: false },
