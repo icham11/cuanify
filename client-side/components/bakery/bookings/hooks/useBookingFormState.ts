@@ -37,6 +37,7 @@ import {
   type WhatsAppSourceType,
   WHATSAPP_ORDER_LABELS,
 } from "@/lib/bookings/whatsapp-parser";
+import { prepareReferenceImagesForUpload } from "@/lib/bookings/reference-image-upload";
 import {
   getDefaultCatalogSelection,
   type CatalogAddOn,
@@ -2519,7 +2520,11 @@ export function useBookingFormState() {
       formData.append("referenceLabels", args.referenceLabels.trim());
     }
 
-    for (const file of args.files ?? []) {
+    const preparedReferenceImages = await prepareReferenceImagesForUpload(
+      args.files ?? [],
+    );
+
+    for (const file of preparedReferenceImages.files) {
       formData.append("files", file);
     }
 
@@ -2541,7 +2546,7 @@ export function useBookingFormState() {
     if (!response.ok || !isSuccessPayload) {
       const fallbackMessage =
         response.status === 413
-          ? "Ukuran upload terlalu besar untuk diproses."
+          ? "Gambar referensi masih terlalu besar untuk diproses. Kurangi jumlah gambar atau crop area penting saja."
           : "Gagal parse chat WhatsApp.";
       const message =
         (typeof payload === "object" && payload?.error) || fallbackMessage;
@@ -2980,6 +2985,9 @@ export function useBookingFormState() {
       }
     } catch (error) {
       setProductionPreviewImageUrl("");
+      if (referenceImageFiles.length > 0) {
+        setReferenceFilesChangedSinceParse(true);
+      }
       const message =
         error instanceof Error
           ? error.message

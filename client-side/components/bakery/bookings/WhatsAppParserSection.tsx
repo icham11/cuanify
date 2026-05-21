@@ -172,7 +172,8 @@ export default function WhatsAppParserSection({
             <span className="text-xs font-normal text-gray-500">
               Upload gambar yang dipilih customer. Bisa satu gambar crop per
               desain, atau satu sheet gambar bertanda merah. Jika file diubah,
-              klik Parse WhatsApp lagi supaya referensinya ter-upload.
+              klik Parse WhatsApp lagi supaya referensinya ter-upload. File
+              besar akan diperkecil otomatis sebelum diproses.
             </span>
           </label>
 

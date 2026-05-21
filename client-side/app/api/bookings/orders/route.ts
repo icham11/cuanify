@@ -2061,23 +2061,13 @@ async function upsertOrdersSnapshot(
       sourceType: SNAPSHOT_SOURCE_TYPE,
     },
     orderBy: { updatedAt: "desc" },
-    select: { id: true, content: true },
+    select: { id: true },
   });
 
-  const incomingById = new Map(orders.map((order) => [order.id, order]));
-  const existingSnapshotOrders = parseOrdersContent(existingSnapshot?.content);
-  const mergedSnapshotOrders = [
-    ...orders,
-    ...existingSnapshotOrders.filter((entry) => {
-      const record = asRecord(entry);
-      const id = asString(record?.id).trim();
-      return id.length > 0 && !incomingById.has(id);
-    }),
-  ];
-  const content = JSON.stringify(mergedSnapshotOrders);
+  const content = JSON.stringify(orders);
   const metadata = {
     kind: SNAPSHOT_SOURCE_TYPE,
-    itemCount: mergedSnapshotOrders.length,
+    itemCount: orders.length,
     updatedByUserId: userId,
     updatedAt: new Date().toISOString(),
     source,

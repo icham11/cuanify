@@ -1135,6 +1135,10 @@ function mergeOrdersPreferLatestLocal(
   return mergedOrders;
 }
 
+function isAuthoritativeOrdersSource(source: unknown): boolean {
+  return source === "rows";
+}
+
 function chooseOrderForSync(
   current: BakeryOrder,
   candidate: BakeryOrder,
@@ -1505,8 +1509,10 @@ export function OrdersProvider({
   }, []);
 
   const fetchLatestOrdersFromServer = useCallback(async () => {
-    if (!enabled) return null as BakeryOrder[] | null;
-    if (typeof window === "undefined") return null as BakeryOrder[] | null;
+    if (!enabled)
+      return null as { orders: BakeryOrder[]; source: string } | null;
+    if (typeof window === "undefined")
+      return null as { orders: BakeryOrder[]; source: string } | null;
 
     try {
       const response = await fetch(ORDERS_SYNC_ENDPOINT, {
@@ -1515,12 +1521,17 @@ export function OrdersProvider({
       });
       const payload = (await response.json().catch(() => ({}))) as {
         success?: boolean;
-        data?: { orders?: BakeryOrder[] };
+        data?: { orders?: BakeryOrder[]; source?: string };
       };
 
       if (!response.ok || !payload.success) return null;
-      if (!Array.isArray(payload.data?.orders)) return [];
-      return parseSnapshot(JSON.stringify(payload.data.orders));
+      if (!Array.isArray(payload.data?.orders)) {
+        return { orders: [], source: payload.data?.source ?? "" };
+      }
+      return {
+        orders: parseSnapshot(JSON.stringify(payload.data.orders)),
+        source: payload.data?.source ?? "",
+      };
     } catch {
       return null;
     }
@@ -1537,10 +1548,16 @@ export function OrdersProvider({
           : parseSnapshot(
               window.localStorage.getItem(STORAGE_KEY) ?? INITIAL_SNAPSHOT,
             );
+      const shouldReplaceLocalSnapshot =
+        options?.force === true ||
+        isAuthoritativeOrdersSource(latestServerOrders.source);
       const nextOrders =
-        options?.force === true
-          ? latestServerOrders
-          : mergeOrdersPreferLatestLocal(currentLocalOrders, latestServerOrders);
+        shouldReplaceLocalSnapshot
+          ? latestServerOrders.orders
+          : mergeOrdersPreferLatestLocal(
+              currentLocalOrders,
+              latestServerOrders.orders,
+            );
 
       if (!areOrdersSnapshotsEqual(currentLocalOrders, nextOrders)) {
         lastLocalWriteAtRef.current = 0;
@@ -1574,7 +1591,7 @@ export function OrdersProvider({
         });
         const payload = (await response.json().catch(() => ({}))) as {
           success?: boolean;
-          data?: { orders?: BakeryOrder[] };
+          data?: { orders?: BakeryOrder[]; source?: string };
         };
 
         if (!response.ok || !payload.success) return;
@@ -1582,6 +1599,9 @@ export function OrdersProvider({
         const serverOrders = Array.isArray(payload.data?.orders)
           ? payload.data.orders
           : [];
+        const shouldReplaceLocalSnapshot = isAuthoritativeOrdersSource(
+          payload.data?.source,
+        );
 
         if (serverOrders.length > 0) {
           const recentlyChangedLocally =
@@ -1590,10 +1610,9 @@ export function OrdersProvider({
               LOCAL_WRITE_STALE_GUARD_MS;
           if (recentlyChangedLocally) return;
 
-          const mergedOrders = mergeOrdersPreferLatestLocal(
-            localOrders,
-            serverOrders,
-          );
+          const mergedOrders = shouldReplaceLocalSnapshot
+            ? serverOrders
+            : mergeOrdersPreferLatestLocal(localOrders, serverOrders);
 
           if (!areOrdersSnapshotsEqual(localOrders, mergedOrders)) {
             writeOrdersSnapshot(mergedOrders);
@@ -1718,6 +1737,7 @@ export function OrdersProvider({
           toast.message(
             "Server sudah punya booking yang sama. Data lokal sedang diselaraskan ulang.",
           );
+          void replaceLocalOrdersWithServer({ force: true });
         } else if (error instanceof OrdersSyncRequestError && error.retryable) {
           showSyncIssueToast(
             "warning",
@@ -2238,7 +2258,7 @@ export function OrdersProvider({
 
       try {
         const latestServerOrders = await fetchLatestOrdersFromServer();
-        const baseOrders = latestServerOrders ?? orders;
+        const baseOrders = latestServerOrders?.orders ?? orders;
 
         const localMaxId = baseOrders.reduce((max, item) => {
           const parsed = Number(item.id);

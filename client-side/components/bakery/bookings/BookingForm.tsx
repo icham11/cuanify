@@ -52,6 +52,7 @@ import {
   type WhatsAppSourceType,
   WHATSAPP_ORDER_LABELS,
 } from "@/lib/bookings/whatsapp-parser";
+import { prepareReferenceImagesForUpload } from "@/lib/bookings/reference-image-upload";
 import {
   getDefaultCatalogSelection,
   type CatalogAddOn,
@@ -2544,6 +2545,7 @@ export default function BookingForm() {
     null,
   );
   const lastParsedReferenceSignatureRef = useRef("");
+  const lastFailedAutoParseReferenceSignatureRef = useRef("");
   const shouldRequireSubmitConfirmation =
     !isRoleLoading && (isOwner || isAdmin);
   const canWarnDuplicateTemplate = !isRoleLoading && (isOwner || isAdmin);
@@ -2726,6 +2728,7 @@ export default function BookingForm() {
         snapshot.referenceImageLabelsInput,
       ),
     });
+    lastFailedAutoParseReferenceSignatureRef.current = "";
     setComposerStep(isReviewPage ? "preview" : "input");
   }, [isReviewPage, reset, router]);
 
@@ -4825,6 +4828,7 @@ export default function BookingForm() {
       autoParseTimeoutRef.current = null;
     }
     lastParsedReferenceSignatureRef.current = "";
+    lastFailedAutoParseReferenceSignatureRef.current = "";
     if (typeof window !== "undefined") {
       window.sessionStorage.removeItem(BOOKING_DRAFT_STORAGE_KEY);
     }
@@ -5115,7 +5119,11 @@ export default function BookingForm() {
       formData.append("referenceLabels", args.referenceLabels.trim());
     }
 
-    for (const file of args.files ?? []) {
+    const preparedReferenceImages = await prepareReferenceImagesForUpload(
+      args.files ?? [],
+    );
+
+    for (const file of preparedReferenceImages.files) {
       formData.append("files", file);
     }
 
@@ -5137,7 +5145,7 @@ export default function BookingForm() {
     if (!response.ok || !isSuccessPayload) {
       const fallbackMessage =
         response.status === 413
-          ? "Ukuran upload terlalu besar untuk diproses."
+          ? "Gambar referensi masih terlalu besar untuk diproses. Kurangi jumlah gambar atau crop area penting saja."
           : "Gagal parse chat WhatsApp.";
       const message =
         (typeof payload === "object" && payload?.error) || fallbackMessage;
@@ -5561,6 +5569,7 @@ export default function BookingForm() {
         files: referenceImageFiles,
         requestedLabels: explicitRequestedImageLabels,
       });
+      lastFailedAutoParseReferenceSignatureRef.current = "";
       setShowOrderTypeSelector(false);
       openPreviewPage({
         parsedPreview: enrichedParsedPreview,
@@ -5580,6 +5589,11 @@ export default function BookingForm() {
       }
     } catch (error) {
       setProductionPreviewImageUrl("");
+      if (referenceImageFiles.length > 0) {
+        setReferenceFilesChangedSinceParse(true);
+        lastFailedAutoParseReferenceSignatureRef.current =
+          referenceInputSignature;
+      }
       const message =
         error instanceof Error
           ? error.message
@@ -5607,6 +5621,13 @@ export default function BookingForm() {
 
   useEffect(() => {
     if (!draftImported || !parsedPreview || isParsingWhatsApp) {
+      return;
+    }
+
+    if (
+      referenceInputSignature ===
+      lastFailedAutoParseReferenceSignatureRef.current
+    ) {
       return;
     }
 
@@ -5863,7 +5884,8 @@ export default function BookingForm() {
                     Upload gambar yang dipilih customer. Bisa satu gambar crop
                     per desain, atau satu sheet gambar bertanda merah. Jika file
                     diubah, klik Parse WhatsApp lagi supaya referensinya
-                    ter-upload.
+                    ter-upload. File besar akan diperkecil otomatis sebelum
+                    diproses.
                   </span>
                 </label>
 
@@ -5942,6 +5964,8 @@ export default function BookingForm() {
                     setReferenceFilesChangedSinceParse(false);
                     setReferenceImageLabelsInput("");
                     setReferenceFileInputKey((current) => current + 1);
+                    lastParsedReferenceSignatureRef.current = "";
+                    lastFailedAutoParseReferenceSignatureRef.current = "";
                   }}
                 >
                   🧹 Clear
