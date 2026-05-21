@@ -241,25 +241,6 @@ export default function BakeryCalendarPage() {
     connectedEmail: string | null;
     calendarId: string | null;
   }>({ connected: false, connectedEmail: null, calendarId: null });
-  const [isNarrowLayout, setIsNarrowLayout] = useState(false);
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia("(max-width: 768px)");
-    const syncViewport = (matches: boolean) => {
-      setIsNarrowLayout(matches);
-    };
-
-    syncViewport(mediaQuery.matches);
-
-    const handleChange = (event: MediaQueryListEvent) => {
-      syncViewport(event.matches);
-    };
-
-    mediaQuery.addEventListener("change", handleChange);
-    return () => {
-      mediaQuery.removeEventListener("change", handleChange);
-    };
-  }, []);
 
   const calendarRange = useMemo(
     () => getCalendarRange(currentDate, currentView),
@@ -769,24 +750,16 @@ export default function BakeryCalendarPage() {
 
               <div
                 className={`w-full max-w-full rounded-xl border border-[#e2d1c3] bg-white overscroll-contain ${
-                  isNarrowLayout
-                    ? currentView === Views.MONTH
-                      ? "overflow-auto touch-pan-x touch-pan-y h-[22rem]"
-                      : "overflow-auto touch-pan-x touch-pan-y h-[28rem]"
-                    : currentView === Views.MONTH
-                      ? "overflow-x-auto overflow-y-hidden md:overflow-x-hidden h-[28rem] sm:h-[32rem] md:h-[36rem] lg:h-[41rem] xl:h-[44rem]"
-                      : "overflow-x-auto overflow-y-hidden md:overflow-x-hidden h-[25rem] sm:h-[30rem] md:h-[34rem] lg:h-[38rem]"
+                  currentView === Views.MONTH
+                    ? "overflow-x-auto overflow-y-hidden touch-pan-x touch-pan-y h-[28rem] sm:h-[32rem] md:h-[36rem] lg:h-[41rem] xl:h-[44rem]"
+                    : "overflow-x-auto overflow-y-hidden touch-pan-x touch-pan-y h-[25rem] sm:h-[30rem] md:h-[34rem] lg:h-[38rem]"
                 }`}
               >
                 <div
                   className={`h-full ${
                     currentView === Views.MONTH
-                      ? isNarrowLayout
-                        ? "w-[560px] min-h-[31rem]"
-                        : "min-w-[720px] md:min-w-full"
-                      : isNarrowLayout
-                        ? "w-[620px] min-h-[32rem]"
-                        : "min-w-[840px] md:min-w-full"
+                      ? "min-w-[720px] md:min-w-full"
+                      : "min-w-[840px] md:min-w-full"
                   }`}
                 >
                   <Calendar
@@ -797,7 +770,7 @@ export default function BakeryCalendarPage() {
                     endAccessor="end"
                     date={currentDate}
                     view={currentView}
-                    defaultView={isNarrowLayout ? Views.WEEK : Views.MONTH}
+                    defaultView={Views.MONTH}
                     views={[Views.MONTH, Views.WEEK]}
                     min={calendarMinTime}
                     max={calendarMaxTime}
@@ -891,7 +864,7 @@ export default function BakeryCalendarPage() {
             </div>
           </div>
 
-          {!isNarrowLayout && selectedDate && selectedCapacity ? (
+          {selectedDate && selectedCapacity ? (
             <div className="mt-4 overflow-hidden rounded-3xl border border-[#dcc7b8] bg-linear-to-br from-[#fffaf4] to-[#fffdf9] lg:mt-0 lg:sticky lg:top-4 lg:self-start">
               <div className="flex flex-col items-start justify-between gap-3 border-b border-[#e8dcd0] bg-[#f8f1e8] px-4 py-3 md:flex-row md:items-center md:px-5 md:py-4">
                 <div className="min-w-0 flex-1">
@@ -916,13 +889,22 @@ export default function BakeryCalendarPage() {
                     {selectedStatusMessage}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => router.push("/bakery/bookings/new")}
-                  className="shrink-0 rounded-full bg-[#cb6837] px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#b15a31] md:px-4 md:py-2.5 md:text-sm"
-                >
-                  + Booking
-                </button>
+                <div className="flex w-full flex-wrap items-center justify-end gap-2 md:w-auto">
+                  <button
+                    type="button"
+                    onClick={openSelectedDateInBookings}
+                    className="shrink-0 rounded-full border border-[#e6d1be] bg-[#fff7f0] px-3 py-2 text-xs font-semibold text-[#8a4b22] transition hover:bg-[#ffefdf] md:px-4 md:py-2.5 md:text-sm"
+                  >
+                    Lihat Booking
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => router.push("/bakery/bookings/new")}
+                    className="shrink-0 rounded-full bg-[#cb6837] px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#b15a31] md:px-4 md:py-2.5 md:text-sm"
+                  >
+                    + Booking
+                  </button>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-2 px-4 py-4 text-center md:gap-3 md:px-5 md:py-5 lg:grid-cols-2">
@@ -992,98 +974,6 @@ export default function BakeryCalendarPage() {
             </div>
           ) : null}
         </div>
-
-        {isNarrowLayout && selectedDate && selectedCapacity ? (
-          <div className="fixed inset-x-3 bottom-3 z-40 rounded-[28px] border border-[#e5cdb8] bg-white/96 p-3 shadow-[0_28px_56px_-30px_rgba(47,30,19,0.5)] backdrop-blur">
-            <div className="mx-auto mb-2 h-1.5 w-14 rounded-full bg-[#ebd8cc]" />
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="truncate text-sm font-bold text-[#c86432]">
-                  {selectedDateLabel}
-                </p>
-                <p
-                  className={`mt-1 text-xs font-medium ${
-                    selectedStatus === "PAST"
-                      ? "text-[#8d837c]"
-                      : selectedStatus === "BLOCKED"
-                        ? "text-[#dc6e59]"
-                        : selectedStatus === "FULL"
-                          ? "text-[#d7662d]"
-                          : selectedStatus === "WARNING"
-                            ? "text-[#a27516]"
-                            : selectedStatus === "CUTOFF"
-                              ? "text-[#d24f40]"
-                              : "text-[#4f8b57]"
-                  }`}
-                >
-                  {selectedStatusMessage}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => router.push("/bakery/bookings/new")}
-                className="shrink-0 rounded-full bg-[#cb6837] px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#b15a31]"
-              >
-                + Booking
-              </button>
-            </div>
-
-            <div className="mt-3 grid grid-cols-4 gap-2">
-              <div className="rounded-2xl border border-[#eadbcf] bg-[#fffaf5] px-2 py-2 text-center">
-                <p className="text-base font-bold text-[#1e140e]">
-                  {selectedCapacity.usedToken}
-                </p>
-                <p className="mt-0.5 text-[10px] text-[#8a6a54]">Terpakai</p>
-              </div>
-              <div className="rounded-2xl border border-[#eadbcf] bg-[#fffaf5] px-2 py-2 text-center">
-                <p className="text-base font-bold text-[#1e140e]">
-                  {selectedCapacity.maxToken}
-                </p>
-                <p className="mt-0.5 text-[10px] text-[#8a6a54]">Maks</p>
-              </div>
-              <div className="rounded-2xl border border-[#eadbcf] bg-[#fffaf5] px-2 py-2 text-center">
-                <p className="text-base font-bold text-[#2d8a55]">
-                  {selectedCapacity.maxToken - selectedCapacity.usedToken}
-                </p>
-                <p className="mt-0.5 text-[10px] text-[#8a6a54]">Sisa</p>
-              </div>
-              <div className="rounded-2xl border border-[#eadbcf] bg-[#fffaf5] px-2 py-2 text-center">
-                <p className="text-base font-bold text-[#1e140e]">
-                  {selectedDateOrdersAll.length}
-                </p>
-                <p className="mt-0.5 text-[10px] text-[#8a6a54]">Order</p>
-              </div>
-            </div>
-
-            <div className="mt-3 flex items-center justify-between gap-3">
-              <div className="min-w-0 flex-1">
-                <div className="h-2 rounded-full bg-[#efe1d6]">
-                  <div
-                    className={`h-2 rounded-full ${
-                      selectedCapacity.usedToken >= selectedCapacity.maxToken
-                        ? "bg-[#d24f40]"
-                        : selectedCapacity.usedToken >=
-                            selectedCapacity.maxToken * 0.8
-                          ? "bg-[#d3a423]"
-                          : "bg-[#3d9958]"
-                    }`}
-                    style={{ width: `${selectedUsagePercent}%` }}
-                  />
-                </div>
-                <p className="mt-1 text-[10px] text-[#8a6a54]">
-                  {selectedUsagePercent}% terpakai
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={openSelectedDateInBookings}
-                className="shrink-0 rounded-full border border-[#e6d1be] bg-[#fff7f0] px-3 py-2 text-[11px] font-semibold text-[#8a4b22]"
-              >
-                Lihat Booking
-              </button>
-            </div>
-          </div>
-        ) : null}
 
         {/* Date Orders Popup */}
         {isDateOrdersPopupOpen ? (
@@ -1378,47 +1268,6 @@ export default function BakeryCalendarPage() {
           margin-bottom: 0;
         }
 
-        @media (max-width: 639px) {
-          .rbc-month-view {
-            min-height: 31rem;
-          }
-
-          .rbc-time-view {
-            min-height: 32rem;
-          }
-
-          .rbc-header {
-            padding: 0.45rem 0;
-            font-size: 0.6rem;
-            letter-spacing: 0.08em;
-          }
-
-          .rbc-month-row {
-            min-height: 62px;
-          }
-
-          .rbc-date-cell {
-            padding: 2px 3px 1px;
-          }
-
-          .rbc-show-more {
-            font-size: 0.58rem;
-          }
-
-          .rbc-date-cell > a {
-            font-size: 0.72rem;
-          }
-
-          .rbc-time-header-content,
-          .rbc-time-content {
-            min-width: 0;
-          }
-
-          .rbc-time-gutter,
-          .rbc-label {
-            font-size: 0.65rem;
-          }
-        }
       `}</style>
     </div>
   );
