@@ -2999,6 +2999,34 @@ export async function POST(request: NextRequest) {
       ]),
     );
 
+    const incomingOrderIds = Array.from(new Set(orders.map((o) => o.id)));
+    const incomingBookingCodes = Array.from(
+      new Set(orders.map((o) => o.bookingCode).filter(Boolean)),
+    );
+    const incomingResis = Array.from(
+      new Set(orders.map((o) => o.resi).filter(Boolean)),
+    );
+    const incomingDeliveryDates = Array.from(
+      new Set(orders.map((o) => o.deliveryDate).filter(Boolean)),
+    );
+    const incomingCustomerPhones = Array.from(
+      new Set(orders.map((o) => o.customerPhone).filter(Boolean)),
+    );
+
+    const safeOrderIds =
+      incomingOrderIds.length > 0 ? incomingOrderIds : ["__empty__"];
+    const safeBookingCodes =
+      incomingBookingCodes.length > 0 ? incomingBookingCodes : ["__empty__"];
+    const safeResis = incomingResis.length > 0 ? incomingResis : ["__empty__"];
+    const safeDeliveryDates =
+      incomingDeliveryDates.length > 0
+        ? incomingDeliveryDates
+        : ["1970-01-01"];
+    const safeCustomerPhones =
+      incomingCustomerPhones.length > 0
+        ? incomingCustomerPhones
+        : ["__empty__"];
+
     await ensureBakeryTables();
     const assignableStaffMembers = await prisma.businessMember.findMany({
       where: {
@@ -3034,6 +3062,13 @@ export async function POST(request: NextRequest) {
       SELECT external_id, order_status, assigned_staff_user_id
       FROM bakery_orders
       WHERE business_id = ${businessId}
+        AND (
+          external_id IN (${Prisma.join(safeOrderIds)})
+          OR booking_code IN (${Prisma.join(safeBookingCodes)})
+          OR resi IN (${Prisma.join(safeResis)})
+          OR delivery_date IN (${Prisma.join(safeDeliveryDates)})
+          OR customer_phone IN (${Prisma.join(safeCustomerPhones)})
+        )
     `;
 
     const existingCapacityRows = await prisma.$queryRaw<
@@ -3046,20 +3081,43 @@ export async function POST(request: NextRequest) {
       SELECT external_id, delivery_date, order_status
       FROM bakery_orders
       WHERE business_id = ${businessId}
+        AND (
+          external_id IN (${Prisma.join(safeOrderIds)})
+          OR booking_code IN (${Prisma.join(safeBookingCodes)})
+          OR resi IN (${Prisma.join(safeResis)})
+          OR delivery_date IN (${Prisma.join(safeDeliveryDates)})
+          OR customer_phone IN (${Prisma.join(safeCustomerPhones)})
+        )
     `;
 
     const existingCapacityItemRows = await prisma.$queryRaw<DbItemRow[]>`
-      SELECT order_external_id, item_index, payload
-      FROM bakery_order_items
-      WHERE business_id = ${businessId}
-      ORDER BY order_external_id ASC, item_index ASC
+      SELECT oi.order_external_id, oi.item_index, oi.payload
+      FROM bakery_order_items oi
+      JOIN bakery_orders bo ON oi.order_external_id = bo.external_id AND oi.business_id = bo.business_id
+      WHERE oi.business_id = ${businessId}
+        AND (
+          bo.external_id IN (${Prisma.join(safeOrderIds)})
+          OR bo.booking_code IN (${Prisma.join(safeBookingCodes)})
+          OR bo.resi IN (${Prisma.join(safeResis)})
+          OR bo.delivery_date IN (${Prisma.join(safeDeliveryDates)})
+          OR bo.customer_phone IN (${Prisma.join(safeCustomerPhones)})
+        )
+      ORDER BY oi.order_external_id ASC, oi.item_index ASC
     `;
 
     const existingAddressRows = await prisma.$queryRaw<DbAddressRow[]>`
-      SELECT order_external_id, address_index, payload
-      FROM bakery_order_addresses
-      WHERE business_id = ${businessId}
-      ORDER BY order_external_id ASC, address_index ASC
+      SELECT oa.order_external_id, oa.address_index, oa.payload
+      FROM bakery_order_addresses oa
+      JOIN bakery_orders bo ON oa.order_external_id = bo.external_id AND oa.business_id = bo.business_id
+      WHERE oa.business_id = ${businessId}
+        AND (
+          bo.external_id IN (${Prisma.join(safeOrderIds)})
+          OR bo.booking_code IN (${Prisma.join(safeBookingCodes)})
+          OR bo.resi IN (${Prisma.join(safeResis)})
+          OR bo.delivery_date IN (${Prisma.join(safeDeliveryDates)})
+          OR bo.customer_phone IN (${Prisma.join(safeCustomerPhones)})
+        )
+      ORDER BY oa.order_external_id ASC, oa.address_index ASC
     `;
 
     const existingCapacityItemsMap = new Map<string, JsonRecord[]>();
@@ -3121,6 +3179,13 @@ export async function POST(request: NextRequest) {
         whatsapp_parsed_data
       FROM bakery_orders
       WHERE business_id = ${businessId}
+        AND (
+          external_id IN (${Prisma.join(safeOrderIds)})
+          OR booking_code IN (${Prisma.join(safeBookingCodes)})
+          OR resi IN (${Prisma.join(safeResis)})
+          OR delivery_date IN (${Prisma.join(safeDeliveryDates)})
+          OR customer_phone IN (${Prisma.join(safeCustomerPhones)})
+        )
     `;
 
     const existingFingerprintMatches = new Map<
@@ -3275,6 +3340,7 @@ export async function POST(request: NextRequest) {
           updated_at
         FROM bakery_orders
         WHERE business_id = ${businessId}
+          AND external_id IN (${Prisma.join(safeOrderIds)})
         ORDER BY updated_at DESC
       `;
 
