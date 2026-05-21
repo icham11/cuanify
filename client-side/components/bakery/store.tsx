@@ -336,15 +336,34 @@ class CapacityFullSyncError extends Error {
 class OrdersSyncRequestError extends Error {
   public readonly status: number | null;
   public readonly retryable: boolean;
+  public readonly duplicateOrderId: string | null;
+  public readonly duplicateBookingCode: string | null;
+  public readonly duplicateReason:
+    | "same-booking"
+    | "parsed-booking-reference"
+    | null;
+  public readonly duplicateParsedBookingReference: string | null;
 
   constructor(
     message: string,
-    options?: { status?: number | null; retryable?: boolean },
+    options?: {
+      status?: number | null;
+      retryable?: boolean;
+      duplicateOrderId?: string | null;
+      duplicateBookingCode?: string | null;
+      duplicateReason?: "same-booking" | "parsed-booking-reference" | null;
+      duplicateParsedBookingReference?: string | null;
+    },
   ) {
     super(message);
     this.name = "OrdersSyncRequestError";
     this.status = options?.status ?? null;
     this.retryable = options?.retryable ?? false;
+    this.duplicateOrderId = options?.duplicateOrderId ?? null;
+    this.duplicateBookingCode = options?.duplicateBookingCode ?? null;
+    this.duplicateReason = options?.duplicateReason ?? null;
+    this.duplicateParsedBookingReference =
+      options?.duplicateParsedBookingReference ?? null;
   }
 }
 const AUTO_REQUOTE_ERROR_KEYWORDS = [
@@ -358,6 +377,10 @@ type OrdersSyncResponse = {
   success?: boolean;
   error?: string;
   details?: string[] | string;
+  duplicateOrderId?: string;
+  duplicateBookingCode?: string;
+  duplicateReason?: "same-booking" | "parsed-booking-reference";
+  duplicateParsedBookingReference?: string;
   data?: {
     mode?: string;
     itemCount?: number;
@@ -728,7 +751,7 @@ function resolveParsedBookingReferenceForOrder(order: {
   whatsAppParsedData?: ParsedWhatsAppOrder;
 }): string {
   const rawReference = String(
-    order.whatsAppParsedData?.common?.bookingCode ?? order.bookingCode ?? "",
+    order.whatsAppParsedData?.common?.bookingCode ?? "",
   ).trim();
   if (!rawReference) return "";
 
@@ -1482,6 +1505,23 @@ export function OrdersProvider({
       throw new OrdersSyncRequestError(message, {
         status: response.status,
         retryable: response.status >= 500 || response.status === 429,
+        duplicateOrderId:
+          typeof payload.duplicateOrderId === "string"
+            ? payload.duplicateOrderId
+            : null,
+        duplicateBookingCode:
+          typeof payload.duplicateBookingCode === "string"
+            ? payload.duplicateBookingCode
+            : null,
+        duplicateReason:
+          payload.duplicateReason === "same-booking" ||
+          payload.duplicateReason === "parsed-booking-reference"
+            ? payload.duplicateReason
+            : null,
+        duplicateParsedBookingReference:
+          typeof payload.duplicateParsedBookingReference === "string"
+            ? payload.duplicateParsedBookingReference
+            : null,
       });
     }
 
@@ -2453,6 +2493,26 @@ export function OrdersProvider({
         void hydrateOrdersFromServer(true);
         return id;
       } catch (error) {
+        if (
+          error instanceof OrdersSyncRequestError &&
+          error.status === 409 &&
+          error.duplicateReason === "same-booking" &&
+          error.duplicateOrderId
+        ) {
+          await replaceLocalOrdersWithServer({ force: true });
+          recentBookingCreateFingerprintsRef.current.set(
+            submissionFingerprint,
+            {
+              orderId: error.duplicateOrderId,
+              at: Date.now(),
+            },
+          );
+          toast.message(
+            "Booking yang sama sudah tersimpan sebelumnya. Membuka order yang sudah ada.",
+          );
+          return error.duplicateOrderId;
+        }
+
         if (
           error instanceof OrdersSyncRequestError &&
           error.retryable &&

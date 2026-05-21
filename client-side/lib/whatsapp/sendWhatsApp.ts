@@ -51,6 +51,11 @@ type FonnteResponse = {
   id?: string[];
 };
 
+type FonnteOutboundMessage = {
+  message: string;
+  imageUrl?: string;
+};
+
 const FONNTE_MAX_ATTEMPTS = 3;
 const FONNTE_RETRY_DELAY_MS = 2_000;
 
@@ -203,6 +208,123 @@ async function sendFonnteMessage(
   }
 
   throw lastError ?? new Error("Fonnte send failed.");
+}
+
+export async function sendWhatsAppSequence(
+  messages: FonnteOutboundMessage[],
+  customTarget?: string,
+): Promise<void> {
+  const token = process.env.FONNTE_TOKEN?.trim();
+  const defaultTarget = process.env.FONNTE_PRODUCTION_TARGET?.trim();
+  const rawTarget = customTarget || defaultTarget;
+
+  if (!token) {
+    throw new Error(
+      "[sendWhatsAppSequence] FONNTE_TOKEN tidak ditemukan di environment variables.",
+    );
+  }
+
+  if (!rawTarget) {
+    throw new Error(
+      "[sendWhatsAppSequence] Target WhatsApp (FONNTE_PRODUCTION_TARGET) tidak ditemukan.",
+    );
+  }
+
+  const normalizedTarget = normalizeFonnteTarget(rawTarget);
+  const sanitizedMessages = messages
+    .map((entry) => ({
+      message: String(entry.message || "").trim(),
+      imageUrl: entry.imageUrl?.trim() || undefined,
+    }))
+    .filter((entry) => entry.message || entry.imageUrl);
+
+  if (sanitizedMessages.length === 0) {
+    throw new Error("[sendWhatsAppSequence] Tidak ada pesan untuk dikirim.");
+  }
+
+  const sequencePayload = sanitizedMessages.map((entry) => ({
+    target: normalizedTarget,
+    message: entry.message,
+    ...(entry.imageUrl ? { url: entry.imageUrl } : {}),
+  }));
+
+  const formData = new FormData();
+  formData.set("data", JSON.stringify(sequencePayload));
+  formData.set("sequence", "true");
+  formData.set("countryCode", "0");
+
+  console.info("[sendWhatsAppSequence] Mengirim batch WA berurutan:", {
+    target: normalizedTarget,
+    messageCount: sequencePayload.length,
+    mediaCount: sequencePayload.filter((entry) => Boolean(entry.url)).length,
+  });
+
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= FONNTE_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await fetch(FONNTE_ENDPOINT, {
+        method: "POST",
+        headers: {
+          Authorization: token,
+        },
+        body: formData,
+      });
+
+      const rawText = await response.text();
+
+      if (!response.ok) {
+        console.error("[sendWhatsAppSequence] Fonnte HTTP Error:", {
+          attempt,
+          status: response.status,
+          statusText: response.statusText,
+          body: rawText,
+        });
+
+        if (
+          attempt < FONNTE_MAX_ATTEMPTS &&
+          shouldRetryFonnteHttpStatus(response.status)
+        ) {
+          await waitBeforeRetry(FONNTE_RETRY_DELAY_MS * attempt);
+          continue;
+        }
+
+        throw new Error(`Fonnte API Error (${response.status}): ${rawText}`);
+      }
+
+      const result = JSON.parse(rawText) as FonnteResponse;
+      if (result.status === false) {
+        throw new Error(`Fonnte rejection: ${result.reason || rawText}`);
+      }
+
+      console.info("[sendWhatsAppSequence] Batch WA berhasil dikirim:", {
+        attempt,
+        status: result.status,
+        messageIds: result.id,
+      });
+      return;
+    } catch (error) {
+      lastError =
+        error instanceof Error ? error : new Error(String(error || "Unknown"));
+
+      const message = lastError.message.toLowerCase();
+      const isRetryableNetworkIssue =
+        message.includes("fetch failed") ||
+        message.includes("network") ||
+        message.includes("timeout") ||
+        message.includes("econnreset") ||
+        message.includes("socket hang up");
+
+      if (attempt < FONNTE_MAX_ATTEMPTS && isRetryableNetworkIssue) {
+        await waitBeforeRetry(FONNTE_RETRY_DELAY_MS * attempt);
+        continue;
+      }
+
+      throw lastError;
+    }
+  }
+
+  throw lastError ?? new Error("Fonnte sequence send failed.");
 }
 
 export async function sendWhatsAppText(

@@ -10,6 +10,7 @@ import {
 import { uploadToCloudinary } from "@/lib/whatsapp/uploadToCloudinary";
 import {
   sendWhatsAppImage,
+  sendWhatsAppSequence,
   sendWhatsAppText,
 } from "@/lib/whatsapp/sendWhatsApp";
 
@@ -186,6 +187,42 @@ function normalizeStructuredReferenceImages(
   });
 }
 
+type OutboundWhatsAppMessage = {
+  message: string;
+  imageUrl?: string;
+};
+
+async function sendOutboundWhatsAppSequence(
+  messages: OutboundWhatsAppMessage[],
+): Promise<void> {
+  try {
+    await sendWhatsAppSequence(messages);
+  } catch (error) {
+    console.warn(
+      "[sendOrderToWhatsApp] Batch WA sequence failed, falling back to legacy sequential sends",
+      {
+        error: error instanceof Error ? error.message : String(error),
+        messageCount: messages.length,
+      },
+    );
+
+    for (let index = 0; index < messages.length; index += 1) {
+      const entry = messages[index];
+      if (entry.imageUrl) {
+        await sendWhatsAppImage(
+          entry.imageUrl,
+          entry.message,
+          undefined,
+          WA_IMAGE_BASE_DELAY_SECONDS + index * WA_IMAGE_DELAY_STEP_SECONDS,
+        );
+      } else {
+        await sendWhatsAppText(entry.message, undefined, WA_TEXT_DELAY_SECONDS);
+      }
+      await waitForMessageOrdering(INTER_MESSAGE_DELAY_MS);
+    }
+  }
+}
+
 async function prepareOutboundWhatsAppImageUrl(
   sourceUrl: string,
   index: number,
@@ -345,14 +382,10 @@ export async function sendOrderToWhatsApp(
     }
     try {
       const recapText = buildProductionCaption(payload);
-      await sendWhatsAppText(recapText, undefined, WA_TEXT_DELAY_SECONDS);
-      await waitForMessageOrdering(INTER_MESSAGE_DELAY_MS); // Increased wait to ensure ordering
-      await sendWhatsAppImage(
-        generatedOrderImageUrl,
-        "Crumbella_id",
-        undefined,
-        WA_IMAGE_BASE_DELAY_SECONDS,
-      );
+      await sendOutboundWhatsAppSequence([
+        { message: recapText },
+        { message: "Crumbella_id", imageUrl: generatedOrderImageUrl },
+      ]);
       console.info(`[sendOrderToWhatsApp] Template image sent successfully:`, {
         imageUrl: generatedOrderImageUrl,
         caption: recapText.substring(0, 50),
@@ -387,33 +420,11 @@ export async function sendOrderToWhatsApp(
     stage: "send",
     message: "No messages sent",
   };
-  try {
-    await sendWhatsAppText(
-      buildProductionCaption(order),
-      undefined,
-      WA_TEXT_DELAY_SECONDS,
-    );
-    lastResult = {
-      ok: true,
-      stage: "send",
-      message: "WhatsApp order recap text sent successfully.",
-      imageUrl: undefined,
-    };
-    await waitForMessageOrdering(INTER_MESSAGE_DELAY_MS); // Increased wait to ensure ordering
-  } catch (error) {
-    lastResult = {
-      ok: false,
-      stage: "send",
-      message:
-        error instanceof Error
-          ? error.message
-          : "Failed to send WhatsApp order recap text.",
-      imageUrl: undefined,
-    };
-    return lastResult;
-  }
+  const outboundMessages: OutboundWhatsAppMessage[] = [
+    { message: buildProductionCaption(order) },
+  ];
 
-  // 2. Kirim satu per satu gambar user-upload, caption = detail gambar dari parser
+  // 2. Siapkan satu per satu gambar user-upload, caption = detail gambar dari parser
   for (let i = 0; i < finalImagesToUpload.length; i++) {
     const {
       url: sourceImgUrl,
@@ -433,28 +444,20 @@ export async function sendOrderToWhatsApp(
     } else {
       caption = `Referensi ${i + 1}`;
     }
+
     try {
       const imgUrl = await prepareOutboundWhatsAppImageUrl(sourceImgUrl, i);
-      await sendWhatsAppImage(
-        imgUrl,
-        caption,
-        undefined,
-        WA_IMAGE_BASE_DELAY_SECONDS + i * WA_IMAGE_DELAY_STEP_SECONDS,
-      );
+      outboundMessages.push({
+        message: caption,
+        imageUrl: imgUrl,
+      });
       console.info(
-        `[sendOrderToWhatsApp] User image ${i + 1} sent successfully:`,
+        `[sendOrderToWhatsApp] User image ${i + 1} queued successfully:`,
         {
           imageUrl: imgUrl.substring(0, 60),
           caption,
         },
       );
-      await waitForMessageOrdering(INTER_MESSAGE_DELAY_MS); // Consistent ordering delay
-      lastResult = {
-        ok: true,
-        stage: "send",
-        message: `WhatsApp image sent for image ${i + 1}`,
-        imageUrl: imgUrl,
-      };
     } catch (error) {
       console.error(`[sendOrderToWhatsApp] User image ${i + 1} send failed:`, {
         imageUrl: sourceImgUrl.substring(0, 60),
@@ -473,5 +476,32 @@ export async function sendOrderToWhatsApp(
       break;
     }
   }
+
+  if (!lastResult.ok && lastResult.message !== "No messages sent") {
+    return lastResult;
+  }
+
+  try {
+    await sendOutboundWhatsAppSequence(outboundMessages);
+    lastResult = {
+      ok: true,
+      stage: "send",
+      message: `WhatsApp production notification sent successfully (${outboundMessages.length} message(s)).`,
+      imageUrl:
+        outboundMessages.findLast((entry) => Boolean(entry.imageUrl))?.imageUrl,
+    };
+  } catch (error) {
+    lastResult = {
+      ok: false,
+      stage: "send",
+      message:
+        error instanceof Error
+          ? error.message
+          : "Failed to send WhatsApp production notification.",
+      imageUrl:
+        outboundMessages.findLast((entry) => Boolean(entry.imageUrl))?.imageUrl,
+    };
+  }
+
   return lastResult;
 }

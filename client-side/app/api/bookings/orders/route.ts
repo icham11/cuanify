@@ -493,13 +493,10 @@ function haveComparableValuesChanged(current: unknown, next: unknown): boolean {
 
 function resolveParsedBookingReference(
   whatsAppParsedData: unknown,
-  fallbackBookingCode?: string | null,
 ): string {
   const parsedData = asRecord(whatsAppParsedData);
   const common = asRecord(parsedData?.common);
-  const rawReference = String(
-    common?.bookingCode ?? fallbackBookingCode ?? "",
-  ).trim();
+  const rawReference = String(common?.bookingCode ?? "").trim();
   if (!rawReference) return "";
 
   const normalized = normalizeBookingReference(rawReference);
@@ -998,10 +995,16 @@ function collectReferenceImagesFromValue(
 class DuplicateOrderError extends Error {
   public readonly existingOrderId: string;
   public readonly existingBookingCode: string;
+  public readonly duplicateReason:
+    | "same-booking"
+    | "parsed-booking-reference";
+  public readonly duplicateParsedBookingReference: string | null;
 
   constructor(args: {
     existingOrderId: string;
     existingBookingCode: string;
+    duplicateReason?: "same-booking" | "parsed-booking-reference";
+    duplicateParsedBookingReference?: string | null;
     message?: string;
   }) {
     super(
@@ -1011,6 +1014,9 @@ class DuplicateOrderError extends Error {
     this.name = "DuplicateOrderError";
     this.existingOrderId = args.existingOrderId;
     this.existingBookingCode = args.existingBookingCode;
+    this.duplicateReason = args.duplicateReason ?? "same-booking";
+    this.duplicateParsedBookingReference =
+      args.duplicateParsedBookingReference ?? null;
   }
 }
 
@@ -3209,7 +3215,11 @@ export async function POST(request: NextRequest) {
     >();
     const existingParsedBookingCodeMatches = new Map<
       string,
-      { existingOrderId: string; existingBookingCode: string }
+      {
+        existingOrderId: string;
+        existingBookingCode: string;
+        parsedBookingReference: string;
+      }
     >();
 
     for (const row of existingDuplicateRows) {
@@ -3236,12 +3246,12 @@ export async function POST(request: NextRequest) {
 
       const parsedBookingReference = resolveParsedBookingReference(
         row.whatsapp_parsed_data,
-        row.booking_code,
       );
       if (parsedBookingReference) {
         existingParsedBookingCodeMatches.set(parsedBookingReference, {
           existingOrderId: row.external_id,
           existingBookingCode: row.booking_code || row.resi || row.external_id,
+          parsedBookingReference,
         });
       }
     }
@@ -3266,7 +3276,11 @@ export async function POST(request: NextRequest) {
     >();
     const seenIncomingParsedBookingReferences = new Map<
       string,
-      { existingOrderId: string; existingBookingCode: string }
+      {
+        existingOrderId: string;
+        existingBookingCode: string;
+        parsedBookingReference: string;
+      }
     >();
 
     for (const order of orders) {
@@ -3281,6 +3295,7 @@ export async function POST(request: NextRequest) {
         throw new DuplicateOrderError({
           existingOrderId: duplicateExisting.existingOrderId,
           existingBookingCode: duplicateExisting.existingBookingCode,
+          duplicateReason: "same-booking",
           message: `Duplicate booking detected. Order yang sama sudah ada dengan kode ${duplicateExisting.existingBookingCode}.`,
         });
       }
@@ -3292,7 +3307,6 @@ export async function POST(request: NextRequest) {
 
       const parsedBookingReference = resolveParsedBookingReference(
         order.whatsAppParsedData,
-        order.bookingCode,
       );
       if (!parsedBookingReference) continue;
 
@@ -3303,13 +3317,17 @@ export async function POST(request: NextRequest) {
         throw new DuplicateOrderError({
           existingOrderId: duplicateParsedReference.existingOrderId,
           existingBookingCode: duplicateParsedReference.existingBookingCode,
-          message: `Duplicate booking code parsed terdeteksi. Order terkait sudah ada dengan kode ${duplicateParsedReference.existingBookingCode}.`,
+          duplicateReason: "parsed-booking-reference",
+          duplicateParsedBookingReference:
+            duplicateParsedReference.parsedBookingReference,
+          message: `Duplicate booking code parsed terdeteksi. Referensi ${duplicateParsedReference.parsedBookingReference} sudah dipakai oleh order ${duplicateParsedReference.existingBookingCode}.`,
         });
       }
 
       seenIncomingParsedBookingReferences.set(parsedBookingReference, {
         existingOrderId: order.id,
         existingBookingCode: order.bookingCode || order.resi || order.id,
+        parsedBookingReference,
       });
     }
 
@@ -4703,6 +4721,9 @@ export async function POST(request: NextRequest) {
             details: rowError.message,
             duplicateOrderId: rowError.existingOrderId,
             duplicateBookingCode: rowError.existingBookingCode,
+            duplicateReason: rowError.duplicateReason,
+            duplicateParsedBookingReference:
+              rowError.duplicateParsedBookingReference,
           },
           { status: 409 },
         );
@@ -4804,6 +4825,9 @@ export async function POST(request: NextRequest) {
           details: error.message,
           duplicateOrderId: error.existingOrderId,
           duplicateBookingCode: error.existingBookingCode,
+          duplicateReason: error.duplicateReason,
+          duplicateParsedBookingReference:
+            error.duplicateParsedBookingReference,
         },
         { status: 409 },
       );
