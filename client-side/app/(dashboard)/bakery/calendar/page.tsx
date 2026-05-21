@@ -250,17 +250,21 @@ export default function BakeryCalendarPage() {
   const calendarMaxTime = useMemo(() => setHours(new Date(), 21), []);
   const calendarScrollToTime = useMemo(() => setHours(new Date(), 8), []);
 
-  const {
-    getCapacity,
-    isLoading: isCapacityLoading,
-    error: capacityError,
-    refetch: refetchCapacity,
-  } = useCalendarCapacity(calendarRange.start, calendarRange.end);
   const { settings: bakerySettings } = useBakerySettings();
   const blockedDates = bakerySettings?.blockedDates;
   const cutoffHour = bakerySettings?.cutoffHour ?? 10;
   const calendarMaxToken =
     bakerySettings?.dailyProductionTokenLimit ?? DEFAULT_MAX_TOKEN;
+  const {
+    getCapacity,
+    isLoading: isCapacityLoading,
+    error: capacityError,
+    refetch: refetchCapacity,
+  } = useCalendarCapacity(
+    calendarRange.start,
+    calendarRange.end,
+    calendarMaxToken,
+  );
 
   const capacitySyncKey = useMemo(() => {
     return orders

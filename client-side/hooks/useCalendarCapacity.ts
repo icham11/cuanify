@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DEFAULT_MAX_TOKEN } from "@/lib/calendar/getCalendarStatus";
+import { BAKERY_SETTINGS_UPDATED_EVENT } from "@/hooks/useBakerySettings";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -160,6 +161,25 @@ export function useCalendarCapacity(
   useEffect(() => {
     void fetchCapacity();
   }, [startStr, endStr, fetchCapacity]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handleSettingsUpdated = () => {
+      void fetchCapacity();
+    };
+
+    window.addEventListener(
+      BAKERY_SETTINGS_UPDATED_EVENT,
+      handleSettingsUpdated,
+    );
+    return () => {
+      window.removeEventListener(
+        BAKERY_SETTINGS_UPDATED_EVENT,
+        handleSettingsUpdated,
+      );
+    };
+  }, [fetchCapacity]);
 
   const refetch = useCallback(() => {
     void fetchCapacity();

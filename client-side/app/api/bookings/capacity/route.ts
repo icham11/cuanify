@@ -6,6 +6,7 @@ import {
   checkTokenAvailability,
 } from "@/lib/bookings/token-capacity-service";
 import {
+  getCachedBakeryBusinessSettings,
   getBakeryBusinessSettings,
   getDefaultBakerySettings,
 } from "@/lib/bakery/settings";
@@ -42,6 +43,14 @@ export async function GET(request: NextRequest) {
     const settings = await getBakeryBusinessSettings(businessId).catch((error) => {
       const message =
         error instanceof Error ? error.message : "Unknown settings error";
+      const cachedSettings = getCachedBakeryBusinessSettings(businessId);
+      if (cachedSettings) {
+        console.warn(
+          "[api/bookings/capacity] Falling back to cached bakery settings:",
+          message,
+        );
+        return cachedSettings;
+      }
       console.warn(
         "[api/bookings/capacity] Falling back to default bakery settings:",
         message,

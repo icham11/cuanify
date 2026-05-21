@@ -9,6 +9,8 @@ interface BakerySettingsResponse {
   success?: boolean;
   data?: BakeryBusinessSettings;
   error?: string;
+  stale?: boolean;
+  source?: string;
 }
 
 let cachedSettings: BakeryBusinessSettings | null = null;
@@ -72,6 +74,14 @@ async function fetchBakerySettingsFromApi(): Promise<BakeryBusinessSettings | nu
 
   if (!response.ok || !payload.data) {
     throw new Error(payload.error || "Failed to load bakery settings");
+  }
+
+  if (
+    payload.stale === true &&
+    payload.source === "default-fallback" &&
+    cachedSettings
+  ) {
+    return cachedSettings;
   }
 
   cachedSettings = payload.data;
@@ -150,6 +160,27 @@ export function useBakerySettings(options?: { enabled?: boolean }) {
     window.addEventListener(BAKERY_SETTINGS_UPDATED_EVENT, handleUpdated);
     return () => {
       window.removeEventListener(BAKERY_SETTINGS_UPDATED_EVENT, handleUpdated);
+    };
+  }, [enabled, refetch]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    if (typeof window === "undefined") return;
+
+    const handleForegroundRefresh = () => {
+      if (document.visibilityState === "hidden") return;
+      void refetch({ force: true }).catch(() => {});
+    };
+
+    window.addEventListener("focus", handleForegroundRefresh);
+    document.addEventListener("visibilitychange", handleForegroundRefresh);
+
+    return () => {
+      window.removeEventListener("focus", handleForegroundRefresh);
+      document.removeEventListener(
+        "visibilitychange",
+        handleForegroundRefresh,
+      );
     };
   }, [enabled, refetch]);
 

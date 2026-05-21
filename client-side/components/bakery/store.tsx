@@ -1159,7 +1159,12 @@ function mergeOrdersPreferLatestLocal(
 }
 
 function isAuthoritativeOrdersSource(source: unknown): boolean {
-  return source === "rows";
+  return (
+    source === "rows" ||
+    source === "snapshot" ||
+    source === "snapshot-fallback" ||
+    source === "snapshot-newer-than-rows"
+  );
 }
 
 function chooseOrderForSync(
@@ -1656,6 +1661,13 @@ export function OrdersProvider({
 
           if (!areOrdersSnapshotsEqual(localOrders, mergedOrders)) {
             writeOrdersSnapshot(mergedOrders);
+          }
+          return;
+        }
+
+        if (shouldReplaceLocalSnapshot) {
+          if (localOrders.length > 0) {
+            writeOrdersSnapshot([]);
           }
           return;
         }

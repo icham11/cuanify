@@ -5,6 +5,7 @@ import { Loader2, Calendar } from "lucide-react";
 import { useRole } from "@/context/RoleContext";
 import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import { getJakartaDateKey } from "@/lib/bakery/attendance";
+import { BAKERY_SETTINGS_UPDATED_EVENT } from "@/hooks/useBakerySettings";
 
 type AttendanceWindowData = {
   enabled: boolean;
@@ -286,6 +287,7 @@ export default function BakeryAttendancePage() {
         }
 
         setSuccessMessage(payload.data?.message || "Perubahan absensi tersimpan.");
+        window.dispatchEvent(new Event(BAKERY_SETTINGS_UPDATED_EVENT));
         await loadAttendance();
       } catch (actionError) {
         setError(

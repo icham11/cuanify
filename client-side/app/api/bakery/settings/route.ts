@@ -8,6 +8,8 @@ import {
 import {
   getDefaultBakerySettings,
   getBakeryBusinessSettings,
+  getCachedBakeryBusinessSettings,
+  rememberBakeryBusinessSettings,
   upsertBakeryBusinessSettings,
   type BakeryHolidaySetting,
   type BakeryOperationalExpenseSetting,
@@ -27,17 +29,6 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const globalForBakerySettingsCache = globalThis as typeof globalThis & {
-  __bakerySettingsCache?: Map<number, ReturnType<typeof getDefaultBakerySettings>>;
-};
-
-function getBakerySettingsCache() {
-  if (!globalForBakerySettingsCache.__bakerySettingsCache) {
-    globalForBakerySettingsCache.__bakerySettingsCache = new Map();
-  }
-  return globalForBakerySettingsCache.__bakerySettingsCache;
-}
 
 function normalizeHolidayEntriesInput(value: unknown): BakeryHolidaySetting[] {
   if (!Array.isArray(value)) return [];
@@ -134,7 +125,7 @@ export async function GET() {
     const auth = await requireAuth();
 
     const settings = await getBakeryBusinessSettings(auth.businessId);
-    getBakerySettingsCache().set(auth.businessId, settings);
+    rememberBakeryBusinessSettings(auth.businessId, settings);
 
     return NextResponse.json({ success: true, data: settings });
   } catch (error) {
@@ -147,7 +138,7 @@ export async function GET() {
     ) {
       const auth = await requireAuth().catch(() => null);
       const cachedSettings = auth
-        ? getBakerySettingsCache().get(auth.businessId)
+        ? getCachedBakeryBusinessSettings(auth.businessId)
         : null;
 
       if (cachedSettings) {
@@ -261,7 +252,7 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    getBakerySettingsCache().set(auth.businessId, nextSettings);
+    rememberBakeryBusinessSettings(auth.businessId, nextSettings);
 
     return NextResponse.json({ success: true, data: nextSettings });
   } catch (error) {

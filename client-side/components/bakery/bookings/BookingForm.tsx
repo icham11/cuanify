@@ -2923,12 +2923,16 @@ export default function BookingForm() {
     return parsed ?? startOfDay(new Date());
   }, [normalizedDeliveryDate]);
 
+  const { settings: bakerySettings } = useBakerySettings();
   const {
     getCapacity: getCalendarCapacity,
     isLoading: isCalendarCapacityLoading,
     refetch: refetchSelectedDateCapacity,
-  } = useCalendarCapacity(selectedCalendarDate, selectedCalendarDate);
-  const { settings: bakerySettings } = useBakerySettings();
+  } = useCalendarCapacity(
+    selectedCalendarDate,
+    selectedCalendarDate,
+    bakerySettings?.dailyProductionTokenLimit ?? DAILY_PRODUCTION_TOKEN_LIMIT,
+  );
   const blockedDates = bakerySettings?.blockedDates ?? BAKERY_BLOCKED_DATES;
   const cutoffHour = bakerySettings?.cutoffHour ?? 10;
   const cutoffEnabled = bakerySettings?.cutoffEnabled ?? true;
