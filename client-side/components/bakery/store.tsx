@@ -1020,13 +1020,15 @@ function parseSnapshot(snapshot: string): BakeryOrder[] {
   try {
     const parsed = JSON.parse(snapshot) as BakeryOrder[];
     if (!Array.isArray(parsed)) return initialOrders;
-    return parsed.map((order) => ({
-      ...order,
-      productionStages: normalizeProductionStageAssignments({
-        totalTokens: summarizeProductionTokensByItems(order.items ?? []),
-        stages: order.productionStages ?? [],
-      }),
-    }));
+    return dedupeOrdersForSync(
+      parsed.map((order) => ({
+        ...order,
+        productionStages: normalizeProductionStageAssignments({
+          totalTokens: summarizeProductionTokensByItems(order.items ?? []),
+          stages: order.productionStages ?? [],
+        }),
+      })),
+    );
   } catch {
     return initialOrders;
   }
@@ -1223,7 +1225,8 @@ function dedupeOrdersForSync(orders: BakeryOrder[]): BakeryOrder[] {
 
 function writeOrdersSnapshot(nextOrders: BakeryOrder[]) {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextOrders));
+  const sanitizedOrders = dedupeOrdersForSync(nextOrders);
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitizedOrders));
   window.dispatchEvent(new Event(STORAGE_EVENT));
 }
 
@@ -1523,6 +1526,37 @@ export function OrdersProvider({
     }
   }, [enabled]);
 
+  const replaceLocalOrdersWithServer = useCallback(
+    async (options?: { force?: boolean }) => {
+      const latestServerOrders = await fetchLatestOrdersFromServer();
+      if (!latestServerOrders) return null;
+
+      const currentLocalOrders =
+        typeof window === "undefined"
+          ? orders
+          : parseSnapshot(
+              window.localStorage.getItem(STORAGE_KEY) ?? INITIAL_SNAPSHOT,
+            );
+      const nextOrders =
+        options?.force === true
+          ? latestServerOrders
+          : mergeOrdersPreferLatestLocal(currentLocalOrders, latestServerOrders);
+
+      if (!areOrdersSnapshotsEqual(currentLocalOrders, nextOrders)) {
+        lastLocalWriteAtRef.current = 0;
+        writeOrdersSnapshot(nextOrders);
+      }
+
+      dismissSyncIssueToast();
+      return nextOrders;
+    },
+    [
+      dismissSyncIssueToast,
+      fetchLatestOrdersFromServer,
+      orders,
+    ],
+  );
+
   const hydrateOrdersFromServer = useCallback(
     async (force = false) => {
       if (!enabled) return;
@@ -1606,6 +1640,24 @@ export function OrdersProvider({
     if (!enabled) return;
     if (typeof window === "undefined") return;
 
+    const handleForegroundSync = () => {
+      if (document.visibilityState === "hidden") return;
+      void hydrateOrdersFromServer(true);
+    };
+
+    window.addEventListener("focus", handleForegroundSync);
+    document.addEventListener("visibilitychange", handleForegroundSync);
+
+    return () => {
+      window.removeEventListener("focus", handleForegroundSync);
+      document.removeEventListener("visibilitychange", handleForegroundSync);
+    };
+  }, [enabled, hydrateOrdersFromServer]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    if (typeof window === "undefined") return;
+
     return () => {
       if (syncDebounceTimerRef.current) {
         window.clearTimeout(syncDebounceTimerRef.current);
@@ -1632,6 +1684,7 @@ export function OrdersProvider({
 
     try {
       await syncOrdersToServer(queuedOrders);
+      await replaceLocalOrdersWithServer({ force: true });
     } catch (error) {
       const message =
         error instanceof Error
@@ -1687,6 +1740,7 @@ export function OrdersProvider({
   }, [
     dismissSyncIssueToast,
     hydrateOrdersFromServer,
+    replaceLocalOrdersWithServer,
     scheduleQueuedOrdersSync,
     showSyncIssueToast,
     syncOrdersToServer,
@@ -2329,8 +2383,13 @@ export function OrdersProvider({
           syncPayload,
         );
         createdOrder = persistedOrder;
-        const nextOrders = [persistedOrder, ...baseOrders];
-        writeOrdersSnapshot(nextOrders);
+        const latestSyncedOrders = await replaceLocalOrdersWithServer({
+          force: true,
+        });
+        if (!latestSyncedOrders) {
+          const nextOrders = [persistedOrder, ...baseOrders];
+          writeOrdersSnapshot(nextOrders);
+        }
 
         recentBookingCreateFingerprintsRef.current.set(submissionFingerprint, {
           orderId: id,
@@ -2371,6 +2430,7 @@ export function OrdersProvider({
         // WA produksi sudah dikirim saat sync ke server (/api/bookings/orders).
         // Hindari double-send dengan hanya sync kalender di sisi frontend.
         void runAutomationsForOrder("order_calendar_sync", id);
+        void hydrateOrdersFromServer(true);
         return id;
       } catch (error) {
         if (
@@ -2420,7 +2480,9 @@ export function OrdersProvider({
       syncOrdersToServer,
       fetchLatestOrdersFromServer,
       getLatestOrdersSnapshot,
+      hydrateOrdersFromServer,
       persistOrders,
+      replaceLocalOrdersWithServer,
     ],
   );
 

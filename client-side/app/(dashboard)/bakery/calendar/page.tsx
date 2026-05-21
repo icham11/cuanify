@@ -749,17 +749,17 @@ export default function BakeryCalendarPage() {
               )}
 
               <div
-                className={`w-full max-w-full rounded-xl border border-[#e2d1c3] bg-white overscroll-contain ${
+                className={`bakery-calendar-shell w-full max-w-full rounded-xl border border-[#e2d1c3] bg-white overscroll-contain ${
                   currentView === Views.MONTH
-                    ? "overflow-x-auto overflow-y-hidden touch-pan-x touch-pan-y h-[28rem] sm:h-[32rem] md:h-[36rem] lg:h-[41rem] xl:h-[44rem]"
-                    : "overflow-x-auto overflow-y-hidden touch-pan-x touch-pan-y h-[25rem] sm:h-[30rem] md:h-[34rem] lg:h-[38rem]"
+                    ? "month-view h-auto overflow-visible"
+                    : "week-view overflow-x-auto overflow-y-hidden touch-pan-x touch-pan-y h-[25rem] sm:h-[30rem] md:h-[34rem] lg:h-[38rem]"
                 }`}
               >
                 <div
-                  className={`h-full ${
+                  className={`${
                     currentView === Views.MONTH
-                      ? "min-w-[720px] md:min-w-full"
-                      : "min-w-[840px] md:min-w-full"
+                      ? "min-w-0"
+                      : "h-full min-w-[840px] md:min-w-full"
                   }`}
                 >
                   <Calendar
@@ -1266,6 +1266,65 @@ export default function BakeryCalendarPage() {
           display: block;
           width: 100%;
           margin-bottom: 0;
+        }
+
+        .bakery-calendar-shell.month-view .rbc-calendar {
+          height: auto;
+          min-height: 0;
+        }
+
+        .bakery-calendar-shell.month-view .rbc-month-view {
+          height: auto;
+          min-height: 0;
+          flex: none;
+        }
+
+        .bakery-calendar-shell.month-view .rbc-month-row {
+          flex: 0 0 auto;
+          height: 7.5rem;
+          min-height: 7.5rem;
+        }
+
+        @media (max-width: 767px) {
+          .rbc-header {
+            padding: 0.42rem 0.1rem;
+            font-size: 0.56rem;
+            letter-spacing: 0.04em;
+          }
+
+          .rbc-month-row {
+            min-height: 58px;
+          }
+
+          .bakery-calendar-shell.month-view .rbc-month-row {
+            height: 5.75rem;
+            min-height: 5.75rem;
+          }
+
+          .rbc-date-cell {
+            padding: 1px;
+          }
+
+          .rbc-month-view .rbc-row-content,
+          .rbc-month-view .rbc-row-bg,
+          .rbc-month-view .rbc-row,
+          .rbc-month-view .rbc-date-cell {
+            min-width: 0;
+          }
+        }
+
+        @media (min-width: 768px) {
+          .bakery-calendar-shell.month-view .rbc-month-row {
+            height: 8.5rem;
+            min-height: 8.5rem;
+          }
+        }
+
+        @media (min-width: 1280px) {
+          .bakery-calendar-shell.month-view .rbc-month-row {
+            height: 9rem;
+            min-height: 9rem;
+          }
         }
 
       `}</style>

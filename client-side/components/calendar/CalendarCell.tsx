@@ -82,13 +82,13 @@ export default function CalendarCell({
   };
 
   return (
-    <div className="flex min-h-[52px] w-full flex-col overflow-hidden rounded-md border border-transparent px-1 py-1 sm:min-h-[64px]">
+    <div className="flex min-h-[44px] w-full flex-col overflow-hidden rounded-md border border-transparent px-0.5 py-0.5 sm:min-h-[64px] sm:px-1 sm:py-1">
       <div className="flex items-start justify-between gap-1">
         <button
           type="button"
           onClick={handleClick}
           title={tooltipText}
-          className={`rounded-md px-1 text-left text-[10px] font-semibold leading-none transition sm:text-[13px] ${
+          className={`max-w-full rounded-md px-0.5 text-left text-[9px] font-semibold leading-none transition sm:px-1 sm:text-[13px] ${
             ui.disabled
               ? "text-[#8d837c] hover:bg-[#f3ece7]"
               : "text-[#2f1e13] hover:bg-[#fff0de]"
@@ -101,7 +101,7 @@ export default function CalendarCell({
       <div className="mt-0.5 min-h-[16px]">
         {orderCount > 0 ? (
           <span
-            className="inline-flex h-4 min-w-[16px] items-center justify-center gap-1 rounded-full border border-white/70 bg-white/95 px-1 text-[6px] font-bold leading-none text-[#5b3a23] shadow-[0_1px_3px_rgba(47,30,19,0.12)] sm:text-[8px]"
+            className="inline-flex h-3.5 min-w-[14px] items-center justify-center gap-1 rounded-full border border-white/70 bg-white/95 px-1 text-[6px] font-bold leading-none text-[#5b3a23] shadow-[0_1px_3px_rgba(47,30,19,0.12)] sm:h-4 sm:min-w-[16px] sm:text-[8px]"
             title={orderLabel}
           >
             <span
