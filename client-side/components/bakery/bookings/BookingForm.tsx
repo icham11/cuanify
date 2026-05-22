@@ -209,6 +209,11 @@ type BookingDraftSnapshot = {
   draftImported: boolean;
   referenceImageLabelsInput: string;
   referenceFilesChangedSinceParse: boolean;
+  shippingQuotes: ShippingQuote[];
+  selectedShippingQuoteId: string;
+  shippingDistanceKm: number | null;
+  shippingDistanceSource?: ShippingQuoteResponse["distanceSource"];
+  shippingWarning: string;
   formValues: BookingFormValues;
 };
 
@@ -2977,6 +2982,15 @@ export default function BookingForm() {
     setProductionPreviewImageUrl(snapshot.productionPreviewImageUrl);
     setDraftImported(snapshot.draftImported);
     setReferenceImageLabelsInput(snapshot.referenceImageLabelsInput);
+    setShippingQuotes(Array.isArray(snapshot.shippingQuotes) ? snapshot.shippingQuotes : []);
+    setSelectedShippingQuoteId(snapshot.selectedShippingQuoteId || "");
+    setShippingDistanceKm(
+      typeof snapshot.shippingDistanceKm === "number"
+        ? snapshot.shippingDistanceKm
+        : null,
+    );
+    setShippingDistanceSource(snapshot.shippingDistanceSource);
+    setShippingWarning(snapshot.shippingWarning || "");
     setReferenceFilesChangedSinceParse(false);
     setReferenceSyncStatus("idle");
     setReferenceImageFiles([]);
@@ -3022,6 +3036,11 @@ export default function BookingForm() {
         draftImported,
         referenceImageLabelsInput,
         referenceFilesChangedSinceParse,
+        shippingQuotes,
+        selectedShippingQuoteId,
+        shippingDistanceKm,
+        shippingDistanceSource,
+        shippingWarning,
         formValues: parsedValues.data,
         ...snapshotOverrides,
       });
@@ -3042,6 +3061,11 @@ export default function BookingForm() {
       referenceImageLabelsInput,
       router,
       selectedOrderType,
+      selectedShippingQuoteId,
+      shippingDistanceKm,
+      shippingDistanceSource,
+      shippingQuotes,
+      shippingWarning,
       showSubmitFeedback,
     ],
   );
@@ -4237,6 +4261,19 @@ export default function BookingForm() {
     shippingPayloadRef.current = shippingPayload;
   }, [shippingPayload]);
 
+  const autoRefreshShippingPreviewKey = useMemo(() => {
+    if (composerStep !== "preview") return "";
+    if (!shouldUseShippingEngine) return "";
+    if (!shippingQuoteSignature) return "";
+
+    return `${effectiveDeliveryMethod}::${shippingQuoteSignature}`;
+  }, [
+    composerStep,
+    effectiveDeliveryMethod,
+    shippingQuoteSignature,
+    shouldUseShippingEngine,
+  ]);
+
   useEffect(() => {
     const currentShippingPayload = shippingPayloadRef.current;
 
@@ -4320,7 +4357,7 @@ export default function BookingForm() {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [manualCheckShippingTrigger]);
+  }, [autoRefreshShippingPreviewKey, manualCheckShippingTrigger]);
 
   const onSubmit: SubmitHandler<BookingFormValues> = async (rawValues) => {
     const values =
@@ -5934,6 +5971,11 @@ export default function BookingForm() {
           draftImported: true,
           referenceImageLabelsInput,
           referenceFilesChangedSinceParse: false,
+          shippingQuotes,
+          selectedShippingQuoteId,
+          shippingDistanceKm,
+          shippingDistanceSource,
+          shippingWarning,
           formValues: bookingSchema.parse(getValues()),
         });
       }
@@ -6055,6 +6097,11 @@ export default function BookingForm() {
         draftImported: true,
         referenceImageLabelsInput,
         referenceFilesChangedSinceParse: false,
+        shippingQuotes,
+        selectedShippingQuoteId,
+        shippingDistanceKm,
+        shippingDistanceSource,
+        shippingWarning,
         formValues: bookingSchema.parse(getValues()),
       });
     } catch {
@@ -6074,6 +6121,11 @@ export default function BookingForm() {
     referenceImageLabelsInput,
     referenceInputSignature,
     selectedOrderType,
+    selectedShippingQuoteId,
+    shippingDistanceKm,
+    shippingDistanceSource,
+    shippingQuotes,
+    shippingWarning,
     normalizedReferenceImageLabels,
   ]);
 
