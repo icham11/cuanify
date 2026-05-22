@@ -302,6 +302,15 @@ export default function OrderDetailPage() {
     0,
     Math.round(Number(order.remainingBalance ?? Math.max(0, totalPrice - totalPaidAmount))),
   );
+  const isFullyPaid =
+    normalizedPaymentStatus === "Paid" || remainingBalanceAmount <= 0;
+  const effectiveDpPercent =
+    !isFullyPaid && totalPrice > 0
+      ? Math.max(
+          0,
+          Math.min(100, Math.round((totalPaidAmount / totalPrice) * 100)),
+        )
+      : 0;
   const statusSteps = [
     "Order Created",
     "In Production",
@@ -554,11 +563,13 @@ export default function OrderDetailPage() {
             <CardContent className="space-y-0 px-0 py-0">
               <div className="flex items-center justify-between px-4 py-4">
                 <div>
-                  <p className="text-sm text-[var(--crumbella-muted)]">DP Masuk</p>
+                  <p className="text-sm text-[var(--crumbella-muted)]">
+                    {isFullyPaid ? "Pembayaran Masuk" : "DP Masuk"}
+                  </p>
                   <p className="text-[1.5rem] font-bold text-[var(--foreground)]">{formatCurrency(totalPaidAmount)}</p>
                 </div>
                 <span className="rounded-full bg-[#eaf7e9] px-3 py-1 text-xs font-semibold text-[#2d6d48]">
-                  {normalizedPaymentStatus === "Paid" ? "Lunas" : "DP 50%"}
+                  {isFullyPaid ? "Lunas" : `DP ${effectiveDpPercent}%`}
                 </span>
               </div>
               <div className="border-t border-[var(--crumbella-border)] px-4 py-4">

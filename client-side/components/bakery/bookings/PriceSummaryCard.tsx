@@ -51,6 +51,23 @@ export default function PriceSummaryCard({
   const customEntries = (categoryBreakdown ?? []).filter(
     (entry) => entry.groupLabel !== "SEASONAL_EVENT",
   );
+  const normalizedPaidAmount = Math.max(
+    0,
+    Math.round(Number(paymentPaidAmount ?? 0)),
+  );
+  const normalizedRemainingAmount = Math.max(
+    0,
+    Math.round(Number(paymentRemainingAmount ?? 0)),
+  );
+  const isFullyPaid =
+    paymentStatus === "Paid" || normalizedRemainingAmount <= 0;
+  const effectiveDpPercent =
+    !isFullyPaid && totalPrice > 0
+      ? Math.max(
+          0,
+          Math.min(100, Math.round((normalizedPaidAmount / totalPrice) * 100)),
+        )
+      : 0;
 
   const renderCategoryEntries = (
     entries: NonNullable<PriceSummaryCardProps["categoryBreakdown"]>,
@@ -162,18 +179,18 @@ export default function PriceSummaryCard({
             <div className="h-px bg-gray-100" />
             <div className="flex items-center justify-between text-sm text-gray-600">
               <span>
-                {paymentStatus === "Paid"
+                {isFullyPaid
                   ? "Pembayaran (Lunas)"
-                  : "Pembayaran (DP 50%)"}
+                  : `Pembayaran (DP ${effectiveDpPercent}%)`}
               </span>
               <span className="font-semibold text-gray-900">
-                {formatCurrency(paymentPaidAmount ?? 0)}
+                {formatCurrency(normalizedPaidAmount)}
               </span>
             </div>
             <div className="flex items-center justify-between text-sm text-gray-600">
               <span>Sisa Pembayaran</span>
               <span className="font-semibold text-gray-900">
-                {formatCurrency(paymentRemainingAmount ?? 0)}
+                {formatCurrency(normalizedRemainingAmount)}
               </span>
             </div>
           </>

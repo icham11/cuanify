@@ -143,6 +143,7 @@ function defaultMonthlyExpenses(monthKey: string): EditableExpense[] {
 function mergeStaffSettings(
   members: Array<{ userId: number; name: string; role: string }>,
   saved: BakeryStaffSetting[],
+  defaultDailyTokenLimit: number,
 ): EditableStaff[] {
   const map = new Map<number, EditableStaff>();
 
@@ -156,7 +157,7 @@ function mergeStaffSettings(
       userId: member.userId,
       name: member.name,
       role: member.role,
-      dailyTokenLimit: current?.dailyTokenLimit ?? 500,
+      dailyTokenLimit: current?.dailyTokenLimit ?? defaultDailyTokenLimit,
       monthlySalary: current?.monthlySalary ?? 0,
       mealAllowance: current?.mealAllowance ?? 0,
       takeHomePay: current?.takeHomePay ?? 0,
@@ -422,7 +423,13 @@ export default function BakerySettingsPage() {
 
   useEffect(() => {
     if (!settings) return;
-    setStaffSettings(mergeStaffSettings(staffOptions, settings.staffSettings));
+    setStaffSettings(
+      mergeStaffSettings(
+        staffOptions,
+        settings.staffSettings,
+        settings.staffDailyTokenLimit,
+      ),
+    );
     setAttendanceReconciliation(settings.attendanceReconciliation || []);
   }, [settings, staffOptions]);
 

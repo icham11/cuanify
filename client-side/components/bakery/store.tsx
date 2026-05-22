@@ -2327,9 +2327,17 @@ export function OrdersProvider({
           sequence,
         );
 
+        const requestedPaymentStatus: PaymentStatus =
+          order.paymentStatus === "Paid" ? "Paid" : "DP Paid";
         const normalizedTotalPrice = normalizeMoney(order.totalPrice);
-        const normalizedDpPaid = normalizeMoney(order.dpPaidAmount);
-        const normalizedFinalPaid = normalizeMoney(order.finalPaidAmount);
+        const normalizedDpPaid =
+          requestedPaymentStatus === "Paid"
+            ? 0
+            : normalizeMoney(order.dpPaidAmount);
+        const normalizedFinalPaid =
+          requestedPaymentStatus === "Paid"
+            ? normalizedTotalPrice
+            : normalizeMoney(order.finalPaidAmount);
         const normalizedTotalPaid = Math.min(
           normalizedTotalPrice,
           normalizedDpPaid + normalizedFinalPaid,
@@ -2341,10 +2349,10 @@ export function OrdersProvider({
           );
         }
 
-        const inferredPaymentStatus = inferPaymentStatus(
-          normalizedTotalPrice,
-          normalizedTotalPaid,
-        );
+        const inferredPaymentStatus =
+          requestedPaymentStatus === "Paid"
+            ? "Paid"
+            : inferPaymentStatus(normalizedTotalPrice, normalizedTotalPaid);
         const isHistoricalBackfill = isHistoricalBackfillOrder(
           order.deliveryDate,
         );
