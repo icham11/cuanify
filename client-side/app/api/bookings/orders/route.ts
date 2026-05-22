@@ -339,6 +339,29 @@ function parseOrdersContent(content: string | null | undefined): unknown[] {
   }
 }
 
+function snapshotMatchesRowOrders(
+  snapshotOrders: unknown[],
+  rowOrders: Array<{ id: string }>,
+): boolean {
+  if (snapshotOrders.length !== rowOrders.length) {
+    return false;
+  }
+
+  const snapshotIds = new Set(
+    snapshotOrders
+      .map((entry) => asRecord(entry))
+      .filter((entry): entry is JsonRecord => Boolean(entry))
+      .map((entry) => asString(entry.id).trim())
+      .filter(Boolean),
+  );
+
+  if (snapshotIds.size !== rowOrders.length) {
+    return false;
+  }
+
+  return rowOrders.every((order) => snapshotIds.has(order.id));
+}
+
 function asRecord(value: unknown): JsonRecord | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return value as JsonRecord;
@@ -2736,10 +2759,16 @@ export async function GET(request: NextRequest) {
         });
 
         const snapshot = await readOrdersSnapshot(businessId);
+        const snapshotOrders = parseOrdersContent(snapshot?.content);
         const rowUpdatedAt = orderRows[0]?.updated_at?.toISOString() ?? null;
         const snapshotUpdatedAt = snapshot?.updatedAt?.toISOString() ?? null;
+        const canTrustSnapshotNewerThanRows = snapshotMatchesRowOrders(
+          snapshotOrders,
+          orders,
+        );
 
         if (
+          canTrustSnapshotNewerThanRows &&
           snapshotUpdatedAt &&
           rowUpdatedAt &&
           new Date(snapshotUpdatedAt).getTime() >
@@ -2750,13 +2779,14 @@ export async function GET(request: NextRequest) {
             data: {
               source: "snapshot-newer-than-rows",
               id: snapshot?.id ?? null,
-              orders: parseOrdersContent(snapshot?.content),
+              orders: snapshotOrders,
               updatedAt: snapshotUpdatedAt,
             },
           });
         }
 
         if (
+          !canTrustSnapshotNewerThanRows ||
           !snapshotUpdatedAt ||
           !rowUpdatedAt ||
           new Date(snapshotUpdatedAt).getTime() <

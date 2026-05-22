@@ -11,6 +11,12 @@ const mockProducts: BakeryFinancialProduct[] = [
   { name: "Roti Tawar", cogs: 3000 },
 ];
 
+const seasonalProducts: BakeryFinancialProduct[] = [
+  { name: "Lotus Box - Seasonal", cogs: 30333 },
+  { name: "Sharing Box (isi 2) - Seasonal", cogs: 9358 },
+  { name: "3 in 1 Mini Cookies - Per Pack (isi 3)", cogs: 2300 },
+];
+
 describe("Revenue vs Cashflow Calculation", () => {
   it("should recognize revenue on delivery date, not payment date", () => {
     // Scenario: Order created May 1, paid May 5, delivered May 10
@@ -50,6 +56,37 @@ describe("Revenue vs Cashflow Calculation", () => {
       toDate: "2024-05-10",
     });
     expect(mayTenResult.totalRevenue).toBe(100000);
+  });
+
+  it("should recognize delivered revenue even when payment is still partial", () => {
+    const orders: BakeryFinancialOrder[] = [
+      {
+        deliveryDate: "2024-05-10",
+        totalPrice: 300000,
+        totalPaidAmount: 100000,
+        paymentStatus: "DP Paid",
+        orderStatus: "Completed",
+        createdAt: new Date("2024-05-01"),
+        items: [
+          {
+            productName: "Kue Coklat",
+            quantity: 1,
+            basePrice: 300000,
+            lineTotal: 300000,
+          },
+        ],
+      },
+    ];
+
+    const result = calculateBakeryFinancialSummary({
+      orders,
+      products: mockProducts,
+      fromDate: "2024-05-10",
+      toDate: "2024-05-10",
+    });
+
+    expect(result.totalRevenue).toBe(300000);
+    expect(result.totalCashFlowIn).toBe(0);
   });
 
   it("should recognize cashflow on booking created date, not delivery date", () => {
@@ -259,7 +296,7 @@ describe("Revenue vs Cashflow Calculation", () => {
     expect(result.totalRevenue).toBe(0);
   });
 
-  it("should recognize revenue capped at total price", () => {
+  it("should recognize revenue from total sales value, not overpaid cash", () => {
     const orders: BakeryFinancialOrder[] = [
       {
         deliveryDate: "2024-05-10",
@@ -287,7 +324,6 @@ describe("Revenue vs Cashflow Calculation", () => {
       toDate: "2024-05-10",
     });
 
-    // Revenue should be capped at total price
     expect(result.totalRevenue).toBe(100000);
   });
 
@@ -327,5 +363,74 @@ describe("Revenue vs Cashflow Calculation", () => {
 
     expect(maySummary.totalRevenue).toBe(0);
     expect(juneSummary.totalRevenue).toBe(250000);
+  });
+
+  it("should match seasonal product cogs from product name aliases", () => {
+    const orders: BakeryFinancialOrder[] = [
+      {
+        deliveryDate: "2024-05-10",
+        totalPrice: 175000,
+        totalPaidAmount: 175000,
+        paymentStatus: "Paid",
+        orderStatus: "Completed",
+        createdAt: new Date("2024-05-01"),
+        product: "1 item(s)",
+        items: [
+          {
+            productName: "Lotus Box",
+            quantity: 1,
+            size: "Lotus Box",
+            basePrice: 175000,
+            lineTotal: 175000,
+          },
+        ],
+      },
+      {
+        deliveryDate: "2024-05-11",
+        totalPrice: 550000,
+        totalPaidAmount: 550000,
+        paymentStatus: "Paid",
+        orderStatus: "Completed",
+        createdAt: new Date("2024-05-01"),
+        product: "1 item(s)",
+        items: [
+          {
+            productName: "Sharing Box (isi 2)",
+            quantity: 10,
+            size: "Box isi 2",
+            basePrice: 550000,
+            lineTotal: 550000,
+          },
+        ],
+      },
+      {
+        deliveryDate: "2024-05-12",
+        totalPrice: 90000,
+        totalPaidAmount: 90000,
+        paymentStatus: "Paid",
+        orderStatus: "Completed",
+        createdAt: new Date("2024-05-01"),
+        product: "1 item(s)",
+        items: [
+          {
+            productName: "Christmas 2025",
+            quantity: 3,
+            size: "3 in 1 Mini Cookies (Per pack)",
+            basePrice: 90000,
+            lineTotal: 90000,
+          },
+        ],
+      },
+    ];
+
+    const result = calculateBakeryFinancialSummary({
+      orders,
+      products: seasonalProducts,
+      fromDate: "2024-05-01",
+      toDate: "2024-05-31",
+    });
+
+    expect(result.cogsCost).toBe(30333 + 9358 * 10 + 2300 * 3);
+    expect(result.itemsWithMissingCogs).toBe(0);
   });
 });

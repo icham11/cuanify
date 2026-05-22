@@ -38,6 +38,11 @@ export type BakeryFinancialProduct = {
   cogs?: number;
 };
 
+type ProductCostEntry = {
+  normalizedName: string;
+  cogs: number;
+};
+
 export type BakeryTopProduct = {
   productName: string;
   quantitySold: number;
@@ -157,6 +162,17 @@ function buildProductCostMap(
   return map;
 }
 
+function buildProductCostEntries(
+  products: BakeryFinancialProduct[],
+): ProductCostEntry[] {
+  return products
+    .map((product) => ({
+      normalizedName: normalizeText(String(product.name || "").trim()),
+      cogs: Math.max(0, Number(product.cogs || 0)),
+    }))
+    .filter((entry) => entry.normalizedName.length > 0 && entry.cogs > 0);
+}
+
 function isDateKeyWithinRange(
   dateKey: string,
   fromDate: string,
@@ -208,7 +224,8 @@ function getRevenueAmountInRange(
   fromDate: string,
   toDate: string,
 ): number {
-  // Revenue is recognized on delivery date, not payment date
+  // Revenue is recognized from the sales value on delivery date,
+  // independent from when or whether the cash has been paid in.
   const deliveryDateKey = String(order.deliveryDate || "").trim();
 
   if (
@@ -218,8 +235,7 @@ function getRevenueAmountInRange(
     return 0;
   }
 
-  // Return the total paid amount capped by total price
-  return getCappedTotalPaid(order);
+  return Math.max(0, Number(order.totalPrice || 0));
 }
 
 function getCashFlowInAmountInRange(
@@ -254,10 +270,22 @@ function buildProductNameCandidates(
 
   if (productName) {
     candidates.add(productName);
+    candidates.add(`${productName} - Seasonal`);
+    candidates.add(`${productName} - Seasonal Event`);
   }
 
   if (orderProduct) {
     candidates.add(orderProduct);
+  }
+
+  if (size) {
+    candidates.add(size);
+    candidates.add(
+      size
+        .replace(/\(([^)]+)\)/g, " - $1")
+        .replace(/\s+/g, " ")
+        .trim(),
+    );
   }
 
   const baseNames = [productName, orderProduct].filter(Boolean);
@@ -275,6 +303,69 @@ function buildProductNameCandidates(
   });
 
   return Array.from(candidates);
+}
+
+function resolveMatchedCogs(args: {
+  item: BakeryFinancialOrderItem;
+  orderProductName?: string;
+  productCostMap: Map<string, number>;
+  productCostEntries: ProductCostEntry[];
+}): number {
+  const normalizedCandidates = Array.from(
+    new Set(
+      buildProductNameCandidates(args.item, args.orderProductName)
+        .map((candidate) => normalizeText(candidate))
+        .filter((candidate) => candidate.length > 0),
+    ),
+  );
+
+  for (const candidate of normalizedCandidates) {
+    const exactMatch = args.productCostMap.get(candidate) ?? 0;
+    if (exactMatch > 0) {
+      return exactMatch;
+    }
+  }
+
+  const scoredMatches = args.productCostEntries
+    .map((entry) => {
+      let bestScore = -1;
+
+      normalizedCandidates.forEach((candidate) => {
+        if (candidate.length < 8) return;
+        if (
+          !entry.normalizedName.includes(candidate) &&
+          !candidate.includes(entry.normalizedName)
+        ) {
+          return;
+        }
+
+        const score =
+          1000 - Math.abs(entry.normalizedName.length - candidate.length);
+        if (score > bestScore) {
+          bestScore = score;
+        }
+      });
+
+      return bestScore >= 0 ? { ...entry, score: bestScore } : null;
+    })
+    .filter((entry): entry is ProductCostEntry & { score: number } =>
+      Boolean(entry),
+    )
+    .sort((left, right) => right.score - left.score);
+
+  if (scoredMatches.length === 0) {
+    return 0;
+  }
+
+  if (
+    scoredMatches.length > 1 &&
+    scoredMatches[0].score === scoredMatches[1].score &&
+    scoredMatches[0].normalizedName !== scoredMatches[1].normalizedName
+  ) {
+    return 0;
+  }
+
+  return scoredMatches[0].cogs;
 }
 
 export function filterBakeryOrdersByDateRange(
@@ -349,6 +440,7 @@ export function calculateBakeryFinancialSummary(args: {
     args.toDate,
   );
   const productCostMap = buildProductCostMap(args.products);
+  const productCostEntries = buildProductCostEntries(args.products);
   const bookedRevenue = filteredOrders.reduce(
     (sum, order) => sum + Math.max(0, Number(order.totalPrice || 0)),
     0,
@@ -402,10 +494,12 @@ export function calculateBakeryFinancialSummary(args: {
 
     (order.items || []).forEach((item) => {
       const quantity = Math.max(1, Number(item.quantity || 1));
-      const matchedCogs =
-        buildProductNameCandidates(item, order.product)
-          .map((candidate) => productCostMap.get(normalizeText(candidate)) ?? 0)
-          .find((value) => value > 0) ?? 0;
+      const matchedCogs = resolveMatchedCogs({
+        item,
+        orderProductName: order.product,
+        productCostMap,
+        productCostEntries,
+      });
 
       if (matchedCogs > 0) {
         cogsCost += matchedCogs * quantity * recognitionRatio;

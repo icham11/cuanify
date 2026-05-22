@@ -3,7 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useBusiness } from "@/context/BusinessContext";
 import { useRole } from "@/context/RoleContext";
-import { OrdersProvider, useOrders } from "@/components/bakery/store";
+import {
+  OrdersProvider,
+  useOrders,
+  type BakeryOrder,
+} from "@/components/bakery/store";
 import MonthYearPicker, {
   buildSelectableMonthKeys,
 } from "@/components/bakery/shared/MonthYearPicker";
@@ -21,6 +25,13 @@ type BakerySettingsResponse = {
 
 type ProductsResponse = {
   data?: Product[];
+};
+
+type OrdersResponse = {
+  data?: {
+    orders?: BakeryOrder[];
+    source?: string;
+  };
 };
 
 type TopProductView = {
@@ -334,31 +345,37 @@ function BusinessPageContent() {
       const currentRange = getMonthRange(selectedMonth);
       const previousRange = getMonthRange(currentRange.prevMonthKey);
 
-      const [bakerySettingsPayload, productsPayload] = await Promise.all([
+      const [bakerySettingsPayload, productsPayload, ordersPayload] =
+        await Promise.all([
         safeApiFetch<BakerySettingsResponse>("/api/bakery/settings"),
         safeApiFetch<ProductsResponse>("/api/products?mode=financial&limit=999"),
+        safeApiFetch<OrdersResponse>("/api/bookings/orders", 20000),
       ]);
 
       if (!active) return;
 
       const productsRequestFailed = didRequestFail(productsPayload);
+      const ordersRequestFailed = didRequestFail(ordersPayload);
 
       const bakerySettings = bakerySettingsPayload?.data ?? null;
       const products = productsPayload?.data ?? [];
+      const authoritativeOrders = Array.isArray(ordersPayload?.data?.orders)
+        ? ordersPayload.data.orders
+        : orders;
       const deliveryRangeOrders = filterOrdersByDeliveryDateRange(
-        orders,
+        authoritativeOrders,
         currentRange.startDate,
         currentRange.endDate,
       );
       const currentSummary = calculateBakeryFinancialSummary({
-        orders,
+        orders: authoritativeOrders,
         products,
         settings: bakerySettings,
         fromDate: currentRange.startDate,
         toDate: currentRange.endDate,
       });
       const previousSummary = calculateBakeryFinancialSummary({
-        orders,
+        orders: authoritativeOrders,
         products,
         settings: bakerySettings,
         fromDate: previousRange.startDate,
@@ -405,7 +422,7 @@ function BusinessPageContent() {
         deliveryRangeOrders.length > 0 ||
         currentSummary.paidOrdersCount > 0 ||
         currentSummary.topProducts.length > 0;
-      const hasBackendFailure = productsRequestFailed;
+      const hasBackendFailure = productsRequestFailed || ordersRequestFailed;
 
       setError(
         hasBackendFailure && !hasPrimaryData

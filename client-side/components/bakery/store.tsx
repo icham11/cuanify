@@ -2310,7 +2310,8 @@ export function OrdersProvider({
 
       try {
         const latestServerOrders = await fetchLatestOrdersFromServer();
-        const baseOrders = latestServerOrders?.orders ?? orders;
+        const latestLocalOrders = getLatestOrdersSnapshot();
+        const baseOrders = latestServerOrders?.orders ?? latestLocalOrders;
 
         const localMaxId = baseOrders.reduce((max, item) => {
           const parsed = Number(item.id);
@@ -2457,7 +2458,10 @@ export function OrdersProvider({
           },
         };
         createdOrder = newOrder;
-        const syncPayload = await syncOrdersToServer([newOrder]);
+        const syncPayload = await syncOrdersToServer([
+          newOrder,
+          ...baseOrders.filter((existingOrder) => existingOrder.id !== id),
+        ]);
         const persistedOrder = applyServerWhatsAppSyncResultToOrder(
           newOrder,
           syncPayload,
@@ -2573,7 +2577,6 @@ export function OrdersProvider({
       }
     },
     [
-      orders,
       actorIdentity,
       runAutomationsForOrder,
       createShipmentForOrder,

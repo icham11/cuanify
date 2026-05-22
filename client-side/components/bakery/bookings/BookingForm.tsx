@@ -212,6 +212,9 @@ type BookingDraftSnapshot = {
   formValues: BookingFormValues;
 };
 
+type ReferenceSyncStatus = "idle" | "syncing" | "failed";
+type PendingReferenceSyncAction = "open-preview" | "submit-booking";
+
 const BOOKING_DRAFT_STORAGE_KEY = "cuanify.bakery.booking-draft.v1";
 
 function saveBookingDraftSnapshot(snapshot: BookingDraftSnapshot): void {
@@ -2485,6 +2488,8 @@ export default function BookingForm() {
   const [referenceImageFiles, setReferenceImageFiles] = useState<File[]>([]);
   const [referenceFilesChangedSinceParse, setReferenceFilesChangedSinceParse] =
     useState(false);
+  const [referenceSyncStatus, setReferenceSyncStatus] =
+    useState<ReferenceSyncStatus>("idle");
   const [referenceImageLabelsInput, setReferenceImageLabelsInput] =
     useState("");
   const [referenceFileInputKey, setReferenceFileInputKey] = useState(0);
@@ -2537,13 +2542,17 @@ export default function BookingForm() {
         sourceType?: ParserSource;
         orderType?: ParserOrderType;
         text?: string;
-        successMessage?: string;
+        successMessage?: string | null;
+        navigateToPreview?: boolean;
+        suppressSuccessToast?: boolean;
       }) => Promise<void>)
     | null
   >(null);
   const autoParseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const pendingReferenceSyncActionRef =
+    useRef<PendingReferenceSyncAction | null>(null);
   const lastParsedReferenceSignatureRef = useRef("");
   const lastFailedAutoParseReferenceSignatureRef = useRef("");
   const shouldRequireSubmitConfirmation =
@@ -2721,6 +2730,7 @@ export default function BookingForm() {
     setDraftImported(snapshot.draftImported);
     setReferenceImageLabelsInput(snapshot.referenceImageLabelsInput);
     setReferenceFilesChangedSinceParse(false);
+    setReferenceSyncStatus("idle");
     setReferenceImageFiles([]);
     lastParsedReferenceSignatureRef.current = buildReferenceInputSignature({
       files: [],
@@ -4311,9 +4321,36 @@ export default function BookingForm() {
       }
     }
 
-    if (referenceFilesChangedSinceParse) {
-      showSubmitFeedback(
-        "Referensi gambar atau label desain baru saja diubah. Klik Parse WhatsApp lagi supaya versi terbaru ikut tersimpan ke booking dan template produksi.",
+    if (
+      referenceFilesChangedSinceParse ||
+      referenceSyncStatus === "syncing" ||
+      referenceSyncStatus === "failed"
+    ) {
+      pendingReferenceSyncActionRef.current = isPreviewSubmit
+        ? "submit-booking"
+        : "open-preview";
+
+      if (
+        referenceImageFiles.length > 0 &&
+        !isParsingWhatsApp &&
+        referenceSyncStatus !== "syncing"
+      ) {
+        if (autoParseTimeoutRef.current) {
+          clearTimeout(autoParseTimeoutRef.current);
+          autoParseTimeoutRef.current = null;
+        }
+        setReferenceSyncStatus("syncing");
+        void importDraftRef.current?.({
+          successMessage: null,
+          navigateToPreview: false,
+          suppressSuccessToast: true,
+        });
+      }
+
+      toast.message(
+        isPreviewSubmit
+          ? "Perubahan referensi sedang disimpan. Booking akan dilanjutkan otomatis setelah sinkron selesai."
+          : "Perubahan referensi sedang disimpan. Preview akan dibuka otomatis setelah sinkron selesai.",
       );
       return;
     }
@@ -4741,6 +4778,38 @@ export default function BookingForm() {
   };
   const submitBookingForm = handleSubmit(onSubmit, onInvalidSubmit);
 
+  useEffect(() => {
+    const pendingAction = pendingReferenceSyncActionRef.current;
+    if (!pendingAction) {
+      return;
+    }
+
+    if (referenceSyncStatus === "failed") {
+      pendingReferenceSyncActionRef.current = null;
+      showSubmitFeedback(
+        "Perubahan referensi terbaru gagal disimpan otomatis. Coba klik Preview/Create Booking lagi atau gunakan Parse WhatsApp bila kendala berulang.",
+      );
+      return;
+    }
+
+    if (
+      referenceFilesChangedSinceParse ||
+      isParsingWhatsApp ||
+      referenceSyncStatus === "syncing"
+    ) {
+      return;
+    }
+
+    pendingReferenceSyncActionRef.current = null;
+    void submitBookingForm();
+  }, [
+    isParsingWhatsApp,
+    referenceFilesChangedSinceParse,
+    referenceSyncStatus,
+    showSubmitFeedback,
+    submitBookingForm,
+  ]);
+
   const continueDuplicateTemplateSubmission = () => {
     if (manualSubmitInFlightRef.current) return;
 
@@ -4849,6 +4918,7 @@ export default function BookingForm() {
     setDraftImported(false);
     setReferenceImageFiles([]);
     setReferenceFilesChangedSinceParse(false);
+    setReferenceSyncStatus("idle");
     setReferenceImageLabelsInput("");
     setReferenceFileInputKey((current) => current + 1);
     setShippingQuotes([]);
@@ -4858,6 +4928,7 @@ export default function BookingForm() {
     setShippingWarning("");
     setShowSubmitConfirmation(false);
     pendingSubmitConfirmationRef.current = null;
+    pendingReferenceSyncActionRef.current = null;
     skipSubmitConfirmationRef.current = false;
     setDuplicateTemplateWarning(null);
     pendingDuplicateSubmissionRef.current = null;
@@ -5163,7 +5234,9 @@ export default function BookingForm() {
     sourceType?: ParserSource;
     orderType?: ParserOrderType;
     text?: string;
-    successMessage?: string;
+    successMessage?: string | null;
+    navigateToPreview?: boolean;
+    suppressSuccessToast?: boolean;
   }) => {
     const textInput = (override?.text ?? quickPaste).trim();
 
@@ -5184,6 +5257,9 @@ export default function BookingForm() {
     }
 
     setIsParsingWhatsApp(true);
+    if (draftImported && referenceImageFiles.length > 0) {
+      setReferenceSyncStatus("syncing");
+    }
     try {
       const explicitRequestedImageLabels = normalizeReferenceLabelInput(
         referenceImageLabelsInput,
@@ -5569,23 +5645,38 @@ export default function BookingForm() {
       setProductionPreviewImageUrl(payload.productionPreviewImageUrl ?? "");
       setDraftImported(true);
       setReferenceFilesChangedSinceParse(false);
+      setReferenceSyncStatus("idle");
       lastParsedReferenceSignatureRef.current = buildReferenceInputSignature({
         files: referenceImageFiles,
         requestedLabels: explicitRequestedImageLabels,
       });
       lastFailedAutoParseReferenceSignatureRef.current = "";
       setShowOrderTypeSelector(false);
-      openPreviewPage({
-        parsedPreview: enrichedParsedPreview,
-        productionPreviewImageUrl: payload.productionPreviewImageUrl ?? "",
-        draftImported: true,
-        referenceFilesChangedSinceParse: false,
-      });
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      if (override?.navigateToPreview !== false) {
+        openPreviewPage({
+          parsedPreview: enrichedParsedPreview,
+          productionPreviewImageUrl: payload.productionPreviewImageUrl ?? "",
+          draftImported: true,
+          referenceFilesChangedSinceParse: false,
+        });
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      } else {
+        saveBookingDraftSnapshot({
+          composerStep,
+          quickPaste,
+          selectedOrderType,
+          parsedPreview: enrichedParsedPreview,
+          productionPreviewImageUrl: payload.productionPreviewImageUrl ?? "",
+          draftImported: true,
+          referenceImageLabelsInput,
+          referenceFilesChangedSinceParse: false,
+          formValues: bookingSchema.parse(getValues()),
+        });
+      }
 
       if (payload.warnings?.length) {
         toast.warning(payload.warnings.join(" "));
-      } else {
+      } else if (!override?.suppressSuccessToast) {
         toast.success(
           override?.successMessage ||
             "Data WA berhasil diparse dan di-autofill. Mohon review sebelum submit.",
@@ -5595,8 +5686,11 @@ export default function BookingForm() {
       setProductionPreviewImageUrl("");
       if (referenceImageFiles.length > 0) {
         setReferenceFilesChangedSinceParse(true);
+        setReferenceSyncStatus("failed");
         lastFailedAutoParseReferenceSignatureRef.current =
           referenceInputSignature;
+      } else {
+        setReferenceSyncStatus("idle");
       }
       const message =
         error instanceof Error
@@ -5639,6 +5733,9 @@ export default function BookingForm() {
       if (referenceFilesChangedSinceParse) {
         setReferenceFilesChangedSinceParse(false);
       }
+      if (referenceSyncStatus !== "idle") {
+        setReferenceSyncStatus("idle");
+      }
       return;
     }
 
@@ -5649,11 +5746,13 @@ export default function BookingForm() {
 
     if (referenceImageFiles.length > 0) {
       setReferenceFilesChangedSinceParse(true);
+      setReferenceSyncStatus("syncing");
       autoParseTimeoutRef.current = setTimeout(() => {
         autoParseTimeoutRef.current = null;
         void importDraftRef.current?.({
-          successMessage:
-            "Referensi gambar terbaru berhasil diparse ulang otomatis.",
+          successMessage: null,
+          navigateToPreview: false,
+          suppressSuccessToast: true,
         });
       }, 700);
 
@@ -5679,6 +5778,7 @@ export default function BookingForm() {
 
     setParsedPreview(nextParsedPreview);
     setReferenceFilesChangedSinceParse(false);
+    setReferenceSyncStatus("idle");
     lastParsedReferenceSignatureRef.current = referenceInputSignature;
 
     try {
@@ -5705,6 +5805,7 @@ export default function BookingForm() {
     productionPreviewImageUrl,
     quickPaste,
     referenceFilesChangedSinceParse,
+    referenceSyncStatus,
     referenceImageFiles,
     referenceImageLabelsInput,
     referenceInputSignature,
@@ -5881,7 +5982,12 @@ export default function BookingForm() {
                       setReferenceImageFiles(
                         Array.from(event.target.files ?? []),
                       );
-                      setReferenceFilesChangedSinceParse(true);
+                      setReferenceFilesChangedSinceParse(draftImported);
+                      if (draftImported) {
+                        setReferenceSyncStatus("syncing");
+                      } else {
+                        setReferenceSyncStatus("idle");
+                      }
                     }}
                   />
                   <span className="text-xs font-normal text-[var(--crumbella-muted)]">
@@ -5901,6 +6007,7 @@ export default function BookingForm() {
                       setReferenceImageLabelsInput(event.target.value);
                       if (draftImported) {
                         setReferenceFilesChangedSinceParse(true);
+                        setReferenceSyncStatus("idle");
                       }
                     }}
                     placeholder={
@@ -5920,13 +6027,22 @@ export default function BookingForm() {
                   </div>
                 )}
 
-                {referenceFilesChangedSinceParse &&
-                  referenceImageFiles.length > 0 && (
+                {referenceImageFiles.length > 0 &&
+                  draftImported &&
+                  referenceSyncStatus === "syncing" && (
+                    <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-700">
+                      Perubahan referensi sedang disimpan otomatis. Preview dan
+                      create booking akan memakai versi terbaru setelah sinkron
+                      selesai.
+                    </div>
+                  )}
+
+                {referenceImageFiles.length > 0 &&
+                  draftImported &&
+                  referenceSyncStatus === "failed" && (
                     <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                      Referensi gambar atau label desain berubah. Klik{" "}
-                      <span className="font-semibold">Parse WhatsApp</span> lagi
-                      supaya versi terbaru ikut tersimpan ke booking dan dipakai
-                      template produksi.
+                      Sinkron referensi otomatis sempat gagal. Sistem akan coba
+                      lagi saat Anda klik Preview atau Create Booking.
                     </div>
                   )}
               </div>
@@ -5940,7 +6056,9 @@ export default function BookingForm() {
                 >
                   <Sparkles className="mr-2 h-4 w-4" />
                   {isParsingWhatsApp
-                    ? "Parsing & Preview..."
+                    ? referenceSyncStatus === "syncing"
+                      ? "Menyimpan Referensi..."
+                      : "Parsing & Preview..."
                     : referenceFilesChangedSinceParse || draftImported
                       ? "Parse Ulang WhatsApp"
                       : "Parse WhatsApp"}
@@ -5966,8 +6084,10 @@ export default function BookingForm() {
                     setDraftImported(false);
                     setReferenceImageFiles([]);
                     setReferenceFilesChangedSinceParse(false);
+                    setReferenceSyncStatus("idle");
                     setReferenceImageLabelsInput("");
                     setReferenceFileInputKey((current) => current + 1);
+                    pendingReferenceSyncActionRef.current = null;
                     lastParsedReferenceSignatureRef.current = "";
                     lastFailedAutoParseReferenceSignatureRef.current = "";
                   }}
