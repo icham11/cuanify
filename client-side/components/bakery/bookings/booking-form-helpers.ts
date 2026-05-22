@@ -251,11 +251,15 @@ export const BOUQUET_EXTRA_6_FLOWER_ADDON_ID = "bouquet-extra-6-flower";
 export const FRAGILE_ORDER_ALLOWED_METHODS: DeliveryMethod[] = [
   "PICKUP",
   "CUSTOMER_APP_COURIER",
+  "ASSISTED_GOSEND",
   "ASSISTED_GRAB",
   "ASSISTED_GOCAR",
+  "ASSISTED_PAXEL",
+  "ASSISTED_SAME_DAY",
+  "REGULAR_JNE_JNT",
 ];
 export const FRAGILE_ORDER_ALLOWED_METHODS_TEXT =
-  "Pickup, Grab/GoCar (pesan customer), Grab admin, atau GoCar admin.";
+  "Pickup, Grab/GoCar (pesan customer), GoSend admin, Grab admin, GoCar admin, Paxel admin, Same Day admin, atau JNE/J&T reguler.";
 
 export function normalizeDarkButtercreamColors(value: unknown): string[] {
   const rawValues = Array.isArray(value) ? value : [value];

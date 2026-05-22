@@ -506,11 +506,15 @@ const BOUQUET_EXTRA_6_FLOWER_ADDON_ID = "bouquet-extra-6-flower";
 const FRAGILE_ORDER_ALLOWED_METHODS: DeliveryMethod[] = [
   "PICKUP",
   "CUSTOMER_APP_COURIER",
+  "ASSISTED_GOSEND",
   "ASSISTED_GRAB",
   "ASSISTED_GOCAR",
+  "ASSISTED_PAXEL",
+  "ASSISTED_SAME_DAY",
+  "REGULAR_JNE_JNT",
 ];
 const FRAGILE_ORDER_ALLOWED_METHODS_TEXT =
-  "Pickup, Grab/GoCar (pesan customer), Grab admin, atau GoCar admin.";
+  "Pickup, Grab/GoCar (pesan customer), GoSend admin, Grab admin, GoCar admin, Paxel admin, Same Day admin, atau JNE/J&T reguler.";
 
 function normalizeDarkButtercreamColors(value: unknown): string[] {
   const rawValues = Array.isArray(value) ? value : [value];
@@ -3096,18 +3100,34 @@ export default function BookingForm() {
     [watchedItems],
   );
   const isFragileOrder = fragileOrderReasons.length > 0;
-  const selectableDeliveryMethodOptions = useMemo(
-    () =>
-      isFragileOrder
-        ? DELIVERY_METHOD_OPTIONS.filter((option) =>
-            FRAGILE_ORDER_ALLOWED_METHODS.includes(
-              option.value as DeliveryMethod,
-            ),
-          )
-        : DELIVERY_METHOD_OPTIONS,
-    [isFragileOrder],
-  );
   const watchedDeliveryMethod = deliveryMethod as DeliveryMethod;
+  const selectableDeliveryMethodOptions = useMemo(
+    () => {
+      if (!isFragileOrder) return DELIVERY_METHOD_OPTIONS;
+
+      const allowedOptions = DELIVERY_METHOD_OPTIONS.filter((option) =>
+        FRAGILE_ORDER_ALLOWED_METHODS.includes(option.value as DeliveryMethod),
+      );
+      if (
+        allowedOptions.some((option) => option.value === watchedDeliveryMethod)
+      ) {
+        return allowedOptions;
+      }
+
+      const parsedOption = DELIVERY_METHOD_OPTIONS.find(
+        (option) => option.value === watchedDeliveryMethod,
+      );
+      if (!parsedOption) return allowedOptions;
+
+      return DELIVERY_METHOD_OPTIONS.filter(
+        (option) =>
+          FRAGILE_ORDER_ALLOWED_METHODS.includes(
+            option.value as DeliveryMethod,
+          ) || option.value === parsedOption.value,
+      );
+    },
+    [isFragileOrder, watchedDeliveryMethod],
+  );
   const effectiveDeliveryMethod = selectableDeliveryMethodOptions.some(
     (option) => option.value === watchedDeliveryMethod,
   )
@@ -3845,17 +3865,6 @@ export default function BookingForm() {
   const isAllowedFragileOrderMethod = FRAGILE_ORDER_ALLOWED_METHODS.includes(
     effectiveDeliveryMethod,
   );
-
-  useEffect(() => {
-    if (!isFragileOrder) return;
-    if (FRAGILE_ORDER_ALLOWED_METHODS.includes(effectiveDeliveryMethod)) {
-      return;
-    }
-
-    setValue("deliveryMethod", "PICKUP", {
-      shouldValidate: true,
-    });
-  }, [isFragileOrder, effectiveDeliveryMethod, setValue]);
 
   const primaryAddressLine = watchedAddresses[0]?.addressLine?.trim() || "";
   const isAddressTooShortForShipping =
