@@ -21,7 +21,6 @@ const MIN_CUTOFF_HOUR = 0;
 const MAX_CUTOFF_HOUR = 23;
 const DEFAULT_ATTENDANCE_WINDOW_START = "06:00";
 const DEFAULT_ATTENDANCE_WINDOW_END = "07:00";
-const LEGACY_STAFF_DAILY_TOKEN_LIMIT = 500;
 const globalForBakerySettingsCache = globalThis as typeof globalThis & {
   __bakeryBusinessSettingsCache?: Map<number, BakeryBusinessSettings>;
 };
@@ -432,12 +431,7 @@ export async function upsertBakeryBusinessSettings(args: {
   const nextStaffSettings = shouldSyncInheritedStaffTokenLimits
     ? nextStaffSettingsSource.map((entry) => ({
         ...entry,
-        dailyTokenLimit:
-          entry.dailyTokenLimit === current.staffDailyTokenLimit ||
-          (entry.dailyTokenLimit === LEGACY_STAFF_DAILY_TOKEN_LIMIT &&
-            nextStaffDailyTokenLimit !== LEGACY_STAFF_DAILY_TOKEN_LIMIT)
-            ? nextStaffDailyTokenLimit
-            : entry.dailyTokenLimit,
+        dailyTokenLimit: nextStaffDailyTokenLimit,
       }))
     : nextStaffSettingsSource;
 
