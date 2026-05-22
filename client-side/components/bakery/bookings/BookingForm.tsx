@@ -2748,6 +2748,7 @@ export default function BookingForm() {
   const [referenceFileInputKey, setReferenceFileInputKey] = useState(0);
   const [shippingQuotes, setShippingQuotes] = useState<ShippingQuote[]>([]);
   const [selectedShippingQuoteId, setSelectedShippingQuoteId] = useState("");
+  const selectedShippingQuoteIdRef = useRef("");
   const [shippingDistanceKm, setShippingDistanceKm] = useState<number | null>(
     null,
   );
@@ -2983,6 +2984,7 @@ export default function BookingForm() {
     setDraftImported(snapshot.draftImported);
     setReferenceImageLabelsInput(snapshot.referenceImageLabelsInput);
     setShippingQuotes(Array.isArray(snapshot.shippingQuotes) ? snapshot.shippingQuotes : []);
+    selectedShippingQuoteIdRef.current = snapshot.selectedShippingQuoteId || "";
     setSelectedShippingQuoteId(snapshot.selectedShippingQuoteId || "");
     setShippingDistanceKm(
       typeof snapshot.shippingDistanceKm === "number"
@@ -3003,6 +3005,10 @@ export default function BookingForm() {
     lastFailedAutoParseReferenceSignatureRef.current = "";
     setComposerStep(isReviewPage ? "preview" : "input");
   }, [isReviewPage, reset, router]);
+
+  useEffect(() => {
+    selectedShippingQuoteIdRef.current = selectedShippingQuoteId;
+  }, [selectedShippingQuoteId]);
 
   const showSubmitFeedback = useCallback((message: string) => {
     setSubmitError(message);
@@ -3037,7 +3043,8 @@ export default function BookingForm() {
         referenceImageLabelsInput,
         referenceFilesChangedSinceParse,
         shippingQuotes,
-        selectedShippingQuoteId,
+        selectedShippingQuoteId:
+          selectedShippingQuoteIdRef.current || selectedShippingQuoteId,
         shippingDistanceKm,
         shippingDistanceSource,
         shippingWarning,
@@ -5972,7 +5979,8 @@ export default function BookingForm() {
           referenceImageLabelsInput,
           referenceFilesChangedSinceParse: false,
           shippingQuotes,
-          selectedShippingQuoteId,
+          selectedShippingQuoteId:
+            selectedShippingQuoteIdRef.current || selectedShippingQuoteId,
           shippingDistanceKm,
           shippingDistanceSource,
           shippingWarning,
@@ -6098,7 +6106,8 @@ export default function BookingForm() {
         referenceImageLabelsInput,
         referenceFilesChangedSinceParse: false,
         shippingQuotes,
-        selectedShippingQuoteId,
+        selectedShippingQuoteId:
+          selectedShippingQuoteIdRef.current || selectedShippingQuoteId,
         shippingDistanceKm,
         shippingDistanceSource,
         shippingWarning,
@@ -9030,9 +9039,10 @@ export default function BookingForm() {
                             <button
                               key={quote.id}
                               type="button"
-                              onClick={() =>
-                                setSelectedShippingQuoteId(quote.id)
-                              }
+                              onClick={() => {
+                                selectedShippingQuoteIdRef.current = quote.id;
+                                setSelectedShippingQuoteId(quote.id);
+                              }}
                               className={`w-full rounded-xl border px-3 py-2 text-left text-sm ${
                                 active
                                   ? "border-indigo-300 bg-indigo-50 text-indigo-700"
