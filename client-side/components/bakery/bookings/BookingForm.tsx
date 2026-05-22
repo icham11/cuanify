@@ -2465,6 +2465,250 @@ function findFirstFormErrorMessage(error: unknown): string | null {
   return null;
 }
 
+type ValidationIssueSummary = {
+  path: Array<string | number>;
+  message: string;
+};
+
+function parseValidationIssuesMessage(
+  value: string,
+): ValidationIssueSummary[] | null {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("[")) return null;
+
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (!Array.isArray(parsed)) return null;
+
+    return parsed
+      .map((entry) => {
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+          return null;
+        }
+
+        const record = entry as Record<string, unknown>;
+        const message =
+          typeof record.message === "string" ? record.message.trim() : "";
+        if (!message) return null;
+
+        const path = Array.isArray(record.path)
+          ? record.path.filter(
+              (segment): segment is string | number =>
+                typeof segment === "string" || typeof segment === "number",
+            )
+          : [];
+
+        return { path, message };
+      })
+      .filter((entry): entry is ValidationIssueSummary => Boolean(entry));
+  } catch {
+    return null;
+  }
+}
+
+function collectValidationIssueSummaries(
+  error: unknown,
+  path: Array<string | number> = [],
+): ValidationIssueSummary[] {
+  if (!error) return [];
+
+  if (error instanceof z.ZodError) {
+    return error.issues
+      .map((issue) => ({
+        path: issue.path.filter(
+          (segment): segment is string | number =>
+            typeof segment === "string" || typeof segment === "number",
+        ),
+        message: issue.message.trim(),
+      }))
+      .filter((issue) => issue.message);
+  }
+
+  if (typeof error === "string") {
+    return parseValidationIssuesMessage(error) ?? [];
+  }
+
+  if (typeof error !== "object") return [];
+
+  const record = error as Record<string, unknown>;
+  if (Array.isArray(record.issues)) {
+    const nestedIssues = collectValidationIssueSummaries(record.issues, path);
+    if (nestedIssues.length > 0) return nestedIssues;
+  }
+
+  if (typeof record.message === "string") {
+    const parsedMessage = parseValidationIssuesMessage(record.message);
+    if (parsedMessage && parsedMessage.length > 0) {
+      return parsedMessage;
+    }
+  }
+
+  const collected: ValidationIssueSummary[] = [];
+  if (typeof record.message === "string" && record.message.trim()) {
+    collected.push({
+      path,
+      message: record.message.trim(),
+    });
+  }
+
+  Object.entries(record).forEach(([key, value]) => {
+    if (key === "message" || key === "type" || key === "ref") return;
+    if (key === "root") {
+      collected.push(...collectValidationIssueSummaries(value, path));
+      return;
+    }
+
+    const nextPathSegment = /^\d+$/.test(key) ? Number(key) : key;
+    collected.push(
+      ...collectValidationIssueSummaries(value, [...path, nextPathSegment]),
+    );
+  });
+
+  return collected;
+}
+
+function getValidationFieldLabel(path: Array<string | number>): string {
+  const [root, index, leaf] = path;
+  const rootKey = typeof root === "string" ? root : "";
+
+  if (rootKey === "deliveryAddresses") {
+    const addressNumber = typeof index === "number" ? index + 1 : 1;
+    const isPrimaryAddress = addressNumber === 1;
+
+    if (leaf === "label") {
+      return isPrimaryAddress
+        ? "Label alamat utama"
+        : `Label alamat ${addressNumber}`;
+    }
+    if (leaf === "area") {
+      return isPrimaryAddress
+        ? "Area pengiriman utama"
+        : `Area alamat ${addressNumber}`;
+    }
+    if (leaf === "postalCode") {
+      return isPrimaryAddress
+        ? "Kode pos alamat utama"
+        : `Kode pos alamat ${addressNumber}`;
+    }
+    if (leaf === "addressLine") {
+      return isPrimaryAddress ? "Alamat utama" : `Alamat ${addressNumber}`;
+    }
+  }
+
+  if (rootKey === "items") {
+    const itemNumber = typeof index === "number" ? index + 1 : 1;
+    if (leaf === "productName") return `Produk item ${itemNumber}`;
+    if (leaf === "size") return `Ukuran item ${itemNumber}`;
+    if (leaf === "quantity") return `Qty item ${itemNumber}`;
+    return `Item pesanan ${itemNumber}`;
+  }
+
+  switch (rootKey) {
+    case "customerName":
+      return "Nama customer";
+    case "phoneNumber":
+      return "Nomor telepon";
+    case "deliveryDate":
+      return "Tanggal pengiriman";
+    case "deliverySlot":
+      return "Jam pengiriman";
+    case "deliveryMethod":
+      return "Metode pengiriman";
+    case "sales_channel":
+      return "Channel penjualan";
+    case "paymentStatus":
+      return "Status pembayaran";
+    case "items":
+      return "Item pesanan";
+    case "deliveryAddresses":
+      return "Alamat pengiriman";
+    default:
+      return "Field form";
+  }
+}
+
+function normalizeValidationIssueMessage(
+  path: Array<string | number>,
+  message: string,
+): string {
+  const normalized = message.trim();
+  if (!normalized) return "Perlu dilengkapi.";
+
+  const lower = normalized.toLowerCase();
+  const [root, index, leaf] = path;
+  const rootKey = typeof root === "string" ? root : "";
+
+  if (rootKey === "phoneNumber" && lower === "phone number is required") {
+    return "Isi nomor minimal 8 digit.";
+  }
+  if (rootKey === "customerName" && lower === "customer name is required") {
+    return "Isi nama customer minimal 2 karakter.";
+  }
+  if (rootKey === "deliveryDate" && lower === "delivery date is required") {
+    return "Pilih tanggal pengiriman.";
+  }
+  if (rootKey === "deliverySlot" && lower === "delivery slot is required") {
+    return "Pilih jam pengiriman.";
+  }
+  if (rootKey === "items" && lower === "at least one item is required") {
+    return "Tambahkan minimal 1 item pesanan.";
+  }
+  if (
+    rootKey === "deliveryAddresses" &&
+    lower === "at least one address is required"
+  ) {
+    return "Tambahkan minimal 1 alamat pengiriman.";
+  }
+  if (
+    rootKey === "deliveryAddresses" &&
+    leaf === "label" &&
+    lower === "address label is required"
+  ) {
+    const addressNumber = typeof index === "number" ? index + 1 : 1;
+    return addressNumber === 1
+      ? "Isi label alamat utama."
+      : `Isi label alamat ${addressNumber}.`;
+  }
+
+  return normalized.endsWith(".") ? normalized : `${normalized}.`;
+}
+
+function buildValidationFeedbackMessage(error: unknown): string | null {
+  const issues = collectValidationIssueSummaries(error);
+  if (issues.length === 0) {
+    const firstMessage = findFirstFormErrorMessage(error);
+    return firstMessage
+      ? `Masih ada field wajib yang belum lengkap.\n• ${firstMessage}`
+      : null;
+  }
+
+  const dedupedIssues = issues.filter((issue, index, array) => {
+    const signature = `${issue.path.join(".")}::${issue.message}`;
+    return (
+      array.findIndex(
+        (entry) => `${entry.path.join(".")}::${entry.message}` === signature,
+      ) === index
+    );
+  });
+
+  const lines = dedupedIssues.slice(0, 4).map((issue) => {
+    const label = getValidationFieldLabel(issue.path);
+    const message = normalizeValidationIssueMessage(issue.path, issue.message);
+    return `• ${label}: ${message}`;
+  });
+  const remainingCount = dedupedIssues.length - lines.length;
+
+  return [
+    "Masih ada data yang belum lengkap:",
+    ...lines,
+    remainingCount > 0
+      ? `• ${remainingCount} field lain juga masih perlu dilengkapi.`
+      : null,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join("\n");
+}
+
 export default function BookingForm() {
   const router = useRouter();
   const pathname = usePathname();
@@ -2742,8 +2986,29 @@ export default function BookingForm() {
     setComposerStep(isReviewPage ? "preview" : "input");
   }, [isReviewPage, reset, router]);
 
+  const showSubmitFeedback = useCallback((message: string) => {
+    setSubmitError(message);
+    toast.error(message);
+
+    window.requestAnimationFrame(() => {
+      submitFeedbackRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    });
+  }, []);
+
   const openPreviewPage = useCallback(
     (snapshotOverrides?: Partial<BookingDraftSnapshot>) => {
+      const parsedValues = bookingSchema.safeParse(getValues());
+      if (!parsedValues.success) {
+        showSubmitFeedback(
+          buildValidationFeedbackMessage(parsedValues.error) ||
+            "Masih ada field wajib yang belum lengkap. Cek bagian form yang bertanda merah.",
+        );
+        return;
+      }
+
       saveBookingDraftSnapshot({
         composerStep: "preview",
         quickPaste,
@@ -2753,7 +3018,7 @@ export default function BookingForm() {
         draftImported,
         referenceImageLabelsInput,
         referenceFilesChangedSinceParse,
-        formValues: bookingSchema.parse(getValues()),
+        formValues: parsedValues.data,
         ...snapshotOverrides,
       });
 
@@ -2773,6 +3038,7 @@ export default function BookingForm() {
       referenceImageLabelsInput,
       router,
       selectedOrderType,
+      showSubmitFeedback,
     ],
   );
 
@@ -4047,18 +4313,6 @@ export default function BookingForm() {
     };
   }, [manualCheckShippingTrigger]);
 
-  const showSubmitFeedback = useCallback((message: string) => {
-    setSubmitError(message);
-    toast.error(message);
-
-    window.requestAnimationFrame(() => {
-      submitFeedbackRef.current?.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-      });
-    });
-  }, []);
-
   const onSubmit: SubmitHandler<BookingFormValues> = async (rawValues) => {
     const values =
       rawValues.deliveryMethod === effectiveDeliveryMethod
@@ -4758,9 +5012,10 @@ export default function BookingForm() {
       }
     } catch (error) {
       const message =
-        error instanceof Error
+        buildValidationFeedbackMessage(error) ||
+        (error instanceof Error
           ? error.message
-          : "Gagal menyimpan booking ke server.";
+          : "Gagal menyimpan booking ke server.");
       showSubmitFeedback(message);
     } finally {
       bookingCreateInFlightRef.current = false;
@@ -4769,11 +5024,11 @@ export default function BookingForm() {
   };
 
   const onInvalidSubmit = (invalidErrors: unknown) => {
-    const firstErrorMessage = findFirstFormErrorMessage(invalidErrors);
     showSubmitFeedback(
-      firstErrorMessage
-        ? `Masih ada field wajib yang belum lengkap: ${firstErrorMessage}`
-        : "Masih ada field wajib yang belum lengkap. Cek bagian form yang bertanda merah.",
+      buildValidationFeedbackMessage(invalidErrors) ||
+        (findFirstFormErrorMessage(invalidErrors)
+          ? `Masih ada field wajib yang belum lengkap: ${findFirstFormErrorMessage(invalidErrors)}`
+          : "Masih ada field wajib yang belum lengkap. Cek bagian form yang bertanda merah.")
     );
   };
   const submitBookingForm = handleSubmit(onSubmit, onInvalidSubmit);
@@ -5828,7 +6083,7 @@ export default function BookingForm() {
       className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"
     >
       <p className="font-semibold">Booking belum bisa dilanjutkan</p>
-      <p className="mt-1">{submitError}</p>
+      <p className="mt-1 whitespace-pre-line">{submitError}</p>
     </div>
   ) : null;
 

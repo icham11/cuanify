@@ -140,6 +140,22 @@ function defaultMonthlyExpenses(monthKey: string): EditableExpense[] {
   ];
 }
 
+function mergeMonthlyExpensesForMonth(args: {
+  allExpenses: EditableExpense[];
+  monthKey: string;
+  monthExpenses: EditableExpense[];
+}) {
+  const nextMonthExpenses = args.monthExpenses.map((entry) => ({
+    ...entry,
+    monthKey: args.monthKey,
+  }));
+
+  return [
+    ...args.allExpenses.filter((entry) => entry.monthKey !== args.monthKey),
+    ...nextMonthExpenses,
+  ];
+}
+
 function mergeStaffSettings(
   members: Array<{ userId: number; name: string; role: string }>,
   saved: BakeryStaffSetting[],
@@ -715,6 +731,12 @@ export default function BakerySettingsPage() {
 
     setIsSaving(true);
     try {
+      const mergedMonthlyExpenses = mergeMonthlyExpensesForMonth({
+        allExpenses: settings?.monthlyExpenses ?? [],
+        monthKey: currentMonthKey,
+        monthExpenses: monthlyExpenses,
+      });
+
       await saveBakerySettings({
         dailyProductionTokenLimit,
         staffDailyTokenLimit,
@@ -730,7 +752,7 @@ export default function BakerySettingsPage() {
           ...entry,
           takeHomePay: toTakeHome(entry.monthlySalary, entry.mealAllowance),
         })),
-        monthlyExpenses,
+        monthlyExpenses: mergedMonthlyExpenses,
         attendanceReconciliation,
         productionStageProfiles,
       });
