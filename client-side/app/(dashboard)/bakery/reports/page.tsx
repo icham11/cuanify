@@ -182,6 +182,7 @@ export default function ReportsPage() {
   const [attendanceSelf, setAttendanceSelf] = useState<AttendanceSelfData | null>(null);
   const [isAttendanceLoading, setIsAttendanceLoading] = useState(true);
   const exportDialogTitleRef = useRef<HTMLParagraphElement | null>(null);
+  const hasInitializedFullRangeRef = useRef(false);
   const isExactSelectedMonthRange =
     fromDate === getMonthRange(selectedMonth).from &&
     toDate === getMonthRange(selectedMonth).to;
@@ -378,6 +379,25 @@ export default function ReportsPage() {
       })),
     [orders, serverFinancialOrders],
   );
+
+  useEffect(() => {
+    if (hasInitializedFullRangeRef.current) return;
+    if (financialOrders.length === 0) return;
+
+    const availableDates = financialOrders
+      .map((order) => order.deliveryDate)
+      .filter((value): value is string => typeof value === "string" && value.length > 0)
+      .sort((left, right) => left.localeCompare(right));
+
+    if (availableDates.length === 0) return;
+
+    const nextFromDate = availableDates[0];
+    const nextToDate = availableDates[availableDates.length - 1];
+    setFromDate(nextFromDate);
+    setToDate(nextToDate);
+    setSelectedMonth(monthKeyFromDate(nextToDate));
+    hasInitializedFullRangeRef.current = true;
+  }, [financialOrders]);
 
   const financialSummary = useMemo(() => {
     return calculateBakeryFinancialSummary({

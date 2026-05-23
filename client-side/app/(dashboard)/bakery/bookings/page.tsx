@@ -122,15 +122,6 @@ export default function BookingListPage() {
   const initialSortBy = parseSortOption(searchParams.get("sort")) ?? "delivery-asc";
   const requestedView = parseSavedView(searchParams.get("view"));
   const requestedPage = Number.parseInt(searchParams.get("page") ?? "1", 10);
-  const initialHasExplicitFilters = Boolean(
-    initialQuery ||
-      initialStatusFilter ||
-      initialDateFilter ||
-      initialCourierFilter ||
-      initialOrderSourceFilter ||
-      initialSortBy !== "delivery-asc",
-  );
-
   const [query, setQuery] = useState(initialQuery);
   const [statusFilter, setStatusFilter] = useState(initialStatusFilter);
   const [dateFilter, setDateFilter] = useState(initialDateFilter);
@@ -142,7 +133,7 @@ export default function BookingListPage() {
     Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1,
   );
   const [activeSavedView, setActiveSavedView] = useState<SavedView>(
-    requestedView ?? (initialHasExplicitFilters ? "all" : "active"),
+    requestedView ?? "all",
   );
   const today = getJakartaTodayIsoDate();
   const tomorrow = useMemo(() => addDaysToIsoDate(today, 1), [today]);
@@ -238,7 +229,7 @@ export default function BookingListPage() {
       dateFilter ||
       courierFilter ||
       orderSourceFilter ||
-      activeSavedView !== "active" ||
+      activeSavedView !== "all" ||
       sortBy !== "delivery-asc",
   );
 
@@ -257,7 +248,7 @@ export default function BookingListPage() {
     setOrderSourceFilter("");
     setSortBy("delivery-asc");
     setCurrentPage(1);
-    setActiveSavedView("active");
+    setActiveSavedView("all");
     router.replace("/bakery/bookings", { scroll: false });
   };
 

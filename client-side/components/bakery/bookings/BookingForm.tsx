@@ -211,6 +211,7 @@ type BookingDraftSnapshot = {
   referenceFilesChangedSinceParse: boolean;
   shippingQuotes: ShippingQuote[];
   selectedShippingQuoteId: string;
+  selectedShippingQuoteServiceKey?: string;
   shippingDistanceKm: number | null;
   shippingDistanceSource?: ShippingQuoteResponse["distanceSource"];
   shippingWarning: string;
@@ -693,6 +694,12 @@ function parseEtaToHours(etaText: string): number {
 
 function getShippingQuoteDisplayPrice(quote: ShippingQuote): number {
   return Math.max(0, quote.priceWithoutInsurance ?? quote.price ?? 0);
+}
+
+function getShippingQuoteServiceKey(
+  quote: Pick<ShippingQuote, "provider" | "courierCode" | "courierServiceCode">,
+): string {
+  return `${quote.provider}:${quote.courierCode}:${quote.courierServiceCode}`;
 }
 
 interface ParseWhatsAppApiResponse {
@@ -2017,6 +2024,26 @@ function getItemProductionTokenSynced(
   return getItemProductionToken(item);
 }
 
+function resolveItemCustomTokenPerUnitSynced(
+  item: BookingItemInput,
+  tokenByProductName: Map<string, number>,
+): number | undefined {
+  const existingCustomToken = Number(item.customTokenPerUnit);
+  if (Number.isFinite(existingCustomToken) && existingCustomToken > 0) {
+    return Math.round(existingCustomToken);
+  }
+
+  const dashboardName = normalizeTokenLookupKey(
+    toDashboardProductNameFromItem(item),
+  );
+  const tokenFromProduct = tokenByProductName.get(dashboardName);
+  if (tokenFromProduct !== undefined && Number(tokenFromProduct) > 0) {
+    return Math.round(Number(tokenFromProduct));
+  }
+
+  return undefined;
+}
+
 function getTotalProductionTokenSynced(
   items: BookingItemInput[],
   tokenByProductName: Map<string, number>,
@@ -2749,6 +2776,7 @@ export default function BookingForm() {
   const [shippingQuotes, setShippingQuotes] = useState<ShippingQuote[]>([]);
   const [selectedShippingQuoteId, setSelectedShippingQuoteId] = useState("");
   const selectedShippingQuoteIdRef = useRef("");
+  const selectedShippingQuoteServiceKeyRef = useRef("");
   const [shippingDistanceKm, setShippingDistanceKm] = useState<number | null>(
     null,
   );
@@ -2757,6 +2785,8 @@ export default function BookingForm() {
   const [shippingWarning, setShippingWarning] = useState("");
   const [showAllShippingOptions, setShowAllShippingOptions] = useState(false);
   const [isCheckingShipping, setIsCheckingShipping] = useState(false);
+  const [hasHydratedDraftSnapshot, setHasHydratedDraftSnapshot] =
+    useState(false);
   const [isCapacityValidating, setIsCapacityValidating] = useState(false);
   const [manualCheckShippingTrigger, setManualCheckShippingTrigger] =
     useState(0);
@@ -2970,11 +3000,20 @@ export default function BookingForm() {
   useEffect(() => {
     const snapshot = loadBookingDraftSnapshot();
     if (!snapshot) {
+      setHasHydratedDraftSnapshot(true);
       if (isReviewPage) {
         router.replace("/bakery/bookings/new");
       }
       return;
     }
+
+    const restoredShippingQuotes = Array.isArray(snapshot.shippingQuotes)
+      ? snapshot.shippingQuotes
+      : [];
+    const restoredSelectedShippingQuote =
+      restoredShippingQuotes.find(
+        (quote) => quote.id === (snapshot.selectedShippingQuoteId || ""),
+      ) ?? null;
 
     reset(snapshot.formValues);
     setQuickPaste(snapshot.quickPaste);
@@ -2983,8 +3022,13 @@ export default function BookingForm() {
     setProductionPreviewImageUrl(snapshot.productionPreviewImageUrl);
     setDraftImported(snapshot.draftImported);
     setReferenceImageLabelsInput(snapshot.referenceImageLabelsInput);
-    setShippingQuotes(Array.isArray(snapshot.shippingQuotes) ? snapshot.shippingQuotes : []);
+    setShippingQuotes(restoredShippingQuotes);
     selectedShippingQuoteIdRef.current = snapshot.selectedShippingQuoteId || "";
+    selectedShippingQuoteServiceKeyRef.current =
+      snapshot.selectedShippingQuoteServiceKey ||
+      (restoredSelectedShippingQuote
+        ? getShippingQuoteServiceKey(restoredSelectedShippingQuote)
+        : "");
     setSelectedShippingQuoteId(snapshot.selectedShippingQuoteId || "");
     setShippingDistanceKm(
       typeof snapshot.shippingDistanceKm === "number"
@@ -3004,11 +3048,27 @@ export default function BookingForm() {
     });
     lastFailedAutoParseReferenceSignatureRef.current = "";
     setComposerStep(isReviewPage ? "preview" : "input");
+    setHasHydratedDraftSnapshot(true);
   }, [isReviewPage, reset, router]);
 
   useEffect(() => {
     selectedShippingQuoteIdRef.current = selectedShippingQuoteId;
   }, [selectedShippingQuoteId]);
+
+  const resolveSelectedShippingQuoteServiceKey = useCallback(() => {
+    const currentSelectedShippingQuoteId =
+      selectedShippingQuoteIdRef.current || selectedShippingQuoteId;
+    const currentSelectedShippingQuote =
+      shippingQuotes.find(
+        (quote) => quote.id === currentSelectedShippingQuoteId,
+      ) ?? null;
+
+    if (currentSelectedShippingQuote) {
+      return getShippingQuoteServiceKey(currentSelectedShippingQuote);
+    }
+
+    return selectedShippingQuoteServiceKeyRef.current;
+  }, [selectedShippingQuoteId, shippingQuotes]);
 
   const showSubmitFeedback = useCallback((message: string) => {
     setSubmitError(message);
@@ -3045,6 +3105,8 @@ export default function BookingForm() {
         shippingQuotes,
         selectedShippingQuoteId:
           selectedShippingQuoteIdRef.current || selectedShippingQuoteId,
+        selectedShippingQuoteServiceKey:
+          resolveSelectedShippingQuoteServiceKey(),
         shippingDistanceKm,
         shippingDistanceSource,
         shippingWarning,
@@ -3067,6 +3129,7 @@ export default function BookingForm() {
       referenceFilesChangedSinceParse,
       referenceImageLabelsInput,
       router,
+      resolveSelectedShippingQuoteServiceKey,
       selectedOrderType,
       selectedShippingQuoteId,
       shippingDistanceKm,
@@ -3179,6 +3242,7 @@ export default function BookingForm() {
       setShippingWarning("");
       setShippingQuotes([]);
       setSelectedShippingQuoteId("");
+      selectedShippingQuoteServiceKeyRef.current = "";
       setShippingDistanceKm(null);
       setShippingDistanceSource(undefined);
     },
@@ -3200,6 +3264,7 @@ export default function BookingForm() {
     setShippingWarning("");
     setShippingQuotes([]);
     setSelectedShippingQuoteId("");
+    selectedShippingQuoteServiceKeyRef.current = "";
     setShippingDistanceKm(null);
     setShippingDistanceSource(undefined);
   }, [deliveryMethod, effectiveDeliveryMethod, setValue]);
@@ -3875,6 +3940,26 @@ export default function BookingForm() {
   );
 
   useEffect(() => {
+    if (!hasHydratedDraftSnapshot) return;
+
+    if (selectedShippingQuote) {
+      selectedShippingQuoteServiceKeyRef.current =
+        getShippingQuoteServiceKey(selectedShippingQuote);
+      return;
+    }
+
+    if (!selectedShippingQuoteId) {
+      selectedShippingQuoteServiceKeyRef.current = "";
+    }
+  }, [
+    hasHydratedDraftSnapshot,
+    selectedShippingQuote,
+    selectedShippingQuoteId,
+  ]);
+
+  useEffect(() => {
+    if (!hasHydratedDraftSnapshot) return;
+
     setShowAllShippingOptions(false);
 
     if (!filteredShippingQuotes.length) {
@@ -3889,9 +3974,19 @@ export default function BookingForm() {
       ) {
         return current;
       }
+
+      const matchedByServiceKey = filteredShippingQuotes.find(
+        (quote) =>
+          getShippingQuoteServiceKey(quote) ===
+          selectedShippingQuoteServiceKeyRef.current,
+      );
+      if (matchedByServiceKey) {
+        return matchedByServiceKey.id;
+      }
+
       return filteredShippingQuotes[0]?.id || "";
     });
-  }, [filteredShippingQuotes]);
+  }, [filteredShippingQuotes, hasHydratedDraftSnapshot]);
 
   const isAllowedFragileOrderMethod = FRAGILE_ORDER_ALLOWED_METHODS.includes(
     effectiveDeliveryMethod,
@@ -4247,41 +4342,15 @@ export default function BookingForm() {
     shippingItems,
   ]);
 
-  const shippingQuoteSignature = useMemo(() => {
-    if (!shippingPayload) return "";
-
-    return JSON.stringify({
-      destinationAddress: shippingPayload.destinationAddress.trim(),
-      destinationArea: shippingPayload.destinationArea.trim(),
-      destinationPostalCode: shippingPayload.destinationPostalCode || "",
-      items: shippingPayload.items.map((item) => ({
-        name: item.name,
-        quantity: item.quantity,
-        weightGram: item.weightGram,
-      })),
-    });
-  }, [shippingPayload]);
-
   const shippingPayloadRef = useRef(shippingPayload);
 
   useEffect(() => {
     shippingPayloadRef.current = shippingPayload;
   }, [shippingPayload]);
 
-  const autoRefreshShippingPreviewKey = useMemo(() => {
-    if (composerStep !== "preview") return "";
-    if (!shouldUseShippingEngine) return "";
-    if (!shippingQuoteSignature) return "";
-
-    return `${effectiveDeliveryMethod}::${shippingQuoteSignature}`;
-  }, [
-    composerStep,
-    effectiveDeliveryMethod,
-    shippingQuoteSignature,
-    shouldUseShippingEngine,
-  ]);
-
   useEffect(() => {
+    if (!hasHydratedDraftSnapshot) return;
+
     const currentShippingPayload = shippingPayloadRef.current;
 
     if (!currentShippingPayload) {
@@ -4339,6 +4408,16 @@ export default function BookingForm() {
         setSelectedShippingQuoteId((current) => {
           if (current && sortedQuotes.some((quote) => quote.id === current))
             return current;
+
+          const matchedByServiceKey = sortedQuotes.find(
+            (quote) =>
+              getShippingQuoteServiceKey(quote) ===
+              selectedShippingQuoteServiceKeyRef.current,
+          );
+          if (matchedByServiceKey) {
+            return matchedByServiceKey.id;
+          }
+
           return sortedQuotes[0]?.id || "";
         });
         setShippingDistanceKm(payload.distanceKm ?? null);
@@ -4364,7 +4443,7 @@ export default function BookingForm() {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [autoRefreshShippingPreviewKey, manualCheckShippingTrigger]);
+  }, [hasHydratedDraftSnapshot, manualCheckShippingTrigger]);
 
   const onSubmit: SubmitHandler<BookingFormValues> = async (rawValues) => {
     const values =
@@ -4857,7 +4936,10 @@ export default function BookingForm() {
                 | "DIFFICULT"
                 | undefined)
             : undefined,
-        customTokenPerUnit: item.customTokenPerUnit,
+        customTokenPerUnit: resolveItemCustomTokenPerUnitSynced(
+          item,
+          productTokenByName,
+        ),
         selectedPrice:
           item.category === "Buket"
             ? normalizeBouquetPriceOverrideValue(item.bouquetPriceOverride)
@@ -5231,6 +5313,7 @@ export default function BookingForm() {
     setReferenceFileInputKey((current) => current + 1);
     setShippingQuotes([]);
     setSelectedShippingQuoteId("");
+    selectedShippingQuoteServiceKeyRef.current = "";
     setShippingDistanceKm(null);
     setShippingDistanceSource(undefined);
     setShippingWarning("");
@@ -5981,6 +6064,8 @@ export default function BookingForm() {
           shippingQuotes,
           selectedShippingQuoteId:
             selectedShippingQuoteIdRef.current || selectedShippingQuoteId,
+          selectedShippingQuoteServiceKey:
+            resolveSelectedShippingQuoteServiceKey(),
           shippingDistanceKm,
           shippingDistanceSource,
           shippingWarning,
@@ -6108,6 +6193,8 @@ export default function BookingForm() {
         shippingQuotes,
         selectedShippingQuoteId:
           selectedShippingQuoteIdRef.current || selectedShippingQuoteId,
+        selectedShippingQuoteServiceKey:
+          resolveSelectedShippingQuoteServiceKey(),
         shippingDistanceKm,
         shippingDistanceSource,
         shippingWarning,
@@ -6129,6 +6216,7 @@ export default function BookingForm() {
     referenceImageFiles,
     referenceImageLabelsInput,
     referenceInputSignature,
+    resolveSelectedShippingQuoteServiceKey,
     selectedOrderType,
     selectedShippingQuoteId,
     shippingDistanceKm,
@@ -9040,6 +9128,8 @@ export default function BookingForm() {
                               key={quote.id}
                               type="button"
                               onClick={() => {
+                                selectedShippingQuoteServiceKeyRef.current =
+                                  getShippingQuoteServiceKey(quote);
                                 selectedShippingQuoteIdRef.current = quote.id;
                                 setSelectedShippingQuoteId(quote.id);
                               }}

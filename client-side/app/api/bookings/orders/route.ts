@@ -55,6 +55,9 @@ import {
   type ProductionStageAssignment,
   type ProductionStage,
 } from "@/lib/bookings/production-stages";
+import { loadEffectiveBookingCatalog } from "@/lib/bookings/catalog-config-server";
+import { flattenCatalogProductsForDashboard } from "@/lib/bookings/product-sync";
+import { buildDashboardProductName } from "@/lib/products/dashboard-name";
 
 // ─── Custom Error for capacity-full rejections ───────────────────────────────
 
@@ -404,6 +407,124 @@ function normalizeSalesChannel(
 
 function normalizeIncomingSalesChannel(value: unknown): string {
   return asString(value).trim().toLowerCase();
+}
+
+function normalizeProductTokenLookupKey(value: string): string {
+  return value.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function getProductTokenLookupKeys(item: {
+  productName?: unknown;
+  size?: unknown;
+}): string[] {
+  const productName = asString(item.productName).trim();
+  const size = asString(item.size).trim();
+  if (!productName) return [];
+
+  const variants = new Set<string>();
+  variants.add(productName);
+  if (size) {
+    variants.add(`${productName} - ${size}`);
+  }
+  variants.add(
+    buildDashboardProductName({
+      productName,
+      variantLabel: size,
+      variantCount: 1,
+    }),
+  );
+
+  return [...variants]
+    .map((value) => normalizeProductTokenLookupKey(value))
+    .filter(Boolean);
+}
+
+async function loadOrderProductTokenLookup(
+  businessId: number,
+): Promise<Map<string, number>> {
+  const [products, effectiveCatalog] = await Promise.all([
+    prisma.product.findMany({
+      where: {
+        businessId,
+        deletedAt: null,
+      },
+      select: {
+        name: true,
+        productionToken: true,
+      },
+    }),
+    loadEffectiveBookingCatalog(businessId),
+  ]);
+
+  const lookup = new Map<string, number>();
+
+  for (const product of products) {
+    const token = Math.max(0, Number(product.productionToken || 0));
+    if (token <= 0) continue;
+    lookup.set(normalizeProductTokenLookupKey(product.name), token);
+  }
+
+  for (const item of flattenCatalogProductsForDashboard(
+    effectiveCatalog.productCatalog,
+  )) {
+    const token = Math.max(0, Number(item.productionToken || 0));
+    if (token <= 0) continue;
+    const key = normalizeProductTokenLookupKey(item.name);
+    if (!lookup.has(key)) {
+      lookup.set(key, token);
+    }
+  }
+
+  return lookup;
+}
+
+function hydrateOrderItemWithProductToken<T extends JsonRecord>(
+  item: T,
+  productTokenLookup: Map<string, number>,
+): T {
+  const currentCustomToken = asNumber(item.customTokenPerUnit);
+  if (currentCustomToken > 0 || productTokenLookup.size === 0) {
+    return item;
+  }
+
+  for (const key of getProductTokenLookupKeys(item)) {
+    const token = productTokenLookup.get(key);
+    if (token && token > 0) {
+      return {
+        ...item,
+        customTokenPerUnit: token,
+      };
+    }
+  }
+
+  return item;
+}
+
+function hydrateOrderItemsWithProductTokens<T extends JsonRecord>(
+  items: T[],
+  productTokenLookup: Map<string, number>,
+): T[] {
+  return items.map((item) =>
+    hydrateOrderItemWithProductToken(item, productTokenLookup),
+  );
+}
+
+function hydrateSnapshotOrdersWithProductTokens(
+  orders: unknown[],
+  productTokenLookup: Map<string, number>,
+): unknown[] {
+  return orders.map((entry) => {
+    const record = asRecord(entry);
+    if (!record) return entry;
+
+    return {
+      ...record,
+      items: hydrateOrderItemsWithProductTokens(
+        asArrayOfRecords(record.items),
+        productTokenLookup,
+      ),
+    };
+  });
 }
 
 function resolveInsuranceProvider(args: {
@@ -2515,6 +2636,9 @@ export async function GET(request: NextRequest) {
     const url = new URL(request.url);
     const mode = url.searchParams.get("mode");
     const isFinancialMode = mode === "financial";
+    const productTokenLookup = isFinancialMode
+      ? new Map<string, number>()
+      : await loadOrderProductTokenLookup(businessId);
 
     let rowReadFailed = false;
     try {
@@ -2690,7 +2814,10 @@ export async function GET(request: NextRequest) {
         }
 
         const orders = orderRows.map((row) => {
-          const items = itemsMap.get(row.external_id) ?? [];
+          const items = hydrateOrderItemsWithProductTokens(
+            itemsMap.get(row.external_id) ?? [],
+            productTokenLookup,
+          );
           const stagePercentages = getProductionStagePercentagesFromTemplates(
             resolveProductionStageTemplatesForCategory({
               category: resolvePrimaryProductionCategory(items),
@@ -2759,7 +2886,10 @@ export async function GET(request: NextRequest) {
         });
 
         const snapshot = await readOrdersSnapshot(businessId);
-        const snapshotOrders = parseOrdersContent(snapshot?.content);
+        const snapshotOrders = hydrateSnapshotOrdersWithProductTokens(
+          parseOrdersContent(snapshot?.content),
+          productTokenLookup,
+        );
         const rowUpdatedAt = orderRows[0]?.updated_at?.toISOString() ?? null;
         const snapshotUpdatedAt = snapshot?.updatedAt?.toISOString() ?? null;
         const canTrustSnapshotNewerThanRows = snapshotMatchesRowOrders(
@@ -2839,7 +2969,10 @@ export async function GET(request: NextRequest) {
     }
 
     const snapshot = await readOrdersSnapshot(businessId);
-    const snapshotOrders = parseOrdersContent(snapshot?.content);
+    const snapshotOrders = hydrateSnapshotOrdersWithProductTokens(
+      parseOrdersContent(snapshot?.content),
+      productTokenLookup,
+    );
 
     if (isFinancialMode) {
       return NextResponse.json({
@@ -2944,10 +3077,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const productTokenLookup = await loadOrderProductTokenLookup(businessId);
     const dateNormalizationIssues: string[] = [];
     let orders: ParsedOrder[] = parsedOrders.data.map((order) => {
       const withComputedInsurance: ParsedOrder = {
         ...order,
+        items: hydrateOrderItemsWithProductTokens(
+          order.items,
+          productTokenLookup,
+        ),
         insuranceFee: computeInsuranceFee({
           shippingQuote: order.shippingQuote,
           shipment: order.shipment,
@@ -3175,7 +3313,11 @@ export async function POST(request: NextRequest) {
     for (const row of existingCapacityItemRows) {
       const current = existingCapacityItemsMap.get(row.order_external_id) ?? [];
       const payload = asRecord(parseJsonField(row.payload));
-      if (payload) current.push(payload);
+      if (payload) {
+        current.push(
+          hydrateOrderItemWithProductToken(payload, productTokenLookup),
+        );
+      }
       existingCapacityItemsMap.set(row.order_external_id, current);
     }
 
@@ -3469,7 +3611,10 @@ export async function POST(request: NextRequest) {
       }
 
       existingOrders = existingRows.map((row) => {
-        const items = itemsMap.get(row.external_id) ?? [];
+        const items = hydrateOrderItemsWithProductTokens(
+          itemsMap.get(row.external_id) ?? [],
+          productTokenLookup,
+        );
         const stagePercentages = getProductionStagePercentagesFromTemplates(
           resolveProductionStageTemplatesForCategory({
             category: resolvePrimaryProductionCategory(items),

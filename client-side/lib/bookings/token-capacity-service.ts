@@ -81,6 +81,13 @@ interface CapacityRow {
   used_token: number;
 }
 
+const CAPACITY_INACTIVE_ORDER_STATUSES = [
+  "Cancelled",
+  "Completed",
+  "Delivery",
+  "Delivered",
+] as const;
+
 // ─── Table Setup ─────────────────────────────────────────────────────────────
 
 let _tableEnsured = false;
@@ -170,6 +177,87 @@ export async function syncCapacityMaxTokenForBusiness(
   `;
 }
 
+async function reconcileCapacityLedgerForRange(
+  businessId: number,
+  startDate: string,
+  endDate: string,
+  defaultMaxToken: number,
+  dbClient?: SqlExecutor,
+): Promise<void> {
+  await ensureCapacityTable();
+
+  const db = dbClient ?? prisma;
+  await syncCapacityMaxTokenForBusiness(businessId, defaultMaxToken, db);
+
+  await db.$executeRaw`
+    WITH active_tokens AS (
+      SELECT
+        delivery_date::date AS delivery_date,
+        GREATEST(0, COALESCE(SUM(token_used), 0))::integer AS used_token
+      FROM bakery_orders
+      WHERE business_id = ${businessId}
+        AND delivery_date IS NOT NULL
+        AND deleted_at IS NULL
+        AND delivery_date >= ${startDate}::date
+        AND delivery_date <= ${endDate}::date
+        AND order_status NOT IN (
+          ${CAPACITY_INACTIVE_ORDER_STATUSES[0]},
+          ${CAPACITY_INACTIVE_ORDER_STATUSES[1]},
+          ${CAPACITY_INACTIVE_ORDER_STATUSES[2]},
+          ${CAPACITY_INACTIVE_ORDER_STATUSES[3]}
+        )
+      GROUP BY delivery_date::date
+    )
+    INSERT INTO production_capacity (
+      business_id,
+      date,
+      max_token,
+      used_token,
+      created_at,
+      updated_at
+    )
+    SELECT
+      ${businessId},
+      active_tokens.delivery_date,
+      ${defaultMaxToken},
+      LEAST(${defaultMaxToken}, active_tokens.used_token),
+      NOW(),
+      NOW()
+    FROM active_tokens
+    ON CONFLICT (business_id, date)
+    DO UPDATE SET
+      used_token = LEAST(
+        production_capacity.max_token,
+        GREATEST(0, EXCLUDED.used_token)
+      ),
+      updated_at = NOW()
+  `;
+
+  await db.$executeRaw`
+    UPDATE production_capacity pc
+    SET used_token = 0,
+        updated_at = NOW()
+    WHERE pc.business_id = ${businessId}
+      AND pc.date >= ${startDate}::date
+      AND pc.date <= ${endDate}::date
+      AND NOT EXISTS (
+        SELECT 1
+        FROM bakery_orders bo
+        WHERE bo.business_id = pc.business_id
+          AND bo.delivery_date IS NOT NULL
+          AND bo.deleted_at IS NULL
+          AND bo.delivery_date::date = pc.date
+          AND bo.order_status NOT IN (
+            ${CAPACITY_INACTIVE_ORDER_STATUSES[0]},
+            ${CAPACITY_INACTIVE_ORDER_STATUSES[1]},
+            ${CAPACITY_INACTIVE_ORDER_STATUSES[2]},
+            ${CAPACITY_INACTIVE_ORDER_STATUSES[3]}
+          )
+          AND bo.token_used > 0
+      )
+  `;
+}
+
 // ─── Core Functions ──────────────────────────────────────────────────────────
 
 /**
@@ -187,7 +275,13 @@ export async function getCapacityForDate(
   await ensureCapacityTable();
 
   const db = dbClient ?? prisma;
-  await syncCapacityMaxTokenForBusiness(businessId, defaultMaxToken, db);
+  await reconcileCapacityLedgerForRange(
+    businessId,
+    normalizedDate,
+    normalizedDate,
+    defaultMaxToken,
+    db,
+  );
 
   const rows = await db.$queryRaw<CapacityRow[]>`
     SELECT date::text AS date, max_token, used_token
@@ -446,7 +540,13 @@ export async function getCapacityForDateRange(
   await ensureCapacityTable();
 
   const db = dbClient ?? prisma;
-  await syncCapacityMaxTokenForBusiness(businessId, defaultMaxToken, db);
+  await reconcileCapacityLedgerForRange(
+    businessId,
+    normalizedStartDate,
+    normalizedEndDate,
+    defaultMaxToken,
+    db,
+  );
 
   const rows = await db.$queryRaw<CapacityRow[]>`
     SELECT date::text AS date, max_token, used_token

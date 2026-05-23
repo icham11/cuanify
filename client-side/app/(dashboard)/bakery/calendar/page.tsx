@@ -298,11 +298,7 @@ export default function BakeryCalendarPage() {
       if (!normalizedDate) continue;
 
       const normalizedStatus = normalizeOrderStatus(order.orderStatus);
-      if (
-        ["Cancelled", "Completed", "Delivered", "Delivery"].includes(
-          normalizedStatus,
-        )
-      ) {
+      if (normalizedStatus === "Cancelled") {
         continue;
       }
 
@@ -323,7 +319,10 @@ export default function BakeryCalendarPage() {
 
       return {
         date: dateKey,
-        usedToken: liveUsedToken,
+        usedToken: Math.max(
+          Number(serverCapacity.usedToken) || 0,
+          liveUsedToken,
+        ),
         maxToken:
           Number(serverCapacity.maxToken) > 0
             ? serverCapacity.maxToken
