@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,7 @@ import {
   ReceiptText,
   Truck,
   UserRound,
+  Loader2,
 } from "lucide-react";
 import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import { useOrders } from "@/components/bakery/store";
@@ -101,16 +102,51 @@ export default function OrderDetailPage() {
     updateOrderStatus,
     getCustomerMessagePreview,
     setOrderShipment,
+    fetchOrderById,
   } = useOrders();
   const params = useParams();
   const canGenerateInvoice = true;
   const orderId = typeof params?.id === "string" ? params.id : "";
   const [isCreatingResi, setIsCreatingResi] = useState(false);
   const [statusDraft, setStatusDraft] = useState("");
+  const [isLoadingDetail, setIsLoadingDetail] = useState(true);
+  const [detailError, setDetailError] = useState<string | null>(null);
+
   const order = useMemo(
     () => orders.find((item) => item.id === orderId),
     [orders, orderId],
   );
+
+  // Buat ref stabil untuk menyimpan fetchOrderById agar tidak memicu re-fetch berulang kali saat store ter-update
+  const fetchOrderRef = useRef(fetchOrderById);
+  useEffect(() => {
+    fetchOrderRef.current = fetchOrderById;
+  }, [fetchOrderById]);
+
+  useEffect(() => {
+    if (!orderId) return;
+
+    let active = true;
+    setIsLoadingDetail(true);
+    setDetailError(null);
+
+    // Gunakan fungsi dari ref stabil untuk memuat detail pesanan
+    fetchOrderRef.current(orderId)
+      .then(() => {
+        if (active) setIsLoadingDetail(false);
+      })
+      .catch((error) => {
+        console.error("Gagal memuat detail pesanan:", error);
+        if (active) {
+          setDetailError("Gagal mengambil detail pesanan dari server.");
+          setIsLoadingDetail(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [orderId]);
   const normalizedOrderStatus = normalizeOrderStatus(order?.orderStatus);
   const normalizedPaymentStatus =
     order?.paymentStatus === "Pending"
@@ -250,6 +286,62 @@ export default function OrderDetailPage() {
       setIsCreatingResi(false);
     }
   };
+
+  if (isLoadingDetail) {
+    return (
+      <div className="space-y-4 pb-10">
+        <div className="flex justify-center">
+          <div className="inline-flex items-center rounded-full border border-[var(--crumbella-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.95)_0%,rgba(246,233,219,0.92)_100%)] px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.28em] text-[var(--crumbella-primary)] shadow-[0_12px_24px_-22px_rgba(30,18,10,0.7)]">
+            Booking Detail
+          </div>
+        </div>
+        <div className="flex h-40 items-center justify-center rounded-[28px] border border-[var(--crumbella-border)] bg-white px-5 py-8 text-center shadow-[0_18px_30px_-24px_rgba(30,18,10,0.35)]">
+          <div className="flex items-center gap-2 text-sm text-[var(--crumbella-muted)]">
+            <Loader2 className="h-5 w-5 animate-spin text-[var(--crumbella-accent)]" />
+            Memuat detail pesanan dari server...
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (detailError) {
+    return (
+      <div className="space-y-4 pb-10">
+        <div className="flex justify-center">
+          <div className="inline-flex items-center rounded-full border border-[var(--crumbella-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.95)_0%,rgba(246,233,219,0.92)_100%)] px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.28em] text-[var(--crumbella-primary)] shadow-[0_12px_24px_-22px_rgba(30,18,10,0.7)]">
+            Booking Detail
+          </div>
+        </div>
+        <div className="rounded-[28px] border border-[var(--crumbella-border)] bg-white px-5 py-8 text-center text-sm shadow-[0_18px_30px_-24px_rgba(30,18,10,0.35)]">
+          <p className="text-red-500 font-semibold">{detailError}</p>
+          <div className="mt-4 flex justify-center gap-2">
+            <Link
+              href="/bakery/bookings"
+              className="inline-flex h-9 items-center justify-center rounded-full border border-[var(--crumbella-border)] px-4 text-xs font-semibold text-[var(--foreground)]"
+            >
+              Kembali
+            </Link>
+            <button
+              onClick={() => {
+                setIsLoadingDetail(true);
+                setDetailError(null);
+                fetchOrderById(orderId)
+                  .then(() => setIsLoadingDetail(false))
+                  .catch(() => {
+                    setDetailError("Gagal mengambil detail pesanan dari server.");
+                    setIsLoadingDetail(false);
+                  });
+              }}
+              className="inline-flex h-9 items-center justify-center rounded-full bg-[var(--crumbella-accent)] px-4 text-xs font-semibold text-white hover:bg-[var(--crumbella-accent-strong)]"
+            >
+              Coba Lagi
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!order) {
     return (

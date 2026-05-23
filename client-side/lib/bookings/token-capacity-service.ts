@@ -178,84 +178,119 @@ export async function syncCapacityMaxTokenForBusiness(
 }
 
 async function reconcileCapacityLedgerForRange(
-  businessId: number,
-  startDate: string,
-  endDate: string,
-  defaultMaxToken: number,
-  dbClient?: SqlExecutor,
-): Promise<void> {
+  businessId: number, // ID bisnis bakery yang bersangkutan
+  startDate: string, // Tanggal mulai range rekonsiliasi (YYYY-MM-DD)
+  endDate: string, // Tanggal akhir range rekonsiliasi (YYYY-MM-DD)
+  defaultMaxToken: number, // Default jumlah kapasitas token harian
+  dbClient?: SqlExecutor, // Klien database opsional (untuk transaksi)
+): Promise<void> { // Fungsi tidak mengembalikan nilai
+  // Pastikan tabel production_capacity sudah terbuat sebelum kueri dijalankan
   await ensureCapacityTable();
 
+  // Gunakan dbClient jika disediakan, jika tidak gunakan objek prisma bawaan
   const db = dbClient ?? prisma;
-  await syncCapacityMaxTokenForBusiness(businessId, defaultMaxToken, db);
 
-  await db.$executeRaw`
-    WITH active_tokens AS (
-      SELECT
-        delivery_date::date AS delivery_date,
-        GREATEST(0, COALESCE(SUM(token_used), 0))::integer AS used_token
-      FROM bakery_orders
-      WHERE business_id = ${businessId}
-        AND delivery_date IS NOT NULL
-        AND deleted_at IS NULL
-        AND delivery_date >= ${startDate}::date
-        AND delivery_date <= ${endDate}::date
-        AND order_status NOT IN (
-          ${CAPACITY_INACTIVE_ORDER_STATUSES[0]},
-          ${CAPACITY_INACTIVE_ORDER_STATUSES[1]},
-          ${CAPACITY_INACTIVE_ORDER_STATUSES[2]},
-          ${CAPACITY_INACTIVE_ORDER_STATUSES[3]}
-        )
-      GROUP BY delivery_date::date
-    )
-    INSERT INTO production_capacity (
-      business_id,
-      date,
-      max_token,
-      used_token,
-      created_at,
-      updated_at
-    )
-    SELECT
-      ${businessId},
-      active_tokens.delivery_date,
-      ${defaultMaxToken},
-      LEAST(${defaultMaxToken}, active_tokens.used_token),
-      NOW(),
-      NOW()
-    FROM active_tokens
-    ON CONFLICT (business_id, date)
-    DO UPDATE SET
-      used_token = LEAST(
-        production_capacity.max_token,
-        GREATEST(0, EXCLUDED.used_token)
-      ),
-      updated_at = NOW()
-  `;
+  try { // Tambahkan blok try-catch sebagai bagian dari error handling yang krusial
+    // Sinkronisasi max token bawaan untuk bisnis ini agar data kapasitas terbarui
+    await syncCapacityMaxTokenForBusiness(businessId, defaultMaxToken, db);
 
-  await db.$executeRaw`
-    UPDATE production_capacity pc
-    SET used_token = 0,
-        updated_at = NOW()
-    WHERE pc.business_id = ${businessId}
-      AND pc.date >= ${startDate}::date
-      AND pc.date <= ${endDate}::date
-      AND NOT EXISTS (
-        SELECT 1
-        FROM bakery_orders bo
-        WHERE bo.business_id = pc.business_id
-          AND bo.delivery_date IS NOT NULL
-          AND bo.deleted_at IS NULL
-          AND bo.delivery_date::date = pc.date
-          AND bo.order_status NOT IN (
+    // Jalankan kueri raw SQL untuk menghitung penggunaan token pesanan dan memasukkannya ke tabel kapasitas
+    await db.$executeRaw`
+      WITH active_tokens AS (
+        SELECT
+          -- Ubah delivery_date (TEXT) menjadi DATE secara aman dari nilai kosong/spasi
+          NULLIF(TRIM(delivery_date), '')::date AS delivery_date,
+          -- Ambil nilai terbesar antara 0 dengan jumlah token_used, casting sebagai integer
+          GREATEST(0, COALESCE(SUM(token_used), 0))::integer AS used_token
+        FROM bakery_orders
+        WHERE business_id = ${businessId}
+          -- Filter hanya pesanan yang memiliki delivery_date valid dan bukan string kosong
+          AND delivery_date IS NOT NULL
+          AND TRIM(delivery_date) <> ''
+          -- Hanya hitung pesanan yang belum dihapus secara soft-delete
+          AND deleted_at IS NULL
+          -- Bandingkan nilai DATE dengan casting yang setara agar tidak memicu type mismatch
+          AND NULLIF(TRIM(delivery_date), '')::date >= ${startDate}::date
+          -- Batasi pencarian hingga tanggal akhir yang dicasting ke DATE
+          AND NULLIF(TRIM(delivery_date), '')::date <= ${endDate}::date
+          -- Kecualikan status pesanan yang tidak memakan kapasitas token produksi
+          AND order_status NOT IN (
             ${CAPACITY_INACTIVE_ORDER_STATUSES[0]},
             ${CAPACITY_INACTIVE_ORDER_STATUSES[1]},
             ${CAPACITY_INACTIVE_ORDER_STATUSES[2]},
             ${CAPACITY_INACTIVE_ORDER_STATUSES[3]}
           )
-          AND bo.token_used > 0
+        -- Kelompokkan berdasarkan tanggal pengiriman setelah dikonversi ke tipe DATE
+        GROUP BY NULLIF(TRIM(delivery_date), '')::date
       )
-  `;
+      -- Masukkan atau perbarui record kapasitas produksi harian
+      INSERT INTO production_capacity (
+        business_id,
+        date,
+        max_token,
+        used_token,
+        created_at,
+        updated_at
+      )
+      SELECT
+        ${businessId},
+        active_tokens.delivery_date,
+        ${defaultMaxToken},
+        -- Batasi nilai used_token agar tidak melebihi defaultMaxToken
+        LEAST(${defaultMaxToken}, active_tokens.used_token),
+        NOW(),
+        NOW()
+      FROM active_tokens
+      -- Jika terjadi konflik pada kombinasi unik (business_id, date), lakukan pembaruan
+      ON CONFLICT (business_id, date)
+      DO UPDATE SET
+        -- Set used_token dengan nilai baru terbatas max_token dan minimal 0
+        used_token = LEAST(
+          production_capacity.max_token,
+          GREATEST(0, EXCLUDED.used_token)
+        ),
+        -- Perbarui timestamp modifikasi data kapasitas
+        updated_at = NOW()
+    `;
+
+    // Jalankan kueri raw SQL kedua untuk mereset used_token menjadi 0 pada tanggal tanpa pesanan aktif
+    await db.$executeRaw`
+      UPDATE production_capacity pc
+      SET used_token = 0, -- Reset used_token menjadi 0
+          updated_at = NOW() -- Set timestamp pembaruan terbaru
+      WHERE pc.business_id = ${businessId}
+        -- Bandingkan pc.date yang bertipe DATE secara langsung dengan filter range
+        AND pc.date >= ${startDate}::date
+        AND pc.date <= ${endDate}::date
+        -- Cek apakah tidak ada pesanan aktif tersisa yang menggunakan token di hari itu
+        AND NOT EXISTS (
+          SELECT 1
+          FROM bakery_orders bo
+          WHERE bo.business_id = pc.business_id
+            -- Filter hanya pesanan dengan delivery_date valid dan bukan kosong
+            AND bo.delivery_date IS NOT NULL
+            AND TRIM(bo.delivery_date) <> ''
+            -- Pastikan pesanan belum dihapus
+            AND bo.deleted_at IS NULL
+            -- Konversi delivery_date secara aman dari TEXT ke DATE untuk dibandingkan dengan pc.date
+            AND NULLIF(TRIM(bo.delivery_date), '')::date = pc.date
+            -- Pastikan status pesanannya aktif (bukan cancelled/completed)
+            AND bo.order_status NOT IN (
+              ${CAPACITY_INACTIVE_ORDER_STATUSES[0]},
+              ${CAPACITY_INACTIVE_ORDER_STATUSES[1]},
+              ${CAPACITY_INACTIVE_ORDER_STATUSES[2]},
+              ${CAPACITY_INACTIVE_ORDER_STATUSES[3]}
+            )
+            -- Hanya jika pesanan tersebut memang memakan kapasitas token > 0
+            AND bo.token_used > 0
+        )
+    `;
+  } catch (error) { // Tangkap kesalahan jika kueri database gagal
+    // Cetak log kesalahan agar mudah dilacak di server-side log
+    console.error(`[reconcileCapacityLedgerForRange] Error reconciling capacity ledger:`, error);
+    // Lemparkan kembali kesalahan agar pemanggil fungsi mengetahui adanya kegagalan transaksi/proses
+    throw error;
+  }
 }
 
 // ─── Core Functions ──────────────────────────────────────────────────────────

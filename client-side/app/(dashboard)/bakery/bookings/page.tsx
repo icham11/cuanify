@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowUpDown, BookOpen, Search } from "lucide-react";
+import { ArrowUpDown, BookOpen, Search, Loader2 } from "lucide-react";
 import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import OrderTable from "@/components/bakery/bookings/OrderTable";
 import { Select } from "@/components/ui/select";
@@ -112,7 +112,7 @@ function resolveOrderSource(order: {
 export default function BookingListPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { orders } = useOrders();
+  const { orders, fetchPaginatedOrders } = useOrders();
   const initialQuery = searchParams.get("query") ?? "";
   const initialStatusFilter = searchParams.get("status") ?? "";
   const initialDateFilter = searchParams.get("date") ?? "";
@@ -135,79 +135,87 @@ export default function BookingListPage() {
   const [activeSavedView, setActiveSavedView] = useState<SavedView>(
     requestedView ?? "all",
   );
+  
+  // State lokal untuk server-side pagination & filter
+  const [ordersList, setOrdersList] = useState<typeof orders>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [isLoading, setIsLoading] = useState(true);
+
   const today = getJakartaTodayIsoDate();
   const tomorrow = useMemo(() => addDaysToIsoDate(today, 1), [today]);
   const PAGE_SIZE = 10;
   const linkedSource = searchParams.get("source");
   const isCalendarLinkedView = linkedSource === "calendar";
 
-  const filteredOrders = useMemo(() => {
-    const filtered = orders.filter((order) => {
-      const normalizedOrderStatus = normalizeOrderStatus(order.orderStatus);
-      const matchesQuery =
-        order.customerName.toLowerCase().includes(query.toLowerCase()) ||
-        order.resi.toLowerCase().includes(query.toLowerCase()) ||
-        order.bookingCode.toLowerCase().includes(query.toLowerCase());
-      const matchesStatus = statusFilter
-        ? normalizedOrderStatus === statusFilter
-        : true;
-      const matchesDate = dateFilter ? order.deliveryDate === dateFilter : true;
-      const provider = resolveShippingProvider(order);
-      const matchesCourier =
-        courierFilter === ""
-          ? true
-          : courierFilter === "grab-gojek"
-            ? provider === "GRAB" || provider === "GOJEK"
-            : provider === "PAXEL";
-      const source = resolveOrderSource(order);
-      const matchesOrderSource =
-        orderSourceFilter === "" ? true : source === orderSourceFilter;
-      const isViewAll = activeSavedView === "all";
-      const isActiveView = activeSavedView === "active";
-      const isStatusActive = !["Completed", "Delivered", "Cancelled"].includes(normalizedOrderStatus);
-      const matchesSavedView = isViewAll || (isActiveView ? isStatusActive : true);
+  // Effect untuk me-load data paginated dari server-side dengan debounce pencarian
+  useEffect(() => {
+    let active = true;
+    setIsLoading(true);
 
-      return (
-        matchesQuery &&
-        matchesStatus &&
-        matchesDate &&
-        matchesCourier &&
-        matchesOrderSource &&
-        matchesSavedView
-      );
-    });
+    const debounceHandler = setTimeout(() => {
+      fetchPaginatedOrders({
+        page: currentPage,
+        limit: PAGE_SIZE,
+        query: query,
+        status: statusFilter,
+        date: dateFilter,
+      })
+        .then((res) => {
+          if (!active) return;
+          setOrdersList(res.orders);
+          setTotalCount(res.pagination.totalCount);
+          setTotalPages(res.pagination.totalPages);
+          setIsLoading(false);
+        })
+        .catch((error) => {
+          console.error("Gagal memuat daftar pesanan paginated:", error);
+          if (active) {
+            setIsLoading(false);
+          }
+        });
+    }, 250); // Debounce typing 250ms
+
+    return () => {
+      active = false;
+      clearTimeout(debounceHandler);
+    };
+  }, [currentPage, query, statusFilter, dateFilter, fetchPaginatedOrders]);
+
+  // Client-side sorting dari halaman ter-load
+  const pagedOrders = useMemo(() => {
+    let result = ordersList;
+
+    if (courierFilter || orderSourceFilter) {
+      result = result.filter((order) => {
+        const provider = resolveShippingProvider(order);
+        const matchesCourier =
+          courierFilter === ""
+            ? true
+            : courierFilter === "grab-gojek"
+              ? provider === "GRAB" || provider === "GOJEK"
+              : provider === "PAXEL";
+        const source = resolveOrderSource(order);
+        const matchesOrderSource =
+          orderSourceFilter === "" ? true : source === orderSourceFilter;
+        return matchesCourier && matchesOrderSource;
+      });
+    }
 
     if (sortBy === "delivery-asc") {
-      return filtered
-        .slice()
-        .sort((a, b) => a.deliveryDate.localeCompare(b.deliveryDate));
+      return result.slice().sort((a, b) => a.deliveryDate.localeCompare(b.deliveryDate));
     }
 
     if (sortBy === "delivery-desc") {
-      return filtered
-        .slice()
-        .sort((a, b) => b.deliveryDate.localeCompare(a.deliveryDate));
+      return result.slice().sort((a, b) => b.deliveryDate.localeCompare(a.deliveryDate));
     }
 
     if (sortBy === "name-asc") {
-      return filtered
-        .slice()
-        .sort((a, b) => a.customerName.localeCompare(b.customerName));
+      return result.slice().sort((a, b) => a.customerName.localeCompare(b.customerName));
     }
 
-    return filtered
-      .slice()
-      .sort((a, b) => (b.totalPrice || 0) - (a.totalPrice || 0));
-  }, [
-    orders,
-    query,
-    statusFilter,
-    dateFilter,
-    courierFilter,
-    orderSourceFilter,
-    sortBy,
-    activeSavedView,
-  ]);
+    return result.slice().sort((a, b) => (b.totalPrice || 0) - (a.totalPrice || 0));
+  }, [ordersList, courierFilter, orderSourceFilter, sortBy]);
 
   const activeOrdersCount = useMemo(
     () =>
@@ -219,8 +227,8 @@ export default function BookingListPage() {
   );
 
   const unpaidCount = useMemo(
-    () => filteredOrders.filter((order) => order.paymentStatus !== "Paid").length,
-    [filteredOrders],
+    () => ordersList.filter((order) => order.paymentStatus !== "Paid").length,
+    [ordersList],
   );
 
   const hasActiveFilters = Boolean(
@@ -233,12 +241,7 @@ export default function BookingListPage() {
       sortBy !== "delivery-asc",
   );
 
-  const totalPages = Math.max(1, Math.ceil(filteredOrders.length / PAGE_SIZE));
   const safeCurrentPage = Math.min(currentPage, totalPages);
-  const pagedOrders = filteredOrders.slice(
-    (safeCurrentPage - 1) * PAGE_SIZE,
-    safeCurrentPage * PAGE_SIZE,
-  );
 
   const resetFilters = () => {
     setQuery("");
@@ -436,7 +439,7 @@ export default function BookingListPage() {
         <div className="flex items-start justify-between gap-3 px-1">
           <div className="min-w-0">
             <p className="text-[1.25rem] font-extrabold leading-none text-[var(--foreground)]">
-              {filteredOrders.length} order
+              {totalCount} order
             </p>
             <p className="mt-1 text-[11px] text-[var(--crumbella-muted)]">
               DP = {unpaidCount} belum lunas
@@ -463,9 +466,18 @@ export default function BookingListPage() {
           </div>
         </div>
 
-        <OrderTable orders={pagedOrders} />
+        {isLoading ? (
+          <div className="flex h-40 items-center justify-center rounded-[28px] border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] shadow-none">
+            <div className="flex items-center gap-2 text-sm text-[var(--crumbella-muted)]">
+              <Loader2 className="h-5 w-5 animate-spin text-[var(--crumbella-accent)]" />
+              Memuat data booking dari server...
+            </div>
+          </div>
+        ) : (
+          <OrderTable orders={pagedOrders} />
+        )}
 
-        {filteredOrders.length > PAGE_SIZE ? (
+        {totalCount > PAGE_SIZE ? (
           <div className="flex items-center justify-between gap-3 px-1 pt-1">
             <p className="text-[11px] text-[var(--crumbella-muted)]">
               Page {safeCurrentPage} dari {totalPages}

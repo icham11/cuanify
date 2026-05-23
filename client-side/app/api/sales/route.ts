@@ -371,7 +371,7 @@ export async function POST(request: NextRequest) {
       // CashierShift table may not exist yet — silently ignore
     }
 
-    const result = await prisma.$transaction(
+    const saleId = await prisma.$transaction(
       async (tx) => {
         // 1. Validate all products exist and belong to business
         const productIds = [...new Set(items.map((i) => i.productId))];
@@ -551,26 +551,33 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // 8. Return full sale with items
-        return tx.sale.findUnique({
-          where: { id: sale.id },
-          include: {
-            saleItems: {
-              include: {
-                product: {
-                  select: {
-                    id: true,
-                    name: true,
-                    categoryId: true,
-                  },
-                },
-              },
-            },
-          },
-        });
+        // Fix: Kembalikan hanya sale.id dari dalam transaksi.
+        // findUnique dengan include relasi dipindah ke luar transaksi agar
+        // tidak memperpanjang durasi lock DB secara tidak perlu.
+        return sale.id;
       },
       { timeout: 30000 },
     );
+
+    // Refetch lengkap di luar transaksi — tidak memperpanjang DB lock.
+    // `saleId` di-return dari dalam transaksi (hanya ID, tanpa relasi berat),
+    // kemudian kita lakukan findUnique setelah commit agar lock DB tidak diperpanjang.
+    const result = await prisma.sale.findUnique({
+      where: { id: saleId },
+      include: {
+        saleItems: {
+          include: {
+            product: {
+              select: {
+                id: true,
+                name: true,
+                categoryId: true,
+              },
+            },
+          },
+        },
+      },
+    });
 
     if (result && result.paymentStatus === "Paid") {
       try {

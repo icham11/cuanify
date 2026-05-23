@@ -606,13 +606,19 @@ function isRecapTotalsLine(line: string): boolean {
   );
 }
 
-function looksLikeLabeledLine(value: string): boolean {
+function looksLikeLabeledLine(
+  value: string,
+  options?: { insideBlock?: boolean },
+): boolean {
   const normalized = normalizeLabel(value);
   if (!normalized) return false;
 
   // Explicit Section Headers
   if (normalized === "rekap order") return true;
-  if (parseRecapItemHeader(value) !== null) return true;
+  
+  if (!options?.insideBlock && parseRecapItemHeader(value) !== null) {
+    return true;
+  }
   if (isRecapTotalsLine(value)) return true;
 
   if (normalized.startsWith("jenis pesanan")) return true;
@@ -636,7 +642,7 @@ function collectBlockValue(
   for (let index = startIndex + 1; index < lines.length; index += 1) {
     const line = lines[index]?.trim() ?? "";
     if (!line) continue;
-    if (looksLikeLabeledLine(line)) break;
+    if (looksLikeLabeledLine(line, { insideBlock: true })) break;
     parts.push(line);
   }
 
@@ -1329,6 +1335,16 @@ function normalizeByKey(key: string, value: string): string {
       return parsePhone(cleaned) || cleaned;
     case "deliveryMethod":
       return normalizeDeliveryMethod(cleaned);
+    case "cakeDesign":
+    case "cookieDesign":
+    case "bouquetDesign":
+    case "designTheme": {
+      return cleaned
+        .split(/\s*\|\s*/)
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .join("\n");
+    }
     case "cakeSize": {
       const shorthandMatch = cleaned.match(
         /\bd\s*(\d{1,2})\s*t\s*(\d{1,2})\b/i,

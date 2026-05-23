@@ -68,6 +68,13 @@ function toLocalDateString(date: Date): string {
  * Fetches from GET /api/bookings/capacity?startDate=...&endDate=...
  * Re-fetches when startDate or endDate changes.
  *
+ * Root Cause Fix: defaultMaxToken sebelumnya ada di useState dan masuk ke
+ * dependency array useCallback. Setiap API response update state ini →
+ * fetchCapacity di-recreate → useEffect trigger → fetch lagi (loop).
+ *
+ * Solusi: pindah ke useRef. Ref update tidak menyebabkan re-render,
+ * sehingga fetchCapacity tidak perlu di-recreate dan loop tereliminasi.
+ *
  * @param startDate - Start of the range (Date object)
  * @param endDate - End of the range (Date object)
  */
@@ -81,8 +88,22 @@ export function useCalendarCapacity(
   );
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [defaultMaxToken, setDefaultMaxToken] =
-    useState<number>(fallbackMaxToken);
+
+  // Fix: Gunakan useRef bukan useState untuk defaultMaxToken.
+  // State update dari useRef tidak menyebabkan re-render atau
+  // re-creation useCallback, sehingga dependency loop tereliminasi.
+  const defaultMaxTokenRef = useRef(
+    Number.isFinite(fallbackMaxToken) && fallbackMaxToken > 0
+      ? Math.round(fallbackMaxToken)
+      : DEFAULT_MAX_TOKEN,
+  );
+
+  // Sinkronisasi fallbackMaxToken dari props jika berubah (misal dari settings)
+  useEffect(() => {
+    if (Number.isFinite(fallbackMaxToken) && fallbackMaxToken > 0) {
+      defaultMaxTokenRef.current = Math.round(fallbackMaxToken);
+    }
+  }, [fallbackMaxToken]);
 
   // Track the current range as strings to detect changes
   const startStr = toLocalDateString(startDate);
@@ -92,12 +113,8 @@ export function useCalendarCapacity(
   const rangeRef = useRef({ startStr, endStr });
   rangeRef.current = { startStr, endStr };
 
-  useEffect(() => {
-    if (Number.isFinite(fallbackMaxToken) && fallbackMaxToken > 0) {
-      setDefaultMaxToken(Math.round(fallbackMaxToken));
-    }
-  }, [fallbackMaxToken]);
-
+  // Fix: Dependency array kosong — fetchCapacity tidak perlu di-recreate
+  // saat defaultMaxToken berubah karena akses via ref selalu fresh.
   const fetchCapacity = useCallback(async () => {
     const { startStr: s, endStr: e } = rangeRef.current;
 
@@ -126,8 +143,10 @@ export function useCalendarCapacity(
 
       const newMap = new Map<string, CapacityEntry>();
       const apiDefaultMaxToken = Number(payload.data?.defaultMaxToken);
+
+      // Update ref langsung — tidak trigger re-render/re-create useCallback
       if (Number.isFinite(apiDefaultMaxToken) && apiDefaultMaxToken > 0) {
-        setDefaultMaxToken(Math.round(apiDefaultMaxToken));
+        defaultMaxTokenRef.current = Math.round(apiDefaultMaxToken);
       }
 
       if (payload.data?.capacities) {
@@ -141,7 +160,7 @@ export function useCalendarCapacity(
               Number(entry.maxToken) ||
               (Number.isFinite(apiDefaultMaxToken) && apiDefaultMaxToken > 0
                 ? Math.round(apiDefaultMaxToken)
-                : defaultMaxToken),
+                : defaultMaxTokenRef.current),
           });
         }
       }
@@ -155,7 +174,7 @@ export function useCalendarCapacity(
     } finally {
       setIsLoading(false);
     }
-  }, [defaultMaxToken]);
+  }, []); // ← Dependency array kosong: fetchCapacity stabil, tidak re-create
 
   // Fetch on mount and when date range changes
   useEffect(() => {
@@ -194,14 +213,14 @@ export function useCalendarCapacity(
       const entry = capacityMap.get(dateKey);
       if (entry) return entry;
 
-      // Default: no tokens used, standard max
+      // Default: no tokens used, standard max dari ref (tidak menyebabkan re-render)
       return {
         date: dateKey,
         usedToken: 0,
-        maxToken: defaultMaxToken,
+        maxToken: defaultMaxTokenRef.current,
       };
     },
-    [capacityMap, defaultMaxToken],
+    [capacityMap],
   );
 
   return {

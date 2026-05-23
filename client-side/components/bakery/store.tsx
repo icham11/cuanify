@@ -274,6 +274,25 @@ interface OrdersContextValue {
   getCustomerMessagePreview: (id: string) => string;
   setOrderShipment: (id: string, shipment: ShippingShipment) => void;
   reloadOrdersFromServer: () => Promise<void>;
+  fetchOrderById: (id: string) => Promise<BakeryOrder>;
+  fetchPaginatedOrders: (params: {
+    page: number;
+    limit: number;
+    query?: string;
+    status?: string;
+    date?: string;
+    startDate?: string;
+    endDate?: string;
+    mode?: string;
+  }) => Promise<{
+    orders: BakeryOrder[];
+    pagination: {
+      totalCount: number;
+      page: number;
+      limit: number;
+      totalPages: number;
+    };
+  }>;
 }
 
 const OrdersContext = createContext<OrdersContextValue | null>(null);
@@ -288,13 +307,19 @@ const ORDERS_SYNC_ENDPOINT = NORMALIZED_BOOKINGS_API_BASE
   ? `${NORMALIZED_BOOKINGS_API_BASE}/api/bookings/orders`
   : "/api/bookings/orders";
 const INITIAL_SNAPSHOT = JSON.stringify(initialOrders);
-const LOCAL_WRITE_STALE_GUARD_MS = 2500;
+const LOCAL_WRITE_STALE_GUARD_MS = 10000;
 const ORDERS_SYNC_DEBOUNCE_MS = 450;
-const SERVER_HYDRATION_INTERVAL_MS = 10000;
+// Interval polling dinaikkan dari 10 detik ke 60 detik untuk mengurangi egress ke Neon DB.
+// Perubahan real-time tetap instant lewat optimistic update + sync pasca-aksi.
+const SERVER_HYDRATION_INTERVAL_MS = 60_000;
+// Jika tab sudah idle > 5 menit tanpa interaksi user, skip background poll
+const TAB_IDLE_SKIP_THRESHOLD_MS = 5 * 60 * 1000;
 const SHIPMENT_RETRY_BACKOFF_MS = 5 * 60 * 1000;
 const SHIPMENT_WARNING_COOLDOWN_MS = 10 * 60 * 1000;
 const BOOKING_CREATE_DEDUPE_WINDOW_MS = 15 * 1000;
 const SERVER_SYNC_ISSUE_TOAST_ID = "bakery-orders-server-sync-issue";
+// Guard log agar tidak bocor ke browser console di production
+const IS_DEV = process.env.NODE_ENV !== "production";
 
 /**
  * HTTP status code yang dikembalikan proxy saat role tidak punya akses.
@@ -1352,6 +1377,7 @@ export function OrdersProvider({
   const lastLocalWriteAtRef = useRef(0);
   const syncDebounceTimerRef = useRef<number | null>(null);
   const syncQueuedOrdersRef = useRef<BakeryOrder[] | null>(null);
+  const syncChangedOrderIdsRef = useRef<Set<string>>(new Set());
   const syncRollbackSnapshotRef = useRef<string | null>(null);
   const syncInFlightRef = useRef(false);
   const processingShipmentIdsRef = useRef<Set<string>>(new Set());
@@ -1364,6 +1390,8 @@ export function OrdersProvider({
     Map<string, { message: string; at: number }>
   >(new Map());
   const lastSyncIssueToastMessageRef = useRef("");
+  // Ref untuk mencatat waktu interaksi user terakhir — digunakan untuk skip polling saat idle
+  const lastUserInteractionAtRef = useRef(Date.now());
 
   const dismissSyncIssueToast = useCallback(() => {
     if (!lastSyncIssueToastMessageRef.current) return;
@@ -1427,13 +1455,14 @@ export function OrdersProvider({
     };
   }, [enabled]);
 
-  const syncOrdersToServer = useCallback(async (nextOrders: BakeryOrder[]) => {
+  const syncOrdersToServer = useCallback(async (nextOrders: BakeryOrder[], changedOrderIds?: string[]) => {
     if (typeof window === "undefined") {
       return null as OrdersSyncResponse | null;
     }
 
     const sanitizedOrders = dedupeOrdersForSync(nextOrders);
     const requestBody = {
+      changedOrderIds: changedOrderIds && changedOrderIds.length > 0 ? changedOrderIds : undefined,
       orders: sanitizedOrders.map((order) => {
         const {
           insuranceFee: _insuranceFee,
@@ -1452,12 +1481,15 @@ export function OrdersProvider({
         return { ...safeOrder, shippingQuote: safeShippingQuote };
       }),
     };
-    console.info("[bookings][frontend] sync request", {
-      endpoint: ORDERS_SYNC_ENDPOINT,
-      method: "POST",
-      orderCount: sanitizedOrders.length,
-      ids: sanitizedOrders.map((order) => order.id),
-    });
+    // Guard: hanya log di development agar tidak bocor ke production browser console
+    if (IS_DEV) {
+      console.info("[bookings][frontend] sync request", {
+        endpoint: ORDERS_SYNC_ENDPOINT,
+        method: "POST",
+        orderCount: sanitizedOrders.length,
+        changedCount: changedOrderIds?.length ?? sanitizedOrders.length,
+      });
+    }
 
     let response: Response;
     try {
@@ -1483,15 +1515,18 @@ export function OrdersProvider({
       .json()
       .catch(() => ({}))) as OrdersSyncResponse;
 
-    console.info("[bookings][frontend] sync response", {
-      endpoint: ORDERS_SYNC_ENDPOINT,
-      status: response.status,
-      ok: response.ok,
-      success: payload.success ?? false,
-      mode: payload.data?.mode,
-      itemCount: payload.data?.itemCount,
-      error: payload.error,
-    });
+    // Guard: hanya log di development agar tidak bocor ke production browser console
+    if (IS_DEV) {
+      console.info("[bookings][frontend] sync response", {
+        endpoint: ORDERS_SYNC_ENDPOINT,
+        status: response.status,
+        ok: response.ok,
+        success: payload.success ?? false,
+        mode: payload.data?.mode,
+        itemCount: payload.data?.itemCount,
+        error: payload.error,
+      });
+    }
 
     if (!response.ok || !payload.success) {
       const fallback = `Booking sync failed (${response.status}).`;
@@ -1624,6 +1659,7 @@ export function OrdersProvider({
       if (!enabled) return;
       if (typeof window === "undefined") return;
       if (hydrationInFlightRef.current) return;
+      if (syncInFlightRef.current && !force) return;
 
       hydrationInFlightRef.current = true;
       const localSnapshot = window.localStorage.getItem(STORAGE_KEY);
@@ -1694,16 +1730,38 @@ export function OrdersProvider({
     void hydrateOrdersFromServer();
   }, [enabled, hydrateOrdersFromServer]);
 
+  // ── Polling interval dengan visibility guard + idle detection enterprise-grade ──
   useEffect(() => {
     if (!enabled) return;
     if (typeof window === "undefined") return;
 
+    // Tracking interaksi user untuk deteksi idle
+    const handleUserActivity = () => {
+      lastUserInteractionAtRef.current = Date.now();
+    };
+
+    // Daftarkan event listener untuk interaksi user
+    window.addEventListener("pointerdown", handleUserActivity, { passive: true });
+    window.addEventListener("keydown", handleUserActivity, { passive: true });
+    window.addEventListener("scroll", handleUserActivity, { passive: true });
+
     const intervalId = window.setInterval(() => {
+      // Skip polling jika tab tidak aktif (minimize / pindah tab)
+      if (document.visibilityState === "hidden") return;
+
+      // Skip polling jika user sudah idle > TAB_IDLE_SKIP_THRESHOLD_MS (5 menit)
+      // Ini mencegah polling sia-sia saat halaman terbuka tapi tidak dipakai
+      const idleMs = Date.now() - lastUserInteractionAtRef.current;
+      if (idleMs > TAB_IDLE_SKIP_THRESHOLD_MS) return;
+
       void hydrateOrdersFromServer();
     }, SERVER_HYDRATION_INTERVAL_MS);
 
     return () => {
       window.clearInterval(intervalId);
+      window.removeEventListener("pointerdown", handleUserActivity);
+      window.removeEventListener("keydown", handleUserActivity);
+      window.removeEventListener("scroll", handleUserActivity);
     };
   }, [enabled, hydrateOrdersFromServer]);
 
@@ -1749,12 +1807,14 @@ export function OrdersProvider({
       window.localStorage.getItem(STORAGE_KEY) ??
       INITIAL_SNAPSHOT;
 
+    const changedOrderIds = Array.from(syncChangedOrderIdsRef.current);
+    syncChangedOrderIdsRef.current.clear();
     syncQueuedOrdersRef.current = null;
     syncRollbackSnapshotRef.current = null;
     syncInFlightRef.current = true;
 
     try {
-      await syncOrdersToServer(queuedOrders);
+      await syncOrdersToServer(queuedOrders, changedOrderIds);
       await replaceLocalOrdersWithServer({ force: true });
     } catch (error) {
       const message =
@@ -1769,6 +1829,9 @@ export function OrdersProvider({
         ) {
           syncQueuedOrdersRef.current = queuedOrders;
           syncRollbackSnapshotRef.current = rollbackSnapshot;
+          for (const id of changedOrderIds) {
+            syncChangedOrderIdsRef.current.add(id);
+          }
           scheduleQueuedOrdersSync(2_000, flushQueuedOrdersSync);
         } else {
           const rollbackOrders = parseSnapshot(rollbackSnapshot);
@@ -1824,9 +1887,18 @@ export function OrdersProvider({
       const shouldSyncToServer = options?.syncToServer !== false;
       const previousSnapshot =
         window.localStorage.getItem(STORAGE_KEY) ?? INITIAL_SNAPSHOT;
+      const prevOrders = parseSnapshot(previousSnapshot);
+      const prevOrderMap = new Map(prevOrders.map((o) => [o.id, JSON.stringify(o)]));
       lastLocalWriteAtRef.current = Date.now();
       writeOrdersSnapshot(nextOrders);
       if (!shouldSyncToServer) return;
+
+      for (const order of nextOrders) {
+        if (JSON.stringify(order) !== prevOrderMap.get(order.id)) {
+          syncChangedOrderIdsRef.current.add(order.id);
+        }
+      }
+
       syncQueuedOrdersRef.current = nextOrders;
       syncRollbackSnapshotRef.current = previousSnapshot;
 
@@ -2845,6 +2917,12 @@ export function OrdersProvider({
             ? order.productionAssignedAt || new Date().toISOString()
             : null,
           productionStages,
+          statusHistory: appendStatusLog(
+            order.statusHistory,
+            order.orderStatus,
+            "Assignment proses produksi diperbarui",
+            actorIdentity,
+          ),
         };
       });
 
@@ -2855,6 +2933,7 @@ export function OrdersProvider({
       getLatestOrdersSnapshot,
       persistOrders,
       bakerySettings?.productionStageProfiles,
+      actorIdentity,
     ],
   );
 
@@ -3170,6 +3249,108 @@ export function OrdersProvider({
     [orders, defaultDpPercentage],
   );
 
+  const fetchOrderById = useCallback(
+    async (id: string): Promise<BakeryOrder> => {
+      try {
+        const response = await fetch(`/api/bookings/orders/${id}`, {
+          method: "GET",
+          cache: "no-store",
+        });
+        const payload = (await response.json().catch(() => ({}))) as {
+          success?: boolean;
+          data?: BakeryOrder;
+          error?: string;
+        };
+
+        if (!response.ok || !payload.success || !payload.data) {
+          throw new Error(payload.error || "Gagal memuat detail pesanan.");
+        }
+
+        const fetchedOrder = payload.data;
+        const currentOrders = getLatestOrdersSnapshot();
+        const existingIndex = currentOrders.findIndex((item) => item.id === id);
+
+        let nextOrders = [...currentOrders];
+        if (existingIndex >= 0) {
+          nextOrders[existingIndex] = fetchedOrder;
+        } else {
+          nextOrders.push(fetchedOrder);
+        }
+
+        persistOrders(nextOrders, { syncToServer: false });
+        return fetchedOrder;
+      } catch (error) {
+        console.error("fetchOrderById error:", error);
+        throw error;
+      }
+    },
+    [getLatestOrdersSnapshot, persistOrders],
+  );
+
+  const fetchPaginatedOrders = useCallback(
+    async (params: {
+      page: number;
+      limit: number;
+      query?: string;
+      status?: string;
+      date?: string;
+      startDate?: string;
+      endDate?: string;
+      mode?: string;
+    }) => {
+      try {
+        const queryParams = new URLSearchParams();
+        queryParams.set("page", String(params.page));
+        queryParams.set("limit", String(params.limit));
+        if (params.query) queryParams.set("query", params.query);
+        if (params.status) queryParams.set("status", params.status);
+        if (params.date) queryParams.set("date", params.date);
+        if (params.startDate) queryParams.set("startDate", params.startDate);
+        if (params.endDate) queryParams.set("endDate", params.endDate);
+        if (params.mode) queryParams.set("mode", params.mode);
+
+        const response = await fetch(`/api/bookings/orders?${queryParams.toString()}`, {
+          method: "GET",
+          cache: "no-store",
+        });
+        const payload = (await response.json().catch(() => ({}))) as {
+          success?: boolean;
+          data?: {
+            orders?: BakeryOrder[];
+            pagination?: {
+              totalCount: number;
+              page: number;
+              limit: number;
+              totalPages: number;
+            };
+          };
+          error?: string;
+        };
+
+        if (!response.ok || !payload.success) {
+          throw new Error(payload.error || "Gagal memuat data orders.");
+        }
+
+        const ordersList = payload.data?.orders || [];
+        const pagination = payload.data?.pagination || {
+          totalCount: ordersList.length,
+          page: params.page,
+          limit: params.limit,
+          totalPages: 1,
+        };
+
+        return {
+          orders: ordersList,
+          pagination,
+        };
+      } catch (error) {
+        console.error("fetchPaginatedOrders error:", error);
+        throw error;
+      }
+    },
+    [],
+  );
+
   const value = useMemo(
     () => ({
       orders,
@@ -3186,6 +3367,8 @@ export function OrdersProvider({
       getCustomerMessagePreview,
       setOrderShipment,
       reloadOrdersFromServer: () => hydrateOrdersFromServer(true),
+      fetchOrderById,
+      fetchPaginatedOrders,
     }),
     [
       orders,
@@ -3202,6 +3385,8 @@ export function OrdersProvider({
       getCustomerMessagePreview,
       setOrderShipment,
       hydrateOrdersFromServer,
+      fetchOrderById,
+      fetchPaginatedOrders,
     ],
   );
 

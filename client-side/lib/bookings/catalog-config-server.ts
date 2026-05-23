@@ -56,11 +56,18 @@ export async function loadEffectiveBookingCatalog(
     effectiveProductCatalog.map((entry) => entry.category),
   );
 
-  // 1. Fetch active products from DB
-  const dbProducts = await prisma.product.findMany({
-    where: { businessId, isActive: true, deletedAt: null },
-    include: { category: true },
-  });
+  // 1. Fetch active products from DB secara aman menggunakan try-catch terisolasi
+  let dbProducts: any[] = []; // Inisialisasi daftar produk db kosong untuk menampung hasil kueri
+  try { // Mulai blok try-catch untuk menangkap potensi error koneksi database pg adapter
+    // Ambil data produk yang aktif dan belum dihapus dari database
+    dbProducts = await prisma.product.findMany({
+      where: { businessId, isActive: true, deletedAt: null }, // Filter bisnis, aktif, dan belum soft-deleted
+      include: { category: true }, // Sertakan relasi kategori untuk klasifikasi katalog
+    });
+  } catch (error) { // Tangkap kesalahan koneksi jika pool database sedang sibuk/exhausted
+    // Cetak pesan log peringatan agar dev mengetahui kegagalan kueri produk katalog
+    console.warn(`[loadEffectiveBookingCatalog] Failed to fetch products from DB, fallback to empty:`, error);
+  }
 
   // 2. Build Set of existing product names to avoid duplicates
   const existingNames = new Set<string>();

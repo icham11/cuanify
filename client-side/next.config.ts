@@ -17,7 +17,7 @@ const nextConfig: NextConfig = {
 
   outputFileTracingRoot: projectDir,
 
-  serverExternalPackages: ["@sparticuz/chromium", "puppeteer-core"],
+  serverExternalPackages: ["@sparticuz/chromium", "puppeteer-core", "ws"],
 
   // Allow Google profile images + ImageKit
   images: {

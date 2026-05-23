@@ -34,6 +34,7 @@ import {
 } from "@/lib/bookings/whatsapp-parser";
 import {
   getBakeryBusinessSettings,
+  getCachedBakeryBusinessSettings,
   getStaffTokenLimitForUser,
 } from "@/lib/bakery/settings";
 import { calculateShippingInsuranceFee } from "@/lib/bookings/shipping-insurance";
@@ -127,9 +128,9 @@ export const dynamic = "force-dynamic";
 
 const SNAPSHOT_SOURCE_TYPE = "bakery_orders_snapshot";
 
-type JsonRecord = Record<string, unknown>;
+export type JsonRecord = Record<string, unknown>;
 
-interface NormalizedOrder {
+export interface NormalizedOrder {
   id: string;
   bookingCode: string;
   resi: string;
@@ -177,7 +178,7 @@ interface NormalizedOrder {
   deliveryAddresses: JsonRecord[];
 }
 
-interface DbOrderRow {
+export interface DbOrderRow {
   order_uuid: string | null;
   external_id: string;
   booking_code: string | null;
@@ -217,19 +218,19 @@ interface DbOrderRow {
   updated_at: Date;
 }
 
-interface DbItemRow {
+export interface DbItemRow {
   order_external_id: string;
   item_index: number;
   payload: unknown;
 }
 
-interface DbAddressRow {
+export interface DbAddressRow {
   order_external_id: string;
   address_index: number;
   payload: unknown;
 }
 
-interface DbProductionStageRow {
+export interface DbProductionStageRow {
   order_id: string;
   stage: ProductionStage;
   staff_id: string | null;
@@ -440,41 +441,62 @@ function getProductTokenLookupKeys(item: {
 }
 
 async function loadOrderProductTokenLookup(
-  businessId: number,
-): Promise<Map<string, number>> {
-  const [products, effectiveCatalog] = await Promise.all([
-    prisma.product.findMany({
+  businessId: number, // ID bisnis UMKM yang terikat
+): Promise<Map<string, number>> { // Mengembalikan peta nama produk ke nilai token kapasitas
+  const lookup = new Map<string, number>(); // Inisialisasi Map kosong untuk pencarian token
+
+  try { // Mulai blok penanganan kesalahan kueri database
+    // Ambil data produk secara sequential dari database untuk menghindari race condition pool koneksi
+    const products = await prisma.product.findMany({
       where: {
-        businessId,
-        deletedAt: null,
+        businessId, // Filter berdasarkan ID bisnis aktif
+        deletedAt: null, // Hanya ambil produk yang belum dihapus secara soft-delete
       },
       select: {
-        name: true,
-        productionToken: true,
+        name: true, // Ambil properti nama produk
+        productionToken: true, // Ambil properti kapasitas token produksi harian
       },
-    }),
-    loadEffectiveBookingCatalog(businessId),
-  ]);
+    });
 
-  const lookup = new Map<string, number>();
-
-  for (const product of products) {
-    const token = Math.max(0, Number(product.productionToken || 0));
-    if (token <= 0) continue;
-    lookup.set(normalizeProductTokenLookupKey(product.name), token);
-  }
-
-  for (const item of flattenCatalogProductsForDashboard(
-    effectiveCatalog.productCatalog,
-  )) {
-    const token = Math.max(0, Number(item.productionToken || 0));
-    if (token <= 0) continue;
-    const key = normalizeProductTokenLookupKey(item.name);
-    if (!lookup.has(key)) {
-      lookup.set(key, token);
+    // Iterasi daftar produk untuk dimasukkan ke Map pencarian token
+    for (const product of products) {
+      // Ambil nilai token produksi, pastikan minimal bernilai 0
+      const token = Math.max(0, Number(product.productionToken || 0));
+      // Jika token tidak bernilai positif, lewati produk ini
+      if (token <= 0) continue;
+      // Normalisasi nama produk sebagai kunci pencarian di Map
+      lookup.set(normalizeProductTokenLookupKey(product.name), token);
     }
+  } catch (dbError) { // Tangkap kesalahan jika kueri database gagal
+    // Cetak log peringatan agar dev mengetahui adanya kegagalan kueri produk db
+    console.warn(`[loadOrderProductTokenLookup] DB query failed, using catalog fallback:`, dbError);
   }
 
+  try { // Mulai blok penanganan kesalahan untuk loading booking catalog
+    // Muat konfigurasi catalog produk efektif secara sequential (tidak paralel)
+    const effectiveCatalog = await loadEffectiveBookingCatalog(businessId);
+
+    // Iterasi produk katalog yang sudah di-flatten untuk melengkapi Map pencarian token
+    for (const item of flattenCatalogProductsForDashboard(
+      effectiveCatalog.productCatalog, // Gunakan product catalog dari konfigurasi efektif
+    )) {
+      // Ambil nilai token produksi dari item catalog, pastikan minimal bernilai 0
+      const token = Math.max(0, Number(item.productionToken || 0));
+      // Jika token tidak bernilai positif, lewati item ini
+      if (token <= 0) continue;
+      // Normalisasi nama produk sebagai kunci pencarian
+      const key = normalizeProductTokenLookupKey(item.name);
+      // Jika Map belum memiliki kunci tersebut, tambahkan nilainya
+      if (!lookup.has(key)) {
+        lookup.set(key, token);
+      }
+    }
+  } catch (catalogError) { // Tangkap kesalahan jika pemuatan catalog gagal
+    // Cetak log peringatan agar kegagalan catalog dapat dianalisis di terminal
+    console.warn(`[loadOrderProductTokenLookup] Catalog config load failed:`, catalogError);
+  }
+
+  // Kembalikan Map hasil pencarian token yang berhasil di-resolve
   return lookup;
 }
 
@@ -2632,38 +2654,206 @@ async function ensureBakeryTables() {
 
 export async function GET(request: NextRequest) {
   try {
+    // 1. Verifikasi autentikasi pengguna dan dapatkan businessId
     const { businessId } = await requireAuth();
+    
+    // 2. Parse query parameters dari URL
     const url = new URL(request.url);
-    const mode = url.searchParams.get("mode");
+    const mode = url.searchParams.get("mode") || "list";
     const isFinancialMode = mode === "financial";
+    const isCalendarMode = mode === "calendar";
+    const isDashboardMode = mode === "dashboard";
+    
+    // Parameter pencarian & filter (server-side)
+    const searchQuery = url.searchParams.get("query") || "";
+    const statusFilter = url.searchParams.get("status") || "";
+    const dateFilter = url.searchParams.get("date") || "";
+    const startDate = url.searchParams.get("startDate") || "";
+    const endDate = url.searchParams.get("endDate") || "";
+
+    // Parameter pagination
+    const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
+    const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") || "50", 10)));
+    const offset = (page - 1) * limit;
+
+    // 3. Muat pemetaan token produk (tidak diperlukan pada financial mode)
     const productTokenLookup = isFinancialMode
       ? new Map<string, number>()
       : await loadOrderProductTokenLookup(businessId);
 
-    let rowReadFailed = false;
     try {
+      // Pastikan tabel bakery_orders sudah ada
       await ensureBakeryTables();
 
-      const orderRows = isFinancialMode
-        ? await prisma.$queryRaw<DbOrderRow[]>`
-            SELECT
-              external_id,
-              delivery_date,
-              dp_paid_amount,
-              final_paid_amount,
-              total_paid_amount,
-              product,
-              total_price,
-              payment_status,
-              order_status,
-              payment_transactions,
-              created_at,
-              updated_at
-            FROM bakery_orders
-            WHERE business_id = ${businessId}
-            ORDER BY updated_at DESC
-          `
-        : await prisma.$queryRaw<DbOrderRow[]>`
+      // 4. Bangun WHERE clause dinamis menggunakan Prisma.join untuk keamanan SQL injection
+      const whereClauses: Prisma.Sql[] = [Prisma.sql`business_id = ${businessId}`];
+
+      if (statusFilter) {
+        whereClauses.push(Prisma.sql`order_status = ${statusFilter}`);
+      }
+      if (dateFilter) {
+        whereClauses.push(Prisma.sql`delivery_date = ${dateFilter}`);
+      }
+      if (searchQuery) {
+        const queryParam = `%${searchQuery}%`;
+        whereClauses.push(Prisma.sql`(customer_name ILIKE ${queryParam} OR booking_code ILIKE ${queryParam} OR resi ILIKE ${queryParam} OR external_id ILIKE ${queryParam})`);
+      }
+      if (startDate && endDate) {
+        whereClauses.push(Prisma.sql`delivery_date >= ${startDate} AND delivery_date <= ${endDate}`);
+      } else if (isCalendarMode && !dateFilter) {
+        // Guard: Jika mode calendar tanpa filter tanggal eksplisit,
+        // batasi ke window ±90 hari dari hari ini agar tidak full table scan.
+        // Frontend selalu kirim startDate/endDate untuk render kalender,
+        // guard ini hanya safety net jika parameter tidak ada.
+        whereClauses.push(
+          Prisma.sql`delivery_date >= (CURRENT_DATE - INTERVAL '7 days')
+            AND delivery_date <= (CURRENT_DATE + INTERVAL '90 days')`,
+        );
+      } else if (isDashboardMode && !dateFilter && !searchQuery && !statusFilter) {
+        // Guard: Jika mode dashboard tanpa filter apapun,
+        // batasi ke order dengan delivery date dalam 12 bulan ke depan + 2 bulan lalu
+        // untuk menampilkan statistik yang relevan tanpa pull all-time data.
+        whereClauses.push(
+          Prisma.sql`delivery_date >= (CURRENT_DATE - INTERVAL '60 days')
+            AND delivery_date <= (CURRENT_DATE + INTERVAL '365 days')`,
+        );
+      }
+
+      const where = Prisma.sql`WHERE ${Prisma.join(whereClauses, " AND ")}`;
+
+      // Guard khusus mode production (list tanpa param page):
+      // Batasi ke 500 order terdekat berdasarkan delivery date agar tidak unlimited.
+      // Ini mencegah query besar saat ada ratusan order historis.
+      const isProductionListMode = !url.searchParams.has("page") && !isCalendarMode && !isDashboardMode && !isFinancialMode;
+      const productionListLimit = 500;
+
+      // 5. Eksekusi query COUNT dinamis untuk mendapatkan total data pada server-side pagination
+      const countRows = await prisma.$queryRaw<Array<{ count: bigint }>>`
+        SELECT COUNT(*)::bigint as count
+        FROM bakery_orders
+        ${where}
+      `;
+      const totalCount = Number(countRows[0]?.count || 0);
+      const totalPages = Math.ceil(totalCount / limit);
+
+      // 6. Ambil data baris pesanan dari database (kolom ringan, tidak memuat JSONB besar)
+      let orderRows: DbOrderRow[] = [];
+
+      if (isFinancialMode) {
+        // Mode financial: hanya memuat kolom keuangan, tanpa items/addresses/JSONB berat
+        orderRows = await prisma.$queryRaw<DbOrderRow[]>`
+          SELECT
+            external_id,
+            delivery_date,
+            dp_paid_amount,
+            final_paid_amount,
+            total_paid_amount,
+            product,
+            total_price,
+            payment_status,
+            order_status,
+            payment_transactions,
+            created_at,
+            updated_at
+          FROM bakery_orders
+          ${where}
+          ORDER BY delivery_date DESC
+        `;
+      } else {
+        // Mode normal (list, calendar, atau dashboard): memuat kolom detail esensial
+        // - Calendar mode: sudah terfilter oleh date range guard di atas
+        // - Dashboard mode: sudah terfilter oleh date range guard di atas
+        // - Production list (tanpa page): dibatasi ke productionListLimit order terdekat
+        if (isCalendarMode || isDashboardMode || !url.searchParams.has("page")) {
+          if (isProductionListMode) {
+            // Mode production list — batasi ke N order aktif terdekat
+            orderRows = await prisma.$queryRaw<DbOrderRow[]>`
+              SELECT
+                order_uuid,
+                external_id,
+                booking_code,
+                resi,
+                customer_name,
+                customer_phone,
+                customer_address,
+                delivery_date,
+                delivery_slot,
+                notes,
+                base_price,
+                add_on_total,
+                delivery_fee,
+                manual_adjustment,
+                dp_paid_amount,
+                final_paid_amount,
+                total_paid_amount,
+                down_payment_amount,
+                remaining_balance,
+                product,
+                total_price,
+                insurance_fee,
+                sales_channel,
+                payment_status,
+                order_status,
+                assigned_staff_user_id,
+                assigned_staff_name,
+                production_assigned_at,
+                shipping_quote,
+                shipment,
+                simulations,
+                payment_transactions,
+                created_at,
+                updated_at
+              FROM bakery_orders
+              ${where}
+              ORDER BY delivery_date ASC, delivery_slot ASC
+              LIMIT ${productionListLimit}
+            `;
+          } else {
+            // Mode calendar / dashboard — sudah dibatasi oleh date range guard
+            orderRows = await prisma.$queryRaw<DbOrderRow[]>`
+              SELECT
+                order_uuid,
+                external_id,
+                booking_code,
+                resi,
+                customer_name,
+                customer_phone,
+                customer_address,
+                delivery_date,
+                delivery_slot,
+                notes,
+                base_price,
+                add_on_total,
+                delivery_fee,
+                manual_adjustment,
+                dp_paid_amount,
+                final_paid_amount,
+                total_paid_amount,
+                down_payment_amount,
+                remaining_balance,
+                product,
+                total_price,
+                insurance_fee,
+                sales_channel,
+                payment_status,
+                order_status,
+                assigned_staff_user_id,
+                assigned_staff_name,
+                production_assigned_at,
+                shipping_quote,
+                shipment,
+                simulations,
+                payment_transactions,
+                created_at,
+                updated_at
+              FROM bakery_orders
+              ${where}
+              ORDER BY delivery_date ASC, delivery_slot ASC
+            `;
+          }
+        } else {
+          // Default list: gunakan server-side pagination (LIMIT/OFFSET)
+          orderRows = await prisma.$queryRaw<DbOrderRow[]>`
             SELECT
               order_uuid,
               external_id,
@@ -2696,22 +2886,27 @@ export async function GET(request: NextRequest) {
               shipping_quote,
               shipment,
               simulations,
-              whatsapp_parsed_data,
-              status_history,
-              automation_logs,
               payment_transactions,
               created_at,
               updated_at
             FROM bakery_orders
-            WHERE business_id = ${businessId}
+            ${where}
             ORDER BY updated_at DESC
+            LIMIT ${limit} OFFSET ${offset}
           `;
+        }
+      }
 
+      // 7. Jika ada baris order yang ditemukan, muat items, alamat, dan tahapan produksinya
       if (orderRows.length > 0) {
+        const externalIds = orderRows.map((r) => r.external_id);
+        
+        // Kueri items dengan aman sesuai baris order yang terpilih
         const itemRows = await prisma.$queryRaw<DbItemRow[]>`
           SELECT order_external_id, item_index, payload
           FROM bakery_order_items
           WHERE business_id = ${businessId}
+            AND order_external_id IN (${Prisma.join(externalIds)})
           ORDER BY order_external_id ASC, item_index ASC
         `;
 
@@ -2723,12 +2918,11 @@ export async function GET(request: NextRequest) {
           itemsMap.set(row.order_external_id, current);
         }
 
+        // Mode financial: kembalikan data ringkas langsung tanpa join tabel alamat & staff
         if (isFinancialMode) {
           const orders = orderRows.map((row) => ({
-            deliveryDate:
-              normalizeDateInput(row.delivery_date ?? "") ??
-              row.delivery_date ??
-              "",
+            // Pertahankan string asli YYYY-MM-DD dari DB agar parsing tanggal di kalender/UI frontend tidak rusak/null
+            deliveryDate: row.delivery_date ?? "",
             product: row.product ?? "",
             totalPrice: asNumber(row.total_price),
             totalPaidAmount: asNumber(row.total_paid_amount),
@@ -2758,13 +2952,22 @@ export async function GET(request: NextRequest) {
           });
         }
 
-        const bakerySettings = await getBakeryBusinessSettings(businessId);
+        // Mode normal: muat data alamat & tahapan produksi tugas staff
+        // Fix: Gunakan cached settings dahulu (dari memory server-side) sebelum hit DB.
+        // Settings jarang berubah — cache ini valid selama proses server berjalan.
+        const bakerySettings =
+          getCachedBakeryBusinessSettings(businessId) ??
+          (await getBakeryBusinessSettings(businessId));
+
+        
         const addressRows = await prisma.$queryRaw<DbAddressRow[]>`
           SELECT order_external_id, address_index, payload
           FROM bakery_order_addresses
           WHERE business_id = ${businessId}
+            AND order_external_id IN (${Prisma.join(externalIds)})
           ORDER BY order_external_id ASC, address_index ASC
         `;
+        
         const staffMembers = await prisma.businessMember.findMany({
           where: { businessId },
           select: { userId: true },
@@ -2772,6 +2975,7 @@ export async function GET(request: NextRequest) {
         const staffIdByUuid = buildStaffIdByUuid(
           staffMembers.map((member) => member.userId),
         );
+        
         const orderExternalByUuid = new Map(
           orderRows.map((row) => [
             row.order_uuid ?? orderTaskUuid(businessId, row.external_id),
@@ -2779,15 +2983,16 @@ export async function GET(request: NextRequest) {
           ]),
         );
         const orderUuids = [...orderExternalByUuid.keys()];
-        const stageRows =
-          orderUuids.length > 0
-            ? await prisma.$queryRaw<DbProductionStageRow[]>`
-                SELECT order_id::text AS order_id, stage, staff_id::text AS staff_id, token_amount
-                FROM production_tasks
-                WHERE order_id::text IN (${Prisma.join(orderUuids)})
-                ORDER BY order_id ASC, stage ASC
-              `
-            : [];
+        
+        const stageRows = orderUuids.length > 0
+          ? await prisma.$queryRaw<DbProductionStageRow[]>`
+              SELECT order_id::text AS order_id, stage, staff_id::text AS staff_id, token_amount
+              FROM production_tasks
+              WHERE order_id::text IN (${Prisma.join(orderUuids)})
+              ORDER BY order_id ASC, stage ASC
+            `
+          : [];
+
         const addressesMap = new Map<string, JsonRecord[]>();
         for (const row of addressRows) {
           const current = addressesMap.get(row.order_external_id) ?? [];
@@ -2795,6 +3000,7 @@ export async function GET(request: NextRequest) {
           if (payload) current.push(payload);
           addressesMap.set(row.order_external_id, current);
         }
+
         const stagesMap = new Map<string, ProductionStageAssignment[]>();
         for (const row of stageRows) {
           const externalId = orderExternalByUuid.get(row.order_id);
@@ -2804,15 +3010,14 @@ export async function GET(request: NextRequest) {
           const current = stagesMap.get(externalId) ?? [];
           current.push({
             stage,
-            staffId: row.staff_id
-              ? (staffIdByUuid.get(row.staff_id) ?? null)
-              : null,
+            staffId: row.staff_id ? (staffIdByUuid.get(row.staff_id) ?? null) : null,
             tokenAmount: asNumber(row.token_amount),
             percentage: 0,
           });
           stagesMap.set(externalId, current);
         }
 
+        // 8. Bentuk daftar pesanan ter-normalisasi yang sangat ringan
         const orders = orderRows.map((row) => {
           const items = hydrateOrderItemsWithProductTokens(
             itemsMap.get(row.external_id) ?? [],
@@ -2832,10 +3037,8 @@ export async function GET(request: NextRequest) {
             customerName: row.customer_name ?? "",
             customerPhone: row.customer_phone ?? "",
             customerAddress: row.customer_address ?? "",
-            deliveryDate:
-              normalizeDateInput(row.delivery_date ?? "") ??
-              row.delivery_date ??
-              "",
+            // Pertahankan string asli YYYY-MM-DD dari DB agar parsing tanggal di kalender/UI frontend tidak rusak/null
+            deliveryDate: row.delivery_date ?? "",
             deliverySlot: row.delivery_slot ?? "",
             notes: row.notes ?? "",
             basePrice: asNumber(row.base_price),
@@ -2853,22 +3056,16 @@ export async function GET(request: NextRequest) {
             sales_channel: normalizeSalesChannel(row.sales_channel),
             paymentStatus: row.payment_status ?? "Pending",
             orderStatus: row.order_status ?? "Inquiry",
-            assignedStaffUserId: asPositiveIntOrNull(
-              row.assigned_staff_user_id,
-            ),
+            assignedStaffUserId: asPositiveIntOrNull(row.assigned_staff_user_id),
             assignedStaffName: row.assigned_staff_name ?? "",
             productionAssignedAt: toIsoOrNull(row.production_assigned_at),
             shippingQuote: parseJsonField(row.shipping_quote),
             shipment: parseJsonField(row.shipment),
             simulations: parseJsonField(row.simulations),
-            whatsAppParsedData: parseJsonField(row.whatsapp_parsed_data),
-            statusHistory: asArrayOfRecords(parseJsonField(row.status_history)),
-            automationLogs: asArrayOfRecords(
-              parseJsonField(row.automation_logs),
-            ),
-            paymentTransactions: asArrayOfRecords(
-              parseJsonField(row.payment_transactions),
-            ),
+            whatsAppParsedData: null, // Dikosongkan demi optimasi egress 8GB
+            statusHistory: [], // Dikosongkan demi optimasi egress 8GB
+            automationLogs: [], // Dikosongkan demi optimasi egress 8GB
+            paymentTransactions: asArrayOfRecords(parseJsonField(row.payment_transactions)),
             productionStages: (stagesMap.get(row.external_id) ?? []).map(
               (stage) => ({
                 ...stage,
@@ -2885,68 +3082,20 @@ export async function GET(request: NextRequest) {
           };
         });
 
-        const snapshot = await readOrdersSnapshot(businessId);
-        const snapshotOrders = hydrateSnapshotOrdersWithProductTokens(
-          parseOrdersContent(snapshot?.content),
-          productTokenLookup,
-        );
+        // 9. Kembalikan data list bersama metadata pagination
         const rowUpdatedAt = orderRows[0]?.updated_at?.toISOString() ?? null;
-        const snapshotUpdatedAt = snapshot?.updatedAt?.toISOString() ?? null;
-        const canTrustSnapshotNewerThanRows = snapshotMatchesRowOrders(
-          snapshotOrders,
-          orders,
-        );
-
-        if (
-          canTrustSnapshotNewerThanRows &&
-          snapshotUpdatedAt &&
-          rowUpdatedAt &&
-          new Date(snapshotUpdatedAt).getTime() >
-            new Date(rowUpdatedAt).getTime()
-        ) {
-          return NextResponse.json({
-            success: true,
-            data: {
-              source: "snapshot-newer-than-rows",
-              id: snapshot?.id ?? null,
-              orders: snapshotOrders,
-              updatedAt: snapshotUpdatedAt,
-            },
-          });
-        }
-
-        if (
-          !canTrustSnapshotNewerThanRows ||
-          !snapshotUpdatedAt ||
-          !rowUpdatedAt ||
-          new Date(snapshotUpdatedAt).getTime() <
-            new Date(rowUpdatedAt).getTime()
-        ) {
-          try {
-            await upsertOrdersSnapshot(prisma, {
-              businessId,
-              userId: null,
-              orders: orders as NormalizedOrder[],
-              source: "rows",
-            });
-          } catch (snapshotError) {
-            const detail = extractErrorDetails(snapshotError);
-            console.warn(
-              "[api/bookings/orders] snapshot refresh from rows failed",
-              {
-                businessId,
-                ...detail,
-              },
-            );
-          }
-        }
-
         return NextResponse.json({
           success: true,
           data: {
             source: "rows",
             orders,
             updatedAt: rowUpdatedAt,
+            pagination: {
+              totalCount,
+              page,
+              limit,
+              totalPages,
+            },
           },
         });
       }
@@ -2957,10 +3106,9 @@ export async function GET(request: NextRequest) {
         );
       }
 
-      rowReadFailed = true;
       const detail = extractErrorDetails(rowError);
       console.warn(
-        "[api/bookings/orders] rows read failed, fallback to snapshot",
+        "[api/bookings/orders] rows read failed in GET",
         {
           businessId,
           ...detail,
@@ -2968,36 +3116,22 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const snapshot = await readOrdersSnapshot(businessId);
-    const snapshotOrders = hydrateSnapshotOrdersWithProductTokens(
-      parseOrdersContent(snapshot?.content),
-      productTokenLookup,
-    );
-
-    if (isFinancialMode) {
-      return NextResponse.json({
-        success: true,
-        data: {
-          source: rowReadFailed ? "snapshot-fallback" : "snapshot",
-          id: snapshot?.id ?? null,
-          orders: snapshotOrders
-            .map((entry) => asRecord(entry))
-            .filter((entry): entry is JsonRecord => Boolean(entry))
-            .map((entry) => toFinancialOrderFromRecord(entry)),
-          updatedAt: snapshot?.updatedAt?.toISOString() ?? null,
-        },
-      });
-    }
-
+    // Jika kosong, kembalikan array kosong dengan metadata pagination
     return NextResponse.json({
       success: true,
       data: {
-        source: rowReadFailed ? "snapshot-fallback" : "snapshot",
-        id: snapshot?.id ?? null,
-        orders: snapshotOrders,
-        updatedAt: snapshot?.updatedAt?.toISOString() ?? null,
+        source: "rows",
+        orders: [],
+        updatedAt: null,
+        pagination: {
+          totalCount: 0,
+          page,
+          limit,
+          totalPages: 0,
+        },
       },
     });
+
   } catch (error) {
     if (error instanceof AuthError) {
       return NextResponse.json({ error: error.message }, { status: 401 });
@@ -3009,6 +3143,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    console.error("GET /api/bookings/orders error:", error);
     return NextResponse.json(
       { error: "Failed to load bakery orders." },
       { status: 500 },
@@ -3035,6 +3170,7 @@ export async function POST(request: NextRequest) {
     const body = (await request.json().catch(() => ({}))) as {
       orders?: unknown;
       skipWhatsAppNotification?: unknown;
+      changedOrderIds?: string[];
     };
     if (!Array.isArray(body.orders)) {
       return NextResponse.json(
@@ -3043,6 +3179,9 @@ export async function POST(request: NextRequest) {
       );
     }
     const skipWhatsAppNotification = body.skipWhatsAppNotification === true;
+    const changedOrderIdsSet = Array.isArray(body.changedOrderIds)
+      ? new Set(body.changedOrderIds)
+      : null;
 
     const normalizedOrders = body.orders
       .map((entry, index) => normalizeOrder(entry, index))
@@ -4012,6 +4151,9 @@ export async function POST(request: NextRequest) {
               // delete here can drop valid orders created/edited by other users.
 
               for (const order of orders) {
+                if (changedOrderIdsSet && !changedOrderIdsSet.has(order.id)) {
+                  continue;
+                }
                 upsertedOrderCount += 1;
                 const orderUuid = orderTaskUuid(businessId, order.id);
 

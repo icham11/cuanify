@@ -21,10 +21,15 @@ const MIN_CUTOFF_HOUR = 0;
 const MAX_CUTOFF_HOUR = 23;
 const DEFAULT_ATTENDANCE_WINDOW_START = "06:00";
 const DEFAULT_ATTENDANCE_WINDOW_END = "07:00";
+// Tentukan global scope Map cache untuk menyimpan data pengaturan bisnis bakery beserta timestamp pengambilannya
 const globalForBakerySettingsCache = globalThis as typeof globalThis & {
-  __bakeryBusinessSettingsCache?: Map<number, BakeryBusinessSettings>;
+  __bakeryBusinessSettingsCache?: Map<
+    number,
+    { settings: BakeryBusinessSettings; fetchedAt: number }
+  >;
 };
 
+// Ambil instansi cache Map global, buat baru jika belum terinisialisasi di memori server
 function getBakeryBusinessSettingsCache() {
   if (!globalForBakerySettingsCache.__bakeryBusinessSettingsCache) {
     globalForBakerySettingsCache.__bakeryBusinessSettingsCache = new Map();
@@ -324,17 +329,40 @@ export function getDefaultBakerySettings(): BakeryBusinessSettings {
   };
 }
 
+// Tentukan durasi maksimal Time-To-Live (TTL) cache di memori server-side: 30 detik
+const SERVER_SETTINGS_CACHE_TTL_MS = 30_000;
+
 export function getCachedBakeryBusinessSettings(
   businessId: number,
 ): BakeryBusinessSettings | null {
-  return getBakeryBusinessSettingsCache().get(businessId) ?? null;
+  // Ambil record cache untuk bisnis id yang bersangkutan
+  const cached = getBakeryBusinessSettingsCache().get(businessId);
+  // Jika record cache tidak ditemukan di Map, kembalikan null
+  if (!cached) return null;
+
+  // Periksa apakah waktu penyimpanan data cache tersebut sudah melampaui batas TTL 30 detik
+  const isExpired = Date.now() - cached.fetchedAt > SERVER_SETTINGS_CACHE_TTL_MS;
+  // Jika sudah kedaluwarsa
+  if (isExpired) {
+    // Hapus data cache lama tersebut dari Map agar kueri berikutnya dipaksa membaca langsung dari database
+    getBakeryBusinessSettingsCache().delete(businessId);
+    // Kembalikan null
+    return null;
+  }
+
+  // Jika cache masih fresh (kurang dari 30 detik), kembalikan data pengaturan bisnis bakery yang di-cache
+  return cached.settings;
 }
 
 export function rememberBakeryBusinessSettings(
   businessId: number,
   settings: BakeryBusinessSettings,
 ) {
-  getBakeryBusinessSettingsCache().set(businessId, settings);
+  // Simpan data pengaturan baru ke dalam Map cache server-side beserta timestamp saat ini (fetchedAt)
+  getBakeryBusinessSettingsCache().set(businessId, {
+    settings,
+    fetchedAt: Date.now(), // Catat waktu pengambilan data/penyimpanan cache
+  });
 }
 
 function parseMetadataToSettings(metadata: unknown): BakeryBusinessSettings {
@@ -426,14 +454,20 @@ export async function upsertBakeryBusinessSettings(args: {
     args.input.staffSettings !== undefined
       ? normalizeStaffSettings(args.input.staffSettings)
       : current.staffSettings;
+  // Logika Sinkronisasi Batas Token Pegawai:
+  // Lakukan sinkronisasi otomatis ke seluruh staff kustom HANYA jika batas default token staff umum
+  // benar-benar diubah oleh user (nilainya berbeda dengan data yang saat ini tersimpan di database).
+  // Ini menghindari overwrite kustom token individu staff saat form utama disimpan ulang.
   const shouldSyncInheritedStaffTokenLimits =
-    args.input.staffDailyTokenLimit !== undefined;
+    args.input.staffDailyTokenLimit !== undefined &&
+    nextStaffDailyTokenLimit !== current.staffDailyTokenLimit;
+
   const nextStaffSettings = shouldSyncInheritedStaffTokenLimits
     ? nextStaffSettingsSource.map((entry) => ({
         ...entry,
-        dailyTokenLimit: nextStaffDailyTokenLimit,
+        dailyTokenLimit: nextStaffDailyTokenLimit, // Timpa dengan default baru jika owner sengaja mengubah default umum
       }))
-    : nextStaffSettingsSource;
+    : nextStaffSettingsSource; // Gunakan set kustom staff yang dikirim dari form tanpa overwrite jika tidak ada perubahan default umum
 
   const nextSettings: BakeryBusinessSettings = {
     dailyProductionTokenLimit:

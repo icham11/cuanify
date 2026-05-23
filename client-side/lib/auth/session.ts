@@ -10,6 +10,7 @@ import {
   isPrismaTimeoutCooldownActive,
   DatabaseTemporarilyUnavailableError,
   markPrismaTimeoutCooldown,
+  withPrismaRetry,
 } from "@/lib/prisma-errors"
 import type { UserRole } from "@prisma/client"
 
@@ -85,19 +86,28 @@ async function resolveUserIdFromCustomJwt(
   return undefined
 }
 
-async function resolveUserIdFromNextAuthJwt(): Promise<number | undefined> {
-  try {
+async function resolvePayloadFromNextAuth(): Promise<{ userId?: number; businessId?: number; role?: UserRole } | undefined> {
+  try { // Blok try-catch untuk mengamankan data NextAuth dari kegagalan server
+    // 1. Ambil session NextAuth dari context server
     const session = await getServerSession(authOptions)
+    // Ambil user dari session jika ada
     const sessionUser =
       session?.user && typeof session.user === "object"
         ? (session.user as Record<string, unknown>)
         : null
 
-    if (sessionUser?.id) {
-      const directId = normalizeNumericId(sessionUser.id)
-      if (directId) return directId
+    let userId: number | undefined = undefined
+    let businessId: number | undefined = undefined
+    let role: UserRole | undefined = undefined
+
+    // 2. Ekstrak data dari session NextAuth user
+    if (sessionUser) {
+      if (sessionUser.id) userId = normalizeNumericId(sessionUser.id)
+      if (sessionUser.businessId) businessId = normalizeNumericId(sessionUser.businessId)
+      if (sessionUser.role) role = sessionUser.role as UserRole
     }
 
+    // 3. Muat cookies dan headers untuk verifikasi token NextAuth JWT
     const cookieStore = await cookies()
     const headerList = await headers()
     const tokenRequest = {
@@ -105,6 +115,7 @@ async function resolveUserIdFromNextAuthJwt(): Promise<number | undefined> {
       cookies: Object.fromEntries(cookieStore.getAll().map((c) => [c.name, c.value])),
     } as NonNullable<Parameters<typeof getToken>[0]["req"]>
 
+    // Dapatkan JWT Token terenkripsi dari cookies NextAuth
     const token = await getToken({
       req: tokenRequest,
       secret: process.env.NEXTAUTH_SECRET,
@@ -113,101 +124,157 @@ async function resolveUserIdFromNextAuthJwt(): Promise<number | undefined> {
         process.env.NEXTAUTH_URL?.startsWith("https"),
     })
 
+    // 4. Jika token JWT NextAuth valid, ekstrak payload di dalamnya
     if (token) {
-      const directId =
-        normalizeNumericId((token as Record<string, unknown>).id) ??
-        normalizeNumericId((token as Record<string, unknown>).userId) ??
-        normalizeNumericId(token.sub)
-
-      if (directId) return directId
-
-      if (isPrismaTimeoutCooldownActive()) {
-        return undefined
+      if (!userId) {
+        userId =
+          normalizeNumericId((token as Record<string, unknown>).id) ??
+          normalizeNumericId((token as Record<string, unknown>).userId) ??
+          normalizeNumericId(token.sub)
+      }
+      if (!businessId) {
+        businessId =
+          normalizeNumericId((token as Record<string, unknown>).businessId) ??
+          normalizeNumericId((token as Record<string, unknown>).activeBusinessId)
+      }
+      if (!role) {
+        role = (token as Record<string, unknown>).role as UserRole
       }
 
-      if (typeof token.email === "string" && token.email.trim() !== "") {
+      // Jika user ID kosong tetapi email terisi, lakukan kueri pencarian user ke DB secara aman
+      if (!userId && typeof token.email === "string" && token.email.trim() !== "") {
+        // Jangan lakukan kueri DB jika status cooldown koneksi aktif
+        if (!isPrismaTimeoutCooldownActive()) {
+          const dbUser = await prisma.user.findUnique({
+            where: { email: token.email },
+            select: { id: true },
+          })
+          if (dbUser) userId = dbUser.id
+        }
+      }
+    }
+
+    // 5. Fallback pencarian user ID lewat email dari session jika token tidak lengkap
+    if (!userId && typeof sessionUser?.email === "string" && sessionUser.email.trim() !== "") {
+      // Jangan lakukan kueri DB jika status cooldown koneksi aktif
+      if (!isPrismaTimeoutCooldownActive()) {
         const dbUser = await prisma.user.findUnique({
-          where: { email: token.email },
+          where: { email: sessionUser.email },
           select: { id: true },
         })
-        if (dbUser) return dbUser.id
+        if (dbUser) userId = dbUser.id
       }
     }
 
-    if (isPrismaTimeoutCooldownActive()) {
-      return undefined
+    // Kembalikan objek payload yang berhasil di-extract jika userId terisi
+    if (userId) {
+      return { userId, businessId, role }
     }
-
-    if (typeof sessionUser?.email === "string" && sessionUser.email.trim() !== "") {
-      const dbUser = await prisma.user.findUnique({
-        where: { email: sessionUser.email },
-        select: { id: true },
-      })
-      if (dbUser) return dbUser.id
-    }
-  } catch (error) {
+  } catch (error) { // Tangkap transient error
     if (isPrismaConnectionTimeout(error)) {
       markPrismaTimeoutCooldown()
     }
-    console.error("[Auth] resolveUserIdFromNextAuthJwt error:", error)
+    console.error("[Auth] resolvePayloadFromNextAuth error:", error)
   }
-
   return undefined
 }
 
+async function resolveUserIdFromNextAuthJwt(): Promise<number | undefined> {
+  // Panggil helper modular terpadu untuk mendapatkan userId
+  const payload = await resolvePayloadFromNextAuth()
+  return payload?.userId
+}
+
 async function resolveBusinessAccess(args: {
-  userId: number
-  businessId: number
-}): Promise<BusinessAccessResult> {
-  const ownedBusiness = await prisma.business.findFirst({
-    where: {
-      id: args.businessId,
-      userId: args.userId,
-    },
-    select: { id: true },
-  })
+  userId: number // ID pengguna yang sedang diperiksa aksesnya
+  businessId: number // ID bisnis yang ingin diakses oleh pengguna
+}): Promise<BusinessAccessResult> { // Mengembalikan informasi hak akses bisnis atau null jika ditolak
+  // Bungkus seluruh operasi kueri dengan helper withPrismaRetry agar tahan terhadap error koneksi transient (misalnya Neon DB cold-start)
+  return withPrismaRetry(async () => {
+    try { // Mulai blok try-catch untuk mengamankan kueri bisnis owner dari driver pool exhaustion
+      // Cari data apakah pengguna adalah pemilik (owner) dari bisnis tersebut
+      const ownedBusiness = await prisma.business.findFirst({
+        where: {
+          id: args.businessId, // Filter berdasarkan ID bisnis
+          userId: args.userId, // Filter berdasarkan ID user pemilik
+        },
+        select: { id: true }, // Hanya ambil kolom ID untuk minimalisasi payload kueri
+      })
 
-  if (ownedBusiness) {
-    return {
-      businessId: ownedBusiness.id,
-      role: "Owner" as UserRole,
+      // Jika ditemukan, kembalikan ID bisnis dengan peran akses sebagai Owner
+      if (ownedBusiness) {
+        return {
+          businessId: ownedBusiness.id,
+          role: "Owner" as UserRole,
+        }
+      }
+    } catch (err) { // Tangkap kesalahan transient database jika terjadi pool timeout
+      // Jika kegagalan disebabkan oleh connection timeout, jangan sembunyikan error tersebut
+      if (isPrismaConnectionTimeout(err)) {
+        // Lempar kembali error-nya agar ditangkap oleh pembungkus withPrismaRetry untuk dicoba ulang
+        throw err
+      }
+      // Cetak log peringatan jika kegagalan disebabkan oleh masalah non-koneksi
+      console.warn(`[resolveBusinessAccess] Owned business query failed:`, err)
     }
-  }
 
-  const membership = await prisma.businessMember.findFirst({
-    where: {
-      userId: args.userId,
-      businessId: args.businessId,
-    },
-    select: {
-      businessId: true,
-      role: true,
-    },
-  })
+    try { // Mulai blok try-catch untuk mengamankan kueri data keanggotaan (membership)
+      // Cari data apakah pengguna terdaftar sebagai staff/member di bisnis tersebut
+      const membership = await prisma.businessMember.findFirst({
+        where: {
+          userId: args.userId, // Filter berdasarkan ID user
+          businessId: args.businessId, // Filter berdasarkan ID bisnis tujuan
+        },
+        select: {
+          businessId: true, // Ambil ID bisnis terikat
+          role: true, // Ambil hak akses peran (role) staff tersebut
+        },
+      })
 
-  if (membership) {
-    return {
-      businessId: membership.businessId,
-      role: membership.role,
+      // Jika ditemukan, kembalikan ID bisnis beserta perannya
+      if (membership) {
+        return {
+          businessId: membership.businessId,
+          role: membership.role,
+        }
+      }
+    } catch (err) { // Tangkap kesalahan transient database jika terjadi pool timeout
+      // Jika kegagalan disebabkan oleh connection timeout, lempar agar dicoba ulang
+      if (isPrismaConnectionTimeout(err)) {
+        throw err
+      }
+      // Cetak log peringatan jika kegagalan disebabkan oleh masalah non-koneksi
+      console.warn(`[resolveBusinessAccess] Membership query failed:`, err)
     }
-  }
 
-  return null
+    // Jika tidak memiliki akses apa pun setelah mencoba kueri dengan sukses, kembalikan null
+    return null
+  }, 3, 1000) // Lakukan maksimal 3 kali percobaan dengan jeda awal 1000ms (exponential backoff internal)
 }
 
 export const requireAuth = cache(async (): Promise<AuthResult> => {
+  // Ambil cookies dan headers request
   const cookieStore = await cookies()
   const headerList = await headers()
+  
+  // 1. Coba verifikasi user ID lewat Custom JWT Token
   const customAuth = await resolveUserIdFromCustomJwt(cookieStore, headerList)
 
   let userId: number | undefined = customAuth?.userId
-  if (!userId) {
-    userId = await resolveUserIdFromNextAuthJwt()
-  }
-  
-  const jwtBusinessId: number | undefined = customAuth?.businessId
-  const jwtRole: UserRole | undefined = customAuth?.role
+  let jwtBusinessId: number | undefined = customAuth?.businessId
+  let jwtRole: UserRole | undefined = customAuth?.role
 
+  // 2. Jika Custom JWT kosong, coba cari dari NextAuth Session/Token
+  if (!userId) {
+    const nextAuthPayload = await resolvePayloadFromNextAuth()
+    if (nextAuthPayload) {
+      userId = nextAuthPayload.userId
+      if (!jwtBusinessId) jwtBusinessId = nextAuthPayload.businessId
+      if (!jwtRole) jwtRole = nextAuthPayload.role
+    }
+  }
+
+  // 3. Jika user ID tetap tidak ditemukan, lempar AuthError Unauthorized
   if (!userId) {
     const hasNextAuth =
       cookieStore.get("next-auth.session-token") ||
@@ -222,10 +289,13 @@ export const requireAuth = cache(async (): Promise<AuthResult> => {
     throw new AuthError(`Unauthorized: ${reason}`)
   }
 
+  // 4. Dapatkan preferensi ID bisnis aktif dari cookies jika disimpan oleh pengguna
   const preferredId = cookieStore.get("active_business_id")?.value
   const normalizedPreferredId = normalizeNumericId(preferredId)
 
+  // 5. Cek apakah status cooldown database sedang aktif
   if (isPrismaTimeoutCooldownActive()) {
+    // Jika aktif dan cadangan context bisnis dari token lengkap, lakukan instant bypass
     if (jwtBusinessId && jwtRole) {
       return {
         userId: Number(userId),
@@ -234,20 +304,23 @@ export const requireAuth = cache(async (): Promise<AuthResult> => {
       }
     }
 
+    // Jika tidak ada context cadangan, langsung lempar error database tidak tersedia
     throw new DatabaseTemporarilyUnavailableError()
   }
 
   let business = null
 
+  // 6. Tentukan ID bisnis yang diminta (preferensi user atau bawaan JWT)
   const requestedBusinessId = normalizedPreferredId ?? jwtBusinessId
 
   if (requestedBusinessId) {
-    try {
+    try { // Blok try-catch pengaman kueri pencarian validasi hak akses
       const requestedAccess = await resolveBusinessAccess({
         userId: Number(userId),
         businessId: requestedBusinessId,
       })
 
+      // Jika hak akses terkonfirmasi valid, kembalikan objek AuthResult
       if (requestedAccess) {
         return {
           userId: Number(userId),
@@ -255,17 +328,38 @@ export const requireAuth = cache(async (): Promise<AuthResult> => {
           role: requestedAccess.role,
         }
       }
-    } catch (error) {
-      if (isPrismaConnectionTimeout(error)) {
-        markPrismaTimeoutCooldown()
+    } catch (error) { // Tangkap transient DB error
+      // Konversi error ke format string secara aman
+      const errString =
+        error instanceof Error
+          ? error.message
+          : typeof error === "object" && error !== null && "message" in error
+            ? String((error as any).message)
+            : String(error);
+
+      // Cek apakah terdeteksi masalah koneksi database
+      const isConnectionIssue =
+        isPrismaConnectionTimeout(error) ||
+        errString.includes("connection") ||
+        errString.includes("TLS") ||
+        errString.includes("SSL") ||
+        errString.includes("findFirst") ||
+        errString.includes("Pool") ||
+        errString.includes("exhausted") ||
+        errString.includes("invocation");
+
+      if (isConnectionIssue) {
+        markPrismaTimeoutCooldown() // Tandai status cooldown agar tidak membombardir DB
       }
+      
+      // Jika terjadi masalah koneksi dan cadangan JWT terisi, lakukan fallback aman
       if (
-        isPrismaConnectionTimeout(error) &&
+        isConnectionIssue &&
         jwtBusinessId &&
         jwtRole
       ) {
         console.warn(
-          "[Auth] Prisma timeout while resolving active business. Falling back to JWT business context.",
+          "[Auth] Prisma connection issue while resolving active business. Falling back to JWT business context.",
         )
         return {
           userId: Number(userId),
@@ -273,22 +367,42 @@ export const requireAuth = cache(async (): Promise<AuthResult> => {
           role: jwtRole,
         }
       }
-      throw error
+      throw error // Lemparkan error jika tidak bisa ditangani
     }
   }
 
+  // 7. Jika belum berhasil di-resolve, cari bisnis pertama milik user
   if (!business) {
-    try {
+    try { // Mulai blok try-catch untuk mengamankan kueri pencarian bisnis owner
       business = await prisma.business.findFirst({
         where: { userId: Number(userId) },
         orderBy: { createdAt: "desc" },
       })
-    } catch (error) {
-      if (isPrismaConnectionTimeout(error)) {
-        markPrismaTimeoutCooldown()
-        if (jwtBusinessId && jwtRole) {
+    } catch (error) { // Tangkap potensi kesalahan koneksi atau transient TLS database error
+      // Konversi error ke format string secara aman
+      const errString =
+        error instanceof Error
+          ? error.message
+          : typeof error === "object" && error !== null && "message" in error
+            ? String((error as any).message)
+            : String(error);
+
+      // Cek apakah terdeteksi masalah koneksi database
+      const isConnectionIssue =
+        isPrismaConnectionTimeout(error) ||
+        errString.includes("connection") ||
+        errString.includes("TLS") ||
+        errString.includes("SSL") ||
+        errString.includes("findFirst") ||
+        errString.includes("Pool") ||
+        errString.includes("exhausted") ||
+        errString.includes("invocation");
+
+      if (isConnectionIssue) {
+        markPrismaTimeoutCooldown() // Tandai status cooldown
+        if (jwtBusinessId && jwtRole) { // Jika cadangan context bisnis dari JWT terisi
           console.warn(
-            "[Auth] Prisma timeout while loading owner business. Falling back to JWT business context.",
+            "[Auth] Prisma connection issue while loading owner business. Falling back to JWT business context.",
           )
           return {
             userId: Number(userId),
@@ -298,24 +412,44 @@ export const requireAuth = cache(async (): Promise<AuthResult> => {
         }
         throw new DatabaseTemporarilyUnavailableError()
       }
-      throw error
+      throw error // Lemparkan kesalahan lain yang tidak terduga
     }
   }
 
+  // 8. Jika bisnis owner tidak ditemukan, cari membership keanggotaan bisnis
   if (!business) {
     let membership = null
-    try {
+    try { // Mulai blok try-catch untuk kueri keanggotaan bisnis secara aman
       membership = await prisma.businessMember.findFirst({
         where: { userId: Number(userId) },
         include: { business: true },
         orderBy: { createdAt: "desc" },
       })
-    } catch (error) {
-      if (isPrismaConnectionTimeout(error)) {
-        markPrismaTimeoutCooldown()
-        if (jwtBusinessId && jwtRole) {
+    } catch (error) { // Tangkap potensi kesalahan koneksi atau transient TLS database error
+      // Konversi error ke format string secara aman
+      const errString =
+        error instanceof Error
+          ? error.message
+          : typeof error === "object" && error !== null && "message" in error
+            ? String((error as any).message)
+            : String(error);
+
+      // Cek apakah terdeteksi masalah koneksi database
+      const isConnectionIssue =
+        isPrismaConnectionTimeout(error) ||
+        errString.includes("connection") ||
+        errString.includes("TLS") ||
+        errString.includes("SSL") ||
+        errString.includes("findFirst") ||
+        errString.includes("Pool") ||
+        errString.includes("exhausted") ||
+        errString.includes("invocation");
+
+      if (isConnectionIssue) {
+        markPrismaTimeoutCooldown() // Tandai status cooldown
+        if (jwtBusinessId && jwtRole) { // Jika cadangan context bisnis dari JWT terisi
           console.warn(
-            "[Auth] Prisma timeout while loading business membership. Falling back to JWT business context.",
+            "[Auth] Prisma connection issue while loading business membership. Falling back to JWT business context.",
           )
           return {
             userId: Number(userId),
@@ -325,9 +459,10 @@ export const requireAuth = cache(async (): Promise<AuthResult> => {
         }
         throw new DatabaseTemporarilyUnavailableError()
       }
-      throw error
+      throw error // Lemparkan kesalahan lain yang tidak terduga
     }
 
+    // Jika keanggotaan ditemukan, kembalikan AuthResult
     if (membership) {
       return {
         userId: Number(userId),
@@ -337,12 +472,14 @@ export const requireAuth = cache(async (): Promise<AuthResult> => {
     }
   }
 
+  // 9. Jika tetap tidak ditemukan bisnis sama sekali, lempar AuthError
   if (!business) {
     throw new AuthError(
       `Business not found for user ID: ${userId}. Pastikan Anda sudah membuat bisnis di halaman Onboarding.`,
     )
   }
 
+  // 10. Jika ditemukan bisnis sebagai owner, kembalikan peran Owner
   return {
     userId: Number(userId),
     businessId: business.id,

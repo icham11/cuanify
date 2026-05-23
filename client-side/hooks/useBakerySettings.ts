@@ -163,26 +163,10 @@ export function useBakerySettings(options?: { enabled?: boolean }) {
     };
   }, [enabled, refetch]);
 
-  useEffect(() => {
-    if (!enabled) return;
-    if (typeof window === "undefined") return;
-
-    const handleForegroundRefresh = () => {
-      if (document.visibilityState === "hidden") return;
-      void refetch({ force: true }).catch(() => {});
-    };
-
-    window.addEventListener("focus", handleForegroundRefresh);
-    document.addEventListener("visibilitychange", handleForegroundRefresh);
-
-    return () => {
-      window.removeEventListener("focus", handleForegroundRefresh);
-      document.removeEventListener(
-        "visibilitychange",
-        handleForegroundRefresh,
-      );
-    };
-  }, [enabled, refetch]);
+  // Catatan: Listener window.focus dan visibilitychange sengaja DIHAPUS.
+  // Settings bakery adalah data yang jarang berubah; cache TTL 5 menit sudah cukup.
+  // Forced refetch setiap user alt-tab menyebabkan lonjakan request ke Neon DB.
+  // Jika ada perubahan settings, komponen akan re-fetch via event BAKERY_SETTINGS_UPDATED_EVENT.
 
   return {
     settings,
