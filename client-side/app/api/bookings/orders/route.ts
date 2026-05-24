@@ -2085,7 +2085,6 @@ function validateAssignmentTransitionRules(params: {
     userId,
     isPrivilegedRequest = false,
   } = params;
-  const isOwnerRequest = roleName === "Owner";
   const isStaffRequest = roleName === "Staff";
   const existingAssignmentMap = new Map(
     existingAssignments.map((row) => [row.external_id, row]),
@@ -2121,20 +2120,20 @@ function validateAssignmentTransitionRules(params: {
       currentAssignee !== null &&
       nextAssignee === null &&
       !nextHasAssignment &&
-      !isOwnerRequest
+      !isPrivilegedRequest
     ) {
       throw new ForbiddenError(
-        "Order yang sudah diambil tidak bisa dilepas. Gunakan transfer oleh owner.",
+        "Order yang sudah diambil tidak bisa dilepas. Gunakan transfer oleh owner/admin.",
       );
     }
 
-    if (!isOwnerRequest) {
+    if (!isPrivilegedRequest) {
       const isStaffClaimOwnUnassignedOrder =
         isStaffRequest && currentAssignee === null && nextAssignee === userId;
 
       if (!isStaffClaimOwnUnassignedOrder) {
         throw new ForbiddenError(
-          "Hanya owner yang dapat memindahkan assignment order.",
+          "Hanya owner/admin yang dapat memindahkan assignment order.",
         );
       }
     }
@@ -3273,7 +3272,7 @@ export async function POST(request: NextRequest) {
     const roleName = role as unknown as string;
     const isStaffRequest = roleName === "Staff";
     const isPrivilegedRequest = roleName === "Owner" || roleName === "Admin";
-    const canManageAssignments = roleName === "Owner";
+    const canManageAssignments = isPrivilegedRequest;
     const bakerySettings = await getBakeryBusinessSettings(businessId);
     const canBackfillPastOrders =
       !bakerySettings.cutoffEnabled && (role === "Owner" || role === "Admin");

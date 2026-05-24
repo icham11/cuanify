@@ -242,9 +242,15 @@ export function validateAssignmentTransitionRules(params: {
   existingAssignments: ExistingAssignmentState[];
   roleName: string;
   userId: number;
+  isPrivilegedRequest?: boolean;
 }) {
-  const { orders, existingAssignments, roleName, userId } = params;
-  const isOwnerRequest = roleName === "Owner";
+  const {
+    orders,
+    existingAssignments,
+    roleName,
+    userId,
+    isPrivilegedRequest = false,
+  } = params;
   const isStaffRequest = roleName === "Staff";
   const existingAssignmentMap = new Map(
     existingAssignments.map((row) => [row.external_id, row]),
@@ -281,20 +287,20 @@ export function validateAssignmentTransitionRules(params: {
       currentAssignee !== null &&
       nextAssignee === null &&
       !nextHasAssignment &&
-      !isOwnerRequest
+      !isPrivilegedRequest
     ) {
       throw new ForbiddenError(
-        "Order yang sudah diambil tidak bisa dilepas. Gunakan transfer oleh owner.",
+        "Order yang sudah diambil tidak bisa dilepas. Gunakan transfer oleh owner/admin.",
       );
     }
 
-    if (!isOwnerRequest) {
+    if (!isPrivilegedRequest) {
       const isStaffClaimOwnUnassignedOrder =
         isStaffRequest && currentAssignee === null && nextAssignee === userId;
 
       if (!isStaffClaimOwnUnassignedOrder) {
         throw new ForbiddenError(
-          "Hanya owner yang dapat memindahkan assignment order.",
+          "Hanya owner/admin yang dapat memindahkan assignment order.",
         );
       }
     }

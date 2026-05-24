@@ -22,6 +22,7 @@ import {
   resolvePrimaryProductionCategory,
   resolveProductionStageTemplatesForCategory,
   type ProductionStage,
+  type ProductionStageAssignment,
   type ProductionStageCategoryProfile,
 } from "@/lib/bookings/production-stages";
 import { getStaffTokenLimitForUser } from "@/lib/bakery/token-limits";
@@ -123,6 +124,100 @@ function getEffectiveProductionStages(
     totalTokens: summarizeProductionTokensByItems(order.items ?? []),
     percentages: getProductionStagePercentagesFromTemplates(templates),
   });
+}
+
+function buildStageStaffSelections(
+  stages: ProductionStageAssignment[],
+): Record<ProductionStage, string> {
+  return PRODUCTION_STAGE_ORDER.reduce((acc, stage) => {
+    const staffId = parseNumericId(
+      stages.find((entry) => entry.stage === stage)?.staffId,
+    );
+    acc[stage] = staffId ? String(staffId) : "";
+    return acc;
+  }, { ...EMPTY_STAGE_STAFF_SELECTIONS });
+}
+
+function getStageAssignmentProjectionByStage(params: {
+  order: Pick<BakeryOrder, "deliveryDate">;
+  stages: ProductionStageAssignment[];
+  selections: Record<ProductionStage, string>;
+  staffDailyTokenByDate: Map<string, number>;
+  staffTokenLimitByUserId: Map<number, number>;
+  defaultStaffDailyTokenLimit: number;
+}) {
+  const {
+    order,
+    stages,
+    selections,
+    staffDailyTokenByDate,
+    staffTokenLimitByUserId,
+    defaultStaffDailyTokenLimit,
+  } = params;
+  const result = new Map<
+    ProductionStage,
+    {
+      projectedToken: number;
+      limit: number;
+      overLimit: boolean;
+    }
+  >();
+  const orderDateKey = (order.deliveryDate || "").trim();
+  const stageTokenByStage = new Map(
+    stages.map((stage) => [
+      stage.stage,
+      Math.max(0, Math.round(Number(stage.tokenAmount) || 0)),
+    ]),
+  );
+  const previousTokenByStaff = new Map<number, number>();
+  const nextTokenByStaff = new Map<number, number>();
+
+  for (const stage of stages) {
+    const staffId = parseNumericId(stage.staffId);
+    if (!staffId) continue;
+    previousTokenByStaff.set(
+      staffId,
+      (previousTokenByStaff.get(staffId) ?? 0) +
+        Math.max(0, Math.round(Number(stage.tokenAmount) || 0)),
+    );
+  }
+
+  for (const stage of PRODUCTION_STAGE_ORDER) {
+    const staffId = parseNumericId(selections[stage]);
+    if (!staffId) continue;
+    nextTokenByStaff.set(
+      staffId,
+      (nextTokenByStaff.get(staffId) ?? 0) + (stageTokenByStage.get(stage) ?? 0),
+    );
+  }
+
+  for (const stage of PRODUCTION_STAGE_ORDER) {
+    const staffId = parseNumericId(selections[stage]);
+    if (!staffId) continue;
+    const currentToken = orderDateKey
+      ? (staffDailyTokenByDate.get(`${staffId}:${orderDateKey}`) ?? 0)
+      : 0;
+    const adjustedCurrentToken = Math.max(
+      0,
+      currentToken - (previousTokenByStaff.get(staffId) ?? 0),
+    );
+    const incomingToken = nextTokenByStaff.get(staffId) ?? 0;
+    const limit =
+      staffTokenLimitByUserId.get(staffId) ?? defaultStaffDailyTokenLimit;
+    const projectedToken = adjustedCurrentToken + incomingToken;
+
+    result.set(stage, {
+      projectedToken,
+      limit,
+      overLimit: isStaffDailyTokenAssignmentBlocked({
+        currentToken: adjustedCurrentToken,
+        incomingToken,
+        limit,
+      }),
+    });
+  }
+
+  return result;
 }
 
 function getOrderClaimedStaffIds(order: BakeryOrder): number[] {
@@ -234,7 +329,7 @@ export default function ProductionTable() {
   } = useOrders();
   const { isOwner, isAdmin, isStaff, role, userName } = useRole();
   const isPrivilegedManager = isOwner || isAdmin;
-  const canOwnerManageAssignments = isOwner;
+  const canManageAssignments = isPrivilegedManager;
   const { settings: bakerySettings } = useBakerySettings();
   const productionDailyTokenLimit =
     bakerySettings?.dailyProductionTokenLimit ?? DEFAULT_MAX_TOKEN;
@@ -990,6 +1085,51 @@ export default function ProductionTable() {
     });
   };
 
+  const buildAssignmentsFromSelections = useCallback(
+    (
+      order: BakeryOrder,
+      selections: Record<ProductionStage, string>,
+    ): Partial<Record<ProductionStage, { userId: number; name: string } | null>> => {
+      const currentStages = getEffectiveProductionStages(
+        order,
+        bakerySettings?.productionStageProfiles,
+      );
+
+      return PRODUCTION_STAGE_ORDER.reduce(
+        (acc, stage) => {
+          const staffId = parseNumericId(selections[stage]);
+          const currentStaffId = parseNumericId(
+            currentStages.find((entry) => entry.stage === stage)?.staffId,
+          );
+          if (!staffId) {
+            acc[stage] = currentStaffId
+              ? {
+                  userId: currentStaffId,
+                  name:
+                    teamMembers.find((entry) => entry.userId === currentStaffId)
+                      ?.name || `Staff #${currentStaffId}`,
+                }
+              : null;
+            return acc;
+          }
+
+          const member = teamMembers.find((entry) => entry.userId === staffId);
+          if (member) {
+            acc[stage] = {
+              userId: member.userId,
+              name: member.name,
+            };
+          }
+          return acc;
+        },
+        {} as Partial<
+          Record<ProductionStage, { userId: number; name: string } | null>
+        >,
+      );
+    },
+    [bakerySettings?.productionStageProfiles, teamMembers],
+  );
+
   /**
    * State untuk melacak dropdown inline assign-per-stage (Owner only).
    * Format key: `${orderId}:${stage}`
@@ -1016,16 +1156,22 @@ export default function ProductionTable() {
    * Handler untuk Owner assign staff ke stage tertentu secara inline.
    * Jika staffUserId null → unassign (kosongkan stage).
    */
-  const handleOwnerAssignStage = useCallback(
+  const handleManagerAssignStage = useCallback(
     (
       orderId: string,
       stage: ProductionStage,
       staffUserId: number | null,
     ) => {
-      if (!canOwnerManageAssignments) return;
+      if (!canManageAssignments) return;
       const order = orders.find((entry) => entry.id === orderId);
+      if (!order) return;
+      const effectiveStages = getEffectiveProductionStages(
+        order,
+        bakerySettings?.productionStageProfiles,
+      );
+      const nextSelections = buildStageStaffSelections(effectiveStages);
       const currentStaffId = parseNumericId(
-        order?.productionStages?.find((entry) => entry.stage === stage)?.staffId,
+        effectiveStages.find((entry) => entry.stage === stage)?.staffId,
       );
 
       if (staffUserId === null) {
@@ -1040,33 +1186,53 @@ export default function ProductionTable() {
 
       const member = teamMembers.find((m) => m.userId === staffUserId);
       if (!member) return;
-      assignProductionStageStaff(orderId, stage, {
-        userId: member.userId,
-        name: member.name,
+      nextSelections[stage] = String(member.userId);
+      const projection = getStageAssignmentProjectionByStage({
+        order,
+        stages: effectiveStages,
+        selections: nextSelections,
+        staffDailyTokenByDate,
+        staffTokenLimitByUserId,
+        defaultStaffDailyTokenLimit: staffDailyTokenLimit,
       });
+      const selectedProjection = projection.get(stage);
+      if (selectedProjection?.overLimit) {
+        toast.error(
+          `Assignment melebihi limit token staff (${selectedProjection.projectedToken}/${selectedProjection.limit}).`,
+        );
+        setActiveStageDropdown(null);
+        return;
+      }
+
+      assignProductionStagesStaff(
+        orderId,
+        buildAssignmentsFromSelections(order, nextSelections),
+      );
       setActiveStageDropdown(null);
     },
-    [assignProductionStageStaff, canOwnerManageAssignments, orders, teamMembers],
+    [
+      assignProductionStagesStaff,
+      bakerySettings?.productionStageProfiles,
+      buildAssignmentsFromSelections,
+      canManageAssignments,
+      orders,
+      staffDailyTokenByDate,
+      staffDailyTokenLimit,
+      staffTokenLimitByUserId,
+      teamMembers,
+    ],
   );
 
   const handleOpenStageAssignmentModal = (orderId: string) => {
-    if (!canOwnerManageAssignments) return;
+    if (!canManageAssignments) return;
     const order = orders.find((entry) => entry.id === orderId);
     if (!order) return;
     const stages = getEffectiveProductionStages(
       order,
       bakerySettings?.productionStageProfiles,
     );
-    const nextSelections = PRODUCTION_STAGE_ORDER.reduce((acc, stage) => {
-      const staffId = parseNumericId(
-        stages.find((entry) => entry.stage === stage)?.staffId,
-      );
-      acc[stage] = staffId ? String(staffId) : "";
-      return acc;
-    }, { ...EMPTY_STAGE_STAFF_SELECTIONS });
-
     setStageAssignmentOrderId(orderId);
-    setStageStaffSelections(nextSelections);
+    setStageStaffSelections(buildStageStaffSelections(stages));
   };
 
   const closeStageAssignmentModal = () => {
@@ -1075,42 +1241,14 @@ export default function ProductionTable() {
   };
 
   const handleConfirmStageAssignments = () => {
-    if (!canOwnerManageAssignments) return;
+    if (!canManageAssignments) return;
     if (!stageAssignmentOrderId) return;
+    if (!stageAssignmentOrder) return;
 
-    const assignments = PRODUCTION_STAGE_ORDER.reduce(
-      (acc, stage) => {
-        const staffId = parseNumericId(stageStaffSelections[stage]);
-        const currentStaffId = parseNumericId(
-          stageAssignmentStages.find((entry) => entry.stage === stage)?.staffId,
-        );
-        if (!staffId) {
-          acc[stage] = currentStaffId
-            ? {
-                userId: currentStaffId,
-                name:
-                  teamMembers.find((entry) => entry.userId === currentStaffId)
-                    ?.name || `Staff #${currentStaffId}`,
-              }
-            : null;
-          return acc;
-        }
-
-        const member = teamMembers.find((entry) => entry.userId === staffId);
-        if (member) {
-          acc[stage] = {
-            userId: member.userId,
-            name: member.name,
-          };
-        }
-        return acc;
-      },
-      {} as Partial<
-        Record<ProductionStage, { userId: number; name: string } | null>
-      >,
+    assignProductionStagesStaff(
+      stageAssignmentOrderId,
+      buildAssignmentsFromSelections(stageAssignmentOrder, stageStaffSelections),
     );
-
-    assignProductionStagesStaff(stageAssignmentOrderId, assignments);
     closeStageAssignmentModal();
   };
 
@@ -1123,73 +1261,25 @@ export default function ProductionTable() {
   };
 
   const stageAssignmentProjectionByStage = useMemo(() => {
-    const result = new Map<
-      ProductionStage,
-      {
-        projectedToken: number;
-        limit: number;
-        overLimit: boolean;
-      }
-    >();
-
-    if (!stageAssignmentOrder) return result;
-
-    const orderDateKey = (stageAssignmentOrder.deliveryDate || "").trim();
-    const stageTokenByStage = new Map(
-      stageAssignmentStages.map((stage) => [
-        stage.stage,
-        Math.max(0, Math.round(Number(stage.tokenAmount) || 0)),
-      ]),
-    );
-    const previousTokenByStaff = new Map<number, number>();
-    const nextTokenByStaff = new Map<number, number>();
-
-    for (const stage of stageAssignmentStages) {
-      const staffId = parseNumericId(stage.staffId);
-      if (!staffId) continue;
-      previousTokenByStaff.set(
-        staffId,
-        (previousTokenByStaff.get(staffId) ?? 0) +
-          Math.max(0, Math.round(Number(stage.tokenAmount) || 0)),
-      );
+    if (!stageAssignmentOrder) {
+      return new Map<
+        ProductionStage,
+        {
+          projectedToken: number;
+          limit: number;
+          overLimit: boolean;
+        }
+      >();
     }
 
-    for (const stage of PRODUCTION_STAGE_ORDER) {
-      const staffId = parseNumericId(stageStaffSelections[stage]);
-      if (!staffId) continue;
-      nextTokenByStaff.set(
-        staffId,
-        (nextTokenByStaff.get(staffId) ?? 0) +
-          (stageTokenByStage.get(stage) ?? 0),
-      );
-    }
-
-    for (const stage of PRODUCTION_STAGE_ORDER) {
-      const staffId = parseNumericId(stageStaffSelections[stage]);
-      if (!staffId) continue;
-      const currentToken = orderDateKey
-        ? (staffDailyTokenByDate.get(`${staffId}:${orderDateKey}`) ?? 0)
-        : 0;
-      const adjustedCurrentToken = Math.max(
-        0,
-        currentToken - (previousTokenByStaff.get(staffId) ?? 0),
-      );
-      const incomingToken = nextTokenByStaff.get(staffId) ?? 0;
-      const limit = staffTokenLimitByUserId.get(staffId) ?? staffDailyTokenLimit;
-      const projectedToken = adjustedCurrentToken + incomingToken;
-
-      result.set(stage, {
-        projectedToken,
-        limit,
-        overLimit: isStaffDailyTokenAssignmentBlocked({
-          currentToken: adjustedCurrentToken,
-          incomingToken,
-          limit,
-        }),
-      });
-    }
-
-    return result;
+    return getStageAssignmentProjectionByStage({
+      order: stageAssignmentOrder,
+      stages: stageAssignmentStages,
+      selections: stageStaffSelections,
+      staffDailyTokenByDate,
+      staffTokenLimitByUserId,
+      defaultStaffDailyTokenLimit: staffDailyTokenLimit,
+    });
   }, [
     staffDailyTokenByDate,
     staffDailyTokenLimit,
@@ -1243,7 +1333,7 @@ export default function ProductionTable() {
       parseNumericId(stage.staffId),
     ).length;
 
-    const canOwnerAssignOrTransfer = canOwnerManageAssignments;
+    const canManagerAssignOrTransfer = canManageAssignments;
 
     let statusDisabledMessage = "";
     if (claimedStaffIds.length === 0) {
@@ -1401,7 +1491,7 @@ export default function ProductionTable() {
 
                   {isClaimed ? (
                     // Stage sudah diisi: Owner bisa transfer ke staff lain
-                    canOwnerAssignOrTransfer ? (
+                    canManagerAssignOrTransfer ? (
                       <div className="relative" ref={activeStageDropdown === `${order.id}:${stage}` ? stageDropdownRef : null}>
                         <button
                           type="button"
@@ -1423,7 +1513,7 @@ export default function ProductionTable() {
                             {/* Transfer assignment */}
                             <button
                               type="button"
-                              onClick={() => handleOwnerAssignStage(order.id, stage, null)}
+                              onClick={() => handleManagerAssignStage(order.id, stage, null)}
                               className="hidden"
                             >
                               ✕ Lepas Assignment
@@ -1431,23 +1521,36 @@ export default function ProductionTable() {
                             <div className="hidden" />
                             {/* Daftar staff untuk transfer */}
                             {teamMembers.map((member) => {
-                              const memberDailyToken = orderDateKey
-                                ? (staffDailyTokenByDate.get(`${member.userId}:${orderDateKey}`) ?? 0)
-                                : 0;
-                              const projected = memberDailyToken + stageToken;
-                              const memberLimit = staffTokenLimitByUserId.get(member.userId) ?? staffDailyTokenLimit;
                               const isCurrentStaff = stageData?.staffId === member.userId;
+                              const nextSelections = buildStageStaffSelections(
+                                effectiveStages,
+                              );
+                              nextSelections[stage] = String(member.userId);
+                              const projection = getStageAssignmentProjectionByStage({
+                                order,
+                                stages: effectiveStages,
+                                selections: nextSelections,
+                                staffDailyTokenByDate,
+                                staffTokenLimitByUserId,
+                                defaultStaffDailyTokenLimit: staffDailyTokenLimit,
+                              }).get(stage);
+                              const projected = projection?.projectedToken ?? 0;
+                              const memberLimit = projection?.limit ?? staffDailyTokenLimit;
+                              const disabled = Boolean(
+                                projection?.overLimit && !isCurrentStaff,
+                              );
                               return (
                                 <button
                                   key={member.userId}
                                   type="button"
-                                  onClick={() => handleOwnerAssignStage(order.id, stage, member.userId)}
-                                  className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs transition hover:bg-[var(--crumbella-accent-soft)] ${
+                                  onClick={() => handleManagerAssignStage(order.id, stage, member.userId)}
+                                  disabled={disabled}
+                                  className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs transition hover:bg-[var(--crumbella-accent-soft)] disabled:cursor-not-allowed disabled:opacity-50 ${
                                     isCurrentStaff ? "font-bold text-[var(--crumbella-primary)]" : "font-medium text-slate-700"
                                   }`}
                                 >
                                   <span>{member.name}{isCurrentStaff ? " ✓" : ""}</span>
-                                  <span className={`shrink-0 text-[10px] ${projected > memberLimit ? "text-rose-500" : "text-slate-400"}`}>
+                                  <span className={`shrink-0 text-[10px] ${disabled ? "text-rose-500" : "text-slate-400"}`}>
                                     {projected}/{memberLimit}
                                   </span>
                                 </button>
@@ -1479,7 +1582,7 @@ export default function ProductionTable() {
                     >
                       Assign
                     </button>
-                  ) : canOwnerAssignOrTransfer ? (
+                  ) : canManagerAssignOrTransfer ? (
                     // Owner: inline dropdown assign untuk stage yang kosong
                     <div className="relative" ref={activeStageDropdown === `${order.id}:${stage}` ? stageDropdownRef : null}>
                       <button
@@ -1512,20 +1615,31 @@ export default function ProductionTable() {
                             </button>
                           ) : (
                             teamMembers.map((member) => {
-                              const memberDailyToken = orderDateKey
-                                ? (staffDailyTokenByDate.get(`${member.userId}:${orderDateKey}`) ?? 0)
-                                : 0;
-                              const projected = memberDailyToken + stageToken;
-                              const memberLimit = staffTokenLimitByUserId.get(member.userId) ?? staffDailyTokenLimit;
+                              const nextSelections = buildStageStaffSelections(
+                                effectiveStages,
+                              );
+                              nextSelections[stage] = String(member.userId);
+                              const projection = getStageAssignmentProjectionByStage({
+                                order,
+                                stages: effectiveStages,
+                                selections: nextSelections,
+                                staffDailyTokenByDate,
+                                staffTokenLimitByUserId,
+                                defaultStaffDailyTokenLimit: staffDailyTokenLimit,
+                              }).get(stage);
+                              const projected = projection?.projectedToken ?? 0;
+                              const memberLimit = projection?.limit ?? staffDailyTokenLimit;
+                              const disabled = Boolean(projection?.overLimit);
                               return (
                                 <button
                                   key={member.userId}
                                   type="button"
-                                  onClick={() => handleOwnerAssignStage(order.id, stage, member.userId)}
-                                  className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs font-medium text-slate-700 transition hover:bg-[var(--crumbella-accent-soft)]"
+                                  onClick={() => handleManagerAssignStage(order.id, stage, member.userId)}
+                                  disabled={disabled}
+                                  className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs font-medium text-slate-700 transition hover:bg-[var(--crumbella-accent-soft)] disabled:cursor-not-allowed disabled:opacity-50"
                                 >
                                   <span>{member.name}</span>
-                                  <span className={`shrink-0 text-[10px] ${projected > memberLimit ? "text-rose-500" : "text-slate-400"}`}>
+                                  <span className={`shrink-0 text-[10px] ${disabled ? "text-rose-500" : "text-slate-400"}`}>
                                     {projected}/{memberLimit}
                                   </span>
                                 </button>
@@ -1555,7 +1669,7 @@ export default function ProductionTable() {
               >
                 {normalizedOrderStatus}
               </span>
-              {canOwnerAssignOrTransfer ? (
+              {canManagerAssignOrTransfer ? (
                 <button
                   type="button"
                   onClick={(event) => {
@@ -1596,7 +1710,7 @@ export default function ProductionTable() {
               {statusDisabledMessage}
             </p>
           )}
-          {hasMixedStageAssignees && canOwnerAssignOrTransfer ? (
+          {hasMixedStageAssignees && canManagerAssignOrTransfer ? (
             <p className="text-[11px] text-[var(--crumbella-muted)]">
               Order ini dibagi ke beberapa staff. Gunakan Assign Proses untuk
               mengatur Lining, Filling, dan Finishing satu per satu.
@@ -2140,7 +2254,7 @@ export default function ProductionTable() {
         </p>
       )}
 
-      {canOwnerManageAssignments && stageAssignmentOrderId && stageAssignmentOrder ? (
+      {canManageAssignments && stageAssignmentOrderId && stageAssignmentOrder ? (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4"
           role="dialog"

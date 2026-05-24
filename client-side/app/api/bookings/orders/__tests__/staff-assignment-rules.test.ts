@@ -232,7 +232,7 @@ describe("Orders API staff assignment and status transition rules", () => {
         roleName: "Staff",
         userId: 22,
       }),
-    ).toThrow("Hanya owner yang dapat memindahkan assignment order");
+    ).toThrow("Hanya owner/admin yang dapat memindahkan assignment order");
   });
 
   it("allows owner transfer action", () => {
@@ -253,10 +253,11 @@ describe("Orders API staff assignment and status transition rules", () => {
       existingAssignments,
       roleName: "Owner",
       userId: 1,
+      isPrivilegedRequest: true,
     });
   });
 
-  it("rejects admin transfer action", () => {
+  it("allows admin transfer action", () => {
     const orders = [
       makeOrder({
         assignedStaffUserId: 33,
@@ -269,14 +270,13 @@ describe("Orders API staff assignment and status transition rules", () => {
       }),
     ];
 
-    expect(() =>
-      validateAssignmentTransitionRules({
-        orders,
-        existingAssignments,
-        roleName: "Admin",
-        userId: 7,
-      }),
-    ).toThrow("Hanya owner yang dapat memindahkan assignment order");
+    validateAssignmentTransitionRules({
+      orders,
+      existingAssignments,
+      roleName: "Admin",
+      userId: 7,
+      isPrivilegedRequest: true,
+    });
   });
 
   it("allows owner to fully unassign a claimed order", () => {
@@ -302,6 +302,7 @@ describe("Orders API staff assignment and status transition rules", () => {
       existingAssignments,
       roleName: "Owner",
       userId: 1,
+      isPrivilegedRequest: true,
     });
   });
 
@@ -351,6 +352,7 @@ describe("Orders API staff assignment and status transition rules", () => {
       existingAssignments,
       roleName: "Owner",
       userId: 1,
+      isPrivilegedRequest: true,
     });
   });
 });
