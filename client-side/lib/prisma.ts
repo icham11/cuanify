@@ -5,18 +5,12 @@ import ws from "ws";
 
 neonConfig.webSocketConstructor = ws;
 
-// Mengaktifkan cache koneksi HTTP fetch agar lebih efisien dan tangguh ketika driver serverless menggunakan fallback HTTP
-neonConfig.fetchConnectionCache = true;
-
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
 
 function createPrismaClient() {
   const databaseUrl = process.env.DATABASE_URL;
-
-  // eslint-disable-next-line no-console
-  console.log("[Prisma Debug] process.env.DATABASE_URL:", databaseUrl ? databaseUrl.replace(/:[^:@]+@/, ":****@") : "undefined");
 
   if (!databaseUrl) {
     throw new Error("DATABASE_URL is not set");

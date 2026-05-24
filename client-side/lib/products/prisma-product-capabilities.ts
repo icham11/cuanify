@@ -30,7 +30,7 @@ export async function getProductFieldAvailability(): Promise<ProductFieldAvailab
     const prismaFieldAvailability = getProductPrismaFieldAvailability();
 
     productFieldAvailabilityPromise = prisma
-      .$queryRaw<Array<{ column_name: string }>>`SELECT column_name
+      .$queryRaw<Array<{ column_name: string }>>`SELECT column_name::text AS column_name
        FROM information_schema.columns
        WHERE table_schema = current_schema()
          AND table_name = 'Product'

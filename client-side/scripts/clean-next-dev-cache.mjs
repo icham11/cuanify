@@ -1,27 +1,22 @@
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
-const roots = [".", ".."];
 const forceClean = process.env.FORCE_DEV_CACHE_CLEAN === "1";
+const devLockPath = join(process.cwd(), ".next", "dev", "lock");
 
-const activeDevRoots = roots.filter((root) =>
-  existsSync(join(process.cwd(), root, ".next", "dev", "lock")),
-);
-
-if (activeDevRoots.length > 0 && !forceClean) {
-  console.log(
-    `[dev-cache] Skip cache cleanup because active Next dev lock exists in: ${activeDevRoots.join(", ")}`,
-  );
+if (existsSync(devLockPath) && !forceClean) {
+  console.log("[dev-cache] Skip cache cleanup because local Next dev lock exists");
   process.exit(0);
 }
 
-const targets = roots.flatMap((root) => [
-  join(root, ".next"),
-  join(root, ".turbo"),
-]);
+const targets = [
+  join(process.cwd(), ".next", "cache"),
+  join(process.cwd(), ".next", "dev", "cache"),
+  join(process.cwd(), ".turbo"),
+];
 
 for (const target of targets) {
-  rmSync(join(process.cwd(), target), { recursive: true, force: true });
+  rmSync(target, { recursive: true, force: true });
 }
 
-console.log("[dev-cache] Cleared local and parent Next/Turbo caches");
+console.log("[dev-cache] Cleared local Next/Turbo caches");
