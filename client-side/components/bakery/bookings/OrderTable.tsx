@@ -339,6 +339,8 @@ export default function OrderTable({ orders }: OrderTableProps) {
                     setPendingStatusOrderId(order.id);
                     try {
                       await updateOrderStatus(order.id, nextStatus);
+                    } catch {
+                      // Toast sudah ditangani store; hindari unhandled rejection di UI tabel.
                     } finally {
                       setPendingStatusOrderId(null);
                     }

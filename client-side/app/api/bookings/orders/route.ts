@@ -134,6 +134,8 @@ export interface NormalizedOrder {
   id: string;
   bookingCode: string;
   resi: string;
+  createdAt?: string;
+  updatedAt?: string;
   customerName: string;
   customerPhone: string;
   customerAddress: string;
@@ -265,6 +267,8 @@ const normalizedOrderSchema = z.object({
   id: z.string().trim().min(1, "id is required"),
   bookingCode: z.string(),
   resi: z.string(),
+  createdAt: z.string().optional().catch(""),
+  updatedAt: z.string().optional().catch(""),
   customerName: z.string(),
   customerPhone: z.string(),
   customerAddress: z.string(),
@@ -2291,6 +2295,8 @@ function normalizeOrder(raw: unknown, index: number): NormalizedOrder | null {
     id,
     bookingCode: asString(record.bookingCode),
     resi: asString(record.resi),
+    createdAt: asString(record.createdAt),
+    updatedAt: asString(record.updatedAt),
     customerName: asString(record.customerName),
     customerPhone: asString(record.customerPhone),
     customerAddress: asString(record.customerAddress),
@@ -3034,6 +3040,8 @@ export async function GET(request: NextRequest) {
             id: row.external_id,
             bookingCode: row.booking_code ?? "",
             resi: row.resi ?? "",
+            createdAt: row.created_at.toISOString(),
+            updatedAt: row.updated_at.toISOString(),
             customerName: row.customer_name ?? "",
             customerPhone: row.customer_phone ?? "",
             customerAddress: row.customer_address ?? "",

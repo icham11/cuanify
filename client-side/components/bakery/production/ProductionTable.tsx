@@ -947,7 +947,7 @@ export default function ProductionTable() {
   );
 
   const updateStatus = (id: string, status: string) => {
-    updateOrderStatus(
+    void updateOrderStatus(
       id,
       status as
         | "In Production"
@@ -955,7 +955,7 @@ export default function ProductionTable() {
         | "Delivery"
         | "Completed"
         | "Cancelled",
-    );
+    ).catch(() => {});
   };
 
   const getStatusOptions = (status: string, canCancel: boolean) => {

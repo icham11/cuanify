@@ -63,6 +63,8 @@ import {
   type ProductionStage,
   type ProductionStageAssignment,
 } from "@/lib/bookings/production-stages";
+import { getLatestOrderActivityTimestamp } from "@/lib/bookings/order-activity";
+import { choosePreferredOrderCandidate } from "@/lib/bookings/order-deduplication";
 
 export type OrderStatus =
   | "Inquiry"
@@ -153,6 +155,8 @@ export interface BakeryOrder {
   id: string;
   resi: string;
   bookingCode: string;
+  createdAt?: string;
+  updatedAt?: string;
   deliveryMethod?: DeliveryMethod;
   customerName: string;
   customerPhone: string;
@@ -1090,21 +1094,6 @@ function areOrdersSnapshotsEqual(
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function getLatestOrderActivityTimestamp(order: BakeryOrder): number {
-  const candidates = [
-    ...(order.statusHistory ?? []).map((entry) => Date.parse(entry.timestamp)),
-    ...(order.paymentTransactions ?? []).map((entry) =>
-      Date.parse(entry.timestamp),
-    ),
-    ...(order.automationLogs ?? []).map((entry) => Date.parse(entry.timestamp)),
-    Date.parse(order.productionAssignedAt ?? ""),
-  ];
-
-  return candidates.reduce((latest, current) => {
-    return Number.isFinite(current) ? Math.max(latest, current) : latest;
-  }, 0);
-}
-
 function areOrdersLikelySameBooking(
   left: BakeryOrder,
   right: BakeryOrder,
@@ -1196,23 +1185,7 @@ function chooseOrderForSync(
   current: BakeryOrder,
   candidate: BakeryOrder,
 ): BakeryOrder {
-  const currentLatest = getLatestOrderActivityTimestamp(current);
-  const candidateLatest = getLatestOrderActivityTimestamp(candidate);
-
-  if (candidateLatest > currentLatest) return candidate;
-  if (currentLatest > candidateLatest) return current;
-
-  const currentIdentityScore =
-    (current.bookingCode ? 1 : 0) +
-    (current.resi ? 1 : 0) +
-    (current.shippingReferenceId ? 1 : 0);
-  const candidateIdentityScore =
-    (candidate.bookingCode ? 1 : 0) +
-    (candidate.resi ? 1 : 0) +
-    (candidate.shippingReferenceId ? 1 : 0);
-
-  if (candidateIdentityScore > currentIdentityScore) return candidate;
-  return current;
+  return choosePreferredOrderCandidate(current, candidate);
 }
 
 function dedupeOrdersForSync(orders: BakeryOrder[]): BakeryOrder[] {
@@ -2708,6 +2681,7 @@ export function OrdersProvider({
           bookingCode,
           resi,
           orderStatus: requestedStatus,
+          updatedAt: new Date().toISOString(),
           statusHistory: appendStatusLog(
             order.statusHistory,
             requestedStatus,
@@ -2718,19 +2692,57 @@ export function OrdersProvider({
       });
 
       if (!hasChanged) return;
-      persistOrders(nextOrders);
+      persistOrders(nextOrders, { syncToServer: false });
       if (requestedStatus === "In Production") {
         toast.success("Order masuk produksi. Menjalankan automasi...");
       } else {
         toast.message("Order status updated");
       }
 
-      if (triggeredEvent) {
-        await runAutomationsForOrder(triggeredEvent, id);
+      try {
+        const response = await fetch(`/api/bookings/orders/${id}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            orderStatus: requestedStatus,
+            actorName: actorIdentity.name,
+          }),
+        });
+        const payload = (await response.json().catch(() => ({}))) as {
+          success?: boolean;
+          data?: {
+            orderStatus?: string;
+            statusHistory?: OrderStatusLog[];
+            updatedAt?: string;
+          };
+          error?: string;
+        };
+
+        if (!response.ok || !payload.success) {
+          throw new Error(payload.error || "Gagal menyimpan perubahan status order.");
+        }
+
+        if (triggeredEvent) {
+          void runAutomationsForOrder(triggeredEvent, id);
+        }
+      } catch (error) {
+        writeOrdersSnapshot(latestOrders);
+        lastLocalWriteAtRef.current = 0;
+        void hydrateOrdersFromServer(true);
+
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Gagal menyimpan perubahan status order.";
+        toast.error(`Perubahan status dibatalkan: ${message}`);
+        throw error;
       }
     },
     [
       getLatestOrdersSnapshot,
+      hydrateOrdersFromServer,
       persistOrders,
       runAutomationsForOrder,
       actorIdentity,

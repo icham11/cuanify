@@ -534,9 +534,9 @@ export default function OrderDetailPage() {
                 <Button
                   type="button"
                   className="h-11 rounded-2xl bg-[var(--crumbella-accent)] px-5 text-white hover:bg-[var(--crumbella-accent-strong)]"
-                  disabled={!canUpdateStatus}
-                  onClick={() =>
-                    updateOrderStatus(
+                  disabled={!canUpdateStatus || statusDraft === normalizedOrderStatus}
+                  onClick={() => {
+                    void updateOrderStatus(
                       order.id,
                       statusDraft as
                         | "In Production"
@@ -545,8 +545,8 @@ export default function OrderDetailPage() {
                         | "Completed"
                         | "Delivered"
                         | "Cancelled",
-                    )
-                  }
+                    ).catch(() => {});
+                  }}
                 >
                   Simpan
                 </Button>

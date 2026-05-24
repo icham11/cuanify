@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
-import { AuthError, requireAuth } from "@/lib/auth/session";
+import { AuthError, ForbiddenError, requireAuth } from "@/lib/auth/session";
 import { isPrismaConnectionTimeout, prismaConnectionErrorResponse } from "@/lib/prisma-errors";
 import {
   asRecord,
@@ -18,6 +18,8 @@ import {
   resolvePersistedImageFields,
   toIsoOrNull,
 } from "../order-helpers";
+import { normalizeOrderStatus } from "@/lib/bookings/order-status";
+import { staffUuid } from "@/lib/bookings/order-api-helpers";
 import {
   type NormalizedOrder,
   type DbOrderRow,
@@ -30,6 +32,47 @@ import { getProductionStagePercentagesFromTemplates, resolvePrimaryProductionCat
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const PATCHABLE_ORDER_STATUSES = new Set([
+  "In Production",
+  "Ready",
+  "Delivery",
+  "Delivered",
+  "Completed",
+  "Cancelled",
+]);
+
+function appendStatusHistory(
+  currentValue: unknown,
+  params: {
+    status: string;
+    note: string;
+    userId: number | null;
+    actorName: string;
+  },
+) {
+  const currentHistory = asArrayOfRecords(parseJsonField(currentValue)).map((entry) => ({
+    ...entry,
+    id: asString(entry.id),
+    status: asString(entry.status),
+    timestamp: asString(entry.timestamp),
+    note: asString(entry.note),
+    userId: asPositiveIntOrNull(entry.userId),
+    actorName: asString(entry.actorName),
+  }));
+
+  return [
+    ...currentHistory,
+    {
+      id: `log-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      status: params.status,
+      timestamp: new Date().toISOString(),
+      note: params.note,
+      userId: params.userId,
+      actorName: params.actorName,
+    },
+  ];
+}
 
 /**
  * Handler GET untuk memuat detail lengkap sebuah order bakery beserta
@@ -245,6 +288,151 @@ export async function GET(
     console.error("GET /api/bookings/orders/[id] error:", error);
     return NextResponse.json(
       { error: "Gagal memuat detail pesanan." },
+      { status: 500 },
+    );
+  }
+}
+
+export async function PATCH(
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> },
+) {
+  try {
+    const { businessId, userId, role } = await requireAuth();
+    const { id } = await context.params;
+
+    if (!id) {
+      return NextResponse.json({ error: "Order ID tidak valid." }, { status: 400 });
+    }
+
+    const body = (await request.json().catch(() => ({}))) as {
+      orderStatus?: unknown;
+      actorName?: unknown;
+    };
+    const requestedStatus = normalizeOrderStatus(asString(body.orderStatus));
+
+    if (!PATCHABLE_ORDER_STATUSES.has(requestedStatus)) {
+      return NextResponse.json(
+        { error: "Status order tidak valid untuk disimpan." },
+        { status: 400 },
+      );
+    }
+
+    const rows = await prisma.$queryRaw<
+      Array<{
+        external_id: string;
+        order_uuid: string | null;
+        order_status: string | null;
+        status_history: unknown;
+        assigned_staff_user_id: number | null;
+      }>
+    >`
+      SELECT
+        external_id,
+        order_uuid,
+        order_status,
+        status_history,
+        assigned_staff_user_id
+      FROM bakery_orders
+      WHERE business_id = ${businessId}
+        AND external_id = ${id}
+      LIMIT 1
+    `;
+
+    if (rows.length === 0) {
+      return NextResponse.json(
+        { error: "Order tidak ditemukan atau Anda tidak memiliki akses." },
+        { status: 404 },
+      );
+    }
+
+    const existingOrder = rows[0];
+    const currentStatus = normalizeOrderStatus(existingOrder.order_status);
+    if (currentStatus === requestedStatus) {
+      return NextResponse.json({
+        success: true,
+        data: {
+          orderStatus: requestedStatus,
+          statusHistory: asArrayOfRecords(parseJsonField(existingOrder.status_history)),
+          updatedAt: new Date().toISOString(),
+        },
+      });
+    }
+
+    const roleName = String(role);
+    const isPrivilegedRequest = roleName === "Owner" || roleName === "Admin";
+
+    if (!isPrivilegedRequest) {
+      const isAssignedStaff = existingOrder.assigned_staff_user_id === userId;
+      let ownsProductionStage = false;
+      const orderUuid = existingOrder.order_uuid;
+      const viewerStaffUuid = staffUuid(userId);
+
+      if (!isAssignedStaff && orderUuid && viewerStaffUuid) {
+        const stageRows = await prisma.$queryRaw<Array<{ count: number }>>`
+          SELECT COUNT(*)::int AS count
+          FROM production_tasks
+          WHERE order_id::text = ${orderUuid}
+            AND staff_id::text = ${viewerStaffUuid}
+        `;
+        ownsProductionStage = Number(stageRows[0]?.count ?? 0) > 0;
+      }
+
+      if (!isAssignedStaff && !ownsProductionStage) {
+        throw new ForbiddenError(
+          "Anda tidak diizinkan mengubah status order ini.",
+        );
+      }
+    }
+
+    const actorName = asString(body.actorName).trim() || `User #${userId}`;
+    const note =
+      requestedStatus === "In Production"
+        ? "Order masuk produksi"
+        : `Status changed to ${requestedStatus}`;
+    const nextStatusHistory = appendStatusHistory(existingOrder.status_history, {
+      status: requestedStatus,
+      note,
+      userId,
+      actorName,
+    });
+
+    await prisma.$executeRaw`
+      UPDATE bakery_orders
+      SET
+        order_status = ${requestedStatus},
+        status_history = ${JSON.stringify(nextStatusHistory)}::jsonb,
+        updated_at = NOW()
+      WHERE business_id = ${businessId}
+        AND external_id = ${id}
+    `;
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        orderStatus: requestedStatus,
+        statusHistory: nextStatusHistory,
+        updatedAt: new Date().toISOString(),
+      },
+    });
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+
+    if (error instanceof ForbiddenError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
+
+    if (isPrismaConnectionTimeout(error)) {
+      return prismaConnectionErrorResponse(
+        "Koneksi database timeout saat menyimpan status order bakery.",
+      );
+    }
+
+    console.error("PATCH /api/bookings/orders/[id] error:", error);
+    return NextResponse.json(
+      { error: "Gagal menyimpan status pesanan." },
       { status: 500 },
     );
   }
