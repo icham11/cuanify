@@ -19,6 +19,11 @@ import { useBusiness } from "@/context/BusinessContext";
 import { useRole } from "@/context/RoleContext";
 import { useBakerySettings } from "@/hooks/useBakerySettings";
 import {
+  getLateOrders,
+  LATE_ORDERS_PAGE_SIZE,
+  paginateItems,
+} from "@/lib/bakery/dashboard-orders";
+import {
   buildCashFlowBreakdownForDate,
   buildCashFlowHistory,
   type CashFlowHistoryEntry,
@@ -27,7 +32,11 @@ import {
 import { BAKERY_STAFF_DAILY_TOKEN_LIMIT } from "@/lib/bookings/config";
 import { getStaffTokenLimitForUser } from "@/lib/bakery/token-limits";
 import { summarizeProductionTokensByItems } from "@/lib/bookings/operations";
-import { normalizeOrderStatus } from "@/lib/bookings/order-status";
+import {
+  isClosedOrderStatus,
+  isFulfilledOrderStatus,
+  normalizeOrderStatus,
+} from "@/lib/bookings/order-status";
 import { getJakartaTodayIsoDate } from "@/lib/bookings/shipping-schedule";
 import { TEAM_MEMBERS_UPDATED_EVENT } from "@/lib/staff/events";
 
@@ -136,8 +145,10 @@ export default function BakeryDashboardPage() {
   const [staffRoleFilter, setStaffRoleFilter] = useState<"all" | "staff" | "admin">("all");
   const [staffSearch, setStaffSearch] = useState("");
   const [isCashInModalOpen, setIsCashInModalOpen] = useState(false);
+  const [isLateOrdersModalOpen, setIsLateOrdersModalOpen] = useState(false);
   const [cashFlowView, setCashFlowView] = useState<"today" | "history">("today");
   const [selectedCashFlowDate, setSelectedCashFlowDate] = useState(today);
+  const [lateOrdersPage, setLateOrdersPage] = useState(1);
   const [attendanceSummary, setAttendanceSummary] =
     useState<DashboardAttendanceState | null>(null);
   const [isAttendanceLoading, setIsAttendanceLoading] = useState(false);
@@ -262,10 +273,7 @@ export default function BakeryDashboardPage() {
 
   const activeOrders = useMemo(
     () =>
-      orders.filter((order) => {
-        const status = normalizeOrderStatus(order.orderStatus);
-        return !["Completed", "Delivered", "Cancelled"].includes(status);
-      }),
+      orders.filter((order) => !isClosedOrderStatus(order.orderStatus)),
     [orders],
   );
 
@@ -276,8 +284,7 @@ export default function BakeryDashboardPage() {
 
     return orders.filter((order) => {
       if (!order.deliveryDate) return false;
-      const status = normalizeOrderStatus(order.orderStatus);
-      if (!["Completed", "Delivered", "Delivery"].includes(status)) return false;
+      if (!isFulfilledOrderStatus(order.orderStatus)) return false;
 
       const date = new Date(`${order.deliveryDate}T00:00:00`);
       return date.getFullYear() === year && date.getMonth() === month;
@@ -285,22 +292,22 @@ export default function BakeryDashboardPage() {
   }, [orders]);
 
   const lateOrders = useMemo(
-    () =>
-      orders.filter((order) => {
-        const status = normalizeOrderStatus(order.orderStatus);
-        return order.deliveryDate < today && !["Completed", "Delivered", "Cancelled"].includes(status);
-      }),
+    () => getLateOrders(orders, today),
     [orders, today],
   );
 
   const todayOrders = useMemo(
     () =>
       orders.filter((order) => {
-        const status = normalizeOrderStatus(order.orderStatus);
-        return order.deliveryDate === today && !["Completed", "Delivered", "Cancelled"].includes(status);
+        return order.deliveryDate === today && !isClosedOrderStatus(order.orderStatus);
       }),
     [orders, today],
   );
+  const lateOrdersPagination = useMemo(
+    () => paginateItems(lateOrders, lateOrdersPage, LATE_ORDERS_PAGE_SIZE),
+    [lateOrders, lateOrdersPage],
+  );
+  const paginatedLateOrders = lateOrdersPagination.items;
 
   const todayPayments = useMemo(() => {
     return orders.flatMap((order) =>
@@ -334,6 +341,16 @@ export default function BakeryDashboardPage() {
     setCashFlowView("today");
     setSelectedCashFlowDate(today);
   }, [isCashInModalOpen, today]);
+
+  useEffect(() => {
+    setLateOrdersPage(1);
+  }, [lateOrders.length]);
+
+  useEffect(() => {
+    if (lateOrders.length === 0) {
+      setIsLateOrdersModalOpen(false);
+    }
+  }, [lateOrders.length]);
 
   const upcomingDeliveries = useMemo(
     () =>
@@ -429,12 +446,12 @@ export default function BakeryDashboardPage() {
           completedOrderIds: new Set<string>(),
         };
 
-        if (!["Completed", "Delivered", "Cancelled"].includes(status)) {
+        if (!isClosedOrderStatus(status)) {
           current.todayToken += assignment.token;
           current.activeOrderIds.add(order.id);
         }
 
-        if (["Completed", "Delivered"].includes(status)) {
+        if (isFulfilledOrderStatus(status)) {
           current.completedOrderIds.add(order.id);
         }
 
@@ -585,6 +602,20 @@ export default function BakeryDashboardPage() {
       setIsAttendanceSubmitting(false);
     }
   }, [today]);
+
+  const openLateOrdersModal = useCallback(() => {
+    if (lateOrders.length === 0) return;
+    setLateOrdersPage(1);
+    setIsLateOrdersModalOpen(true);
+  }, [lateOrders.length]);
+
+  const handleLateOrderClick = useCallback(
+    (orderId: string) => {
+      setIsLateOrdersModalOpen(false);
+      router.push(`/bakery/bookings/${orderId}`);
+    },
+    [router],
+  );
 
   return (
     <div className="mx-auto max-w-7xl space-y-4 pb-10">
@@ -838,7 +869,7 @@ export default function BakeryDashboardPage() {
               tabIndex={card.key === "late" ? 0 : undefined}
               onClick={
                 card.key === "late"
-                  ? () => router.push("/bakery/bookings")
+                  ? () => openLateOrdersModal()
                   : undefined
               }
               onKeyDown={
@@ -846,7 +877,7 @@ export default function BakeryDashboardPage() {
                   ? (event) => {
                       if (event.key === "Enter" || event.key === " ") {
                         event.preventDefault();
-                        router.push("/bakery/bookings");
+                        openLateOrdersModal();
                       }
                     }
                   : undefined
@@ -955,11 +986,11 @@ export default function BakeryDashboardPage() {
         <div
           role="button"
           tabIndex={0}
-          onClick={() => router.push("/bakery/bookings")}
+          onClick={() => openLateOrdersModal()}
           onKeyDown={(event) => {
             if (event.key === "Enter" || event.key === " ") {
               event.preventDefault();
-              router.push("/bakery/bookings");
+              openLateOrdersModal();
             }
           }}
           className="cursor-pointer rounded-[22px] border border-[#e8a0a0] bg-[#fdeaea] px-4 py-3 shadow-[0_12px_24px_-22px_rgba(168,48,48,0.6)] transition hover:bg-[#fff1f1]"
@@ -974,6 +1005,109 @@ export default function BakeryDashboardPage() {
               .map((order) => `${order.customerName || "Customer"} (${formatDisplayDate(order.deliveryDate)})`)
               .join(" - ")}
           </p>
+        </div>
+      ) : null}
+
+      {isLateOrdersModalOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4 py-6">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Daftar order terlambat"
+            className="w-full max-w-2xl rounded-[28px] border border-[#f0c6c1] bg-[var(--crumbella-surface)] shadow-[0_30px_60px_-28px_rgba(168,48,48,0.45)]"
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-[#f2d6d2] px-4 py-4">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#a83030]">
+                  Order Terlambat
+                </p>
+                <p className="mt-1 text-[1.5rem] font-extrabold leading-none text-[var(--foreground)]">
+                  {lateOrders.length} order perlu perhatian
+                </p>
+                <p className="mt-1 text-[11px] text-[var(--crumbella-muted)]">
+                  Klik order untuk buka detail booking dan ubah status menjadi completed.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsLateOrdersModalOpen(false)}
+                className="flex h-9 w-9 items-center justify-center rounded-full border border-[var(--crumbella-border)] bg-white text-[var(--crumbella-muted)] transition hover:text-[var(--foreground)]"
+                aria-label="Tutup daftar order terlambat"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="max-h-[65vh] space-y-3 overflow-y-auto px-4 py-4">
+              {paginatedLateOrders.map((order) => {
+                const normalizedStatus = normalizeOrderStatus(order.orderStatus);
+
+                return (
+                  <button
+                    key={order.id}
+                    type="button"
+                    onClick={() => handleLateOrderClick(order.id)}
+                    className="w-full rounded-[22px] border border-[#f2d6d2] bg-white px-4 py-3 text-left shadow-[0_12px_24px_-24px_rgba(30,18,10,0.55)] transition hover:border-[#e8a0a0] hover:bg-[#fff8f7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e8a0a0]"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-[14px] font-semibold text-[var(--foreground)]">
+                          {order.customerName || "Customer"}
+                        </p>
+                        <p className="mt-0.5 text-[11px] text-[var(--crumbella-muted)]">
+                          {order.bookingCode || order.resi || order.id}
+                        </p>
+                        <p className="mt-1 text-[11px] text-[#a83030]">
+                          Delivery {formatDisplayDate(order.deliveryDate)} - {order.deliverySlot || "-"}
+                        </p>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <span className="inline-flex rounded-full bg-[#fff1f1] px-2.5 py-1 text-[10px] font-semibold text-[#a83030]">
+                          {normalizedStatus}
+                        </span>
+                        <p className="mt-2 text-[10px] font-semibold text-[var(--crumbella-primary)]">
+                          Buka detail
+                        </p>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex items-center justify-between gap-3 border-t border-[#f2d6d2] px-4 py-4">
+              <p className="text-[11px] text-[var(--crumbella-muted)]">
+                Halaman {lateOrdersPagination.currentPage} dari {lateOrdersPagination.totalPages} - {LATE_ORDERS_PAGE_SIZE} order per halaman
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setLateOrdersPage((current) => Math.max(1, current - 1))
+                  }
+                  disabled={lateOrdersPagination.currentPage <= 1}
+                  className="inline-flex h-10 items-center justify-center rounded-full border border-[var(--crumbella-border)] bg-white px-4 text-xs font-semibold text-[var(--foreground)] transition disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  Sebelumnya
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setLateOrdersPage((current) =>
+                      Math.min(lateOrdersPagination.totalPages, current + 1),
+                    )
+                  }
+                  disabled={
+                    lateOrdersPagination.currentPage >=
+                    lateOrdersPagination.totalPages
+                  }
+                  className="inline-flex h-10 items-center justify-center rounded-full border border-[#e8a0a0] bg-[#fff1f1] px-4 text-xs font-semibold text-[#a83030] transition disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  Berikutnya
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       ) : null}
 

@@ -20,16 +20,28 @@ const CLOSED_ORDER_STATUSES = new Set([
   "Cancelled",
 ]);
 
+const FULFILLED_ORDER_STATUSES = new Set([
+  "Delivery",
+  "Delivered",
+  "Completed",
+]);
+
 export function normalizeOrderStatus(status?: string | null): string {
-  if (!status || LEGACY_PRE_PRODUCTION_STATUSES.has(status)) {
+  const normalized = typeof status === "string" ? status.trim() : "";
+
+  if (!normalized || LEGACY_PRE_PRODUCTION_STATUSES.has(normalized)) {
     return "In Production";
   }
 
-  if (status === "Delivered") {
+  if (normalized === "Delivered") {
     return "Delivery";
   }
 
-  return status;
+  if (normalized === "Complete") {
+    return "Completed";
+  }
+
+  return normalized;
 }
 
 export function isClosedOrderStatus(status?: string | null): boolean {
@@ -38,4 +50,8 @@ export function isClosedOrderStatus(status?: string | null): boolean {
 
 export function isOpenOrderStatus(status?: string | null): boolean {
   return !isClosedOrderStatus(status);
+}
+
+export function isFulfilledOrderStatus(status?: string | null): boolean {
+  return FULFILLED_ORDER_STATUSES.has(normalizeOrderStatus(status));
 }
