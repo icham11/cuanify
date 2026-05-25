@@ -560,7 +560,6 @@ function BusinessPageContent() {
   const totalOperationalCost =
     staffCost + adsCost + customExpenseTotal;
   const netProfit = viewState.currentProfit - totalOperationalCost;
-  const displayCogsCost = viewState.totalCost + viewState.cancelledCogsCost;
   const avatarLabel = getInitials(
     `${viewState.viewerName || "Owner"} ${viewState.businessName || ""}`,
   );
@@ -727,7 +726,7 @@ function BusinessPageContent() {
                     label="Return / Refund"
                     note={
                       viewState.cancelledOrdersCount > 0
-                        ? `${viewState.cancelledOrdersCount} order dibatalkan, HPP-nya dikembalikan dari biaya`
+                        ? `${viewState.cancelledOrdersCount} order dibatalkan, HPP-nya dipindahkan ke Return / Refund`
                         : "Belum ada Return / Refund pada periode ini"
                     }
                     amount={viewState.returnRefundAmount}
@@ -736,7 +735,7 @@ function BusinessPageContent() {
                   <BreakdownRow
                     label="COGS / HPP"
                     note="Klik untuk melihat penjabaran dari produk"
-                    amount={displayCogsCost}
+                    amount={viewState.totalCost}
                   >
                     {viewState.cogsBreakdown.length > 0 ? (
                       <div className="space-y-1.5 border-l-2 border-[#ead8cb] pl-3">

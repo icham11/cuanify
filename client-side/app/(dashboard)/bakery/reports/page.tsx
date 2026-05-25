@@ -453,8 +453,6 @@ export default function ReportsPage() {
 
   const totalRevenue = financialSummary.totalRevenue;
   const totalCashFlowIn = financialSummary.totalCashFlowIn;
-  const displayCogsCost =
-    financialSummary.cogsCost + financialSummary.cancelledCogsCost;
 
   const completedOrders = filteredOrders.filter((order) =>
     isCompletedOrderForReports(order.orderStatus),
@@ -897,7 +895,7 @@ export default function ReportsPage() {
             <ReportRow label="Total Revenue" value={formatCurrency(totalRevenue)} />
             <ReportRow
               label="COGS / HPP"
-              value={formatSignedCurrency(-displayCogsCost)}
+              value={formatSignedCurrency(-financialSummary.cogsCost)}
               valueClassName="text-[#cf4028]"
             />
             <ReportRow

@@ -548,18 +548,17 @@ export function calculateBakeryFinancialSummary(args: {
           cancelledCogsCost += itemCogs;
         } else {
           cogsCost += itemCogs;
+          const breakdownKey = `${productName}-${matchedCogs}`;
+          const currentBreakdown = cogsBreakdownMap.get(breakdownKey) ?? {
+            productName,
+            quantity: 0,
+            cogsPerItem: matchedCogs,
+            totalCogs: 0,
+          };
+          currentBreakdown.quantity += quantity * Math.max(0, recognitionRatio);
+          currentBreakdown.totalCogs += itemCogs;
+          cogsBreakdownMap.set(breakdownKey, currentBreakdown);
         }
-        
-        const breakdownKey = `${productName}-${matchedCogs}`;
-        const currentBreakdown = cogsBreakdownMap.get(breakdownKey) ?? {
-          productName,
-          quantity: 0,
-          cogsPerItem: matchedCogs,
-          totalCogs: 0,
-        };
-        currentBreakdown.quantity += quantity * Math.max(0, recognitionRatio);
-        currentBreakdown.totalCogs += itemCogs;
-        cogsBreakdownMap.set(breakdownKey, currentBreakdown);
       } else {
         itemsWithMissingCogs += 1;
       }
@@ -591,8 +590,10 @@ export function calculateBakeryFinancialSummary(args: {
     fromDate: args.fromDate,
     toDate: args.toDate,
   });
-  const totalCost = cogsCost + operational.totalOperationalCost;
-  const grossProfit = totalRevenue - cogsCost;
+  const returnRefundAmount = cancelledCogsCost;
+  const totalCost =
+    cogsCost + operational.totalOperationalCost - returnRefundAmount;
+  const grossProfit = totalRevenue - cogsCost + returnRefundAmount;
   const netProfit = totalRevenue - totalCost;
 
   return {
@@ -605,7 +606,7 @@ export function calculateBakeryFinancialSummary(args: {
     cogsCost,
     cancelledRevenue,
     cancelledCogsCost,
-    returnRefundAmount: cancelledCogsCost,
+    returnRefundAmount,
     totalOperationalCost: operational.totalOperationalCost,
     totalCost,
     grossProfit,

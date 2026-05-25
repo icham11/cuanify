@@ -89,7 +89,9 @@ describe("Revenue vs Cashflow Calculation", () => {
     expect(result.cogsCost).toBe(0);
     expect(result.cancelledCogsCost).toBe(5000);
     expect(result.returnRefundAmount).toBe(5000);
-    expect(result.netProfit).toBe(-300000);
+    expect(result.totalCost).toBe(-5000);
+    expect(result.netProfit).toBe(-295000);
+    expect(result.cogsBreakdown).toHaveLength(0);
   });
 
   it("should recognize delivered revenue even when payment is still partial", () => {
