@@ -2722,11 +2722,18 @@ export function OrdersProvider({
       } catch (error) {
         console.error("Gagal menghapus order:", error);
         toast.error(error instanceof Error ? error.message : "Gagal menghapus order");
-        void replaceLocalOrdersWithServer(latestOrders);
+        if (typeof window !== "undefined" && syncDebounceTimerRef.current) {
+          window.clearTimeout(syncDebounceTimerRef.current);
+          syncDebounceTimerRef.current = null;
+        }
+        syncQueuedOrdersRef.current = null;
+        syncRollbackSnapshotRef.current = null;
+        syncChangedOrderIdsRef.current.clear();
+        persistOrders(latestOrders, { syncToServer: false });
         throw error;
       }
     },
-    [getLatestOrdersSnapshot, persistOrders, replaceLocalOrdersWithServer],
+    [getLatestOrdersSnapshot, persistOrders],
   );
 
   const updateOrderStatus = useCallback(

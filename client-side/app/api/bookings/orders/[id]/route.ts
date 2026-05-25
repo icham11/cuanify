@@ -513,7 +513,8 @@ export async function DELETE(
       return NextResponse.json({ error: error.message }, { status: 403 });
     }
     console.error("DELETE /api/bookings/orders/[id] error:", error);
-    require("fs").writeFileSync(require("path").join(process.cwd(), "last-error.log"), String(error?.stack || error));
+    const errorDetails = error instanceof Error ? (error.stack ?? error.message) : String(error);
+    require("fs").writeFileSync(require("path").join(process.cwd(), "last-error.log"), errorDetails);
     return NextResponse.json(
       { error: "Gagal menghapus pesanan." },
       { status: 500 },
