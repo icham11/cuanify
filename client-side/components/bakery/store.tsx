@@ -2714,6 +2714,10 @@ export function OrdersProvider({
           throw new Error(body.error || "Gagal menghapus order di server.");
         }
         
+        invalidateApiCache(
+          /\/api\/(bookings\/orders|bakery\/settings|products|businesses|sales|ingredients|debts)/,
+        );
+        
         toast.success("Order berhasil dihapus");
       } catch (error) {
         console.error("Gagal menghapus order:", error);
