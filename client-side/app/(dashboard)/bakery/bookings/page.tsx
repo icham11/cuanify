@@ -17,12 +17,19 @@ import {
 
 type CourierFilter = "" | "grab-gojek" | "paxel";
 type OrderSourceFilter = "" | "customer" | "admin";
-type SavedView = "all" | "active" | "today" | "tomorrow" | "production";
+type SavedView =
+  | "all"
+  | "active"
+  | "late"
+  | "today"
+  | "tomorrow"
+  | "production";
 type SortOption = "delivery-asc" | "delivery-desc" | "name-asc" | "value-desc";
 
 const SAVED_VIEW_OPTIONS: SavedView[] = [
   "all",
   "active",
+  "late",
   "today",
   "tomorrow",
   "production",
@@ -147,20 +154,38 @@ export default function BookingListPage() {
   const PAGE_SIZE = 10;
   const linkedSource = searchParams.get("source");
   const isCalendarLinkedView = linkedSource === "calendar";
+  const fetchCurrentPageOrders = useMemo(
+    () => async (pageOverride = currentPage) =>
+      fetchPaginatedOrders({
+        page: pageOverride,
+        limit: PAGE_SIZE,
+        query,
+        status: statusFilter,
+        date: dateFilter,
+        view: activeSavedView,
+        today,
+      }),
+    [
+      activeSavedView,
+      currentPage,
+      dateFilter,
+      fetchPaginatedOrders,
+      query,
+      statusFilter,
+      today,
+    ],
+  );
 
   // Effect untuk me-load data paginated dari server-side dengan debounce pencarian
   useEffect(() => {
     let active = true;
-    setIsLoading(true);
 
     const debounceHandler = setTimeout(() => {
-      fetchPaginatedOrders({
-        page: currentPage,
-        limit: PAGE_SIZE,
-        query: query,
-        status: statusFilter,
-        date: dateFilter,
-      })
+      if (active) {
+        setIsLoading(true);
+      }
+
+      fetchCurrentPageOrders()
         .then((res) => {
           if (!active) return;
           setOrdersList(res.orders);
@@ -180,7 +205,7 @@ export default function BookingListPage() {
       active = false;
       clearTimeout(debounceHandler);
     };
-  }, [currentPage, query, statusFilter, dateFilter, fetchPaginatedOrders]);
+  }, [fetchCurrentPageOrders]);
 
   // Client-side sorting dari halaman ter-load
   const pagedOrders = useMemo(() => {
@@ -243,6 +268,50 @@ export default function BookingListPage() {
 
   const safeCurrentPage = Math.min(currentPage, totalPages);
 
+  const handleOrderDeleted = async () => {
+    const fallbackPage =
+      pagedOrders.length === 1 && currentPage > 1 ? currentPage - 1 : currentPage;
+
+    if (fallbackPage !== currentPage) {
+      setCurrentPage(fallbackPage);
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const res = await fetchCurrentPageOrders(fallbackPage);
+      setOrdersList(res.orders);
+      setTotalCount(res.pagination.totalCount);
+      setTotalPages(res.pagination.totalPages);
+    } catch (error) {
+      console.error("Gagal memuat ulang daftar pesanan setelah dihapus:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleOrderStatusUpdated = async () => {
+    const fallbackPage =
+      pagedOrders.length === 1 && currentPage > 1 ? currentPage - 1 : currentPage;
+
+    if (fallbackPage !== currentPage) {
+      setCurrentPage(fallbackPage);
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const res = await fetchCurrentPageOrders(fallbackPage);
+      setOrdersList(res.orders);
+      setTotalCount(res.pagination.totalCount);
+      setTotalPages(res.pagination.totalPages);
+    } catch (error) {
+      console.error("Gagal memuat ulang daftar pesanan setelah update status:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const resetFilters = () => {
     setQuery("");
     setStatusFilter("");
@@ -259,7 +328,7 @@ export default function BookingListPage() {
     setCurrentPage(1);
     setActiveSavedView(view);
 
-    if (view === "all" || view === "active") {
+    if (view === "all" || view === "active" || view === "late") {
       setStatusFilter("");
       setDateFilter("");
       return;
@@ -347,6 +416,13 @@ export default function BookingListPage() {
           </button>
           <button type="button" onClick={() => applySavedView("all")} className={quickChipClass(activeSavedView === "all")}>
             Semua
+          </button>
+          <button
+            type="button"
+            onClick={() => applySavedView("late")}
+            className={quickChipClass(activeSavedView === "late")}
+          >
+            Terlambat
           </button>
           <button type="button" onClick={() => applySavedView("today")} className={quickChipClass(activeSavedView === "today")}>
             Hari Ini
@@ -474,7 +550,11 @@ export default function BookingListPage() {
             </div>
           </div>
         ) : (
-          <OrderTable orders={pagedOrders} />
+          <OrderTable
+            orders={pagedOrders}
+            onOrderDeleted={handleOrderDeleted}
+            onOrderStatusUpdated={handleOrderStatusUpdated}
+          />
         )}
 
         {totalCount > PAGE_SIZE ? (

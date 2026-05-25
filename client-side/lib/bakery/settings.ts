@@ -53,7 +53,7 @@ export interface BakeryOperationalExpenseSetting {
   monthKey: string;
   name: string;
   amount: number;
-  category: "refund" | "ads" | "custom";
+  category: "ads" | "custom";
   note: string;
 }
 
@@ -236,17 +236,15 @@ function normalizeMonthlyExpenses(
       if (!monthKey) return null;
 
       const category =
-        record.category === "refund" || record.category === "ads" || record.category === "custom"
+        record.category === "ads" || record.category === "custom"
           ? record.category
           : "custom";
       const name =
         typeof record.name === "string" && record.name.trim().length > 0
           ? record.name.trim()
-          : category === "refund"
-            ? "Retur / Refund"
-            : category === "ads"
-              ? "Biaya Iklan"
-              : "Biaya Custom";
+          : category === "ads"
+            ? "Biaya Iklan"
+            : "Biaya Custom";
 
       return {
         id:

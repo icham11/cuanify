@@ -4,7 +4,7 @@ import { useMemo, useState, useRef } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { MessageCircle, Pencil, Trash2, Loader2, X } from "lucide-react";
+import { MessageCircle, Pencil, Trash2, Loader2 } from "lucide-react";
 import { useRole } from "@/context/RoleContext";
 
 import OrderHighlightBadge from "@/components/bakery/bookings/OrderHighlightBadge";
@@ -27,6 +27,8 @@ import {
 
 interface OrderTableProps {
   orders: BakeryOrder[];
+  onOrderDeleted?: () => void | Promise<void>;
+  onOrderStatusUpdated?: () => void | Promise<void>;
 }
 
 type Highlight = {
@@ -210,7 +212,11 @@ function DeleteConfirmModal({
   );
 }
 
-export default function OrderTable({ orders }: OrderTableProps) {
+export default function OrderTable({
+  orders,
+  onOrderDeleted,
+  onOrderStatusUpdated,
+}: OrderTableProps) {
   const { settings } = useBakerySettings();
   const { getCustomerMessagePreview, updateOrderStatus, updatePaymentStatus } =
     useOrders();
@@ -432,6 +438,7 @@ export default function OrderTable({ orders }: OrderTableProps) {
                     setPendingStatusOrderId(order.id);
                     try {
                       await updateOrderStatus(order.id, nextStatus);
+                      await onOrderStatusUpdated?.();
                     } catch {
                       // Toast sudah ditangani store; hindari unhandled rejection di UI tabel.
                     } finally {
@@ -502,7 +509,10 @@ export default function OrderTable({ orders }: OrderTableProps) {
         <DeleteConfirmModal
           order={deleteModal}
           onClose={() => setDeleteModal(null)}
-          onDeleted={() => setDeleteModal(null)}
+          onDeleted={async () => {
+            setDeleteModal(null);
+            await onOrderDeleted?.();
+          }}
         />
       )}
     </div>

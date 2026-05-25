@@ -8,13 +8,17 @@ import { Input } from "@/components/ui/input";
 import { formatCurrency } from "@/components/orders/formatters";
 import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 import { generateExcel } from "@/lib/export/excel";
-import { useOrders } from "@/components/bakery/store";
+import { useOrders, type BakeryOrder } from "@/components/bakery/store";
 import { calculateOrderTokenFromItems } from "@/lib/bookings/order-token-calculator";
 import {
   calculateBakeryFinancialSummary,
   getMonthKeyFromDateValue,
   type BakeryFinancialOrder,
 } from "@/lib/bakery/financial-summary";
+import {
+  isCompletedOrderForReports,
+  isLateOrderForReports,
+} from "@/lib/bakery/reports-orders";
 import type { BakeryBusinessSettings } from "@/lib/bakery/settings";
 import type { Product } from "@/types/product";
 import { useRole } from "@/context/RoleContext";
@@ -103,6 +107,56 @@ function formatMonthLabel(monthKey: string) {
 function parseNumericId(value: unknown): number | null {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function mapOrderToFinancialOrder(order: BakeryOrder): BakeryFinancialOrder {
+  return {
+    id: order.id,
+    deliveryDate: order.deliveryDate,
+    product: order.product,
+    totalPrice: order.totalPrice,
+    totalPaidAmount: order.totalPaidAmount,
+    dpPaidAmount: order.dpPaidAmount,
+    finalPaidAmount: order.finalPaidAmount,
+    paymentStatus: order.paymentStatus,
+    orderStatus: order.orderStatus,
+    paymentTransactions: order.paymentTransactions,
+    createdAt: order.createdAt,
+    updatedAt: order.updatedAt,
+    items: order.items,
+  };
+}
+
+function mergeFinancialOrdersForReports(
+  localOrders: BakeryOrder[],
+  serverOrders: BakeryFinancialOrder[] | null,
+): BakeryFinancialOrder[] {
+  if (!serverOrders || serverOrders.length === 0) {
+    return localOrders.map(mapOrderToFinancialOrder);
+  }
+
+  const merged = new Map<string, BakeryFinancialOrder>();
+  const fallbackOrders: BakeryFinancialOrder[] = [];
+
+  serverOrders.forEach((order) => {
+    const key = String(order.id || "").trim();
+    if (!key) {
+      fallbackOrders.push(order);
+      return;
+    }
+    merged.set(key, order);
+  });
+
+  localOrders.forEach((order) => {
+    const key = String(order.id || "").trim();
+    if (!key) {
+      fallbackOrders.push(mapOrderToFinancialOrder(order));
+      return;
+    }
+    merged.set(key, mapOrderToFinancialOrder(order));
+  });
+
+  return [...merged.values(), ...fallbackOrders];
 }
 
 function getOrderStaffTokenAssignments(order: {
@@ -351,32 +405,15 @@ export default function ReportsPage() {
   }, [orders, fromDate, toDate]);
 
   const today = toDateInputValue(new Date());
-  const lateOrders = filteredOrders.filter((order) => {
-    const status = normalizeOrderStatus(order.orderStatus);
-    return (
-      Boolean(order.deliveryDate) &&
-      order.deliveryDate < today &&
-      !["Delivered", "Completed", "Cancelled"].includes(status)
-    );
-  });
+  const lateOrders = useMemo(
+    () => filteredOrders.filter((order) => isLateOrderForReports(order, today)),
+    [filteredOrders, today],
+  );
 
   const totalOrders = filteredOrders.length;
 
   const financialOrders = useMemo<BakeryFinancialOrder[]>(
-    () =>
-      serverFinancialOrders ??
-      orders.map((order) => ({
-        deliveryDate: order.deliveryDate,
-        product: order.product,
-        totalPrice: order.totalPrice,
-        totalPaidAmount: order.totalPaidAmount,
-        dpPaidAmount: order.dpPaidAmount,
-        finalPaidAmount: order.finalPaidAmount,
-        paymentStatus: order.paymentStatus,
-        orderStatus: order.orderStatus,
-        paymentTransactions: order.paymentTransactions,
-        items: order.items,
-      })),
+    () => mergeFinancialOrdersForReports(orders, serverFinancialOrders),
     [orders, serverFinancialOrders],
   );
 
@@ -413,7 +450,7 @@ export default function ReportsPage() {
   const totalCashFlowIn = financialSummary.totalCashFlowIn;
 
   const completedOrders = filteredOrders.filter((order) =>
-    ["Completed", "Delivered"].includes(normalizeOrderStatus(order.orderStatus)),
+    isCompletedOrderForReports(order.orderStatus),
   ).length;
   const avgOrderValue =
     totalOrders > 0 ? Math.round(financialSummary.bookedRevenue / totalOrders) : 0;

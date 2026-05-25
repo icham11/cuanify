@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import fs from "fs";
+import path from "path";
+import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { AuthError, ForbiddenError, requireAuth } from "@/lib/auth/session";
 import { isPrismaConnectionTimeout, prismaConnectionErrorResponse } from "@/lib/prisma-errors";
@@ -31,6 +34,7 @@ import { getProductionStagePercentagesFromTemplates, resolvePrimaryProductionCat
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+const SNAPSHOT_SOURCE_TYPE = "bakery_orders_snapshot";
 
 const PATCHABLE_ORDER_STATUSES = new Set([
   "In Production",
@@ -71,6 +75,163 @@ function appendStatusHistory(
       actorName: params.actorName,
     },
   ];
+}
+
+type SnapshotStore =
+  | Pick<typeof prisma, "businessDocument">
+  | Pick<Prisma.TransactionClient, "businessDocument">;
+
+function parseSnapshotOrders(content: string | null | undefined): unknown[] {
+  if (!content) return [];
+  try {
+    const parsed = JSON.parse(content) as unknown;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+async function removeOrderFromSnapshot(
+  db: SnapshotStore,
+  params: {
+    businessId: number;
+    orderId: string;
+  },
+) {
+  const existingSnapshot = await db.businessDocument.findFirst({
+    where: {
+      businessId: params.businessId,
+      sourceType: SNAPSHOT_SOURCE_TYPE,
+    },
+    orderBy: { updatedAt: "desc" },
+    select: {
+      id: true,
+      content: true,
+      metadata: true,
+    },
+  });
+
+  if (!existingSnapshot) return;
+
+  const currentOrders = parseSnapshotOrders(existingSnapshot.content);
+  const nextOrders = currentOrders.filter((entry) => {
+    const record = asRecord(entry);
+    return record?.id !== params.orderId;
+  });
+
+  if (nextOrders.length === currentOrders.length) return;
+
+  const metadataRecord = asRecord(existingSnapshot.metadata) ?? {};
+  await db.businessDocument.update({
+    where: { id: existingSnapshot.id },
+    data: {
+      content: JSON.stringify(nextOrders),
+      metadata: {
+        ...metadataRecord,
+        itemCount: nextOrders.length,
+        updatedAt: new Date().toISOString(),
+        source: "rows",
+      },
+    },
+  });
+}
+
+async function updateOrderStatusInSnapshot(
+  db: SnapshotStore,
+  params: {
+    businessId: number;
+    orderId: string;
+    orderStatus: string;
+    updatedAt: string;
+    statusHistory: unknown;
+  },
+) {
+  const existingSnapshot = await db.businessDocument.findFirst({
+    where: {
+      businessId: params.businessId,
+      sourceType: SNAPSHOT_SOURCE_TYPE,
+    },
+    orderBy: { updatedAt: "desc" },
+    select: {
+      id: true,
+      content: true,
+      metadata: true,
+    },
+  });
+
+  if (!existingSnapshot) return;
+
+  let hasChanged = false;
+  const currentOrders = parseSnapshotOrders(existingSnapshot.content);
+  const nextOrders = currentOrders.map((entry) => {
+    const record = asRecord(entry);
+    if (!record || record.id !== params.orderId) return entry;
+    hasChanged = true;
+    return {
+      ...record,
+      orderStatus: params.orderStatus,
+      updatedAt: params.updatedAt,
+      statusHistory: params.statusHistory,
+    };
+  });
+
+  if (!hasChanged) return;
+
+  const metadataRecord = asRecord(existingSnapshot.metadata) ?? {};
+  await db.businessDocument.update({
+    where: { id: existingSnapshot.id },
+    data: {
+      content: JSON.stringify(nextOrders),
+      metadata: {
+        ...metadataRecord,
+        itemCount: nextOrders.length,
+        updatedAt: params.updatedAt,
+        source: "rows",
+      },
+    },
+  });
+}
+
+async function recalculateProductionCapacityForDate(
+  tx: Prisma.TransactionClient,
+  params: {
+    businessId: number;
+    deliveryDate: string;
+  },
+) {
+  const INACTIVE_STATUSES = ["Completed", "Delivered", "Cancelled", "Inquiry"];
+  await tx.$executeRaw`
+    WITH daily_totals AS (
+      SELECT delivery_date::date as delivery_date, COALESCE(SUM(token_used), 0) AS total_token_amount
+      FROM bakery_orders
+      WHERE business_id = ${params.businessId}
+        AND delivery_date::date = ${params.deliveryDate}::date
+        AND deleted_at IS NULL
+        AND order_status NOT IN (${INACTIVE_STATUSES[0]}, ${INACTIVE_STATUSES[1]}, ${INACTIVE_STATUSES[2]}, ${INACTIVE_STATUSES[3]})
+      GROUP BY delivery_date::date
+    )
+    UPDATE production_capacity
+    SET
+      used_token = COALESCE((SELECT total_token_amount FROM daily_totals LIMIT 1), 0),
+      updated_at = NOW()
+    WHERE business_id = ${params.businessId}
+      AND date = ${params.deliveryDate}::date
+  `;
+
+  await tx.$executeRaw`
+    UPDATE production_capacity
+    SET used_token = 0, updated_at = NOW()
+    WHERE business_id = ${params.businessId}
+      AND date = ${params.deliveryDate}::date
+      AND NOT EXISTS (
+        SELECT 1
+        FROM bakery_orders
+        WHERE business_id = ${params.businessId}
+          AND delivery_date::date = ${params.deliveryDate}::date
+          AND deleted_at IS NULL
+          AND order_status NOT IN (${INACTIVE_STATUSES[0]}, ${INACTIVE_STATUSES[1]}, ${INACTIVE_STATUSES[2]}, ${INACTIVE_STATUSES[3]})
+      )
+  `;
 }
 
 /**
@@ -198,7 +359,7 @@ export async function GET(
     const stageRows = await prisma.$queryRaw<DbProductionStageRow[]>`
       SELECT order_id::text AS order_id, stage, staff_id::text AS staff_id, token_amount
       FROM production_tasks
-      WHERE order_id::text = ${orderUuid}
+      WHERE order_id = ${orderUuid}::uuid
       ORDER BY stage ASC
     `;
 
@@ -324,6 +485,7 @@ export async function PATCH(
         external_id: string;
         order_uuid: string | null;
         order_status: string | null;
+        delivery_date: string | null;
         status_history: unknown;
         assigned_staff_user_id: number | null;
       }>
@@ -332,6 +494,7 @@ export async function PATCH(
         external_id,
         order_uuid,
         order_status,
+        delivery_date,
         status_history,
         assigned_staff_user_id
       FROM bakery_orders
@@ -373,8 +536,8 @@ export async function PATCH(
         const stageRows = await prisma.$queryRaw<Array<{ count: number }>>`
           SELECT COUNT(*)::int AS count
           FROM production_tasks
-          WHERE order_id::text = ${orderUuid}
-            AND staff_id::text = ${viewerStaffUuid}
+          WHERE order_id = ${orderUuid}::uuid
+            AND staff_id = ${viewerStaffUuid}::uuid
         `;
         ownsProductionStage = Number(stageRows[0]?.count ?? 0) > 0;
       }
@@ -397,23 +560,47 @@ export async function PATCH(
       userId,
       actorName,
     });
+    const nextUpdatedAt = new Date().toISOString();
 
-    await prisma.$executeRaw`
-      UPDATE bakery_orders
-      SET
-        order_status = ${requestedStatus},
-        status_history = ${JSON.stringify(nextStatusHistory)}::jsonb,
-        updated_at = NOW()
-      WHERE business_id = ${businessId}
-        AND external_id = ${id}
-    `;
+    await prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`
+          UPDATE bakery_orders
+          SET
+            order_status = ${requestedStatus},
+            status_history = ${JSON.stringify(nextStatusHistory)}::jsonb,
+            updated_at = NOW()
+          WHERE business_id = ${businessId}
+            AND external_id = ${id}
+        `;
+
+        await updateOrderStatusInSnapshot(tx, {
+          businessId,
+          orderId: id,
+          orderStatus: requestedStatus,
+          updatedAt: nextUpdatedAt,
+          statusHistory: nextStatusHistory,
+        });
+
+        if (existingOrder.delivery_date) {
+          await recalculateProductionCapacityForDate(tx, {
+            businessId,
+            deliveryDate: existingOrder.delivery_date,
+          });
+        }
+      },
+      {
+        maxWait: 10_000,
+        timeout: 60_000,
+      },
+    );
 
     return NextResponse.json({
       success: true,
       data: {
         orderStatus: requestedStatus,
         statusHistory: nextStatusHistory,
-        updatedAt: new Date().toISOString(),
+        updatedAt: nextUpdatedAt,
       },
     });
   } catch (error) {
@@ -456,8 +643,10 @@ export async function DELETE(
       throw new ForbiddenError("Hanya Owner yang dapat menghapus order.");
     }
 
-    const rows = await prisma.$queryRaw<Array<{ delivery_date: string | null }>>`
-      SELECT delivery_date
+    const rows = await prisma.$queryRaw<
+      Array<{ delivery_date: string | null; order_uuid: string | null }>
+    >`
+      SELECT delivery_date, order_uuid
       FROM bakery_orders
       WHERE business_id = ${businessId}
         AND external_id = ${id}
@@ -473,36 +662,79 @@ export async function DELETE(
     }
 
     const deliveryDate = rows[0].delivery_date;
+    const orderUuid = rows[0].order_uuid ?? orderTaskUuid(businessId, id);
 
-    await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`
-        UPDATE bakery_orders
-        SET deleted_at = NOW(), updated_at = NOW()
-        WHERE business_id = ${businessId}
-          AND external_id = ${id}
-      `;
-
-      if (deliveryDate) {
-        const INACTIVE_STATUSES = ["Completed", "Delivered", "Cancelled", "Inquiry"];
+    await prisma.$transaction(
+      async (tx) => {
         await tx.$executeRaw`
-          WITH daily_totals AS (
-            SELECT delivery_date::date as delivery_date, COALESCE(SUM(token_used), 0) AS total_token_amount
-            FROM bakery_orders
-            WHERE business_id = ${businessId}
-              AND delivery_date::date = ${deliveryDate}::date
-              AND deleted_at IS NULL
-              AND order_status NOT IN (${INACTIVE_STATUSES[0]}, ${INACTIVE_STATUSES[1]}, ${INACTIVE_STATUSES[2]}, ${INACTIVE_STATUSES[3]})
-            GROUP BY delivery_date::date
-          )
-          UPDATE production_capacity
-          SET
-            used_token = COALESCE((SELECT total_token_amount FROM daily_totals LIMIT 1), 0),
-            updated_at = NOW()
-          WHERE business_id = ${businessId}
-            AND date = ${deliveryDate}::date
+          DELETE FROM production_tasks
+          WHERE order_id = ${orderUuid}::uuid
         `;
-      }
-    });
+
+        await tx.$executeRaw`
+          DELETE FROM bakery_order_items
+          WHERE business_id = ${businessId}
+            AND order_external_id = ${id}
+        `;
+
+        await tx.$executeRaw`
+          DELETE FROM bakery_order_addresses
+          WHERE business_id = ${businessId}
+            AND order_external_id = ${id}
+        `;
+
+        await tx.$executeRaw`
+          DELETE FROM bakery_orders
+          WHERE business_id = ${businessId}
+            AND external_id = ${id}
+        `;
+
+        await removeOrderFromSnapshot(tx, {
+          businessId,
+          orderId: id,
+        });
+
+        if (deliveryDate) {
+          const INACTIVE_STATUSES = ["Completed", "Delivered", "Cancelled", "Inquiry"];
+          await tx.$executeRaw`
+            WITH daily_totals AS (
+              SELECT delivery_date::date as delivery_date, COALESCE(SUM(token_used), 0) AS total_token_amount
+              FROM bakery_orders
+              WHERE business_id = ${businessId}
+                AND delivery_date::date = ${deliveryDate}::date
+                AND deleted_at IS NULL
+                AND order_status NOT IN (${INACTIVE_STATUSES[0]}, ${INACTIVE_STATUSES[1]}, ${INACTIVE_STATUSES[2]}, ${INACTIVE_STATUSES[3]})
+              GROUP BY delivery_date::date
+            )
+            UPDATE production_capacity
+            SET
+              used_token = COALESCE((SELECT total_token_amount FROM daily_totals LIMIT 1), 0),
+              updated_at = NOW()
+            WHERE business_id = ${businessId}
+              AND date = ${deliveryDate}::date
+          `;
+
+          await tx.$executeRaw`
+            UPDATE production_capacity
+            SET used_token = 0, updated_at = NOW()
+            WHERE business_id = ${businessId}
+              AND date = ${deliveryDate}::date
+              AND NOT EXISTS (
+                SELECT 1
+                FROM bakery_orders
+                WHERE business_id = ${businessId}
+                  AND delivery_date::date = ${deliveryDate}::date
+                  AND deleted_at IS NULL
+                  AND order_status NOT IN (${INACTIVE_STATUSES[0]}, ${INACTIVE_STATUSES[1]}, ${INACTIVE_STATUSES[2]}, ${INACTIVE_STATUSES[3]})
+              )
+          `;
+        }
+      },
+      {
+        maxWait: 10_000,
+        timeout: 60_000,
+      },
+    );
 
     return NextResponse.json({ success: true });
   } catch (error) {
@@ -514,7 +746,7 @@ export async function DELETE(
     }
     console.error("DELETE /api/bookings/orders/[id] error:", error);
     const errorDetails = error instanceof Error ? (error.stack ?? error.message) : String(error);
-    require("fs").writeFileSync(require("path").join(process.cwd(), "last-error.log"), errorDetails);
+    fs.writeFileSync(path.join(process.cwd(), "last-error.log"), errorDetails);
     return NextResponse.json(
       { error: "Gagal menghapus pesanan." },
       { status: 500 },

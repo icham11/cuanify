@@ -22,6 +22,7 @@ import {
   isPastDate,
 } from "@/lib/calendar/getCalendarStatus";
 import { normalizeDateInput } from "@/lib/helpers/date-normalization";
+import { getJakartaTodayIsoDate } from "@/lib/bookings/shipping-schedule";
 import {
   sendOrderToWhatsApp,
   type SendOrderToWhatsAppResult,
@@ -1278,6 +1279,8 @@ async function persistWhatsAppNotificationResults(params: {
 
 function toFinancialOrderItems(value: unknown) {
   return asArrayOfRecords(value).map((item) => ({
+    category: asString(item.category),
+    subcategory: asString(item.subcategory),
     productName: asString(item.productName),
     size: asString(item.size),
     quantity: asNumber(item.quantity),
@@ -2665,6 +2668,7 @@ export async function GET(request: NextRequest) {
     // 2. Parse query parameters dari URL
     const url = new URL(request.url);
     const mode = url.searchParams.get("mode") || "list";
+    const savedView = url.searchParams.get("view") || "all";
     const isFinancialMode = mode === "financial";
     const isCalendarMode = mode === "calendar";
     const isDashboardMode = mode === "dashboard";
@@ -2675,6 +2679,9 @@ export async function GET(request: NextRequest) {
     const dateFilter = url.searchParams.get("date") || "";
     const startDate = url.searchParams.get("startDate") || "";
     const endDate = url.searchParams.get("endDate") || "";
+    const todayFilter =
+      normalizeDateInput(url.searchParams.get("today") || "") ||
+      getJakartaTodayIsoDate();
 
     // Parameter pagination
     const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
@@ -2698,6 +2705,17 @@ export async function GET(request: NextRequest) {
 
       if (statusFilter) {
         whereClauses.push(Prisma.sql`order_status = ${statusFilter}`);
+      }
+      if (savedView === "active") {
+        whereClauses.push(
+          Prisma.sql`(order_status IS NULL OR order_status NOT IN ('Delivery', 'Delivered', 'Completed', 'Cancelled'))`,
+        );
+      }
+      if (savedView === "late") {
+        whereClauses.push(
+          Prisma.sql`delivery_date < ${todayFilter}
+            AND (order_status IS NULL OR order_status NOT IN ('Delivery', 'Delivered', 'Completed', 'Cancelled'))`,
+        );
       }
       if (dateFilter) {
         whereClauses.push(Prisma.sql`delivery_date = ${dateFilter}`);
@@ -2929,6 +2947,7 @@ export async function GET(request: NextRequest) {
         // Mode financial: kembalikan data ringkas langsung tanpa join tabel alamat & staff
         if (isFinancialMode) {
           const orders = orderRows.map((row) => ({
+            id: row.external_id,
             // Pertahankan string asli YYYY-MM-DD dari DB agar parsing tanggal di kalender/UI frontend tidak rusak/null
             deliveryDate: row.delivery_date ?? "",
             product: row.product ?? "",

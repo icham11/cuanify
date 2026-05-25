@@ -114,14 +114,6 @@ function timeStringToMinutes(value: string) {
 function defaultMonthlyExpenses(monthKey: string): EditableExpense[] {
   return [
     {
-      id: `${monthKey}-refund`,
-      monthKey,
-      name: "Retur / Refund",
-      amount: 0,
-      category: "refund",
-      note: "Catatan owner per bulan",
-    },
-    {
       id: `${monthKey}-ads`,
       monthKey,
       name: "Biaya Iklan",
@@ -428,7 +420,9 @@ export default function BakerySettingsPage() {
     setHasInitializedProductionStageProfiles(true);
 
     const monthExpenses = settings.monthlyExpenses.filter(
-      (entry) => entry.monthKey === currentMonthKey,
+      (entry) =>
+        entry.monthKey === currentMonthKey &&
+        String(entry.category) !== "refund",
     );
     setMonthlyExpenses(
       monthExpenses.length > 0
@@ -732,7 +726,9 @@ export default function BakerySettingsPage() {
     setIsSaving(true);
     try {
       const mergedMonthlyExpenses = mergeMonthlyExpensesForMonth({
-        allExpenses: settings?.monthlyExpenses ?? [],
+        allExpenses: (settings?.monthlyExpenses ?? []).filter(
+          (entry) => String(entry.category) !== "refund",
+        ),
         monthKey: currentMonthKey,
         monthExpenses: monthlyExpenses,
       });

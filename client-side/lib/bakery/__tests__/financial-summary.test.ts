@@ -433,4 +433,72 @@ describe("Revenue vs Cashflow Calculation", () => {
     expect(result.cogsCost).toBe(30333 + 9358 * 10 + 2300 * 3);
     expect(result.itemsWithMissingCogs).toBe(0);
   });
+
+  it("should count bouquet cookie-fill quantity as one bouquet unit in cogs", () => {
+    const bouquetProducts: BakeryFinancialProduct[] = [
+      { name: "Hand Bouquet (7-10 pcs)", cogs: 20000 },
+      { name: "Standing Bouquet (12-20 pcs)", cogs: 40000 },
+    ];
+    const orders: BakeryFinancialOrder[] = [
+      {
+        deliveryDate: "2024-05-10",
+        totalPrice: 150000,
+        totalPaidAmount: 150000,
+        paymentStatus: "Paid",
+        orderStatus: "Completed",
+        createdAt: new Date("2024-05-01"),
+        items: [
+          {
+            category: "Buket",
+            subcategory: "Hand Bouquet",
+            productName: "Hand Bouquet (7-10 pcs)",
+            quantity: 9,
+            basePrice: 150000,
+            lineTotal: 150000,
+          },
+        ],
+      },
+      {
+        deliveryDate: "2024-05-11",
+        totalPrice: 250000,
+        totalPaidAmount: 250000,
+        paymentStatus: "Paid",
+        orderStatus: "Completed",
+        createdAt: new Date("2024-05-01"),
+        items: [
+          {
+            category: "Buket",
+            subcategory: "Standing Bouquet",
+            productName: "Standing Bouquet (12-20 pcs)",
+            quantity: 12,
+            basePrice: 250000,
+            lineTotal: 250000,
+          },
+        ],
+      },
+    ];
+
+    const result = calculateBakeryFinancialSummary({
+      orders,
+      products: bouquetProducts,
+      fromDate: "2024-05-01",
+      toDate: "2024-05-31",
+    });
+
+    expect(result.cogsCost).toBe(60000);
+    expect(result.cogsBreakdown).toEqual([
+      {
+        productName: "Standing Bouquet (12-20 pcs)",
+        quantity: 1,
+        cogsPerItem: 40000,
+        totalCogs: 40000,
+      },
+      {
+        productName: "Hand Bouquet (7-10 pcs)",
+        quantity: 1,
+        cogsPerItem: 20000,
+        totalCogs: 20000,
+      },
+    ]);
+  });
 });

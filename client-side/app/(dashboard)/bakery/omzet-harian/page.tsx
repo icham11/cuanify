@@ -7,6 +7,10 @@ import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import { formatCurrency } from "@/components/orders/formatters";
 import { useRole } from "@/context/RoleContext";
 import {
+  BAKERY_ORDERS_STORAGE_KEY,
+  BAKERY_ORDERS_UPDATED_EVENT,
+} from "@/lib/bookings/client-events";
+import {
   BarChart3,
   CalendarClock,
   Coins,
@@ -192,6 +196,31 @@ export default function AdminDailyOmzetPage() {
     return () => {
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [canViewDailyOmzet, fetchDailyOmzet, roleLoading]);
+
+  useEffect(() => {
+    if (roleLoading || !canViewDailyOmzet) return;
+
+    const handleOrdersUpdated = () => {
+      void fetchDailyOmzet(true);
+    };
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === BAKERY_ORDERS_STORAGE_KEY) {
+        void fetchDailyOmzet(true);
+      }
+    };
+
+    window.addEventListener(BAKERY_ORDERS_UPDATED_EVENT, handleOrdersUpdated);
+    window.addEventListener("storage", handleStorage);
+
+    return () => {
+      window.removeEventListener(
+        BAKERY_ORDERS_UPDATED_EVENT,
+        handleOrdersUpdated,
+      );
+      window.removeEventListener("storage", handleStorage);
     };
   }, [canViewDailyOmzet, fetchDailyOmzet, roleLoading]);
 

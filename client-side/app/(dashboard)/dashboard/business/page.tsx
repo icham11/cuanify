@@ -15,6 +15,7 @@ import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import { BAKERY_SETTINGS_UPDATED_EVENT } from "@/hooks/useBakerySettings";
 import { apiFetch } from "@/lib/api/client";
 import { calculateBakeryFinancialSummary } from "@/lib/bakery/financial-summary";
+import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 import type { BakeryBusinessSettings } from "@/lib/bakery/settings";
 import type { Product } from "@/types/product";
 import { Building2, Download, Loader2, Trophy } from "lucide-react";
@@ -47,6 +48,8 @@ type ViewState = {
   currentRevenue: number;
   currentProfit: number;
   previousRevenue: number;
+  cancelledRevenue: number;
+  cancelledOrdersCount: number;
   totalCost: number;
   avgMargin: number;
   totalSalesCount: number;
@@ -68,6 +71,8 @@ const EMPTY_VIEW_STATE: ViewState = {
   currentRevenue: 0,
   currentProfit: 0,
   previousRevenue: 0,
+  cancelledRevenue: 0,
+  cancelledOrdersCount: 0,
   totalCost: 0,
   avgMargin: 0,
   totalSalesCount: 0,
@@ -166,6 +171,27 @@ function filterOrdersByDeliveryDateRange<
     if (toDate && deliveryDate > toDate) return false;
     return true;
   });
+}
+
+function mergeOrdersForBusinessView(
+  localOrders: BakeryOrder[],
+  serverOrders: BakeryOrder[],
+) {
+  const merged = new Map<string, BakeryOrder>();
+
+  serverOrders.forEach((order) => {
+    const key = String(order.id || "");
+    if (!key) return;
+    merged.set(key, order);
+  });
+
+  localOrders.forEach((order) => {
+    const key = String(order.id || "");
+    if (!key) return;
+    merged.set(key, order);
+  });
+
+  return Array.from(merged.values());
 }
 
 function buildExportCsv(args: {
@@ -368,7 +394,7 @@ function BusinessPageContent() {
         await Promise.all([
         safeApiFetch<BakerySettingsResponse>("/api/bakery/settings"),
         safeApiFetch<ProductsResponse>("/api/products?mode=financial&limit=999"),
-        safeApiFetch<OrdersResponse>("/api/bookings/orders", 20000),
+        safeApiFetch<OrdersResponse>("/api/bookings/orders?mode=financial", 20000),
       ]);
 
       if (!active) return;
@@ -378,9 +404,13 @@ function BusinessPageContent() {
 
       const bakerySettings = bakerySettingsPayload?.data ?? null;
       const products = productsPayload?.data ?? [];
-      const authoritativeOrders = Array.isArray(ordersPayload?.data?.orders)
+      const serverOrders = Array.isArray(ordersPayload?.data?.orders)
         ? ordersPayload.data.orders
-        : orders;
+        : [];
+      const authoritativeOrders = mergeOrdersForBusinessView(
+        orders,
+        serverOrders as BakeryOrder[],
+      );
       const deliveryRangeOrders = filterOrdersByDeliveryDateRange(
         authoritativeOrders,
         currentRange.startDate,
@@ -405,6 +435,18 @@ function BusinessPageContent() {
       const currentProfit = currentSummary.grossProfit;
       const totalCost = currentSummary.cogsCost;
       const previousRevenue = previousSummary.totalRevenue;
+      const cancelledOrders = authoritativeOrders.filter((order) => {
+        const deliveryDate = String(order.deliveryDate || "").trim();
+        if (!deliveryDate) return false;
+        if (deliveryDate < currentRange.startDate || deliveryDate > currentRange.endDate) {
+          return false;
+        }
+        return normalizeOrderStatus(order.orderStatus) === "Cancelled";
+      });
+      const cancelledRevenue = cancelledOrders.reduce(
+        (sum, order) => sum + Math.max(0, Number(order.totalPrice || 0)),
+        0,
+      );
       const avgMargin =
         currentRevenue > 0 ? (currentProfit / currentRevenue) * 100 : 0;
 
@@ -415,6 +457,8 @@ function BusinessPageContent() {
         currentRevenue,
         currentProfit,
         previousRevenue,
+        cancelledRevenue,
+        cancelledOrdersCount: cancelledOrders.length,
         totalCost,
         avgMargin,
         totalSalesCount: deliveryRangeOrders.length,
@@ -506,15 +550,16 @@ function BusinessPageContent() {
     (sum, entry) => sum + Number(entry.takeHomePay || 0),
     0,
   );
-  const refundCost = Number(expenseAmountByCategory.get("refund") ?? 0);
   const adsCost = Number(expenseAmountByCategory.get("ads") ?? 0);
   const customExpenseTotal = customExpenses.reduce(
     (sum, entry) => sum + Number(entry.amount || 0),
     0,
   );
   const totalOperationalCost =
-    staffCost + refundCost + adsCost + customExpenseTotal;
+    staffCost + adsCost + customExpenseTotal;
   const netProfit = viewState.currentProfit - totalOperationalCost;
+  const grossRevenueBeforeCancelled =
+    viewState.currentRevenue + viewState.cancelledRevenue;
   const avatarLabel = getInitials(
     `${viewState.viewerName || "Owner"} ${viewState.businessName || ""}`,
   );
@@ -669,8 +714,22 @@ function BusinessPageContent() {
                 <div className="overflow-hidden rounded-[18px] border border-[#dbcabc] bg-white shadow-[0_2px_10px_rgba(84,56,36,0.06)]">
                   <BreakdownRow
                     label="Revenue"
-                    amount={viewState.currentRevenue}
+                    note={
+                      viewState.cancelledRevenue > 0
+                        ? "Sebelum dikurangi order cancelled"
+                        : undefined
+                    }
+                    amount={grossRevenueBeforeCancelled}
                     tone="positive"
+                  />
+                  <BreakdownRow
+                    label="Cancelled"
+                    note={
+                      viewState.cancelledOrdersCount > 0
+                        ? `${viewState.cancelledOrdersCount} order dibatalkan, tidak dihitung sebagai revenue aktif`
+                        : "Belum ada order cancelled pada periode ini"
+                    }
+                    amount={viewState.cancelledRevenue}
                   />
                   <BreakdownRow
                     label="COGS / HPP"
@@ -724,11 +783,6 @@ function BusinessPageContent() {
                       </div>
                     ) : null}
                   </BreakdownRow>
-                  <BreakdownRow
-                    label="Retur / Refund"
-                    note="Input bulanan owner"
-                    amount={refundCost}
-                  />
                   <BreakdownRow
                     label="Biaya Iklan"
                     note="Input bulanan owner"

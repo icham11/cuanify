@@ -41,6 +41,10 @@ export function normalizeOrderStatus(status?: string | null): string {
     return "Completed";
   }
 
+  if (normalized === "Canceled") {
+    return "Cancelled";
+  }
+
   return normalized;
 }
 

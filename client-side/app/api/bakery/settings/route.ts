@@ -82,7 +82,6 @@ function normalizeMonthlyExpensesInput(
         name: typeof record.name === "string" ? record.name : "",
         amount: Number(record.amount),
         category:
-          record.category === "refund" ||
           record.category === "ads" ||
           record.category === "custom"
             ? record.category

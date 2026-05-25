@@ -86,6 +86,8 @@ type DashboardAttendanceState = {
   } | null;
 };
 
+type SummaryCardKey = "active" | "late" | "due" | "done";
+
 function formatRupiah(value: number) {
   return `Rp${Math.max(0, value).toLocaleString("id-ID")}`;
 }
@@ -133,6 +135,25 @@ function getOrderStaffTokenAssignments(order: BakeryOrder): Array<{
   ];
 }
 
+function formatUpcomingDeliveryItems(order: BakeryOrder) {
+  const items = Array.isArray(order.items) ? order.items : [];
+  if (items.length === 0) {
+    return order.product || "Custom Cake";
+  }
+
+  const labels = items.map((item) => {
+    const quantity = Math.max(1, Number(item.quantity || 1));
+    const productName = String(item.productName || order.product || "Produk").trim();
+    return `${quantity}x ${productName}`;
+  });
+
+  if (labels.length <= 2) {
+    return labels.join(", ");
+  }
+
+  return `${labels.slice(0, 2).join(", ")} +${labels.length - 2} item lain`;
+}
+
 export default function BakeryDashboardPage() {
   const router = useRouter();
   const { orders } = useOrders();
@@ -145,10 +166,11 @@ export default function BakeryDashboardPage() {
   const [staffRoleFilter, setStaffRoleFilter] = useState<"all" | "staff" | "admin">("all");
   const [staffSearch, setStaffSearch] = useState("");
   const [isCashInModalOpen, setIsCashInModalOpen] = useState(false);
-  const [isLateOrdersModalOpen, setIsLateOrdersModalOpen] = useState(false);
+  const [selectedSummaryCard, setSelectedSummaryCard] =
+    useState<SummaryCardKey | null>(null);
   const [cashFlowView, setCashFlowView] = useState<"today" | "history">("today");
   const [selectedCashFlowDate, setSelectedCashFlowDate] = useState(today);
-  const [lateOrdersPage, setLateOrdersPage] = useState(1);
+  const [summaryOrdersPage, setSummaryOrdersPage] = useState(1);
   const [attendanceSummary, setAttendanceSummary] =
     useState<DashboardAttendanceState | null>(null);
   const [isAttendanceLoading, setIsAttendanceLoading] = useState(false);
@@ -277,7 +299,7 @@ export default function BakeryDashboardPage() {
     [orders],
   );
 
-  const completedThisMonth = useMemo(() => {
+  const completedOrdersThisMonth = useMemo(() => {
     const now = new Date();
     const year = now.getFullYear();
     const month = now.getMonth();
@@ -288,7 +310,7 @@ export default function BakeryDashboardPage() {
 
       const date = new Date(`${order.deliveryDate}T00:00:00`);
       return date.getFullYear() === year && date.getMonth() === month;
-    }).length;
+    });
   }, [orders]);
 
   const lateOrders = useMemo(
@@ -303,12 +325,6 @@ export default function BakeryDashboardPage() {
       }),
     [orders, today],
   );
-  const lateOrdersPagination = useMemo(
-    () => paginateItems(lateOrders, lateOrdersPage, LATE_ORDERS_PAGE_SIZE),
-    [lateOrders, lateOrdersPage],
-  );
-  const paginatedLateOrders = lateOrdersPagination.items;
-
   const todayPayments = useMemo(() => {
     return orders.flatMap((order) =>
       (order.paymentTransactions ?? []).filter(
@@ -342,15 +358,44 @@ export default function BakeryDashboardPage() {
     setSelectedCashFlowDate(today);
   }, [isCashInModalOpen, today]);
 
-  useEffect(() => {
-    setLateOrdersPage(1);
-  }, [lateOrders.length]);
+  const summaryOrderCollections = useMemo(
+    () => ({
+      active: activeOrders,
+      late: lateOrders,
+      due: todayOrders,
+      done: completedOrdersThisMonth,
+    }),
+    [activeOrders, completedOrdersThisMonth, lateOrders, todayOrders],
+  );
+
+  const selectedSummaryOrders = useMemo(
+    () =>
+      selectedSummaryCard
+        ? summaryOrderCollections[selectedSummaryCard]
+        : [],
+    [selectedSummaryCard, summaryOrderCollections],
+  );
+  const selectedSummaryPagination = useMemo(
+    () =>
+      paginateItems(
+        selectedSummaryOrders,
+        summaryOrdersPage,
+        LATE_ORDERS_PAGE_SIZE,
+      ),
+    [selectedSummaryOrders, summaryOrdersPage],
+  );
+  const paginatedSummaryOrders = selectedSummaryPagination.items;
 
   useEffect(() => {
-    if (lateOrders.length === 0) {
-      setIsLateOrdersModalOpen(false);
+    setSummaryOrdersPage(1);
+  }, [selectedSummaryCard, selectedSummaryOrders.length]);
+
+  useEffect(() => {
+    if (!selectedSummaryCard) return;
+    if (selectedSummaryOrders.length === 0) {
+      setSelectedSummaryCard(null);
     }
-  }, [lateOrders.length]);
+  }, [selectedSummaryCard, selectedSummaryOrders.length]);
 
   const upcomingDeliveries = useMemo(
     () =>
@@ -363,7 +408,7 @@ export default function BakeryDashboardPage() {
           orderId: order.id,
           displayId: order.bookingCode || order.resi || `ORD-${order.id}`,
           customer: order.customerName || "Walk-in Customer",
-          product: order.product || "Custom Cake",
+          itemsSummary: formatUpcomingDeliveryItems(order),
           date: order.deliveryDate || "-",
           slot: order.deliverySlot || "-",
           status: normalizeOrderStatus(order.orderStatus),
@@ -508,7 +553,14 @@ export default function BakeryDashboardPage() {
     });
   }, [staffRoleFilter, staffSearch, staffStats]);
 
-  const summaryCards = [
+  const summaryCards: Array<{
+    key: SummaryCardKey;
+    label: string;
+    value: number;
+    note: string;
+    icon: typeof Package2;
+    tone: string;
+  }> = [
     {
       key: "active",
       label: "Order Aktif",
@@ -536,7 +588,7 @@ export default function BakeryDashboardPage() {
     {
       key: "done",
       label: "Selesai",
-      value: completedThisMonth,
+      value: completedOrdersThisMonth.length,
       note: "Bulan ini",
       icon: CheckSquare,
       tone: "bg-[#e0f0e8] text-[var(--crumbella-success)]",
@@ -603,19 +655,83 @@ export default function BakeryDashboardPage() {
     }
   }, [today]);
 
-  const openLateOrdersModal = useCallback(() => {
-    if (lateOrders.length === 0) return;
-    setLateOrdersPage(1);
-    setIsLateOrdersModalOpen(true);
-  }, [lateOrders.length]);
+  const openSummaryOrdersModal = useCallback(
+    (cardKey: SummaryCardKey) => {
+      if (summaryOrderCollections[cardKey].length === 0) return;
+      setSelectedSummaryCard(cardKey);
+    },
+    [summaryOrderCollections],
+  );
 
-  const handleLateOrderClick = useCallback(
+  const handleSummaryOrderClick = useCallback(
     (orderId: string) => {
-      setIsLateOrdersModalOpen(false);
+      setSelectedSummaryCard(null);
       router.push(`/bakery/bookings/${orderId}`);
     },
     [router],
   );
+
+  const selectedSummaryMeta = useMemo(() => {
+    if (!selectedSummaryCard) return null;
+
+    if (selectedSummaryCard === "active") {
+      return {
+        title: "Order Aktif",
+        countLabel: `${activeOrders.length} order masih berjalan`,
+        description: "Klik order untuk buka detail booking aktif.",
+        accentTextClass: "text-[var(--crumbella-primary)]",
+        accentBadgeClass:
+          "bg-[var(--crumbella-accent-soft)] text-[var(--crumbella-primary)]",
+        accentBorderClass: "border-[var(--crumbella-border)]",
+        itemHoverClass:
+          "hover:border-[var(--crumbella-primary)]/35 hover:bg-[#fffdfa] focus-visible:ring-[var(--crumbella-primary)]/35",
+      };
+    }
+
+    if (selectedSummaryCard === "late") {
+      return {
+        title: "Order Terlambat",
+        countLabel: `${lateOrders.length} order perlu perhatian`,
+        description:
+          "Klik order untuk buka detail booking dan ubah status menjadi completed.",
+        accentTextClass: "text-[#a83030]",
+        accentBadgeClass: "bg-[#fff1f1] text-[#a83030]",
+        accentBorderClass: "border-[#f2d6d2]",
+        itemHoverClass:
+          "hover:border-[#e8a0a0] hover:bg-[#fff8f7] focus-visible:ring-[#e8a0a0]",
+      };
+    }
+
+    if (selectedSummaryCard === "due") {
+      return {
+        title: "Due Today",
+        countLabel: `${todayOrders.length} order untuk hari ini`,
+        description: "Klik order untuk buka detail booking yang jatuh tempo hari ini.",
+        accentTextClass: "text-[var(--crumbella-info)]",
+        accentBadgeClass: "bg-[#eef5ff] text-[var(--crumbella-info)]",
+        accentBorderClass: "border-[#d7e5f8]",
+        itemHoverClass:
+          "hover:border-[#bfd5f3] hover:bg-[#f8fbff] focus-visible:ring-[#bfd5f3]",
+      };
+    }
+
+    return {
+      title: "Order Selesai",
+      countLabel: `${completedOrdersThisMonth.length} order selesai bulan ini`,
+      description: "Klik order untuk buka detail booking yang sudah selesai.",
+      accentTextClass: "text-[var(--crumbella-success)]",
+      accentBadgeClass: "bg-[#e0f0e8] text-[var(--crumbella-success)]",
+      accentBorderClass: "border-[#d6eadc]",
+      itemHoverClass:
+        "hover:border-[#b8dec4] hover:bg-[#f7fcf8] focus-visible:ring-[#b8dec4]",
+    };
+  }, [
+    activeOrders.length,
+    completedOrdersThisMonth.length,
+    lateOrders.length,
+    selectedSummaryCard,
+    todayOrders.length,
+  ]);
 
   return (
     <div className="mx-auto max-w-7xl space-y-4 pb-10">
@@ -865,26 +981,26 @@ export default function BakeryDashboardPage() {
           return (
             <div
               key={card.key}
-              role={card.key === "late" ? "button" : undefined}
-              tabIndex={card.key === "late" ? 0 : undefined}
+              role={card.value > 0 ? "button" : undefined}
+              tabIndex={card.value > 0 ? 0 : undefined}
               onClick={
-                card.key === "late"
-                  ? () => openLateOrdersModal()
+                card.value > 0
+                  ? () => openSummaryOrdersModal(card.key)
                   : undefined
               }
               onKeyDown={
-                card.key === "late"
+                card.value > 0
                   ? (event) => {
                       if (event.key === "Enter" || event.key === " ") {
                         event.preventDefault();
-                        openLateOrdersModal();
+                        openSummaryOrdersModal(card.key);
                       }
                     }
                   : undefined
               }
               className={`rounded-[22px] border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] p-3.5 shadow-[0_10px_18px_-20px_rgba(30,18,10,0.7)] ${
-                card.key === "late"
-                  ? "cursor-pointer transition hover:border-[#e8a0a0] hover:bg-[#fff6f6]"
+                card.value > 0
+                  ? "cursor-pointer transition hover:border-[var(--crumbella-primary)]/25 hover:bg-[#fffdfa]"
                   : ""
               }`}
             >
@@ -986,11 +1102,11 @@ export default function BakeryDashboardPage() {
         <div
           role="button"
           tabIndex={0}
-          onClick={() => openLateOrdersModal()}
+          onClick={() => openSummaryOrdersModal("late")}
           onKeyDown={(event) => {
             if (event.key === "Enter" || event.key === " ") {
               event.preventDefault();
-              openLateOrdersModal();
+              openSummaryOrdersModal("late");
             }
           }}
           className="cursor-pointer rounded-[22px] border border-[#e8a0a0] bg-[#fdeaea] px-4 py-3 shadow-[0_12px_24px_-22px_rgba(168,48,48,0.6)] transition hover:bg-[#fff1f1]"
@@ -1008,46 +1124,46 @@ export default function BakeryDashboardPage() {
         </div>
       ) : null}
 
-      {isLateOrdersModalOpen ? (
+      {selectedSummaryCard && selectedSummaryMeta ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4 py-6">
           <div
             role="dialog"
             aria-modal="true"
-            aria-label="Daftar order terlambat"
-            className="w-full max-w-2xl rounded-[28px] border border-[#f0c6c1] bg-[var(--crumbella-surface)] shadow-[0_30px_60px_-28px_rgba(168,48,48,0.45)]"
+            aria-label={`Daftar ${selectedSummaryMeta.title.toLowerCase()}`}
+            className={`w-full max-w-2xl rounded-[28px] border ${selectedSummaryMeta.accentBorderClass} bg-[var(--crumbella-surface)] shadow-[0_30px_60px_-28px_rgba(30,18,10,0.45)]`}
           >
-            <div className="flex items-start justify-between gap-3 border-b border-[#f2d6d2] px-4 py-4">
+            <div className={`flex items-start justify-between gap-3 border-b ${selectedSummaryMeta.accentBorderClass} px-4 py-4`}>
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#a83030]">
-                  Order Terlambat
+                <p className={`text-[11px] font-semibold uppercase tracking-[0.12em] ${selectedSummaryMeta.accentTextClass}`}>
+                  {selectedSummaryMeta.title}
                 </p>
                 <p className="mt-1 text-[1.5rem] font-extrabold leading-none text-[var(--foreground)]">
-                  {lateOrders.length} order perlu perhatian
+                  {selectedSummaryMeta.countLabel}
                 </p>
                 <p className="mt-1 text-[11px] text-[var(--crumbella-muted)]">
-                  Klik order untuk buka detail booking dan ubah status menjadi completed.
+                  {selectedSummaryMeta.description}
                 </p>
               </div>
               <button
                 type="button"
-                onClick={() => setIsLateOrdersModalOpen(false)}
+                onClick={() => setSelectedSummaryCard(null)}
                 className="flex h-9 w-9 items-center justify-center rounded-full border border-[var(--crumbella-border)] bg-white text-[var(--crumbella-muted)] transition hover:text-[var(--foreground)]"
-                aria-label="Tutup daftar order terlambat"
+                aria-label={`Tutup daftar ${selectedSummaryMeta.title.toLowerCase()}`}
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
             <div className="max-h-[65vh] space-y-3 overflow-y-auto px-4 py-4">
-              {paginatedLateOrders.map((order) => {
+              {paginatedSummaryOrders.map((order) => {
                 const normalizedStatus = normalizeOrderStatus(order.orderStatus);
 
                 return (
                   <button
                     key={order.id}
                     type="button"
-                    onClick={() => handleLateOrderClick(order.id)}
-                    className="w-full rounded-[22px] border border-[#f2d6d2] bg-white px-4 py-3 text-left shadow-[0_12px_24px_-24px_rgba(30,18,10,0.55)] transition hover:border-[#e8a0a0] hover:bg-[#fff8f7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e8a0a0]"
+                    onClick={() => handleSummaryOrderClick(order.id)}
+                    className={`w-full rounded-[22px] border ${selectedSummaryMeta.accentBorderClass} bg-white px-4 py-3 text-left shadow-[0_12px_24px_-24px_rgba(30,18,10,0.55)] transition focus-visible:outline-none focus-visible:ring-2 ${selectedSummaryMeta.itemHoverClass}`}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -1057,12 +1173,12 @@ export default function BakeryDashboardPage() {
                         <p className="mt-0.5 text-[11px] text-[var(--crumbella-muted)]">
                           {order.bookingCode || order.resi || order.id}
                         </p>
-                        <p className="mt-1 text-[11px] text-[#a83030]">
+                        <p className={`mt-1 text-[11px] ${selectedSummaryMeta.accentTextClass}`}>
                           Delivery {formatDisplayDate(order.deliveryDate)} - {order.deliverySlot || "-"}
                         </p>
                       </div>
                       <div className="shrink-0 text-right">
-                        <span className="inline-flex rounded-full bg-[#fff1f1] px-2.5 py-1 text-[10px] font-semibold text-[#a83030]">
+                        <span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-semibold ${selectedSummaryMeta.accentBadgeClass}`}>
                           {normalizedStatus}
                         </span>
                         <p className="mt-2 text-[10px] font-semibold text-[var(--crumbella-primary)]">
@@ -1075,17 +1191,17 @@ export default function BakeryDashboardPage() {
               })}
             </div>
 
-            <div className="flex items-center justify-between gap-3 border-t border-[#f2d6d2] px-4 py-4">
+            <div className={`flex items-center justify-between gap-3 border-t ${selectedSummaryMeta.accentBorderClass} px-4 py-4`}>
               <p className="text-[11px] text-[var(--crumbella-muted)]">
-                Halaman {lateOrdersPagination.currentPage} dari {lateOrdersPagination.totalPages} - {LATE_ORDERS_PAGE_SIZE} order per halaman
+                Halaman {selectedSummaryPagination.currentPage} dari {selectedSummaryPagination.totalPages} - {LATE_ORDERS_PAGE_SIZE} order per halaman
               </p>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() =>
-                    setLateOrdersPage((current) => Math.max(1, current - 1))
+                    setSummaryOrdersPage((current) => Math.max(1, current - 1))
                   }
-                  disabled={lateOrdersPagination.currentPage <= 1}
+                  disabled={selectedSummaryPagination.currentPage <= 1}
                   className="inline-flex h-10 items-center justify-center rounded-full border border-[var(--crumbella-border)] bg-white px-4 text-xs font-semibold text-[var(--foreground)] transition disabled:cursor-not-allowed disabled:opacity-45"
                 >
                   Sebelumnya
@@ -1093,15 +1209,15 @@ export default function BakeryDashboardPage() {
                 <button
                   type="button"
                   onClick={() =>
-                    setLateOrdersPage((current) =>
-                      Math.min(lateOrdersPagination.totalPages, current + 1),
+                    setSummaryOrdersPage((current) =>
+                      Math.min(selectedSummaryPagination.totalPages, current + 1),
                     )
                   }
                   disabled={
-                    lateOrdersPagination.currentPage >=
-                    lateOrdersPagination.totalPages
+                    selectedSummaryPagination.currentPage >=
+                    selectedSummaryPagination.totalPages
                   }
-                  className="inline-flex h-10 items-center justify-center rounded-full border border-[#e8a0a0] bg-[#fff1f1] px-4 text-xs font-semibold text-[#a83030] transition disabled:cursor-not-allowed disabled:opacity-45"
+                  className={`inline-flex h-10 items-center justify-center rounded-full border px-4 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-45 ${selectedSummaryMeta.accentBorderClass} ${selectedSummaryMeta.accentBadgeClass}`}
                 >
                   Berikutnya
                 </button>
@@ -1289,7 +1405,9 @@ export default function BakeryDashboardPage() {
                     <p className="truncate text-[13px] font-semibold text-[var(--foreground)]">
                       {delivery.customer}
                     </p>
-                    <p className="mt-0.5 text-[10px] text-[var(--crumbella-muted)]">{delivery.product}</p>
+                    <p className="mt-0.5 text-[10px] text-[var(--crumbella-muted)]">
+                      {delivery.itemsSummary}
+                    </p>
                     <p className="text-[10px] text-[var(--crumbella-muted)]">{delivery.displayId}</p>
                   </div>
                   <div className="shrink-0 text-right">

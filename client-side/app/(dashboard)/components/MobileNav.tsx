@@ -148,15 +148,17 @@ export default function MobileNav({ jwtUserName, jwtUserEmail }: MobileNavProps)
                     active={isActive("/bakery/production")}
                     onClick={() => setIsDrawerOpen(false)}
                   />
-                  {isOwner ? (
+                  {isBakeryManager ? (
                     <>
-                      <NavLink
-                        href="/bakery/reports"
-                        icon={FileText}
-                        label="Reports"
-                        active={isActive("/bakery/reports")}
-                        onClick={() => setIsDrawerOpen(false)}
-                      />
+                      {isOwner ? (
+                        <NavLink
+                          href="/bakery/reports"
+                          icon={FileText}
+                          label="Reports"
+                          active={isActive("/bakery/reports")}
+                          onClick={() => setIsDrawerOpen(false)}
+                        />
+                      ) : null}
                       <NavLink
                         href="/bakery/ecommerce"
                         icon={Store}
@@ -172,15 +174,7 @@ export default function MobileNav({ jwtUserName, jwtUserEmail }: MobileNavProps)
                         onClick={() => setIsDrawerOpen(false)}
                       />
                     </>
-                  ) : (
-                    <NavLink
-                      href="/bakery/ecommerce"
-                      icon={Store}
-                      label="E-Commerce"
-                      active={isActive("/bakery/ecommerce")}
-                      onClick={() => setIsDrawerOpen(false)}
-                    />
-                  )}
+                  ) : null}
                 </>
               )}
 

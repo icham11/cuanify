@@ -67,6 +67,10 @@ import {
 } from "@/lib/bookings/production-stages";
 import { getLatestOrderActivityTimestamp } from "@/lib/bookings/order-activity";
 import { choosePreferredOrderCandidate } from "@/lib/bookings/order-deduplication";
+import {
+  BAKERY_ORDERS_STORAGE_KEY,
+  BAKERY_ORDERS_UPDATED_EVENT,
+} from "@/lib/bookings/client-events";
 
 export type OrderStatus =
   | "Inquiry"
@@ -324,6 +328,8 @@ interface OrdersContextValue {
     startDate?: string;
     endDate?: string;
     mode?: string;
+    view?: string;
+    today?: string;
   }) => Promise<{
     orders: BakeryOrder[];
     pagination: {
@@ -338,8 +344,8 @@ interface OrdersContextValue {
 const OrdersContext = createContext<OrdersContextValue | null>(null);
 
 const initialOrders: BakeryOrder[] = [];
-const STORAGE_KEY = "bakeryOrdersState";
-const STORAGE_EVENT = "bakeryOrdersUpdated";
+const STORAGE_KEY = BAKERY_ORDERS_STORAGE_KEY;
+const STORAGE_EVENT = BAKERY_ORDERS_UPDATED_EVENT;
 const RAW_BOOKINGS_API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || "";
 const NORMALIZED_BOOKINGS_API_BASE = RAW_BOOKINGS_API_BASE.replace(/\/+$/, "");
@@ -2717,6 +2723,8 @@ export function OrdersProvider({
         invalidateApiCache(
           /\/api\/(bookings\/orders|bakery\/settings|products|businesses|sales|ingredients|debts)/,
         );
+
+        void hydrateOrdersFromServer(true);
         
         toast.success("Order berhasil dihapus");
       } catch (error) {
@@ -2733,7 +2741,7 @@ export function OrdersProvider({
         throw error;
       }
     },
-    [getLatestOrdersSnapshot, persistOrders],
+    [getLatestOrdersSnapshot, hydrateOrdersFromServer, persistOrders],
   );
 
   const updateOrderStatus = useCallback(
@@ -2825,6 +2833,11 @@ export function OrdersProvider({
         if (!response.ok || !payload.success) {
           throw new Error(payload.error || "Gagal menyimpan perubahan status order.");
         }
+
+        invalidateApiCache(
+          /\/api\/(bookings\/orders|bakery\/settings|products|businesses|sales|ingredients|debts)/,
+        );
+        void hydrateOrdersFromServer(true);
 
         if (triggeredEvent) {
           void runAutomationsForOrder(triggeredEvent, id);
@@ -3726,6 +3739,8 @@ export function OrdersProvider({
       startDate?: string;
       endDate?: string;
       mode?: string;
+      view?: string;
+      today?: string;
     }) => {
       try {
         const queryParams = new URLSearchParams();
@@ -3737,6 +3752,8 @@ export function OrdersProvider({
         if (params.startDate) queryParams.set("startDate", params.startDate);
         if (params.endDate) queryParams.set("endDate", params.endDate);
         if (params.mode) queryParams.set("mode", params.mode);
+        if (params.view) queryParams.set("view", params.view);
+        if (params.today) queryParams.set("today", params.today);
 
         const response = await fetch(`/api/bookings/orders?${queryParams.toString()}`, {
           method: "GET",

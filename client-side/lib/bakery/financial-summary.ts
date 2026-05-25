@@ -1,10 +1,13 @@
 import { normalizeOrderStatus } from "@/lib/bookings/order-status";
+import { resolveShippingParcelCount } from "@/lib/bookings/delivery-rules";
 import { buildDashboardProductName } from "@/lib/products/dashboard-name";
 import type { BakeryBusinessSettings } from "@/lib/bakery/settings";
 
 const BUSINESS_TIME_ZONE = "Asia/Jakarta";
 
 export type BakeryFinancialOrderItem = {
+  category?: string;
+  subcategory?: string;
   productName?: string;
   size?: string;
   quantity?: number;
@@ -14,6 +17,7 @@ export type BakeryFinancialOrderItem = {
 };
 
 export type BakeryFinancialOrder = {
+  id?: string;
   deliveryDate?: string;
   product?: string;
   totalPrice?: number;
@@ -376,6 +380,19 @@ function resolveMatchedCogs(args: {
   return scoredMatches[0].cogs;
 }
 
+function resolveFinancialItemQuantity(item: BakeryFinancialOrderItem): number {
+  return Math.max(
+    1,
+    resolveShippingParcelCount({
+      category: item.category,
+      subcategory: item.subcategory,
+      productName: item.productName,
+      size: item.size,
+      quantity: item.quantity,
+    }),
+  );
+}
+
 export function filterBakeryOrdersByDateRange(
   orders: BakeryFinancialOrder[],
   fromDate: string,
@@ -411,9 +428,6 @@ export function calculateOperationalCostForDateRange(args: {
   const expenseRows = (settings?.monthlyExpenses ?? []).filter((entry) =>
     monthSet.has(entry.monthKey),
   );
-  const refundCost = expenseRows
-    .filter((entry) => entry.category === "refund")
-    .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
   const adsCost = expenseRows
     .filter((entry) => entry.category === "ads")
     .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
@@ -421,14 +435,13 @@ export function calculateOperationalCostForDateRange(args: {
     .filter((entry) => entry.category === "custom")
     .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
   const totalOperationalCost =
-    staffCost + refundCost + adsCost + customExpenseTotal;
+    staffCost + adsCost + customExpenseTotal;
 
   return {
     months,
     staffPayrollRows,
     expenseRows,
     staffCost,
-    refundCost,
     adsCost,
     customExpenseTotal,
     totalOperationalCost,
@@ -505,7 +518,7 @@ export function calculateBakeryFinancialSummary(args: {
         : 0;
 
     (order.items || []).forEach((item) => {
-      const quantity = Math.max(1, Number(item.quantity || 1));
+      const quantity = resolveFinancialItemQuantity(item);
       const matchedCogs = resolveMatchedCogs({
         item,
         orderProductName: order.product,

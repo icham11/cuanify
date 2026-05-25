@@ -10,6 +10,13 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useCatalogAdminState } from "@/lib/bookings/catalog-admin";
 import {
+  buildBookingAutoFillFromParsed,
+  buildWhatsAppTemplate,
+  formatParsedWhatsAppForNotes,
+  parseWhatsAppOrderText,
+  type BookingFormAutoFill,
+} from "@/lib/bookings/whatsapp-parser";
+import {
   ensureCatalogSelectionFromCatalog,
   type CatalogAddOn,
   type CatalogSelection,
@@ -64,6 +71,7 @@ const SHIPPING_METHOD_OPTIONS = [
   "Pickup Point",
   "Kurir Toko",
 ];
+const MARKETPLACE_PARSE_TEMPLATE = buildWhatsAppTemplate("buket");
 
 function makeId() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -225,6 +233,174 @@ function buildSelectionFromVariant(variant: CatalogVariantRecord): CatalogSelect
     productName: variant.productName,
     size: variant.size,
   };
+}
+
+function findVariantBySelection(
+  selection: CatalogSelection,
+  variants: CatalogVariantRecord[],
+): CatalogVariantRecord | null {
+  const exactMatch =
+    variants.find(
+      (variant) =>
+        variant.category === selection.category &&
+        variant.subcategory === selection.subcategory &&
+        variant.productName === selection.productName &&
+        variant.size === selection.size,
+    ) ?? null;
+
+  if (exactMatch) return exactMatch;
+
+  const normalizedCategory = normalizeText(selection.category);
+  const normalizedSubcategory = normalizeText(selection.subcategory);
+  const normalizedProductName = normalizeText(selection.productName);
+  const normalizedSize = normalizeText(selection.size);
+
+  return (
+    variants.find(
+      (variant) =>
+        normalizeText(variant.category) === normalizedCategory &&
+        normalizeText(variant.subcategory) === normalizedSubcategory &&
+        normalizeText(variant.productName) === normalizedProductName &&
+        normalizeText(variant.size) === normalizedSize,
+    ) ?? null
+  );
+}
+
+function mapParsedShippingMethodToMarketplace(
+  formValue: BookingFormAutoFill["deliveryMethod"] | "",
+  rawValue: string,
+) {
+  switch (formValue) {
+    case "PICKUP":
+      return "Pickup Point";
+    case "CUSTOMER_APP_COURIER":
+    case "ASSISTED_GOSEND":
+    case "ASSISTED_GRAB":
+    case "ASSISTED_GOCAR":
+    case "ASSISTED_SAME_DAY":
+      return "Instant / Same Day";
+    case "REGULAR_JNE_JNT":
+      return "Regular";
+    case "ASSISTED_PAXEL":
+      return "Kurir Toko";
+    default:
+      break;
+  }
+
+  const normalized = normalizeText(rawValue);
+  if (!normalized) return "";
+  if (
+    /(instan|instant|same day|sameday|gosend|grab|gocar|kurir toko|shopee instan)/i.test(
+      normalized,
+    )
+  ) {
+    return "Instant / Same Day";
+  }
+  if (/(regular|jne|jnt|anteraja|si cepat|sicepat)/i.test(normalized)) {
+    return "Regular";
+  }
+  if (/cargo/i.test(normalized)) {
+    return "Cargo";
+  }
+  if (/(pickup|ambil sendiri|pick up)/i.test(normalized)) {
+    return "Pickup Point";
+  }
+  if (/(paxel|kurir)/i.test(normalized)) {
+    return "Kurir Toko";
+  }
+  return "";
+}
+
+function mapAutoFillItemsToMarketplaceGroups(args: {
+  autoFillItems: BookingFormAutoFill["items"];
+  variants: CatalogVariantRecord[];
+  addOnCatalog: Record<string, CatalogAddOn[]>;
+}): { groups: MarketplaceItemGroup[]; unmatchedCount: number } {
+  const groups: MarketplaceItemGroup[] = [];
+  let unmatchedCount = 0;
+
+  args.autoFillItems.forEach((item) => {
+    const variant =
+      findVariantBySelection(
+        {
+          category: item.category,
+          subcategory: item.subcategory,
+          productName: item.productName,
+          size: item.size,
+        },
+        args.variants,
+      ) ??
+      findBestVariant(
+        [item.category, item.subcategory, item.productName, item.size, item.notes]
+          .filter(Boolean)
+          .join(" "),
+        args.variants,
+      );
+
+    if (!variant?.productId) {
+      unmatchedCount += 1;
+      return;
+    }
+
+    const availableAddOns = args.addOnCatalog[item.category] ?? [];
+    const addOns: ItemAddOn[] = [];
+
+    item.addOns.forEach((addOnId) => {
+      const matchedAddOn =
+        availableAddOns.find(
+          (candidate) =>
+            candidate.id === addOnId ||
+            normalizeText(candidate.id) === normalizeText(addOnId) ||
+            normalizeText(candidate.label) === normalizeText(addOnId),
+        ) ?? null;
+      if (!matchedAddOn) return;
+
+      const quantity = toPositiveInt(item.addOnQuantities?.[addOnId] ?? 1, 1);
+      addOns.push({
+        id: matchedAddOn.id,
+        label: matchedAddOn.label,
+        quantity,
+        unitPrice: roundMoney(
+          Math.max(
+            0,
+            Number(item.addOnPriceOverrides?.[addOnId] ?? matchedAddOn.price ?? 0),
+          ),
+        ),
+        unitCost: roundMoney(Math.max(0, Number(matchedAddOn.cogs ?? 0))),
+      });
+    });
+
+    item.customAddOns?.forEach((customAddOn, index) => {
+      if (!customAddOn.label.trim()) return;
+      addOns.push({
+        id: `custom-${normalizeText(customAddOn.label).replace(/\s+/g, "-") || index + 1}`,
+        label: customAddOn.label.trim(),
+        quantity: 1,
+        unitPrice: roundMoney(Math.max(0, Number(customAddOn.price || 0))),
+        unitCost: 0,
+      });
+    });
+
+    groups.push({
+      id: makeId(),
+      selection: buildSelectionFromVariant(variant),
+      displayName: variant.displayName,
+      productId: variant.productId,
+      quantity: toPositiveInt(item.quantity, 1),
+      unitPrice: roundMoney(
+        Math.max(
+          0,
+          Number(item.parsedUnitPrice ?? variant.price ?? 0),
+        ),
+      ),
+      unitCost: roundMoney(Math.max(0, Number(variant.cogs ?? 0))),
+      addOns,
+      source: "parsed",
+      rawLine: item.notes || item.productName,
+    });
+  });
+
+  return { groups, unmatchedCount };
 }
 
 function getGroupSubtotal(group: MarketplaceItemGroup) {
@@ -490,6 +666,70 @@ export default function MarketplaceOrderPage() {
     if (!catalog) return;
     if (!pasteText.trim()) {
       toast.error("Paste nama produk dulu.");
+      return;
+    }
+
+    const parsedWhatsAppOrder = parseWhatsAppOrderText(pasteText, {
+      preferredOrderType: "unknown",
+      sourceType: "manual",
+    });
+    const bookingAutoFill = buildBookingAutoFillFromParsed(parsedWhatsAppOrder, {
+      productCatalog,
+      addOnCatalog,
+    });
+    const hasStructuredTemplateFields = Boolean(
+      parsedWhatsAppOrder.common.deliveryDate ||
+        parsedWhatsAppOrder.common.bookingCode ||
+        parsedWhatsAppOrder.common.deliveryTime ||
+        parsedWhatsAppOrder.common.deliveryMethod ||
+        parsedWhatsAppOrder.common.recipientName ||
+        parsedWhatsAppOrder.common.recipientPhone ||
+        parsedWhatsAppOrder.common.fullAddress ||
+        Object.values(parsedWhatsAppOrder.details).some(Boolean),
+    );
+    const templateMapped = mapAutoFillItemsToMarketplaceGroups({
+      autoFillItems: bookingAutoFill.items,
+      variants: catalog.variants,
+      addOnCatalog,
+    });
+
+    if (hasStructuredTemplateFields && templateMapped.groups.length > 0) {
+      setItems((current) => [...current, ...templateMapped.groups]);
+
+      if (parsedWhatsAppOrder.common.bookingCode.trim()) {
+        setOrderReference(parsedWhatsAppOrder.common.bookingCode.trim());
+      }
+      if (parsedWhatsAppOrder.common.recipientName.trim()) {
+        setCustomerName(parsedWhatsAppOrder.common.recipientName.trim());
+      }
+      if (bookingAutoFill.deliveryDate) {
+        setShipDate(bookingAutoFill.deliveryDate);
+      }
+
+      const mappedShippingMethod = mapParsedShippingMethodToMarketplace(
+        bookingAutoFill.deliveryMethod,
+        parsedWhatsAppOrder.common.deliveryMethod,
+      );
+      if (mappedShippingMethod) {
+        setShippingMethod(mappedShippingMethod);
+      }
+
+      const parsedNotes = [
+        bookingAutoFill.customNotes.trim(),
+        formatParsedWhatsAppForNotes(parsedWhatsAppOrder).trim(),
+      ]
+        .filter((value, index, list) => value && list.indexOf(value) === index)
+        .join("\n\n")
+        .trim();
+      if (parsedNotes) {
+        setCustomerNotes(parsedNotes);
+      }
+
+      toast.success(
+        templateMapped.unmatchedCount > 0
+          ? `${templateMapped.groups.length} item dari template booking berhasil diparse, ${templateMapped.unmatchedCount} item perlu dicek manual.`
+          : `${templateMapped.groups.length} item dari template booking berhasil diparse.`,
+      );
       return;
     }
 
@@ -911,15 +1151,12 @@ export default function MarketplaceOrderPage() {
             <div className="px-4 py-4">
               <label className="grid gap-2">
                 <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#b06e43]">
-                  Paste Nama Produk Dari Tokopedia / TikTok / Shopee
+                  Paste Template Booking / Detail Produk Platform
                 </span>
                 <Textarea
                   value={pasteText}
                   onChange={(event) => setPasteText(event.target.value)}
-                  placeholder={`Contoh:
-Custom Cookies - Hard - Tema Floral x2
-Real Cake Custom - Double Choco x1
-Add-On: Dark Color x1`}
+                  placeholder={MARKETPLACE_PARSE_TEMPLATE}
                   className="min-h-[132px] rounded-[12px] border-[#d7c0ae] bg-[#fbf2e8] text-[#af7b57] shadow-none focus-visible:ring-[#c57b49]"
                 />
               </label>
