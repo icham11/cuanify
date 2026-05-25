@@ -68,6 +68,9 @@ export type BakeryFinancialSummary = {
   totalRevenue: number;
   totalCashFlowIn: number;
   cogsCost: number;
+  cancelledRevenue: number;
+  cancelledCogsCost: number;
+  returnRefundAmount: number;
   totalOperationalCost: number;
   totalCost: number;
   grossProfit: number;
@@ -399,8 +402,6 @@ export function filterBakeryOrdersByDateRange(
   toDate: string,
 ): BakeryFinancialOrder[] {
   return orders.filter((order) => {
-    if (isCancelledOrder(order)) return false;
-
     // Include orders that have either recognized revenue or incoming cash in range.
     const hasRevenue = getRevenueAmountInRange(order, fromDate, toDate) > 0;
     const hasCashFlow = getCashFlowInAmountInRange(order, fromDate, toDate) > 0;
@@ -463,12 +464,17 @@ export function calculateBakeryFinancialSummary(args: {
   const productCostMap = buildProductCostMap(args.products);
   const productCostEntries = buildProductCostEntries(args.products);
   const bookedRevenue = filteredOrders.reduce(
-    (sum, order) => sum + Math.max(0, Number(order.totalPrice || 0)),
+    (sum, order) =>
+      sum +
+      Math.max(0, Number(order.totalPrice || 0)) *
+        (isCancelledOrder(order) ? -1 : 1),
     0,
   );
   let totalRevenue = 0;
   let totalCashFlowIn = 0;
   let cogsCost = 0;
+  let cancelledRevenue = 0;
+  let cancelledCogsCost = 0;
   let itemsWithMissingCogs = 0;
   let paidOrdersCount = 0;
   const topProductsMap = new Map<
@@ -481,7 +487,7 @@ export function calculateBakeryFinancialSummary(args: {
   >();
 
   filteredOrders.forEach((order) => {
-    if (isCancelledOrder(order)) return;
+    const orderIsCancelled = isCancelledOrder(order);
 
     const totalPrice = Math.max(0, Number(order.totalPrice || 0));
     
@@ -505,7 +511,12 @@ export function calculateBakeryFinancialSummary(args: {
       paidOrdersCount += 1;
     }
 
-    totalRevenue += revenueAmountInRange;
+    if (orderIsCancelled) {
+      totalRevenue -= revenueAmountInRange;
+      cancelledRevenue += revenueAmountInRange;
+    } else {
+      totalRevenue += revenueAmountInRange;
+    }
     totalCashFlowIn += cashFlowInAmountInRange;
 
     // recognitionRatio represents portion of the order that should be
@@ -533,7 +544,11 @@ export function calculateBakeryFinancialSummary(args: {
 
       if (matchedCogs > 0) {
         const itemCogs = matchedCogs * quantity * recognitionRatio;
-        cogsCost += itemCogs;
+        if (orderIsCancelled) {
+          cancelledCogsCost += itemCogs;
+        } else {
+          cogsCost += itemCogs;
+        }
         
         const breakdownKey = `${productName}-${matchedCogs}`;
         const currentBreakdown = cogsBreakdownMap.get(breakdownKey) ?? {
@@ -547,6 +562,10 @@ export function calculateBakeryFinancialSummary(args: {
         cogsBreakdownMap.set(breakdownKey, currentBreakdown);
       } else {
         itemsWithMissingCogs += 1;
+      }
+
+      if (orderIsCancelled) {
+        return;
       }
 
       const revenue =
@@ -584,6 +603,9 @@ export function calculateBakeryFinancialSummary(args: {
     totalRevenue,
     totalCashFlowIn,
     cogsCost,
+    cancelledRevenue,
+    cancelledCogsCost,
+    returnRefundAmount: cancelledCogsCost,
     totalOperationalCost: operational.totalOperationalCost,
     totalCost,
     grossProfit,

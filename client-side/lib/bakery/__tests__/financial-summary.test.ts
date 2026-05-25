@@ -58,6 +58,40 @@ describe("Revenue vs Cashflow Calculation", () => {
     expect(mayTenResult.totalRevenue).toBe(100000);
   });
 
+  it("should subtract cancelled revenue and recover its cogs through return refund", () => {
+    const orders: BakeryFinancialOrder[] = [
+      {
+        deliveryDate: "2026-05-10",
+        totalPrice: 300000,
+        totalPaidAmount: 300000,
+        paymentStatus: "Paid",
+        orderStatus: "Cancelled",
+        createdAt: new Date("2026-05-01"),
+        items: [
+          {
+            productName: "Kue Coklat",
+            quantity: 1,
+            basePrice: 300000,
+            lineTotal: 300000,
+          },
+        ],
+      },
+    ];
+
+    const result = calculateBakeryFinancialSummary({
+      orders,
+      products: mockProducts,
+      fromDate: "2026-05-01",
+      toDate: "2026-05-31",
+    });
+
+    expect(result.totalRevenue).toBe(-300000);
+    expect(result.cogsCost).toBe(0);
+    expect(result.cancelledCogsCost).toBe(5000);
+    expect(result.returnRefundAmount).toBe(5000);
+    expect(result.netProfit).toBe(-300000);
+  });
+
   it("should recognize delivered revenue even when payment is still partial", () => {
     const orders: BakeryFinancialOrder[] = [
       {

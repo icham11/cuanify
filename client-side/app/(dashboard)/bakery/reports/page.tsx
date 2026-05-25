@@ -104,6 +104,11 @@ function formatMonthLabel(monthKey: string) {
   }).format(new Date(year, month - 1, 1));
 }
 
+function formatSignedCurrency(value: number) {
+  const prefix = value >= 0 ? "+" : "-";
+  return `${prefix}${formatCurrency(Math.abs(value))}`;
+}
+
 function parseNumericId(value: unknown): number | null {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
@@ -448,6 +453,8 @@ export default function ReportsPage() {
 
   const totalRevenue = financialSummary.totalRevenue;
   const totalCashFlowIn = financialSummary.totalCashFlowIn;
+  const displayCogsCost =
+    financialSummary.cogsCost + financialSummary.cancelledCogsCost;
 
   const completedOrders = filteredOrders.filter((order) =>
     isCompletedOrderForReports(order.orderStatus),
@@ -889,6 +896,16 @@ export default function ReportsPage() {
           <div className="overflow-hidden rounded-[18px] border border-[#dec8b6] bg-white">
             <ReportRow label="Total Revenue" value={formatCurrency(totalRevenue)} />
             <ReportRow
+              label="COGS / HPP"
+              value={formatSignedCurrency(-displayCogsCost)}
+              valueClassName="text-[#cf4028]"
+            />
+            <ReportRow
+              label="Return / Refund"
+              value={formatSignedCurrency(financialSummary.returnRefundAmount)}
+              valueClassName="text-[#0e7b3f]"
+            />
+            <ReportRow
               label="Cash Flow In"
               value={formatCurrency(totalCashFlowIn)}
               valueClassName="text-[#0e7b3f]"
@@ -921,16 +938,16 @@ export default function ReportsPage() {
                   Saat dikirim
                 </p>
                 <p className="mt-2 text-[11px] leading-5 text-[#7f6049]">
-                  Masuk mengikuti tanggal delivery dan hanya menghitung pembayaran order yang sudah masuk.
+                  Masuk mengikuti tanggal delivery dan otomatis berkurang saat order dibatalkan.
                 </p>
               </div>
               <div className="rounded-[16px] border border-[#eedfd3] bg-white px-3 py-3">
-                <p className="text-sm font-bold text-[#2f1e13]">Cash Flow In</p>
+                <p className="text-sm font-bold text-[#2f1e13]">Return / Refund</p>
                 <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#0e7b3f]">
-                  Saat booking
+                  Recovery HPP
                 </p>
                 <p className="mt-2 text-[11px] leading-5 text-[#7f6049]">
-                  Menunjukkan uang yang sudah dibayar customer dan diakui pada tanggal booking dibuat.
+                  Mengembalikan HPP order yang dibatalkan supaya biaya produksi order cancel tidak membebani profit.
                 </p>
               </div>
               <div className="rounded-[16px] border border-[#eedfd3] bg-white px-3 py-3">
@@ -939,7 +956,7 @@ export default function ReportsPage() {
                   Dari revenue
                 </p>
                 <p className="mt-2 text-[11px] leading-5 text-[#7f6049]">
-                  Rumusnya total revenue - COGS - biaya operasional. Cash flow in tidak mengubah profit bersih langsung.
+                  Rumusnya total revenue - COGS bersih - biaya operasional. Return / Refund dipakai untuk menetralkan HPP order cancel.
                 </p>
               </div>
             </div>

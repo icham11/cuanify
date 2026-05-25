@@ -49,6 +49,8 @@ type ViewState = {
   currentProfit: number;
   previousRevenue: number;
   cancelledRevenue: number;
+  cancelledCogsCost: number;
+  returnRefundAmount: number;
   cancelledOrdersCount: number;
   totalCost: number;
   avgMargin: number;
@@ -72,6 +74,8 @@ const EMPTY_VIEW_STATE: ViewState = {
   currentProfit: 0,
   previousRevenue: 0,
   cancelledRevenue: 0,
+  cancelledCogsCost: 0,
+  returnRefundAmount: 0,
   cancelledOrdersCount: 0,
   totalCost: 0,
   avgMargin: 0,
@@ -443,10 +447,6 @@ function BusinessPageContent() {
         }
         return normalizeOrderStatus(order.orderStatus) === "Cancelled";
       });
-      const cancelledRevenue = cancelledOrders.reduce(
-        (sum, order) => sum + Math.max(0, Number(order.totalPrice || 0)),
-        0,
-      );
       const avgMargin =
         currentRevenue > 0 ? (currentProfit / currentRevenue) * 100 : 0;
 
@@ -457,7 +457,9 @@ function BusinessPageContent() {
         currentRevenue,
         currentProfit,
         previousRevenue,
-        cancelledRevenue,
+        cancelledRevenue: currentSummary.cancelledRevenue,
+        cancelledCogsCost: currentSummary.cancelledCogsCost,
+        returnRefundAmount: currentSummary.returnRefundAmount,
         cancelledOrdersCount: cancelledOrders.length,
         totalCost,
         avgMargin,
@@ -558,8 +560,7 @@ function BusinessPageContent() {
   const totalOperationalCost =
     staffCost + adsCost + customExpenseTotal;
   const netProfit = viewState.currentProfit - totalOperationalCost;
-  const grossRevenueBeforeCancelled =
-    viewState.currentRevenue + viewState.cancelledRevenue;
+  const displayCogsCost = viewState.totalCost + viewState.cancelledCogsCost;
   const avatarLabel = getInitials(
     `${viewState.viewerName || "Owner"} ${viewState.businessName || ""}`,
   );
@@ -716,25 +717,26 @@ function BusinessPageContent() {
                     label="Revenue"
                     note={
                       viewState.cancelledRevenue > 0
-                        ? "Sebelum dikurangi order cancelled"
+                        ? "Sudah dikurangi revenue dari order yang dibatalkan"
                         : undefined
                     }
-                    amount={grossRevenueBeforeCancelled}
-                    tone="positive"
+                    amount={viewState.currentRevenue}
+                    tone={viewState.currentRevenue >= 0 ? "positive" : "profit"}
                   />
                   <BreakdownRow
-                    label="Cancelled"
+                    label="Return / Refund"
                     note={
                       viewState.cancelledOrdersCount > 0
-                        ? `${viewState.cancelledOrdersCount} order dibatalkan, tidak dihitung sebagai revenue aktif`
-                        : "Belum ada order cancelled pada periode ini"
+                        ? `${viewState.cancelledOrdersCount} order dibatalkan, HPP-nya dikembalikan dari biaya`
+                        : "Belum ada Return / Refund pada periode ini"
                     }
-                    amount={viewState.cancelledRevenue}
+                    amount={viewState.returnRefundAmount}
+                    tone="positive"
                   />
                   <BreakdownRow
                     label="COGS / HPP"
                     note="Klik untuk melihat penjabaran dari produk"
-                    amount={viewState.totalCost}
+                    amount={displayCogsCost}
                   >
                     {viewState.cogsBreakdown.length > 0 ? (
                       <div className="space-y-1.5 border-l-2 border-[#ead8cb] pl-3">
