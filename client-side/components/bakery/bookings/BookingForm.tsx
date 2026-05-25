@@ -29,6 +29,7 @@ import { formatCurrency } from "@/components/orders/formatters";
 import {
   useOrders,
   type BakeryOrder,
+  type DeliveryAddress,
   type NewOrderInput,
   type OrderItem,
 } from "@/components/bakery/store";
@@ -95,7 +96,10 @@ import {
   type DeliveryMethod,
   usesShippingEngine,
 } from "@/lib/bookings/delivery-rules";
-import { resolveDeliveryMethodLabel } from "@/lib/bookings/delivery-method";
+import {
+  resolveDeliveryMethodLabel,
+  resolveOrderDeliveryMethod,
+} from "@/lib/bookings/delivery-method";
 import { useCalendarCapacity } from "@/hooks/useCalendarCapacity";
 import { useBakerySettings } from "@/hooks/useBakerySettings";
 import {
@@ -222,6 +226,328 @@ type ReferenceSyncStatus = "idle" | "syncing" | "failed";
 type PendingReferenceSyncAction = "open-preview" | "submit-booking";
 
 const BOOKING_DRAFT_STORAGE_KEY = "cuanify.bakery.booking-draft.v1";
+
+type BookingFormMode = "create" | "edit";
+
+type BookingFormProps = {
+  mode?: BookingFormMode;
+  orderId?: string;
+  initialOrder?: BakeryOrder | null;
+};
+
+function parseWholesaleDiscountPercent(notes?: string | null): number {
+  const match = String(notes || "").match(
+    /wholesale\s*discount\s*:\s*(\d+(?:[.,]\d+)?)\s*%/i,
+  );
+  if (!match?.[1]) return 0;
+  const parsed = Number(match[1].replace(",", "."));
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.max(0, Math.min(100, Number(parsed.toFixed(2))));
+}
+
+function extractCustomBookingNotes(notes?: string | null): string {
+  return String(notes || "")
+    .split(/\r?\n/g)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .filter(
+      (line) =>
+        !/^delivery\s*method\s*:/i.test(line) &&
+        !/^service\s*charge\s*:/i.test(line) &&
+        !/^insurance\s*fee\s*:/i.test(line) &&
+        !/^wholesale\s*discount\s*:/i.test(line),
+    )
+    .join("\n");
+}
+
+function buildBookingFormValuesFromOrder(
+  order: BakeryOrder,
+  productCatalog: ReturnType<typeof useCatalogAdminState>["productCatalog"],
+): BookingFormInput {
+  const deliveryMethod =
+    resolveOrderDeliveryMethod({
+      deliveryMethod: order.deliveryMethod,
+      parsedDeliveryMethod: order.whatsAppParsedData?.common?.deliveryMethod,
+      notes: order.notes,
+      shippingQuote: order.shippingQuote,
+    }) ?? "PICKUP";
+
+  const normalizedItems: BookingFormInput["items"] =
+    order.items.length > 0
+      ? order.items.map((rawItem) => {
+          const item = rawItem as OrderItem & Record<string, unknown>;
+          const normalized = ensureSelectionFromCatalog(productCatalog, {
+            category: item.category,
+            subcategory: item.subcategory,
+            productName: item.productName,
+            size: item.size,
+          });
+          const parsedQuantity = Number(item.quantity);
+          const parsedBouquetPriceOverride =
+            normalized.category === "Buket"
+              ? normalizeBouquetPriceOverrideValue(item.bouquetPriceOverride)
+              : undefined;
+          const parsedSharingBoxPriceOverride =
+            normalized.category === "Cookies" &&
+            isCustomCookieSharingBoxItem({
+              category: normalized.category,
+              subcategory: normalized.subcategory,
+              productName: normalized.productName,
+            })
+              ? normalizeSharingBoxPriceOverrideValue(
+                  item.sharingBoxPriceOverride,
+                )
+              : undefined;
+          const parsedCookiePrice =
+            normalized.category === "Buket"
+              ? normalizeBouquetCookiePriceValue(item.cookiePrice)
+              : undefined;
+          const parsedTokenDifficulty =
+            normalized.category === "Cookies"
+              ? normalizeTokenDifficultyValue(item.tokenDifficulty ?? "SIMPLE")
+              : undefined;
+          const rawItemNotes = String(item.notes ?? "");
+          const parserProvidedCookieBreakdown =
+            normalized.category === "Cookies"
+              ? String(item.cookieDifficultyBreakdown ?? "").trim()
+              : "";
+          const parsedCookieBreakdownRows =
+            normalized.category === "Cookies"
+              ? parseCookieDifficultyRows(
+                  parserProvidedCookieBreakdown || rawItemNotes,
+                )
+              : [];
+          const parsedCookieBreakdown =
+            parsedCookieBreakdownRows.length > 0
+              ? formatCookieDifficultyRows(parsedCookieBreakdownRows)
+              : "";
+          const normalizedAddOnIds = Array.isArray(item.addOns)
+            ? item.addOns
+            : [];
+          const normalizedAddOnQuantities = normalizeAddOnQuantities(
+            item.addOnQuantities,
+          );
+          const inferredBouquetFlowerCount =
+            normalized.category === "Buket"
+              ? inferBouquetFlowerCountFromAddOns({
+                  addOns: normalizedAddOnIds,
+                  addOnQuantities: normalizedAddOnQuantities,
+                })
+              : "";
+          const cleanedItemNotes =
+            normalized.category === "Cookies"
+              ? removeCookieBreakdownFromNotes(rawItemNotes)
+              : normalized.category === "Buket"
+                ? removeBouquetStructuredFieldsFromNotes(rawItemNotes)
+                : rawItemNotes;
+          const normalizedQuantity = Number.isFinite(parsedQuantity)
+            ? Math.max(1, Math.round(parsedQuantity))
+            : 1;
+          const inferredBouquetCookieFillQuantity =
+            inferBouquetCookieFillQuantityFromText({
+              category: normalized.category,
+              subcategory: normalized.subcategory,
+              productName: normalized.productName,
+              size: normalized.size,
+              notes: rawItemNotes,
+            });
+          const normalizedQuantityFinal =
+            normalized.category === "Buket" &&
+            normalizedQuantity <= 1 &&
+            inferredBouquetCookieFillQuantity !== null
+              ? inferredBouquetCookieFillQuantity
+              : normalizedQuantity;
+          const normalizedSize = resolveIndividualCupcakeSizeByQuantity({
+            catalog: productCatalog,
+            selection: normalized,
+            quantity: normalizedQuantityFinal,
+          });
+
+          return {
+            category: normalized.category,
+            subcategory: normalized.subcategory,
+            productName: normalized.productName,
+            size: normalizedSize,
+            quantity: normalizedQuantityFinal,
+            tokenDifficulty: parsedTokenDifficulty,
+            customTokenPerUnit:
+              Number.isFinite(Number(item.customTokenPerUnit)) &&
+              Number(item.customTokenPerUnit) > 0
+                ? Math.round(Number(item.customTokenPerUnit))
+                : undefined,
+            bouquetPriceOverride: parsedBouquetPriceOverride,
+            sharingBoxPriceOverride: parsedSharingBoxPriceOverride,
+            cookiePrice: parsedCookiePrice,
+            designCount: normalizeCookieDesignCount(item.designCount),
+            additionalDesignCount: normalizeCookieDesignCount(
+              item.additionalDesignCount,
+            ),
+            addOns: normalizedAddOnIds,
+            addOnQuantities: normalizedAddOnQuantities,
+            addOnPriceOverrides: normalizeAddOnPriceOverrides(
+              item.addOnPriceOverrides,
+            ),
+            customAddOns: normalizeCustomAddOns(item.customAddOns),
+            darkColorButtercreamColors:
+              normalized.category === "Cupcakes" &&
+              normalizedAddOnIds.includes(DARK_COLOR_BUTTERCREAM_ADDON_ID)
+                ? (() => {
+                    const parsedColors = normalizeDarkButtercreamColors(
+                      item.darkColorButtercreamColors ?? [],
+                    );
+                    if (parsedColors.length > 0) {
+                      return parsedColors;
+                    }
+
+                    const legacyColor = normalizeDarkButtercreamColors(
+                      item.darkColorButtercreamColor ?? "",
+                    );
+                    return legacyColor;
+                  })()
+                : [],
+            parsedUnitPrice:
+              item.pricingSource === "RECAP" &&
+              Number.isFinite(Number(item.parsedUnitPrice)) &&
+              Number(item.parsedUnitPrice) > 0
+                ? Math.round(Number(item.parsedUnitPrice))
+                : undefined,
+            parsedSubtotal:
+              item.pricingSource === "RECAP" &&
+              Number.isFinite(Number(item.parsedSubtotal)) &&
+              Number(item.parsedSubtotal) > 0
+                ? Math.round(Number(item.parsedSubtotal))
+                : undefined,
+            pricingSource: item.pricingSource === "RECAP" ? "RECAP" : undefined,
+            cookieDifficultyBreakdown: parsedCookieBreakdown || undefined,
+            greetingCard:
+              String(item.greetingCard ?? "").trim().slice(0, 400) ||
+              extractBouquetGreetingCardFromNotes(rawItemNotes) ||
+              "",
+            bouquetPaperColor:
+              String(item.bouquetPaperColor ?? "").trim().slice(0, 200) ||
+              extractBouquetPaperColorFromNotes(rawItemNotes) ||
+              "",
+            ribbon:
+              String(item.ribbon ?? "").trim().slice(0, 200) ||
+              extractBouquetRibbonFromNotes(rawItemNotes) ||
+              "",
+            flowerCount:
+              String(item.flowerCount ?? "").trim().slice(0, 200) ||
+              extractBouquetFlowerCountFromNotes(rawItemNotes) ||
+              inferredBouquetFlowerCount ||
+              "",
+            flowerColor:
+              String(item.flowerColor ?? "").trim().slice(0, 200) ||
+              extractBouquetFlowerColorFromNotes(rawItemNotes) ||
+              "",
+            ribbonColor:
+              String(item.ribbonColor ?? "").trim().slice(0, 200) ||
+              extractBouquetRibbonColorFromNotes(rawItemNotes) ||
+              "",
+            notes: cleanedItemNotes,
+          };
+        })
+      : [
+          {
+            category: defaultItemSelection.category,
+            subcategory: defaultItemSelection.subcategory,
+            productName: defaultItemSelection.productName,
+            size: defaultItemSelection.size,
+            quantity:
+              getAutoQuantityForItem({
+                category: defaultItemSelection.category,
+                subcategory: defaultItemSelection.subcategory,
+                productName: defaultItemSelection.productName,
+                size: defaultItemSelection.size,
+                quantity: 1,
+                tokenDifficulty: "SIMPLE",
+                customTokenPerUnit: undefined,
+                bouquetPriceOverride: undefined,
+                sharingBoxPriceOverride: undefined,
+                cookiePrice: undefined,
+                addOns: [],
+                addOnQuantities: {},
+                addOnPriceOverrides: {},
+                customAddOns: [],
+                greetingCard: "",
+                bouquetPaperColor: "",
+                ribbon: "",
+                flowerCount: "",
+                flowerColor: "",
+                ribbonColor: "",
+                notes: "",
+              }) ?? 1,
+            tokenDifficulty: "SIMPLE",
+            customTokenPerUnit: undefined,
+            bouquetPriceOverride: undefined,
+            sharingBoxPriceOverride: undefined,
+            cookiePrice: undefined,
+            addOns: [],
+            addOnQuantities: {},
+            addOnPriceOverrides: {},
+            customAddOns: [],
+            darkColorButtercreamColors: [],
+            parsedUnitPrice: undefined,
+            parsedSubtotal: undefined,
+            pricingSource: undefined,
+            greetingCard: "",
+            bouquetPaperColor: "",
+            ribbon: "",
+            flowerCount: "",
+            flowerColor: "",
+            ribbonColor: "",
+            notes: "",
+          },
+        ];
+
+  const normalizedAddresses: BookingFormInput["deliveryAddresses"] =
+    order.deliveryAddresses.length > 0
+      ? order.deliveryAddresses.map((address, index) => {
+          const rawAddress = address as DeliveryAddress & Record<string, unknown>;
+          const addressLine = String(address.addressLine || "").trim();
+          const rawArea = String(address.area || "").trim();
+          const inferredPostalCode = extractPostalCodeFromAddress(addressLine);
+          const providedPostalCode = sanitizePostalCodeInput(
+            String(rawAddress.postalCode ?? ""),
+          );
+
+          return {
+            label: String(address.label || `Address ${index + 1}`),
+            area: rawArea || inferAreaFromAddress(addressLine),
+            postalCode: providedPostalCode || inferredPostalCode,
+            addressLine,
+          };
+        })
+      : [
+          {
+            label: "Primary",
+            area: inferAreaFromAddress(order.customerAddress || ""),
+            postalCode: extractPostalCodeFromAddress(order.customerAddress || ""),
+            addressLine: order.customerAddress || "",
+          },
+        ];
+
+  return {
+    customerName: order.customerName || "",
+    phoneNumber: order.customerPhone || "",
+    deliveryDate: order.deliveryDate || "",
+    deliverySlot: order.deliverySlot || "10:00",
+    deliveryMethod,
+    sales_channel: order.sales_channel || "direct",
+    customNotes: extractCustomBookingNotes(order.notes),
+    paymentStatus: order.paymentStatus === "Paid" ? "Paid" : "DP Paid",
+    dpPaidAmount: Math.max(0, Number(order.dpPaidAmount || 0)),
+    finalPaidAmount: Math.max(0, Number(order.finalPaidAmount || 0)),
+    wholesaleDiscountPercent: ([0, 10, 15, 20] as const).includes(
+      parseWholesaleDiscountPercent(order.notes) as 0 | 10 | 15 | 20,
+    )
+      ? (parseWholesaleDiscountPercent(order.notes) as 0 | 10 | 15 | 20)
+      : 0,
+    manualAdjustment: Math.round(Number(order.manualAdjustment || 0) || 0),
+    items: normalizedItems,
+    deliveryAddresses: normalizedAddresses,
+  };
+}
 
 function saveBookingDraftSnapshot(snapshot: BookingDraftSnapshot): void {
   if (typeof window === "undefined") return;
@@ -2745,11 +3071,18 @@ function buildValidationFeedbackMessage(error: unknown): string | null {
     .join("\n");
 }
 
-export default function BookingForm() {
+export default function BookingForm({
+  mode = "create",
+  orderId,
+  initialOrder = null,
+}: BookingFormProps) {
   const router = useRouter();
   const pathname = usePathname();
   const isReviewPage = pathname === "/bakery/bookings/new/review";
-  const { addOrder, orders, getCustomerMessagePreview } = useOrders();
+  const isEditMode = mode === "edit";
+  const editOrderId = (orderId || initialOrder?.id || "").trim();
+  const { addOrder, updateOrder, orders, getCustomerMessagePreview } =
+    useOrders();
   const { isOwner, isAdmin, loading: isRoleLoading } = useRole();
   const { productCatalog, addOnCatalog } = useCatalogAdminState();
   const [composerStep, setComposerStep] = useState<"input" | "preview">(
@@ -2839,6 +3172,7 @@ export default function BookingForm() {
     useRef<PendingReferenceSyncAction | null>(null);
   const lastParsedReferenceSignatureRef = useRef("");
   const lastFailedAutoParseReferenceSignatureRef = useRef("");
+  const hydratedEditOrderIdRef = useRef("");
   const shouldRequireSubmitConfirmation =
     !isRoleLoading && (isOwner || isAdmin);
   const canWarnDuplicateTemplate = !isRoleLoading && (isOwner || isAdmin);
@@ -2998,6 +3332,11 @@ export default function BookingForm() {
   });
 
   useEffect(() => {
+    if (isEditMode) {
+      setHasHydratedDraftSnapshot(true);
+      return;
+    }
+
     const snapshot = loadBookingDraftSnapshot();
     if (!snapshot) {
       setHasHydratedDraftSnapshot(true);
@@ -3049,7 +3388,54 @@ export default function BookingForm() {
     lastFailedAutoParseReferenceSignatureRef.current = "";
     setComposerStep(isReviewPage ? "preview" : "input");
     setHasHydratedDraftSnapshot(true);
-  }, [isReviewPage, reset, router]);
+  }, [isEditMode, isReviewPage, reset, router]);
+
+  useEffect(() => {
+    if (!isEditMode || !initialOrder || !editOrderId) return;
+    if (hydratedEditOrderIdRef.current === editOrderId) {
+      setHasHydratedDraftSnapshot(true);
+      return;
+    }
+
+    const formValues = buildBookingFormValuesFromOrder(
+      initialOrder,
+      productCatalog,
+    );
+    const requestedLabels = Array.isArray(
+      initialOrder.whatsAppParsedData?.requestedImageLabels,
+    )
+      ? initialOrder.whatsAppParsedData?.requestedImageLabels ?? []
+      : [];
+    const shippingQuote = initialOrder.shippingQuote ?? null;
+
+    reset(formValues);
+    setQuickPaste("");
+    setSelectedOrderType("unknown");
+    setParsedPreview(initialOrder.whatsAppParsedData ?? null);
+    setProductionPreviewImageUrl("");
+    setDraftImported(Boolean(initialOrder.whatsAppParsedData));
+    setReferenceImageLabelsInput(requestedLabels.join(", "));
+    setShippingQuotes(shippingQuote ? [shippingQuote] : []);
+    selectedShippingQuoteIdRef.current = shippingQuote?.id ?? "";
+    selectedShippingQuoteServiceKeyRef.current = shippingQuote
+      ? getShippingQuoteServiceKey(shippingQuote)
+      : "";
+    setSelectedShippingQuoteId(shippingQuote?.id ?? "");
+    setShippingDistanceKm(null);
+    setShippingDistanceSource(undefined);
+    setShippingWarning("");
+    setReferenceFilesChangedSinceParse(false);
+    setReferenceSyncStatus("idle");
+    setReferenceImageFiles([]);
+    lastParsedReferenceSignatureRef.current = buildReferenceInputSignature({
+      files: [],
+      requestedLabels,
+    });
+    lastFailedAutoParseReferenceSignatureRef.current = "";
+    setComposerStep("input");
+    hydratedEditOrderIdRef.current = editOrderId;
+    setHasHydratedDraftSnapshot(true);
+  }, [editOrderId, initialOrder, isEditMode, productCatalog, reset]);
 
   useEffect(() => {
     selectedShippingQuoteIdRef.current = selectedShippingQuoteId;
@@ -3093,35 +3479,38 @@ export default function BookingForm() {
         return;
       }
 
-      saveBookingDraftSnapshot({
-        composerStep: "preview",
-        quickPaste,
-        selectedOrderType,
-        parsedPreview,
-        productionPreviewImageUrl,
-        draftImported,
-        referenceImageLabelsInput,
-        referenceFilesChangedSinceParse,
-        shippingQuotes,
-        selectedShippingQuoteId:
-          selectedShippingQuoteIdRef.current || selectedShippingQuoteId,
-        selectedShippingQuoteServiceKey:
-          resolveSelectedShippingQuoteServiceKey(),
-        shippingDistanceKm,
-        shippingDistanceSource,
-        shippingWarning,
-        formValues: parsedValues.data,
-        ...snapshotOverrides,
-      });
+      if (!isEditMode) {
+        saveBookingDraftSnapshot({
+          composerStep: "preview",
+          quickPaste,
+          selectedOrderType,
+          parsedPreview,
+          productionPreviewImageUrl,
+          draftImported,
+          referenceImageLabelsInput,
+          referenceFilesChangedSinceParse,
+          shippingQuotes,
+          selectedShippingQuoteId:
+            selectedShippingQuoteIdRef.current || selectedShippingQuoteId,
+          selectedShippingQuoteServiceKey:
+            resolveSelectedShippingQuoteServiceKey(),
+          shippingDistanceKm,
+          shippingDistanceSource,
+          shippingWarning,
+          formValues: parsedValues.data,
+          ...snapshotOverrides,
+        });
+      }
 
       setComposerStep("preview");
-      if (!isReviewPage) {
+      if (!isEditMode && !isReviewPage) {
         router.push("/bakery/bookings/new/review");
       }
     },
     [
       draftImported,
       getValues,
+      isEditMode,
       isReviewPage,
       parsedPreview,
       productionPreviewImageUrl,
@@ -3327,7 +3716,6 @@ export default function BookingForm() {
   );
   const blockedDates = bakerySettings?.blockedDates ?? BAKERY_BLOCKED_DATES;
   const cutoffHour = bakerySettings?.cutoffHour ?? 10;
-  const cutoffEnabled = bakerySettings?.cutoffEnabled ?? true;
   const defaultDpPercentage = bakerySettings?.defaultDpPercentage ?? 50;
   const canBackfillPastOrders = !isRoleLoading && (isOwner || isAdmin);
   const allowHistoricalBackfillForSelectedDate =
@@ -5063,7 +5451,7 @@ export default function BookingForm() {
       const duplicateTemplateOrders = findOrdersWithDuplicateParsedTemplate(
         orders,
         normalizedTemplate,
-      );
+      ).filter((match) => !isEditMode || match.order.id !== editOrderId);
 
       if (duplicateTemplateOrders.length > 0) {
         const hasSimilarTemplate = duplicateTemplateOrders.some(
@@ -5126,6 +5514,40 @@ export default function BookingForm() {
       const shouldRedirectToOrders =
         submitFlowSourceRef.current === "duplicate-warning";
       setIsBookingCreationInFlight(true);
+      if (isEditMode) {
+        if (!editOrderId) {
+          throw new Error("Order ID tidak valid untuk edit booking.");
+        }
+
+        const updatedOrder = await updateOrder(editOrderId, {
+          customerName: values.customerName,
+          customerPhone: values.phoneNumber,
+          deliveryDate: normalizedDeliveryDate,
+          deliverySlot: values.deliverySlot,
+          deliveryMethod: effectiveDeliveryMethod,
+          notes: submissionPayload.notes,
+          items: mappedItems,
+          deliveryAddresses: mappedAddresses,
+          deliveryFee,
+          insuranceFee,
+          manualAdjustment: Number(values.manualAdjustment || 0),
+          dpPaidAmount: effectiveDpPaidAmount,
+          finalPaidAmount: effectiveFinalPaidAmount,
+          sales_channel: values.sales_channel,
+        });
+        setSubmitSuccess("Booking berhasil diperbarui.");
+        setSubmitSuccessMeta({
+          id: updatedOrder.id,
+          bookingCode: updatedOrder.bookingCode || predictedBookingCode,
+          submittedAt: new Date().toISOString(),
+          phoneNumber: values.phoneNumber,
+        });
+        toast.success("Booking berhasil diperbarui.");
+        router.push(`/bakery/bookings/${updatedOrder.id}`);
+        router.refresh();
+        return;
+      }
+
       const newOrderId = await addOrder(submissionPayload);
       const phoneNumber = values.phoneNumber;
       resetBookingDraftState();
@@ -5177,7 +5599,9 @@ export default function BookingForm() {
     if (referenceSyncStatus === "failed") {
       pendingReferenceSyncActionRef.current = null;
       showSubmitFeedback(
-        "Perubahan referensi terbaru gagal disimpan otomatis. Coba klik Preview/Create Booking lagi atau gunakan Parse WhatsApp bila kendala berulang.",
+        isEditMode
+          ? "Perubahan referensi terbaru gagal disimpan otomatis. Coba klik Preview atau Simpan Perubahan lagi, atau gunakan Parse WhatsApp bila kendala berulang."
+          : "Perubahan referensi terbaru gagal disimpan otomatis. Coba klik Preview/Create Booking lagi atau gunakan Parse WhatsApp bila kendala berulang.",
       );
       return;
     }
@@ -5193,6 +5617,7 @@ export default function BookingForm() {
     pendingReferenceSyncActionRef.current = null;
     void submitBookingForm();
   }, [
+    isEditMode,
     isParsingWhatsApp,
     referenceFilesChangedSinceParse,
     referenceSyncStatus,
@@ -6051,7 +6476,7 @@ export default function BookingForm() {
           referenceFilesChangedSinceParse: false,
         });
         window.scrollTo({ top: 0, behavior: "smooth" });
-      } else {
+      } else if (!isEditMode) {
         saveBookingDraftSnapshot({
           composerStep,
           quickPaste,
@@ -6181,25 +6606,27 @@ export default function BookingForm() {
     lastParsedReferenceSignatureRef.current = referenceInputSignature;
 
     try {
-      saveBookingDraftSnapshot({
-        composerStep,
-        quickPaste,
-        selectedOrderType,
-        parsedPreview: nextParsedPreview,
-        productionPreviewImageUrl,
-        draftImported: true,
-        referenceImageLabelsInput,
-        referenceFilesChangedSinceParse: false,
-        shippingQuotes,
-        selectedShippingQuoteId:
-          selectedShippingQuoteIdRef.current || selectedShippingQuoteId,
-        selectedShippingQuoteServiceKey:
-          resolveSelectedShippingQuoteServiceKey(),
-        shippingDistanceKm,
-        shippingDistanceSource,
-        shippingWarning,
-        formValues: bookingSchema.parse(getValues()),
-      });
+      if (!isEditMode) {
+        saveBookingDraftSnapshot({
+          composerStep,
+          quickPaste,
+          selectedOrderType,
+          parsedPreview: nextParsedPreview,
+          productionPreviewImageUrl,
+          draftImported: true,
+          referenceImageLabelsInput,
+          referenceFilesChangedSinceParse: false,
+          shippingQuotes,
+          selectedShippingQuoteId:
+            selectedShippingQuoteIdRef.current || selectedShippingQuoteId,
+          selectedShippingQuoteServiceKey:
+            resolveSelectedShippingQuoteServiceKey(),
+          shippingDistanceKm,
+          shippingDistanceSource,
+          shippingWarning,
+          formValues: bookingSchema.parse(getValues()),
+        });
+      }
     } catch {
       // Ignore draft snapshot sync until form reaches a valid shape again.
     }
@@ -6207,6 +6634,7 @@ export default function BookingForm() {
     composerStep,
     draftImported,
     getValues,
+    isEditMode,
     isParsingWhatsApp,
     parsedPreview,
     productionPreviewImageUrl,
@@ -6240,10 +6668,41 @@ export default function BookingForm() {
       role="alert"
       className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"
     >
-      <p className="font-semibold">Booking belum bisa dilanjutkan</p>
+      <p className="font-semibold">
+        {isEditMode
+          ? "Perubahan booking belum bisa disimpan"
+          : "Booking belum bisa dilanjutkan"}
+      </p>
       <p className="mt-1 whitespace-pre-line">{submitError}</p>
     </div>
   ) : null;
+
+  const activeParserLabel =
+    selectedOrderType === "unknown"
+      ? "Auto Detect"
+      : WHATSAPP_ORDER_LABELS[selectedOrderType];
+  const formHeading = isEditMode ? "Edit Booking" : "New Booking";
+  const formSubheading = isEditMode
+    ? "Perbarui detail booking lalu simpan perubahan"
+    : "Paste rekap WA lalu klik Parse";
+  const parserHint = isEditMode
+    ? "Mode edit aktif. Parse ulang chat jika ingin overwrite detail booking dari recap WA."
+    : "Default parser:";
+  const draftReadyMessage = isEditMode
+    ? "Draft berhasil di-auto populate. Cek ulang semua data sebelum menyimpan perubahan."
+    : "Draft berhasil di-auto populate. Cek ulang semua data sebelum create booking.";
+  const previewTitle = isEditMode
+    ? "Preview Perubahan Booking"
+    : "Preview Booking";
+  const previewHiddenMessage = isEditMode
+    ? "Preview perubahan booking disembunyikan di halaman ini. Untuk melihatnya, klik"
+    : "Preview template produksi disembunyikan di halaman ini. Untuk melihatnya, klik";
+  const referenceSyncMessage = isEditMode
+    ? "Perubahan referensi sedang disimpan otomatis. Preview dan simpan perubahan akan memakai versi terbaru setelah sinkron selesai."
+    : "Perubahan referensi sedang disimpan otomatis. Preview dan create booking akan memakai versi terbaru setelah sinkron selesai.";
+  const referenceRetryMessage = isEditMode
+    ? "Sinkron referensi otomatis sempat gagal. Sistem akan coba lagi saat Anda klik Preview atau Simpan Perubahan."
+    : "Sinkron referensi otomatis sempat gagal. Sistem akan coba lagi saat Anda klik Preview atau Create Booking.";
 
   return (
     <form onSubmit={submitBookingForm} className="space-y-6">
@@ -6258,10 +6717,10 @@ export default function BookingForm() {
                   </div>
                   <div>
                     <p className="text-3xl font-semibold leading-none text-[var(--foreground)]">
-                      New Booking
+                      {formHeading}
                     </p>
                     <p className="text-sm text-[var(--crumbella-muted)]">
-                      Paste rekap WA lalu klik Parse
+                      {formSubheading}
                     </p>
                   </div>
                 </div>
@@ -6301,17 +6760,17 @@ export default function BookingForm() {
             </CardHeader>
             <CardContent className="space-y-4 px-4 py-4 sm:px-5 sm:py-5">
               <div className="rounded-[24px] border border-[var(--crumbella-border)] bg-[#fff8f1] px-4 py-3 text-xs text-[var(--crumbella-primary)]">
+                {isEditMode ? <p>{parserHint}</p> : null}
+                {!isEditMode ? (
                 <p>
                   Default parser:{" "}
                   <span className="font-semibold">✨ Auto Detect</span>. Cukup
                   paste chat lalu klik Parse WhatsApp.
                 </p>
+                ) : null}
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   <span className="rounded-md border border-indigo-200 bg-white px-2 py-1 font-semibold text-indigo-700">
-                    Mode aktif:{" "}
-                    {selectedOrderType === "unknown"
-                      ? "Auto Detect"
-                      : WHATSAPP_ORDER_LABELS[selectedOrderType]}
+                    Mode aktif: {activeParserLabel}
                   </span>
                   <Button
                     type="button"
@@ -6444,9 +6903,7 @@ export default function BookingForm() {
                   draftImported &&
                   referenceSyncStatus === "syncing" && (
                     <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-700">
-                      Perubahan referensi sedang disimpan otomatis. Preview dan
-                      create booking akan memakai versi terbaru setelah sinkron
-                      selesai.
+                      {referenceSyncMessage}
                     </div>
                   )}
 
@@ -6454,8 +6911,7 @@ export default function BookingForm() {
                   draftImported &&
                   referenceSyncStatus === "failed" && (
                     <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                      Sinkron referensi otomatis sempat gagal. Sistem akan coba
-                      lagi saat Anda klik Preview atau Create Booking.
+                      {referenceRetryMessage}
                     </div>
                   )}
               </div>
@@ -6511,17 +6967,15 @@ export default function BookingForm() {
 
               {draftImported && (
                 <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-                  Draft berhasil di-auto populate. Cek ulang semua data sebelum
-                  create booking.
+                  {draftReadyMessage}
                 </div>
               )}
 
               {(productionPreviewImageUrl ||
                 previewReferenceImages.some((image) => image.url)) && (
                 <div className="rounded-2xl border border-dashed border-[var(--crumbella-border)] bg-white/70 px-4 py-3 text-center text-xs text-[var(--crumbella-muted)]">
-                  Preview template produksi disembunyikan di halaman ini. Untuk
-                  melihatnya, klik{" "}
-                  <span className="font-semibold">Preview Booking</span> di atas
+                  {previewHiddenMessage}{" "}
+                  <span className="font-semibold">{previewTitle}</span> di atas
                   Price Summary.
                 </div>
               )}
@@ -9288,7 +9742,9 @@ export default function BookingForm() {
                       ? "Saving Booking..."
                       : isCapacityValidating
                         ? "Validating Capacity..."
-                        : "Preview Booking"}
+                        : isEditMode
+                          ? "Preview Perubahan"
+                          : "Preview Booking"}
                   </Button>
                   <Button
                     variant="outline"
@@ -9312,7 +9768,9 @@ export default function BookingForm() {
                       <div className="space-y-1">
                         <p>
                           Status:{" "}
-                          <span className="font-semibold">Submitted</span>
+                          <span className="font-semibold">
+                            {isEditMode ? "Updated" : "Submitted"}
+                          </span>
                         </p>
                         <p>
                           Kode Booking:{" "}
@@ -9321,7 +9779,7 @@ export default function BookingForm() {
                           </span>
                         </p>
                         <p>
-                          Waktu Submit:{" "}
+                          {isEditMode ? "Waktu Update:" : "Waktu Submit:"}{" "}
                           {formatSubmitTimestamp(submitSuccessMeta.submittedAt)}
                         </p>
                         <div className="flex gap-2 pt-2">
@@ -9372,17 +9830,25 @@ export default function BookingForm() {
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => router.push("/bakery/bookings/new")}
+                  onClick={() => {
+                    if (isEditMode) {
+                      setComposerStep("input");
+                      return;
+                    }
+                    router.push("/bakery/bookings/new");
+                  }}
                   className="flex h-8 w-8 items-center justify-center rounded-xl text-lg text-[var(--crumbella-muted)]"
                 >
                   ←
                 </button>
                 <div>
                   <p className="text-[14px] font-bold text-[var(--foreground)]">
-                    Preview Booking
+                    {previewTitle}
                   </p>
                   <p className="text-[11px] text-[var(--crumbella-muted)]">
-                    Cek data sebelum membuat booking
+                    {isEditMode
+                      ? "Cek data sebelum menyimpan perubahan"
+                      : "Cek data sebelum membuat booking"}
                   </p>
                 </div>
               </div>
@@ -9651,7 +10117,13 @@ export default function BookingForm() {
               <div className="flex gap-2 px-[14px] pb-5 pt-1">
                 <button
                   type="button"
-                  onClick={() => router.push("/bakery/bookings/new")}
+                  onClick={() => {
+                    if (isEditMode) {
+                      setComposerStep("input");
+                      return;
+                    }
+                    router.push("/bakery/bookings/new");
+                  }}
                   className="flex-1 rounded-[13px] border-[1.5px] border-[var(--crumbella-border)] bg-white px-3 py-[13px] text-center text-[13px] font-semibold text-[var(--crumbella-muted)] transition hover:bg-gray-50"
                 >
                   ← Edit
@@ -9670,10 +10142,14 @@ export default function BookingForm() {
                   {isSubmitting ||
                   isManualSubmitInFlight ||
                   isBookingCreationInFlight
-                    ? "Saving Booking..."
+                    ? isEditMode
+                      ? "Menyimpan..."
+                      : "Saving Booking..."
                     : isCapacityValidating
                       ? "Validating..."
-                      : "✓ Create Booking"}
+                      : isEditMode
+                        ? "Simpan Perubahan"
+                        : "✓ Create Booking"}
                 </Button>
               </div>
               {submitFeedback}

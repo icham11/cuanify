@@ -362,7 +362,7 @@ export default function OrderTable({ orders }: OrderTableProps) {
                 Detail
               </Link>
               <Link
-                href={`/bakery/bookings/${order.id}#edit-delivery`}
+                href={`/bakery/bookings/${order.id}/edit`}
                 onClick={(event) => event.stopPropagation()}
                 className="inline-flex h-8 items-center justify-center gap-1 rounded-xl border border-[var(--crumbella-border)] px-3 text-[11px] font-semibold text-[var(--foreground)]"
               >

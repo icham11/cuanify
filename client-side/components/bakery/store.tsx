@@ -16,6 +16,7 @@ import {
   type ParsedWhatsAppOrder,
   type WhatsAppOrderType,
 } from "@/lib/bookings/whatsapp-parser";
+import { getOrderItemsSummary } from "@/lib/bookings/order-display";
 import { buildOrderRecapWhatsAppText } from "@/lib/bookings/whatsapp-message-template";
 import type {
   BookingAutomationEvent,
@@ -33,6 +34,7 @@ import {
 } from "@/lib/bookings/operations";
 import {
   estimateOperationalWeightGram,
+  usesShippingEngine,
   parseServiceChargeFromNotes,
   resolveShippingParcelCount,
   type DeliveryMethod,
@@ -140,6 +142,21 @@ export interface OrderItem {
   lineTotal?: number;
   addOns: string[];
   addOnQuantities?: Record<string, number>;
+  addOnPriceOverrides?: Record<string, number>;
+  customAddOns?: Array<{ label: string; price: number }>;
+  darkColorButtercreamColors?: string[];
+  parsedUnitPrice?: number;
+  parsedSubtotal?: number;
+  pricingSource?: "RECAP";
+  cookieDifficultyBreakdown?: string;
+  greetingCard?: string;
+  bouquetPaperColor?: string;
+  ribbon?: string;
+  flowerCount?: string;
+  flowerColor?: string;
+  ribbonColor?: string;
+  bouquetPriceOverride?: number;
+  sharingBoxPriceOverride?: number;
   addOnTotal: number;
   notes?: string;
 }
@@ -240,9 +257,27 @@ export interface NewOrderInput {
   shippingQuote?: ShippingQuote | null;
 }
 
+export interface UpdateOrderInput {
+  customerName: string;
+  customerPhone: string;
+  deliveryDate: string;
+  deliverySlot: string;
+  deliveryMethod?: DeliveryMethod | null;
+  notes?: string;
+  items: OrderItem[];
+  deliveryAddresses: DeliveryAddress[];
+  deliveryFee?: number;
+  insuranceFee?: number;
+  manualAdjustment?: number;
+  dpPaidAmount?: number;
+  finalPaidAmount?: number;
+  sales_channel?: "direct" | "tokopedia" | "shopee";
+}
+
 interface OrdersContextValue {
   orders: BakeryOrder[];
   addOrder: (order: NewOrderInput) => Promise<string>;
+  updateOrder: (id: string, payload: UpdateOrderInput) => Promise<BakeryOrder>;
   updateOrderStatus: (id: string, status: OrderStatus) => Promise<void>;
   assignOrderToStaff: (
     id: string,
@@ -952,6 +987,27 @@ function inferPaymentStatus(
   if (totalPaidAmount <= 0) return "Pending";
   if (totalPaidAmount >= Math.max(0, normalizeMoney(totalPrice))) return "Paid";
   return "DP Paid";
+}
+
+function parseWholesaleDiscountPercentFromNotes(notes?: string | null): number {
+  const match = String(notes || "").match(
+    /wholesale\s*discount\s*:\s*(\d+(?:[.,]\d+)?)\s*%/i,
+  );
+  if (!match?.[1]) return 0;
+
+  const parsed = Number(match[1].replace(",", "."));
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.max(0, Math.min(100, Number(parsed.toFixed(2))));
+}
+
+function resolveOrderItemBaseAmount(item: OrderItem): number {
+  const lineTotal = normalizeMoney(item.lineTotal);
+  if (lineTotal > 0) return lineTotal;
+  return normalizeMoney(item.basePrice);
+}
+
+function resolveOrderItemAddOnAmount(item: OrderItem): number {
+  return normalizeMoney(item.addOnTotal);
 }
 
 function buildAutomationPayload(
@@ -2960,6 +3016,321 @@ export function OrdersProvider({
     [assignProductionStagesStaff],
   );
 
+  const updateOrder = useCallback(
+    async (id: string, payload: UpdateOrderInput): Promise<BakeryOrder> => {
+      const latestOrders = getLatestOrdersSnapshot();
+      const existingOrder = latestOrders.find((order) => order.id === id);
+      if (!existingOrder) {
+        throw new Error("Order tidak ditemukan.");
+      }
+
+      const nextCustomerName = payload.customerName.trim();
+      const nextCustomerPhone = payload.customerPhone.trim();
+      const nextDeliveryDate = normalizeDateInput(payload.deliveryDate) ?? payload.deliveryDate.trim();
+      const nextDeliverySlot = payload.deliverySlot.trim();
+      const nextDeliveryMethod =
+        payload.deliveryMethod ??
+        resolveOrderDeliveryMethod({
+          deliveryMethod: existingOrder.deliveryMethod,
+          parsedDeliveryMethod:
+            existingOrder.whatsAppParsedData?.common?.deliveryMethod,
+          notes: existingOrder.notes,
+          shippingQuote: existingOrder.shippingQuote,
+        }) ??
+        "PICKUP";
+      const nextNotes = String(payload.notes ?? "").trim();
+
+      const nextItems = payload.items.map((rawItem, index) => {
+        const quantity = Math.max(0, Math.round(Number(rawItem.quantity) || 0));
+        const lineTotal = resolveOrderItemBaseAmount(rawItem);
+        const addOnTotal = resolveOrderItemAddOnAmount(rawItem);
+        const addOnQuantities = Object.fromEntries(
+          Object.entries(rawItem.addOnQuantities ?? {}).flatMap(([key, value]) => {
+            const normalizedKey = String(key || "").trim();
+            const normalizedValue = Math.max(0, Math.round(Number(value) || 0));
+            if (!normalizedKey || normalizedValue <= 0) return [];
+            return [[normalizedKey, normalizedValue] as const];
+          }),
+        );
+
+        return {
+          ...rawItem,
+          id: String(rawItem.id || `item-${id}-${index}-${Date.now()}`),
+          category: String(rawItem.category || "").trim(),
+          subcategory: String(rawItem.subcategory || "").trim(),
+          productName: String(rawItem.productName || "").trim(),
+          size: String(rawItem.size || "").trim(),
+          quantity,
+          tokenDifficulty: rawItem.tokenDifficulty || undefined,
+          customTokenPerUnit:
+            rawItem.customTokenPerUnit === undefined ||
+            rawItem.customTokenPerUnit === null
+              ? undefined
+              : normalizeMoney(rawItem.customTokenPerUnit),
+          lineTotal,
+          basePrice: lineTotal,
+          addOns: [...new Set((rawItem.addOns ?? []).map((entry) => String(entry || "").trim()).filter(Boolean))],
+          addOnQuantities,
+          addOnTotal,
+          notes: String(rawItem.notes || "").trim() || undefined,
+        };
+      });
+
+      const nextDeliveryAddresses = payload.deliveryAddresses.map((address, index) => ({
+        ...address,
+        id: String(address.id || `addr-${id}-${index}-${Date.now()}`),
+        label: String(address.label || "").trim() || `Alamat ${index + 1}`,
+        area: String(address.area || "").trim(),
+        addressLine: String(address.addressLine || "").trim(),
+      }));
+
+      const itemBaseSubtotal = nextItems.reduce(
+        (sum, item) => sum + resolveOrderItemBaseAmount(item),
+        0,
+      );
+      const itemAddOnSubtotal = nextItems.reduce(
+        (sum, item) => sum + resolveOrderItemAddOnAmount(item),
+        0,
+      );
+      const deliveryFee = normalizeMoney(payload.deliveryFee);
+      const insuranceFee = normalizeMoney(payload.insuranceFee);
+      const manualAdjustment = Math.round(Number(payload.manualAdjustment ?? 0) || 0);
+      const serviceCharge = parseServiceChargeFromNotes(nextNotes);
+      const wholesaleDiscountPercent =
+        parseWholesaleDiscountPercentFromNotes(nextNotes);
+      const subtotalBeforeDiscount =
+        itemBaseSubtotal +
+        itemAddOnSubtotal +
+        deliveryFee +
+        insuranceFee +
+        serviceCharge +
+        manualAdjustment;
+      const wholesaleDiscountAmount = Math.max(
+        0,
+        Math.round(
+          Math.max(0, subtotalBeforeDiscount) * (wholesaleDiscountPercent / 100),
+        ),
+      );
+      const totalPrice = Math.max(0, subtotalBeforeDiscount - wholesaleDiscountAmount);
+
+      const previousDpPaid = normalizeMoney(existingOrder.dpPaidAmount);
+      const previousFinalPaid = normalizeMoney(existingOrder.finalPaidAmount);
+      const requestedDpPaid = Math.min(totalPrice, normalizeMoney(payload.dpPaidAmount));
+      const requestedFinalPaid = Math.min(
+        Math.max(0, totalPrice - requestedDpPaid),
+        normalizeMoney(payload.finalPaidAmount),
+      );
+      const totalPaidAmount = Math.min(
+        totalPrice,
+        requestedDpPaid + requestedFinalPaid,
+      );
+      const remainingBalance = Math.max(0, totalPrice - totalPaidAmount);
+      const paymentStatus = inferPaymentStatus(totalPrice, totalPaidAmount);
+
+      const deltaDp = requestedDpPaid - previousDpPaid;
+      const deltaFinal = requestedFinalPaid - previousFinalPaid;
+      const nowIso = new Date().toISOString();
+      const eventTimestamp = isHistoricalBackfillOrder(nextDeliveryDate)
+        ? buildHistoricalOrderTimestamp(nextDeliveryDate, nextDeliverySlot) || nowIso
+        : nowIso;
+      const appendedTransactions: PaymentTransaction[] = [];
+      if (deltaDp !== 0) {
+        appendedTransactions.push({
+          id: `pay-${id}-dp-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+          timestamp: eventTimestamp,
+          amount: deltaDp,
+          type: "DP",
+          note: "Edit order - penyesuaian DP",
+          userId: actorIdentity.userId,
+          actorName: actorIdentity.name,
+        });
+      }
+      if (deltaFinal !== 0) {
+        appendedTransactions.push({
+          id: `pay-${id}-final-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+          timestamp: eventTimestamp,
+          amount: deltaFinal,
+          type: "Final",
+          note: "Edit order - penyesuaian pelunasan",
+          userId: actorIdentity.userId,
+          actorName: actorIdentity.name,
+        });
+      }
+
+      const stagePercentages = getProductionStagePercentagesFromTemplates(
+        resolveProductionStageTemplatesForCategory({
+          category: resolvePrimaryProductionCategory(nextItems),
+          profiles: bakerySettings?.productionStageProfiles,
+        }),
+      );
+      const totalTokens = summarizeProductionTokensByItems(nextItems);
+      const nextProductionStages = normalizeProductionStageAssignments({
+        totalTokens,
+        stages: existingOrder.productionStages,
+        percentages: stagePercentages,
+      });
+      const uniqueAssignees = [
+        ...new Set(
+          nextProductionStages
+            .map((stage) => Number(stage.staffId || 0))
+            .filter((staffId) => Number.isInteger(staffId) && staffId > 0),
+        ),
+      ];
+      const nextAssignedStaffUserId =
+        uniqueAssignees.length === 1
+          ? uniqueAssignees[0]
+          : uniqueAssignees.length === 0
+            ? existingOrder.assignedStaffUserId ?? null
+            : null;
+      const nextAssignedStaffName =
+        nextAssignedStaffUserId &&
+        nextAssignedStaffUserId === existingOrder.assignedStaffUserId
+          ? existingOrder.assignedStaffName || ""
+          : uniqueAssignees.length === 1 && nextAssignedStaffUserId
+            ? `Staff #${nextAssignedStaffUserId}`
+            : uniqueAssignees.length > 1
+              ? ""
+              : existingOrder.assignedStaffName || "";
+
+      const previousPrimaryAddress =
+        existingOrder.deliveryAddresses?.[0]?.addressLine ||
+        existingOrder.customerAddress ||
+        "";
+      const nextPrimaryAddress = nextDeliveryAddresses[0]?.addressLine || "";
+      const previousResolvedMethod =
+        resolveOrderDeliveryMethod({
+          deliveryMethod: existingOrder.deliveryMethod,
+          parsedDeliveryMethod:
+            existingOrder.whatsAppParsedData?.common?.deliveryMethod,
+          notes: existingOrder.notes,
+          shippingQuote: existingOrder.shippingQuote,
+        }) ?? null;
+      const scheduleChanged =
+        existingOrder.deliveryDate !== nextDeliveryDate ||
+        existingOrder.deliverySlot !== nextDeliverySlot;
+      const addressChanged =
+        previousPrimaryAddress.trim() !== nextPrimaryAddress.trim();
+      const deliveryMethodChanged = previousResolvedMethod !== nextDeliveryMethod;
+      const shouldClearShipment =
+        scheduleChanged || addressChanged || deliveryMethodChanged;
+      const shouldClearQuote =
+        deliveryMethodChanged && !usesShippingEngine(nextDeliveryMethod);
+
+      const parsedCommon = {
+        ...(existingOrder.whatsAppParsedData?.common ?? {}),
+        recipientName: nextCustomerName,
+        recipientPhone: nextCustomerPhone,
+        fullAddress: nextPrimaryAddress,
+        deliveryMethod: nextDeliveryMethod,
+      };
+
+      const editLogParts = [
+        existingOrder.customerName !== nextCustomerName ? "customer" : "",
+        existingOrder.deliveryDate !== nextDeliveryDate ||
+        existingOrder.deliverySlot !== nextDeliverySlot
+          ? "schedule"
+          : "",
+        existingOrder.customerPhone !== nextCustomerPhone ? "phone" : "",
+        addressChanged ? "address" : "",
+        deliveryMethodChanged ? "delivery method" : "",
+        JSON.stringify(existingOrder.items ?? []) !== JSON.stringify(nextItems)
+          ? "items"
+          : "",
+        previousDpPaid !== requestedDpPaid || previousFinalPaid !== requestedFinalPaid
+          ? "payment"
+          : "",
+      ].filter(Boolean);
+
+      const nextOrder: BakeryOrder = {
+        ...existingOrder,
+        updatedAt: nowIso,
+        customerName: nextCustomerName,
+        customerPhone: nextCustomerPhone,
+        customerAddress: nextPrimaryAddress,
+        deliveryDate: nextDeliveryDate,
+        deliverySlot: nextDeliverySlot,
+        deliveryMethod: nextDeliveryMethod,
+        notes: nextNotes,
+        items: nextItems,
+        deliveryAddresses: nextDeliveryAddresses,
+        product: getOrderItemsSummary(nextItems, existingOrder.product || "Order"),
+        basePrice: itemBaseSubtotal,
+        addOnTotal: itemAddOnSubtotal,
+        deliveryFee,
+        insuranceFee,
+        manualAdjustment,
+        dpPaidAmount: requestedDpPaid,
+        finalPaidAmount: requestedFinalPaid,
+        totalPaidAmount,
+        downPaymentAmount: requestedDpPaid,
+        remainingBalance,
+        totalPrice,
+        paymentStatus,
+        sales_channel: payload.sales_channel ?? existingOrder.sales_channel ?? "direct",
+        paymentTransactions: [
+          ...(Array.isArray(existingOrder.paymentTransactions)
+            ? existingOrder.paymentTransactions
+            : []),
+          ...appendedTransactions,
+        ],
+        shipment: shouldClearShipment ? null : existingOrder.shipment ?? null,
+        shippingQuote: shouldClearQuote
+          ? null
+          : (existingOrder.shippingQuote ?? null),
+        resi:
+          shouldClearShipment && existingOrder.shipment?.trackingNumber
+            ? ""
+            : existingOrder.resi,
+        whatsAppParsedData: {
+          ...(existingOrder.whatsAppParsedData ?? {}),
+          common: parsedCommon,
+        } as ParsedWhatsAppOrder,
+        productionStages: nextProductionStages,
+        assignedStaffUserId: nextAssignedStaffUserId,
+        assignedStaffName: nextAssignedStaffName,
+        statusHistory: appendStatusLog(
+          existingOrder.statusHistory,
+          existingOrder.orderStatus,
+          editLogParts.length > 0
+            ? `Order diperbarui: ${editLogParts.join(", ")}`
+            : "Order diperbarui",
+          actorIdentity,
+        ),
+      };
+
+      const nextOrders = latestOrders.map((order) =>
+        order.id === id ? nextOrder : order,
+      );
+      persistOrders(nextOrders);
+
+      void runAutomationsForOrder("order_calendar_sync", id);
+
+      if (scheduleChanged) {
+        void runAutomationsForOrder("order_rescheduled", id);
+      }
+
+      if (
+        scheduleChanged &&
+        isDueForScheduledShipment(nextOrder, getJakartaTodayIsoDate())
+      ) {
+        void createShipmentForOrder(id);
+      }
+
+      toast.success("Perubahan booking tersimpan");
+      void hydrateOrdersFromServer(true);
+      return nextOrder;
+    },
+    [
+      actorIdentity,
+      bakerySettings?.productionStageProfiles,
+      createShipmentForOrder,
+      getLatestOrdersSnapshot,
+      hydrateOrdersFromServer,
+      persistOrders,
+      runAutomationsForOrder,
+    ],
+  );
+
   const updatePaymentStatus = useCallback(
     (id: string, status: PaymentStatus) => {
       const targetOrder = orders.find((order) => order.id === id);
@@ -3282,12 +3653,12 @@ export function OrdersProvider({
         const currentOrders = getLatestOrdersSnapshot();
         const existingIndex = currentOrders.findIndex((item) => item.id === id);
 
-        let nextOrders = [...currentOrders];
-        if (existingIndex >= 0) {
-          nextOrders[existingIndex] = fetchedOrder;
-        } else {
-          nextOrders.push(fetchedOrder);
-        }
+        const nextOrders =
+          existingIndex >= 0
+            ? currentOrders.map((item, index) =>
+                index === existingIndex ? fetchedOrder : item,
+              )
+            : [...currentOrders, fetchedOrder];
 
         persistOrders(nextOrders, { syncToServer: false });
         return fetchedOrder;
@@ -3367,6 +3738,7 @@ export function OrdersProvider({
     () => ({
       orders,
       addOrder,
+      updateOrder,
       updateOrderStatus,
       assignOrderToStaff,
       assignProductionStageStaff,
@@ -3385,6 +3757,7 @@ export function OrdersProvider({
     [
       orders,
       addOrder,
+      updateOrder,
       updateOrderStatus,
       assignOrderToStaff,
       assignProductionStageStaff,

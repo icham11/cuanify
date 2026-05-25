@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { AuthError, ForbiddenError, requireAuth } from "@/lib/auth/session";
 import { isPrismaConnectionTimeout, prismaConnectionErrorResponse } from "@/lib/prisma-errors";
@@ -225,6 +224,8 @@ export async function GET(
       id: row.external_id,
       bookingCode: row.booking_code ?? "",
       resi: row.resi ?? "",
+      createdAt: row.created_at?.toISOString?.() ?? "",
+      updatedAt: row.updated_at?.toISOString?.() ?? "",
       customerName: row.customer_name ?? "",
       customerPhone: row.customer_phone ?? "",
       customerAddress: row.customer_address ?? "",
