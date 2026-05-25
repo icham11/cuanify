@@ -279,6 +279,7 @@ interface OrdersContextValue {
   addOrder: (order: NewOrderInput) => Promise<string>;
   updateOrder: (id: string, payload: UpdateOrderInput) => Promise<BakeryOrder>;
   updateOrderStatus: (id: string, status: OrderStatus) => Promise<void>;
+  deleteOrder: (id: string) => Promise<void>;
   assignOrderToStaff: (
     id: string,
     staff: { userId: number; name: string },
@@ -2690,6 +2691,40 @@ export function OrdersProvider({
     ],
   );
 
+  const deleteOrder = useCallback(
+    async (id: string) => {
+      const latestOrders = getLatestOrdersSnapshot();
+      const orderExists = latestOrders.some((o) => o.id === id);
+      if (!orderExists) return;
+
+      const nextOrders = latestOrders.filter((order) => order.id !== id);
+      
+      try {
+        persistOrders(nextOrders);
+
+        const response = await fetch(`${ORDERS_SYNC_ENDPOINT}/${id}`, {
+          method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        });
+
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          throw new Error(body.error || "Gagal menghapus order di server.");
+        }
+        
+        toast.success("Order berhasil dihapus");
+      } catch (error) {
+        console.error("Gagal menghapus order:", error);
+        toast.error(error instanceof Error ? error.message : "Gagal menghapus order");
+        void replaceLocalOrdersWithServer(latestOrders);
+        throw error;
+      }
+    },
+    [getLatestOrdersSnapshot, persistOrders, replaceLocalOrdersWithServer],
+  );
+
   const updateOrderStatus = useCallback(
     async (id: string, status: OrderStatus) => {
       const requestedStatus = normalizeOrderStatus(status) as OrderStatus;
@@ -3740,6 +3775,7 @@ export function OrdersProvider({
       addOrder,
       updateOrder,
       updateOrderStatus,
+      deleteOrder,
       assignOrderToStaff,
       assignProductionStageStaff,
       assignProductionStagesStaff,
@@ -3759,6 +3795,7 @@ export function OrdersProvider({
       addOrder,
       updateOrder,
       updateOrderStatus,
+      deleteOrder,
       assignOrderToStaff,
       assignProductionStageStaff,
       assignProductionStagesStaff,

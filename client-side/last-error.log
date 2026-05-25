@@ -1,0 +1,32 @@
+PrismaClientKnownRequestError: 
+Invalid `prisma.$executeRaw()` invocation:
+
+
+Transaction API error: A query cannot be executed on an expired transaction. The timeout for this transaction was 5000 ms, however 29930 ms passed since the start of the transaction. Consider increasing the interactive transaction timeout or doing less work in the transaction.
+    at zr.handleRequestError (/Users/wahidnurhisyam/Documents/GitHub/cuanify/client-side/node_modules/@prisma/client/runtime/client.js:65:8172)
+    at zr.handleAndLogRequestError (/Users/wahidnurhisyam/Documents/GitHub/cuanify/client-side/node_modules/@prisma/client/runtime/client.js:65:7467)
+    at zr.request (/Users/wahidnurhisyam/Documents/GitHub/cuanify/client-side/node_modules/@prisma/client/runtime/client.js:65:7174)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async a (/Users/wahidnurhisyam/Documents/GitHub/cuanify/client-side/node_modules/@prisma/client/runtime/client.js:75:5816)
+    at async eval (webpack-internal:///(rsc)/./app/api/bookings/orders/[id]/route.ts:430:17)
+    at async Proxy._transactionWithCallback (/Users/wahidnurhisyam/Documents/GitHub/cuanify/client-side/node_modules/@prisma/client/runtime/client.js:75:4390)
+    at async DELETE (webpack-internal:///(rsc)/./app/api/bookings/orders/[id]/route.ts:416:9)
+    at async AppRouteRouteModule.do (/Users/wahidnurhisyam/Documents/GitHub/cuanify/client-side/node_modules/next/dist/compiled/next-server/app-route.runtime.dev.js:5:37866)
+    at async AppRouteRouteModule.handle (/Users/wahidnurhisyam/Documents/GitHub/cuanify/client-side/node_modules/next/dist/compiled/next-server/app-route.runtime.dev.js:5:45156)
+    at async responseGenerator (webpack-internal:///(rsc)/./node_modules/next/dist/build/webpack/loaders/next-app-loader/index.js?name=app%2Fapi%2Fbookings%2Forders%2F%5Bid%5D%2Froute&page=%2Fapi%2Fbookings%2Forders%2F%5Bid%5D%2Froute&appPaths=&pagePath=private-next-app-dir%2Fapi%2Fbookings%2Forders%2F%5Bid%5D%2Froute.ts&appDir=%2FUsers%2Fwahidnurhisyam%2FDocuments%2FGitHub%2Fcuanify%2Fclient-side%2Fapp&pageExtensions=tsx&pageExtensions=ts&pageExtensions=jsx&pageExtensions=js&rootDir=%2FUsers%2Fwahidnurhisyam%2FDocuments%2FGitHub%2Fcuanify%2Fclient-side&isDev=true&tsconfigPath=&basePath=&assetPrefix=&nextConfigOutput=&preferredRegion=&middlewareConfig=e30%3D&isGlobalNotFoundEnabled=!:233:38)
+    at async AppRouteRouteModule.handleResponse (/Users/wahidnurhisyam/Documents/GitHub/cuanify/client-side/node_modules/next/dist/compiled/next-server/app-route.runtime.dev.js:1:191863)
+    at async handleResponse (webpack-internal:///(rsc)/./node_modules/next/dist/build/webpack/loaders/next-app-loader/index.js?name=app%2Fapi%2Fbookings%2Forders%2F%5Bid%5D%2Froute&page=%2Fapi%2Fbookings%2Forders%2F%5Bid%5D%2Froute&appPaths=&pagePath=private-next-app-dir%2Fapi%2Fbookings%2Forders%2F%5Bid%5D%2Froute.ts&appDir=%2FUsers%2Fwahidnurhisyam%2FDocuments%2FGitHub%2Fcuanify%2Fclient-side%2Fapp&pageExtensions=tsx&pageExtensions=ts&pageExtensions=jsx&pageExtensions=js&rootDir=%2FUsers%2Fwahidnurhisyam%2FDocuments%2FGitHub%2Fcuanify%2Fclient-side&isDev=true&tsconfigPath=&basePath=&assetPrefix=&nextConfigOutput=&preferredRegion=&middlewareConfig=e30%3D&isGlobalNotFoundEnabled=!:296:32)
+    at async Module.handler (webpack-internal:///(rsc)/./node_modules/next/dist/build/webpack/loaders/next-app-loader/index.js?name=app%2Fapi%2Fbookings%2Forders%2F%5Bid%5D%2Froute&page=%2Fapi%2Fbookings%2Forders%2F%5Bid%5D%2Froute&appPaths=&pagePath=private-next-app-dir%2Fapi%2Fbookings%2Forders%2F%5Bid%5D%2Froute.ts&appDir=%2FUsers%2Fwahidnurhisyam%2FDocuments%2FGitHub%2Fcuanify%2Fclient-side%2Fapp&pageExtensions=tsx&pageExtensions=ts&pageExtensions=jsx&pageExtensions=js&rootDir=%2FUsers%2Fwahidnurhisyam%2FDocuments%2FGitHub%2Fcuanify%2Fclient-side&isDev=true&tsconfigPath=&basePath=&assetPrefix=&nextConfigOutput=&preferredRegion=&middlewareConfig=e30%3D&isGlobalNotFoundEnabled=!:350:13)
+    at async DevServer.renderToResponseWithComponentsImpl (/Users/wahidnurhisyam/Documents/GitHub/cuanify/client-side/node_modules/next/dist/server/base-server.js:1442:9)
+    at async DevServer.renderPageComponent (/Users/wahidnurhisyam/Documents/GitHub/cuanify/client-side/node_modules/next/dist/server/base-server.js:1494:24)
+    at async DevServer.renderToResponseImpl (/Users/wahidnurhisyam/Documents/GitHub/cuanify/client-side/node_modules/next/dist/server/base-server.js:1544:32)
+    at async DevServer.pipeImpl (/Users/wahidnurhisyam/Documents/GitHub/cuanify/client-side/node_modules/next/dist/server/base-server.js:1038:25)
+    at async NextNodeServer.handleCatchallRenderRequest (/Users/wahidnurhisyam/Documents/GitHub/cuanify/client-side/node_modules/next/dist/server/next-server.js:395:17)
+    at async DevServer.handleRequestImpl (/Users/wahidnurhisyam/Documents/GitHub/cuanify/client-side/node_modules/next/dist/server/base-server.js:929:17)
+    at async /Users/wahidnurhisyam/Documents/GitHub/cuanify/client-side/node_modules/next/dist/server/dev/next-dev-server.js:387:20
+    at async Span.traceAsyncFn (/Users/wahidnurhisyam/Documents/GitHub/cuanify/client-side/node_modules/next/dist/trace/trace.js:157:20)
+    at async DevServer.handleRequest (/Users/wahidnurhisyam/Documents/GitHub/cuanify/client-side/node_modules/next/dist/server/dev/next-dev-server.js:383:24)
+    at async invokeRender (/Users/wahidnurhisyam/Documents/GitHub/cuanify/client-side/node_modules/next/dist/server/lib/router-server.js:248:21)
+    at async handleRequest (/Users/wahidnurhisyam/Documents/GitHub/cuanify/client-side/node_modules/next/dist/server/lib/router-server.js:447:24)
+    at async requestHandlerImpl (/Users/wahidnurhisyam/Documents/GitHub/cuanify/client-side/node_modules/next/dist/server/lib/router-server.js:496:13)
+    at async Server.requestListener (/Users/wahidnurhisyam/Documents/GitHub/cuanify/client-side/node_modules/next/dist/server/lib/start-server.js:226:13)

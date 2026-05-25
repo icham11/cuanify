@@ -168,20 +168,49 @@ export const detailFieldDefinitions: Record<
       aliases: ["design cake", "desain cake", "tema cake"],
     },
   ],
+  // Daftar kolom detail spesifik untuk pesanan bertipe cookies
   cookies: [
+    // Kolom untuk catatan dari-ke pengirim cookies
     {
+      // Kunci identifikasi kolom to-from notes
       key: "toFromNotes",
+      // Nama label tampilan untuk catatan dari-ke pengirim
       label: "To From Notes",
+      // Daftar alias teks alternatif untuk mengenali kolom notes pengirim
       aliases: ["to from notes", "to-from-notes", "to from"],
     },
+    // Kolom untuk deskripsi tema dan desain cookies
     {
+      // Kunci identifikasi kolom cookie design
       key: "cookieDesign",
+      // Nama label tampilan untuk desain cookies
       label: "Design Cookies",
+      // Daftar alias teks alternatif untuk mengenali kolom desain cookies
       aliases: [
         "design cookies",
         "cookies design",
         "desain cookies",
         "design cookie",
+      ],
+    },
+    // Kolom baru untuk menangkap jumlah/kuantitas cookies
+    {
+      // Kunci identifikasi kolom kuantitas cookies
+      key: "cookieCount",
+      // Nama label tampilan kolom jumlah cookies
+      label: "Jumlah Cookies",
+      // Daftar alias teks alternatif dalam chat untuk mengenali kuantitas cookies
+      aliases: [
+        "jumlah cookies",
+        "qty cookies",
+        "jumlah cookie",
+        "qty cookie",
+        "jumlah",
+        "qty",
+        "cookie count",
+        "cookie qty",
+        "cookies count",
+        "cookies qty",
       ],
     },
   ],
@@ -294,11 +323,17 @@ export const detailFieldDefinitions: Record<
   ],
 };
 
+// Konfigurasi field detail opsional (tidak wajib diisi) untuk setiap tipe order
 const optionalDetailFieldKeys: Record<WhatsAppOrderType, string[]> = {
+  // Tipe cake tidak memiliki field detail opsional wajib
   cake: [],
-  cookies: ["toFromNotes"],
+  // Tipe cookies memiliki field opsional catatan to-from dan jumlah cookies
+  cookies: ["toFromNotes", "cookieCount"],
+  // Tipe cupcakes tidak memiliki field detail opsional wajib
   cupcakes: [],
+  // Tipe buket memiliki field opsional harga, jumlah bunga, dan warna bunga
   buket: ["cookiePrice", "flowerCount", "flowerColor"],
+  // Tipe cookies tower tidak memiliki field detail opsional wajib
   cookies_tower: [],
 };
 
@@ -2721,14 +2756,14 @@ function extractOrderQuantity(value: string): number | null {
 
   const bouquetContextual = parseMatchedQuantity(
     text.match(
-      /(?:hbq|sbq|hand\s*bouquet|standing\s*bouquet|bouquet|buket)\b(?:\s+(?:isi|isian|isinya|qty|jumlah|x))?\s*[:=\-]?\s*(\d{1,4})\b/i,
+      /(?:hbq|sbq|hand\s*bouquet|standing\s*bouquet|standing\s*bucket|bucket|bouquet|buket)\b(?:\s+(?:qty|jumlah|x))?\s*[:=\-]?\s*(\d{1,4})\b/i,
     ),
   );
   if (bouquetContextual) return bouquetContextual;
 
   const explicitContextual = parseMatchedQuantity(
     text.match(
-      /(?:qty|quantity|jumlah|order|pesan|x|isi|isian|isinya)\s*(?:cookies?|cookie|bunga|bouquet|buket|hbq|sbq|pcs?|pc|box|pack|pkt|paket|dozen|lusin)?\s*[:=\-]?\s*(\d{1,4})\b/i,
+      /(?:qty|quantity|jumlah|order|pesan|x)\s*(?:cookies?|cookie|bunga|bouquet|buket|hbq|sbq|pcs?|pc|box|pack|pkt|paket|dozen|lusin)?\s*[:=\-]?\s*(\d{1,4})\b/i,
     ),
   );
   if (explicitContextual) return explicitContextual;
@@ -2799,54 +2834,76 @@ function extractSeasonalPacketCookieEntries(
     );
 }
 
+// Fungsi untuk memilih dan menentukan kuantitas order berdasarkan hasil parsing chat
 function chooseQuantity(parsed: ParsedWhatsAppOrder): number {
+  // Blok penentu jika order bertipe cake atau cookies tower maka default kuantitasnya 1
   if (parsed.orderType === "cake" || parsed.orderType === "cookies_tower") {
+    // Kembalikan nilai default kuantitas 1
     return 1;
   }
 
-  if (parsed.orderType === "buket") {
-    const bouquetCount = extractPositiveInteger(
-      parsed.details.flowerCount ?? "",
+  // Blok penentu khusus jika order bertipe cookies untuk mem-parse field cookieCount
+  if (parsed.orderType === "cookies") {
+    // Ekstrak nilai bilangan bulat positif dari field cookieCount hasil parsing
+    const cookieCount = extractPositiveInteger(
+      // Ambil nilai dari properti cookieCount, gunakan string kosong jika undefined
+      parsed.details.cookieCount ?? "",
     );
-    if (
-      bouquetCount &&
-      bouquetCount >= BOUQUET_COOKIE_QTY_MIN &&
-      bouquetCount <= BOUQUET_COOKIE_QTY_MAX
-    ) {
-      return bouquetCount;
+    // Jika nilai cookieCount berhasil diekstrak dan valid (lebih besar dari 0)
+    if (cookieCount && cookieCount > 0) {
+      // Kembalikan nilai kuantitas cookies yang didapat
+      return cookieCount;
     }
+  }
 
+  // Blok penentu kuantitas khusus jika tipe order adalah buket
+  if (parsed.orderType === "buket") {
+    // Ambil string nama produk order untuk pengecekan kata kunci tambahan
     const orderText = parsed.common.order ?? "";
+    // Cari kuantitas berdasarkan kata kunci buket yang sering dipakai
     const bouquetOrderCount =
+      // Jalankan fungsi pencarian kuantitas berbasis kata kunci
       extractQuantityForKeywords(orderText, [
-        "isi",
         "hbq",
         "sbq",
         "hand bouquet",
         "standing bouquet",
+        "standing bucket",
+        "bucket",
         "bouquet",
         "buket",
-      ]) ?? extractOrderQuantity(orderText);
+      ]) ?? extractOrderQuantity(orderText); // Gunakan ekstraksi kuantitas order umum jika tidak ketemu
 
+    // Kembalikan kuantitas buket dari order atau fallback ke nilai 1
     return bouquetOrderCount ?? 1;
   }
 
+  // Blok penentu kuantitas khusus jika tipe order adalah cupcakes
   if (parsed.orderType === "cupcakes") {
+    // Dapatkan rincian kuantitas cupcakes (satuan/lusin) dari helper fungsi
     const quantityInfo = resolveCupcakeQuantityBreakdown(parsed);
 
+    // Jika memiliki kuantitas satuan dan tidak memesan lusinan
     if (quantityInfo.individualCount > 0 && quantityInfo.dozenCount === 0) {
+      // Kembalikan jumlah cupcakes satuan
       return quantityInfo.individualCount;
     }
+    // Jika memiliki kuantitas lusinan dan tidak memesan satuan
     if (quantityInfo.dozenCount > 0 && quantityInfo.individualCount === 0) {
+      // Kembalikan jumlah cupcakes lusinan
       return quantityInfo.dozenCount;
     }
+    // Jika terdapat kuantitas fallback yang valid
     if (quantityInfo.fallbackQuantity) {
+      // Kembalikan kuantitas fallback tersebut
       return quantityInfo.fallbackQuantity;
     }
 
+    // Fallback utama kuantitas cupcake jika tidak terdeteksi adalah 1
     return 1;
   }
 
+  // Fallback akhir untuk semua tipe order dengan mengekstrak kuantitas dari kolom order umum, default ke 1
   return extractOrderQuantity(parsed.common.order ?? "") ?? 1;
 }
 
@@ -3788,19 +3845,33 @@ export function buildWhatsAppTemplate(orderType: WhatsAppOrderType): string {
         "No. telp penerima:",
         "Alamat lengkap:",
       ].join("\n");
+    // Blok case template untuk format pesanan jenis cookies
     case "cookies":
+      // Kembalikan struktur template data cookies yang digabungkan per baris
       return [
+        // Label header untuk data cookies
         "Data Cookies",
+        // Format pengisian tanggal pengiriman
         "Tanggal Pengiriman (/Maret/26):",
+        // Format pengisian kode booking pesanan
         "KODE BOOKING:",
+        // Format pengisian nama produk pesanan
         "Order:",
+        // Kolom baru untuk jumlah/kuantitas cookies pesanan
+        "Jumlah Cookies:",
+        // Format pengisian catatan to-from cookies
         "To From Notes:",
+        // Format pengisian jam pengiriman cookies
         "Jam Pengiriman:",
+        // Format pengisian kurir/metode pengiriman cookies
         "Metode Pengiriman:",
+        // Format pengisian nama penerima pesanan
         "Nama penerima:",
+        // Format pengisian nomor telepon penerima
         "No. telp penerima:",
+        // Format pengisian alamat lengkap penerima
         "Alamat lengkap:",
-      ].join("\n");
+      ].join("\n"); // Gabungkan setiap elemen array dengan baris baru
     case "cupcakes":
       return [
         "Data Cupcakes",
@@ -3884,6 +3955,13 @@ export function parseWhatsAppOrderText(
 
   const detailDefinitions = detailFieldDefinitions[orderType];
   const details = detailsByOrderType[orderType] ?? {};
+
+  if (orderType === "buket" && !details.flowerCount) {
+    const extractedFlowerCount = extractBouquetIsiQuantity(common.order || "");
+    if (extractedFlowerCount) {
+      details.flowerCount = String(extractedFlowerCount);
+    }
+  }
 
   const missingFields: string[] = [];
   for (const key of requiredCommonKeys) {

@@ -134,8 +134,6 @@ export interface NormalizedOrder {
   id: string;
   bookingCode: string;
   resi: string;
-  createdAt?: string;
-  updatedAt?: string;
   customerName: string;
   customerPhone: string;
   customerAddress: string;
@@ -267,8 +265,6 @@ const normalizedOrderSchema = z.object({
   id: z.string().trim().min(1, "id is required"),
   bookingCode: z.string(),
   resi: z.string(),
-  createdAt: z.string().optional().catch(""),
-  updatedAt: z.string().optional().catch(""),
   customerName: z.string(),
   customerPhone: z.string(),
   customerAddress: z.string(),
@@ -1179,7 +1175,7 @@ class DuplicateOrderError extends Error {
   }) {
     super(
       args.message ||
-        `Duplicate booking detected. Existing order: ${args.existingBookingCode || args.existingOrderId}.`,
+      `Duplicate booking detected. Existing order: ${args.existingBookingCode || args.existingOrderId}.`,
     );
     this.name = "DuplicateOrderError";
     this.existingOrderId = args.existingOrderId;
@@ -2085,6 +2081,7 @@ function validateAssignmentTransitionRules(params: {
     userId,
     isPrivilegedRequest = false,
   } = params;
+  const isOwnerRequest = roleName === "Owner";
   const isStaffRequest = roleName === "Staff";
   const existingAssignmentMap = new Map(
     existingAssignments.map((row) => [row.external_id, row]),
@@ -2120,20 +2117,20 @@ function validateAssignmentTransitionRules(params: {
       currentAssignee !== null &&
       nextAssignee === null &&
       !nextHasAssignment &&
-      !isPrivilegedRequest
+      !isOwnerRequest
     ) {
       throw new ForbiddenError(
-        "Order yang sudah diambil tidak bisa dilepas. Gunakan transfer oleh owner/admin.",
+        "Order yang sudah diambil tidak bisa dilepas. Gunakan transfer oleh owner.",
       );
     }
 
-    if (!isPrivilegedRequest) {
+    if (!isOwnerRequest) {
       const isStaffClaimOwnUnassignedOrder =
         isStaffRequest && currentAssignee === null && nextAssignee === userId;
 
       if (!isStaffClaimOwnUnassignedOrder) {
         throw new ForbiddenError(
-          "Hanya owner/admin yang dapat memindahkan assignment order.",
+          "Hanya owner yang dapat memindahkan assignment order.",
         );
       }
     }
@@ -2294,8 +2291,6 @@ function normalizeOrder(raw: unknown, index: number): NormalizedOrder | null {
     id,
     bookingCode: asString(record.bookingCode),
     resi: asString(record.resi),
-    createdAt: asString(record.createdAt),
-    updatedAt: asString(record.updatedAt),
     customerName: asString(record.customerName),
     customerPhone: asString(record.customerPhone),
     customerAddress: asString(record.customerAddress),
@@ -2661,14 +2656,14 @@ export async function GET(request: NextRequest) {
   try {
     // 1. Verifikasi autentikasi pengguna dan dapatkan businessId
     const { businessId } = await requireAuth();
-    
+
     // 2. Parse query parameters dari URL
     const url = new URL(request.url);
     const mode = url.searchParams.get("mode") || "list";
     const isFinancialMode = mode === "financial";
     const isCalendarMode = mode === "calendar";
     const isDashboardMode = mode === "dashboard";
-    
+
     // Parameter pencarian & filter (server-side)
     const searchQuery = url.searchParams.get("query") || "";
     const statusFilter = url.searchParams.get("status") || "";
@@ -2691,10 +2686,7 @@ export async function GET(request: NextRequest) {
       await ensureBakeryTables();
 
       // 4. Bangun WHERE clause dinamis menggunakan Prisma.join untuk keamanan SQL injection
-      const whereClauses: Prisma.Sql[] = [
-        Prisma.sql`business_id = ${businessId}`,
-        Prisma.sql`deleted_at IS NULL`,
-      ];
+      const whereClauses: Prisma.Sql[] = [Prisma.sql`business_id = ${businessId}`];
 
       if (statusFilter) {
         whereClauses.push(Prisma.sql`order_status = ${statusFilter}`);
@@ -2908,7 +2900,7 @@ export async function GET(request: NextRequest) {
       // 7. Jika ada baris order yang ditemukan, muat items, alamat, dan tahapan produksinya
       if (orderRows.length > 0) {
         const externalIds = orderRows.map((r) => r.external_id);
-        
+
         // Kueri items dengan aman sesuai baris order yang terpilih
         const itemRows = await prisma.$queryRaw<DbItemRow[]>`
           SELECT order_external_id, item_index, payload
@@ -2967,7 +2959,7 @@ export async function GET(request: NextRequest) {
           getCachedBakeryBusinessSettings(businessId) ??
           (await getBakeryBusinessSettings(businessId));
 
-        
+
         const addressRows = await prisma.$queryRaw<DbAddressRow[]>`
           SELECT order_external_id, address_index, payload
           FROM bakery_order_addresses
@@ -2975,7 +2967,7 @@ export async function GET(request: NextRequest) {
             AND order_external_id IN (${Prisma.join(externalIds)})
           ORDER BY order_external_id ASC, address_index ASC
         `;
-        
+
         const staffMembers = await prisma.businessMember.findMany({
           where: { businessId },
           select: { userId: true },
@@ -2983,7 +2975,7 @@ export async function GET(request: NextRequest) {
         const staffIdByUuid = buildStaffIdByUuid(
           staffMembers.map((member) => member.userId),
         );
-        
+
         const orderExternalByUuid = new Map(
           orderRows.map((row) => [
             row.order_uuid ?? orderTaskUuid(businessId, row.external_id),
@@ -2991,7 +2983,7 @@ export async function GET(request: NextRequest) {
           ]),
         );
         const orderUuids = [...orderExternalByUuid.keys()];
-        
+
         const stageRows = orderUuids.length > 0
           ? await prisma.$queryRaw<DbProductionStageRow[]>`
               SELECT order_id::text AS order_id, stage, staff_id::text AS staff_id, token_amount
@@ -3042,8 +3034,6 @@ export async function GET(request: NextRequest) {
             id: row.external_id,
             bookingCode: row.booking_code ?? "",
             resi: row.resi ?? "",
-            createdAt: row.created_at.toISOString(),
-            updatedAt: row.updated_at.toISOString(),
             customerName: row.customer_name ?? "",
             customerPhone: row.customer_phone ?? "",
             customerAddress: row.customer_address ?? "",
@@ -3275,7 +3265,7 @@ export async function POST(request: NextRequest) {
     const roleName = role as unknown as string;
     const isStaffRequest = roleName === "Staff";
     const isPrivilegedRequest = roleName === "Owner" || roleName === "Admin";
-    const canManageAssignments = isPrivilegedRequest;
+    const canManageAssignments = roleName === "Owner";
     const bakerySettings = await getBakeryBusinessSettings(businessId);
     const canBackfillPastOrders =
       !bakerySettings.cutoffEnabled && (role === "Owner" || role === "Admin");
@@ -4249,7 +4239,7 @@ export async function POST(request: NextRequest) {
                   serializeProductionStagesForComparison(
                     currentPersistedStages,
                   ) !==
-                    serializeProductionStagesForComparison(productionStages);
+                  serializeProductionStagesForComparison(productionStages);
                 const shouldRewriteOrderItems =
                   !existingOrderMap.has(order.id) ||
                   haveComparableValuesChanged(
@@ -4287,8 +4277,8 @@ export async function POST(request: NextRequest) {
                 );
                 const wasActive = existingOrder
                   ? !INACTIVE_STATUSES.includes(
-                      existingOrder.order_status || "",
-                    )
+                    existingOrder.order_status || "",
+                  )
                   : false;
 
                 const shouldValidateSchedule =
@@ -4297,7 +4287,7 @@ export async function POST(request: NextRequest) {
                   (!existingOrder ||
                     !wasActive ||
                     existingOrder.delivery_date !==
-                      (order.deliveryDate || null));
+                    (order.deliveryDate || null));
 
                 // Enforce H-1 cutoff policy in backend as final authority.
                 if (shouldValidateSchedule && order.deliveryDate) {
@@ -4449,8 +4439,8 @@ export async function POST(request: NextRequest) {
                           // Kapasitas penuh — tolak seluruh sync ini
                           throw new CapacityFullError(
                             `Production capacity full for ${order.deliveryDate}. ` +
-                              `Used: ${consumeResult.usedToken}/${consumeResult.maxToken}, ` +
-                              `Needed: ${tokenForOrder} for order ${order.id}.`,
+                            `Used: ${consumeResult.usedToken}/${consumeResult.maxToken}, ` +
+                            `Needed: ${tokenForOrder} for order ${order.id}.`,
                             order.deliveryDate,
                             consumeResult.usedToken,
                             consumeResult.maxToken,
@@ -4686,7 +4676,7 @@ export async function POST(request: NextRequest) {
                 if (
                   shouldRewriteOrderItems ||
                   (existingOrder?.order_status ?? null) !==
-                    (order.orderStatus || null)
+                  (order.orderStatus || null)
                 ) {
                   const inventorySync = await syncBakeryOrderInventory(tx, {
                     businessId,
@@ -4874,12 +4864,12 @@ export async function POST(request: NextRequest) {
         const waSettledResults = await Promise.allSettled(
           createdOrdersForWhatsApp.map(
             async (notification: QueuedWhatsAppNotification) => {
-            const result = await sendOrderToWhatsApp(notification.payload);
-            return {
-              orderId: notification.orderId,
-              bookingCode: notification.bookingCode,
-              ...result,
-            } satisfies PersistedWhatsAppNotificationResult;
+              const result = await sendOrderToWhatsApp(notification.payload);
+              return {
+                orderId: notification.orderId,
+                bookingCode: notification.bookingCode,
+                ...result,
+              } satisfies PersistedWhatsAppNotificationResult;
             },
           ),
         );

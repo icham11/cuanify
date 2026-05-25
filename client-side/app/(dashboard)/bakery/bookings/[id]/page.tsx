@@ -473,11 +473,11 @@ export default function OrderDetailPage() {
     order?.assignedStaffUserId ||
       order?.productionStages?.some((entry) => Number(entry.staffId || 0) > 0),
   );
-  const canUpdateStatus = isOwner || hasAnyProductionAssignment;
+  const canUpdateStatus = isOwner || isAdmin || hasAnyProductionAssignment;
   const canEditOrder = isOwner || isAdmin;
   const statusUpdateHelperText = canUpdateStatus
     ? ""
-    : "Status order tanpa assignment staff hanya bisa diubah oleh owner.";
+    : "Status order tanpa assignment staff hanya bisa diubah oleh owner atau admin.";
 
   const totalPrice = order?.totalPrice ?? 0;
   const messagePreview = order ? getCustomerMessagePreview(order.id) : "";

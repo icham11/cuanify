@@ -1,9 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useRef } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { MessageCircle, Pencil } from "lucide-react";
+import { MessageCircle, Pencil, Trash2, Loader2, X } from "lucide-react";
+import { useRole } from "@/context/RoleContext";
 
 import OrderHighlightBadge from "@/components/bakery/bookings/OrderHighlightBadge";
 import { type BakeryOrder, useOrders } from "@/components/bakery/store";
@@ -119,11 +121,102 @@ function stagePillClass(isAssigned: boolean): string {
     : "border-[#eadfd3] bg-[#fbf5ef] text-[#8a6e5c]";
 }
 
+function DeleteConfirmModal({
+  order,
+  onClose,
+  onDeleted,
+}: {
+  order: BakeryOrder;
+  onClose: () => void;
+  onDeleted: () => void | Promise<void>;
+}) {
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const { deleteOrder } = useOrders();
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    setError(null);
+    try {
+      await deleteOrder(order.id);
+      await onDeleted();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal menghapus order");
+      setDeleting(false);
+    }
+  };
+
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
+    <div
+      ref={overlayRef}
+      className="fixed inset-0 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4"
+      style={{ zIndex: 200 }}
+      onMouseDown={(event) =>
+        event.target === overlayRef.current ? onClose() : undefined
+      }
+    >
+      <div className="w-full overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:max-w-sm sm:rounded-3xl">
+        <div className="flex justify-center pt-3 sm:hidden">
+          <div className="h-1 w-10 rounded-full bg-gray-200" />
+        </div>
+        <div className="space-y-4 px-6 py-5">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-100 text-red-600">
+              <Trash2 size={18} />
+            </div>
+            <div>
+              <h2 className="text-base font-extrabold text-slate-800">
+                Hapus Booking?
+              </h2>
+              <p className="mt-1 text-sm text-gray-500">
+                Order dari <span className="font-semibold text-slate-700">{order.customerName || "Customer"}</span> akan dihapus permanen.
+              </p>
+            </div>
+          </div>
+
+          {error ? (
+            <div className="rounded-xl bg-red-50 p-3 text-xs text-red-600">
+              {error}
+            </div>
+          ) : null}
+
+          <div className="flex gap-3">
+            <button
+              onClick={onClose}
+              className="flex-1 rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-600 transition hover:bg-gray-50"
+            >
+              Batal
+            </button>
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-red-700 disabled:opacity-50"
+            >
+              {deleting ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : (
+                <Trash2 size={16} />
+              )}
+              Hapus
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 export default function OrderTable({ orders }: OrderTableProps) {
   const { settings } = useBakerySettings();
   const { getCustomerMessagePreview, updateOrderStatus, updatePaymentStatus } =
     useOrders();
+  const { isOwner } = useRole();
   const router = useRouter();
+  const [deleteModal, setDeleteModal] = useState<BakeryOrder | null>(null);
   const [pendingStatusOrderId, setPendingStatusOrderId] = useState<
     string | null
   >(null);
@@ -369,6 +462,19 @@ export default function OrderTable({ orders }: OrderTableProps) {
                 <Pencil size={13} />
                 Edit
               </Link>
+              {isOwner && (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setDeleteModal(order);
+                  }}
+                  className="inline-flex h-8 items-center justify-center gap-1 rounded-xl border border-[var(--crumbella-border)] px-3 text-[11px] font-semibold text-[#a83030] hover:bg-red-50"
+                >
+                  <Trash2 size={13} />
+                  Hapus
+                </button>
+              )}
               <a
                 href={messageLink ?? "#"}
                 target={messageLink ? "_blank" : undefined}
@@ -391,6 +497,14 @@ export default function OrderTable({ orders }: OrderTableProps) {
           </div>
         );
       })}
+
+      {deleteModal && (
+        <DeleteConfirmModal
+          order={deleteModal}
+          onClose={() => setDeleteModal(null)}
+          onDeleted={() => setDeleteModal(null)}
+        />
+      )}
     </div>
   );
 }

@@ -438,3 +438,85 @@ export async function PATCH(
     );
   }
 }
+
+export async function DELETE(
+  _request: NextRequest,
+  context: { params: Promise<{ id: string }> },
+) {
+  try {
+    const { businessId, role } = await requireAuth();
+    const { id } = await context.params;
+
+    if (!id) {
+      return NextResponse.json({ error: "Order ID tidak valid." }, { status: 400 });
+    }
+
+    const roleName = String(role);
+    if (roleName !== "Owner") {
+      throw new ForbiddenError("Hanya Owner yang dapat menghapus order.");
+    }
+
+    const rows = await prisma.$queryRaw<Array<{ delivery_date: string | null }>>`
+      SELECT delivery_date
+      FROM bakery_orders
+      WHERE business_id = ${businessId}
+        AND external_id = ${id}
+        AND deleted_at IS NULL
+      LIMIT 1
+    `;
+
+    if (rows.length === 0) {
+      return NextResponse.json(
+        { error: "Order tidak ditemukan atau sudah dihapus." },
+        { status: 404 },
+      );
+    }
+
+    const deliveryDate = rows[0].delivery_date;
+
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`
+        UPDATE bakery_orders
+        SET deleted_at = NOW(), updated_at = NOW()
+        WHERE business_id = ${businessId}
+          AND external_id = ${id}
+      `;
+
+      if (deliveryDate) {
+        const INACTIVE_STATUSES = ["Completed", "Delivered", "Cancelled", "Inquiry"];
+        await tx.$executeRaw`
+          WITH daily_totals AS (
+            SELECT delivery_date::date as delivery_date, COALESCE(SUM(token_used), 0) AS total_token_amount
+            FROM bakery_orders
+            WHERE business_id = ${businessId}
+              AND delivery_date::date = ${deliveryDate}::date
+              AND deleted_at IS NULL
+              AND order_status NOT IN (${INACTIVE_STATUSES[0]}, ${INACTIVE_STATUSES[1]}, ${INACTIVE_STATUSES[2]}, ${INACTIVE_STATUSES[3]})
+            GROUP BY delivery_date::date
+          )
+          UPDATE production_capacity
+          SET
+            used_token = COALESCE((SELECT total_token_amount FROM daily_totals LIMIT 1), 0),
+            updated_at = NOW()
+          WHERE business_id = ${businessId}
+            AND date = ${deliveryDate}::date
+        `;
+      }
+    });
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+    if (error instanceof ForbiddenError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
+    console.error("DELETE /api/bookings/orders/[id] error:", error);
+    require("fs").writeFileSync(require("path").join(process.cwd(), "last-error.log"), String(error?.stack || error));
+    return NextResponse.json(
+      { error: "Gagal menghapus pesanan." },
+      { status: 500 },
+    );
+  }
+}

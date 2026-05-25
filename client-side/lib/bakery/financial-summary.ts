@@ -49,6 +49,13 @@ export type BakeryTopProduct = {
   revenue: number;
 };
 
+export type BakeryCogsBreakdown = {
+  productName: string;
+  quantity: number;
+  cogsPerItem: number;
+  totalCogs: number;
+};
+
 export type BakeryFinancialSummary = {
   filteredOrders: BakeryFinancialOrder[];
   totalOrders: number;
@@ -64,6 +71,7 @@ export type BakeryFinancialSummary = {
   itemsWithMissingCogs: number;
   isCogsAccurate: boolean;
   topProducts: BakeryTopProduct[];
+  cogsBreakdown: BakeryCogsBreakdown[];
 };
 
 function normalizeText(value: string): string {
@@ -454,6 +462,10 @@ export function calculateBakeryFinancialSummary(args: {
     string,
     { productName: string; quantitySold: number; revenue: number }
   >();
+  const cogsBreakdownMap = new Map<
+    string,
+    { productName: string; quantity: number; cogsPerItem: number; totalCogs: number }
+  >();
 
   filteredOrders.forEach((order) => {
     if (isCancelledOrder(order)) return;
@@ -501,16 +513,29 @@ export function calculateBakeryFinancialSummary(args: {
         productCostEntries,
       });
 
-      if (matchedCogs > 0) {
-        cogsCost += matchedCogs * quantity * recognitionRatio;
-      } else {
-        itemsWithMissingCogs += 1;
-      }
-
       const productName =
         String(item.productName || "").trim() ||
         String(order.product || "").trim() ||
         "Produk";
+
+      if (matchedCogs > 0) {
+        const itemCogs = matchedCogs * quantity * recognitionRatio;
+        cogsCost += itemCogs;
+        
+        const breakdownKey = `${productName}-${matchedCogs}`;
+        const currentBreakdown = cogsBreakdownMap.get(breakdownKey) ?? {
+          productName,
+          quantity: 0,
+          cogsPerItem: matchedCogs,
+          totalCogs: 0,
+        };
+        currentBreakdown.quantity += quantity * Math.max(0, recognitionRatio);
+        currentBreakdown.totalCogs += itemCogs;
+        cogsBreakdownMap.set(breakdownKey, currentBreakdown);
+      } else {
+        itemsWithMissingCogs += 1;
+      }
+
       const revenue =
         Number(
           item.lineTotal ||
@@ -554,6 +579,9 @@ export function calculateBakeryFinancialSummary(args: {
     isCogsAccurate: itemsWithMissingCogs === 0,
     topProducts: Array.from(topProductsMap.values()).sort(
       (left, right) => right.revenue - left.revenue,
+    ),
+    cogsBreakdown: Array.from(cogsBreakdownMap.values()).sort(
+      (left, right) => right.totalCogs - left.totalCogs,
     ),
   };
 }

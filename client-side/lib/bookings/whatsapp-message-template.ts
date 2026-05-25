@@ -101,6 +101,37 @@ function compactEmptyLines(lines: string[]): string[] {
   return compacted;
 }
 
+/**
+ * Fungsi untuk menghasilkan kode booking otomatis jika kosong dari data pesanan.
+ * Mengambil 2 huruf pertama dari nama penerima dan 2 angka terakhir dari nomor hp.
+ */
+function generateAutomatedBookingCode(recipientName?: string, recipientPhone?: string): string {
+  try {
+    // 1. Membersihkan string nama penerima hanya menjadi huruf (menghilangkan spasi/simbol)
+    const nameStr = (recipientName || "").replace(/[^a-zA-Z]/g, "");
+    
+    // 2. Membersihkan string nomor telepon hanya menjadi angka
+    const phoneStr = (recipientPhone || "").replace(/[^0-9]/g, "");
+    
+    // 3. Mengambil 2 huruf pertama dari nama, jika kurang dari 2, maka pad dengan 'X'
+    const namePrefix = nameStr.length >= 2 
+      ? nameStr.substring(0, 2) 
+      : nameStr.padEnd(2, "X");
+      
+    // 4. Mengambil 2 angka terakhir dari nomor telepon, jika kurang, pad dengan '0'
+    const phoneSuffix = phoneStr.length >= 2 
+      ? phoneStr.substring(phoneStr.length - 2) 
+      : phoneStr.padStart(2, "0");
+      
+    // 5. Mengembalikan kode yang diformat dengan uppercase (contoh: MO-17)
+    return `${namePrefix.toUpperCase()}-${phoneSuffix}`;
+  } catch (error) {
+    // 6. Tangkap error jika terjadi sesuatu yang tak terduga
+    console.error("Gagal men-generate kode booking:", error);
+    return "XX-00"; // Fallback default
+  }
+}
+
 function appendOrderDeliveryDetailLines(
   lines: string[],
   input: Pick<
@@ -118,12 +149,27 @@ function appendOrderDeliveryDetailLines(
   lines.push("Tanggal Pengiriman :");
   lines.push(formatWhatsAppDeliveryDate(input.deliveryDate));
   lines.push("");
-  lines.push(`KODE BOOKING : ${normalizeInlineValue(input.bookingCode || "-")}`);
+  
+  // Cek apakah input.bookingCode kosong atau bernilai "-"
+  let finalBookingCode = normalizeInlineValue(input.bookingCode || "");
+  if (!finalBookingCode || finalBookingCode === "-") {
+    // Jika kosong, buat kode booking otomatis dari data penerima dan HP
+    finalBookingCode = generateAutomatedBookingCode(input.recipientName, input.recipientPhone);
+  }
+  
+  // Masukkan kode booking yang final ke dalam output baris
+  lines.push(`KODE BOOKING : ${finalBookingCode}`);
   lines.push("");
 
+  // Lakukan iterasi untuk setiap item pesanan dalam daftar
   input.items.forEach((item) => {
+    // Tambahkan label teks "Order :" ke dalam rincian pesan
     lines.push("Order :");
-    lines.push(normalizeInlineValue(item.orderLabel || item.productName || "-"));
+    // Tentukan awalan kuantitas (qty) jika quantity didefinisikan dan lebih besar dari 0
+    const qtyPrefix = item.quantity && item.quantity > 0 ? `${item.quantity}× ` : "";
+    // Gabungkan awalan qty dengan nama label order atau nama produk, lalu bersihkan spasinya dan masukkan ke baris
+    lines.push(normalizeInlineValue(`${qtyPrefix}${item.orderLabel || item.productName || "-"}`));
+    // Tambahkan baris kosong untuk pemisah
     lines.push("");
 
     for (const detailLine of item.detailLines ?? []) {

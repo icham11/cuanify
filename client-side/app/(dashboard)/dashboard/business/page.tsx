@@ -53,6 +53,12 @@ type ViewState = {
   paidSalesCount: number;
   topProducts: TopProductView[];
   bakerySettings: BakeryBusinessSettings | null;
+  cogsBreakdown: Array<{
+    productName: string;
+    quantity: number;
+    cogsPerItem: number;
+    totalCogs: number;
+  }>;
 };
 
 const EMPTY_VIEW_STATE: ViewState = {
@@ -68,6 +74,7 @@ const EMPTY_VIEW_STATE: ViewState = {
   paidSalesCount: 0,
   topProducts: [],
   bakerySettings: null,
+  cogsBreakdown: [],
 };
 
 const BUSINESS_VIEW_CACHE = new Map<
@@ -234,6 +241,8 @@ function BreakdownRow({
   tone?: "positive" | "negative" | "profit";
   children?: React.ReactNode;
 }) {
+  const [isOpen, setIsOpen] = useState(false);
+  
   const amountClassName =
     tone === "positive"
       ? "text-[#17653d]"
@@ -253,7 +262,12 @@ function BreakdownRow({
           : "border-b border-[#ead8cb]"
       }`}
     >
-      <div className="flex items-start justify-between gap-4">
+      <div 
+        className={`flex items-start justify-between gap-4 ${children ? "cursor-pointer select-none group" : ""}`}
+        onClick={() => {
+          if (children) setIsOpen(!isOpen);
+        }}
+      >
         <div className="min-w-0">
           <p
             className={`text-[15px] leading-tight ${
@@ -262,9 +276,14 @@ function BreakdownRow({
                   ? "font-bold text-[#17653d]"
                   : "font-bold text-[#c85d34]"
                 : "text-[#23150f]"
-            }`}
+            } ${children ? "group-hover:text-[#c86030] transition-colors" : ""}`}
           >
             {label}
+            {children && (
+              <span className="ml-2 inline-block text-[11px] text-[#b58872] group-hover:text-[#c86030]">
+                {isOpen ? "▲" : "▼"}
+              </span>
+            )}
           </p>
           {note ? (
             <p className="mt-1 text-[11px] leading-tight text-[#b58872]">
@@ -282,7 +301,7 @@ function BreakdownRow({
           )}
         </p>
       </div>
-      {children ? <div className="mt-2">{children}</div> : null}
+      {children && isOpen ? <div className="mt-3 pt-3 border-t border-[#ead8cb]/50">{children}</div> : null}
     </div>
   );
 }
@@ -408,6 +427,7 @@ function BusinessPageContent() {
         }).length,
         topProducts: currentSummary.topProducts,
         bakerySettings,
+        cogsBreakdown: currentSummary.cogsBreakdown,
       };
       BUSINESS_VIEW_CACHE.set(cacheKey, {
         value: nextViewState,
@@ -654,9 +674,31 @@ function BusinessPageContent() {
                   />
                   <BreakdownRow
                     label="COGS / HPP"
-                    note="Otomatis dari produk"
+                    note="Klik untuk melihat penjabaran dari produk"
                     amount={viewState.totalCost}
-                  />
+                  >
+                    {viewState.cogsBreakdown.length > 0 ? (
+                      <div className="space-y-1.5 border-l-2 border-[#ead8cb] pl-3">
+                        {viewState.cogsBreakdown.map((item, idx) => (
+                          <div
+                            key={`${item.productName}-${item.cogsPerItem}-${idx}`}
+                            className="flex items-center justify-between gap-3 text-[11px] text-[#7d675a]"
+                          >
+                            <span className="truncate">
+                              {item.productName} qty {Math.round(item.quantity)} x {formatCurrency(item.cogsPerItem).replace("Rp", "").trim()}
+                            </span>
+                            <span className="font-mono">
+                              {formatCurrency(item.totalCogs)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-[11px] text-[#b58872] italic">
+                        Tidak ada detail COGS / HPP pada periode ini.
+                      </div>
+                    )}
+                  </BreakdownRow>
                   <BreakdownRow
                     label="Gaji Staff"
                     note={
