@@ -37,6 +37,7 @@ type OwnerAttendanceMember = {
     date: string;
     status: "present";
     checkInAt: string;
+    checkOutAt: string | null;
     isLate: boolean;
     notes: string | null;
   }>;
@@ -55,6 +56,7 @@ type SelfAttendanceData = {
     date: string;
     status: "present";
     checkInAt: string;
+    checkOutAt: string | null;
     isLate: boolean;
     notes: string | null;
   }>;
@@ -62,6 +64,7 @@ type SelfAttendanceData = {
     date: string;
     status: "present";
     checkInAt: string;
+    checkOutAt: string | null;
     isLate: boolean;
     notes: string | null;
   } | null;
@@ -70,6 +73,7 @@ type SelfAttendanceData = {
 type OwnerAttendanceEditorState = {
   date: string;
   checkInTime: string;
+  checkOutTime: string;
   manualLateCount: string;
   note: string;
 };
@@ -105,6 +109,18 @@ function formatTimeLabel(value: string) {
   }).format(parsed);
 }
 
+function formatTimeInputValue(value: string | null | undefined) {
+  if (!value) return "";
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) return "";
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Jakarta",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(parsed);
+}
+
 function getDefaultOwnerEditorState(
   member: OwnerAttendanceMember,
   month: string,
@@ -118,6 +134,7 @@ function getDefaultOwnerEditorState(
   return {
     date: fallbackDate,
     checkInTime: defaultTime,
+    checkOutTime: formatTimeInputValue(latestDailyEntry?.checkOutAt),
     manualLateCount: String(member.manualLateCount ?? 0),
     note: "",
   };
@@ -188,7 +205,7 @@ export default function BakeryAttendancePage() {
     void loadAttendance();
   }, [loadAttendance]);
 
-  const submitAttendance = async () => {
+  const submitAttendance = async (action: "check-in" | "check-out") => {
     setIsSubmitting(true);
     setError("");
     setSuccessMessage("");
@@ -196,7 +213,7 @@ export default function BakeryAttendancePage() {
       const response = await fetch("/api/bakery/attendance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ action }),
       });
       const payload = (await response.json().catch(() => ({}))) as {
         error?: string;
@@ -205,7 +222,11 @@ export default function BakeryAttendancePage() {
         throw new Error(payload.error || "Gagal menyimpan absensi");
       }
 
-      setSuccessMessage("Absensi hari ini berhasil disimpan.");
+      setSuccessMessage(
+        action === "check-out"
+          ? "Absen pulang berhasil disimpan."
+          : "Absen masuk hari ini berhasil disimpan.",
+      );
       await loadAttendance();
     } catch (submitError) {
       setError(
@@ -317,6 +338,7 @@ export default function BakeryAttendancePage() {
         userId: member.userId,
         date: editor.date,
         checkInTime: editor.checkInTime,
+        checkOutTime: editor.checkOutTime,
         notes: editor.note,
       });
     },
@@ -545,6 +567,31 @@ export default function BakeryAttendancePage() {
                         </label>
                         <label className="space-y-1">
                           <span className="text-[11px] font-semibold text-[#8a6a54]">
+                            Jam check-out
+                          </span>
+                          <input
+                            type="time"
+                            value={
+                              ownerEditorByUserId[member.userId]?.checkOutTime ??
+                              getDefaultOwnerEditorState(
+                                member,
+                                month,
+                                ownerAttendanceWindow?.startTime || "06:00",
+                              ).checkOutTime
+                            }
+                            onChange={(event) =>
+                              updateOwnerEditorField(
+                                member.userId,
+                                "checkOutTime",
+                                event.target.value,
+                                member,
+                              )
+                            }
+                            className="h-10 w-full rounded-xl border border-[#dfc9b7] bg-white px-3 text-sm font-semibold text-[#2f1e13] outline-none"
+                          />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[11px] font-semibold text-[#8a6a54]">
                             Override telat
                           </span>
                           <input
@@ -666,7 +713,10 @@ export default function BakeryAttendancePage() {
                             {formatDateLabel(entry.date)}
                           </p>
                           <p className="text-[11px] text-[#8a6a54]">
-                            {formatTimeLabel(entry.checkInAt)}
+                            Masuk {formatTimeLabel(entry.checkInAt)}
+                          </p>
+                          <p className="text-[11px] text-[#8a6a54]">
+                            Pulang {entry.checkOutAt ? formatTimeLabel(entry.checkOutAt) : "--:--"}
                           </p>
                         </div>
                       ))
@@ -696,29 +746,38 @@ export default function BakeryAttendancePage() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => void submitAttendance()}
+                  onClick={() =>
+                    void submitAttendance(
+                      selfData?.todayRecord ? "check-out" : "check-in",
+                    )
+                  }
                   disabled={
                     isSubmitting ||
-                    Boolean(selfData?.todayRecord) ||
+                    Boolean(selfData?.todayRecord?.checkOutAt) ||
                     (selfData?.attendanceWindow?.enabled === true &&
+                      !selfData?.todayRecord &&
                       !selfData.attendanceWindow.canCheckInNow)
                   }
                   className="rounded-full bg-[#d3662d] px-3 py-2 text-xs font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {selfData?.todayRecord
-                    ? "Sudah Absen"
-                    : selfData?.attendanceWindow?.enabled === true &&
-                        !selfData.attendanceWindow.canCheckInNow
+                  {!selfData?.todayRecord
+                    ? selfData?.attendanceWindow?.enabled === true &&
+                      !selfData.attendanceWindow.canCheckInNow
                       ? selfData.attendanceWindow.hasWindowStarted
                         ? "Sudah Tutup"
                         : "Belum Dibuka"
-                    : isSubmitting
-                      ? "Menyimpan..."
-                      : "+ Absen"}
+                      : isSubmitting
+                        ? "Menyimpan..."
+                        : "Absen Masuk"
+                    : selfData.todayRecord.checkOutAt
+                      ? "Sudah Lengkap"
+                      : isSubmitting
+                        ? "Menyimpan..."
+                        : "Absen Pulang"}
                 </button>
               </div>
 
-              <div className="grid grid-cols-3 gap-2 px-4 py-4">
+              <div className="grid grid-cols-2 gap-2 border-b border-[#f1e1d5] px-4 py-4 sm:grid-cols-4">
                 <MiniMetric
                   title={`${selfData?.attendanceCount ?? 0}/${selfData?.expectedAttendanceDays ?? 0}`}
                   subtitle="Hadir"
@@ -736,9 +795,17 @@ export default function BakeryAttendancePage() {
                   }
                   subtitle="Check-in"
                 />
+                <MiniMetric
+                  title={
+                    selfData?.todayRecord?.checkOutAt
+                      ? formatTimeLabel(selfData.todayRecord.checkOutAt)
+                      : "--:--"
+                  }
+                  subtitle="Check-out"
+                />
               </div>
 
-              <div className="grid grid-cols-3 gap-2 border-t border-[#f1e1d5] px-4 py-4">
+              <div className="grid grid-cols-3 gap-2 px-4 py-4">
                 <MiniMetric
                   title={String(selfData?.systemLateCount ?? 0)}
                   subtitle="Hitung sistem"
@@ -780,7 +847,10 @@ export default function BakeryAttendancePage() {
                             {formatDateLabel(record.date)}
                           </p>
                           <p className="text-[11px] text-[#8a6a54]">
-                            {formatTimeLabel(record.checkInAt)}
+                            Masuk {formatTimeLabel(record.checkInAt)}
+                          </p>
+                          <p className="text-[11px] text-[#8a6a54]">
+                            Pulang {record.checkOutAt ? formatTimeLabel(record.checkOutAt) : "--:--"}
                           </p>
                         </div>
                         <span

@@ -8,6 +8,8 @@ import {
   CalendarDays,
   CheckSquare,
   Clock3,
+  LogIn,
+  LogOut,
   Package2,
   Search,
   Wallet,
@@ -83,6 +85,7 @@ type DashboardAttendanceState = {
   todayRecord: {
     date: string;
     checkInAt: string;
+    checkOutAt: string | null;
   } | null;
 };
 
@@ -175,6 +178,7 @@ export default function BakeryDashboardPage() {
     useState<DashboardAttendanceState | null>(null);
   const [isAttendanceLoading, setIsAttendanceLoading] = useState(false);
   const [isAttendanceSubmitting, setIsAttendanceSubmitting] = useState(false);
+  const [attendanceFeedback, setAttendanceFeedback] = useState("");
   const activeCashFlowMonthKey = today.slice(0, 7);
 
   const staffDailyTokenLimit =
@@ -629,14 +633,20 @@ export default function BakeryDashboardPage() {
   }, [isAdmin, isStaff, today]);
 
   const submitAttendance = useCallback(async () => {
+    const nextAction = attendanceSummary?.todayRecord ? "check-out" : "check-in";
     setIsAttendanceSubmitting(true);
+    setAttendanceFeedback("");
     try {
       const response = await fetch("/api/bakery/attendance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ action: nextAction }),
       });
       if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        setAttendanceFeedback(payload.error || "Gagal menyimpan absensi.");
         return;
       }
 
@@ -650,10 +660,15 @@ export default function BakeryDashboardPage() {
         return;
       }
       setAttendanceSummary(payload.data ?? null);
+      setAttendanceFeedback(
+        nextAction === "check-out"
+          ? "Absen pulang berhasil disimpan."
+          : "Absen masuk berhasil disimpan.",
+      );
     } finally {
       setIsAttendanceSubmitting(false);
     }
-  }, [today]);
+  }, [attendanceSummary?.todayRecord, today]);
 
   const openSummaryOrdersModal = useCallback(
     (cardKey: SummaryCardKey) => {
@@ -1018,57 +1033,78 @@ export default function BakeryDashboardPage() {
       </section>
 
       {isAdmin || isStaff ? (
-        <section className="rounded-[24px] border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] px-4 py-4 shadow-[0_16px_28px_-24px_rgba(30,18,10,0.56)]">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--crumbella-muted)]">
-                Absensi Hari Ini
-              </p>
-              <p className="mt-1 text-[1.35rem] font-extrabold leading-tight text-[var(--foreground)]">
-                {attendanceSummary?.attendanceWindow?.label || "Atur di owner"}
-              </p>
-              <p className="mt-1 text-[11px] text-[var(--crumbella-muted)]">
-                {attendanceSummary?.attendanceWindow?.message ||
-                  "Klik tombol di samping untuk check-in."}
-              </p>
+        <section className="overflow-hidden rounded-[28px] border border-[var(--crumbella-border)] bg-[linear-gradient(135deg,rgba(255,247,239,0.96)_0%,rgba(255,252,249,0.98)_44%,rgba(234,247,250,0.92)_100%)] shadow-[0_18px_34px_-24px_rgba(30,18,10,0.58)]">
+          <div className="border-b border-[var(--crumbella-border)]/80 px-4 py-4 sm:px-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--crumbella-muted)]">
+                  Absensi Hari Ini
+                </p>
+                <p className="mt-1 text-[1.45rem] font-extrabold leading-tight text-[var(--foreground)]">
+                  {attendanceSummary?.todayRecord?.checkOutAt
+                    ? "Shift selesai tercatat"
+                    : attendanceSummary?.todayRecord
+                      ? "Siap absen pulang"
+                      : "Siap absen masuk"}
+                </p>
+                <p className="mt-1 text-[11px] text-[var(--crumbella-muted)]">
+                  {attendanceSummary?.attendanceWindow?.message ||
+                    "Absensi harian untuk admin dan staff tercatat otomatis ke owner."}
+                </p>
+                <div className="mt-2 inline-flex rounded-full border border-[#edd7c7] bg-white/85 px-3 py-1 text-[10px] font-semibold text-[var(--crumbella-primary)]">
+                  Window {attendanceSummary?.attendanceWindow?.label || "diatur owner"}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => void submitAttendance()}
+                disabled={
+                  isAttendanceLoading ||
+                  isAttendanceSubmitting ||
+                  Boolean(attendanceSummary?.todayRecord?.checkOutAt) ||
+                  (!attendanceSummary?.todayRecord &&
+                    attendanceSummary?.attendanceWindow?.enabled === true &&
+                    !attendanceSummary.attendanceWindow.canCheckInNow)
+                }
+                className="inline-flex min-w-[132px] items-center justify-center gap-2 rounded-full bg-[var(--crumbella-primary)] px-4 py-2.5 text-xs font-semibold text-white shadow-[0_14px_28px_-18px_rgba(242,106,33,0.9)] transition disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {attendanceSummary?.todayRecord ? (
+                  <LogOut className="h-4 w-4" />
+                ) : (
+                  <LogIn className="h-4 w-4" />
+                )}
+                {attendanceSummary?.todayRecord?.checkOutAt
+                  ? "Sudah Lengkap"
+                  : isAttendanceSubmitting
+                    ? "Menyimpan..."
+                    : attendanceSummary?.todayRecord
+                      ? "Absen Pulang"
+                      : "Absen Masuk"}
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => void submitAttendance()}
-              disabled={
-                isAttendanceLoading ||
-                isAttendanceSubmitting ||
-                Boolean(attendanceSummary?.todayRecord) ||
-                (attendanceSummary?.attendanceWindow?.enabled === true &&
-                  !attendanceSummary.attendanceWindow.canCheckInNow)
-              }
-              className="rounded-full bg-[var(--crumbella-primary)] px-4 py-2 text-xs font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {attendanceSummary?.todayRecord
-                ? "Sudah Absen"
-                : isAttendanceSubmitting
-                  ? "Menyimpan..."
-                  : "Absen Sekarang"}
-            </button>
           </div>
 
-          <div className="mt-4 grid grid-cols-3 gap-2">
-            <div className="rounded-[18px] bg-[var(--crumbella-accent-soft)]/35 px-3 py-3">
-              <p className="text-[1.25rem] font-extrabold leading-none text-[var(--foreground)]">
+          <div className="grid gap-3 px-4 py-4 sm:grid-cols-2 lg:grid-cols-4 lg:px-5">
+            <div className="rounded-[22px] border border-white/70 bg-white/88 px-4 py-3 shadow-[0_12px_24px_-24px_rgba(30,18,10,0.7)]">
+              <p className="text-[1.35rem] font-extrabold leading-none text-[var(--foreground)]">
                 {attendanceSummary
                   ? `${attendanceSummary.attendanceCount}/${attendanceSummary.expectedAttendanceDays}`
                   : "--"}
               </p>
-              <p className="mt-1 text-[10px] text-[var(--crumbella-muted)]">Hadir</p>
+              <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--crumbella-muted)]">
+                Hadir
+              </p>
             </div>
-            <div className="rounded-[18px] bg-[#fdeaea] px-3 py-3">
-              <p className="text-[1.25rem] font-extrabold leading-none text-[var(--crumbella-danger)]">
+            <div className="rounded-[22px] border border-[#f8d1d1] bg-[#fff4f4] px-4 py-3 shadow-[0_12px_24px_-24px_rgba(168,48,48,0.36)]">
+              <p className="text-[1.35rem] font-extrabold leading-none text-[var(--crumbella-danger)]">
                 {attendanceSummary?.lateCount ?? 0}x
               </p>
-              <p className="mt-1 text-[10px] text-[var(--crumbella-muted)]">Telat</p>
+              <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--crumbella-muted)]">
+                Telat
+              </p>
             </div>
-            <div className="rounded-[18px] bg-[#e0f0e8] px-3 py-3">
-              <p className="text-[1.05rem] font-extrabold leading-none text-[var(--crumbella-success)]">
+            <div className="rounded-[22px] border border-[#d8eadf] bg-[#eef8f1] px-4 py-3 shadow-[0_12px_24px_-24px_rgba(35,114,71,0.35)]">
+              <p className="text-[1.1rem] font-extrabold leading-none text-[var(--crumbella-success)]">
                 {attendanceSummary?.todayRecord?.checkInAt
                   ? new Intl.DateTimeFormat("id-ID", {
                       hour: "2-digit",
@@ -1076,23 +1112,45 @@ export default function BakeryDashboardPage() {
                     }).format(new Date(attendanceSummary.todayRecord.checkInAt))
                   : "--:--"}
               </p>
-              <p className="mt-1 text-[10px] text-[var(--crumbella-muted)]">Check-in</p>
+              <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--crumbella-muted)]">
+                Check-in
+              </p>
+            </div>
+            <div className="rounded-[22px] border border-[#d8e8f0] bg-[#eef6fb] px-4 py-3 shadow-[0_12px_24px_-24px_rgba(39,103,160,0.35)]">
+              <p className="text-[1.1rem] font-extrabold leading-none text-[var(--crumbella-info)]">
+                {attendanceSummary?.todayRecord?.checkOutAt
+                  ? new Intl.DateTimeFormat("id-ID", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    }).format(new Date(attendanceSummary.todayRecord.checkOutAt))
+                  : "--:--"}
+              </p>
+              <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--crumbella-muted)]">
+                Check-out
+              </p>
             </div>
           </div>
 
-          <div className="mt-3 flex items-center justify-between gap-3">
-            <p className="text-[11px] text-[var(--crumbella-muted)]">
-              Sistem {attendanceSummary?.systemLateCount ?? 0}x
-              {attendanceSummary?.manualLateCount
-                ? ` - Owner ${attendanceSummary.manualLateCount}x`
-                : ""}
-            </p>
+          <div className="flex flex-col gap-3 border-t border-[var(--crumbella-border)]/75 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+            <div>
+              <p className="text-[11px] text-[var(--crumbella-muted)]">
+                Sistem {attendanceSummary?.systemLateCount ?? 0}x
+                {attendanceSummary?.manualLateCount
+                  ? ` - Owner ${attendanceSummary.manualLateCount}x`
+                  : ""}
+              </p>
+              {attendanceFeedback ? (
+                <p className="mt-1 text-[11px] font-medium text-[var(--crumbella-primary)]">
+                  {attendanceFeedback}
+                </p>
+              ) : null}
+            </div>
             <button
               type="button"
               onClick={() => router.push("/bakery/attendance")}
-              className="text-[11px] font-semibold text-[var(--crumbella-primary)]"
+              className="rounded-full border border-[var(--crumbella-border)] bg-white/85 px-4 py-2 text-[11px] font-semibold text-[var(--crumbella-primary)] transition hover:bg-white"
             >
-              Lihat riwayat
+              Buka riwayat absensi
             </button>
           </div>
         </section>

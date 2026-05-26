@@ -37,9 +37,15 @@ type AttendanceRow = {
   attendance_date: string | Date;
   status: AttendanceStatus;
   check_in_at: Date;
+  check_out_at: Date | null;
   notes: string | null;
   created_at: Date;
   updated_at: Date;
+};
+
+type AttendancePostBody = {
+  action?: "check-in" | "check-out";
+  notes?: string;
 };
 
 type AttendancePatchBody = {
@@ -47,6 +53,7 @@ type AttendancePatchBody = {
   userId?: unknown;
   date?: unknown;
   checkInTime?: unknown;
+  checkOutTime?: unknown;
   monthKey?: unknown;
   manualLateCount?: unknown;
   from?: unknown;
@@ -152,6 +159,12 @@ function buildAttendanceTimestamp(dateKey: string, timeValue: string) {
   return new Date(`${dateKey}T${timeValue}:00+07:00`);
 }
 
+function attendanceTimeToMinutes(value: string) {
+  const [hour, minute] = value.split(":").map(Number);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute)) return null;
+  return hour * 60 + minute;
+}
+
 function mergeAttendanceNotes(
   currentNote: string | null,
   nextNote: string | null,
@@ -173,6 +186,7 @@ async function ensureAttendanceTable() {
       attendance_date DATE NOT NULL,
       status TEXT NOT NULL DEFAULT 'present',
       check_in_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      check_out_at TIMESTAMPTZ NULL,
       notes TEXT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -183,6 +197,11 @@ async function ensureAttendanceTable() {
   await prisma.$executeRawUnsafe(`
     CREATE INDEX IF NOT EXISTS idx_bakery_attendance_business_month
     ON bakery_attendance (business_id, attendance_date);
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE bakery_attendance
+    ADD COLUMN IF NOT EXISTS check_out_at TIMESTAMPTZ NULL;
   `);
 }
 
@@ -282,6 +301,7 @@ async function getOwnerAttendanceSummary(
           date: normalizeAttendanceDateKey(row.attendance_date),
           status: row.status,
           checkInAt: row.check_in_at,
+          checkOutAt: row.check_out_at,
           isLate: isAttendanceRecordLate(row, settings),
           notes: row.notes,
         })),
@@ -347,6 +367,7 @@ async function getSelfAttendanceSummary(
       date: normalizeAttendanceDateKey(row.attendance_date),
       status: row.status,
       checkInAt: row.check_in_at,
+      checkOutAt: row.check_out_at,
       isLate: isAttendanceRecordLate(row, settings),
       notes: row.notes,
     })),
@@ -355,6 +376,7 @@ async function getSelfAttendanceSummary(
           date: normalizeAttendanceDateKey(todayRecord.attendance_date),
           status: todayRecord.status,
           checkInAt: todayRecord.check_in_at,
+          checkOutAt: todayRecord.check_out_at,
           isLate: isAttendanceRecordLate(todayRecord, settings),
           notes: todayRecord.notes,
         }
@@ -448,15 +470,17 @@ export async function POST(request: NextRequest) {
     const settings = await getBakeryBusinessSettings(auth.businessId);
     const windowState = getAttendanceWindowState(settings);
     const todayKey = windowState.todayKey;
+    const body = (await request.json().catch(() => ({}))) as AttendancePostBody;
+    const action = body.action === "check-out" ? "check-out" : "check-in";
 
-    if (isHolidayDate(todayKey, settings)) {
+    if (action === "check-in" && isHolidayDate(todayKey, settings)) {
       return NextResponse.json(
         { error: "Hari ini ditandai libur. Absensi tidak dibutuhkan." },
         { status: 400 },
       );
     }
 
-    if (settings.attendanceWindowEnabled !== false) {
+    if (action === "check-in" && settings.attendanceWindowEnabled !== false) {
       if (!windowState.hasWindowStarted) {
         return NextResponse.json(
           { error: `Absensi dibuka mulai jam ${windowState.startTime} WIB.` },
@@ -471,34 +495,65 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const body = (await request.json().catch(() => ({}))) as { notes?: string };
     const now = new Date();
     const note = typeof body.notes === "string" ? body.notes.trim().slice(0, 200) : null;
 
-    await prisma.$executeRaw`
-      INSERT INTO bakery_attendance (
-        business_id,
-        user_id,
-        attendance_date,
-        status,
-        check_in_at,
-        notes,
-        created_at,
-        updated_at
-      )
-      VALUES (
-        ${auth.businessId},
-        ${auth.userId},
-        ${todayKey}::date,
-        'present',
-        ${now},
-        ${note},
-        NOW(),
-        NOW()
-      )
-      ON CONFLICT (business_id, user_id, attendance_date)
-      DO NOTHING
+    const todayRows = await prisma.$queryRaw<AttendanceRow[]>`
+      SELECT *
+      FROM bakery_attendance
+      WHERE business_id = ${auth.businessId}
+        AND user_id = ${auth.userId}
+        AND attendance_date = ${todayKey}::date
+      LIMIT 1
     `;
+
+    if (action === "check-out") {
+      const currentRecord = todayRows[0];
+      if (!currentRecord) {
+        return NextResponse.json(
+          { error: "Absen masuk dulu sebelum absen pulang." },
+          { status: 400 },
+        );
+      }
+
+      if (!currentRecord.check_out_at) {
+        await prisma.$executeRaw`
+          UPDATE bakery_attendance
+          SET
+            check_out_at = ${now},
+            notes = ${mergeAttendanceNotes(currentRecord.notes, note)},
+            updated_at = NOW()
+          WHERE business_id = ${auth.businessId}
+            AND user_id = ${auth.userId}
+            AND attendance_date = ${todayKey}::date
+        `;
+      }
+    } else {
+      await prisma.$executeRaw`
+        INSERT INTO bakery_attendance (
+          business_id,
+          user_id,
+          attendance_date,
+          status,
+          check_in_at,
+          notes,
+          created_at,
+          updated_at
+        )
+        VALUES (
+          ${auth.businessId},
+          ${auth.userId},
+          ${todayKey}::date,
+          'present',
+          ${now},
+          ${note},
+          NOW(),
+          NOW()
+        )
+        ON CONFLICT (business_id, user_id, attendance_date)
+        DO NOTHING
+      `;
+    }
 
     const rows = await prisma.$queryRaw<AttendanceRow[]>`
       SELECT *
@@ -510,12 +565,20 @@ export async function POST(request: NextRequest) {
     `;
 
     const record = rows[0];
+    if (!record) {
+      return NextResponse.json(
+        { error: "Data absensi hari ini tidak ditemukan." },
+        { status: 404 },
+      );
+    }
     return NextResponse.json({
       success: true,
       data: {
+        action,
         date: normalizeAttendanceDateKey(record.attendance_date),
         status: record.status,
         checkInAt: record.check_in_at,
+        checkOutAt: record.check_out_at,
         isLate: isAttendanceRecordLate(record, settings),
         notes: record.notes,
       },
@@ -593,11 +656,31 @@ export async function PATCH(request: NextRequest) {
         body.checkInTime,
         settings.attendanceWindowStart || DEFAULT_ATTENDANCE_WINDOW_START,
       );
+      const rawCheckOutTime =
+        typeof body.checkOutTime === "string" ? body.checkOutTime.trim() : "";
+      const checkOutTime = rawCheckOutTime
+        ? normalizeAttendanceTimeInput(rawCheckOutTime, checkInTime)
+        : null;
+      if (
+        checkOutTime &&
+        attendanceTimeToMinutes(checkOutTime) !== null &&
+        attendanceTimeToMinutes(checkInTime) !== null &&
+        Number(attendanceTimeToMinutes(checkOutTime)) <
+          Number(attendanceTimeToMinutes(checkInTime))
+      ) {
+        return NextResponse.json(
+          { error: "Jam check-out tidak boleh lebih awal dari check-in." },
+          { status: 400 },
+        );
+      }
       const note =
         typeof body.notes === "string" && body.notes.trim().length > 0
           ? body.notes.trim().slice(0, 200)
           : null;
       const checkInAt = buildAttendanceTimestamp(date, checkInTime);
+      const checkOutAt = checkOutTime
+        ? buildAttendanceTimestamp(date, checkOutTime)
+        : null;
 
       await prisma.$executeRaw`
         INSERT INTO bakery_attendance (
@@ -606,6 +689,7 @@ export async function PATCH(request: NextRequest) {
           attendance_date,
           status,
           check_in_at,
+          check_out_at,
           notes,
           created_at,
           updated_at
@@ -616,6 +700,7 @@ export async function PATCH(request: NextRequest) {
           ${date}::date,
           'present',
           ${checkInAt},
+          ${checkOutAt},
           ${note},
           NOW(),
           NOW()
@@ -624,6 +709,7 @@ export async function PATCH(request: NextRequest) {
         DO UPDATE SET
           status = EXCLUDED.status,
           check_in_at = EXCLUDED.check_in_at,
+          check_out_at = EXCLUDED.check_out_at,
           notes = EXCLUDED.notes,
           updated_at = NOW()
       `;
@@ -635,6 +721,7 @@ export async function PATCH(request: NextRequest) {
           userId,
           date,
           checkInTime,
+          checkOutTime,
           message: `Absensi ${membership.user.name || membership.user.email || `User #${userId}`} diperbarui.`,
         },
       });

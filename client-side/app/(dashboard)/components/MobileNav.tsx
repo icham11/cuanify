@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import {
   BarChart3,
   CalendarDays,
+  Clock,
   ShoppingCart,
   Package,
   Menu,
@@ -141,6 +142,13 @@ export default function MobileNav({ jwtUserName, jwtUserEmail }: MobileNavProps)
                       ) : null}
                     </>
                   ) : null}
+                  <NavLink
+                    href="/bakery/attendance"
+                    icon={Clock}
+                    label="Attendance"
+                    active={isActive("/bakery/attendance")}
+                    onClick={() => setIsDrawerOpen(false)}
+                  />
                   <NavLink
                     href="/bakery/production"
                     icon={Factory}

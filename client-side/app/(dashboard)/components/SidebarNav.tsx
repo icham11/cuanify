@@ -6,6 +6,7 @@ import {
   BarChart3,
   Bot,
   CalendarDays,
+  Clock,
   Coins,
   Package,
   Building2,
@@ -118,6 +119,12 @@ export default function SidebarNav() {
               )}
             </>
           )}
+          <SidebarLink
+            href="/bakery/attendance"
+            icon={Clock}
+            label="Attendance"
+            active={isActive("/bakery/attendance")}
+          />
           <SidebarLink
             href="/bakery/production"
             icon={Factory}
