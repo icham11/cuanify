@@ -115,6 +115,8 @@ import type {
 const ADDRESS_LOCATION_KEYWORD_PATTERN =
   /\b(jl|jalan|gg|gang|blok|block|no|nomor|rt|rw|perum|perumahan|komplek|kompleks|cluster|apartemen|apartment|tower|unit|ruko|rumah|gedung|kav|kavling|kel|kelurahan|kec|kecamatan|kota|kab|kabupaten)\b/i;
 const ADDRESS_NUMBER_PATTERN = /\b\d+[a-zA-Z]?\b/;
+const ADDRESS_ROMAN_SECTION_PATTERN =
+  /\b(?:jl|jalan|gg|gang|blok|block|tower|unit|kav|kavling)\.?\s+[^,\n]{0,40}\b[ivxlcdm]{2,6}\b/i;
 const ADDRESS_CONTACT_LABEL_PATTERN =
   /\b(nama\s+penerima|nama\s+customer|penerima|no\.?\s*(telp|hp)|nomor\s*(telp|hp)|telepon|phone|whatsapp|wa)\b/i;
 const ADDRESS_PHONE_PATTERN = /(?:^|\D)(?:\+?62|0)\d{7,13}(?:\D|$)/;
@@ -199,7 +201,8 @@ function addressLooksStructured(value: string): boolean {
 
   const hasLocationKeyword = ADDRESS_LOCATION_KEYWORD_PATTERN.test(normalized);
   const hasNumber = ADDRESS_NUMBER_PATTERN.test(value);
-  return hasLocationKeyword && hasNumber;
+  const hasRomanSection = ADDRESS_ROMAN_SECTION_PATTERN.test(value);
+  return hasLocationKeyword && (hasNumber || hasRomanSection);
 }
 
 const defaultItemSelection = getDefaultCatalogSelection();
@@ -260,6 +263,28 @@ function extractCustomBookingNotes(notes?: string | null): string {
     .join("\n");
 }
 
+function extractMoneyValueFromText(value: string): number | undefined {
+  const digits = String(value || "").replace(/[^\d-]/g, "");
+  if (!digits || digits === "-") return undefined;
+  const parsed = Number(digits);
+  if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
+  return Math.round(parsed);
+}
+
+function extractParsedUnitPriceFromItemNotes(notes?: string | null): number | undefined {
+  const match = String(notes || "").match(
+    /harga\s+recap\s*:\s*(rp\.?\s*)?([\d.,]+)/i,
+  );
+  return extractMoneyValueFromText(match?.[2] || "");
+}
+
+function extractParsedSubtotalFromItemNotes(notes?: string | null): number | undefined {
+  const match = String(notes || "").match(
+    /subtotal\s+recap\s*:\s*(rp\.?\s*)?([\d.,]+)/i,
+  );
+  return extractMoneyValueFromText(match?.[2] || "");
+}
+
 function buildBookingFormValuesFromOrder(
   order: BakeryOrder,
   productCatalog: ReturnType<typeof useCatalogAdminState>["productCatalog"],
@@ -307,6 +332,26 @@ function buildBookingFormValuesFromOrder(
               ? normalizeTokenDifficultyValue(item.tokenDifficulty ?? "SIMPLE")
               : undefined;
           const rawItemNotes = String(item.notes ?? "");
+          const parsedUnitPriceFromNotes =
+            extractParsedUnitPriceFromItemNotes(rawItemNotes);
+          const parsedSubtotalFromNotes =
+            extractParsedSubtotalFromItemNotes(rawItemNotes);
+          const parsedUnitPriceFromItem =
+            Number.isFinite(Number(item.parsedUnitPrice)) &&
+            Number(item.parsedUnitPrice) > 0
+              ? Math.round(Number(item.parsedUnitPrice))
+              : undefined;
+          const parsedSubtotalFromItem =
+            Number.isFinite(Number(item.parsedSubtotal)) &&
+            Number(item.parsedSubtotal) > 0
+              ? Math.round(Number(item.parsedSubtotal))
+              : undefined;
+          const hasRecapPricing =
+            item.pricingSource === "RECAP" ||
+            parsedUnitPriceFromItem !== undefined ||
+            parsedSubtotalFromItem !== undefined ||
+            parsedUnitPriceFromNotes !== undefined ||
+            parsedSubtotalFromNotes !== undefined;
           const parserProvidedCookieBreakdown =
             normalized.category === "Cookies"
               ? String(item.cookieDifficultyBreakdown ?? "").trim()
@@ -406,18 +451,14 @@ function buildBookingFormValuesFromOrder(
                   })()
                 : [],
             parsedUnitPrice:
-              item.pricingSource === "RECAP" &&
-              Number.isFinite(Number(item.parsedUnitPrice)) &&
-              Number(item.parsedUnitPrice) > 0
-                ? Math.round(Number(item.parsedUnitPrice))
+              hasRecapPricing
+                ? parsedUnitPriceFromItem ?? parsedUnitPriceFromNotes
                 : undefined,
             parsedSubtotal:
-              item.pricingSource === "RECAP" &&
-              Number.isFinite(Number(item.parsedSubtotal)) &&
-              Number(item.parsedSubtotal) > 0
-                ? Math.round(Number(item.parsedSubtotal))
+              hasRecapPricing
+                ? parsedSubtotalFromItem ?? parsedSubtotalFromNotes
                 : undefined,
-            pricingSource: item.pricingSource === "RECAP" ? "RECAP" : undefined,
+            pricingSource: hasRecapPricing ? "RECAP" : undefined,
             cookieDifficultyBreakdown: parsedCookieBreakdown || undefined,
             greetingCard:
               String(item.greetingCard ?? "").trim().slice(0, 400) ||
@@ -1746,11 +1787,11 @@ function getBouquetFlowerAddOnUnitPrice(args: {
   if (!isBouquetFlowerAddOnId(args.addonId)) return null;
 
   if (args.addonId === BOUQUET_EXTRA_3_FLOWER_ADDON_ID) {
-    return args.bouquetType === "STANDING" ? 25000 : 20000;
+    return 20000;
   }
 
   if (args.addonId === BOUQUET_EXTRA_6_FLOWER_ADDON_ID) {
-    return args.bouquetType === "STANDING" ? 40000 : 35000;
+    return 35000;
   }
 
   return null;
@@ -1823,6 +1864,10 @@ function resolveBubblewrapUnitPrice(args: {
   return roundedDefault;
 }
 
+function isOrderLevelAddOnId(addonId: string): boolean {
+  return addonId === "bubblewrap" || addonId === "custom-card";
+}
+
 function calculatePerUnitAddOnPrice(args: {
   category: string;
   bouquetType?: BouquetFormType | null;
@@ -1836,6 +1881,52 @@ function calculatePerUnitAddOnPrice(args: {
   >;
 }): number {
   return args.selectedAddOnIds.reduce((sum, addonId) => {
+    const addon = args.addOnCatalogEntries.find(
+      (entry) => entry.id === addonId,
+    );
+    if (!addon) return sum;
+    if (isOrderLevelAddOnId(addonId)) return sum;
+
+    const multiplier = getAddOnUnitMultiplier({
+      category: args.category,
+      addonId,
+      addOnQuantities: args.addOnQuantities,
+    });
+    const overriddenPrice = args.addOnPriceOverrides?.[addonId];
+    const baseUnitPrice =
+      Number.isFinite(Number(overriddenPrice)) && Number(overriddenPrice) >= 0
+        ? Number(overriddenPrice)
+        : args.category === "Buket"
+          ? (getBouquetFlowerAddOnUnitPrice({
+              addonId,
+              bouquetType: args.bouquetType ?? null,
+            }) ?? addon.price)
+          : addon.price;
+    const unitPrice = resolveBubblewrapUnitPrice({
+      category: args.category,
+      addonId,
+      defaultPrice: baseUnitPrice,
+      itemSelection: args.itemSelection,
+    });
+    return sum + unitPrice * multiplier;
+  }, 0);
+}
+
+function calculateOrderLevelAddOnPrice(args: {
+  category: string;
+  bouquetType?: BouquetFormType | null;
+  selectedAddOnIds: string[];
+  addOnQuantities: Record<string, number>;
+  addOnPriceOverrides?: Record<string, number>;
+  addOnCatalogEntries: CatalogAddOn[];
+  itemSelection?: Pick<
+    BookingItemInput,
+    "category" | "subcategory" | "productName" | "size"
+  >;
+}): number {
+  return args.selectedAddOnIds.reduce((sum, addonId) => {
+    if (!isOrderLevelAddOnId(addonId)) return sum;
+
     const addon = args.addOnCatalogEntries.find(
       (entry) => entry.id === addonId,
     );
@@ -2195,18 +2286,19 @@ function getBouquetLineTotal(
   if (!bouquetType) return null;
 
   const quantity = Number(item.quantity) || 0;
+  const overriddenPrice = normalizeBouquetPriceOverrideValue(
+    item.bouquetPriceOverride,
+  );
+  const cookiePrice = normalizeBouquetCookiePriceValue(item.cookiePrice);
+  const bouquetCost = getBouquetCostByType(bouquetType);
   const startFromPrice = getUnitPriceFromCatalog(catalog, {
     category: item.category,
     subcategory: item.subcategory,
     productName: item.productName,
     size: item.size,
   });
-  const overriddenPrice = normalizeBouquetPriceOverrideValue(
-    item.bouquetPriceOverride,
-  );
 
   if (quantity <= 0) return null;
-  if (startFromPrice <= 0) return null;
 
   if (overriddenPrice !== undefined) {
     // For normal bouquet flow qty is cookie-fill count (single bouquet).
@@ -2217,6 +2309,15 @@ function getBouquetLineTotal(
     // Keep fallback behavior when qty is treated as bouquet units.
     return overriddenPrice * quantity;
   }
+
+  if (
+    cookiePrice !== undefined &&
+    isValidBouquetQuantity(quantity, bouquetType)
+  ) {
+    return Math.round(cookiePrice * quantity + bouquetCost);
+  }
+
+  if (startFromPrice <= 0) return null;
 
   // Qty in bouquet range means cookie-fill count for one bouquet unit.
   if (isValidBouquetQuantity(quantity, bouquetType)) {
@@ -2390,6 +2491,7 @@ function getDraftItemPriceBreakdown(args: {
   itemLabel: string;
   quantity: number;
   baseAmount: number;
+  designAdjustmentAmount: number;
   addOnAmount: number;
   totalAmount: number;
   addOnDetails: string[];
@@ -2416,6 +2518,7 @@ function getDraftItemPriceBreakdown(args: {
       itemLabel: itemLabel || item.category || "Item",
       quantity: 0,
       baseAmount: 0,
+      designAdjustmentAmount: 0,
       addOnAmount: 0,
       totalAmount: 0,
       addOnDetails: [],
@@ -2434,26 +2537,177 @@ function getDraftItemPriceBreakdown(args: {
     addOnCatalog,
     item.category,
   );
-  const selectedAddOnAmount =
-    calculatePerUnitAddOnPrice({
-      category: item.category,
-      bouquetType: detectBouquetTypeFromItem(item),
-      selectedAddOnIds: item.addOns ?? [],
-      addOnQuantities: normalizedAddOnQuantities,
-      addOnPriceOverrides: normalizedAddOnPriceOverrides,
-      addOnCatalogEntries: categoryAddOns,
-      itemSelection: {
+  const bouquetType = detectBouquetTypeFromItem(item);
+  const isBouquetItem = item.category === "Buket" && bouquetType !== null;
+  const actualSelectedAddOnAmount = isBouquetItem
+    ? (() => {
+        const flowerAddOnTotal = (item.addOns ?? [])
+          .filter((addOnId) => isBouquetFlowerAddOnId(addOnId))
+          .reduce((sum, addOnId) => {
+            const addOn = categoryAddOns.find((entry) => entry.id === addOnId);
+            if (!addOn) return sum;
+            const overriddenPrice = normalizedAddOnPriceOverrides[addOnId];
+            const unitPrice =
+              overriddenPrice !== undefined
+                ? overriddenPrice
+                : (getBouquetFlowerAddOnUnitPrice({
+                    addonId: addOnId,
+                    bouquetType,
+                  }) ?? addOn.price);
+            return sum + unitPrice;
+          }, 0);
+
+        const nonFlowerAddOnTotal =
+          calculatePerUnitAddOnPrice({
+            category: item.category,
+            bouquetType,
+            selectedAddOnIds: (item.addOns ?? []).filter(
+              (addOnId) => !isBouquetFlowerAddOnId(addOnId),
+            ),
+            addOnQuantities: normalizedAddOnQuantities,
+            addOnPriceOverrides: normalizedAddOnPriceOverrides,
+            addOnCatalogEntries: categoryAddOns,
+            itemSelection: {
+              category: item.category,
+              subcategory: item.subcategory,
+              productName: item.productName,
+              size: item.size,
+            },
+          }) * quantity +
+          calculateOrderLevelAddOnPrice({
+            category: item.category,
+            bouquetType,
+            selectedAddOnIds: (item.addOns ?? []).filter(
+              (addOnId) => !isBouquetFlowerAddOnId(addOnId),
+            ),
+            addOnQuantities: normalizedAddOnQuantities,
+            addOnPriceOverrides: normalizedAddOnPriceOverrides,
+            addOnCatalogEntries: categoryAddOns,
+            itemSelection: {
+              category: item.category,
+              subcategory: item.subcategory,
+              productName: item.productName,
+              size: item.size,
+            },
+          });
+
+        return flowerAddOnTotal + nonFlowerAddOnTotal;
+      })()
+    : calculatePerUnitAddOnPrice({
         category: item.category,
-        subcategory: item.subcategory,
+        bouquetType,
+        selectedAddOnIds: item.addOns ?? [],
+        addOnQuantities: normalizedAddOnQuantities,
+        addOnPriceOverrides: normalizedAddOnPriceOverrides,
+        addOnCatalogEntries: categoryAddOns,
+        itemSelection: {
+          category: item.category,
+          subcategory: item.subcategory,
         productName: item.productName,
         size: item.size,
       },
-    }) * quantity;
+      }) * quantity +
+      calculateOrderLevelAddOnPrice({
+        category: item.category,
+        bouquetType,
+        selectedAddOnIds: item.addOns ?? [],
+        addOnQuantities: normalizedAddOnQuantities,
+        addOnPriceOverrides: normalizedAddOnPriceOverrides,
+        addOnCatalogEntries: categoryAddOns,
+        itemSelection: {
+          category: item.category,
+          subcategory: item.subcategory,
+          productName: item.productName,
+          size: item.size,
+        },
+      });
+  const catalogSelectedAddOnAmount = isBouquetItem
+    ? (() => {
+        const flowerAddOnTotal = (item.addOns ?? [])
+          .filter((addOnId) => isBouquetFlowerAddOnId(addOnId))
+          .reduce((sum, addOnId) => {
+            const addOn = categoryAddOns.find((entry) => entry.id === addOnId);
+            if (!addOn) return sum;
+            const unitPrice =
+              getBouquetFlowerAddOnUnitPrice({
+                addonId: addOnId,
+                bouquetType,
+              }) ?? addOn.price;
+            return sum + unitPrice;
+          }, 0);
+
+        const nonFlowerAddOnTotal =
+          calculatePerUnitAddOnPrice({
+            category: item.category,
+            bouquetType,
+            selectedAddOnIds: (item.addOns ?? []).filter(
+              (addOnId) => !isBouquetFlowerAddOnId(addOnId),
+            ),
+            addOnQuantities: normalizedAddOnQuantities,
+            addOnPriceOverrides: {},
+            addOnCatalogEntries: categoryAddOns,
+            itemSelection: {
+              category: item.category,
+              subcategory: item.subcategory,
+              productName: item.productName,
+              size: item.size,
+            },
+          }) * quantity +
+          calculateOrderLevelAddOnPrice({
+            category: item.category,
+            bouquetType,
+            selectedAddOnIds: (item.addOns ?? []).filter(
+              (addOnId) => !isBouquetFlowerAddOnId(addOnId),
+            ),
+            addOnQuantities: normalizedAddOnQuantities,
+            addOnPriceOverrides: {},
+            addOnCatalogEntries: categoryAddOns,
+            itemSelection: {
+              category: item.category,
+              subcategory: item.subcategory,
+              productName: item.productName,
+              size: item.size,
+            },
+          });
+
+        return flowerAddOnTotal + nonFlowerAddOnTotal;
+      })()
+    : calculatePerUnitAddOnPrice({
+        category: item.category,
+        bouquetType,
+        selectedAddOnIds: item.addOns ?? [],
+        addOnQuantities: normalizedAddOnQuantities,
+        addOnPriceOverrides: {},
+        addOnCatalogEntries: categoryAddOns,
+        itemSelection: {
+          category: item.category,
+          subcategory: item.subcategory,
+          productName: item.productName,
+          size: item.size,
+        },
+      }) * quantity +
+      calculateOrderLevelAddOnPrice({
+        category: item.category,
+        bouquetType,
+        selectedAddOnIds: item.addOns ?? [],
+        addOnQuantities: normalizedAddOnQuantities,
+        addOnPriceOverrides: {},
+        addOnCatalogEntries: categoryAddOns,
+        itemSelection: {
+          category: item.category,
+          subcategory: item.subcategory,
+          productName: item.productName,
+          size: item.size,
+        },
+      });
   const customAddOnAmount = getCustomAddOnTotal(
     normalizedCustomAddOns,
     quantity,
   );
-  const addOnFromSelection = selectedAddOnAmount + customAddOnAmount;
+  const actualAddOnFromSelection =
+    actualSelectedAddOnAmount + customAddOnAmount;
+  const catalogAddOnAmount =
+    catalogSelectedAddOnAmount + customAddOnAmount;
 
   const isCustomCookiesItem = isCustomCookieItem(item);
   const cookieDifficultyBreakdown = extractCookieDifficultyBreakdown(item);
@@ -2478,6 +2732,9 @@ function getDraftItemPriceBreakdown(args: {
     customCookieAdditionalDesignCount * customCookieAdditionalDesignUnitPrice;
   const addOnDetails: string[] = [];
   const selectedAddOnIds = Array.isArray(item.addOns) ? item.addOns : [];
+  const hasOnlyOrderLevelAddOns =
+    selectedAddOnIds.length > 0 &&
+    selectedAddOnIds.every((addOnId) => isOrderLevelAddOnId(addOnId));
 
   selectedAddOnIds.forEach((addOnId) => {
     const addOn = categoryAddOns.find((entry) => entry.id === addOnId);
@@ -2510,6 +2767,31 @@ function getDraftItemPriceBreakdown(args: {
           cookieAdditionalDesignUnitPrice:
             customCookieAdditionalDesignUnitPrice,
         });
+  const catalogBaseAmount = Math.max(
+    0,
+    Math.round(
+      isBouquetItem
+        ? (() => {
+            const catalogUnitPrice = getUnitPriceFromCatalog(catalog, {
+              category: item.category,
+              subcategory: item.subcategory,
+              productName: item.productName,
+              size: item.size,
+            });
+            if (catalogUnitPrice <= 0) return 0;
+            if (isValidBouquetQuantity(quantity, bouquetType)) {
+              return catalogUnitPrice;
+            }
+            return catalogUnitPrice * quantity;
+          })()
+        : getUnitPriceFromCatalog(catalog, {
+            category: item.category,
+            subcategory: item.subcategory,
+            productName: item.productName,
+            size: item.size,
+          }) * quantity,
+    ),
+  );
   const recapTotalOverride =
     hasParsedRecapPrice && isCustomCookiesItem && cookieBreakdownSubtotal > 0
       ? Math.max(
@@ -2519,36 +2801,24 @@ function getDraftItemPriceBreakdown(args: {
           ),
         )
       : null;
-
-  if (hasParsedRecapPrice) {
-    const totalAmount =
-      recapTotalOverride ?? Math.max(0, Math.round(baseBeforeSplit));
-    const addOnAmount = Math.min(
-      totalAmount,
-      Math.max(
+  const totalAmount = hasParsedRecapPrice
+    ? recapTotalOverride ?? Math.max(0, Math.round(baseBeforeSplit))
+    : Math.max(
         0,
-        Math.round(addOnFromSelection + customCookieAdditionalDesignCharge),
-      ),
-    );
-    const baseAmount = Math.max(0, totalAmount - addOnAmount);
-    return {
-      categoryLabel,
-      groupLabel,
-      itemLabel: itemLabel || item.category || "Item",
-      quantity,
-      baseAmount,
-      addOnAmount,
-      totalAmount,
-      addOnDetails,
-    };
-  }
-
-  const baseAmount = Math.max(0, Math.round(baseBeforeSplit));
-  const addOnAmount = Math.max(
-    0,
-    Math.round(addOnFromSelection + customCookieAdditionalDesignCharge),
+        Math.round(
+          baseBeforeSplit +
+            actualAddOnFromSelection +
+            customCookieAdditionalDesignCharge,
+        ),
+      );
+  const baseAmount = catalogBaseAmount;
+  const addOnAmount =
+    hasParsedRecapPrice && hasOnlyOrderLevelAddOns
+      ? Math.max(0, totalAmount - baseAmount)
+      : Math.max(0, Math.round(catalogAddOnAmount));
+  const designAdjustmentAmount = Math.round(
+    totalAmount - baseAmount - addOnAmount,
   );
-  const totalAmount = Math.max(0, baseAmount + addOnAmount);
 
   return {
     categoryLabel,
@@ -2556,6 +2826,7 @@ function getDraftItemPriceBreakdown(args: {
     itemLabel: itemLabel || item.category || "Item",
     quantity,
     baseAmount,
+    designAdjustmentAmount,
     addOnAmount,
     totalAmount,
     addOnDetails,
@@ -3848,6 +4119,12 @@ export default function BookingForm({
     }, 0);
   }, [itemPriceBreakdowns]);
 
+  const designAdjustmentTotal = useMemo(() => {
+    return itemPriceBreakdowns.reduce((sum, item) => {
+      return sum + item.designAdjustmentAmount;
+    }, 0);
+  }, [itemPriceBreakdowns]);
+
   useEffect(() => {
     if (effectiveDeliveryMethod !== "ASSISTED_PAXEL") return;
 
@@ -3987,6 +4264,7 @@ export default function BookingForm({
           label: string;
           quantity: number;
           baseAmount: number;
+          designAdjustmentAmount: number;
           addOnAmount: number;
           totalAmount: number;
           addOnDetails?: string[];
@@ -4017,6 +4295,7 @@ export default function BookingForm({
             label: item.itemLabel,
             quantity: item.quantity,
             baseAmount: item.baseAmount,
+            designAdjustmentAmount: item.designAdjustmentAmount,
             addOnAmount: item.addOnAmount,
             totalAmount: item.totalAmount,
             addOnDetails: item.addOnDetails,
@@ -4412,7 +4691,7 @@ export default function BookingForm({
     effectiveDeliveryMethod === "REGULAR_JNE_JNT" ||
     selectedShippingQuote?.provider === "JNE" ||
     selectedShippingQuote?.provider === "JNT";
-  const itemsSubtotal = basePrice + addOnTotal;
+  const itemsSubtotal = basePrice + designAdjustmentTotal + addOnTotal;
   const requiresInsurance = isJneJnt && itemsSubtotal > 2000000;
   const insuranceFeeByRule = requiresInsurance
     ? Math.round(itemsSubtotal * 0.003) + 5000
@@ -4422,6 +4701,7 @@ export default function BookingForm({
 
   const subtotalBeforeDiscount =
     basePrice +
+    designAdjustmentTotal +
     addOnTotal +
     deliveryFee +
     insuranceFee +
@@ -4681,12 +4961,13 @@ export default function BookingForm({
   }, [watchedItems, productCatalog, addOnCatalog]);
 
   const shippingWeightSummary = useMemo(() => {
-    const rows = shippingItems.map((item) => {
+    const rows = shippingItems.map((item, index) => {
       const qty = Math.max(1, Number(item.quantity) || 1);
       const totalGram = Math.max(100, Number(item.weightGram) || 100);
       const perPcsGram = Math.max(1, Math.round(totalGram / qty));
 
       return {
+        key: `${item.name}-${index}`,
         name: item.name,
         qty,
         totalGram,
@@ -4718,11 +4999,15 @@ export default function BookingForm({
         sanitizePostalCodeInput(primaryAddress.postalCode || "") ||
         extractPostalCodeFromAddress(primaryAddress.addressLine),
       items: shippingItems,
-      totalValue: Math.max(1000, Math.round(basePrice + addOnTotal)),
+      totalValue: Math.max(
+        1000,
+        Math.round(basePrice + designAdjustmentTotal + addOnTotal),
+      ),
     };
   }, [
     addOnTotal,
     basePrice,
+    designAdjustmentTotal,
     primaryAddress?.addressLine,
     primaryAddress?.area,
     primaryAddress?.postalCode,
@@ -5180,6 +5465,20 @@ export default function BookingForm({
             },
           }) *
             item.quantity +
+          calculateOrderLevelAddOnPrice({
+            category: item.category,
+            bouquetType,
+            selectedAddOnIds: item.addOns ?? [],
+            addOnQuantities: normalizedAddOnQuantities,
+            addOnPriceOverrides: normalizedAddOnPriceOverrides,
+            addOnCatalogEntries: categoryAddOns,
+            itemSelection: {
+              category: item.category,
+              subcategory: item.subcategory,
+              productName: item.productName,
+              size: item.size,
+            },
+          }) +
           getCustomAddOnTotal(normalizedCustomAddOns, item.quantity);
       const selectedFlavorOption = getFlavorOptionsForCategory(
         item.category,
@@ -7564,9 +7863,31 @@ export default function BookingForm({
                             return sum + unitPrice;
                           }, 0);
 
-                        // Calculate other add-ons (scaled by quantity)
+                        // Calculate other add-ons. Order-level add-ons like bubblewrap
+                        // should not be multiplied by the cookie/cake quantity.
                         const selectedOtherAddOnTotal =
                           selectedOtherAddOns.reduce((sum, addon) => {
+                            if (isOrderLevelAddOnId(addon.id)) {
+                              const overriddenPrice =
+                                normalizedAddOnPriceOverrides[addon.id];
+                              const unitPrice = resolveBubblewrapUnitPrice({
+                                category: normalizedSelection.category,
+                                addonId: addon.id,
+                                defaultPrice:
+                                  overriddenPrice !== undefined
+                                    ? overriddenPrice
+                                    : addon.price,
+                                itemSelection: {
+                                  category: normalizedSelection.category,
+                                  subcategory:
+                                    normalizedSelection.subcategory,
+                                  productName:
+                                    normalizedSelection.productName,
+                                  size: normalizedSelection.size,
+                                },
+                              });
+                              return sum + unitPrice;
+                            }
                             const multiplier = getAddOnUnitMultiplier({
                               category: normalizedSelection.category,
                               addonId: addon.id,
@@ -7579,7 +7900,7 @@ export default function BookingForm({
                                 ? overriddenPrice
                                 : addon.price;
                             return sum + unitPrice * multiplier;
-                          }, 0) * Math.max(1, quantityValue);
+                          }, 0);
 
                         const selectedNonFlavorAddOnTotal =
                           selectedFlowerAddOnTotal + selectedOtherAddOnTotal;
@@ -7618,7 +7939,24 @@ export default function BookingForm({
                               productName: normalizedSelection.productName,
                               size: normalizedSelection.size,
                             },
-                          }) * Math.max(1, quantityValue);
+                          }) *
+                            Math.max(1, quantityValue) +
+                          calculateOrderLevelAddOnPrice({
+                            category: normalizedSelection.category,
+                            bouquetType,
+                            selectedAddOnIds: (item?.addOns ?? []).filter(
+                              (id) => !isBouquetFlowerAddOnId(id),
+                            ),
+                            addOnQuantities: normalizedAddOnQuantities,
+                            addOnPriceOverrides: normalizedAddOnPriceOverrides,
+                            addOnCatalogEntries: addOns,
+                            itemSelection: {
+                              category: normalizedSelection.category,
+                              subcategory: normalizedSelection.subcategory,
+                              productName: normalizedSelection.productName,
+                              size: normalizedSelection.size,
+                            },
+                          });
 
                         const selectedAllAddOnTotal =
                           flowerAddOnsPrice + nonFlowerAddOnsPrice;
@@ -9483,7 +9821,7 @@ export default function BookingForm({
                               </summary>
                               <div className="mt-2 space-y-1">
                                 {shippingWeightSummary.rows.map((row) => (
-                                  <p key={row.name}>
+                                  <p key={row.key}>
                                     {row.name}: {row.qty} pcs x {row.perPcsGram}{" "}
                                     gram = {row.totalGram} gram
                                   </p>
@@ -9807,6 +10145,7 @@ export default function BookingForm({
             <div className="space-y-4">
               <PriceSummaryCard
                 basePrice={basePrice}
+                designAdjustmentTotal={designAdjustmentTotal}
                 addOnTotal={addOnTotal}
                 deliveryFee={deliveryFee}
                 insuranceFee={insuranceFee}
@@ -10040,6 +10379,30 @@ export default function BookingForm({
                   </div>
                   <div className="flex items-center justify-between border-b border-[var(--crumbella-border)] px-[14px] py-[11px]">
                     <span className="text-[12px] text-[var(--crumbella-muted)]">
+                      Base Price
+                    </span>
+                    <span className="text-[12.5px] font-semibold text-[var(--foreground)]">
+                      {formatCurrency(basePrice)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between border-b border-[var(--crumbella-border)] px-[14px] py-[11px]">
+                    <span className="text-[12px] text-[var(--crumbella-muted)]">
+                      Adjustment Design/Admin
+                    </span>
+                    <span className="text-[12.5px] font-semibold text-[var(--foreground)]">
+                      {formatCurrency(designAdjustmentTotal)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between border-b border-[var(--crumbella-border)] px-[14px] py-[11px]">
+                    <span className="text-[12px] text-[var(--crumbella-muted)]">
+                      Add-ons
+                    </span>
+                    <span className="text-[12.5px] font-semibold text-[var(--foreground)]">
+                      {formatCurrency(addOnTotal)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between border-b border-[var(--crumbella-border)] px-[14px] py-[11px]">
+                    <span className="text-[12px] text-[var(--crumbella-muted)]">
                       Ongkir
                     </span>
                     <span className="text-[12.5px] font-semibold text-[var(--foreground)]">
@@ -10073,6 +10436,17 @@ export default function BookingForm({
                       </span>
                       <span className="text-[12.5px] font-semibold text-[var(--foreground)]">
                         {formatCurrency(Number(manualAdjustment || 0))}
+                      </span>
+                    </div>
+                  ) : null}
+                  {Number(wholesaleDiscountPercent || 0) > 0 ? (
+                    <div className="flex items-center justify-between border-b border-[var(--crumbella-border)] px-[14px] py-[11px]">
+                      <span className="text-[12px] text-[var(--crumbella-muted)]">
+                        Discount Grosir ({Number(wholesaleDiscountPercent || 0)}
+                        %)
+                      </span>
+                      <span className="text-[12.5px] font-semibold text-[#1f6a43]">
+                        -{formatCurrency(wholesaleDiscountAmount)}
                       </span>
                     </div>
                   ) : null}

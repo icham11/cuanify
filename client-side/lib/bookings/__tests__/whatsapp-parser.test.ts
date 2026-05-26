@@ -1027,6 +1027,9 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
       "Cake",
       "Cupcakes",
     ]);
+    expect(autoFill.items[0]?.productName).toMatch(/cake/i);
+    expect(autoFill.items[0]?.productName).not.toMatch(/cupcakes?/i);
+    expect(autoFill.items[1]?.productName).toMatch(/cupcakes?/i);
     expect(autoFill.items.map((item) => item.pricingSource)).toEqual([
       "RECAP",
       "RECAP",
@@ -1085,6 +1088,69 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
     expect(preview.includes("Service Charge: Rp 10.000")).toBe(true);
   });
 
+  it("marks recap as paid when DP field is empty", () => {
+    const text = [
+      "REKAP ORDER",
+      "ITEM 1",
+      "",
+      "Nama Produk: standing bouquet isi 12",
+      "Harga Satuan: 550.000",
+      "Qty: 1",
+      "Add On: 6 bunga",
+      "Subtotal: 590.000",
+      "",
+      "ONGKIR:",
+      "ADJUSTMENT:",
+      "TOTAL: 590.000",
+      "DP:",
+      "SISA: 590.000",
+      "",
+      "Tanggal Pengiriman (1/4/26)",
+      "Order : standing bouquet isi 12 cookies",
+      "Design : 11 wajah orang",
+      "Jumlah Bunga : 6",
+      "Jam Pengiriman : 07.00",
+      "Metode Pengiriman : pick up",
+      "Nama Penerima : mba nurul",
+      "No telp Penerima : 0859 4463 5732",
+      "Alamat Lengkap : Taman Golf 316 Lippo Karawaci Tangerang, 15810",
+    ].join("\n");
+
+    const parsed = parseWhatsAppOrderText(text, {
+      preferredOrderType: "buket",
+      sourceType: "manual",
+    });
+    const autoFill = buildBookingAutoFillFromParsed(parsed);
+
+    expect(autoFill.paymentStatus).toBe("Paid");
+    expect(autoFill.dpPaidAmount).toBe(0);
+    expect(autoFill.finalPaidAmount).toBe(590000);
+  });
+
+  it("maps kode pos from a separate template line into autofill address", () => {
+    const text = [
+      "REKAP ORDER",
+      "Tanggal Pengiriman : 26 mei 2026",
+      "Order: 20pcs expert cookies",
+      "Jam Pengiriman : 10.00",
+      "Metode Pengiriman : JNT REGULER (EZ)",
+      "Nama penerima : NURUL ISNAINI",
+      "No. telp penerima : 081233840072",
+      "Alamat lengkap : SDIT Nurul Rahmah, Jl. Teuku Umar II, Kemayoran, Kec. Bangkalan, Kab. Bangkalan, Jawa Timur",
+      "Kode pos : 69116",
+      "Design : Nailong full body",
+    ].join("\n");
+
+    const parsed = parseWhatsAppOrderText(text, {
+      preferredOrderType: "cookies",
+      sourceType: "manual",
+    });
+    const autoFill = buildBookingAutoFillFromParsed(parsed);
+
+    expect(parsed.common.postalCode).toBe("69116");
+    expect(autoFill.deliveryAddresses[0]?.postalCode).toBe("69116");
+  });
+
   it("keeps separate recap items even when category is the same", () => {
     const text = [
       "REKAP ORDER",
@@ -1131,6 +1197,67 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
     expect(autoFill.items.map((item) => item.parsedSubtotal)).toEqual([
       450000, 450000,
     ]);
+  });
+
+  it("does not turn numbered cookie design lines into extra recap items or design surcharge", () => {
+    const text = [
+      "REKAP ORDER",
+      "ITEM 1",
+      "",
+      "Nama Produk: expert cookies",
+      "Harga Satuan: 35.000",
+      "Qty: 20pcs",
+      "Add On:",
+      "Subtotal: 700.000",
+      "",
+      "ONGKIR:",
+      "ADJUSTMENT:",
+      "TOTAL: 700.000",
+      "DP:",
+      "SISA:",
+      "",
+      "Tanggal Pengiriman : 26 mei 2026",
+      "",
+      "KODE BOOKING :",
+      "",
+      "Order:",
+      "- 20pcs expert cookies",
+      "",
+      "Design :",
+      "1. Nailong pegang Love Pink",
+      "2. Nailong Bunga Matahari",
+      "3. Nailong yang mulutnya Love Merah",
+      "4. Nailong pegang Bunga Pink",
+      "5. Disain 1 lg bebas yang penting Nailongnya Senyum Happy",
+      "(All design full body)",
+      "",
+      "Jam Pengiriman : 10.00",
+      "Metode Pengiriman : JNT REGULER (EZ)",
+      "Nama penerima : NURUL ISNAINI",
+      "No. telp penerima : 081233840072",
+      "Alamat lengkap : SDIT Nurul Rahmah, Jl. Teuku Umar II, Kemayoran, Kec. Bangkalan, Kab. Bangkalan, Jawa Timur",
+      "Kode pos : 69116",
+    ].join("\n");
+
+    const parsed = parseWhatsAppOrderText(text, {
+      preferredOrderType: "cookies",
+      sourceType: "manual",
+    });
+    const autoFill = buildBookingAutoFillFromParsed(parsed);
+
+    expect(parsed.orderRecap?.items).toHaveLength(1);
+    expect(parsed.orderRecap?.items[0]?.productName).toBe("expert cookies");
+    expect(parsed.orderRecap?.items[0]?.quantity).toBe(20);
+    expect(parsed.orderRecap?.items[0]?.subtotal).toBe(700000);
+    expect(parsed.orderRecap?.items[0]?.addOn).toBe("");
+
+    expect(autoFill.items).toHaveLength(1);
+    expect(autoFill.items[0]?.quantity).toBe(20);
+    expect(autoFill.items[0]?.tokenDifficulty).toBe("EXPERT");
+    expect(autoFill.items[0]?.parsedUnitPrice).toBe(35000);
+    expect(autoFill.items[0]?.parsedSubtotal).toBe(700000);
+    expect(autoFill.items[0]?.designCount).toBeUndefined();
+    expect(autoFill.items[0]?.additionalDesignCount).toBeUndefined();
   });
 
   it("uses bouquet isi quantity from recap text when qty is 1", () => {

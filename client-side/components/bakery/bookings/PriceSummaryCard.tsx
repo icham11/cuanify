@@ -3,6 +3,7 @@ import { formatCurrency } from "@/components/orders/formatters";
 
 interface PriceSummaryCardProps {
   basePrice: number;
+  designAdjustmentTotal: number;
   addOnTotal: number;
   deliveryFee: number;
   insuranceFee?: number;
@@ -22,6 +23,7 @@ interface PriceSummaryCardProps {
       label: string;
       quantity: number;
       baseAmount: number;
+      designAdjustmentAmount: number;
       addOnAmount: number;
       totalAmount: number;
       addOnDetails?: string[];
@@ -31,6 +33,7 @@ interface PriceSummaryCardProps {
 
 export default function PriceSummaryCard({
   basePrice,
+  designAdjustmentTotal,
   addOnTotal,
   deliveryFee,
   insuranceFee = 0,
@@ -91,8 +94,11 @@ export default function PriceSummaryCard({
                 <p className="font-medium text-gray-800">
                   {item.label} x{item.quantity}
                 </p>
-                <div className="mt-1 grid grid-cols-3 gap-2 text-[11px] text-gray-600">
+                <div className="mt-1 grid grid-cols-2 gap-2 text-[11px] text-gray-600 md:grid-cols-4">
                   <span>Base {formatCurrency(item.baseAmount)}</span>
+                  <span>
+                    Adjustment {formatCurrency(item.designAdjustmentAmount)}
+                  </span>
                   <span>Add-on {formatCurrency(item.addOnAmount)}</span>
                   <span className="font-semibold text-gray-800">
                     Total {formatCurrency(item.totalAmount)}
@@ -143,6 +149,10 @@ export default function PriceSummaryCard({
         <div className="flex items-center justify-between text-sm text-gray-600">
           <span>Base Price</span>
           <span>{formatCurrency(basePrice)}</span>
+        </div>
+        <div className="flex items-center justify-between text-sm text-gray-600">
+          <span>Adjustment Design/Admin</span>
+          <span>{formatCurrency(designAdjustmentTotal)}</span>
         </div>
         <div className="flex items-center justify-between text-sm text-gray-600">
           <span>Add-ons</span>
@@ -201,8 +211,8 @@ export default function PriceSummaryCard({
           <span className="text-lg">{formatCurrency(totalPrice)}</span>
         </div>
         <p className="text-xs text-gray-500">
-          Auto-updated from product base price, add-ons, ongkir, service charge,
-          adjustment, dan discount grosir.
+          Auto-updated from catalog base price, adjustment design/admin,
+          add-ons, ongkir, service charge, adjustment, dan discount grosir.
         </p>
       </CardContent>
     </Card>

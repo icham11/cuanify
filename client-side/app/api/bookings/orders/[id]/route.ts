@@ -639,8 +639,8 @@ export async function DELETE(
     }
 
     const roleName = String(role);
-    if (roleName !== "Owner") {
-      throw new ForbiddenError("Hanya Owner yang dapat menghapus order.");
+    if (roleName !== "Owner" && roleName !== "Admin") {
+      throw new ForbiddenError("Hanya Owner/Admin yang dapat menghapus order.");
     }
 
     const rows = await prisma.$queryRaw<

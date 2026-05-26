@@ -600,6 +600,12 @@ export function useBookingFormState() {
     }, 0);
   }, [itemPriceBreakdowns]);
 
+  const designAdjustmentTotal = useMemo(() => {
+    return itemPriceBreakdowns.reduce((sum, item) => {
+      return sum + item.designAdjustmentAmount;
+    }, 0);
+  }, [itemPriceBreakdowns]);
+
   useEffect(() => {
     if (deliveryMethod !== "ASSISTED_PAXEL") return;
 
@@ -739,6 +745,7 @@ export function useBookingFormState() {
           label: string;
           quantity: number;
           baseAmount: number;
+          designAdjustmentAmount: number;
           addOnAmount: number;
           totalAmount: number;
           addOnDetails?: string[];
@@ -769,6 +776,7 @@ export function useBookingFormState() {
             label: item.itemLabel,
             quantity: item.quantity,
             baseAmount: item.baseAmount,
+            designAdjustmentAmount: item.designAdjustmentAmount,
             addOnAmount: item.addOnAmount,
             totalAmount: item.totalAmount,
             addOnDetails: item.addOnDetails,
@@ -1160,7 +1168,7 @@ export function useBookingFormState() {
   const serviceCharge = resolveAdminServiceCharge(deliveryMethod);
 
   const isJneJnt = deliveryMethod === "REGULAR_JNE_JNT" || selectedShippingQuote?.provider === "JNE" || selectedShippingQuote?.provider === "JNT";
-  const itemsSubtotal = basePrice + addOnTotal;
+  const itemsSubtotal = basePrice + designAdjustmentTotal + addOnTotal;
   const requiresInsurance = isJneJnt && itemsSubtotal > 2000000;
   const insuranceFeeByRule = requiresInsurance
     ? Math.round(itemsSubtotal * 0.003) + 5000
@@ -1170,6 +1178,7 @@ export function useBookingFormState() {
 
   const subtotalBeforeDiscount =
     basePrice +
+    designAdjustmentTotal +
     addOnTotal +
     deliveryFee +
     insuranceFee +
@@ -1442,11 +1451,15 @@ export function useBookingFormState() {
         sanitizePostalCodeInput(primaryAddress.postalCode || "") ||
         extractPostalCodeFromAddress(primaryAddress.addressLine),
       items: shippingItems,
-      totalValue: Math.max(1000, Math.round(basePrice + addOnTotal)),
+      totalValue: Math.max(
+        1000,
+        Math.round(basePrice + designAdjustmentTotal + addOnTotal),
+      ),
     };
   }, [
     addOnTotal,
     basePrice,
+    designAdjustmentTotal,
     primaryAddress?.addressLine,
     primaryAddress?.area,
     primaryAddress?.postalCode,

@@ -97,6 +97,8 @@ import type { BookingFormInput } from "./booking-form-schema";
 export const ADDRESS_LOCATION_KEYWORD_PATTERN =
   /\b(jl|jalan|gg|gang|blok|block|no|nomor|rt|rw|perum|perumahan|komplek|kompleks|cluster|apartemen|apartment|tower|unit|ruko|rumah|gedung|kav|kavling|kel|kelurahan|kec|kecamatan|kota|kab|kabupaten)\b/i;
 export const ADDRESS_NUMBER_PATTERN = /\b\d+[a-zA-Z]?\b/;
+export const ADDRESS_ROMAN_SECTION_PATTERN =
+  /\b(?:jl|jalan|gg|gang|blok|block|tower|unit|kav|kavling)\.?\s+[^,\n]{0,40}\b[ivxlcdm]{2,6}\b/i;
 export const ADDRESS_CONTACT_LABEL_PATTERN =
   /\b(nama\s+penerima|nama\s+customer|penerima|no\.?\s*(telp|hp)|nomor\s*(telp|hp)|telepon|phone|whatsapp|wa)\b/i;
 export const ADDRESS_PHONE_PATTERN = /(?:^|\D)(?:\+?62|0)\d{7,13}(?:\D|$)/;
@@ -181,7 +183,8 @@ export function addressLooksStructured(value: string): boolean {
 
   const hasLocationKeyword = ADDRESS_LOCATION_KEYWORD_PATTERN.test(normalized);
   const hasNumber = ADDRESS_NUMBER_PATTERN.test(value);
-  return hasLocationKeyword && hasNumber;
+  const hasRomanSection = ADDRESS_ROMAN_SECTION_PATTERN.test(value);
+  return hasLocationKeyword && (hasNumber || hasRomanSection);
 }
 
 export const defaultItemSelection = getDefaultCatalogSelection();
@@ -1153,11 +1156,11 @@ export function getBouquetFlowerAddOnUnitPrice(args: {
   if (!isBouquetFlowerAddOnId(args.addonId)) return null;
 
   if (args.addonId === BOUQUET_EXTRA_3_FLOWER_ADDON_ID) {
-    return args.bouquetType === "STANDING" ? 25000 : 20000;
+    return 20000;
   }
 
   if (args.addonId === BOUQUET_EXTRA_6_FLOWER_ADDON_ID) {
-    return args.bouquetType === "STANDING" ? 40000 : 35000;
+    return 35000;
   }
 
   return null;
@@ -1230,6 +1233,10 @@ export function resolveBubblewrapUnitPrice(args: {
   return roundedDefault;
 }
 
+export function isOrderLevelAddOnId(addonId: string): boolean {
+  return addonId === "bubblewrap" || addonId === "custom-card";
+}
+
 export function calculatePerUnitAddOnPrice(args: {
   category: string;
   bouquetType?: BouquetFormType | null;
@@ -1243,6 +1250,52 @@ export function calculatePerUnitAddOnPrice(args: {
   >;
 }): number {
   return args.selectedAddOnIds.reduce((sum, addonId) => {
+    const addon = args.addOnCatalogEntries.find(
+      (entry) => entry.id === addonId,
+    );
+    if (!addon) return sum;
+    if (isOrderLevelAddOnId(addonId)) return sum;
+
+    const multiplier = getAddOnUnitMultiplier({
+      category: args.category,
+      addonId,
+      addOnQuantities: args.addOnQuantities,
+    });
+    const overriddenPrice = args.addOnPriceOverrides?.[addonId];
+    const baseUnitPrice =
+      Number.isFinite(Number(overriddenPrice)) && Number(overriddenPrice) >= 0
+        ? Number(overriddenPrice)
+        : args.category === "Buket"
+          ? (getBouquetFlowerAddOnUnitPrice({
+              addonId,
+              bouquetType: args.bouquetType ?? null,
+            }) ?? addon.price)
+          : addon.price;
+    const unitPrice = resolveBubblewrapUnitPrice({
+      category: args.category,
+      addonId,
+      defaultPrice: baseUnitPrice,
+      itemSelection: args.itemSelection,
+    });
+    return sum + unitPrice * multiplier;
+  }, 0);
+}
+
+export function calculateOrderLevelAddOnPrice(args: {
+  category: string;
+  bouquetType?: BouquetFormType | null;
+  selectedAddOnIds: string[];
+  addOnQuantities: Record<string, number>;
+  addOnPriceOverrides?: Record<string, number>;
+  addOnCatalogEntries: CatalogAddOn[];
+  itemSelection?: Pick<
+    BookingItemInput,
+    "category" | "subcategory" | "productName" | "size"
+  >;
+}): number {
+  return args.selectedAddOnIds.reduce((sum, addonId) => {
+    if (!isOrderLevelAddOnId(addonId)) return sum;
+
     const addon = args.addOnCatalogEntries.find(
       (entry) => entry.id === addonId,
     );
@@ -1602,18 +1655,19 @@ export function getBouquetLineTotal(
   if (!bouquetType) return null;
 
   const quantity = Number(item.quantity) || 0;
+  const overriddenPrice = normalizeBouquetPriceOverrideValue(
+    item.bouquetPriceOverride,
+  );
+  const cookiePrice = normalizeBouquetCookiePriceValue(item.cookiePrice);
+  const bouquetCost = getBouquetCostByType(bouquetType);
   const startFromPrice = getUnitPriceFromCatalog(catalog, {
     category: item.category,
     subcategory: item.subcategory,
     productName: item.productName,
     size: item.size,
   });
-  const overriddenPrice = normalizeBouquetPriceOverrideValue(
-    item.bouquetPriceOverride,
-  );
 
   if (quantity <= 0) return null;
-  if (startFromPrice <= 0) return null;
 
   if (overriddenPrice !== undefined) {
     // For normal bouquet flow qty is cookie-fill count (single bouquet).
@@ -1624,6 +1678,15 @@ export function getBouquetLineTotal(
     // Keep fallback behavior when qty is treated as bouquet units.
     return overriddenPrice * quantity;
   }
+
+  if (
+    cookiePrice !== undefined &&
+    isValidBouquetQuantity(quantity, bouquetType)
+  ) {
+    return Math.round(cookiePrice * quantity + bouquetCost);
+  }
+
+  if (startFromPrice <= 0) return null;
 
   // Qty in bouquet range means cookie-fill count for one bouquet unit.
   if (isValidBouquetQuantity(quantity, bouquetType)) {
@@ -1780,6 +1843,7 @@ export function getDraftItemPriceBreakdown(args: {
   itemLabel: string;
   quantity: number;
   baseAmount: number;
+  designAdjustmentAmount: number;
   addOnAmount: number;
   totalAmount: number;
   addOnDetails: string[];
@@ -1806,6 +1870,7 @@ export function getDraftItemPriceBreakdown(args: {
       itemLabel: itemLabel || item.category || "Item",
       quantity: 0,
       baseAmount: 0,
+      designAdjustmentAmount: 0,
       addOnAmount: 0,
       totalAmount: 0,
       addOnDetails: [],
@@ -1824,26 +1889,177 @@ export function getDraftItemPriceBreakdown(args: {
     addOnCatalog,
     item.category,
   );
-  const selectedAddOnAmount =
-    calculatePerUnitAddOnPrice({
-      category: item.category,
-      bouquetType: detectBouquetTypeFromItem(item),
-      selectedAddOnIds: item.addOns ?? [],
-      addOnQuantities: normalizedAddOnQuantities,
-      addOnPriceOverrides: normalizedAddOnPriceOverrides,
-      addOnCatalogEntries: categoryAddOns,
-      itemSelection: {
+  const bouquetType = detectBouquetTypeFromItem(item);
+  const isBouquetItem = item.category === "Buket" && bouquetType !== null;
+  const actualSelectedAddOnAmount = isBouquetItem
+    ? (() => {
+        const flowerAddOnTotal = (item.addOns ?? [])
+          .filter((addOnId) => isBouquetFlowerAddOnId(addOnId))
+          .reduce((sum, addOnId) => {
+            const addOn = categoryAddOns.find((entry) => entry.id === addOnId);
+            if (!addOn) return sum;
+            const overriddenPrice = normalizedAddOnPriceOverrides[addOnId];
+            const unitPrice =
+              overriddenPrice !== undefined
+                ? overriddenPrice
+                : (getBouquetFlowerAddOnUnitPrice({
+                    addonId: addOnId,
+                    bouquetType,
+                  }) ?? addOn.price);
+            return sum + unitPrice;
+          }, 0);
+
+        const nonFlowerAddOnTotal =
+          calculatePerUnitAddOnPrice({
+            category: item.category,
+            bouquetType,
+            selectedAddOnIds: (item.addOns ?? []).filter(
+              (addOnId) => !isBouquetFlowerAddOnId(addOnId),
+            ),
+            addOnQuantities: normalizedAddOnQuantities,
+            addOnPriceOverrides: normalizedAddOnPriceOverrides,
+            addOnCatalogEntries: categoryAddOns,
+            itemSelection: {
+              category: item.category,
+              subcategory: item.subcategory,
+              productName: item.productName,
+              size: item.size,
+            },
+          }) * quantity +
+          calculateOrderLevelAddOnPrice({
+            category: item.category,
+            bouquetType,
+            selectedAddOnIds: (item.addOns ?? []).filter(
+              (addOnId) => !isBouquetFlowerAddOnId(addOnId),
+            ),
+            addOnQuantities: normalizedAddOnQuantities,
+            addOnPriceOverrides: normalizedAddOnPriceOverrides,
+            addOnCatalogEntries: categoryAddOns,
+            itemSelection: {
+              category: item.category,
+              subcategory: item.subcategory,
+              productName: item.productName,
+              size: item.size,
+            },
+          });
+
+        return flowerAddOnTotal + nonFlowerAddOnTotal;
+      })()
+    : calculatePerUnitAddOnPrice({
         category: item.category,
-        subcategory: item.subcategory,
-        productName: item.productName,
-        size: item.size,
-      },
-    }) * quantity;
+        bouquetType,
+        selectedAddOnIds: item.addOns ?? [],
+        addOnQuantities: normalizedAddOnQuantities,
+        addOnPriceOverrides: normalizedAddOnPriceOverrides,
+        addOnCatalogEntries: categoryAddOns,
+        itemSelection: {
+          category: item.category,
+          subcategory: item.subcategory,
+          productName: item.productName,
+          size: item.size,
+        },
+      }) * quantity +
+      calculateOrderLevelAddOnPrice({
+        category: item.category,
+        bouquetType,
+        selectedAddOnIds: item.addOns ?? [],
+        addOnQuantities: normalizedAddOnQuantities,
+        addOnPriceOverrides: normalizedAddOnPriceOverrides,
+        addOnCatalogEntries: categoryAddOns,
+        itemSelection: {
+          category: item.category,
+          subcategory: item.subcategory,
+          productName: item.productName,
+          size: item.size,
+        },
+      });
+  const catalogSelectedAddOnAmount = isBouquetItem
+    ? (() => {
+        const flowerAddOnTotal = (item.addOns ?? [])
+          .filter((addOnId) => isBouquetFlowerAddOnId(addOnId))
+          .reduce((sum, addOnId) => {
+            const addOn = categoryAddOns.find((entry) => entry.id === addOnId);
+            if (!addOn) return sum;
+            const unitPrice =
+              getBouquetFlowerAddOnUnitPrice({
+                addonId: addOnId,
+                bouquetType,
+              }) ?? addOn.price;
+            return sum + unitPrice;
+          }, 0);
+
+        const nonFlowerAddOnTotal =
+          calculatePerUnitAddOnPrice({
+            category: item.category,
+            bouquetType,
+            selectedAddOnIds: (item.addOns ?? []).filter(
+              (addOnId) => !isBouquetFlowerAddOnId(addOnId),
+            ),
+            addOnQuantities: normalizedAddOnQuantities,
+            addOnPriceOverrides: {},
+            addOnCatalogEntries: categoryAddOns,
+            itemSelection: {
+              category: item.category,
+              subcategory: item.subcategory,
+              productName: item.productName,
+              size: item.size,
+            },
+          }) * quantity +
+          calculateOrderLevelAddOnPrice({
+            category: item.category,
+            bouquetType,
+            selectedAddOnIds: (item.addOns ?? []).filter(
+              (addOnId) => !isBouquetFlowerAddOnId(addOnId),
+            ),
+            addOnQuantities: normalizedAddOnQuantities,
+            addOnPriceOverrides: {},
+            addOnCatalogEntries: categoryAddOns,
+            itemSelection: {
+              category: item.category,
+              subcategory: item.subcategory,
+              productName: item.productName,
+              size: item.size,
+            },
+          });
+
+        return flowerAddOnTotal + nonFlowerAddOnTotal;
+      })()
+    : calculatePerUnitAddOnPrice({
+        category: item.category,
+        bouquetType,
+        selectedAddOnIds: item.addOns ?? [],
+        addOnQuantities: normalizedAddOnQuantities,
+        addOnPriceOverrides: {},
+        addOnCatalogEntries: categoryAddOns,
+        itemSelection: {
+          category: item.category,
+          subcategory: item.subcategory,
+          productName: item.productName,
+          size: item.size,
+        },
+      }) * quantity +
+      calculateOrderLevelAddOnPrice({
+        category: item.category,
+        bouquetType,
+        selectedAddOnIds: item.addOns ?? [],
+        addOnQuantities: normalizedAddOnQuantities,
+        addOnPriceOverrides: {},
+        addOnCatalogEntries: categoryAddOns,
+        itemSelection: {
+          category: item.category,
+          subcategory: item.subcategory,
+          productName: item.productName,
+          size: item.size,
+        },
+      });
   const customAddOnAmount = getCustomAddOnTotal(
     normalizedCustomAddOns,
     quantity,
   );
-  const addOnFromSelection = selectedAddOnAmount + customAddOnAmount;
+  const actualAddOnFromSelection =
+    actualSelectedAddOnAmount + customAddOnAmount;
+  const catalogAddOnAmount =
+    catalogSelectedAddOnAmount + customAddOnAmount;
 
   const isCustomCookiesItem = isCustomCookieItem(item);
   const cookieDifficultyBreakdown = extractCookieDifficultyBreakdown(item);
@@ -1868,6 +2084,9 @@ export function getDraftItemPriceBreakdown(args: {
     customCookieAdditionalDesignCount * customCookieAdditionalDesignUnitPrice;
   const addOnDetails: string[] = [];
   const selectedAddOnIds = Array.isArray(item.addOns) ? item.addOns : [];
+  const hasOnlyOrderLevelAddOns =
+    selectedAddOnIds.length > 0 &&
+    selectedAddOnIds.every((addOnId) => isOrderLevelAddOnId(addOnId));
 
   selectedAddOnIds.forEach((addOnId: string) => {
     const addOn = categoryAddOns.find((entry) => entry.id === addOnId);
@@ -1900,6 +2119,31 @@ export function getDraftItemPriceBreakdown(args: {
           cookieAdditionalDesignUnitPrice:
             customCookieAdditionalDesignUnitPrice,
         });
+  const catalogBaseAmount = Math.max(
+    0,
+    Math.round(
+      isBouquetItem
+        ? (() => {
+            const catalogUnitPrice = getUnitPriceFromCatalog(catalog, {
+              category: item.category,
+              subcategory: item.subcategory,
+              productName: item.productName,
+              size: item.size,
+            });
+            if (catalogUnitPrice <= 0) return 0;
+            if (isValidBouquetQuantity(quantity, bouquetType)) {
+              return catalogUnitPrice;
+            }
+            return catalogUnitPrice * quantity;
+          })()
+        : getUnitPriceFromCatalog(catalog, {
+            category: item.category,
+            subcategory: item.subcategory,
+            productName: item.productName,
+            size: item.size,
+          }) * quantity,
+    ),
+  );
   const recapTotalOverride =
     hasParsedRecapPrice && isCustomCookiesItem && cookieBreakdownSubtotal > 0
       ? Math.max(
@@ -1909,57 +2153,24 @@ export function getDraftItemPriceBreakdown(args: {
           ),
         )
       : null;
-
-  if (hasParsedRecapPrice) {
-    const totalAmount =
-      recapTotalOverride ?? Math.max(0, Math.round(baseBeforeSplit));
-    
-    // Try to find a clean catalog base price to avoid messy splits
-    const catalogUnit = getUnitPriceFromCatalog(catalog, {
-      category: item.category,
-      subcategory: item.subcategory,
-      productName: item.productName,
-      size: item.size,
-    });
-    const catalogBase = catalogUnit * quantity;
-
-    let baseAmount: number;
-    let addOnAmount: number;
-
-    if (catalogBase > 0 && catalogBase <= totalAmount) {
-      // Use catalog price as base, rest as add-ons
-      baseAmount = Math.round(catalogBase);
-      addOnAmount = totalAmount - baseAmount;
-    } else {
-      // Fallback to previous logic: use calculated add-ons, rest as base
-      addOnAmount = Math.min(
-        totalAmount,
-        Math.max(
-          0,
-          Math.round(addOnFromSelection + customCookieAdditionalDesignCharge),
+  const totalAmount = hasParsedRecapPrice
+    ? recapTotalOverride ?? Math.max(0, Math.round(baseBeforeSplit))
+    : Math.max(
+        0,
+        Math.round(
+          baseBeforeSplit +
+            actualAddOnFromSelection +
+            customCookieAdditionalDesignCharge,
         ),
       );
-      baseAmount = Math.max(0, totalAmount - addOnAmount);
-    }
-
-    return {
-      categoryLabel,
-      groupLabel,
-      itemLabel: itemLabel || item.category || "Item",
-      quantity,
-      baseAmount,
-      addOnAmount,
-      totalAmount,
-      addOnDetails,
-    };
-  }
-
-  const baseAmount = Math.max(0, Math.round(baseBeforeSplit));
-  const addOnAmount = Math.max(
-    0,
-    Math.round(addOnFromSelection + customCookieAdditionalDesignCharge),
+  const baseAmount = catalogBaseAmount;
+  const addOnAmount =
+    hasParsedRecapPrice && hasOnlyOrderLevelAddOns
+      ? Math.max(0, totalAmount - baseAmount)
+      : Math.max(0, Math.round(catalogAddOnAmount));
+  const designAdjustmentAmount = Math.round(
+    totalAmount - baseAmount - addOnAmount,
   );
-  const totalAmount = Math.max(0, baseAmount + addOnAmount);
 
   return {
     categoryLabel,
@@ -1967,6 +2178,7 @@ export function getDraftItemPriceBreakdown(args: {
     itemLabel: itemLabel || item.category || "Item",
     quantity,
     baseAmount,
+    designAdjustmentAmount,
     addOnAmount,
     totalAmount,
     addOnDetails,

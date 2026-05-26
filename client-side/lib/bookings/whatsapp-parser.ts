@@ -135,6 +135,11 @@ const commonFieldDefinitions: FieldDefinition[] = [
     label: "Alamat lengkap",
     aliases: ["alamat lengkap", "alamat", "alamat pengiriman"],
   },
+  {
+    key: "postalCode",
+    label: "Kode pos",
+    aliases: ["kode pos", "postal code", "postcode"],
+  },
 ];
 
 export const detailFieldDefinitions: Record<
@@ -259,7 +264,7 @@ export const detailFieldDefinitions: Record<
     },
     {
       key: "flowerCount",
-      label: "Jumlah Cookies",
+      label: "Jumlah Bunga / Isi Bouquet",
       aliases: [
         "jumlah cookies",
         "qty cookies",
@@ -439,6 +444,7 @@ export interface BookingFormAutoFill {
   deliveryAddresses: Array<{
     label: string;
     area: string;
+    postalCode?: string;
     addressLine: string;
   }>;
   items: Array<{
@@ -624,11 +630,31 @@ function parseRecapItemHeader(line: string): {
   );
   if (!match) return null;
 
+  const usesExplicitItemLabel = Boolean(match[1]);
+  const title = cleanupValue(match[3] || "");
+  if (!usesExplicitItemLabel) {
+    if (!title) return null;
+
+    const normalizedTitle = normalizeLabel(title);
+    const looksLikeDesignListEntry =
+      /^(?:nailong|design|desain|tema|warna|all design|full body)\b/i.test(
+        normalizedTitle,
+      );
+    const looksLikeRecapProductTitle =
+      /\b(cake|cookie|cookies|cupcake|bouquet|buket|hbq|sbq|tower|box|paket|packet|dozen|lusin)\b/i.test(
+        normalizedTitle,
+      );
+
+    if (looksLikeDesignListEntry || !looksLikeRecapProductTitle) {
+      return null;
+    }
+  }
+
   const itemNumber = Number(match[1] || match[2] || 0);
   return {
     itemNumber:
       Number.isInteger(itemNumber) && itemNumber > 0 ? itemNumber : undefined,
-    title: cleanupValue(match[3] || ""),
+    title,
   };
 }
 
@@ -1083,8 +1109,9 @@ function readFieldValue(
   );
 
   for (const alias of normalizedAliases) {
-    const direct = lookup.get(alias);
-    if (direct) return direct;
+    if (lookup.has(alias)) {
+      return lookup.get(alias) ?? "";
+    }
   }
 
   for (const [key, value] of lookup.entries()) {
@@ -1368,6 +1395,8 @@ function normalizeByKey(key: string, value: string): string {
       return parseTime(cleaned) || cleaned;
     case "recipientPhone":
       return parsePhone(cleaned) || cleaned;
+    case "postalCode":
+      return cleaned.match(/\b\d{5}\b/)?.[0] ?? cleaned.replace(/\D/g, "").slice(0, 5);
     case "deliveryMethod":
       return normalizeDeliveryMethod(cleaned);
     case "cakeDesign":
@@ -3104,6 +3133,76 @@ function extractSingleCakeSizeCode(value: string): string | undefined {
   return `D${diameter}-T${height}`;
 }
 
+function inferOneTierCakeVariantFromLooseSize(value: string): string | undefined {
+  const strictCode = extractSingleCakeSizeCode(value);
+  if (strictCode) return strictCode;
+
+  const normalized = normalizeLabel(value);
+  if (!normalized) return undefined;
+
+  const centimeterNumbers = Array.from(
+    value.matchAll(/\b(\d{2})\s*cm\b/gi),
+  ).map((match) => Number(match[1]));
+  if (centimeterNumbers.length === 0) return undefined;
+
+  const diameter = centimeterNumbers[0];
+  if (![14, 16, 18, 20].includes(diameter)) return undefined;
+
+  const explicitHeight = centimeterNumbers.find((entry, index) => {
+    if (index === 0) return false;
+    return [10, 15].includes(entry);
+  });
+  const inferredHeight =
+    explicitHeight ??
+    (/\btall\b|\btinggi\s*15\b|\bt15\b/i.test(normalized) ? 15 : 10);
+
+  if (![10, 15].includes(inferredHeight)) return undefined;
+  return `D${diameter}-T${inferredHeight}`;
+}
+
+function resolveGenericRecapCakeSelection(args: {
+  productName: string;
+  size: string;
+  designNotes: string;
+  catalogContext?: BookingParserCatalogContext;
+}):
+  | {
+      category: string;
+      subcategory: string;
+      productName: string;
+      size: string;
+    }
+  | null {
+  const normalizedProductName = normalizeLabel(args.productName);
+  if (
+    normalizedProductName &&
+    normalizedProductName !== "custom cake" &&
+    normalizedProductName !== "cake"
+  ) {
+    return null;
+  }
+
+  const inferredSize = inferOneTierCakeVariantFromLooseSize(
+    [args.size, args.designNotes, args.productName].filter(Boolean).join(" "),
+  );
+  if (!inferredSize) return null;
+
+  const normalizedSource = normalizeLabel(
+    [args.productName, args.size, args.designNotes].filter(Boolean).join(" "),
+  );
+  const isDummyCake = normalizedSource.includes("dummy");
+
+  return ensureCatalogSelectionFromCatalog(
+    args.catalogContext?.productCatalog ?? BOOKING_PRODUCT_CATALOG,
+    {
+      category: "Cake",
+      subcategory: "One Tier Cake",
+      productName: isDummyCake ? "Dummy Cake" : "Real Cake",
+      size: inferredSize,
+    },
+  );
+}
+
 function createAutoFillItemFromCategory(args: {
   category: string;
   searchSource: string;
@@ -3346,21 +3445,19 @@ function buildRecapAutoFillItems(
     if (!resolvedCategory) return [];
 
     const orderType = mapCategoryToOrderType(resolvedCategory);
-    const searchSource = [
+    const itemSpecificSearchSource = [
       resolvedCategory,
       item.productName,
       item.size,
       item.designNotes,
       item.addOn,
-      buildSearchSourceForOrderType(parsed, orderType, ""),
     ]
       .filter(Boolean)
       .join(" | ");
+    const searchSource =
+      itemSpecificSearchSource ||
+      buildSearchSourceForOrderType(parsed, orderType, "");
     const orderTypeDetails = getDetailsForOrderType(parsed, orderType);
-    const cookieDesignCount =
-      orderType === "cookies"
-        ? inferCookieDesignCountFromText(orderTypeDetails.cookieDesign || "")
-        : undefined;
     const noteParts =
       orderType === "cake"
         ? [cleanupValue(orderTypeDetails.cakeDesign || ""), item.designNotes]
@@ -3386,13 +3483,22 @@ function buildRecapAutoFillItems(
       quantity: item.quantity,
       notes,
       addOnSource: item.addOn,
-      cookieDesignCount,
       catalogContext,
     });
+    const recapCakeSelection =
+      resolvedCategory === "Cake"
+        ? resolveGenericRecapCakeSelection({
+            productName: item.productName,
+            size: item.size,
+            designNotes: item.designNotes,
+            catalogContext,
+          })
+        : null;
 
     return [
       {
         ...autoFillItem,
+        ...(recapCakeSelection ?? {}),
         parsedUnitPrice: item.unitPrice,
         parsedSubtotal: item.subtotal,
         pricingSource:
@@ -3896,7 +4002,7 @@ export function buildWhatsAppTemplate(orderType: WhatsAppOrderType): string {
         "Order:",
         "Design:",
         "Warna kertas bouquet:",
-        "Jumlah Cookies (isi bouquet):",
+        "Jumlah Bunga / Isi Bouquet:",
         "Harga Cookie / pcs:",
         "Warna Bunga:",
         "Kartu ucapan:",
@@ -4134,6 +4240,8 @@ export function buildBookingAutoFillFromParsed(
         })();
 
   const address = parsed.common.fullAddress || "Alamat belum terisi";
+  const postalCode =
+    parsed.common.postalCode || address.match(/\b\d{5}\b/)?.[0] || "";
 
   const customerName = parsed.common.recipientName || "Customer WA";
   const phoneNumber = parsed.common.recipientPhone || "";
@@ -4147,7 +4255,11 @@ export function buildBookingAutoFillFromParsed(
     parsed.common.deliveryMethod,
   );
   const manualAdjustment = Number(recapTotals?.adjustment || 0);
-  const dpPaidAmount = Math.max(0, Number(recapTotals?.downPayment || 0));
+  const parsedDownPaymentAmount = Math.max(
+    0,
+    Number(recapTotals?.downPayment || 0),
+  );
+  const hasExplicitDownPayment = parsedDownPaymentAmount > 0;
   const remainingBalance =
     recapTotals?.remainingBalance !== undefined
       ? Math.max(0, Number(recapTotals.remainingBalance || 0))
@@ -4160,16 +4272,17 @@ export function buildBookingAutoFillFromParsed(
     totalFromRecap !== undefined && remainingBalance !== undefined
       ? Math.max(0, totalFromRecap - remainingBalance)
       : undefined;
-  const finalPaidAmount =
-    totalPaidFromRecap !== undefined
-      ? Math.max(0, totalPaidFromRecap - dpPaidAmount)
-      : 0;
   const paymentStatus =
-    totalFromRecap !== undefined &&
-    totalPaidFromRecap !== undefined &&
-    totalPaidFromRecap >= totalFromRecap
-      ? "Paid"
-      : "DP Paid";
+    hasExplicitDownPayment
+      ? "DP Paid"
+      : totalFromRecap !== undefined
+        ? "Paid"
+        : "DP Paid";
+  const dpPaidAmount = hasExplicitDownPayment ? parsedDownPaymentAmount : 0;
+  const finalPaidAmount =
+    paymentStatus === "Paid"
+      ? Math.max(0, totalFromRecap ?? totalPaidFromRecap ?? 0)
+      : Math.max(0, totalPaidFromRecap ?? 0);
 
   return {
     customerName,
@@ -4186,6 +4299,7 @@ export function buildBookingAutoFillFromParsed(
       {
         label: "Primary",
         area: "",
+        postalCode,
         addressLine: address,
       },
     ],

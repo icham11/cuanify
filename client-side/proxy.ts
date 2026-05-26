@@ -102,7 +102,7 @@ const STAFF_ALLOWED_API_RULES: Array<{
   { prefix: "/api/bakery/settings", methods: ["GET"] },
 
   // Booking orders — Staff perlu baca & sync data order produksi
-  { prefix: "/api/bookings/orders", methods: ["GET", "POST"] },
+  { prefix: "/api/bookings/orders", methods: ["GET", "POST", "DELETE"] },
 
   // Booking automations — Staff perlu trigger notif produksi
   { prefix: "/api/bookings/automations", methods: ["GET", "POST"] },
