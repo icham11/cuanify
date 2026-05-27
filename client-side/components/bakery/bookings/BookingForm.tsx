@@ -5145,7 +5145,11 @@ export default function BookingForm({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [hasHydratedDraftSnapshot, manualCheckShippingTrigger]);
+  }, [
+    hasHydratedDraftSnapshot,
+    manualCheckShippingTrigger,
+    shippingPayload,
+  ]);
 
   const onSubmit: SubmitHandler<BookingFormValues> = async (rawValues) => {
     const values =
@@ -9022,9 +9026,11 @@ export default function BookingForm({
                                 <label className="grid gap-1.5 text-sm font-medium text-gray-700">
                                   Difficulty Token
                                   <Select
-                                    {...register(
-                                      `items.${index}.tokenDifficulty`,
-                                    )}
+                                    {...register(`items.${index}.tokenDifficulty`, {
+                                      onChange: () => {
+                                        clearParsedPricingOverride(index);
+                                      },
+                                    })}
                                     defaultValue={
                                       item?.tokenDifficulty || "SIMPLE"
                                     }

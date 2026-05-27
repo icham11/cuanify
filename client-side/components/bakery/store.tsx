@@ -1491,15 +1491,34 @@ export function OrdersProvider({
     };
   }, [enabled]);
 
-  const syncOrdersToServer = useCallback(async (nextOrders: BakeryOrder[], changedOrderIds?: string[]) => {
+  const syncOrdersToServer = useCallback(async (
+    nextOrders: BakeryOrder[],
+    changedOrderIds?: string[],
+    options?: {
+      skipWhatsAppNotification?: boolean;
+      partialOrders?: boolean;
+    },
+  ) => {
     if (typeof window === "undefined") {
       return null as OrdersSyncResponse | null;
     }
 
     const sanitizedOrders = dedupeOrdersForSync(nextOrders);
+    const changedOrderIdsSet =
+      changedOrderIds && changedOrderIds.length > 0
+        ? new Set(changedOrderIds)
+        : null;
+    const ordersForRequest =
+      options?.partialOrders &&
+      changedOrderIdsSet &&
+      changedOrderIdsSet.size > 0
+        ? sanitizedOrders.filter((order) => changedOrderIdsSet.has(order.id))
+        : sanitizedOrders;
     const requestBody = {
+      skipWhatsAppNotification:
+        options?.skipWhatsAppNotification === true ? true : undefined,
       changedOrderIds: changedOrderIds && changedOrderIds.length > 0 ? changedOrderIds : undefined,
-      orders: sanitizedOrders.map((order) => {
+      orders: (ordersForRequest.length > 0 ? ordersForRequest : sanitizedOrders).map((order) => {
         const {
           insuranceFee: _insuranceFee,
           shippingQuote,
@@ -1522,8 +1541,10 @@ export function OrdersProvider({
       console.info("[bookings][frontend] sync request", {
         endpoint: ORDERS_SYNC_ENDPOINT,
         method: "POST",
-        orderCount: sanitizedOrders.length,
-        changedCount: changedOrderIds?.length ?? sanitizedOrders.length,
+        orderCount: requestBody.orders.length,
+        changedCount: changedOrderIds?.length ?? requestBody.orders.length,
+        skipWhatsAppNotification:
+          options?.skipWhatsAppNotification === true,
       });
     }
 
@@ -2566,10 +2587,14 @@ export function OrdersProvider({
           },
         };
         createdOrder = newOrder;
-        const syncPayload = await syncOrdersToServer([
-          newOrder,
-          ...baseOrders.filter((existingOrder) => existingOrder.id !== id),
-        ]);
+        const syncPayload = await syncOrdersToServer(
+          [newOrder],
+          [id],
+          {
+            skipWhatsAppNotification: true,
+            partialOrders: true,
+          },
+        );
         const persistedOrder = applyServerWhatsAppSyncResultToOrder(
           newOrder,
           syncPayload,
@@ -2589,18 +2614,7 @@ export function OrdersProvider({
         });
 
         toast.success(`Booking masuk produksi: ${bookingCode}`);
-        if (
-          syncPayload?.data?.waNotificationMode === "failed" ||
-          syncPayload?.data?.waNotificationMode === "partial"
-        ) {
-          const warningMessage =
-            syncPayload.data.warnings?.[0] ||
-            "Booking tersimpan ke database, tapi notif WA produksi belum terkirim.";
-          toast.warning(warningMessage);
-          window.setTimeout(() => {
-            void runAutomationsForOrder("order_created", id);
-          }, 5_000);
-        }
+        void runAutomationsForOrder("order_created", id);
         if (isHistoricalBackfill) {
           toast.message(
             "Booking backfill historis disimpan. Laporan dan kalender internal akan ikut terbarui tanpa trigger operasional baru.",
@@ -2619,9 +2633,6 @@ export function OrdersProvider({
         } else {
           void createShipmentForOrder(id);
         }
-        // WA produksi sudah dikirim saat sync ke server (/api/bookings/orders).
-        // Hindari double-send dengan hanya sync kalender di sisi frontend.
-        void runAutomationsForOrder("order_calendar_sync", id);
         void hydrateOrdersFromServer(true);
         return id;
       } catch (error) {

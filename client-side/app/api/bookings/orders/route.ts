@@ -2230,22 +2230,44 @@ async function upsertOrdersSnapshot(
     userId: number | null;
     orders: NormalizedOrder[];
     source: SnapshotSource;
+    mergeWithExisting?: boolean;
   },
 ) {
-  const { businessId, userId, orders, source } = params;
+  const { businessId, userId, orders, source, mergeWithExisting } = params;
   const existingSnapshot = await db.businessDocument.findFirst({
     where: {
       businessId,
       sourceType: SNAPSHOT_SOURCE_TYPE,
     },
     orderBy: { updatedAt: "desc" },
-    select: { id: true },
+    select: { id: true, content: true },
   });
 
-  const content = JSON.stringify(orders);
+  let snapshotOrders = orders;
+  if (mergeWithExisting && existingSnapshot?.content) {
+    try {
+      const parsedExisting = JSON.parse(existingSnapshot.content) as unknown;
+      if (Array.isArray(parsedExisting)) {
+        const mergedById = new Map<string, NormalizedOrder>();
+        for (const entry of parsedExisting) {
+          const normalized = normalizeOrder(entry, mergedById.size);
+          if (!normalized) continue;
+          mergedById.set(normalized.id, normalized);
+        }
+        for (const order of orders) {
+          mergedById.set(order.id, order);
+        }
+        snapshotOrders = Array.from(mergedById.values());
+      }
+    } catch {
+      snapshotOrders = orders;
+    }
+  }
+
+  const content = JSON.stringify(snapshotOrders);
   const metadata = {
     kind: SNAPSHOT_SOURCE_TYPE,
-    itemCount: orders.length,
+    itemCount: snapshotOrders.length,
     updatedByUserId: userId,
     updatedAt: new Date().toISOString(),
     source,
@@ -4823,6 +4845,7 @@ export async function POST(request: NextRequest) {
                 userId,
                 orders,
                 source: "rows",
+                mergeWithExisting: (changedOrderIdsSet?.size ?? 0) > 0,
               });
 
               return {

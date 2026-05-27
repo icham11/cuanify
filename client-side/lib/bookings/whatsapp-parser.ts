@@ -1047,12 +1047,22 @@ function parseOrderRecap(
     },
   );
 
-  const recapRawText = recapLines.join("\n");
-  const lookup = buildKeyValueLookup(recapLines);
+  const totalsStartIndex = recapLines.findIndex((line) =>
+    isRecapTotalsLine(line),
+  );
+  const recapTotalsLines =
+    totalsStartIndex >= 0 ? recapLines.slice(totalsStartIndex) : recapLines;
+  const recapRawText = recapTotalsLines.join("\n");
+  const lookup = buildKeyValueLookup(recapTotalsLines);
   const totals =
     recapTotalFieldDefinitions.reduce<ParsedWhatsAppOrderRecapTotals>(
       (accumulator, field) => {
-        const value = readFieldValue(recapRawText, recapLines, lookup, field);
+        const value = readFieldValue(
+          recapRawText,
+          recapTotalsLines,
+          lookup,
+          field,
+        );
         const amount =
           field.key === "adjustment"
             ? parseSignedCurrencyAmount(value)
@@ -1114,15 +1124,6 @@ function readFieldValue(
     }
   }
 
-  for (const [key, value] of lookup.entries()) {
-    if (!value) continue;
-    for (const alias of normalizedAliases) {
-      if (key === alias || key.includes(alias) || alias.includes(key)) {
-        return value;
-      }
-    }
-  }
-
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
     const line = lines[lineIndex];
     const normalizedLine = normalizeLabel(line);
@@ -1145,7 +1146,10 @@ function readFieldValue(
 
   for (const alias of definition.aliases) {
     const aliasPattern = escapeRegExp(alias).replace(/\s+/g, "\\s+");
-    const regex = new RegExp(`${aliasPattern}\\s*[:=-]?\\s*([^\\n]+)`, "i");
+    const regex = new RegExp(
+      `(?:^|\\n)\\s*${aliasPattern}\\s*[:=-]?\\s*([^\\n]+)`,
+      "i",
+    );
     const match = rawText.match(regex);
     if (match?.[1]) {
       const value = cleanupValue(match[1]);
@@ -2942,33 +2946,33 @@ function inferTokenDifficultyFromText(
   const normalized = normalizeLabel(value);
   if (!normalized) return undefined;
 
-  if (normalized.includes("expert")) return "EXPERT";
-  if (normalized.includes("advanced") || normalized.includes("mahir")) {
+  if (/\bexpert\b/.test(normalized)) return "EXPERT";
+  if (/\badvance(?:d)?\b/.test(normalized) || /\bmahir\b/.test(normalized)) {
     return "ADVANCED";
   }
   if (
-    normalized.includes("hard") ||
-    normalized.includes("difficult") ||
-    normalized.includes("sulit") ||
-    normalized.includes("rumit") ||
-    normalized.includes("susah")
+    /\bhard\b/.test(normalized) ||
+    /\bdifficult\b/.test(normalized) ||
+    /\bsulit\b/.test(normalized) ||
+    /\brumit\b/.test(normalized) ||
+    /\bsusah\b/.test(normalized)
   ) {
     return "HARD";
   }
   if (
-    normalized.includes("normal") ||
-    normalized.includes("medium") ||
-    normalized.includes("sedang") ||
-    normalized.includes("menengah")
+    /\bnormal\b/.test(normalized) ||
+    /\bmedium\b/.test(normalized) ||
+    /\bsedang\b/.test(normalized) ||
+    /\bmenengah\b/.test(normalized)
   ) {
     return "NORMAL";
   }
   if (
-    normalized.includes("simple") ||
-    normalized.includes("easy") ||
-    normalized.includes("mudah") ||
-    normalized.includes("sederhana") ||
-    normalized.includes("gampang")
+    /\bsimple\b/.test(normalized) ||
+    /\beasy\b/.test(normalized) ||
+    /\bmudah\b/.test(normalized) ||
+    /\bsederhana\b/.test(normalized) ||
+    /\bgampang\b/.test(normalized)
   ) {
     return "SIMPLE";
   }
@@ -3211,6 +3215,7 @@ function createAutoFillItemFromCategory(args: {
   cookiePrice?: number;
   addOnSource?: string;
   cookieDesignCount?: number;
+  tokenDifficultyHint?: BookingAutoFillItem["tokenDifficulty"];
   catalogContext?: BookingParserCatalogContext;
 }): BookingAutoFillItem {
   let catalog = chooseCatalogSelectionByText(
@@ -3244,7 +3249,15 @@ function createAutoFillItemFromCategory(args: {
     catalog.category === "Buket" && Number(args.cookiePrice) > 0
       ? normalizeCookiePriceAmount(Number(args.cookiePrice))
       : undefined;
-  const inferredDifficulty = inferTokenDifficultyFromText(args.searchSource);
+  const inferredDifficulty =
+    args.tokenDifficultyHint ?? inferTokenDifficultyFromText(args.searchSource);
+  if (catalog.category === "Cookies" && inferredDifficulty) {
+    catalog = chooseCatalogSelectionByText(
+      args.category,
+      `${args.searchSource || ""} ${inferredDifficulty}`,
+      args.catalogContext,
+    );
+  }
   const tokenDifficulty =
     catalog.category === "Cookies"
       ? (inferredDifficulty ?? "SIMPLE")
@@ -3458,11 +3471,23 @@ function buildRecapAutoFillItems(
       itemSpecificSearchSource ||
       buildSearchSourceForOrderType(parsed, orderType, "");
     const orderTypeDetails = getDetailsForOrderType(parsed, orderType);
+    const cookieRecapNoteParts =
+      orderType === "cookies"
+        ? [
+            orderTypeDetails.toFromNotes
+              ? `To From Notes: ${orderTypeDetails.toFromNotes}`
+              : "",
+            orderTypeDetails.cookieDesign
+              ? `Design Cookies: ${orderTypeDetails.cookieDesign}`
+              : "",
+            item.designNotes ? `Design/Notes: ${item.designNotes}` : "",
+          ]
+        : [];
     const noteParts =
       orderType === "cake"
         ? [cleanupValue(orderTypeDetails.cakeDesign || ""), item.designNotes]
         : orderType === "cookies"
-          ? [buildItemNotesForOrderType(parsed, orderType)]
+          ? cookieRecapNoteParts
           : [
               item.designNotes ? `Design/Notes: ${item.designNotes}` : "",
               buildItemNotesForOrderType(parsed, orderType),
@@ -3477,12 +3502,18 @@ function buildRecapAutoFillItems(
       )
       .join(" | ")
       .slice(0, 400);
+    const tokenDifficultyHint =
+      resolvedCategory === "Cookies"
+        ? inferTokenDifficultyFromText(itemSpecificSearchSource) ??
+          inferTokenDifficultyFromCookiePrice(item.unitPrice)
+        : undefined;
     const autoFillItem = createAutoFillItemFromCategory({
       category: resolvedCategory,
       searchSource,
       quantity: item.quantity,
       notes,
       addOnSource: item.addOn,
+      tokenDifficultyHint,
       catalogContext,
     });
     const recapCakeSelection =

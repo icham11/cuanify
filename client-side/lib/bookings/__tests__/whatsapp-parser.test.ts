@@ -1260,6 +1260,85 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
     expect(autoFill.items[0]?.additionalDesignCount).toBeUndefined();
   });
 
+  it("keeps separate cookie difficulties for advance and simple recap items", () => {
+    const text = [
+      "REKAP ORDER",
+      "ITEM 1",
+      "",
+      "Nama Produk: advance cookies",
+      "Harga Satuan: 30.000",
+      "Qty: 13pcs",
+      "Add On: 2 design",
+      "Subtotal: 410.000",
+      "",
+      "ITEM 2",
+      "",
+      "Nama Produk: simple cookies",
+      "Harga Satuan: 17.000",
+      "Qty: 7",
+      "Add On:",
+      "Subtotal: 119.000",
+      "",
+      "ONGKIR:",
+      "ADJUSTMENT:",
+      "TOTAL: 529.000",
+      "DP:",
+      "SISA:",
+      "",
+      "Tanggal Pengiriman : 30 mei 2026",
+      "",
+      "KODE BOOKING : VI-36",
+      "",
+      "Order:",
+      "- 13pcs advance cookies",
+      "- 7 simple cookies",
+      "",
+      "Design :",
+      "1. pinguin",
+      "2. Kucing hijau",
+      "3. panda",
+      "4. bebek",
+      "5. Kelelawar abu abu",
+      "6. pisang",
+      "7. shape kotak , background putih , dengan tulisan 2pm",
+      "(All design full body)",
+      "",
+      "Jam Pengiriman : 10.00",
+      "Metode Pengiriman : Paxel Sameday Service",
+      "Nama penerima : Vivi",
+      "No. telp penerima : 08990788136",
+      "Alamat lengkap : Jl. TMP Kalibata Gg Langgar No 45 RT 10 RW 07 Duren Tiga, Pancoran Jaksel.",
+      "(Kontrakan Ibu Tika Pintu ke-4)",
+      "Kode pos : 12760",
+    ].join("\n");
+
+    const parsed = parseWhatsAppOrderText(text, {
+      preferredOrderType: "cookies",
+      sourceType: "manual",
+    });
+    const autoFill = buildBookingAutoFillFromParsed(parsed);
+
+    expect(parsed.orderRecap?.items).toHaveLength(2);
+    expect(parsed.orderRecap?.items[0]?.designNotes).toBe("");
+    expect(parsed.orderRecap?.totals.subtotalProducts).toBe(undefined);
+    expect(parsed.orderRecap?.totals.total).toBe(529000);
+    expect(autoFill.items).toHaveLength(2);
+    expect(autoFill.items.map((item) => item.tokenDifficulty)).toEqual([
+      "ADVANCED",
+      "SIMPLE",
+    ]);
+    expect(autoFill.items.map((item) => item.size)).toEqual([
+      "Advanced",
+      "Simple",
+    ]);
+    expect(autoFill.items.map((item) => item.parsedUnitPrice)).toEqual([
+      30000, 17000,
+    ]);
+    expect(autoFill.items.map((item) => item.parsedSubtotal)).toEqual([
+      410000, 119000,
+    ]);
+  });
+
   it("uses bouquet isi quantity from recap text when qty is 1", () => {
     const text = [
       "REKAP ORDER",
