@@ -15,37 +15,39 @@ export async function GET() {
   try {
     const { businessId } = await requireAuth();
     const [products, effectiveCatalog] = await Promise.all([
-      prisma.product.findMany({
-        where: {
-          businessId,
-          deletedAt: null,
-        },
-        select: {
-          name: true,
-          productionToken: true,
-        },
-        orderBy: {
-          name: "asc",
-        },
-      }),
-      loadEffectiveBookingCatalog(businessId),
-    ]);
+      prisma.product.findMany({ // Query data produk menggunakan Prisma ORM
+        where: { // Kriteria pencarian data
+          businessId, // Bisnis aktif yang sedang login
+          deletedAt: null, // Hanya ambil produk yang tidak dihapus (aktif/soft-delete check)
+        }, // Akhir dari kriteria where
+        select: { // Pilih kolom tertentu untuk menghemat bandwidth
+          name: true, // Ambil nama produk dashboard
+          productionToken: true, // Ambil token produksi aktif
+          minimumOrder: true, // TAMBAHKAN: Ambil batas minimal order dari DB
+        }, // Akhir dari select
+        orderBy: { // Urutan pengembalian data
+          name: "asc", // Urutkan nama produk dari A ke Z
+        }, // Akhir dari orderBy
+      }), // Akhir dari query findMany
+      loadEffectiveBookingCatalog(businessId), // Muat katalog booking efektif untuk fallback token
+    ]); // Akhir dari Promise.all
 
-    const fallbackTokenMap = new Map<string, number>();
-    flattenCatalogProductsForDashboard(effectiveCatalog.productCatalog).forEach(
-      (item) => {
-        fallbackTokenMap.set(normalizeKey(item.name), Math.max(0, Number(item.productionToken || 0)));
-      },
-    );
+    const fallbackTokenMap = new Map<string, number>(); // Inisialisasi map untuk token fallback
+    flattenCatalogProductsForDashboard(effectiveCatalog.productCatalog).forEach( // Iterasi produk katalog
+      (item) => { // Setiap item katalog diproses
+        fallbackTokenMap.set(normalizeKey(item.name), Math.max(0, Number(item.productionToken || 0))); // Set token fallback dengan key nama produk yang dinormalisasi
+      }, // Akhir iterasi item
+    ); // Akhir dari forEach
 
-    const data = products.map((product) => {
-      const current = Math.max(0, Number(product.productionToken || 0));
-      if (current > 0) {
-        return { name: product.name, productionToken: current };
-      }
-      const fallback = fallbackTokenMap.get(normalizeKey(product.name)) ?? 0;
-      return { name: product.name, productionToken: fallback };
-    });
+    const data = products.map((product) => { // Petakan setiap produk hasil DB ke array response
+      const current = Math.max(0, Number(product.productionToken || 0)); // Parsing token produksi aktif dari DB
+      const fallback = fallbackTokenMap.get(normalizeKey(product.name)) ?? 0; // Dapatkan fallback token jika token DB bernilai 0
+      return { // Kembalikan objek data produk terformat
+        name: product.name, // Nama produk dashboard
+        productionToken: current > 0 ? current : fallback, // Gunakan token aktif DB atau fallback katalog
+        minimumOrder: Math.max(0, Number(product.minimumOrder || 0)), // Sertakan batas minimal order dari DB
+      }; // Akhir pengembalian objek
+    }); // Akhir pemetaan map data
 
     return NextResponse.json({ success: true, data });
   } catch (error) {

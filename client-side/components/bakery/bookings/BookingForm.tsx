@@ -2200,11 +2200,27 @@ function isCustomCookieSharingBoxItem(
   );
 }
 
-function getItemQuantityRule(item: BookingItemInput): ItemQuantityRule {
-  const source =
-    `${item.subcategory || ""} ${item.productName || ""} ${item.size || ""}`.toLowerCase();
+function getItemQuantityRule( // Definisikan fungsi lokal untuk mengambil batas kuantitas minimum per item
+  item: BookingItemInput, // Parameter pertama: objek data input item
+  minimumOrderMap?: Map<string, number>, // TAMBAHKAN: Parameter kedua: Map minimal order dari database (opsional)
+): ItemQuantityRule { // Tipe return: objek aturan kuantitas
+  const source = // Variabel penyimpan identitas gabungan produk
+    `${item.subcategory || ""} ${item.productName || ""} ${item.size || ""}`.toLowerCase(); // Gabung subkategori, nama produk, dan varian secara lowercase
 
-  const bouquetType = detectBouquetTypeFromItem(item);
+  const dashboardName = normalizeTokenLookupKey( // TAMBAHKAN: Normalisasi nama produk untuk key pencarian DB
+    toDashboardProductNameFromItem(item), // TAMBAHKAN: Bangun nama produk dashboard sesuai varian
+  ); // Akhir dari normalisasi key
+  
+  const dbMinOrder = minimumOrderMap?.get(dashboardName) ?? 0; // TAMBAHKAN: Dapatkan nilai minimal order dari map DB
+  if (dbMinOrder > 0) { // TAMBAHKAN: Jika minimal order di DB diset > 0
+    return { // TAMBAHKAN: Kembalikan aturan minimal order khusus
+      label: "Quantity", // TAMBAHKAN: Label qty
+      min: dbMinOrder, // TAMBAHKAN: Set min qty sesuai DB
+      helperText: `Minimal order untuk ${item.productName} (${item.size || "Standard"}) adalah ${dbMinOrder} pcs.`, // TAMBAHKAN: Keterangan batas order untuk UI
+    }; // TAMBAHKAN: Akhir return objek
+  } // TAMBAHKAN: Akhir pengecekan dbMinOrder
+
+  const bouquetType = detectBouquetTypeFromItem(item); // Cek tipe buket bunga dari item
   if (bouquetType === "HAND") {
     return {
       label: "Quantity (isi cookies)",
@@ -3447,44 +3463,57 @@ export default function BookingForm({
   const shouldRequireSubmitConfirmation =
     !isRoleLoading && (isOwner || isAdmin);
   const canWarnDuplicateTemplate = !isRoleLoading && (isOwner || isAdmin);
-  const [productTokenByName, setProductTokenByName] = useState<
-    Map<string, number>
-  >(new Map());
+  const [productTokenByName, setProductTokenByName] = useState< // Definisikan state untuk peta token kesulitan produk
+    Map<string, number> // Tipe: Map dari nama produk dashboard ke token nominal
+  >(new Map()); // Nilai awal: Map kosong
 
-  useEffect(() => {
-    let cancelled = false;
+  const [productMinimumOrderByName, setProductMinimumOrderByName] = useState< // TAMBAHKAN: Definisikan state untuk peta minimal order produk dari DB
+    Map<string, number> // TAMBAHKAN: Tipe: Map dari nama produk dashboard ke batas minimal order
+  >(new Map()); // TAMBAHKAN: Nilai awal: Map kosong
 
-    const refreshTokenMap = async () => {
-      try {
-        const response = await fetch("/api/products/token-map", {
-          cache: "no-store",
-          credentials: "include",
-        });
-        if (!response.ok) return;
-        const payload = (await response.json().catch(() => ({}))) as {
-          success?: boolean;
-          data?: Array<{ name: string; productionToken: number }>;
-        };
-        if (!payload.success || !Array.isArray(payload.data)) return;
-        if (cancelled) return;
-        const tokenMap = new Map<string, number>();
-        payload.data.forEach((product) => {
-          tokenMap.set(
-            normalizeTokenLookupKey(product.name),
-            Math.max(0, Number(product.productionToken ?? 0)),
-          );
-        });
-        setProductTokenByName(tokenMap);
-      } catch {
-        // fallback to calculator path only
-      }
-    };
+  useEffect(() => { // Effect untuk melakukan polling data token kesulitan dan minimal order
+    let cancelled = false; // Flag status mount komponen
 
-    void refreshTokenMap();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    const refreshTokenMap = async () => { // Fungsi async untuk fetch data map produk terbaru
+      try { // Coba block eksekusi
+        const response = await fetch("/api/products/token-map", { // Kirim request fetch ke endpoint token-map
+          cache: "no-store", // Bypass cache agar data selalu ter-update
+          credentials: "include", // Kirim cookie auth user aktif
+        }); // Akhir fetch
+        if (!response.ok) return; // Jika gagal (e.g. 500, 401), abaikan
+        const payload = (await response.json().catch(() => ({}))) as { // Parse data JSON, fallback ke objek kosong
+          success?: boolean; // Indikator sukses API
+          data?: Array<{ name: string; productionToken: number; minimumOrder?: number }>; // Payload termasuk field minimumOrder
+        }; // Akhir casting tipe
+        if (!payload.success || !Array.isArray(payload.data)) return; // Validasi payload response
+        if (cancelled) return; // Hentikan jika komponen unmounted
+        const tokenMap = new Map<string, number>(); // Instansiasi map token baru
+        const minOrderMap = new Map<string, number>(); // TAMBAHKAN: Instansiasi map minimal order baru
+        payload.data.forEach((product) => { // Looping setiap produk
+          const lookupKey = normalizeTokenLookupKey(product.name); // Dapatkan lookup key terformat nama produk
+          tokenMap.set( // Masukkan ke map token
+            lookupKey, // Gunakan key nama produk dashboard ter-normalisasi
+            Math.max(0, Number(product.productionToken ?? 0)), // Parsing token produksi aman >= 0
+          ); // Akhir tokenMap.set
+          if (product.minimumOrder !== undefined) { // TAMBAHKAN: Cek ketersediaan field minimumOrder
+            minOrderMap.set( // TAMBAHKAN: Masukkan minimal order ke map
+              lookupKey, // TAMBAHKAN: Gunakan key nama produk dashboard ter-normalisasi
+              Math.max(0, Number(product.minimumOrder ?? 0)), // TAMBAHKAN: Parsing minimal order aman >= 0
+            ); // TAMBAHKAN: Akhir minOrderMap.set
+          } // TAMBAHKAN: Akhir check minimumOrder
+        }); // Akhir loop forEach
+        setProductTokenByName(tokenMap); // Update state token map
+        setProductMinimumOrderByName(minOrderMap); // TAMBAHKAN: Update state minimal order map
+      } catch { // Tangkap error jika ada
+        // fallback ke calculator path saja jika API gagal
+      } // Akhir block try-catch
+    }; // Akhir fungsi refreshTokenMap
+
+    void refreshTokenMap(); // Eksekusi fetch pertama kali saat mount
+    return () => { // Bersihkan effect
+      cancelled = true; // Set status cancelled ke true saat unmount
+    }; // Akhir cleanup
+  }, []); // Dependensi kosong (hanya dijalankan sekali saat mount)
 
   useEffect(() => {
     if (!showSubmitConfirmation) return;
@@ -5286,7 +5315,10 @@ export default function BookingForm({
 
     for (const item of values.items) {
       const quantity = Number(item.quantity) || 0;
-      const quantityRule = getItemQuantityRule(item as BookingItemInput);
+      const quantityRule = getItemQuantityRule( // Panggil fungsi penentu aturan kuantitas item
+        item as BookingItemInput, // Parameter pertama: data item ter-cast ke BookingItemInput
+        productMinimumOrderByName, // Parameter kedua: kirim map minimal order dari DB
+      ); // Akhir pemanggilan fungsi aturan kuantitas
       const isOutOfRange =
         quantity < quantityRule.min ||
         (typeof quantityRule.max === "number" && quantity > quantityRule.max);
@@ -7761,8 +7793,11 @@ export default function BookingForm({
                         );
                         const itemGrabCarOnly =
                           isGrabCarOnlyItem(bouquetProbeItem);
-                        const quantityRule =
-                          getItemQuantityRule(bouquetProbeItem);
+                        const quantityRule = // Aturan kuantitas untuk preview item saat rendering UI
+                          getItemQuantityRule( // Panggil fungsi lokal penentu aturan kuantitas
+                            bouquetProbeItem, // Parameter pertama: objek item sementara (bouquetProbeItem)
+                            productMinimumOrderByName, // Parameter kedua: map state minimal order dari DB
+                          ); // Akhir pemanggilan fungsi aturan kuantitas
                         const itemTokenPreview = getItemProductionTokenSynced(
                           bouquetProbeItem,
                           productTokenByName,

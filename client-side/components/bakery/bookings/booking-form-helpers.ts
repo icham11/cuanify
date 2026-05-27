@@ -1418,55 +1418,7 @@ export function formatCompactSurcharge(value: number): string {
   return formatCurrency(rounded);
 }
 
-export function getIndividualCupcakeQuantityRule(
-  item: BookingItemInput,
-): ItemQuantityRule | null {
-  if (item.category !== "Cupcakes") return null;
 
-  const source =
-    `${item.subcategory || ""} ${item.productName || ""} ${item.size || ""}`.toLowerCase();
-  if (!source.includes("individual")) return null;
-
-  if (source.includes(">=100")) {
-    return {
-      label: "Quantity (pcs)",
-      min: 100,
-      helperText: "Individual cupcakes minimal 100 pcs.",
-    };
-  }
-
-  if (source.includes(">=50")) {
-    return {
-      label: "Quantity (pcs)",
-      min: 50,
-      helperText: "Individual cupcakes minimal 50 pcs.",
-    };
-  }
-
-  if (source.includes("25-49")) {
-    return {
-      label: "Quantity (pcs)",
-      min: 25,
-      max: 49,
-      helperText: "Individual cupcakes qty wajib 25-49 pcs.",
-    };
-  }
-
-  if (source.includes("10-24")) {
-    return {
-      label: "Quantity (pcs)",
-      min: CUPCAKE_INDIVIDUAL_MIN_QTY,
-      max: 24,
-      helperText: "Individual cupcakes qty wajib 10-24 pcs.",
-    };
-  }
-
-  return {
-    label: "Quantity (pcs)",
-    min: CUPCAKE_INDIVIDUAL_MIN_QTY,
-    helperText: `Individual cupcakes minimal ${CUPCAKE_INDIVIDUAL_MIN_QTY} pcs.`,
-  };
-}
 
 export function resolveIndividualCupcakeSizeByQuantity(args: {
   catalog: PricelistCategory[];
@@ -1530,10 +1482,7 @@ export function getAutoQuantityForItem(item: BookingItemInput): number | null {
     return getBouquetMinQuantity(bouquetType);
   }
 
-  const individualCupcakeRule = getIndividualCupcakeQuantityRule(item);
-  if (individualCupcakeRule) {
-    return individualCupcakeRule.min;
-  }
+  // Kuantitas default lainnya kini mengandalkan fallback ke 1 di UI, atau validasi dinamis dari DB.
 
   return null;
 }
@@ -1569,31 +1518,44 @@ export function isCustomCookieSharingBoxItem(
   );
 }
 
-export function getItemQuantityRule(item: BookingItemInput): ItemQuantityRule {
-  const source =
-    `${item.subcategory || ""} ${item.productName || ""} ${item.size || ""}`.toLowerCase();
+export function getItemQuantityRule( // Definisikan fungsi penentu aturan kuantitas produk
+  item: BookingItemInput, // Parameter pertama: data input item form
+  minimumOrderMap?: Map<string, number>, // TAMBAHKAN: Parameter kedua: Map minimal order dari database (opsional)
+): ItemQuantityRule { // Tipe return fungsi: objek aturan kuantitas
+  const source = // Variabel penyimpan identitas produk terformat
+    `${item.subcategory || ""} ${item.productName || ""} ${item.size || ""}`.toLowerCase(); // Gabung subkategori, nama produk, dan varian secara lowercase
 
-  const bouquetType = detectBouquetTypeFromItem(item);
-  if (bouquetType === "HAND") {
-    return {
-      label: "Quantity (isi cookies)",
-      min: 1,
-      helperText: `Hand bouquet: isi cookies ${BOUQUET_HAND_MIN_QTY}-${BOUQUET_HAND_MAX_QTY}. Qty 1-${BOUQUET_HAND_MIN_QTY - 1} dibaca sebagai jumlah unit bouquet (harga start from).`,
-    };
-  }
-  if (bouquetType === "STANDING") {
-    return {
-      label: "Quantity (isi cookies)",
-      min: 1,
-      helperText: `Standing bouquet: isi cookies ${getBouquetQtyRangeLabel("STANDING")}. Qty 1-${BOUQUET_STANDING_MIN_QTY - 1} dibaca sebagai jumlah unit bouquet (harga start from).`,
-    };
-  }
+  const dashboardName = normalizeTokenLookupKey( // TAMBAHKAN: Normalisasi nama produk untuk lookup key DB
+    toDashboardProductNameFromItem(item), // TAMBAHKAN: Bangun nama produk dashboard sesuai varian
+  ); // Akhir dari normalisasi key
+  
+  const dbMinOrder = minimumOrderMap?.get(dashboardName) ?? 0; // TAMBAHKAN: Dapatkan batas minimal order dari map DB
+  if (dbMinOrder > 0) { // TAMBAHKAN: Jika minimal order diset di database
+    return { // TAMBAHKAN: Kembalikan aturan minimal order khusus
+      label: "Quantity", // TAMBAHKAN: Label input qty
+      min: dbMinOrder, // TAMBAHKAN: Batas minimum di-set dari nilai DB
+      helperText: `Minimal order untuk ${item.productName} (${item.size || "Standard"}) adalah ${dbMinOrder} pcs.`, // TAMBAHKAN: Pesan keterangan batas order
+    }; // TAMBAHKAN: Akhir return objek
+  } // TAMBAHKAN: Akhir pengecekan dbMinOrder
+
+  const bouquetType = detectBouquetTypeFromItem(item); // Cek apakah produk bertipe Buket
+  if (bouquetType === "HAND") { // Jika bertipe Buket Tangan (Hand Bouquet)
+    return { // Kembalikan aturan kuantitas Hand Bouquet
+      label: "Quantity (isi cookies)", // Label input
+      min: 1, // Batas min unit
+      helperText: `Hand bouquet: isi cookies ${BOUQUET_HAND_MIN_QTY}-${BOUQUET_HAND_MAX_QTY}. Qty 1-${BOUQUET_HAND_MIN_QTY - 1} dibaca sebagai jumlah unit bouquet (harga start from).`, // Penjelasan di UI
+    }; // Akhir return objek
+  } // Akhir pengecekan HAND
+  if (bouquetType === "STANDING") { // Jika bertipe Buket Berdiri (Standing Bouquet)
+    return { // Kembalikan aturan kuantitas Standing Bouquet
+      label: "Quantity (isi cookies)", // Label input
+      min: 1, // Batas min unit
+      helperText: `Standing bouquet: isi cookies ${getBouquetQtyRangeLabel("STANDING")}. Qty 1-${BOUQUET_STANDING_MIN_QTY - 1} dibaca sebagai jumlah unit bouquet (harga start from).`, // Penjelasan di UI
+    }; // Akhir return objek
+  } // Akhir pengecekan STANDING
 
   if (item.category === "Cupcakes") {
-    const individualCupcakeRule = getIndividualCupcakeQuantityRule(item);
-    if (individualCupcakeRule) {
-      return individualCupcakeRule;
-    }
+    // Aturan kuantitas cupcake satuan kini murni ditangani oleh database (dbMinOrder).
     if (
       source.includes("dozen") ||
       source.includes("12 pcs") ||
@@ -1608,13 +1570,7 @@ export function getItemQuantityRule(item: BookingItemInput): ItemQuantityRule {
     }
   }
 
-  if (isCustomCookieItem(item)) {
-    return {
-      label: "Quantity (pcs)",
-      min: 1,
-      helperText: `Minimum total custom cookies ${COOKIE_CUSTOM_TOTAL_MIN_QTY} pcs per order. Bisa split varian (contoh 10 Simple + 10 Hard).`,
-    };
-  }
+  // Aturan kuantitas Custom Cookies kini murni ditangani oleh database (dbMinOrder).
 
   if (item.category === "Cake") {
     if (isTwoTierCakeItem(item)) {

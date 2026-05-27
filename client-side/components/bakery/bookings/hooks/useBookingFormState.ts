@@ -264,37 +264,50 @@ export function useBookingFormState() {
   const shouldRequireSubmitConfirmation =
     !isRoleLoading && (isOwner || isAdmin);
   const canWarnDuplicateTemplate = !isRoleLoading && (isOwner || isAdmin);
-  const [productTokenByName, setProductTokenByName] = useState<Map<string, number>>(
-    new Map(),
-  );
+  const [productTokenByName, setProductTokenByName] = useState<Map<string, number>>( // Definisikan state untuk menyimpan token kesulitan produk
+    new Map(), // Set nilai awal berupa Map kosong
+  ); // Akhir dari useState token
 
-  useEffect(() => {
-    let cancelled = false;
+  const [productMinimumOrderByName, setProductMinimumOrderByName] = useState<Map<string, number>>( // TAMBAHKAN: Definisikan state untuk peta minimal order dari DB
+    new Map(), // TAMBAHKAN: Set nilai awal berupa Map kosong
+  ); // TAMBAHKAN: Akhir dari useState minimal order
+
+  useEffect(() => { // Effect untuk inisialisasi polling data token dan minimal order
+    let cancelled = false; // Flag untuk melacak status mount komponen
     let inFlight = false;
 
     const refreshTokenMap = async () => {
       if (inFlight) return;
       inFlight = true;
       try {
-        const response = await fetch("/api/products/token-map", {
-          cache: "no-store",
-          credentials: "include",
-        });
-        if (!response.ok) return;
-        const payload = (await response.json().catch(() => ({}))) as {
-          success?: boolean;
-          data?: Array<{ name: string; productionToken: number }>;
-        };
-        if (!payload.success || !Array.isArray(payload.data)) return;
-        if (cancelled) return;
-        const tokenMap = new Map<string, number>();
-        payload.data.forEach((product) => {
-          tokenMap.set(
-            normalizeTokenLookupKey(product.name),
-            Math.max(0, Number(product.productionToken ?? 0)),
-          );
-        });
-        setProductTokenByName(tokenMap);
+        const response = await fetch("/api/products/token-map", { // Kirim request fetch ke API token-map
+          cache: "no-store", // Hindari penggunaan cache agar data selalu ter-update
+          credentials: "include", // Kirim cookie otentikasi sesi aktif
+        }); // Akhir fetch
+        if (!response.ok) return; // Jika status HTTP tidak OK (e.g. 500, 401), hentikan proses
+        const payload = (await response.json().catch(() => ({}))) as { // Ambil response JSON, fallback ke objek kosong jika gagal parse
+          success?: boolean; // Indikator sukses API
+          data?: Array<{ name: string; productionToken: number; minimumOrder?: number }>; // Struktur data response termasuk field minimumOrder
+        }; // Akhir casting tipe
+        if (!payload.success || !Array.isArray(payload.data)) return; // Validasi keabsahan payload response
+        if (cancelled) return; // Hentikan jika komponen sudah dilepas (unmounted)
+        const tokenMap = new Map<string, number>(); // Instansiasi map lokal baru untuk token kesulitan
+        const minOrderMap = new Map<string, number>(); // TAMBAHKAN: Instansiasi map lokal baru untuk minimal order
+        payload.data.forEach((product) => { // Looping setiap produk dari data response
+          const lookupKey = normalizeTokenLookupKey(product.name); // Normalisasi key nama produk agar seragam
+          tokenMap.set( // Masukkan data token ke map
+            lookupKey, // Gunakan key nama produk yang telah dinormalisasi
+            Math.max(0, Number(product.productionToken ?? 0)), // Nilai token produksi aman >= 0
+          ); // Akhir dari tokenMap.set
+          if (product.minimumOrder !== undefined) { // TAMBAHKAN: Cek apakah field minimumOrder tersedia
+            minOrderMap.set( // TAMBAHKAN: Masukkan minimal order ke map
+              lookupKey, // TAMBAHKAN: Gunakan key nama produk ter-normalisasi
+              Math.max(0, Number(product.minimumOrder ?? 0)), // TAMBAHKAN: Nilai minimal order aman >= 0
+            ); // TAMBAHKAN: Akhir dari minOrderMap.set
+          } // TAMBAHKAN: Akhir pengecekan minimumOrder
+        }); // Akhir forEach
+        setProductTokenByName(tokenMap); // Perbarui state tokenMap di hook
+        setProductMinimumOrderByName(minOrderMap); // TAMBAHKAN: Perbarui state minOrderMap di hook
       } catch {
         // fallback to calculator path only
       } finally {
@@ -1701,19 +1714,19 @@ export function useBookingFormState() {
       return;
     }
 
-    for (const item of values.items) {
-      const quantity = Number(item.quantity) || 0;
-      const quantityRule = getItemQuantityRule(item as BookingItemInput);
-      const isOutOfRange =
-        quantity < quantityRule.min ||
-        (typeof quantityRule.max === "number" && quantity > quantityRule.max);
-      if (isOutOfRange) {
-        const productLabel = item.productName || item.category || "Item";
-        toast.error(
-          `${productLabel}: ${getQuantityRuleViolationMessage(quantityRule)}`,
-        );
-        return;
-      }
+    for (const item of values.items) { // Iterasi semua item pesanan dari input form
+      const quantity = Number(item.quantity) || 0; // Parsing jumlah kuantitas item, fallback ke 0 jika kosong
+      const quantityRule = getItemQuantityRule(item as BookingItemInput, productMinimumOrderByName); // UBAH: Dapatkan aturan kuantitas item dengan menyertakan map minimal order dari DB
+      const isOutOfRange = // Definisikan status validasi kuantitas
+        quantity < quantityRule.min || // Cek jika kuantitas kurang dari batas minimum (dinamis dari DB/katalog)
+        (typeof quantityRule.max === "number" && quantity > quantityRule.max); // Cek jika batas maksimum terlampaui (jika didefinisikan)
+      if (isOutOfRange) { // Jika kuantitas berada di luar jangkauan yang diperbolehkan
+        const productLabel = item.productName || item.category || "Item"; // Tentukan label nama produk untuk pesan error
+        toast.error( // Tampilkan pemberitahuan error (toast) ke user
+          `${productLabel}: ${getQuantityRuleViolationMessage(quantityRule)}`, // Hubungkan label produk dengan isi detail aturan pelanggaran
+        ); // Akhir toast.error
+        return; // Hentikan proses pengiriman form karena tidak valid
+      } // Akhir pengecekan isOutOfRange
 
       if (
         values.deliveryMethod === "ASSISTED_PAXEL" &&
