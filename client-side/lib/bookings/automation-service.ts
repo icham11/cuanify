@@ -228,7 +228,7 @@ function toNormalizedAutomationOrder(
       id: address.id || `addr-${index + 1}`,
       label: address.label,
       area: address.area,
-      postalCode: "",
+      postalCode: address.postalCode || "",
       addressLine: address.addressLine,
     })),
     deletedAt: null,

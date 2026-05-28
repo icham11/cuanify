@@ -43,6 +43,7 @@ export interface BookingAutomationAddress {
   label: string;
   area: string;
   addressLine: string;
+  postalCode?: string;
 }
 
 export interface BookingAutomationOrderPayload {

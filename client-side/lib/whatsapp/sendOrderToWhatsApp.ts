@@ -4,6 +4,7 @@ import {
   type WhatsAppOrderImagePayload,
 } from "@/lib/whatsapp/generateOrderImage";
 import {
+  buildOrderRecapWhatsAppText,
   buildOrderDeliveryDetailsWhatsAppText,
   type WhatsAppRecapItem,
 } from "@/lib/bookings/whatsapp-message-template";
@@ -80,7 +81,7 @@ export function buildProductionCaption(
     });
   }
 
-  return buildOrderDeliveryDetailsWhatsAppText({
+  return buildOrderRecapWhatsAppText({
     items:
       order.captionItems && order.captionItems.length > 0
         ? order.captionItems
@@ -91,6 +92,11 @@ export function buildProductionCaption(
               detailLines: fallbackDetailLines,
             },
           ],
+    deliveryFee: order.deliveryFee,
+    manualAdjustment: order.manualAdjustment,
+    totalPrice: order.totalPrice,
+    downPaymentAmount: order.downPaymentAmount,
+    remainingBalance: order.remainingBalance,
     deliveryDate: order.deliveryDate,
     bookingCode: sanitizeBookingCode(order.bookingCode),
     deliveryTime: order.deliveryTime,
@@ -98,6 +104,7 @@ export function buildProductionCaption(
     recipientName: order.recipientName || order.customerName || "-",
     recipientPhone: order.recipientPhone || order.phone || "-",
     fullAddress: order.fullAddress || order.address || "-",
+    postalCode: order.postalCode,
   });
 }
 
@@ -339,90 +346,43 @@ export async function sendOrderToWhatsApp(
     };
   }
 
-  // Jika tidak ada gambar user-upload, fallback ke template lama (generate template)
-  if (finalImagesToUpload.length === 0) {
-    // ...existing code for template generation...
-    let generatedOrderImageUrl = "";
-    let generatedBuffer: Buffer | null = null;
-    const payload: SendOrderToWhatsAppInput = {
+  // 1. Selalu coba generate template image
+  let generatedOrderImageUrl = "";
+  try {
+    const payloadForTemplate: SendOrderToWhatsAppInput = {
       ...order,
-      imageUrl: undefined,
-      imageUrls: [],
-      referenceImages: [],
     };
-    try {
-      generatedBuffer = await generateOrderImage(payload);
-    } catch (error) {
-      return {
-        ok: false,
-        stage: "generate",
-        message:
-          error instanceof Error
-            ? error.message
-            : "Failed to generate WhatsApp order image.",
-      };
+    const generatedBuffer = await generateOrderImage(payloadForTemplate);
+    const uploadedUrl = await uploadToCloudinary(generatedBuffer, {
+      folder: "orders/generated",
+    });
+    if (uploadedUrl && uploadedUrl.trim()) {
+      generatedOrderImageUrl = uploadedUrl;
     }
-    try {
-      const imageUrl = await uploadToCloudinary(generatedBuffer, {
-        folder: "orders/generated",
-      });
-      if (!imageUrl || !imageUrl.trim()) {
-        throw new Error("Image URL is missing.");
-      }
-      generatedOrderImageUrl = imageUrl;
-    } catch (error) {
-      return {
-        ok: false,
-        stage: "upload",
-        message:
-          error instanceof Error
-            ? error.message
-            : "Failed to upload WhatsApp order image.",
-      };
-    }
-    try {
-      const recapText = buildProductionCaption(payload);
-      await sendOutboundWhatsAppSequence([
-        { message: recapText },
-        { message: "Crumbella_id", imageUrl: generatedOrderImageUrl },
-      ]);
-      console.info(`[sendOrderToWhatsApp] Template image sent successfully:`, {
-        imageUrl: generatedOrderImageUrl,
-        caption: recapText.substring(0, 50),
-      });
-      return {
-        ok: true,
-        stage: "send",
-        message:
-          "WhatsApp production notification sent successfully (template fallback).",
-        imageUrl: generatedOrderImageUrl,
-      };
-    } catch (error) {
-      console.error(`[sendOrderToWhatsApp] Template image send failed:`, {
-        imageUrl: generatedOrderImageUrl,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return {
-        ok: false,
-        stage: "send",
-        message:
-          error instanceof Error
-            ? error.message
-            : "Failed to send WhatsApp production notification.",
-        imageUrl: generatedOrderImageUrl,
-      };
-    }
+  } catch (error) {
+    console.warn(
+      "[sendOrderToWhatsApp] Gagal generate template image, melanjutkan tanpa template:",
+      error instanceof Error ? error.message : String(error)
+    );
   }
 
-  // 1. Kirim satu pesan teks rekap order (tanpa gambar)
-  let lastResult: SendOrderToWhatsAppResult = {
-    ok: false,
-    stage: "send",
-    message: "No messages sent",
-  };
-  const outboundMessages: OutboundWhatsAppMessage[] = [
-    { message: buildProductionCaption(order) },
-  ];
+  const outboundMessages: OutboundWhatsAppMessage[] = [];
+  const recapText = buildProductionCaption(order);
+
+  // Jika berhasil generate template, jadikan sebagai pesan pertama dengan caption rekap
+  if (generatedOrderImageUrl) {
+    outboundMessages.push({
+      message: recapText,
+      imageUrl: generatedOrderImageUrl,
+    });
+    console.info(`[sendOrderToWhatsApp] Template image disiapkan:`, {
+      imageUrl: generatedOrderImageUrl,
+      caption: recapText.substring(0, 50),
+    });
+  } else if (finalImagesToUpload.length === 0) {
+    // Jika tidak ada template dan tidak ada user image, terpaksa kirim teks saja
+    outboundMessages.push({ message: recapText });
+  }
 
   // 2. Siapkan satu per satu gambar user-upload, caption = detail gambar dari parser
   for (let i = 0; i < finalImagesToUpload.length; i++) {
@@ -445,6 +405,12 @@ export async function sendOrderToWhatsApp(
       caption = `Referensi ${i + 1}`;
     }
 
+    // Jika gagal generate template dan ini adalah gambar pertama, 
+    // gabungkan recap text ke dalam caption gambar ini
+    if (!generatedOrderImageUrl && i === 0) {
+      caption = caption ? `${recapText}\n\n[${caption}]` : recapText;
+    }
+
     try {
       const imgUrl = await prepareOutboundWhatsAppImageUrl(sourceImgUrl, i);
       outboundMessages.push({
@@ -455,32 +421,28 @@ export async function sendOrderToWhatsApp(
         `[sendOrderToWhatsApp] User image ${i + 1} queued successfully:`,
         {
           imageUrl: imgUrl.substring(0, 60),
-          caption,
+          caption: caption.substring(0, 50),
         },
       );
     } catch (error) {
       console.error(`[sendOrderToWhatsApp] User image ${i + 1} send failed:`, {
         imageUrl: sourceImgUrl.substring(0, 60),
-        caption,
+        caption: caption.substring(0, 50),
         error: error instanceof Error ? error.message : String(error),
       });
-      lastResult = {
-        ok: false,
-        stage: "send",
-        message:
-          error instanceof Error
-            ? error.message
-            : `Failed to send WhatsApp image for image ${i + 1}`,
-        imageUrl: sourceImgUrl,
-      };
-      break;
+      // Skip gambar ini jika gagal upload
     }
   }
 
-  if (!lastResult.ok && lastResult.message !== "No messages sent") {
-    return lastResult;
+  if (outboundMessages.length === 0) {
+    return {
+      ok: false,
+      stage: "send",
+      message: "No messages to send.",
+    };
   }
 
+  let lastResult: SendOrderToWhatsAppResult;
   try {
     await sendOutboundWhatsAppSequence(outboundMessages);
     lastResult = {

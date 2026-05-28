@@ -1339,6 +1339,9 @@ export function toWhatsAppPayload(order: NormalizedOrder): SendOrderToWhatsAppIn
   const firstAddress = asRecord(order.deliveryAddresses[0]);
   const address =
     asString(firstAddress?.addressLine) || asString(order.customerAddress);
+  const common = getParsedCommonFields(order);
+  const postalCode =
+    asString(firstAddress?.postalCode) || asString(common?.postalCode) || "";
   const referenceImages = extractNotificationReferenceImages(order);
   const imageUrls = referenceImages.map((reference) => reference.url);
   const productTags = collectProductTags(order);
@@ -1348,7 +1351,6 @@ export function toWhatsAppPayload(order: NormalizedOrder): SendOrderToWhatsAppIn
     asString(order.notes),
     itemSummary,
   ]);
-  const common = getParsedCommonFields(order);
   const shippingMethod = resolveShippingMethodLabel(order, common);
   const fullAddress = asString(common?.fullAddress) || address;
   const bookingCode = resolvePreferredBookingCode(order, common);
@@ -1361,6 +1363,7 @@ export function toWhatsAppPayload(order: NormalizedOrder): SendOrderToWhatsAppIn
     item: itemSummary || asString(order.product),
     notes: asString(order.notes),
     address,
+    postalCode,
     bookingCode,
     orderType,
     templateKey,

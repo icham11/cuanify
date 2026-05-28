@@ -28,6 +28,7 @@ export interface WhatsAppRecapInput {
   recipientName?: string;
   recipientPhone?: string;
   fullAddress?: string;
+  postalCode?: string;
 }
 
 function normalizeInlineValue(value: string): string {
@@ -144,6 +145,7 @@ function appendOrderDeliveryDetailLines(
     | "recipientName"
     | "recipientPhone"
     | "fullAddress"
+    | "postalCode"
   >,
 ) {
   lines.push("Tanggal Pengiriman :");
@@ -190,6 +192,9 @@ function appendOrderDeliveryDetailLines(
     `No. telp penerima : ${normalizeInlineValue(input.recipientPhone || "-")}`,
   );
   pushLabeledValue(lines, "Alamat lengkap", input.fullAddress || "-");
+  if (input.postalCode) {
+    pushLabeledValue(lines, "Kode pos", input.postalCode);
+  }
 }
 
 export function buildOrderRecapWhatsAppText(
@@ -236,6 +241,7 @@ export function buildOrderDeliveryDetailsWhatsAppText(
     | "recipientName"
     | "recipientPhone"
     | "fullAddress"
+    | "postalCode"
   >,
 ): string {
   const lines: string[] = [];
