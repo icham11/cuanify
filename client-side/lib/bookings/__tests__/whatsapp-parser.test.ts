@@ -1349,6 +1349,77 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
     ]);
   });
 
+  it("does not infer cookie add-ons from general notes when recap add-on fields are empty", () => {
+    const text = [
+      "REKAP ORDER",
+      "ITEM 1",
+      "",
+      "Nama Produk: hard cookies",
+      "Harga Satuan: 20.000",
+      "Qty: 10",
+      "Add On:",
+      "Subtotal: 200.000",
+      "",
+      "ITEM 2",
+      "",
+      "Nama Produk: advance cookies",
+      "Harga Satuan: 30.000",
+      "Qty: 10",
+      "Add On:",
+      "Subtotal: 300.000",
+      "",
+      "ONGKIR:",
+      "ADJUSTMENT:",
+      "TOTAL: 500.000",
+      "DP:",
+      "SISA:",
+      "",
+      "Tanggal Pengiriman : 28 mei 2026",
+      "",
+      "KODE BOOKING : AN-60",
+      "",
+      "Order:",
+      "- 10pcs normal cookies",
+      "- 10pcs advance cookies",
+      "",
+      "Design :",
+      "- elvy full body , coklat muda sedikit kemerahan",
+      "- coco full body , coklat agak tua sedikit merah",
+      "- Nasi face only putih bersih",
+      "- elpi face only coklat gelap agak sedikit kemerahan",
+      "",
+      "Jam Pengiriman :15.00",
+      "Metode Pengiriman :gosend",
+      "Nama penerima : andrew",
+      "No. telp penerima : 085123519660",
+      "Alamat lengkap :Taman Palem Lestari Blok AA 2 no 35",
+      "Kode pos :11830",
+    ].join("\n");
+
+    const parsed = parseWhatsAppOrderText(text, {
+      preferredOrderType: "cookies",
+      sourceType: "manual",
+    });
+    const autoFill = buildBookingAutoFillFromParsed(parsed);
+
+    expect(parsed.orderRecap?.items).toHaveLength(2);
+    expect(autoFill.items).toHaveLength(2);
+    expect(autoFill.items.map((item) => item.tokenDifficulty)).toEqual([
+      "HARD",
+      "ADVANCED",
+    ]);
+    expect(autoFill.items.map((item) => item.parsedSubtotal)).toEqual([
+      200000, 300000,
+    ]);
+    autoFill.items.forEach((item) => {
+      expect(item.addOns ?? []).toEqual([]);
+      expect(item.customAddOns).toBeUndefined();
+      expect(item.designCount).toBeUndefined();
+      expect(item.additionalDesignCount).toBeUndefined();
+      expect(item.pricingSource).toBe("RECAP");
+    });
+  });
+
   it("uses bouquet isi quantity from recap text when qty is 1", () => {
     const text = [
       "REKAP ORDER",

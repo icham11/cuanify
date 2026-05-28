@@ -3244,6 +3244,7 @@ function createAutoFillItemFromCategory(args: {
   notes: string;
   cookiePrice?: number;
   addOnSource?: string;
+  allowImplicitAddOnDetection?: boolean;
   cookieDesignCount?: number;
   tokenDifficultyHint?: BookingAutoFillItem["tokenDifficulty"];
   catalogContext?: BookingParserCatalogContext;
@@ -3314,10 +3315,13 @@ function createAutoFillItemFromCategory(args: {
           darkColorButtercreamColors: [] as string[],
           darkColorButtercreamColor: undefined,
         };
+  const explicitAddOnSource = `${args.addOnSource || ""}`.trim();
   const addOnSource =
-    `${args.addOnSource || ""}`.trim() ||
-    `${args.searchSource || ""} ${args.notes || ""}`;
-  const hasExplicitAddOnSource = `${args.addOnSource || ""}`.trim().length > 0;
+    explicitAddOnSource ||
+    (args.allowImplicitAddOnDetection === false
+      ? ""
+      : `${args.searchSource || ""} ${args.notes || ""}`);
+  const hasExplicitAddOnSource = explicitAddOnSource.length > 0;
   const categoryAddOns = detectCategoryAddOnsFromText({
     category: catalog.category,
     value: addOnSource,
@@ -3543,6 +3547,7 @@ function buildRecapAutoFillItems(
       quantity: item.quantity,
       notes,
       addOnSource: item.addOn,
+      allowImplicitAddOnDetection: false,
       tokenDifficultyHint,
       catalogContext,
     });
