@@ -3738,18 +3738,24 @@ export function OrdersProvider({
             Math.max(0, (order.totalPrice ?? 0) - dpAmount));
 
       return buildOrderRecapWhatsAppText({
-        items: (order.items ?? []).map((item) => ({
-          productName: item.productName || "-",
-          unitPrice: item.basePrice,
-          quantity: item.quantity,
-          addOnText: formatAddOnSummary(
-            item.addOns ?? [],
-            item.addOnQuantities,
-          ),
-          subtotal: resolveItemSubtotal(item),
-          orderLabel: item.productName || "-",
-          detailLines: buildMessageDetailLines(order, item),
-        })),
+        items: (order.items ?? []).map((item) => {
+          const formattedName = item.size && item.size.trim() !== ""
+            ? `${item.productName} - ${item.size}` 
+            : item.productName || "-";
+            
+          return {
+            productName: formattedName,
+            unitPrice: item.basePrice,
+            quantity: item.quantity,
+            addOnText: formatAddOnSummary(
+              item.addOns ?? [],
+              item.addOnQuantities,
+            ),
+            subtotal: resolveItemSubtotal(item),
+            orderLabel: formattedName,
+            detailLines: buildMessageDetailLines(order, item),
+          };
+        }),
         deliveryFee: order.deliveryFee,
         serviceCharge: parseServiceChargeFromNotes(order.notes),
         manualAdjustment: order.manualAdjustment,

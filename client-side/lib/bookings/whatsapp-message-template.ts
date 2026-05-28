@@ -172,8 +172,7 @@ function appendOrderDeliveryDetailLines(
     | "postalCode"
   >,
 ) {
-  lines.push("Tanggal Pengiriman :");
-  lines.push(formatWhatsAppDeliveryDate(input.deliveryDate));
+  lines.push(`Tanggal Pengiriman : ${formatWhatsAppDeliveryDate(input.deliveryDate)}`);
   lines.push("");
 
   let finalBookingCode = normalizeInlineValue(input.bookingCode || "");
@@ -187,13 +186,13 @@ function appendOrderDeliveryDetailLines(
   lines.push(`KODE BOOKING : ${finalBookingCode}`);
   lines.push("");
 
-  lines.push("Order :");
+  lines.push("Order: ");
   for (const item of input.items) {
     const qtyPrefix =
-      item.quantity && item.quantity > 0 ? `${item.quantity}x ` : "";
+      item.quantity && item.quantity > 0 ? `${item.quantity}pcs ` : "";
     lines.push(
       normalizeInlineValue(
-        `${qtyPrefix}${item.orderLabel || item.productName || "-"}`,
+        `•  ${qtyPrefix}${item.productName || "-"}`,
       ),
     );
   }
@@ -235,9 +234,7 @@ export function buildOrderRecapWhatsAppText(
     lines.push(`Qty: ${Math.max(0, Number(item.quantity || 0))}`);
 
     const addOnText = normalizeInlineValue(item.addOnText || "");
-    if (addOnText) {
-      lines.push(`Add On: ${addOnText}`);
-    }
+    lines.push(addOnText ? `Add On: ${addOnText}` : "Add On:");
 
     lines.push(`Subtotal: ${formatMoney(item.subtotal)}`);
     lines.push("");

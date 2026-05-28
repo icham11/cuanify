@@ -1153,7 +1153,13 @@ export function buildCaptionItems(
 
   return order.items.map((rawItem, index) => {
     const item = asRecord(rawItem) ?? {};
-    const productName = asString(item.productName) || `Item ${index + 1}`;
+    const rawProductName = asString(item.productName) || `Item ${index + 1}`;
+    const itemSize = asString(item.size).trim();
+
+    const productName = itemSize 
+      ? `${rawProductName} - ${itemSize}`
+      : rawProductName;
+
     const unitPrice = asNumber(item.selectedPrice) || asNumber(item.basePrice);
     const quantity = Math.max(0, asNumber(item.quantity) || 0);
     const detailOrderType =
