@@ -144,4 +144,41 @@ describe("order api helpers whatsapp caption", () => {
       JSON.stringify([]),
     );
   });
+
+  it("uses requested image labels as design fallback when parser design is empty", () => {
+    const order = createNormalizedOrder({
+      whatsAppParsedData: {
+        orderType: "cookies",
+        requestedImageLabels: ["Design pertama", "Design kedua"],
+        referenceImages: [
+          {
+            url: "https://example.com/1.jpg",
+            note: "Design pertama",
+            orderIndex: 0,
+          },
+          {
+            url: "https://example.com/2.jpg",
+            note: "Design kedua",
+            orderIndex: 1,
+          },
+        ],
+      },
+      referenceImages: [
+        {
+          url: "https://example.com/1.jpg",
+          note: "Design pertama",
+          orderIndex: 0,
+        },
+        {
+          url: "https://example.com/2.jpg",
+          note: "Design kedua",
+          orderIndex: 1,
+        },
+      ],
+    });
+
+    expect(buildWhatsAppDesignNotes(order)).toBe(
+      ["Design pertama", "Design kedua"].join("\n"),
+    );
+  });
 });

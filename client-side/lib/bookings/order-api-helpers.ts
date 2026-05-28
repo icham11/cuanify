@@ -1313,11 +1313,17 @@ export function buildWhatsAppDesignNotes(order: NormalizedOrder): string {
     ...asArrayOfRecords(order.referenceImages),
     ...asArrayOfRecords(parsedData?.referenceImages),
   ]
-    .map((entry) => normalizeWhatsAppCaptionValue(entry.note))
+    .flatMap((entry) => [
+      normalizeWhatsAppCaptionValue(entry.note),
+      normalizeWhatsAppCaptionValue(entry.label),
+    ])
     .filter(Boolean);
   const cookieDesign = normalizeWhatsAppCaptionValue(details?.cookieDesign);
 
   const candidates = [
+    ...asStringArray(parsedData?.requestedImageLabels).map((value) =>
+      normalizeWhatsAppCaptionValue(value),
+    ),
     ...DESIGN_REQUEST_KEYS.map((key) =>
       normalizeWhatsAppCaptionValue(details?.[key] ?? parsedData?.[key]),
     ),

@@ -1208,6 +1208,42 @@ function mergeOrderIntoCanonicalIdentity(
   };
 }
 
+function preserveLocalRichOrderFields(
+  serverOrder: BakeryOrder,
+  localOrder: BakeryOrder,
+): BakeryOrder {
+  const nextWhatsAppParsedData =
+    serverOrder.whatsAppParsedData ?? localOrder.whatsAppParsedData;
+  const nextImageUrls =
+    Array.isArray(serverOrder.imageUrls) && serverOrder.imageUrls.length > 0
+      ? serverOrder.imageUrls
+      : (localOrder.imageUrls ?? []);
+  const nextReferenceImages =
+    Array.isArray(serverOrder.referenceImages) &&
+    serverOrder.referenceImages.length > 0
+      ? serverOrder.referenceImages
+      : (localOrder.referenceImages ?? []);
+
+  return {
+    ...serverOrder,
+    whatsAppParsedData: nextWhatsAppParsedData,
+    imageUrl:
+      serverOrder.imageUrl ||
+      localOrder.imageUrl ||
+      nextWhatsAppParsedData?.imageUrl,
+    imageUrls: nextImageUrls,
+    referenceImages: nextReferenceImages,
+    statusHistory:
+      (serverOrder.statusHistory?.length ?? 0) > 0
+        ? serverOrder.statusHistory
+        : localOrder.statusHistory,
+    automationLogs:
+      (serverOrder.automationLogs?.length ?? 0) > 0
+        ? serverOrder.automationLogs
+        : localOrder.automationLogs,
+  };
+}
+
 function mergeOrdersPreferLatestLocal(
   localOrders: BakeryOrder[],
   serverOrders: BakeryOrder[],
@@ -1220,7 +1256,9 @@ function mergeOrdersPreferLatestLocal(
     const localLatest = getLatestOrderActivityTimestamp(localOrder);
     const serverLatest = getLatestOrderActivityTimestamp(serverOrder);
 
-    return localLatest > serverLatest ? localOrder : serverOrder;
+    return localLatest > serverLatest
+      ? localOrder
+      : preserveLocalRichOrderFields(serverOrder, localOrder);
   });
 
   const serverIds = new Set(mergedOrders.map((order) => order.id));
@@ -1703,12 +1741,19 @@ export function OrdersProvider({
       const shouldReplaceLocalSnapshot =
         options?.force === true ||
         isAuthoritativeOrdersSource(latestServerOrders.source);
+      const localById = new Map(currentLocalOrders.map((order) => [order.id, order]));
+      const enrichedServerOrders = latestServerOrders.orders.map((serverOrder) => {
+        const localOrder = localById.get(serverOrder.id);
+        return localOrder
+          ? preserveLocalRichOrderFields(serverOrder, localOrder)
+          : serverOrder;
+      });
       const nextOrders =
         shouldReplaceLocalSnapshot
-          ? latestServerOrders.orders
+          ? enrichedServerOrders
           : mergeOrdersPreferLatestLocal(
               currentLocalOrders,
-              latestServerOrders.orders,
+              enrichedServerOrders,
             );
 
       if (!areOrdersSnapshotsEqual(currentLocalOrders, nextOrders)) {
@@ -2615,12 +2660,18 @@ export function OrdersProvider({
           syncPayload,
         );
         createdOrder = persistedOrder;
+        writeOrdersSnapshot([
+          persistedOrder,
+          ...baseOrders.filter((existingOrder) => existingOrder.id !== id),
+        ]);
         const latestSyncedOrders = await replaceLocalOrdersWithServer({
           force: true,
         });
         if (!latestSyncedOrders) {
-          const nextOrders = [persistedOrder, ...baseOrders];
-          writeOrdersSnapshot(nextOrders);
+          writeOrdersSnapshot([
+            persistedOrder,
+            ...baseOrders.filter((existingOrder) => existingOrder.id !== id),
+          ]);
         }
 
         recentBookingCreateFingerprintsRef.current.set(submissionFingerprint, {

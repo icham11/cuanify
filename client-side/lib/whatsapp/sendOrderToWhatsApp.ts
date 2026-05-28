@@ -1,10 +1,8 @@
-import {
-  generateOrderImage,
-  type WhatsAppReferenceImage,
-  type WhatsAppOrderImagePayload,
+import type {
+  WhatsAppReferenceImage,
+  WhatsAppOrderImagePayload,
 } from "@/lib/whatsapp/generateOrderImage";
 import {
-  buildOrderRecapWhatsAppText,
   buildOrderDeliveryDetailsWhatsAppText,
   type WhatsAppRecapItem,
 } from "@/lib/bookings/whatsapp-message-template";
@@ -20,6 +18,7 @@ export interface SendOrderToWhatsAppInput extends WhatsAppOrderImagePayload {
   customerNotes?: string;
   designNotes?: string;
   fullAddress?: string;
+  postalCode?: string;
   deliveryFee?: number;
   manualAdjustment?: number;
   totalPrice?: number;
@@ -74,29 +73,43 @@ export function buildProductionCaption(
       value: order.designNotes!.trim(),
     });
   }
-  if ((order.customerNotes || "").trim()) {
-    fallbackDetailLines.push({
-      label: "Catatan",
-      value: order.customerNotes!.trim(),
-    });
-  }
 
-  return buildOrderRecapWhatsAppText({
-    items:
-      order.captionItems && order.captionItems.length > 0
-        ? order.captionItems
-        : [
-            {
-              productName: order.item || "-",
-              orderLabel: order.item || "-",
-              detailLines: fallbackDetailLines,
-            },
-          ],
-    deliveryFee: order.deliveryFee,
-    manualAdjustment: order.manualAdjustment,
-    totalPrice: order.totalPrice,
-    downPaymentAmount: order.downPaymentAmount,
-    remainingBalance: order.remainingBalance,
+  const captionItems =
+    order.captionItems && order.captionItems.length > 0
+      ? order.captionItems.map((item, index) => {
+          if (index !== 0 || fallbackDetailLines.length === 0) {
+            return item;
+          }
+
+          const existingLabels = new Set(
+            (item.detailLines ?? []).map((detailLine) =>
+              detailLine.label.trim().toLowerCase(),
+            ),
+          );
+          const mergedFallbackLines = fallbackDetailLines.filter(
+            (detailLine) =>
+              !existingLabels.has(detailLine.label.trim().toLowerCase()),
+          );
+
+          if (mergedFallbackLines.length === 0) {
+            return item;
+          }
+
+          return {
+            ...item,
+            detailLines: [...(item.detailLines ?? []), ...mergedFallbackLines],
+          };
+        })
+      : [
+          {
+            productName: order.item || "-",
+            orderLabel: order.item || "-",
+            detailLines: fallbackDetailLines,
+          },
+        ];
+
+  return buildOrderDeliveryDetailsWhatsAppText({
+    items: captionItems,
     deliveryDate: order.deliveryDate,
     bookingCode: sanitizeBookingCode(order.bookingCode),
     deliveryTime: order.deliveryTime,
@@ -346,45 +359,11 @@ export async function sendOrderToWhatsApp(
     };
   }
 
-  // 1. Selalu coba generate template image
-  let generatedOrderImageUrl = "";
-  try {
-    const payloadForTemplate: SendOrderToWhatsAppInput = {
-      ...order,
-    };
-    const generatedBuffer = await generateOrderImage(payloadForTemplate);
-    const uploadedUrl = await uploadToCloudinary(generatedBuffer, {
-      folder: "orders/generated",
-    });
-    if (uploadedUrl && uploadedUrl.trim()) {
-      generatedOrderImageUrl = uploadedUrl;
-    }
-  } catch (error) {
-    console.warn(
-      "[sendOrderToWhatsApp] Gagal generate template image, melanjutkan tanpa template:",
-      error instanceof Error ? error.message : String(error)
-    );
-  }
-
   const outboundMessages: OutboundWhatsAppMessage[] = [];
   const recapText = buildProductionCaption(order);
+  outboundMessages.push({ message: recapText });
 
-  // Jika berhasil generate template, jadikan sebagai pesan pertama dengan caption rekap
-  if (generatedOrderImageUrl) {
-    outboundMessages.push({
-      message: recapText,
-      imageUrl: generatedOrderImageUrl,
-    });
-    console.info(`[sendOrderToWhatsApp] Template image disiapkan:`, {
-      imageUrl: generatedOrderImageUrl,
-      caption: recapText.substring(0, 50),
-    });
-  } else if (finalImagesToUpload.length === 0) {
-    // Jika tidak ada template dan tidak ada user image, terpaksa kirim teks saja
-    outboundMessages.push({ message: recapText });
-  }
-
-  // 2. Siapkan satu per satu gambar user-upload, caption = detail gambar dari parser
+  // Siapkan satu per satu gambar user-upload, caption = detail gambar dari parser
   for (let i = 0; i < finalImagesToUpload.length; i++) {
     const {
       url: sourceImgUrl,
@@ -403,12 +382,6 @@ export async function sendOrderToWhatsApp(
       caption = productName!.trim();
     } else {
       caption = `Referensi ${i + 1}`;
-    }
-
-    // Jika gagal generate template dan ini adalah gambar pertama, 
-    // gabungkan recap text ke dalam caption gambar ini
-    if (!generatedOrderImageUrl && i === 0) {
-      caption = caption ? `${recapText}\n\n[${caption}]` : recapText;
     }
 
     try {

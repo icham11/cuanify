@@ -1532,13 +1532,16 @@ export function getItemQuantityRule( // Definisikan fungsi penentu aturan kuanti
   const dbMinOrder = minimumOrderMap?.get(dashboardName) ?? 0; // TAMBAHKAN: Dapatkan batas minimal order dari map DB
 
   if (isCustomCookieItem(item)) {
-    const effectiveMin = dbMinOrder > 0 ? dbMinOrder : COOKIE_CUSTOM_TOTAL_MIN_QTY;
-    const splitEx1 = Math.max(1, Math.floor(effectiveMin / 2));
-    const splitEx2 = Math.max(1, effectiveMin - splitEx1);
+    const effectiveMin = Math.max(0, dbMinOrder);
+    const splitEx1 = Math.max(1, Math.floor(Math.max(effectiveMin, 2) / 2));
+    const splitEx2 = Math.max(1, Math.max(effectiveMin, 2) - splitEx1);
     return {
       label: "Quantity (pcs)",
       min: 1, // Kuantitas per varian bisa 1 karena dicek totalnya nanti
-      helperText: `Minimum total custom cookies ${effectiveMin} pcs per order. Bisa split varian (contoh ${splitEx1} Simple + ${splitEx2} Hard).`,
+      helperText:
+        effectiveMin > 0
+          ? `Minimum total custom cookies ${effectiveMin} pcs per order. Bisa split varian (contoh ${splitEx1} Simple + ${splitEx2} Hard).`
+          : "Ikuti minimum order dari variant product yang aktif. Jika semua variant custom cookies diset 0 di halaman product, order bisa mulai dari 1 pcs per variant.",
     };
   }
 
@@ -1779,9 +1782,22 @@ export function toDashboardProductNameFromItem(item: BookingItemInput): string {
     effectiveProductName = "Custom Cookies"; // Sesuaikan dengan nama di tabel Product
   }
 
+  const effectiveVariantLabel =
+    isCustomCookieItem(item) &&
+    normalizeTokenDifficultyValue(item.tokenDifficulty) !== "SIMPLE"
+      ? normalizeTokenDifficultyValue(item.tokenDifficulty)
+      : isCustomCookieItem(item) &&
+          ["", "standard", "start from"].includes(
+            String(item.size || "")
+              .trim()
+              .toLowerCase(),
+          )
+        ? normalizeTokenDifficultyValue(item.tokenDifficulty)
+        : item.size;
+
   return buildDashboardProductName({
     productName: effectiveProductName,
-    variantLabel: item.size,
+    variantLabel: effectiveVariantLabel,
     variantCount: 1,
   });
 }

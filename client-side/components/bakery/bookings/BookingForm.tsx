@@ -212,6 +212,7 @@ type BookingDraftSnapshot = {
   quickPaste: string;
   selectedOrderType: ParserOrderType;
   parsedPreview: ParsedWhatsAppOrder | null;
+  persistedReferenceImages: ParsedWhatsAppReferenceImage[];
   productionPreviewImageUrl: string;
   draftImported: boolean;
   referenceImageLabelsInput: string;
@@ -598,6 +599,56 @@ function saveBookingDraftSnapshot(snapshot: BookingDraftSnapshot): void {
   );
 }
 
+function normalizePersistedReferenceImages(
+  value: ParsedWhatsAppReferenceImage[] | undefined | null,
+): ParsedWhatsAppReferenceImage[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((entry, index) => ({
+      url: String(entry?.url || "").trim(),
+      label: String(entry?.label || "").trim() || `Gambar ${index + 1}`,
+      note: String(entry?.note || "").trim() || undefined,
+      orderIndex:
+        typeof entry?.orderIndex === "number" &&
+        Number.isFinite(entry.orderIndex)
+          ? entry.orderIndex
+          : undefined,
+    }))
+    .filter((entry) => entry.url.length > 0);
+}
+
+function getEffectivePersistedReferenceImages(args: {
+  parsedPreview?: ParsedWhatsAppOrder | null;
+  persistedReferenceImages?: ParsedWhatsAppReferenceImage[] | null;
+}): ParsedWhatsAppReferenceImage[] {
+  const parsedReferenceImages = normalizePersistedReferenceImages(
+    args.parsedPreview?.referenceImages,
+  );
+  if (parsedReferenceImages.length > 0) {
+    return parsedReferenceImages;
+  }
+
+  return normalizePersistedReferenceImages(args.persistedReferenceImages);
+}
+
+function restoreParsedPreviewReferenceImages(args: {
+  parsedPreview?: ParsedWhatsAppOrder | null;
+  persistedReferenceImages?: ParsedWhatsAppReferenceImage[] | null;
+}): ParsedWhatsAppOrder | null {
+  if (!args.parsedPreview) return null;
+
+  const referenceImages = getEffectivePersistedReferenceImages(args);
+  if (referenceImages.length === 0) {
+    return args.parsedPreview;
+  }
+
+  return {
+    ...args.parsedPreview,
+    referenceImages,
+  };
+}
+
 function loadBookingDraftSnapshot(): BookingDraftSnapshot | null {
   if (typeof window === "undefined") return null;
 
@@ -605,7 +656,20 @@ function loadBookingDraftSnapshot(): BookingDraftSnapshot | null {
   if (!rawValue) return null;
 
   try {
-    return JSON.parse(rawValue) as BookingDraftSnapshot;
+    const snapshot = JSON.parse(rawValue) as BookingDraftSnapshot;
+    const persistedReferenceImages = getEffectivePersistedReferenceImages({
+      parsedPreview: snapshot.parsedPreview,
+      persistedReferenceImages: snapshot.persistedReferenceImages,
+    });
+
+    return {
+      ...snapshot,
+      parsedPreview: restoreParsedPreviewReferenceImages({
+        parsedPreview: snapshot.parsedPreview,
+        persistedReferenceImages,
+      }),
+      persistedReferenceImages,
+    };
   } catch {
     return null;
   }
@@ -849,7 +913,6 @@ const TOKEN_DIFFICULTY_OPTIONS: Array<{
   { value: "EXPERT", label: "Expert", token: 5, cookiePrice: 35000 },
 ];
 const CUPCAKE_INDIVIDUAL_MIN_QTY = 10;
-const COOKIE_CUSTOM_TOTAL_MIN_QTY = 10;
 const COOKIE_INCLUDED_DESIGN_LIMIT = 5;
 const COOKIE_ADDITIONAL_DESIGN_PRICE = 10_000;
 const COOKIE_ADDITIONAL_DESIGN_ADDON_IDS = [
@@ -2214,13 +2277,16 @@ function getItemQuantityRule( // Definisikan fungsi lokal untuk mengambil batas 
   const dbMinOrder = minimumOrderMap?.get(dashboardName) ?? 0; // TAMBAHKAN: Dapatkan nilai minimal order dari map DB
 
   if (isCustomCookieItem(item)) {
-    const effectiveMin = dbMinOrder > 0 ? dbMinOrder : COOKIE_CUSTOM_TOTAL_MIN_QTY;
-    const splitEx1 = Math.max(1, Math.floor(effectiveMin / 2));
-    const splitEx2 = Math.max(1, effectiveMin - splitEx1);
+    const effectiveMin = Math.max(0, dbMinOrder);
+    const splitEx1 = Math.max(1, Math.floor(Math.max(effectiveMin, 2) / 2));
+    const splitEx2 = Math.max(1, Math.max(effectiveMin, 2) - splitEx1);
     return {
       label: "Quantity (pcs)",
       min: 1, // Kuantitas per varian bisa 1 karena dicek totalnya nanti
-      helperText: `Minimum total custom cookies ${effectiveMin} pcs per order. Bisa split varian (contoh ${splitEx1} Simple + ${splitEx2} Hard).`,
+      helperText:
+        effectiveMin > 0
+          ? `Minimum total custom cookies ${effectiveMin} pcs per order. Bisa split varian (contoh ${splitEx1} Simple + ${splitEx2} Hard).`
+          : "Ikuti minimum order dari variant product yang aktif. Jika semua variant custom cookies diset 0 di halaman product, order bisa mulai dari 1 pcs per variant.",
     };
   }
 
@@ -2461,9 +2527,22 @@ function toDashboardProductNameFromItem(item: BookingItemInput): string {
     effectiveProductName = "Custom Cookies"; // Sesuaikan dengan nama di tabel Product
   }
 
+  const effectiveVariantLabel =
+    isCustomCookieItem(item) &&
+    normalizeTokenDifficultyValue(item.tokenDifficulty) !== "SIMPLE"
+      ? normalizeTokenDifficultyValue(item.tokenDifficulty)
+      : isCustomCookieItem(item) &&
+          ["", "standard", "start from"].includes(
+            String(item.size || "")
+              .trim()
+              .toLowerCase(),
+          )
+        ? normalizeTokenDifficultyValue(item.tokenDifficulty)
+        : item.size;
+
   return buildDashboardProductName({
     productName: effectiveProductName,
-    variantLabel: item.size,
+    variantLabel: effectiveVariantLabel,
     variantCount: 1,
   });
 }
@@ -3402,6 +3481,9 @@ export default function BookingForm({
     useState("");
   const [draftImported, setDraftImported] = useState(false);
   const [referenceImageFiles, setReferenceImageFiles] = useState<File[]>([]);
+  const [persistedReferenceImages, setPersistedReferenceImages] = useState<
+    ParsedWhatsAppReferenceImage[]
+  >([]);
   const [referenceFilesChangedSinceParse, setReferenceFilesChangedSinceParse] =
     useState(false);
   const [referenceSyncStatus, setReferenceSyncStatus] =
@@ -3525,9 +3607,26 @@ export default function BookingForm({
       } // Akhir block try-catch
     }; // Akhir fungsi refreshTokenMap
 
+    const handleWindowFocus = () => {
+      void refreshTokenMap();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void refreshTokenMap();
+      }
+    };
+    const intervalId = window.setInterval(() => {
+      void refreshTokenMap();
+    }, 60_000);
+
     void refreshTokenMap(); // Eksekusi fetch pertama kali saat mount
+    window.addEventListener("focus", handleWindowFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => { // Bersihkan effect
       cancelled = true; // Set status cancelled ke true saat unmount
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", handleWindowFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     }; // Akhir cleanup
   }, []); // Dependensi kosong (hanya dijalankan sekali saat mount)
 
@@ -3669,11 +3768,22 @@ export default function BookingForm({
       restoredShippingQuotes.find(
         (quote) => quote.id === (snapshot.selectedShippingQuoteId || ""),
       ) ?? null;
+    const restoredPersistedReferenceImages = getEffectivePersistedReferenceImages(
+      {
+        parsedPreview: snapshot.parsedPreview,
+        persistedReferenceImages: snapshot.persistedReferenceImages,
+      },
+    );
+    const restoredParsedPreview = restoreParsedPreviewReferenceImages({
+      parsedPreview: snapshot.parsedPreview,
+      persistedReferenceImages: restoredPersistedReferenceImages,
+    });
 
     reset(snapshot.formValues);
     setQuickPaste(snapshot.quickPaste);
     setSelectedOrderType(snapshot.selectedOrderType);
-    setParsedPreview(snapshot.parsedPreview);
+    setParsedPreview(restoredParsedPreview);
+    setPersistedReferenceImages(restoredPersistedReferenceImages);
     setProductionPreviewImageUrl(snapshot.productionPreviewImageUrl);
     setDraftImported(snapshot.draftImported);
     setReferenceImageLabelsInput(snapshot.referenceImageLabelsInput);
@@ -3723,14 +3833,28 @@ export default function BookingForm({
       ? initialOrder.whatsAppParsedData?.requestedImageLabels ?? []
       : [];
     const shippingQuote = initialOrder.shippingQuote ?? null;
+    const restoredPersistedReferenceImages = getEffectivePersistedReferenceImages(
+      {
+        parsedPreview: initialOrder.whatsAppParsedData ?? null,
+        persistedReferenceImages:
+          (Array.isArray(initialOrder.referenceImages)
+            ? initialOrder.referenceImages
+            : []) ?? [],
+      },
+    );
+    const restoredParsedPreview = restoreParsedPreviewReferenceImages({
+      parsedPreview: initialOrder.whatsAppParsedData ?? null,
+      persistedReferenceImages: restoredPersistedReferenceImages,
+    });
 
     reset(formValues);
     setQuickPaste("");
     setSelectedOrderType("unknown");
-    setParsedPreview(initialOrder.whatsAppParsedData ?? null);
+    setParsedPreview(restoredParsedPreview);
+    setPersistedReferenceImages(restoredPersistedReferenceImages);
     setProductionPreviewImageUrl("");
     setDraftImported(Boolean(initialOrder.whatsAppParsedData));
-    setReferenceImageLabelsInput(requestedLabels.join(", "));
+    setReferenceImageLabelsInput(requestedLabels.join("\n"));
     setShippingQuotes(shippingQuote ? [shippingQuote] : []);
     selectedShippingQuoteIdRef.current = shippingQuote?.id ?? "";
     selectedShippingQuoteServiceKeyRef.current = shippingQuote
@@ -3796,11 +3920,21 @@ export default function BookingForm({
       }
 
       if (!isEditMode) {
+        const nextParsedPreview =
+          snapshotOverrides?.parsedPreview ?? parsedPreview;
+        const nextPersistedReferenceImages =
+          snapshotOverrides?.persistedReferenceImages ??
+          getEffectivePersistedReferenceImages({
+            parsedPreview: nextParsedPreview,
+            persistedReferenceImages,
+          });
+
         saveBookingDraftSnapshot({
           composerStep: "preview",
           quickPaste,
           selectedOrderType,
-          parsedPreview,
+          parsedPreview: nextParsedPreview,
+          persistedReferenceImages: nextPersistedReferenceImages,
           productionPreviewImageUrl,
           draftImported,
           referenceImageLabelsInput,
@@ -3829,6 +3963,7 @@ export default function BookingForm({
       isEditMode,
       isReviewPage,
       parsedPreview,
+      persistedReferenceImages,
       productionPreviewImageUrl,
       quickPaste,
       referenceFilesChangedSinceParse,
@@ -4127,12 +4262,22 @@ export default function BookingForm({
     );
   }, [watchedItems, productCatalog, addOnCatalog]);
 
+  const effectiveReferenceImages = useMemo(
+    () =>
+      getEffectivePersistedReferenceImages({
+        parsedPreview,
+        persistedReferenceImages,
+      }),
+    [parsedPreview, persistedReferenceImages],
+  );
+  const effectiveReferenceImageCount =
+    referenceImageFiles.length > 0
+      ? referenceImageFiles.length
+      : effectiveReferenceImages.length;
+
   const previewReferenceImages = useMemo(() => {
-    if (
-      Array.isArray(parsedPreview?.referenceImages) &&
-      parsedPreview.referenceImages.length > 0
-    ) {
-      return parsedPreview.referenceImages.map((entry, index) => ({
+    if (effectiveReferenceImages.length > 0) {
+      return effectiveReferenceImages.map((entry, index) => ({
         label: entry.label?.trim() || `Gambar ${index + 1}`,
         note: entry.note?.trim() || "",
         url: entry.url?.trim() || "",
@@ -4145,8 +4290,8 @@ export default function BookingForm({
       url: "",
     }));
   }, [
+    effectiveReferenceImages,
     normalizedReferenceImageLabels,
-    parsedPreview?.referenceImages,
     referenceImageFiles,
   ]);
   const previewAlertMessage = parsedPreview
@@ -5384,19 +5529,20 @@ export default function BookingForm({
       return sum + Math.max(0, Number(item.quantity) || 0);
     }, 0);
 
-    let customCookieMinQty = COOKIE_CUSTOM_TOTAL_MIN_QTY;
-    for (const item of values.items) {
-      if (isCustomCookieItem(item)) {
-        const dashboardName = normalizeTokenLookupKey(toDashboardProductNameFromItem(item as BookingItemInput));
-        const dbMinOrder = productMinimumOrderByName.get(dashboardName);
-        if (dbMinOrder !== undefined && dbMinOrder > 0) {
-          customCookieMinQty = dbMinOrder;
-          break;
-        }
-      }
-    }
+    const customCookieMinQty = values.items.reduce((maxMinQty, item) => {
+      if (!isCustomCookieItem(item)) return maxMinQty;
+      const dashboardName = normalizeTokenLookupKey(
+        toDashboardProductNameFromItem(item as BookingItemInput),
+      );
+      const dbMinOrder = Math.max(
+        0,
+        Number(productMinimumOrderByName.get(dashboardName) ?? 0),
+      );
+      return Math.max(maxMinQty, dbMinOrder);
+    }, 0);
 
     if (
+      customCookieMinQty > 0 &&
       totalCustomCookieQty > 0 &&
       totalCustomCookieQty < customCookieMinQty
     ) {
@@ -5733,17 +5879,24 @@ export default function BookingForm({
     const canonicalDeliveryMethodLabel = resolveDeliveryMethodLabel(
       effectiveDeliveryMethod,
     );
+    const parsedPreviewWithPersistedReferences =
+      restoreParsedPreviewReferenceImages({
+        parsedPreview,
+        persistedReferenceImages,
+      });
     const normalizedParsedPreview = {
-      ...((parsedPreview
+      ...((parsedPreviewWithPersistedReferences
         ? {
-            ...parsedPreview,
+            ...parsedPreviewWithPersistedReferences,
             referenceImages: buildParsedReferenceImages({
-              parsed: parsedPreview,
+              parsed: parsedPreviewWithPersistedReferences,
               requestedLabels: explicitRequestedImageLabels,
             }),
             requestedImageLabels: [
-              ...(Array.isArray(parsedPreview.requestedImageLabels)
-                ? parsedPreview.requestedImageLabels
+              ...(Array.isArray(
+                parsedPreviewWithPersistedReferences.requestedImageLabels,
+              )
+                ? parsedPreviewWithPersistedReferences.requestedImageLabels
                 : []),
               ...explicitRequestedImageLabels,
             ].filter((value, index, array) => {
@@ -6096,6 +6249,7 @@ export default function BookingForm({
     setProductionPreviewImageUrl("");
     setDraftImported(false);
     setReferenceImageFiles([]);
+    setPersistedReferenceImages([]);
     setReferenceFilesChangedSinceParse(false);
     setReferenceSyncStatus("idle");
     setReferenceImageLabelsInput("");
@@ -6822,22 +6976,34 @@ export default function BookingForm({
       };
 
       setParsedPreview(enrichedParsedPreview);
+      setPersistedReferenceImages(
+        normalizePersistedReferenceImages(
+          enrichedParsedPreview.referenceImages,
+        ),
+      );
+      setReferenceImageLabelsInput(mergedRequestedImageLabels.join("\n"));
       setProductionPreviewImageUrl(payload.productionPreviewImageUrl ?? "");
       setDraftImported(true);
       setReferenceFilesChangedSinceParse(false);
       setReferenceSyncStatus("idle");
       lastParsedReferenceSignatureRef.current = buildReferenceInputSignature({
         files: referenceImageFiles,
-        requestedLabels: explicitRequestedImageLabels,
+        requestedLabels: mergedRequestedImageLabels,
       });
       lastFailedAutoParseReferenceSignatureRef.current = "";
       setShowOrderTypeSelector(false);
       if (override?.navigateToPreview !== false) {
-        openPreviewPage({
-          parsedPreview: enrichedParsedPreview,
-          productionPreviewImageUrl: payload.productionPreviewImageUrl ?? "",
-          draftImported: true,
-          referenceFilesChangedSinceParse: false,
+        window.requestAnimationFrame(() => {
+          openPreviewPage({
+            parsedPreview: enrichedParsedPreview,
+            persistedReferenceImages: normalizePersistedReferenceImages(
+              enrichedParsedPreview.referenceImages,
+            ),
+            productionPreviewImageUrl: payload.productionPreviewImageUrl ?? "",
+            draftImported: true,
+            referenceImageLabelsInput: mergedRequestedImageLabels.join("\n"),
+            referenceFilesChangedSinceParse: false,
+          });
         });
         window.scrollTo({ top: 0, behavior: "smooth" });
       } else if (!isEditMode) {
@@ -6846,9 +7012,12 @@ export default function BookingForm({
           quickPaste,
           selectedOrderType,
           parsedPreview: enrichedParsedPreview,
+          persistedReferenceImages: normalizePersistedReferenceImages(
+            enrichedParsedPreview.referenceImages,
+          ),
           productionPreviewImageUrl: payload.productionPreviewImageUrl ?? "",
           draftImported: true,
-          referenceImageLabelsInput,
+          referenceImageLabelsInput: mergedRequestedImageLabels.join("\n"),
           referenceFilesChangedSinceParse: false,
           shippingQuotes,
           selectedShippingQuoteId:
@@ -6965,6 +7134,9 @@ export default function BookingForm({
     };
 
     setParsedPreview(nextParsedPreview);
+    setPersistedReferenceImages(
+      normalizePersistedReferenceImages(nextParsedPreview.referenceImages),
+    );
     setReferenceFilesChangedSinceParse(false);
     setReferenceSyncStatus("idle");
     lastParsedReferenceSignatureRef.current = referenceInputSignature;
@@ -6976,6 +7148,9 @@ export default function BookingForm({
           quickPaste,
           selectedOrderType,
           parsedPreview: nextParsedPreview,
+          persistedReferenceImages: normalizePersistedReferenceImages(
+            nextParsedPreview.referenceImages,
+          ),
           productionPreviewImageUrl,
           draftImported: true,
           referenceImageLabelsInput,
@@ -7204,7 +7379,7 @@ export default function BookingForm({
                     </p>
                   </div>
                   <div className="rounded-2xl border border-[var(--crumbella-border)] bg-[#fdf7f0] px-3 py-1.5 text-xs font-semibold text-[var(--foreground)]">
-                    {referenceImageFiles.length} gambar
+                    {effectiveReferenceImageCount} gambar
                   </div>
                 </div>
                 <label className="grid gap-2 text-sm font-medium text-[var(--foreground)]">
@@ -7256,12 +7431,17 @@ export default function BookingForm({
                   </span>
                 </label>
 
-                {referenceImageFiles.length > 0 && (
+                {referenceImageFiles.length > 0 ? (
                   <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600">
                     {referenceImageFiles.length} gambar siap dipakai:{" "}
                     {referenceImageFiles.map((file) => file.name).join(", ")}
                   </div>
-                )}
+                ) : effectiveReferenceImages.length > 0 ? (
+                  <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600">
+                    {effectiveReferenceImages.length} gambar tersimpan dari
+                    parse sebelumnya.
+                  </div>
+                ) : null}
 
                 {referenceImageFiles.length > 0 &&
                   draftImported &&
@@ -7316,6 +7496,7 @@ export default function BookingForm({
                     setProductionPreviewImageUrl("");
                     setDraftImported(false);
                     setReferenceImageFiles([]);
+                    setPersistedReferenceImages([]);
                     setReferenceFilesChangedSinceParse(false);
                     setReferenceSyncStatus("idle");
                     setReferenceImageLabelsInput("");

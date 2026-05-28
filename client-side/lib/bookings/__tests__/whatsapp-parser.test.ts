@@ -1337,6 +1337,16 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
     expect(autoFill.items.map((item) => item.parsedSubtotal)).toEqual([
       410000, 119000,
     ]);
+    expect(parsed.requestedImageLabels).toEqual([
+      "1. pinguin",
+      "2. Kucing hijau",
+      "3. panda",
+      "4. bebek",
+      "5. Kelelawar abu abu",
+      "6. pisang",
+      "7. shape kotak, background putih, dengan tulisan 2pm",
+      "(All design full body)",
+    ]);
   });
 
   it("uses bouquet isi quantity from recap text when qty is 1", () => {

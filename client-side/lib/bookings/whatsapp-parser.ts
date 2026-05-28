@@ -533,6 +533,36 @@ function getInlineValueAfterLabel(line: string, alias: string): string {
   return "";
 }
 
+function extractRequestedImageLabelsFromParsedDetails(
+  detailsByOrderType: ParsedWhatsAppDetailsByOrderType | undefined,
+): string[] {
+  if (!detailsByOrderType) return [];
+
+  const candidates = [
+    detailsByOrderType.cookies?.cookieDesign,
+    detailsByOrderType.buket?.bouquetDesign,
+    detailsByOrderType.cake?.cakeDesign,
+    detailsByOrderType.cookies_tower?.designTheme,
+  ]
+    .filter((value): value is string => typeof value === "string")
+    .flatMap((value) =>
+      value
+        .split(/\n|\||•/g)
+        .map((entry) => cleanupValue(entry))
+        .filter(Boolean),
+    )
+    .filter((entry) => !/^\d+\s*(design|desain)\b/i.test(entry));
+
+  return Array.from(
+    new Set(
+      candidates.filter((value) => {
+        const normalized = normalizeLabel(value);
+        return Boolean(normalized);
+      }),
+    ),
+  );
+}
+
 const recapItemFieldDefinitions: FieldDefinition[] = [
   {
     key: "category",
@@ -4083,6 +4113,8 @@ export function parseWhatsAppOrderText(
   const orderType = detectOrderType(text, lookup, preferredOrderType);
   const detailsByOrderType = buildDetailsByOrderType(text, lines, lookup);
   const orderRecap = parseOrderRecap(text, lines);
+  const requestedImageLabels =
+    extractRequestedImageLabelsFromParsedDetails(detailsByOrderType);
 
   const common = buildEmptyCommonFields();
   for (const field of commonFieldDefinitions) {
@@ -4122,6 +4154,7 @@ export function parseWhatsAppOrderText(
     common,
     details,
     detailsByOrderType,
+    requestedImageLabels,
     orderRecap,
     missingFields,
   };

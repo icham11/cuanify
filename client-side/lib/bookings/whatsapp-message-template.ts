@@ -87,6 +87,40 @@ function pushLabeledValue(lines: string[], label: string, value?: string) {
   lines.push(...normalized);
 }
 
+function collectGroupedDetailLines(
+  items: WhatsAppRecapItem[],
+): WhatsAppRecapItemDetail[] {
+  const grouped = new Map<string, { label: string; values: string[] }>();
+
+  for (const item of items) {
+    for (const detailLine of item.detailLines ?? []) {
+      const normalizedLabel = detailLine.label.trim().toLowerCase();
+      const normalizedValues = normalizeMultilineValue(detailLine.value || "");
+      if (!normalizedLabel || normalizedValues.length === 0) continue;
+
+      const existing = grouped.get(normalizedLabel);
+      if (!existing) {
+        grouped.set(normalizedLabel, {
+          label: detailLine.label.trim(),
+          values: [...normalizedValues],
+        });
+        continue;
+      }
+
+      for (const value of normalizedValues) {
+        if (!existing.values.includes(value)) {
+          existing.values.push(value);
+        }
+      }
+    }
+  }
+
+  return Array.from(grouped.values()).map((entry) => ({
+    label: entry.label,
+    value: entry.values.join("\n"),
+  }));
+}
+
 function compactEmptyLines(lines: string[]): string[] {
   const compacted: string[] = [];
 
@@ -102,34 +136,24 @@ function compactEmptyLines(lines: string[]): string[] {
   return compacted;
 }
 
-/**
- * Fungsi untuk menghasilkan kode booking otomatis jika kosong dari data pesanan.
- * Mengambil 2 huruf pertama dari nama penerima dan 2 angka terakhir dari nomor hp.
- */
-function generateAutomatedBookingCode(recipientName?: string, recipientPhone?: string): string {
+function generateAutomatedBookingCode(
+  recipientName?: string,
+  recipientPhone?: string,
+): string {
   try {
-    // 1. Membersihkan string nama penerima hanya menjadi huruf (menghilangkan spasi/simbol)
     const nameStr = (recipientName || "").replace(/[^a-zA-Z]/g, "");
-    
-    // 2. Membersihkan string nomor telepon hanya menjadi angka
     const phoneStr = (recipientPhone || "").replace(/[^0-9]/g, "");
-    
-    // 3. Mengambil 2 huruf pertama dari nama, jika kurang dari 2, maka pad dengan 'X'
-    const namePrefix = nameStr.length >= 2 
-      ? nameStr.substring(0, 2) 
-      : nameStr.padEnd(2, "X");
-      
-    // 4. Mengambil 2 angka terakhir dari nomor telepon, jika kurang, pad dengan '0'
-    const phoneSuffix = phoneStr.length >= 2 
-      ? phoneStr.substring(phoneStr.length - 2) 
-      : phoneStr.padStart(2, "0");
-      
-    // 5. Mengembalikan kode yang diformat dengan uppercase (contoh: MO-17)
+    const namePrefix =
+      nameStr.length >= 2 ? nameStr.substring(0, 2) : nameStr.padEnd(2, "X");
+    const phoneSuffix =
+      phoneStr.length >= 2
+        ? phoneStr.substring(phoneStr.length - 2)
+        : phoneStr.padStart(2, "0");
+
     return `${namePrefix.toUpperCase()}-${phoneSuffix}`;
   } catch (error) {
-    // 6. Tangkap error jika terjadi sesuatu yang tak terduga
     console.error("Gagal men-generate kode booking:", error);
-    return "XX-00"; // Fallback default
+    return "XX-00";
   }
 }
 
@@ -151,37 +175,38 @@ function appendOrderDeliveryDetailLines(
   lines.push("Tanggal Pengiriman :");
   lines.push(formatWhatsAppDeliveryDate(input.deliveryDate));
   lines.push("");
-  
-  // Cek apakah input.bookingCode kosong atau bernilai "-"
+
   let finalBookingCode = normalizeInlineValue(input.bookingCode || "");
   if (!finalBookingCode || finalBookingCode === "-") {
-    // Jika kosong, buat kode booking otomatis dari data penerima dan HP
-    finalBookingCode = generateAutomatedBookingCode(input.recipientName, input.recipientPhone);
+    finalBookingCode = generateAutomatedBookingCode(
+      input.recipientName,
+      input.recipientPhone,
+    );
   }
-  
-  // Masukkan kode booking yang final ke dalam output baris
+
   lines.push(`KODE BOOKING : ${finalBookingCode}`);
   lines.push("");
 
-  // Lakukan iterasi untuk setiap item pesanan dalam daftar
-  input.items.forEach((item) => {
-    // Tambahkan label teks "Order :" ke dalam rincian pesan
-    lines.push("Order :");
-    // Tentukan awalan kuantitas (qty) jika quantity didefinisikan dan lebih besar dari 0
-    const qtyPrefix = item.quantity && item.quantity > 0 ? `${item.quantity}× ` : "";
-    // Gabungkan awalan qty dengan nama label order atau nama produk, lalu bersihkan spasinya dan masukkan ke baris
-    lines.push(normalizeInlineValue(`${qtyPrefix}${item.orderLabel || item.productName || "-"}`));
-    // Tambahkan baris kosong untuk pemisah
+  lines.push("Order :");
+  for (const item of input.items) {
+    const qtyPrefix =
+      item.quantity && item.quantity > 0 ? `${item.quantity}x ` : "";
+    lines.push(
+      normalizeInlineValue(
+        `${qtyPrefix}${item.orderLabel || item.productName || "-"}`,
+      ),
+    );
+  }
+  lines.push("");
+
+  const groupedDetailLines = collectGroupedDetailLines(input.items);
+  for (const detailLine of groupedDetailLines) {
+    pushLabeledValue(lines, detailLine.label, detailLine.value);
+  }
+
+  if (groupedDetailLines.length > 0) {
     lines.push("");
-
-    for (const detailLine of item.detailLines ?? []) {
-      pushLabeledValue(lines, detailLine.label, detailLine.value);
-    }
-
-    if ((item.detailLines?.length ?? 0) > 0) {
-      lines.push("");
-    }
-  });
+  }
 
   lines.push(`Jam Pengiriman: ${formatWhatsAppDeliveryTime(input.deliveryTime)}`);
   lines.push(
