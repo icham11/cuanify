@@ -51,18 +51,31 @@ export interface BookingAutomationOrderPayload {
   resi: string;
   customerName: string;
   customerPhone: string;
+  customerAddress?: string;
   deliveryDate: string;
   deliverySlot: string;
+  deliveryMethod?: string;
   paymentStatus: string;
   orderStatus: string;
   totalPrice: number;
   manualAdjustment?: number;
   deliveryFee?: number;
+  downPaymentAmount?: number;
+  remainingBalance?: number;
   notes?: string;
   items: BookingAutomationItem[];
   deliveryAddresses: BookingAutomationAddress[];
   imageUrl?: string;
   imageUrls?: string[];
+  referenceImages?: Array<{
+    url: string;
+    label?: string;
+    note?: string;
+    orderIndex?: number;
+  }>;
+  shippingQuote?: unknown;
+  shipment?: unknown;
+  whatsAppParsedData?: unknown;
 }
 
 export interface BookingAutomationRequest {

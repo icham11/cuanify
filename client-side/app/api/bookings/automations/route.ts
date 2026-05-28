@@ -58,6 +58,13 @@ const addressSchema = z.object({
   addressLine: z.string(),
 });
 
+const referenceImageSchema = z.object({
+  url: z.string(),
+  label: z.string().optional(),
+  note: z.string().optional(),
+  orderIndex: z.number().optional(),
+});
+
 const requestSchema = z.object({
   eventType: z.enum([
     "order_created",
@@ -72,16 +79,26 @@ const requestSchema = z.object({
     resi: z.string().default(""),
     customerName: z.string(),
     customerPhone: z.string().default(""),
+    customerAddress: z.string().default(""),
     deliveryDate: z.string().default(""),
     deliverySlot: z.string().default(""),
+    deliveryMethod: z.string().default(""),
     paymentStatus: z.string().default("Pending"),
     orderStatus: z.string().default("Inquiry"),
     totalPrice: z.number(),
     deliveryFee: z.number().default(0),
     manualAdjustment: z.number().default(0),
+    downPaymentAmount: z.number().default(0),
+    remainingBalance: z.number().default(0),
     notes: z.string().optional(),
     items: z.array(orderItemSchema),
     deliveryAddresses: z.array(addressSchema),
+    imageUrl: z.string().optional(),
+    imageUrls: z.array(z.string()).optional(),
+    referenceImages: z.array(referenceImageSchema).optional(),
+    shippingQuote: z.unknown().optional(),
+    shipment: z.unknown().optional(),
+    whatsAppParsedData: z.unknown().optional(),
   }),
 });
 

@@ -7,6 +7,10 @@ import type {
   BookingAutomationOrderPayload,
   BookingAutomationResponse,
 } from "@/lib/bookings/automation-types";
+import {
+  toWhatsAppPayload,
+  type NormalizedOrder,
+} from "@/lib/bookings/order-api-helpers";
 
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const GOOGLE_CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar";
@@ -124,6 +128,111 @@ function buildProductionMessage(order: BookingAutomationOrderPayload): string {
     `Alamat: ${getPrimaryAddress(order)}`,
     `Catatan: ${notesSummary}`,
   ].join("\n");
+}
+
+function toNormalizedAutomationOrder(
+  order: BookingAutomationOrderPayload,
+): NormalizedOrder {
+  const parsedData =
+    order.whatsAppParsedData && typeof order.whatsAppParsedData === "object"
+      ? {
+          ...(order.whatsAppParsedData as Record<string, unknown>),
+          common: {
+            ...(((order.whatsAppParsedData as Record<string, unknown>).common as
+              | Record<string, unknown>
+              | undefined) ?? {}),
+            deliveryMethod:
+              ((order.whatsAppParsedData as Record<string, unknown>).common as
+                | Record<string, unknown>
+                | undefined)?.deliveryMethod || order.deliveryMethod || "",
+          },
+        }
+      : order.deliveryMethod
+        ? {
+            common: {
+              deliveryMethod: order.deliveryMethod,
+            },
+          }
+        : null;
+
+  return {
+    id: order.id,
+    bookingCode: order.bookingCode || "",
+    resi: order.resi || "",
+    customerName: order.customerName || "",
+    customerPhone: order.customerPhone || "",
+    customerAddress:
+      order.customerAddress ||
+      order.deliveryAddresses[0]?.addressLine ||
+      "",
+    deliveryDate: order.deliveryDate || "",
+    deliverySlot: order.deliverySlot || "",
+    notes: order.notes || "",
+    basePrice: 0,
+    addOnTotal: 0,
+    deliveryFee: Number(order.deliveryFee || 0),
+    manualAdjustment: Number(order.manualAdjustment || 0),
+    dpPaidAmount: Number(order.downPaymentAmount || 0),
+    finalPaidAmount: 0,
+    totalPaidAmount: Number(order.totalPrice || 0) - Number(order.remainingBalance || 0),
+    downPaymentAmount: Number(order.downPaymentAmount || 0),
+    remainingBalance: Number(order.remainingBalance || 0),
+    product: order.items.map((item) => item.productName).filter(Boolean).join(", "),
+    totalPrice: Number(order.totalPrice || 0),
+    insuranceFee: 0,
+    sales_channel: "direct",
+    paymentStatus: order.paymentStatus || "Pending",
+    orderStatus: order.orderStatus || "Inquiry",
+    assignedStaffUserId: null,
+    assignedStaffName: "",
+    productionAssignedAt: null,
+    shippingQuote: order.shippingQuote ?? null,
+    shipment: order.shipment ?? null,
+    simulations: null,
+    whatsAppParsedData: parsedData,
+    imageUrl: order.imageUrl || "",
+    imageUrls: Array.isArray(order.imageUrls) ? order.imageUrls : [],
+    referenceImages: Array.isArray(order.referenceImages)
+      ? order.referenceImages
+      : [],
+    statusHistory: [],
+    automationLogs: [],
+    paymentTransactions: [],
+    productionStages: [],
+    items: order.items.map((item, index) => ({
+      id: item.id || `item-${index + 1}`,
+      category: item.category,
+      subcategory: item.subcategory,
+      productName: item.productName,
+      size: item.size,
+      quantity: item.quantity,
+      tokenDifficulty: item.tokenDifficulty,
+      notes: item.notes || "",
+      productType: item.productType,
+      selectedPrice: item.selectedPrice,
+      basePrice: item.basePrice,
+      cookiePrice: item.cookiePrice,
+      designCount: item.designCount,
+      additionalDesignCount: item.additionalDesignCount,
+      additionalCost: item.additionalCost,
+      bouquetType: item.bouquetType,
+      bouquetCost: item.bouquetCost,
+      cakeDiameterCm: item.cakeDiameterCm,
+      cakeHeightCm: item.cakeHeightCm,
+      cakeType: item.cakeType,
+      cupcakePackType: item.cupcakePackType,
+      hasCookieTopper: item.hasCookieTopper,
+      lineTotal: item.lineTotal,
+    })),
+    deliveryAddresses: order.deliveryAddresses.map((address, index) => ({
+      id: address.id || `addr-${index + 1}`,
+      label: address.label,
+      area: address.area,
+      postalCode: "",
+      addressLine: address.addressLine,
+    })),
+    deletedAt: null,
+  };
 }
 
 function buildCalendarDescription(
@@ -681,12 +790,9 @@ export async function runBookingAutomations(
       }));
     } else {
       // Gunakan jalur WA terstandar agar urutan kirim konsisten: teks rekap dulu, lalu gambar.
-      const result = await sendOrderToWhatsApp({
-        ...order,
-        item: getItemsSummary(order),
-        phone: order.customerPhone,
-        address: getPrimaryAddress(order),
-      });
+      const result = await sendOrderToWhatsApp(
+        toWhatsAppPayload(toNormalizedAutomationOrder(order)),
+      );
 
       fonnteProduction = {
         ok: result.ok,
@@ -699,12 +805,9 @@ export async function runBookingAutomations(
       String(process.env.FONNTE_SEND_PRODUCTION_ON_CREATE || "true") === "true";
 
     if (shouldSendOnCreate) {
-      const result = await sendOrderToWhatsApp({
-        ...order,
-        item: getItemsSummary(order),
-        phone: order.customerPhone,
-        address: getPrimaryAddress(order),
-      });
+      const result = await sendOrderToWhatsApp(
+        toWhatsAppPayload(toNormalizedAutomationOrder(order)),
+      );
 
       fonnteProduction = {
         ok: result.ok,

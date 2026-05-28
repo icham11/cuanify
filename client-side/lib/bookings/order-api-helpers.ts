@@ -1008,6 +1008,112 @@ export function buildCaptionItemDetailLines(
     .filter((entry): entry is { label: string; value: string } => Boolean(entry));
 }
 
+function normalizeCaptionDetailLabel(value: unknown): string {
+  return asString(value)
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function isCookieDesignSummaryValue(value: unknown): boolean {
+  const normalized = normalizeWhatsAppCaptionValue(value);
+  if (!normalized) return false;
+
+  if (/^\d+$/.test(normalized)) return true;
+  if (/^\d+\s*(design|desain|pcs?|x)\b/i.test(normalized)) return true;
+  if (/^\d+\s*\(.*\)$/.test(normalized)) return true;
+  if (/^\d+\s*[-,].*$/.test(normalized)) return true;
+
+  return false;
+}
+
+function formatCaptionMultilineValue(value: unknown): string {
+  return asString(value)
+    .replace(/\s+\|\s+/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function isLikelyNextWhatsAppField(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed) return false;
+  if (/^\d+[.)]\s*/.test(trimmed)) return false;
+  if (/^[*-]\s+/.test(trimmed)) return false;
+
+  if (
+    /^(jam pengiriman|metode pengiriman|nama penerima|no\.?\s*telp penerima|alamat lengkap|kode pos|tanggal pengiriman|kode booking|order)\s*:/i.test(
+      trimmed,
+    )
+  ) {
+    return true;
+  }
+
+  return /^[A-Za-z][A-Za-z0-9\s./()'-]{2,40}\s*:/.test(trimmed);
+}
+
+function extractDesignBlockFromRawText(rawText: unknown): string {
+  const lines = asString(rawText)
+    .replace(/\r\n/g, "\n")
+    .split("\n");
+
+  const startIndex = lines.findIndex((line) =>
+    /^\s*design(?:\s+cookies)?\s*:/i.test(line),
+  );
+  if (startIndex < 0) return "";
+
+  const match = lines[startIndex].match(/^\s*design(?:\s+cookies)?\s*:\s*(.*)$/i);
+  const collected: string[] = [];
+  const inlineValue = match?.[1]?.trim() || "";
+  if (inlineValue) {
+    collected.push(inlineValue);
+  }
+
+  for (let index = startIndex + 1; index < lines.length; index += 1) {
+    const nextLine = lines[index].trimEnd();
+    if (!nextLine.trim()) {
+      if (collected.length > 0) break;
+      continue;
+    }
+    if (isLikelyNextWhatsAppField(nextLine)) break;
+    collected.push(nextLine.trim());
+  }
+
+  return collected.join("\n").trim();
+}
+
+function buildProductionCaptionDetailLines(
+  order: NormalizedOrder,
+  item: JsonRecord,
+): Array<{ label: string; value: string }> {
+  const baseLines = buildCaptionItemDetailLines(order, item);
+  const detailOrderType =
+    mapProductTypeToDetailOrderType(item.productType) ||
+    (normalizeParsedOrderTypeKey(
+      asRecord(order.whatsAppParsedData)?.orderType,
+    ) as WhatsAppOrderType);
+  const isCookieItem = detailOrderType === "cookies";
+
+  const lines = baseLines.flatMap((line) => {
+    const label = normalizeCaptionDetailLabel(line.label);
+
+    if (isCookieItem && label === "jumlah cookies") {
+      return [];
+    }
+
+    if (isCookieItem && label === "design cookies") {
+      if (isCookieDesignSummaryValue(line.value)) {
+        return [];
+      }
+
+      return [{ label: "Design", value: line.value }];
+    }
+
+    return [line];
+  });
+
+  return lines;
+}
+
 export function formatCaptionAddOns(item: JsonRecord): string {
   const addOns = asStringArray(item.addOns);
   if (addOns.length === 0) return "";
@@ -1037,11 +1143,38 @@ export function resolveCaptionItemSubtotal(item: JsonRecord): number {
 export function buildCaptionItems(
   order: NormalizedOrder,
 ): NonNullable<SendOrderToWhatsAppInput["captionItems"]> {
+  const normalizedOrderType = normalizeParsedOrderTypeKey(
+    asRecord(order.whatsAppParsedData)?.orderType,
+  );
+  const sharedCookieDesignNotes = formatCaptionMultilineValue(
+    buildWhatsAppDesignNotes(order),
+  );
+  let hasInjectedCookieDesign = false;
+
   return order.items.map((rawItem, index) => {
     const item = asRecord(rawItem) ?? {};
     const productName = asString(item.productName) || `Item ${index + 1}`;
     const unitPrice = asNumber(item.selectedPrice) || asNumber(item.basePrice);
     const quantity = Math.max(0, asNumber(item.quantity) || 0);
+    const detailOrderType =
+      mapProductTypeToDetailOrderType(item.productType) ||
+      (normalizedOrderType as WhatsAppOrderType);
+    const isCookieItem = detailOrderType === "cookies";
+    const detailLines = buildProductionCaptionDetailLines(order, item);
+    const hasDesignLine = detailLines.some(
+      (line) => normalizeCaptionDetailLabel(line.label) === "design",
+    );
+
+    if (hasDesignLine) {
+      hasInjectedCookieDesign = true;
+    } else if (
+      isCookieItem &&
+      !hasInjectedCookieDesign &&
+      sharedCookieDesignNotes
+    ) {
+      detailLines.push({ label: "Design", value: sharedCookieDesignNotes });
+      hasInjectedCookieDesign = true;
+    }
 
     return {
       productName,
@@ -1050,7 +1183,7 @@ export function buildCaptionItems(
       addOnText: formatCaptionAddOns(item),
       subtotal: resolveCaptionItemSubtotal(item),
       orderLabel: productName,
-      detailLines: buildCaptionItemDetailLines(order, item),
+      detailLines,
     };
   });
 }
@@ -1171,23 +1304,29 @@ export function buildWhatsAppCustomerNotes(order: NormalizedOrder): string {
 export function buildWhatsAppDesignNotes(order: NormalizedOrder): string {
   const parsedData = asRecord(order.whatsAppParsedData);
   const details = getParsedDetailsForTemplate(order);
+  const rawDesignBlock = extractDesignBlockFromRawText(parsedData?.rawText);
+  if (rawDesignBlock) {
+    return rawDesignBlock;
+  }
+
   const referenceNotes = [
     ...asArrayOfRecords(order.referenceImages),
     ...asArrayOfRecords(parsedData?.referenceImages),
   ]
     .map((entry) => normalizeWhatsAppCaptionValue(entry.note))
     .filter(Boolean);
+  const cookieDesign = normalizeWhatsAppCaptionValue(details?.cookieDesign);
 
   const candidates = [
     ...DESIGN_REQUEST_KEYS.map((key) =>
       normalizeWhatsAppCaptionValue(details?.[key] ?? parsedData?.[key]),
     ),
-    normalizeWhatsAppCaptionValue(details?.cookieDesign),
+    isCookieDesignSummaryValue(cookieDesign) ? "" : cookieDesign,
     normalizeWhatsAppCaptionValue(details?.colorTheme),
     ...referenceNotes,
   ].filter(Boolean);
 
-  return Array.from(new Set(candidates)).join(" | ");
+  return formatCaptionMultilineValue(Array.from(new Set(candidates)).join(" | "));
 }
 
 export function toWhatsAppPayload(order: NormalizedOrder): SendOrderToWhatsAppInput {

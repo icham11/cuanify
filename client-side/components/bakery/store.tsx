@@ -1026,12 +1026,17 @@ function buildAutomationPayload(
     resi: order.resi || "",
     customerName: order.customerName || "",
     customerPhone: order.customerPhone || "",
+    customerAddress: order.customerAddress || "",
     deliveryDate: order.deliveryDate || "",
     deliverySlot: order.deliverySlot || "",
+    deliveryMethod: order.deliveryMethod || "",
     paymentStatus: order.paymentStatus,
     orderStatus: order.orderStatus,
     totalPrice: Number(order.totalPrice || 0),
     deliveryFee: Number(order.deliveryFee || 0),
+    manualAdjustment: Number(order.manualAdjustment || 0),
+    downPaymentAmount: Number(order.downPaymentAmount || 0),
+    remainingBalance: Number(order.remainingBalance || 0),
     notes: order.notes || "",
     items: (order.items ?? []).map((item) => ({
       id: item.id,
@@ -1066,8 +1071,18 @@ function buildAutomationPayload(
       area: address.area,
       addressLine: address.addressLine,
     })),
-    imageUrl: order.whatsAppParsedData?.imageUrl,
-    imageUrls: order.whatsAppParsedData?.uploadedImageUrls,
+    imageUrl: order.imageUrl || order.whatsAppParsedData?.imageUrl,
+    imageUrls:
+      (Array.isArray(order.imageUrls) && order.imageUrls.length > 0
+        ? order.imageUrls
+        : order.whatsAppParsedData?.uploadedImageUrls) || [],
+    referenceImages:
+      (Array.isArray(order.referenceImages) && order.referenceImages.length > 0
+        ? order.referenceImages
+        : order.whatsAppParsedData?.referenceImages) || [],
+    shippingQuote: order.shippingQuote ?? null,
+    shipment: order.shipment ?? null,
+    whatsAppParsedData: order.whatsAppParsedData ?? null,
   };
 }
 
