@@ -224,7 +224,7 @@ export const TOKEN_DIFFICULTY_OPTIONS: Array<{
   { value: "EXPERT", label: "Expert", token: 5, cookiePrice: 35000 },
 ];
 export const CUPCAKE_INDIVIDUAL_MIN_QTY = 10;
-export const COOKIE_CUSTOM_TOTAL_MIN_QTY = 20;
+export const COOKIE_CUSTOM_TOTAL_MIN_QTY = 10;
 export const COOKIE_INCLUDED_DESIGN_LIMIT = 5;
 export const COOKIE_ADDITIONAL_DESIGN_PRICE = 10_000;
 export const COOKIE_ADDITIONAL_DESIGN_ADDON_IDS = [
@@ -1530,6 +1530,18 @@ export function getItemQuantityRule( // Definisikan fungsi penentu aturan kuanti
   ); // Akhir dari normalisasi key
   
   const dbMinOrder = minimumOrderMap?.get(dashboardName) ?? 0; // TAMBAHKAN: Dapatkan batas minimal order dari map DB
+
+  if (isCustomCookieItem(item)) {
+    const effectiveMin = dbMinOrder > 0 ? dbMinOrder : COOKIE_CUSTOM_TOTAL_MIN_QTY;
+    const splitEx1 = Math.max(1, Math.floor(effectiveMin / 2));
+    const splitEx2 = Math.max(1, effectiveMin - splitEx1);
+    return {
+      label: "Quantity (pcs)",
+      min: 1, // Kuantitas per varian bisa 1 karena dicek totalnya nanti
+      helperText: `Minimum total custom cookies ${effectiveMin} pcs per order. Bisa split varian (contoh ${splitEx1} Simple + ${splitEx2} Hard).`,
+    };
+  }
+
   if (dbMinOrder > 0) { // TAMBAHKAN: Jika minimal order diset di database
     return { // TAMBAHKAN: Kembalikan aturan minimal order khusus
       label: "Quantity", // TAMBAHKAN: Label input qty
@@ -1757,8 +1769,18 @@ export function normalizeTokenLookupKey(value: string): string {
 }
 
 export function toDashboardProductNameFromItem(item: BookingItemInput): string {
+  // Custom Cookies di booking form punya productName="Cookies" tapi di DB namanya "Custom Cookies".
+  // Normalisasi di sini agar lookup key cocok dengan nama produk di database.
+  let effectiveProductName = item.productName;
+  if (
+    isCustomCookieItem(item) &&
+    effectiveProductName.toLowerCase().trim() === "cookies"
+  ) {
+    effectiveProductName = "Custom Cookies"; // Sesuaikan dengan nama di tabel Product
+  }
+
   return buildDashboardProductName({
-    productName: item.productName,
+    productName: effectiveProductName,
     variantLabel: item.size,
     variantCount: 1,
   });

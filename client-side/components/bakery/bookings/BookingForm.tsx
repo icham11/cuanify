@@ -849,7 +849,7 @@ const TOKEN_DIFFICULTY_OPTIONS: Array<{
   { value: "EXPERT", label: "Expert", token: 5, cookiePrice: 35000 },
 ];
 const CUPCAKE_INDIVIDUAL_MIN_QTY = 10;
-const COOKIE_CUSTOM_TOTAL_MIN_QTY = 20;
+const COOKIE_CUSTOM_TOTAL_MIN_QTY = 10;
 const COOKIE_INCLUDED_DESIGN_LIMIT = 5;
 const COOKIE_ADDITIONAL_DESIGN_PRICE = 10_000;
 const COOKIE_ADDITIONAL_DESIGN_ADDON_IDS = [
@@ -2212,6 +2212,18 @@ function getItemQuantityRule( // Definisikan fungsi lokal untuk mengambil batas 
   ); // Akhir dari normalisasi key
   
   const dbMinOrder = minimumOrderMap?.get(dashboardName) ?? 0; // TAMBAHKAN: Dapatkan nilai minimal order dari map DB
+
+  if (isCustomCookieItem(item)) {
+    const effectiveMin = dbMinOrder > 0 ? dbMinOrder : COOKIE_CUSTOM_TOTAL_MIN_QTY;
+    const splitEx1 = Math.max(1, Math.floor(effectiveMin / 2));
+    const splitEx2 = Math.max(1, effectiveMin - splitEx1);
+    return {
+      label: "Quantity (pcs)",
+      min: 1, // Kuantitas per varian bisa 1 karena dicek totalnya nanti
+      helperText: `Minimum total custom cookies ${effectiveMin} pcs per order. Bisa split varian (contoh ${splitEx1} Simple + ${splitEx2} Hard).`,
+    };
+  }
+
   if (dbMinOrder > 0) { // TAMBAHKAN: Jika minimal order di DB diset > 0
     return { // TAMBAHKAN: Kembalikan aturan minimal order khusus
       label: "Quantity", // TAMBAHKAN: Label qty
@@ -2255,13 +2267,7 @@ function getItemQuantityRule( // Definisikan fungsi lokal untuk mengambil batas 
     }
   }
 
-  if (isCustomCookieItem(item)) {
-    return {
-      label: "Quantity (pcs)",
-      min: 1,
-      helperText: `Minimum total custom cookies ${COOKIE_CUSTOM_TOTAL_MIN_QTY} pcs per order. Bisa split varian (contoh 10 Simple + 10 Hard).`,
-    };
-  }
+
 
   if (item.category === "Cake") {
     if (isTwoTierCakeItem(item)) {
@@ -2445,8 +2451,18 @@ function normalizeTokenLookupKey(value: string): string {
 }
 
 function toDashboardProductNameFromItem(item: BookingItemInput): string {
+  // Custom Cookies di booking form punya productName="Cookies" tapi di DB namanya "Custom Cookies".
+  // Normalisasi di sini agar lookup key cocok dengan nama produk di database.
+  let effectiveProductName = item.productName;
+  if (
+    isCustomCookieItem(item) &&
+    effectiveProductName.toLowerCase().trim() === "cookies"
+  ) {
+    effectiveProductName = "Custom Cookies"; // Sesuaikan dengan nama di tabel Product
+  }
+
   return buildDashboardProductName({
-    productName: item.productName,
+    productName: effectiveProductName,
     variantLabel: item.size,
     variantCount: 1,
   });
@@ -5367,12 +5383,25 @@ export default function BookingForm({
       if (!isCustomCookieItem(item)) return sum;
       return sum + Math.max(0, Number(item.quantity) || 0);
     }, 0);
+
+    let customCookieMinQty = COOKIE_CUSTOM_TOTAL_MIN_QTY;
+    for (const item of values.items) {
+      if (isCustomCookieItem(item)) {
+        const dashboardName = normalizeTokenLookupKey(toDashboardProductNameFromItem(item as BookingItemInput));
+        const dbMinOrder = productMinimumOrderByName.get(dashboardName);
+        if (dbMinOrder !== undefined && dbMinOrder > 0) {
+          customCookieMinQty = dbMinOrder;
+          break;
+        }
+      }
+    }
+
     if (
       totalCustomCookieQty > 0 &&
-      totalCustomCookieQty < COOKIE_CUSTOM_TOTAL_MIN_QTY
+      totalCustomCookieQty < customCookieMinQty
     ) {
       showSubmitFeedback(
-        `Total Custom Cookies minimal ${COOKIE_CUSTOM_TOTAL_MIN_QTY} pcs. Saat ini ${totalCustomCookieQty} pcs.`,
+        `Total Custom Cookies minimal ${customCookieMinQty} pcs. Saat ini ${totalCustomCookieQty} pcs.`,
       );
       return;
     }

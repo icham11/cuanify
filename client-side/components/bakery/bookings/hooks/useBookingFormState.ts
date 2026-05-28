@@ -191,7 +191,7 @@ const defaultItemSelection = getDefaultCatalogSelection();
 
 
 import { bookingSchema, BookingFormInput, BookingFormValues } from "../booking-form-schema";
-import { BookingItemInput, ParserSource, ParserOrderType, EMPTY_ITEMS, EMPTY_ADDRESSES, BOUQUET_STANDING_MIN_QTY, COOKIE_CUSTOM_TOTAL_MIN_QTY, DARK_COLOR_BUTTERCREAM_ADDON_ID, MAX_DARK_BUTTERCREAM_COLORS, CUPCAKE_COOKIE_ADDON_IDS, FRAGILE_ORDER_ALLOWED_METHODS, FRAGILE_ORDER_ALLOWED_METHODS_TEXT, normalizeDarkButtercreamColors, isCupcakeCookieAddOnId, normalizeTokenDifficultyValue, normalizeBouquetCookiePriceValue, normalizeBouquetPriceOverrideValue, normalizeSharingBoxPriceOverrideValue, normalizeCookieDesignCount, getCookieAdditionalDesignCountFromItem, orderTypeLabel, BookingItemGroupLabel, getBookingItemGroupLabel, parseEtaToHours, ParseWhatsAppApiResponse, ParseWhatsAppRequestArgs, ParseWhatsAppApiError, CapacitySingleDateResponse, DuplicateTemplateWarningState, normalizeReferenceLabelInput, buildParsedReferenceImages, summarizeDetectedItems, getParsedSubtotalOverride, getParsedUnitPriceOverride, hasParsedPricingOverride, parseCookieDifficultyRows, formatCookieDifficultyRows, removeCookieBreakdownFromNotes, extractBouquetGreetingCardFromNotes, extractBouquetPaperColorFromNotes, extractBouquetRibbonFromNotes, extractBouquetFlowerCountFromNotes, extractBouquetFlowerColorFromNotes, extractBouquetRibbonColorFromNotes, removeBouquetStructuredFieldsFromNotes, inferBouquetFlowerCountFromAddOns, inferBouquetCookieFillQuantityFromText, ensureSelectionFromCatalog, getVariantsFromCatalog, getCategoryAddOnsFromCatalog, getCookieAdditionalDesignUnitPrice, getFlavorOptionsForCategory, normalizeAddOnQuantities, normalizeAddOnPriceOverrides, normalizeCustomAddOns, getCustomAddOnTotal, supportsAddOnQuantity, isTwoTierCakeItem, getTwoTierSummaryLabel, getAddOnUnitMultiplier, isBouquetFlowerAddOnId, calculatePerUnitAddOnPrice, detectBouquetTypeFromItem, getBouquetCostByType, resolveBouquetSelectionByType, isValidBouquetQuantity, getBouquetQtyRangeLabel, getQuantityRuleViolationMessage, resolveIndividualCupcakeSizeByQuantity, getAutoQuantityForItem, isCustomCookieItem, isCustomCookieSharingBoxItem, getItemQuantityRule, isMediumVariantLabel, resolveBouquetVariantForPaxel, getItemBasePrice, normalizeTokenLookupKey, getTotalProductionTokenSynced, getDraftItemPriceBreakdown, getDailyBookingSequence, generateBookingCode, normalizeDuplicateTemplateText, findOrdersWithDuplicateParsedTemplate, formatDuplicateWarningDate, formatTemplateSimilarityLabel } from "../booking-form-helpers";
+import { BookingItemInput, ParserSource, ParserOrderType, EMPTY_ITEMS, EMPTY_ADDRESSES, BOUQUET_STANDING_MIN_QTY, COOKIE_CUSTOM_TOTAL_MIN_QTY, DARK_COLOR_BUTTERCREAM_ADDON_ID, MAX_DARK_BUTTERCREAM_COLORS, CUPCAKE_COOKIE_ADDON_IDS, FRAGILE_ORDER_ALLOWED_METHODS, FRAGILE_ORDER_ALLOWED_METHODS_TEXT, normalizeDarkButtercreamColors, isCupcakeCookieAddOnId, normalizeTokenDifficultyValue, normalizeBouquetCookiePriceValue, normalizeBouquetPriceOverrideValue, normalizeSharingBoxPriceOverrideValue, normalizeCookieDesignCount, getCookieAdditionalDesignCountFromItem, orderTypeLabel, BookingItemGroupLabel, getBookingItemGroupLabel, parseEtaToHours, ParseWhatsAppApiResponse, ParseWhatsAppRequestArgs, ParseWhatsAppApiError, CapacitySingleDateResponse, DuplicateTemplateWarningState, normalizeReferenceLabelInput, buildParsedReferenceImages, summarizeDetectedItems, getParsedSubtotalOverride, getParsedUnitPriceOverride, hasParsedPricingOverride, parseCookieDifficultyRows, formatCookieDifficultyRows, removeCookieBreakdownFromNotes, extractBouquetGreetingCardFromNotes, extractBouquetPaperColorFromNotes, extractBouquetRibbonFromNotes, extractBouquetFlowerCountFromNotes, extractBouquetFlowerColorFromNotes, extractBouquetRibbonColorFromNotes, removeBouquetStructuredFieldsFromNotes, inferBouquetFlowerCountFromAddOns, inferBouquetCookieFillQuantityFromText, ensureSelectionFromCatalog, getVariantsFromCatalog, getCategoryAddOnsFromCatalog, getCookieAdditionalDesignUnitPrice, getFlavorOptionsForCategory, normalizeAddOnQuantities, normalizeAddOnPriceOverrides, normalizeCustomAddOns, getCustomAddOnTotal, supportsAddOnQuantity, isTwoTierCakeItem, getTwoTierSummaryLabel, getAddOnUnitMultiplier, isBouquetFlowerAddOnId, calculatePerUnitAddOnPrice, detectBouquetTypeFromItem, getBouquetCostByType, resolveBouquetSelectionByType, isValidBouquetQuantity, getBouquetQtyRangeLabel, getQuantityRuleViolationMessage, resolveIndividualCupcakeSizeByQuantity, getAutoQuantityForItem, isCustomCookieItem, isCustomCookieSharingBoxItem, getItemQuantityRule, isMediumVariantLabel, resolveBouquetVariantForPaxel, getItemBasePrice, normalizeTokenLookupKey, getTotalProductionTokenSynced, getDraftItemPriceBreakdown, getDailyBookingSequence, generateBookingCode, normalizeDuplicateTemplateText, findOrdersWithDuplicateParsedTemplate, formatDuplicateWarningDate, formatTemplateSimilarityLabel, toDashboardProductNameFromItem } from "../booking-form-helpers";
 
 // ── Custom Hook: Logika bisnis BookingForm ─────────────────────────────────
 // Diekstrak otomatis dari BookingForm.tsx untuk mengurangi ukuran komponen.
@@ -1761,12 +1761,25 @@ export function useBookingFormState() {
       if (!isCustomCookieItem(item)) return sum;
       return sum + Math.max(0, Number(item.quantity) || 0);
     }, 0);
+
+    let customCookieMinQty = COOKIE_CUSTOM_TOTAL_MIN_QTY;
+    for (const item of values.items) {
+      if (isCustomCookieItem(item)) {
+        const dashboardName = normalizeTokenLookupKey(toDashboardProductNameFromItem(item as BookingItemInput));
+        const dbMinOrder = productMinimumOrderByName.get(dashboardName);
+        if (dbMinOrder !== undefined && dbMinOrder > 0) {
+          customCookieMinQty = dbMinOrder;
+          break;
+        }
+      }
+    }
+
     if (
       totalCustomCookieQty > 0 &&
-      totalCustomCookieQty < COOKIE_CUSTOM_TOTAL_MIN_QTY
+      totalCustomCookieQty < customCookieMinQty
     ) {
       toast.error(
-        `Total Custom Cookies minimal ${COOKIE_CUSTOM_TOTAL_MIN_QTY} pcs. Saat ini ${totalCustomCookieQty} pcs.`,
+        `Total Custom Cookies minimal ${customCookieMinQty} pcs. Saat ini ${totalCustomCookieQty} pcs.`,
       );
       return;
     }
