@@ -2078,32 +2078,31 @@ export function getDraftItemPriceBreakdown(args: {
     customCookieAdditionalDesignCount * customCookieAdditionalDesignUnitPrice;
   const addOnDetails: string[] = [];
   const selectedAddOnIds = Array.isArray(item.addOns) ? item.addOns : [];
-  const hasOnlyOrderLevelAddOns =
-    selectedAddOnIds.length > 0 &&
-    selectedAddOnIds.every((addOnId) => isOrderLevelAddOnId(addOnId));
 
-  selectedAddOnIds.forEach((addOnId: string) => {
-    const addOn = categoryAddOns.find((entry) => entry.id === addOnId);
-    if (!addOn) return;
+  if (!hasParsedRecapPrice) {
+    selectedAddOnIds.forEach((addOnId: string) => {
+      const addOn = categoryAddOns.find((entry) => entry.id === addOnId);
+      if (!addOn) return;
 
-    const quantityMultiplier = getAddOnUnitMultiplier({
-      category: item.category,
-      addonId: addOnId,
-      addOnQuantities: normalizedAddOnQuantities,
+      const quantityMultiplier = getAddOnUnitMultiplier({
+        category: item.category,
+        addonId: addOnId,
+        addOnQuantities: normalizedAddOnQuantities,
+      });
+      const qtyText = quantityMultiplier > 1 ? ` x${quantityMultiplier}` : "";
+      addOnDetails.push(`${addOn.label}${qtyText}`);
     });
-    const qtyText = quantityMultiplier > 1 ? ` x${quantityMultiplier}` : "";
-    addOnDetails.push(`${addOn.label}${qtyText}`);
-  });
 
-  normalizedCustomAddOns.forEach((entry) => {
-    if (!entry.label.trim()) return;
-    addOnDetails.push(`Custom: ${entry.label}`);
-  });
+    normalizedCustomAddOns.forEach((entry) => {
+      if (!entry.label.trim()) return;
+      addOnDetails.push(`Custom: ${entry.label}`);
+    });
 
-  if (customCookieAdditionalDesignCount > 0) {
-    addOnDetails.push(
-      `Surcharge design (${customCookieAdditionalDesignCount} x ${formatCurrency(customCookieAdditionalDesignUnitPrice)})`,
-    );
+    if (customCookieAdditionalDesignCount > 0) {
+      addOnDetails.push(
+        `Surcharge design (${customCookieAdditionalDesignCount} x ${formatCurrency(customCookieAdditionalDesignUnitPrice)})`,
+      );
+    }
   }
 
   const baseBeforeSplit =
@@ -2157,14 +2156,13 @@ export function getDraftItemPriceBreakdown(args: {
             customCookieAdditionalDesignCharge,
         ),
       );
-  const baseAmount = catalogBaseAmount;
-  const addOnAmount =
-    hasParsedRecapPrice && hasOnlyOrderLevelAddOns
-      ? Math.max(0, totalAmount - baseAmount)
-      : Math.max(0, Math.round(catalogAddOnAmount));
-  const designAdjustmentAmount = Math.round(
-    totalAmount - baseAmount - addOnAmount,
-  );
+  const baseAmount = hasParsedRecapPrice ? totalAmount : catalogBaseAmount;
+  const addOnAmount = hasParsedRecapPrice
+    ? 0
+    : Math.max(0, Math.round(catalogAddOnAmount));
+  const designAdjustmentAmount = hasParsedRecapPrice
+    ? 0
+    : Math.round(totalAmount - baseAmount - addOnAmount);
 
   return {
     categoryLabel,

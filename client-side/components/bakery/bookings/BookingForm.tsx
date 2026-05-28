@@ -2843,32 +2843,30 @@ function getDraftItemPriceBreakdown(args: {
     customCookieAdditionalDesignCount * customCookieAdditionalDesignUnitPrice;
   const addOnDetails: string[] = [];
   const selectedAddOnIds = Array.isArray(item.addOns) ? item.addOns : [];
-  const hasOnlyOrderLevelAddOns =
-    selectedAddOnIds.length > 0 &&
-    selectedAddOnIds.every((addOnId) => isOrderLevelAddOnId(addOnId));
+  if (!hasParsedRecapPrice) {
+    selectedAddOnIds.forEach((addOnId) => {
+      const addOn = categoryAddOns.find((entry) => entry.id === addOnId);
+      if (!addOn) return;
 
-  selectedAddOnIds.forEach((addOnId) => {
-    const addOn = categoryAddOns.find((entry) => entry.id === addOnId);
-    if (!addOn) return;
-
-    const quantityMultiplier = getAddOnUnitMultiplier({
-      category: item.category,
-      addonId: addOnId,
-      addOnQuantities: normalizedAddOnQuantities,
+      const quantityMultiplier = getAddOnUnitMultiplier({
+        category: item.category,
+        addonId: addOnId,
+        addOnQuantities: normalizedAddOnQuantities,
+      });
+      const qtyText = quantityMultiplier > 1 ? ` x${quantityMultiplier}` : "";
+      addOnDetails.push(`${addOn.label}${qtyText}`);
     });
-    const qtyText = quantityMultiplier > 1 ? ` x${quantityMultiplier}` : "";
-    addOnDetails.push(`${addOn.label}${qtyText}`);
-  });
 
-  normalizedCustomAddOns.forEach((entry) => {
-    if (!entry.label.trim()) return;
-    addOnDetails.push(`Custom: ${entry.label}`);
-  });
+    normalizedCustomAddOns.forEach((entry) => {
+      if (!entry.label.trim()) return;
+      addOnDetails.push(`Custom: ${entry.label}`);
+    });
 
-  if (customCookieAdditionalDesignCount > 0) {
-    addOnDetails.push(
-      `Surcharge design (${customCookieAdditionalDesignCount} x ${formatCurrency(customCookieAdditionalDesignUnitPrice)})`,
-    );
+    if (customCookieAdditionalDesignCount > 0) {
+      addOnDetails.push(
+        `Surcharge design (${customCookieAdditionalDesignCount} x ${formatCurrency(customCookieAdditionalDesignUnitPrice)})`,
+      );
+    }
   }
 
   const baseBeforeSplit =
@@ -2922,14 +2920,13 @@ function getDraftItemPriceBreakdown(args: {
             customCookieAdditionalDesignCharge,
         ),
       );
-  const baseAmount = catalogBaseAmount;
-  const addOnAmount =
-    hasParsedRecapPrice && hasOnlyOrderLevelAddOns
-      ? Math.max(0, totalAmount - baseAmount)
-      : Math.max(0, Math.round(catalogAddOnAmount));
-  const designAdjustmentAmount = Math.round(
-    totalAmount - baseAmount - addOnAmount,
-  );
+  const baseAmount = hasParsedRecapPrice ? totalAmount : catalogBaseAmount;
+  const addOnAmount = hasParsedRecapPrice
+    ? 0
+    : Math.max(0, Math.round(catalogAddOnAmount));
+  const designAdjustmentAmount = hasParsedRecapPrice
+    ? 0
+    : Math.round(totalAmount - baseAmount - addOnAmount);
 
   return {
     categoryLabel,
@@ -4002,6 +3999,7 @@ export default function BookingForm({
     fields: itemFields,
     append: appendItem,
     remove: removeItem,
+    replace: replaceItems,
   } = useFieldArray({
     control,
     name: "items",
@@ -4011,6 +4009,7 @@ export default function BookingForm({
     fields: addressFields,
     append: appendAddress,
     remove: removeAddress,
+    replace: replaceAddresses,
   } = useFieldArray({
     control,
     name: "deliveryAddresses",
@@ -6931,6 +6930,7 @@ export default function BookingForm({
             };
           },
         );
+        replaceItems(normalizedItems);
         setValue("items", normalizedItems, { shouldValidate: true });
       }
       if (draft.deliveryAddresses?.length) {
@@ -6952,6 +6952,7 @@ export default function BookingForm({
             };
           });
 
+        replaceAddresses(normalizedAddresses);
         setValue("deliveryAddresses", normalizedAddresses, {
           shouldValidate: true,
         });
