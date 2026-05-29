@@ -50,6 +50,7 @@ model Business {
   production_tasks     production_tasks[]
   sales                Sale[]
   stockDocuments       StockDocument[]
+  orderTemplates       OrderTemplate[]
 
   @@index([userId, createdAt])
 }
@@ -702,4 +703,34 @@ enum DebtStatus {
 enum ShiftStatus {
   Open
   Closed
+}
+
+// ==================== DYNAMIC ORDER TEMPLATES ====================
+
+model OrderTemplate {
+  id          Int                  @id @default(autoincrement())
+  businessId  Int
+  name        String               // e.g. "Cake", "Buket", "Cookies"
+  typeKey     String               // e.g. "cake", "buket", "cookies_tower"
+  isActive    Boolean              @default(true)
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  fields      OrderTemplateField[]
+  business    Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@unique([businessId, typeKey])
+}
+
+model OrderTemplateField {
+  id            Int           @id @default(autoincrement())
+  templateId    Int
+  key           String        // e.g. "cakeFlavor"
+  label         String        // e.g. "Rasa Cake"
+  aliases       String[]      // e.g. ["rasa cake", "flavor cake"]
+  isRequired    Boolean       @default(false)
+  displayOrder  Int           @default(0)
+  template      OrderTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@index([templateId])
 }
