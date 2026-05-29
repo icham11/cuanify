@@ -94,7 +94,8 @@ export const bookingSchema = z
     wholesaleDiscountPercent: z
       .union([z.literal(0), z.literal(10), z.literal(15), z.literal(20)])
       .default(0),
-    manualAdjustment: z.number().default(0),
+    productAdjustment: z.number().default(0),
+    nonProductAdjustment: z.number().default(0),
     items: z.array(itemSchema).min(1, "At least one item is required"),
     deliveryAddresses: z
       .array(addressSchema)

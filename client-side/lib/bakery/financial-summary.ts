@@ -2,6 +2,7 @@ import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 import { resolveShippingParcelCount } from "@/lib/bookings/delivery-rules";
 import { buildDashboardProductName } from "@/lib/products/dashboard-name";
 import type { BakeryBusinessSettings } from "@/lib/bakery/settings";
+import { calculateOrderFinancialBreakdown } from "@/lib/bookings/financial-breakdown";
 
 const BUSINESS_TIME_ZONE = "Asia/Jakarta";
 
@@ -14,15 +15,25 @@ export type BakeryFinancialOrderItem = {
   basePrice?: number;
   selectedPrice?: number;
   lineTotal?: number;
+  addOnTotal?: number;
 };
 
 export type BakeryFinancialOrder = {
   id?: string;
   deliveryDate?: string;
   product?: string;
+  basePrice?: number;
+  addOnTotal?: number;
   totalPrice?: number;
+  designAdjustmentTotal?: number;
+  productAdjustment?: number;
+  nonProductAdjustment?: number;
+  productSubtotal?: number;
+  productDiscountAmount?: number;
+  serviceCharge?: number;
   deliveryFee?: number;
   insuranceFee?: number;
+  manualAdjustment?: number;
   totalPaidAmount?: number;
   dpPaidAmount?: number;
   finalPaidAmount?: number;
@@ -252,12 +263,22 @@ function getRevenueAmountInRange(
     return 0;
   }
 
-  const baseTotal = Number(order.totalPrice || 0);
-  const deliveryFee = Number(order.deliveryFee || 0);
-  const insuranceFee = Number(order.insuranceFee || 0);
+  const financialBreakdown = calculateOrderFinancialBreakdown({
+    basePrice: order.basePrice,
+    designAdjustmentTotal: order.designAdjustmentTotal,
+    addOnTotal: order.addOnTotal,
+    productAdjustment: order.productAdjustment,
+    nonProductAdjustment: order.nonProductAdjustment,
+    productSubtotal: order.productSubtotal,
+    productDiscountAmount: order.productDiscountAmount,
+    serviceCharge: order.serviceCharge,
+    deliveryFee: order.deliveryFee,
+    insuranceFee: order.insuranceFee,
+    totalPrice: order.totalPrice,
+    legacyManualAdjustment: order.manualAdjustment,
+  });
 
-  // Revenue should exclude pass-through costs like shipping and insurance
-  return Math.max(0, baseTotal - deliveryFee - insuranceFee);
+  return financialBreakdown.productNetRevenue;
 }
 
 function getCashFlowInAmountInRange(
@@ -472,10 +493,20 @@ export function calculateBakeryFinancialSummary(args: {
   const productCostEntries = buildProductCostEntries(args.products);
   const bookedRevenue = filteredOrders.reduce(
     (sum, order) => {
-      const baseTotal = Number(order.totalPrice || 0);
-      const deliveryFee = Number(order.deliveryFee || 0);
-      const insuranceFee = Number(order.insuranceFee || 0);
-      const netRevenue = Math.max(0, baseTotal - deliveryFee - insuranceFee);
+      const netRevenue = calculateOrderFinancialBreakdown({
+        basePrice: order.basePrice,
+        designAdjustmentTotal: order.designAdjustmentTotal,
+        addOnTotal: order.addOnTotal,
+        productAdjustment: order.productAdjustment,
+        nonProductAdjustment: order.nonProductAdjustment,
+        productSubtotal: order.productSubtotal,
+        productDiscountAmount: order.productDiscountAmount,
+        serviceCharge: order.serviceCharge,
+        deliveryFee: order.deliveryFee,
+        insuranceFee: order.insuranceFee,
+        totalPrice: order.totalPrice,
+        legacyManualAdjustment: order.manualAdjustment,
+      }).productNetRevenue;
       return sum + netRevenue * (isCancelledOrder(order) ? -1 : 1);
     },
     0,
@@ -499,8 +530,6 @@ export function calculateBakeryFinancialSummary(args: {
   filteredOrders.forEach((order) => {
     const orderIsCancelled = isCancelledOrder(order);
 
-    const totalPrice = Math.max(0, Number(order.totalPrice || 0));
-    
     // Calculate revenue based on delivery date
     const revenueAmountInRange = getRevenueAmountInRange(
       order,
@@ -533,12 +562,38 @@ export function calculateBakeryFinancialSummary(args: {
     // recognised as revenue in the requested range based on delivery date.
     // Use 0..1 to avoid negative recognition which caused inconsistent signs
     // between revenue/COGS and quantity.
-    const recognitionRatio =
-      totalPrice > 0
-        ? Math.max(0, Math.min(1, revenueAmountInRange / totalPrice))
-        : 0;
+    const recognitionRatio = revenueAmountInRange > 0 ? 1 : 0;
+    const orderProductNetRevenue = calculateOrderFinancialBreakdown({
+      basePrice: order.basePrice,
+      designAdjustmentTotal: order.designAdjustmentTotal,
+      addOnTotal: order.addOnTotal,
+      productAdjustment: order.productAdjustment,
+      nonProductAdjustment: order.nonProductAdjustment,
+      productSubtotal: order.productSubtotal,
+      productDiscountAmount: order.productDiscountAmount,
+      serviceCharge: order.serviceCharge,
+      deliveryFee: order.deliveryFee,
+      insuranceFee: order.insuranceFee,
+      totalPrice: order.totalPrice,
+      legacyManualAdjustment: order.manualAdjustment,
+    }).productNetRevenue;
+    const itemGrossRevenueEntries = (order.items || []).map((item) => {
+      const baseRevenue =
+        Number(
+          item.lineTotal ||
+            item.selectedPrice ||
+            Number(item.basePrice || 0) * resolveFinancialItemQuantity(item) ||
+            0,
+        ) || 0;
+      const addOnRevenue = Number(item.addOnTotal || 0);
+      return Math.max(0, baseRevenue + addOnRevenue);
+    });
+    const orderItemGrossRevenueTotal = itemGrossRevenueEntries.reduce(
+      (sum, value) => sum + value,
+      0,
+    );
 
-    (order.items || []).forEach((item) => {
+    (order.items || []).forEach((item, itemIndex) => {
       const quantity = resolveFinancialItemQuantity(item);
       const matchedCogs = resolveMatchedCogs({
         item,
@@ -577,13 +632,14 @@ export function calculateBakeryFinancialSummary(args: {
         return;
       }
 
-      const revenue =
-        Number(
-          item.lineTotal ||
-            item.selectedPrice ||
-            Number(item.basePrice || 0) * quantity ||
-            0,
-        ) || 0;
+      const grossItemRevenue = itemGrossRevenueEntries[itemIndex] ?? 0;
+      const revenueShare =
+        orderItemGrossRevenueTotal > 0
+          ? grossItemRevenue / orderItemGrossRevenueTotal
+          : (order.items?.length ?? 0) > 0
+            ? 1 / (order.items?.length ?? 1)
+            : 0;
+      const revenue = orderProductNetRevenue * revenueShare;
       const current = topProductsMap.get(productName) ?? {
         productName,
         quantitySold: 0,

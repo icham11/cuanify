@@ -1873,7 +1873,7 @@ function splitAddOnSegments(value: string): string[] {
 }
 
 function parseAddOnSegmentQuantity(segment: string): number {
-  const match = segment.match(/^\s*(\d{1,4})\b/);
+  const match = segment.match(/^\s*(\d{1,4})(?:\s*(?:pcs?|pc|x)\b|\b)?/i);
   const quantity = Number(match?.[1] || 0);
   if (!Number.isFinite(quantity) || quantity <= 0) return 1;
   return Math.round(quantity);
@@ -2385,7 +2385,7 @@ function detectCakeAddOnsFromText(value: string): {
   };
 
   const parseSegmentQuantity = (segment: string): number => {
-    const match = segment.match(/^\s*(\d{1,4})\b/);
+    const match = segment.match(/^\s*(\d{1,4})(?:\s*(?:pcs?|pc|x)\b|\b)?/i);
     const quantity = Number(match?.[1] || 0);
     if (!Number.isFinite(quantity) || quantity <= 0) return 1;
     return Math.round(quantity);

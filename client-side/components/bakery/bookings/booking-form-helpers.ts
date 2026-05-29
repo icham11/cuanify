@@ -1142,6 +1142,42 @@ export function getAddOnUnitMultiplier(args: {
   return Math.max(1, args.addOnQuantities[args.addonId] ?? 1);
 }
 
+function normalizeAddOnPricingText(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function isAdditionalDesignStyleAddOn(args: {
+  addonId: string;
+  addonLabel?: string;
+}): boolean {
+  if (
+    COOKIE_ADDITIONAL_DESIGN_ADDON_IDS.includes(
+      args.addonId as (typeof COOKIE_ADDITIONAL_DESIGN_ADDON_IDS)[number],
+    )
+  ) {
+    return true;
+  }
+
+  const normalized = normalizeAddOnPricingText(
+    `${args.addonId} ${args.addonLabel ?? ""}`,
+  );
+  if (!normalized) return false;
+
+  return (
+    normalized.includes("additional design") ||
+    normalized.includes("design tambahan") ||
+    normalized.includes("desain tambahan") ||
+    normalized.includes("design surcharge") ||
+    normalized.includes("desain surcharge") ||
+    normalized.includes("extra design") ||
+    normalized.includes("extra desain")
+  );
+}
+
 export function isBouquetFlowerAddOnId(addonId: string): boolean {
   return (
     addonId === BOUQUET_EXTRA_3_FLOWER_ADDON_ID ||
@@ -1237,6 +1273,15 @@ export function isOrderLevelAddOnId(addonId: string): boolean {
   return addonId === "bubblewrap" || addonId === "custom-card";
 }
 
+export function isPerOrderPricedAddOn(args: {
+  addonId: string;
+  addonLabel?: string;
+}): boolean {
+  return (
+    isOrderLevelAddOnId(args.addonId) || isAdditionalDesignStyleAddOn(args)
+  );
+}
+
 export function calculatePerUnitAddOnPrice(args: {
   category: string;
   bouquetType?: BouquetFormType | null;
@@ -1254,7 +1299,9 @@ export function calculatePerUnitAddOnPrice(args: {
       (entry) => entry.id === addonId,
     );
     if (!addon) return sum;
-    if (isOrderLevelAddOnId(addonId)) return sum;
+    if (isPerOrderPricedAddOn({ addonId, addonLabel: addon.label })) {
+      return sum;
+    }
 
     const multiplier = getAddOnUnitMultiplier({
       category: args.category,
@@ -1294,12 +1341,13 @@ export function calculateOrderLevelAddOnPrice(args: {
   >;
 }): number {
   return args.selectedAddOnIds.reduce((sum, addonId) => {
-    if (!isOrderLevelAddOnId(addonId)) return sum;
-
     const addon = args.addOnCatalogEntries.find(
       (entry) => entry.id === addonId,
     );
     if (!addon) return sum;
+    if (!isPerOrderPricedAddOn({ addonId, addonLabel: addon.label })) {
+      return sum;
+    }
 
     const multiplier = getAddOnUnitMultiplier({
       category: args.category,

@@ -129,8 +129,17 @@ export function resolveAdminServiceCharge(
 }
 
 export function parseServiceChargeFromNotes(notes?: string | null): number {
+  const parsed = parseMoneyLineFromNotes(notes, /service\s*charge/i);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.max(0, Math.round(parsed));
+}
+
+function parseMoneyLineFromNotes(
+  notes: string | null | undefined,
+  label: RegExp,
+): number {
   const match = String(notes || "").match(
-    /service\s*charge\s*:\s*([+\-]?\s*[\d.,]+)/i,
+    new RegExp(`${label.source}\\s*:\\s*([+\\-]?\\s*[\\d.,]+)`, "i"),
   );
   if (!match?.[1]) return 0;
 
@@ -138,8 +147,43 @@ export function parseServiceChargeFromNotes(notes?: string | null): number {
   if (!digits || digits === "-") return 0;
 
   const parsed = Number(digits);
+  return Number.isFinite(parsed) ? Math.round(parsed) : 0;
+}
+
+export function parseInsuranceFeeFromNotes(notes?: string | null): number {
+  const parsed = parseMoneyLineFromNotes(notes, /insurance\s*fee/i);
   if (!Number.isFinite(parsed)) return 0;
   return Math.max(0, Math.round(parsed));
+}
+
+export function parseWholesaleDiscountPercentFromNotes(
+  notes?: string | null,
+): number {
+  const match = String(notes || "").match(
+    /wholesale\s*discount\s*:\s*(\d{1,2})\s*%/i,
+  );
+  const parsed = Number(match?.[1] || 0);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.max(0, Math.min(100, Math.round(parsed)));
+}
+
+export function parseWholesaleDiscountAmountFromNotes(
+  notes?: string | null,
+): number {
+  const lineMatch = String(notes || "").match(
+    /wholesale\s*discount\s*:\s*([^\n\r]+)/i,
+  );
+  const line = lineMatch?.[1] || "";
+  const parenthesizedAmount = line.match(/\(([^)]+)\)/);
+  const amountSource = parenthesizedAmount?.[1] || line;
+  const numericChunks = amountSource.match(/[+\-]?\s*[\d.,]+/g) ?? [];
+  const lastChunk = numericChunks[numericChunks.length - 1] || "";
+  const digits = lastChunk.replace(/[^\d-]/g, "");
+  if (!digits || digits === "-") return 0;
+
+  const parsed = Number(digits);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.max(0, Math.abs(Math.round(parsed)));
 }
 
 function normalizeText(value: string): string {

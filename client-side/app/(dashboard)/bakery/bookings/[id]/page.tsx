@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
+import PriceSummaryCard from "@/components/bakery/bookings/PriceSummaryCard";
 import {
   ArrowLeft,
   Check,
@@ -49,6 +50,7 @@ import {
   resolveDeliveryMethodLabel,
   resolveOrderDeliveryMethod,
 } from "@/lib/bookings/delivery-method";
+import { calculateOrderFinancialBreakdown } from "@/lib/bookings/financial-breakdown";
 
 function formatDisplayDate(value?: string): string {
   if (!value) return "-";
@@ -181,6 +183,38 @@ export default function OrderDetailPage() {
     : "Status order tanpa assignment staff hanya bisa diubah oleh owner atau admin.";
 
   const totalPrice = order?.totalPrice ?? 0;
+  const orderFinancialBreakdown = useMemo(
+    () =>
+      calculateOrderFinancialBreakdown({
+        basePrice: order?.basePrice,
+        designAdjustmentTotal: order?.designAdjustmentTotal,
+        addOnTotal: order?.addOnTotal,
+        productAdjustment: order?.productAdjustment,
+        nonProductAdjustment: order?.nonProductAdjustment,
+        productSubtotal: order?.productSubtotal,
+        productDiscountAmount: order?.productDiscountAmount,
+        serviceCharge: order?.serviceCharge,
+        deliveryFee: order?.deliveryFee,
+        insuranceFee: order?.insuranceFee,
+        totalPrice: order?.totalPrice,
+        legacyManualAdjustment: order?.manualAdjustment,
+        notes: order?.notes,
+      }),
+    [
+      order?.addOnTotal,
+      order?.basePrice,
+      order?.deliveryFee,
+      order?.designAdjustmentTotal,
+      order?.insuranceFee,
+      order?.manualAdjustment,
+      order?.nonProductAdjustment,
+      order?.notes,
+      order?.productAdjustment,
+      order?.productDiscountAmount,
+      order?.productSubtotal,
+      order?.serviceCharge,
+    ],
+  );
   const messagePreview = order ? getCustomerMessagePreview(order.id) : "";
 
   useEffect(() => {
@@ -562,6 +596,23 @@ export default function OrderDetailPage() {
               ) : null}
             </CardContent>
           </Card>
+
+          <PriceSummaryCard
+            basePrice={orderFinancialBreakdown.basePrice}
+            designAdjustmentTotal={orderFinancialBreakdown.designAdjustmentTotal}
+            addOnTotal={orderFinancialBreakdown.addOnTotal}
+            productAdjustment={orderFinancialBreakdown.productAdjustment}
+            deliveryFee={orderFinancialBreakdown.deliveryFee}
+            insuranceFee={orderFinancialBreakdown.insuranceFee}
+            serviceCharge={orderFinancialBreakdown.serviceCharge}
+            nonProductAdjustment={orderFinancialBreakdown.nonProductAdjustment}
+            wholesaleDiscountPercent={orderFinancialBreakdown.wholesaleDiscountPercent}
+            wholesaleDiscountAmount={orderFinancialBreakdown.productDiscountAmount}
+            totalPrice={orderFinancialBreakdown.totalPrice}
+            paymentStatus={isFullyPaid ? "Paid" : "DP Paid"}
+            paymentPaidAmount={totalPaidAmount}
+            paymentRemainingAmount={remainingBalanceAmount}
+          />
 
           <Card className="overflow-hidden rounded-[24px] border-[var(--crumbella-border)] shadow-none">
             <CardHeader className="border-b border-[var(--crumbella-border)] px-4 py-4">

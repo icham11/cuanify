@@ -33,12 +33,14 @@ import {
   summarizeProductionTokensByItems,
 } from "@/lib/bookings/operations";
 import {
+  parseInsuranceFeeFromNotes,
   estimateOperationalWeightGram,
   usesShippingEngine,
   parseServiceChargeFromNotes,
   resolveShippingParcelCount,
   type DeliveryMethod,
 } from "@/lib/bookings/delivery-rules";
+import { calculateOrderFinancialBreakdown } from "@/lib/bookings/financial-breakdown";
 import {
   resolveDeliveryMethodLabel,
   resolveOrderDeliveryMethod,
@@ -189,7 +191,13 @@ export interface BakeryOrder {
   addOns?: string;
   notes?: string;
   basePrice?: number;
+  designAdjustmentTotal?: number;
   addOnTotal?: number;
+  productAdjustment?: number;
+  nonProductAdjustment?: number;
+  productSubtotal?: number;
+  productDiscountAmount?: number;
+  serviceCharge?: number;
   deliveryFee?: number;
   insuranceFee?: number;
   manualAdjustment?: number;
@@ -243,7 +251,13 @@ export interface NewOrderInput {
   items: OrderItem[];
   deliveryAddresses: DeliveryAddress[];
   basePrice: number;
+  designAdjustmentTotal: number;
   addOnTotal: number;
+  productAdjustment?: number;
+  nonProductAdjustment?: number;
+  productSubtotal?: number;
+  productDiscountAmount?: number;
+  serviceCharge?: number;
   deliveryFee: number;
   insuranceFee?: number;
   manualAdjustment: number;
@@ -270,6 +284,12 @@ export interface UpdateOrderInput {
   notes?: string;
   items: OrderItem[];
   deliveryAddresses: DeliveryAddress[];
+  designAdjustmentTotal?: number;
+  productAdjustment?: number;
+  nonProductAdjustment?: number;
+  productSubtotal?: number;
+  productDiscountAmount?: number;
+  serviceCharge?: number;
   deliveryFee?: number;
   insuranceFee?: number;
   manualAdjustment?: number;
@@ -859,7 +879,13 @@ function buildOrderDeduplicationFingerprint(order: {
   deliverySlot?: string;
   notes?: string;
   basePrice?: number;
+  designAdjustmentTotal?: number;
   addOnTotal?: number;
+  productAdjustment?: number;
+  nonProductAdjustment?: number;
+  productSubtotal?: number;
+  productDiscountAmount?: number;
+  serviceCharge?: number;
   deliveryFee?: number;
   insuranceFee?: number;
   manualAdjustment?: number;
@@ -877,7 +903,15 @@ function buildOrderDeduplicationFingerprint(order: {
     deliverySlot: normalizeBookingFingerprintText(order.deliverySlot),
     notes: normalizeBookingFingerprintText(order.notes),
     basePrice: normalizeMoney(order.basePrice),
+    designAdjustmentTotal: normalizeMoney(order.designAdjustmentTotal),
     addOnTotal: normalizeMoney(order.addOnTotal),
+    productAdjustment: normalizeMoney(order.productAdjustment),
+    nonProductAdjustment: normalizeMoney(
+      order.nonProductAdjustment ?? (order.manualAdjustment || 0),
+    ),
+    productSubtotal: normalizeMoney(order.productSubtotal),
+    productDiscountAmount: normalizeMoney(order.productDiscountAmount),
+    serviceCharge: normalizeMoney(order.serviceCharge),
     deliveryFee: normalizeMoney(order.deliveryFee),
     insuranceFee: normalizeMoney(order.insuranceFee),
     manualAdjustment: normalizeMoney(order.manualAdjustment),
@@ -933,7 +967,15 @@ function buildNewOrderSubmissionFingerprint(order: NewOrderInput): string {
     deliverySlot: normalizeBookingFingerprintText(order.deliverySlot),
     notes: normalizeBookingFingerprintText(order.notes),
     basePrice: normalizeMoney(order.basePrice),
+    designAdjustmentTotal: normalizeMoney(order.designAdjustmentTotal),
     addOnTotal: normalizeMoney(order.addOnTotal),
+    productAdjustment: normalizeMoney(order.productAdjustment),
+    nonProductAdjustment: normalizeMoney(
+      order.nonProductAdjustment ?? (order.manualAdjustment || 0),
+    ),
+    productSubtotal: normalizeMoney(order.productSubtotal),
+    productDiscountAmount: normalizeMoney(order.productDiscountAmount),
+    serviceCharge: normalizeMoney(order.serviceCharge),
     deliveryFee: normalizeMoney(order.deliveryFee),
     insuranceFee: normalizeMoney(order.insuranceFee),
     manualAdjustment: normalizeMoney(order.manualAdjustment),
@@ -1021,6 +1063,39 @@ function resolveOrderItemAddOnAmount(item: OrderItem): number {
   return normalizeMoney(item.addOnTotal);
 }
 
+function resolveOrderFinancialFields(order: {
+  basePrice?: number | null;
+  designAdjustmentTotal?: number | null;
+  addOnTotal?: number | null;
+  productAdjustment?: number | null;
+  nonProductAdjustment?: number | null;
+  serviceCharge?: number | null;
+  deliveryFee?: number | null;
+  insuranceFee?: number | null;
+  productSubtotal?: number | null;
+  productDiscountAmount?: number | null;
+  totalPrice?: number | null;
+  manualAdjustment?: number | null;
+  notes?: string | null;
+}): ReturnType<typeof calculateOrderFinancialBreakdown> {
+  return calculateOrderFinancialBreakdown({
+    basePrice: order.basePrice,
+    designAdjustmentTotal: order.designAdjustmentTotal,
+    addOnTotal: order.addOnTotal,
+    productAdjustment: order.productAdjustment,
+    nonProductAdjustment: order.nonProductAdjustment,
+    serviceCharge: order.serviceCharge,
+    deliveryFee: order.deliveryFee,
+    insuranceFee:
+      order.insuranceFee ?? parseInsuranceFeeFromNotes(order.notes),
+    productSubtotal: order.productSubtotal,
+    productDiscountAmount: order.productDiscountAmount,
+    totalPrice: order.totalPrice,
+    legacyManualAdjustment: order.manualAdjustment,
+    notes: order.notes,
+  });
+}
+
 function buildAutomationPayload(
   order: BakeryOrder,
 ): BookingAutomationOrderPayload {
@@ -1038,7 +1113,9 @@ function buildAutomationPayload(
     orderStatus: order.orderStatus,
     totalPrice: Number(order.totalPrice || 0),
     deliveryFee: Number(order.deliveryFee || 0),
-    manualAdjustment: Number(order.manualAdjustment || 0),
+    manualAdjustment: Number(
+      order.nonProductAdjustment ?? (order.manualAdjustment || 0),
+    ),
     downPaymentAmount: Number(order.downPaymentAmount || 0),
     remainingBalance: Number(order.remainingBalance || 0),
     notes: order.notes || "",
@@ -2523,7 +2600,8 @@ export function OrdersProvider({
 
         const requestedPaymentStatus: PaymentStatus =
           order.paymentStatus === "Paid" ? "Paid" : "DP Paid";
-        const normalizedTotalPrice = normalizeMoney(order.totalPrice);
+        const financialBreakdown = resolveOrderFinancialFields(order);
+        const normalizedTotalPrice = normalizeMoney(financialBreakdown.totalPrice);
         const normalizedDpPaid =
           requestedPaymentStatus === "Paid"
             ? 0
@@ -2567,12 +2645,20 @@ export function OrdersProvider({
           deliveryDate: order.deliveryDate,
           deliverySlot: order.deliverySlot,
           notes: order.notes,
-          basePrice: order.basePrice,
-          addOnTotal: order.addOnTotal,
-          deliveryFee: order.deliveryFee,
+          basePrice: financialBreakdown.basePrice,
+          designAdjustmentTotal: financialBreakdown.designAdjustmentTotal,
+          addOnTotal: financialBreakdown.addOnTotal,
+          productAdjustment: financialBreakdown.productAdjustment,
+          nonProductAdjustment: financialBreakdown.nonProductAdjustment,
+          productSubtotal: financialBreakdown.productSubtotal,
+          productDiscountAmount: financialBreakdown.productDiscountAmount,
+          serviceCharge: financialBreakdown.serviceCharge,
+          deliveryFee: financialBreakdown.deliveryFee,
           insuranceFee:
-            order.insuranceFee ?? order.shippingQuote?.insuranceFee ?? 0,
-          manualAdjustment: order.manualAdjustment,
+            financialBreakdown.insuranceFee ??
+            order.shippingQuote?.insuranceFee ??
+            0,
+          manualAdjustment: financialBreakdown.nonProductAdjustment,
           dpPaidAmount: normalizedDpPaid,
           finalPaidAmount: normalizedFinalPaid,
           totalPaidAmount: normalizedTotalPaid,
@@ -3232,26 +3318,21 @@ export function OrdersProvider({
         (sum, item) => sum + resolveOrderItemAddOnAmount(item),
         0,
       );
-      const deliveryFee = normalizeMoney(payload.deliveryFee);
-      const insuranceFee = normalizeMoney(payload.insuranceFee);
-      const manualAdjustment = Math.round(Number(payload.manualAdjustment ?? 0) || 0);
-      const serviceCharge = parseServiceChargeFromNotes(nextNotes);
-      const wholesaleDiscountPercent =
-        parseWholesaleDiscountPercentFromNotes(nextNotes);
-      const subtotalBeforeDiscount =
-        itemBaseSubtotal +
-        itemAddOnSubtotal +
-        deliveryFee +
-        insuranceFee +
-        serviceCharge +
-        manualAdjustment;
-      const wholesaleDiscountAmount = Math.max(
-        0,
-        Math.round(
-          Math.max(0, subtotalBeforeDiscount) * (wholesaleDiscountPercent / 100),
-        ),
-      );
-      const totalPrice = Math.max(0, subtotalBeforeDiscount - wholesaleDiscountAmount);
+      const financialBreakdown = resolveOrderFinancialFields({
+        basePrice: itemBaseSubtotal,
+        designAdjustmentTotal: payload.designAdjustmentTotal,
+        addOnTotal: itemAddOnSubtotal,
+        productAdjustment: payload.productAdjustment,
+        nonProductAdjustment: payload.nonProductAdjustment,
+        productSubtotal: payload.productSubtotal,
+        productDiscountAmount: payload.productDiscountAmount,
+        serviceCharge: payload.serviceCharge,
+        deliveryFee: payload.deliveryFee,
+        insuranceFee: payload.insuranceFee,
+        manualAdjustment: payload.manualAdjustment,
+        notes: nextNotes,
+      });
+      const totalPrice = financialBreakdown.totalPrice;
 
       const previousDpPaid = normalizeMoney(existingOrder.dpPaidAmount);
       const previousFinalPaid = normalizeMoney(existingOrder.finalPaidAmount);
@@ -3396,9 +3477,15 @@ export function OrdersProvider({
         product: getOrderItemsSummary(nextItems, existingOrder.product || "Order"),
         basePrice: itemBaseSubtotal,
         addOnTotal: itemAddOnSubtotal,
-        deliveryFee,
-        insuranceFee,
-        manualAdjustment,
+        deliveryFee: financialBreakdown.deliveryFee,
+        insuranceFee: financialBreakdown.insuranceFee,
+        designAdjustmentTotal: financialBreakdown.designAdjustmentTotal,
+        productAdjustment: financialBreakdown.productAdjustment,
+        nonProductAdjustment: financialBreakdown.nonProductAdjustment,
+        productSubtotal: financialBreakdown.productSubtotal,
+        productDiscountAmount: financialBreakdown.productDiscountAmount,
+        serviceCharge: financialBreakdown.serviceCharge,
+        manualAdjustment: financialBreakdown.nonProductAdjustment,
         dpPaidAmount: requestedDpPaid,
         finalPaidAmount: requestedFinalPaid,
         totalPaidAmount,
@@ -3761,8 +3848,10 @@ export function OrdersProvider({
           };
         }),
         deliveryFee: order.deliveryFee,
-        serviceCharge: parseServiceChargeFromNotes(order.notes),
-        manualAdjustment: order.manualAdjustment,
+        serviceCharge:
+          order.serviceCharge ?? parseServiceChargeFromNotes(order.notes),
+        manualAdjustment:
+          order.nonProductAdjustment ?? order.manualAdjustment,
         totalPrice: order.totalPrice,
         downPaymentAmount: dpAmount,
         remainingBalance,

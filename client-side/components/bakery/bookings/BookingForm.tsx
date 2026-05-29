@@ -96,6 +96,7 @@ import {
   type DeliveryMethod,
   usesShippingEngine,
 } from "@/lib/bookings/delivery-rules";
+import { calculateOrderFinancialBreakdown } from "@/lib/bookings/financial-breakdown";
 import {
   resolveDeliveryMethodLabel,
   resolveOrderDeliveryMethod,
@@ -585,7 +586,10 @@ function buildBookingFormValuesFromOrder(
     )
       ? (parseWholesaleDiscountPercent(order.notes) as 0 | 10 | 15 | 20)
       : 0,
-    manualAdjustment: Math.round(Number(order.manualAdjustment || 0) || 0),
+    productAdjustment: Math.round(Number(order.productAdjustment || 0) || 0),
+    nonProductAdjustment: Math.round(
+      Number(order.nonProductAdjustment ?? (order.manualAdjustment || 0)) || 0,
+    ),
     items: normalizedItems,
     deliveryAddresses: normalizedAddresses,
   };
@@ -792,7 +796,8 @@ const bookingSchema = z
     wholesaleDiscountPercent: z
       .union([z.literal(0), z.literal(10), z.literal(15), z.literal(20)])
       .default(0),
-    manualAdjustment: z.number().default(0),
+    productAdjustment: z.number().default(0),
+    nonProductAdjustment: z.number().default(0),
     items: z.array(itemSchema).min(1, "At least one item is required"),
     deliveryAddresses: z
       .array(addressSchema)
@@ -1836,6 +1841,42 @@ function getAddOnUnitMultiplier(args: {
   return Math.max(1, args.addOnQuantities[args.addonId] ?? 1);
 }
 
+function normalizeAddOnPricingText(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isAdditionalDesignStyleAddOn(args: {
+  addonId: string;
+  addonLabel?: string;
+}): boolean {
+  if (
+    COOKIE_ADDITIONAL_DESIGN_ADDON_IDS.includes(
+      args.addonId as (typeof COOKIE_ADDITIONAL_DESIGN_ADDON_IDS)[number],
+    )
+  ) {
+    return true;
+  }
+
+  const normalized = normalizeAddOnPricingText(
+    `${args.addonId} ${args.addonLabel ?? ""}`,
+  );
+  if (!normalized) return false;
+
+  return (
+    normalized.includes("additional design") ||
+    normalized.includes("design tambahan") ||
+    normalized.includes("desain tambahan") ||
+    normalized.includes("design surcharge") ||
+    normalized.includes("desain surcharge") ||
+    normalized.includes("extra design") ||
+    normalized.includes("extra desain")
+  );
+}
+
 function isBouquetFlowerAddOnId(addonId: string): boolean {
   return (
     addonId === BOUQUET_EXTRA_3_FLOWER_ADDON_ID ||
@@ -1931,6 +1972,15 @@ function isOrderLevelAddOnId(addonId: string): boolean {
   return addonId === "bubblewrap" || addonId === "custom-card";
 }
 
+function isPerOrderPricedAddOn(args: {
+  addonId: string;
+  addonLabel?: string;
+}): boolean {
+  return (
+    isOrderLevelAddOnId(args.addonId) || isAdditionalDesignStyleAddOn(args)
+  );
+}
+
 function calculatePerUnitAddOnPrice(args: {
   category: string;
   bouquetType?: BouquetFormType | null;
@@ -1948,7 +1998,9 @@ function calculatePerUnitAddOnPrice(args: {
       (entry) => entry.id === addonId,
     );
     if (!addon) return sum;
-    if (isOrderLevelAddOnId(addonId)) return sum;
+    if (isPerOrderPricedAddOn({ addonId, addonLabel: addon.label })) {
+      return sum;
+    }
 
     const multiplier = getAddOnUnitMultiplier({
       category: args.category,
@@ -1988,12 +2040,13 @@ function calculateOrderLevelAddOnPrice(args: {
   >;
 }): number {
   return args.selectedAddOnIds.reduce((sum, addonId) => {
-    if (!isOrderLevelAddOnId(addonId)) return sum;
-
     const addon = args.addOnCatalogEntries.find(
       (entry) => entry.id === addonId,
     );
     if (!addon) return sum;
+    if (!isPerOrderPricedAddOn({ addonId, addonLabel: addon.label })) {
+      return sum;
+    }
 
     const multiplier = getAddOnUnitMultiplier({
       category: args.category,
@@ -3683,7 +3736,8 @@ export default function BookingForm({
       dpPaidAmount: 0,
       finalPaidAmount: 0,
       wholesaleDiscountPercent: 0,
-      manualAdjustment: 0,
+      productAdjustment: 0,
+      nonProductAdjustment: 0,
       items: [
         {
           category: defaultItemSelection.category,
@@ -4029,7 +4083,10 @@ export default function BookingForm({
     useWatch({ control, name: "deliveryMethod" }) ?? "REGULAR_JNE_JNT";
   const wholesaleDiscountPercent =
     useWatch({ control, name: "wholesaleDiscountPercent" }) ?? 0;
-  const manualAdjustment = useWatch({ control, name: "manualAdjustment" }) ?? 0;
+  const productAdjustment =
+    useWatch({ control, name: "productAdjustment" }) ?? 0;
+  const nonProductAdjustment =
+    useWatch({ control, name: "nonProductAdjustment" }) ?? 0;
   const selectedPaymentStatus =
     useWatch({ control, name: "paymentStatus" }) ?? "DP Paid";
   const fragileOrderReasons = useMemo(
@@ -4891,27 +4948,34 @@ export default function BookingForm({
     : 0;
   // Business rule: khusus JNE/JNT jika nominal pembelian > 2 juta wajib pakai rumus 0.3% x subtotal item + 5000.
   const insuranceFee = isJneJnt ? insuranceFeeByRule : insuranceFeeFromShipping;
-
-  const subtotalBeforeDiscount =
-    basePrice +
-    designAdjustmentTotal +
-    addOnTotal +
-    deliveryFee +
-    insuranceFee +
-    serviceCharge +
-    Number(manualAdjustment || 0);
-  const wholesaleDiscountAmount = Math.max(
-    0,
-    Math.round(
-      Math.max(0, subtotalBeforeDiscount) *
-        (Number(wholesaleDiscountPercent || 0) / 100),
-    ),
+  const orderFinancialBreakdown = useMemo(
+    () =>
+      calculateOrderFinancialBreakdown({
+        basePrice,
+        designAdjustmentTotal,
+        addOnTotal,
+        productAdjustment: Number(productAdjustment || 0),
+        nonProductAdjustment: Number(nonProductAdjustment || 0),
+        deliveryFee,
+        insuranceFee,
+        serviceCharge,
+        wholesaleDiscountPercent: Number(wholesaleDiscountPercent || 0),
+      }),
+    [
+      addOnTotal,
+      basePrice,
+      deliveryFee,
+      designAdjustmentTotal,
+      insuranceFee,
+      nonProductAdjustment,
+      productAdjustment,
+      serviceCharge,
+      wholesaleDiscountPercent,
+    ],
   );
-
-  const totalPrice = Math.max(
-    0,
-    subtotalBeforeDiscount - wholesaleDiscountAmount,
-  );
+  const wholesaleDiscountAmount = orderFinancialBreakdown.productDiscountAmount;
+  const productSubtotal = orderFinancialBreakdown.productSubtotal;
+  const totalPrice = orderFinancialBreakdown.totalPrice;
   const suggestedDownPaymentAmount = Math.round(
     Math.max(0, Number(totalPrice || 0)) * (defaultDpPercentage / 100),
   );
@@ -5780,7 +5844,14 @@ export default function BookingForm({
                     overridePrice === addon.price
                   )
                     return "";
-                  return `${addon.label} (${formatCurrency(overridePrice)} / item)`;
+                  return `${addon.label} (${formatCurrency(overridePrice)} / ${
+                    isPerOrderPricedAddOn({
+                      addonId,
+                      addonLabel: addon.label,
+                    })
+                      ? "order"
+                      : "item"
+                  })`;
                 })
                 .filter((line) => line.length > 0);
               return adjusted.length > 0
@@ -5934,10 +6005,16 @@ export default function BookingForm({
       items: mappedItems,
       deliveryAddresses: mappedAddresses,
       basePrice,
+      designAdjustmentTotal,
       addOnTotal,
+      serviceCharge,
       deliveryFee,
       insuranceFee,
-      manualAdjustment: Number(values.manualAdjustment || 0),
+      productAdjustment: Number(values.productAdjustment || 0),
+      nonProductAdjustment: Number(values.nonProductAdjustment || 0),
+      productSubtotal,
+      productDiscountAmount: wholesaleDiscountAmount,
+      manualAdjustment: Number(values.nonProductAdjustment || 0),
       totalPrice,
       downPaymentAmount,
       remainingBalance,
@@ -6044,8 +6121,14 @@ export default function BookingForm({
           items: mappedItems,
           deliveryAddresses: mappedAddresses,
           deliveryFee,
+          serviceCharge,
           insuranceFee,
-          manualAdjustment: Number(values.manualAdjustment || 0),
+          productAdjustment: Number(values.productAdjustment || 0),
+          nonProductAdjustment: Number(values.nonProductAdjustment || 0),
+          designAdjustmentTotal,
+          productSubtotal,
+          productDiscountAmount: wholesaleDiscountAmount,
+          manualAdjustment: Number(values.nonProductAdjustment || 0),
           dpPaidAmount: effectiveDpPaidAmount,
           finalPaidAmount: effectiveFinalPaidAmount,
           sales_channel: values.sales_channel,
@@ -6628,9 +6711,23 @@ export default function BookingForm({
       setValue("paymentStatus", draft.paymentStatus, {
         shouldValidate: true,
       });
-      setValue("manualAdjustment", Number(draft.manualAdjustment || 0), {
-        shouldValidate: true,
-      });
+      setValue(
+        "productAdjustment",
+        Number((draft as { productAdjustment?: number }).productAdjustment || 0),
+        {
+          shouldValidate: true,
+        },
+      );
+      setValue(
+        "nonProductAdjustment",
+        Number(
+          (draft as { nonProductAdjustment?: number }).nonProductAdjustment ||
+            0,
+        ),
+        {
+          shouldValidate: true,
+        },
+      );
       setValue("dpPaidAmount", Math.max(0, Number(draft.dpPaidAmount || 0)), {
         shouldValidate: true,
       });
@@ -8116,7 +8213,12 @@ export default function BookingForm({
                         // should not be multiplied by the cookie/cake quantity.
                         const selectedOtherAddOnTotal =
                           selectedOtherAddOns.reduce((sum, addon) => {
-                            if (isOrderLevelAddOnId(addon.id)) {
+                            if (
+                              isPerOrderPricedAddOn({
+                                addonId: addon.id,
+                                addonLabel: addon.label,
+                              })
+                            ) {
                               const overriddenPrice =
                                 normalizedAddOnPriceOverrides[addon.id];
                               const unitPrice = resolveBubblewrapUnitPrice({
@@ -8130,12 +8232,17 @@ export default function BookingForm({
                                   category: normalizedSelection.category,
                                   subcategory:
                                     normalizedSelection.subcategory,
-                                  productName:
-                                    normalizedSelection.productName,
-                                  size: normalizedSelection.size,
-                                },
+                                    productName:
+                                      normalizedSelection.productName,
+                                    size: normalizedSelection.size,
+                                  },
+                                });
+                              const multiplier = getAddOnUnitMultiplier({
+                                category: normalizedSelection.category,
+                                addonId: addon.id,
+                                addOnQuantities: normalizedAddOnQuantities,
                               });
-                              return sum + unitPrice;
+                              return sum + unitPrice * multiplier;
                             }
                             const multiplier = getAddOnUnitMultiplier({
                               category: normalizedSelection.category,
@@ -9551,11 +9658,16 @@ export default function BookingForm({
                                       normalizedSelection.category,
                                       addon.id,
                                     );
-                                  const perCakeUnits = getAddOnUnitMultiplier({
+                                  const perAddOnUnits = getAddOnUnitMultiplier({
                                     category: normalizedSelection.category,
                                     addonId: addon.id,
                                     addOnQuantities: normalizedAddOnQuantities,
                                   });
+                                  const isPerOrderPriced =
+                                    isPerOrderPricedAddOn({
+                                      addonId: addon.id,
+                                      addonLabel: addon.label,
+                                    });
                                   const effectiveUnitPrice =
                                     (normalizedSelection.category === "Buket"
                                       ? (getBouquetFlowerAddOnUnitPrice({
@@ -9563,7 +9675,7 @@ export default function BookingForm({
                                           bouquetType,
                                         }) ?? dynamicBubblewrapUnitPrice)
                                       : dynamicBubblewrapUnitPrice) *
-                                    perCakeUnits;
+                                    perAddOnUnits;
 
                                   return (
                                     <div
@@ -9575,13 +9687,16 @@ export default function BookingForm({
                                         <span className="text-xs text-gray-400">
                                           {formatCurrency(effectiveUnitPrice)}
                                           {supportsQuantity
-                                            ? ` / item (${perCakeUnits}x)`
+                                            ? isPerOrderPriced
+                                              ? ` / order (${perAddOnUnits}x)`
+                                              : ` / item (${perAddOnUnits}x)`
                                             : ""}
                                           {overriddenPrice !== undefined
                                             ? " (adjusted)"
                                             : ""}
                                           {!isBouquetFlowerAddOnId(addon.id) &&
-                                          quantityValue > 0
+                                          quantityValue > 0 &&
+                                          !isPerOrderPriced
                                             ? ` (x${quantityValue} = ${formatCurrency(effectiveUnitPrice * quantityValue)})`
                                             : ""}
                                         </span>
@@ -9592,7 +9707,7 @@ export default function BookingForm({
                                             type="number"
                                             min={1}
                                             step={1}
-                                            value={perCakeUnits}
+                                            value={perAddOnUnits}
                                             onChange={(event) =>
                                               setItemAddOnQuantity(
                                                 index,
@@ -10283,11 +10398,24 @@ export default function BookingForm({
                   </label>
 
                   <label className="grid gap-2 text-sm font-medium text-gray-700">
-                    Manual Adjustment (+/-)
+                    Adjustment Produk (+/-)
                     <Input
                       type="number"
                       step="1000"
-                      {...register("manualAdjustment", { valueAsNumber: true })}
+                      {...register("productAdjustment", {
+                        valueAsNumber: true,
+                      })}
+                    />
+                  </label>
+
+                  <label className="grid gap-2 text-sm font-medium text-gray-700">
+                    Adjustment Non-Produk (+/-)
+                    <Input
+                      type="number"
+                      step="1000"
+                      {...register("nonProductAdjustment", {
+                        valueAsNumber: true,
+                      })}
                     />
                   </label>
                 </div>
@@ -10398,10 +10526,11 @@ export default function BookingForm({
                 basePrice={basePrice}
                 designAdjustmentTotal={designAdjustmentTotal}
                 addOnTotal={addOnTotal}
+                productAdjustment={Number(productAdjustment || 0)}
                 deliveryFee={deliveryFee}
                 insuranceFee={insuranceFee}
                 serviceCharge={serviceCharge}
-                manualAdjustment={Number(manualAdjustment || 0)}
+                nonProductAdjustment={Number(nonProductAdjustment || 0)}
                 wholesaleDiscountPercent={Number(wholesaleDiscountPercent || 0)}
                 wholesaleDiscountAmount={wholesaleDiscountAmount}
                 totalPrice={totalPrice}
@@ -10680,13 +10809,23 @@ export default function BookingForm({
                       </span>
                     </div>
                   ) : null}
-                  {Number(manualAdjustment || 0) !== 0 ? (
+                  {Number(productAdjustment || 0) !== 0 ? (
                     <div className="flex items-center justify-between border-b border-[var(--crumbella-border)] px-[14px] py-[11px]">
                       <span className="text-[12px] text-[var(--crumbella-muted)]">
-                        Adjustment
+                        Adjustment Produk
                       </span>
                       <span className="text-[12.5px] font-semibold text-[var(--foreground)]">
-                        {formatCurrency(Number(manualAdjustment || 0))}
+                        {formatCurrency(Number(productAdjustment || 0))}
+                      </span>
+                    </div>
+                  ) : null}
+                  {Number(nonProductAdjustment || 0) !== 0 ? (
+                    <div className="flex items-center justify-between border-b border-[var(--crumbella-border)] px-[14px] py-[11px]">
+                      <span className="text-[12px] text-[var(--crumbella-muted)]">
+                        Adjustment Non-Produk
+                      </span>
+                      <span className="text-[12.5px] font-semibold text-[var(--foreground)]">
+                        {formatCurrency(Number(nonProductAdjustment || 0))}
                       </span>
                     </div>
                   ) : null}

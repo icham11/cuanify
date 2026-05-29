@@ -85,6 +85,7 @@ import {
   type DeliveryMethod,
   usesShippingEngine,
 } from "@/lib/bookings/delivery-rules";
+import { calculateOrderFinancialBreakdown } from "@/lib/bookings/financial-breakdown";
 import { useCalendarCapacity } from "@/hooks/useCalendarCapacity";
 import { useBakerySettings } from "@/hooks/useBakerySettings";
 import {
@@ -191,7 +192,7 @@ const defaultItemSelection = getDefaultCatalogSelection();
 
 
 import { bookingSchema, BookingFormInput, BookingFormValues } from "../booking-form-schema";
-import { BookingItemInput, ParserSource, ParserOrderType, EMPTY_ITEMS, EMPTY_ADDRESSES, BOUQUET_STANDING_MIN_QTY, DARK_COLOR_BUTTERCREAM_ADDON_ID, MAX_DARK_BUTTERCREAM_COLORS, CUPCAKE_COOKIE_ADDON_IDS, FRAGILE_ORDER_ALLOWED_METHODS, FRAGILE_ORDER_ALLOWED_METHODS_TEXT, normalizeDarkButtercreamColors, isCupcakeCookieAddOnId, normalizeTokenDifficultyValue, normalizeBouquetCookiePriceValue, normalizeBouquetPriceOverrideValue, normalizeSharingBoxPriceOverrideValue, normalizeCookieDesignCount, getCookieAdditionalDesignCountFromItem, orderTypeLabel, BookingItemGroupLabel, getBookingItemGroupLabel, parseEtaToHours, ParseWhatsAppApiResponse, ParseWhatsAppRequestArgs, ParseWhatsAppApiError, CapacitySingleDateResponse, DuplicateTemplateWarningState, normalizeReferenceLabelInput, buildParsedReferenceImages, summarizeDetectedItems, getParsedSubtotalOverride, getParsedUnitPriceOverride, hasParsedPricingOverride, parseCookieDifficultyRows, formatCookieDifficultyRows, removeCookieBreakdownFromNotes, extractBouquetGreetingCardFromNotes, extractBouquetPaperColorFromNotes, extractBouquetRibbonFromNotes, extractBouquetFlowerCountFromNotes, extractBouquetFlowerColorFromNotes, extractBouquetRibbonColorFromNotes, removeBouquetStructuredFieldsFromNotes, inferBouquetFlowerCountFromAddOns, inferBouquetCookieFillQuantityFromText, ensureSelectionFromCatalog, getVariantsFromCatalog, getCategoryAddOnsFromCatalog, getCookieAdditionalDesignUnitPrice, getFlavorOptionsForCategory, normalizeAddOnQuantities, normalizeAddOnPriceOverrides, normalizeCustomAddOns, getCustomAddOnTotal, supportsAddOnQuantity, isTwoTierCakeItem, getTwoTierSummaryLabel, getAddOnUnitMultiplier, isBouquetFlowerAddOnId, calculatePerUnitAddOnPrice, detectBouquetTypeFromItem, getBouquetCostByType, resolveBouquetSelectionByType, isValidBouquetQuantity, getBouquetQtyRangeLabel, getQuantityRuleViolationMessage, resolveIndividualCupcakeSizeByQuantity, getAutoQuantityForItem, isCustomCookieItem, isCustomCookieSharingBoxItem, getItemQuantityRule, isMediumVariantLabel, resolveBouquetVariantForPaxel, getItemBasePrice, normalizeTokenLookupKey, getTotalProductionTokenSynced, getDraftItemPriceBreakdown, getDailyBookingSequence, generateBookingCode, normalizeDuplicateTemplateText, findOrdersWithDuplicateParsedTemplate, formatDuplicateWarningDate, formatTemplateSimilarityLabel, toDashboardProductNameFromItem } from "../booking-form-helpers";
+import { BookingItemInput, ParserSource, ParserOrderType, EMPTY_ITEMS, EMPTY_ADDRESSES, BOUQUET_STANDING_MIN_QTY, DARK_COLOR_BUTTERCREAM_ADDON_ID, MAX_DARK_BUTTERCREAM_COLORS, CUPCAKE_COOKIE_ADDON_IDS, FRAGILE_ORDER_ALLOWED_METHODS, FRAGILE_ORDER_ALLOWED_METHODS_TEXT, normalizeDarkButtercreamColors, isCupcakeCookieAddOnId, normalizeTokenDifficultyValue, normalizeBouquetCookiePriceValue, normalizeBouquetPriceOverrideValue, normalizeSharingBoxPriceOverrideValue, normalizeCookieDesignCount, getCookieAdditionalDesignCountFromItem, orderTypeLabel, BookingItemGroupLabel, getBookingItemGroupLabel, parseEtaToHours, ParseWhatsAppApiResponse, ParseWhatsAppRequestArgs, ParseWhatsAppApiError, CapacitySingleDateResponse, DuplicateTemplateWarningState, normalizeReferenceLabelInput, buildParsedReferenceImages, summarizeDetectedItems, getParsedSubtotalOverride, getParsedUnitPriceOverride, hasParsedPricingOverride, parseCookieDifficultyRows, formatCookieDifficultyRows, removeCookieBreakdownFromNotes, extractBouquetGreetingCardFromNotes, extractBouquetPaperColorFromNotes, extractBouquetRibbonFromNotes, extractBouquetFlowerCountFromNotes, extractBouquetFlowerColorFromNotes, extractBouquetRibbonColorFromNotes, removeBouquetStructuredFieldsFromNotes, inferBouquetFlowerCountFromAddOns, inferBouquetCookieFillQuantityFromText, ensureSelectionFromCatalog, getVariantsFromCatalog, getCategoryAddOnsFromCatalog, getCookieAdditionalDesignUnitPrice, getFlavorOptionsForCategory, normalizeAddOnQuantities, normalizeAddOnPriceOverrides, normalizeCustomAddOns, getCustomAddOnTotal, supportsAddOnQuantity, isTwoTierCakeItem, getTwoTierSummaryLabel, getAddOnUnitMultiplier, isBouquetFlowerAddOnId, calculatePerUnitAddOnPrice, calculateOrderLevelAddOnPrice, isPerOrderPricedAddOn, detectBouquetTypeFromItem, getBouquetCostByType, resolveBouquetSelectionByType, isValidBouquetQuantity, getBouquetQtyRangeLabel, getQuantityRuleViolationMessage, resolveIndividualCupcakeSizeByQuantity, getAutoQuantityForItem, isCustomCookieItem, isCustomCookieSharingBoxItem, getItemQuantityRule, isMediumVariantLabel, resolveBouquetVariantForPaxel, getItemBasePrice, normalizeTokenLookupKey, getTotalProductionTokenSynced, getDraftItemPriceBreakdown, getDailyBookingSequence, generateBookingCode, normalizeDuplicateTemplateText, findOrdersWithDuplicateParsedTemplate, formatDuplicateWarningDate, formatTemplateSimilarityLabel, toDashboardProductNameFromItem } from "../booking-form-helpers";
 
 // ── Custom Hook: Logika bisnis BookingForm ─────────────────────────────────
 // Diekstrak otomatis dari BookingForm.tsx untuk mengurangi ukuran komponen.
@@ -388,7 +389,8 @@ export function useBookingFormState() {
       dpPaidAmount: 0,
       finalPaidAmount: 0,
       wholesaleDiscountPercent: 0,
-      manualAdjustment: 0,
+      productAdjustment: 0,
+      nonProductAdjustment: 0,
       items: [
         {
           category: defaultItemSelection.category,
@@ -497,7 +499,10 @@ export function useBookingFormState() {
     useWatch({ control, name: "deliveryMethod" }) ?? "REGULAR_JNE_JNT";
   const wholesaleDiscountPercent =
     useWatch({ control, name: "wholesaleDiscountPercent" }) ?? 0;
-  const manualAdjustment = useWatch({ control, name: "manualAdjustment" }) ?? 0;
+  const productAdjustment =
+    useWatch({ control, name: "productAdjustment" }) ?? 0;
+  const nonProductAdjustment =
+    useWatch({ control, name: "nonProductAdjustment" }) ?? 0;
   const selectedPaymentStatus =
     useWatch({ control, name: "paymentStatus" }) ?? "DP Paid";
   const isManualShippingOverride =
@@ -1189,26 +1194,19 @@ export function useBookingFormState() {
   // Business rule: khusus JNE/JNT jika nominal pembelian > 2 juta wajib pakai rumus 0.3% x subtotal item + 5000.
   const insuranceFee = isJneJnt ? insuranceFeeByRule : insuranceFeeFromShipping;
 
-  const subtotalBeforeDiscount =
-    basePrice +
-    designAdjustmentTotal +
-    addOnTotal +
-    deliveryFee +
-    insuranceFee +
-    serviceCharge +
-    Number(manualAdjustment || 0);
-  const wholesaleDiscountAmount = Math.max(
-    0,
-    Math.round(
-      Math.max(0, subtotalBeforeDiscount) *
-        (Number(wholesaleDiscountPercent || 0) / 100),
-    ),
-  );
-
-  const totalPrice = Math.max(
-    0,
-    subtotalBeforeDiscount - wholesaleDiscountAmount,
-  );
+  const orderFinancialBreakdown = calculateOrderFinancialBreakdown({
+    basePrice,
+    designAdjustmentTotal,
+    addOnTotal,
+    productAdjustment: Number(productAdjustment || 0),
+    nonProductAdjustment: Number(nonProductAdjustment || 0),
+    deliveryFee,
+    insuranceFee,
+    serviceCharge,
+    wholesaleDiscountPercent: Number(wholesaleDiscountPercent || 0),
+  });
+  const wholesaleDiscountAmount = orderFinancialBreakdown.productDiscountAmount;
+  const totalPrice = orderFinancialBreakdown.totalPrice;
   const suggestedDownPaymentAmount = calculateDownPayment(totalPrice);
   const effectiveDpPaidAmount =
     selectedPaymentStatus === "DP Paid" ? suggestedDownPaymentAmount : 0;
@@ -1868,6 +1866,20 @@ export function useBookingFormState() {
             },
           }) *
             item.quantity +
+          calculateOrderLevelAddOnPrice({
+            category: item.category,
+            bouquetType,
+            selectedAddOnIds: item.addOns ?? [],
+            addOnQuantities: normalizedAddOnQuantities,
+            addOnPriceOverrides: normalizedAddOnPriceOverrides,
+            addOnCatalogEntries: categoryAddOns,
+            itemSelection: {
+              category: item.category,
+              subcategory: item.subcategory,
+              productName: item.productName,
+              size: item.size,
+            },
+          }) +
           getCustomAddOnTotal(normalizedCustomAddOns, item.quantity);
       const selectedFlavorOption = getFlavorOptionsForCategory(
         item.category,
@@ -1960,7 +1972,14 @@ export function useBookingFormState() {
                     overridePrice === addon.price
                   )
                     return "";
-                  return `${addon.label} (${formatCurrency(overridePrice)} / item)`;
+                  return `${addon.label} (${formatCurrency(overridePrice)} / ${
+                    isPerOrderPricedAddOn({
+                      addonId,
+                      addonLabel: addon.label,
+                    })
+                      ? "order"
+                      : "item"
+                  })`;
                 })
                 .filter((line) => line.length > 0);
               return adjusted.length > 0
@@ -2103,10 +2122,16 @@ export function useBookingFormState() {
       items: mappedItems,
       deliveryAddresses: mappedAddresses,
       basePrice,
+      designAdjustmentTotal,
       addOnTotal,
+      serviceCharge,
       deliveryFee,
       insuranceFee,
-      manualAdjustment: Number(values.manualAdjustment || 0),
+      productAdjustment: Number(values.productAdjustment || 0),
+      nonProductAdjustment: Number(values.nonProductAdjustment || 0),
+      productSubtotal: orderFinancialBreakdown.productSubtotal,
+      productDiscountAmount: wholesaleDiscountAmount,
+      manualAdjustment: Number(values.nonProductAdjustment || 0),
       totalPrice,
       downPaymentAmount,
       remainingBalance,
@@ -2652,9 +2677,23 @@ export function useBookingFormState() {
       setValue("paymentStatus", draft.paymentStatus, {
         shouldValidate: true,
       });
-      setValue("manualAdjustment", Number(draft.manualAdjustment || 0), {
-        shouldValidate: true,
-      });
+      setValue(
+        "productAdjustment",
+        Number((draft as { productAdjustment?: number }).productAdjustment || 0),
+        {
+          shouldValidate: true,
+        },
+      );
+      setValue(
+        "nonProductAdjustment",
+        Number(
+          (draft as { nonProductAdjustment?: number }).nonProductAdjustment ||
+            0,
+        ),
+        {
+          shouldValidate: true,
+        },
+      );
       setValue("dpPaidAmount", Math.max(0, Number(draft.dpPaidAmount || 0)), {
         shouldValidate: true,
       });
@@ -3162,7 +3201,7 @@ export function useBookingFormState() {
     isRecommendationLoading,
     isSubmitting,
     itemFields,
-    manualAdjustment,
+    nonProductAdjustment,
     manualShippingFee,
     onSubmit,
     openDetectedDuplicateBooking,

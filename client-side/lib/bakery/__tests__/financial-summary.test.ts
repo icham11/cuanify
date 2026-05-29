@@ -363,6 +363,62 @@ describe("Revenue vs Cashflow Calculation", () => {
     expect(result.totalRevenue).toBe(100000);
   });
 
+  it("should exclude shipping, insurance, and admin fee from revenue while keeping full customer payment in cashflow", () => {
+    const orders: BakeryFinancialOrder[] = [
+      {
+        deliveryDate: "2024-05-10",
+        createdAt: new Date("2024-05-01"),
+        basePrice: 100000,
+        designAdjustmentTotal: 10000,
+        addOnTotal: 20000,
+        productSubtotal: 130000,
+        productDiscountAmount: 5000,
+        deliveryFee: 15000,
+        insuranceFee: 5000,
+        serviceCharge: 10000,
+        nonProductAdjustment: 2000,
+        manualAdjustment: 2000,
+        totalPrice: 157000,
+        totalPaidAmount: 157000,
+        paymentStatus: "Paid",
+        orderStatus: "Completed",
+        items: [
+          {
+            productName: "Kue Coklat",
+            quantity: 1,
+            basePrice: 110000,
+            lineTotal: 110000,
+          },
+          {
+            productName: "Roti Tawar",
+            quantity: 1,
+            basePrice: 20000,
+            lineTotal: 20000,
+          },
+        ],
+      },
+    ];
+
+    const bookingPeriod = calculateBakeryFinancialSummary({
+      orders,
+      products: mockProducts,
+      fromDate: "2024-05-01",
+      toDate: "2024-05-01",
+    });
+
+    const deliveryPeriod = calculateBakeryFinancialSummary({
+      orders,
+      products: mockProducts,
+      fromDate: "2024-05-10",
+      toDate: "2024-05-10",
+    });
+
+    expect(bookingPeriod.totalCashFlowIn).toBe(157000);
+    expect(bookingPeriod.totalRevenue).toBe(0);
+    expect(deliveryPeriod.totalRevenue).toBe(125000);
+    expect(deliveryPeriod.totalCashFlowIn).toBe(0);
+  });
+
   it("should recognize monthly revenue on delivery month, not booking month", () => {
     const orders: BakeryFinancialOrder[] = [
       {

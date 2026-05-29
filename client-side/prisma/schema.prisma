@@ -561,7 +561,13 @@ model bakery_orders {
   delivery_slot          String?
   notes                  String?
   base_price             Decimal   @default(0) @db.Decimal(14, 2)
+  design_adjustment_total Decimal  @default(0) @db.Decimal(14, 2)
   add_on_total           Decimal   @default(0) @db.Decimal(14, 2)
+  product_adjustment     Decimal   @default(0) @db.Decimal(14, 2)
+  non_product_adjustment Decimal   @default(0) @db.Decimal(14, 2)
+  product_subtotal       Decimal   @default(0) @db.Decimal(14, 2)
+  product_discount_amount Decimal  @default(0) @db.Decimal(14, 2)
+  service_charge         Decimal   @default(0) @db.Decimal(14, 2)
   delivery_fee           Decimal   @default(0) @db.Decimal(14, 2)
   manual_adjustment      Decimal   @default(0) @db.Decimal(14, 2)
   dp_paid_amount         Decimal   @default(0) @db.Decimal(14, 2)

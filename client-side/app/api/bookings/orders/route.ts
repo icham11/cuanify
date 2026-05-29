@@ -60,6 +60,7 @@ import {
 import { loadEffectiveBookingCatalog } from "@/lib/bookings/catalog-config-server";
 import { flattenCatalogProductsForDashboard } from "@/lib/bookings/product-sync";
 import { buildDashboardProductName } from "@/lib/products/dashboard-name";
+import { calculateOrderFinancialBreakdown } from "@/lib/bookings/financial-breakdown";
 
 // ─── Custom Error for capacity-full rejections ───────────────────────────────
 
@@ -144,7 +145,13 @@ export interface NormalizedOrder {
   deliverySlot: string;
   notes: string;
   basePrice: number;
+  designAdjustmentTotal: number;
   addOnTotal: number;
+  productAdjustment: number;
+  nonProductAdjustment: number;
+  productSubtotal: number;
+  productDiscountAmount: number;
+  serviceCharge: number;
   deliveryFee: number;
   manualAdjustment: number;
   dpPaidAmount: number;
@@ -193,7 +200,13 @@ export interface DbOrderRow {
   delivery_slot: string | null;
   notes: string | null;
   base_price: unknown;
+  design_adjustment_total: unknown;
   add_on_total: unknown;
+  product_adjustment: unknown;
+  non_product_adjustment: unknown;
+  product_subtotal: unknown;
+  product_discount_amount: unknown;
+  service_charge: unknown;
   delivery_fee: unknown;
   manual_adjustment: unknown;
   dp_paid_amount: unknown;
@@ -277,7 +290,19 @@ const normalizedOrderSchema = z.object({
   deliverySlot: z.string(),
   notes: z.string(),
   basePrice: z.number().finite().min(0, "basePrice must be >= 0"),
+  designAdjustmentTotal: z
+    .number()
+    .finite()
+    .min(0, "designAdjustmentTotal must be >= 0"),
   addOnTotal: z.number().finite().min(0, "addOnTotal must be >= 0"),
+  productAdjustment: z.number().finite(),
+  nonProductAdjustment: z.number().finite(),
+  productSubtotal: z.number().finite().min(0, "productSubtotal must be >= 0"),
+  productDiscountAmount: z
+    .number()
+    .finite()
+    .min(0, "productDiscountAmount must be >= 0"),
+  serviceCharge: z.number().finite().min(0, "serviceCharge must be >= 0"),
   deliveryFee: z.number().finite().min(0, "deliveryFee must be >= 0"),
   manualAdjustment: z.number().finite(),
   dpPaidAmount: z.number().finite().min(0, "dpPaidAmount must be >= 0"),
@@ -395,6 +420,51 @@ function asBoolean(value: unknown): boolean {
 function asNumber(value: unknown): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function resolveOrderFinancialFields(input: {
+  basePrice?: unknown;
+  designAdjustmentTotal?: unknown;
+  addOnTotal?: unknown;
+  productAdjustment?: unknown;
+  nonProductAdjustment?: unknown;
+  productSubtotal?: unknown;
+  productDiscountAmount?: unknown;
+  serviceCharge?: unknown;
+  deliveryFee?: unknown;
+  insuranceFee?: unknown;
+  totalPrice?: unknown;
+  manualAdjustment?: unknown;
+  notes?: unknown;
+}) {
+  return calculateOrderFinancialBreakdown({
+    basePrice: asNumber(input.basePrice),
+    designAdjustmentTotal: asNumber(input.designAdjustmentTotal),
+    addOnTotal: asNumber(input.addOnTotal),
+    productAdjustment: asNumber(input.productAdjustment),
+    nonProductAdjustment:
+      input.nonProductAdjustment === undefined || input.nonProductAdjustment === null
+        ? undefined
+        : asNumber(input.nonProductAdjustment),
+    productSubtotal:
+      input.productSubtotal === undefined || input.productSubtotal === null
+        ? undefined
+        : asNumber(input.productSubtotal),
+    productDiscountAmount:
+      input.productDiscountAmount === undefined ||
+      input.productDiscountAmount === null
+        ? undefined
+        : asNumber(input.productDiscountAmount),
+    serviceCharge:
+      input.serviceCharge === undefined || input.serviceCharge === null
+        ? undefined
+        : asNumber(input.serviceCharge),
+    deliveryFee: asNumber(input.deliveryFee),
+    insuranceFee: asNumber(input.insuranceFee),
+    totalPrice: asNumber(input.totalPrice),
+    legacyManualAdjustment: asNumber(input.manualAdjustment),
+    notes: asString(input.notes),
+  });
 }
 
 function asPositiveIntOrNull(value: unknown): number | null {
@@ -699,7 +769,13 @@ function buildParsedOrderFingerprint(order: {
   deliverySlot?: unknown;
   notes?: unknown;
   basePrice?: unknown;
+  designAdjustmentTotal?: unknown;
   addOnTotal?: unknown;
+  productAdjustment?: unknown;
+  nonProductAdjustment?: unknown;
+  productSubtotal?: unknown;
+  productDiscountAmount?: unknown;
+  serviceCharge?: unknown;
   deliveryFee?: unknown;
   insuranceFee?: unknown;
   manualAdjustment?: unknown;
@@ -1982,7 +2058,9 @@ function toWhatsAppPayload(order: NormalizedOrder): SendOrderToWhatsAppInput {
     shippingMethod,
     fullAddress,
     deliveryFee: asNumber(order.deliveryFee),
-    manualAdjustment: asNumber(order.manualAdjustment),
+    manualAdjustment: asNumber(
+      order.nonProductAdjustment ?? order.manualAdjustment,
+    ),
     totalPrice: asNumber(order.totalPrice),
     downPaymentAmount: asNumber(order.downPaymentAmount),
     remainingBalance: asNumber(order.remainingBalance),
@@ -2320,6 +2398,20 @@ function normalizeOrder(raw: unknown, index: number): NormalizedOrder | null {
     shipment: record.shipment ?? null,
     totalPrice,
   });
+  const financialBreakdown = resolveOrderFinancialFields({
+    basePrice: record.basePrice,
+    designAdjustmentTotal: record.designAdjustmentTotal,
+    addOnTotal: record.addOnTotal,
+    productAdjustment: record.productAdjustment,
+    nonProductAdjustment: record.nonProductAdjustment,
+    productSubtotal: record.productSubtotal,
+    productDiscountAmount: record.productDiscountAmount,
+    serviceCharge: record.serviceCharge,
+    deliveryFee: record.deliveryFee,
+    insuranceFee,
+    manualAdjustment: record.manualAdjustment,
+    notes: record.notes,
+  });
 
   const normalizedOrder: NormalizedOrder = {
     id,
@@ -2333,18 +2425,24 @@ function normalizeOrder(raw: unknown, index: number): NormalizedOrder | null {
     deliveryDate: normalizedDeliveryDate,
     deliverySlot: asString(record.deliverySlot),
     notes: asString(record.notes),
-    basePrice: asNumber(record.basePrice),
-    addOnTotal: asNumber(record.addOnTotal),
-    deliveryFee: asNumber(record.deliveryFee),
-    manualAdjustment: asNumber(record.manualAdjustment),
+    basePrice: financialBreakdown.basePrice,
+    designAdjustmentTotal: financialBreakdown.designAdjustmentTotal,
+    addOnTotal: financialBreakdown.addOnTotal,
+    productAdjustment: financialBreakdown.productAdjustment,
+    nonProductAdjustment: financialBreakdown.nonProductAdjustment,
+    productSubtotal: financialBreakdown.productSubtotal,
+    productDiscountAmount: financialBreakdown.productDiscountAmount,
+    serviceCharge: financialBreakdown.serviceCharge,
+    deliveryFee: financialBreakdown.deliveryFee,
+    manualAdjustment: financialBreakdown.nonProductAdjustment,
     dpPaidAmount: asNumber(record.dpPaidAmount),
     finalPaidAmount: asNumber(record.finalPaidAmount),
     totalPaidAmount: asNumber(record.totalPaidAmount),
     downPaymentAmount: asNumber(record.downPaymentAmount),
     remainingBalance: asNumber(record.remainingBalance),
     product: asString(record.product),
-    totalPrice,
-    insuranceFee,
+    totalPrice: financialBreakdown.totalPrice,
+    insuranceFee: financialBreakdown.insuranceFee,
     sales_channel,
     paymentStatus: asString(record.paymentStatus),
     orderStatus: asString(record.orderStatus),
@@ -2404,7 +2502,13 @@ async function ensureBakeryTables() {
       delivery_slot TEXT,
       notes TEXT,
       base_price NUMERIC(14,2) NOT NULL DEFAULT 0,
+      design_adjustment_total NUMERIC(14,2) NOT NULL DEFAULT 0,
       add_on_total NUMERIC(14,2) NOT NULL DEFAULT 0,
+      product_adjustment NUMERIC(14,2) NOT NULL DEFAULT 0,
+      non_product_adjustment NUMERIC(14,2) NOT NULL DEFAULT 0,
+      product_subtotal NUMERIC(14,2) NOT NULL DEFAULT 0,
+      product_discount_amount NUMERIC(14,2) NOT NULL DEFAULT 0,
+      service_charge NUMERIC(14,2) NOT NULL DEFAULT 0,
       delivery_fee NUMERIC(14,2) NOT NULL DEFAULT 0,
       manual_adjustment NUMERIC(14,2) NOT NULL DEFAULT 0,
       dp_paid_amount NUMERIC(14,2) NOT NULL DEFAULT 0,
@@ -2502,6 +2606,36 @@ async function ensureBakeryTables() {
 
     await prisma.$executeRawUnsafe(`
     ALTER TABLE bakery_orders
+    ADD COLUMN IF NOT EXISTS design_adjustment_total NUMERIC(14,2) NOT NULL DEFAULT 0;
+  `);
+
+    await prisma.$executeRawUnsafe(`
+    ALTER TABLE bakery_orders
+    ADD COLUMN IF NOT EXISTS product_adjustment NUMERIC(14,2) NOT NULL DEFAULT 0;
+  `);
+
+    await prisma.$executeRawUnsafe(`
+    ALTER TABLE bakery_orders
+    ADD COLUMN IF NOT EXISTS non_product_adjustment NUMERIC(14,2) NOT NULL DEFAULT 0;
+  `);
+
+    await prisma.$executeRawUnsafe(`
+    ALTER TABLE bakery_orders
+    ADD COLUMN IF NOT EXISTS product_subtotal NUMERIC(14,2) NOT NULL DEFAULT 0;
+  `);
+
+    await prisma.$executeRawUnsafe(`
+    ALTER TABLE bakery_orders
+    ADD COLUMN IF NOT EXISTS product_discount_amount NUMERIC(14,2) NOT NULL DEFAULT 0;
+  `);
+
+    await prisma.$executeRawUnsafe(`
+    ALTER TABLE bakery_orders
+    ADD COLUMN IF NOT EXISTS service_charge NUMERIC(14,2) NOT NULL DEFAULT 0;
+  `);
+
+    await prisma.$executeRawUnsafe(`
+    ALTER TABLE bakery_orders
     ADD COLUMN IF NOT EXISTS sales_channel TEXT NOT NULL DEFAULT 'direct';
   `);
 
@@ -2515,6 +2649,20 @@ async function ensureBakeryTables() {
     SET sales_channel = 'direct'
     WHERE sales_channel IS NULL
       OR sales_channel NOT IN ('direct', 'tokopedia', 'shopee');
+  `);
+
+    await prisma.$executeRawUnsafe(`
+    UPDATE bakery_orders
+    SET
+      non_product_adjustment = COALESCE(non_product_adjustment, 0) + CASE
+        WHEN COALESCE(non_product_adjustment, 0) = 0 THEN COALESCE(manual_adjustment, 0)
+        ELSE 0
+      END,
+      product_subtotal = CASE
+        WHEN COALESCE(product_subtotal, 0) > 0 THEN product_subtotal
+        ELSE COALESCE(base_price, 0) + COALESCE(design_adjustment_total, 0) + COALESCE(add_on_total, 0) + COALESCE(product_adjustment, 0)
+      END
+    WHERE deleted_at IS NULL;
   `);
 
     await prisma.$executeRawUnsafe(`
@@ -2834,7 +2982,13 @@ export async function GET(request: NextRequest) {
                 delivery_slot,
                 notes,
                 base_price,
+                design_adjustment_total,
                 add_on_total,
+                product_adjustment,
+                non_product_adjustment,
+                product_subtotal,
+                product_discount_amount,
+                service_charge,
                 delivery_fee,
                 manual_adjustment,
                 dp_paid_amount,
@@ -2877,7 +3031,13 @@ export async function GET(request: NextRequest) {
                 delivery_slot,
                 notes,
                 base_price,
+                design_adjustment_total,
                 add_on_total,
+                product_adjustment,
+                non_product_adjustment,
+                product_subtotal,
+                product_discount_amount,
+                service_charge,
                 delivery_fee,
                 manual_adjustment,
                 dp_paid_amount,
@@ -2920,7 +3080,13 @@ export async function GET(request: NextRequest) {
               delivery_slot,
               notes,
               base_price,
+              design_adjustment_total,
               add_on_total,
+              product_adjustment,
+              non_product_adjustment,
+              product_subtotal,
+              product_discount_amount,
+              service_charge,
               delivery_fee,
               manual_adjustment,
               dp_paid_amount,
@@ -3078,6 +3244,20 @@ export async function GET(request: NextRequest) {
             itemsMap.get(row.external_id) ?? [],
             productTokenLookup,
           );
+          const financialBreakdown = resolveOrderFinancialFields({
+            basePrice: row.base_price,
+            designAdjustmentTotal: row.design_adjustment_total,
+            addOnTotal: row.add_on_total,
+            productAdjustment: row.product_adjustment,
+            nonProductAdjustment: row.non_product_adjustment,
+            productSubtotal: row.product_subtotal,
+            productDiscountAmount: row.product_discount_amount,
+            serviceCharge: row.service_charge,
+            deliveryFee: row.delivery_fee,
+            insuranceFee: row.insurance_fee,
+            manualAdjustment: row.manual_adjustment,
+            notes: row.notes,
+          });
           const stagePercentages = getProductionStagePercentagesFromTemplates(
             resolveProductionStageTemplatesForCategory({
               category: resolvePrimaryProductionCategory(items),
@@ -3098,18 +3278,24 @@ export async function GET(request: NextRequest) {
             deliveryDate: row.delivery_date ?? "",
             deliverySlot: row.delivery_slot ?? "",
             notes: row.notes ?? "",
-            basePrice: asNumber(row.base_price),
-            addOnTotal: asNumber(row.add_on_total),
-            deliveryFee: asNumber(row.delivery_fee),
-            manualAdjustment: asNumber(row.manual_adjustment),
+            basePrice: financialBreakdown.basePrice,
+            designAdjustmentTotal: financialBreakdown.designAdjustmentTotal,
+            addOnTotal: financialBreakdown.addOnTotal,
+            productAdjustment: financialBreakdown.productAdjustment,
+            nonProductAdjustment: financialBreakdown.nonProductAdjustment,
+            productSubtotal: financialBreakdown.productSubtotal,
+            productDiscountAmount: financialBreakdown.productDiscountAmount,
+            serviceCharge: financialBreakdown.serviceCharge,
+            deliveryFee: financialBreakdown.deliveryFee,
+            manualAdjustment: financialBreakdown.nonProductAdjustment,
             dpPaidAmount: asNumber(row.dp_paid_amount),
             finalPaidAmount: asNumber(row.final_paid_amount),
             totalPaidAmount: asNumber(row.total_paid_amount),
             downPaymentAmount: asNumber(row.down_payment_amount),
             remainingBalance: asNumber(row.remaining_balance),
             product: row.product ?? "",
-            totalPrice: asNumber(row.total_price),
-            insuranceFee: asNumber(row.insurance_fee),
+            totalPrice: financialBreakdown.totalPrice,
+            insuranceFee: financialBreakdown.insuranceFee,
             sales_channel: normalizeSalesChannel(row.sales_channel),
             paymentStatus: row.payment_status ?? "Pending",
             orderStatus: row.order_status ?? "Inquiry",
@@ -3536,7 +3722,13 @@ export async function POST(request: NextRequest) {
         delivery_slot: string | null;
         notes: string | null;
         base_price: unknown;
+        design_adjustment_total: unknown;
         add_on_total: unknown;
+        product_adjustment: unknown;
+        non_product_adjustment: unknown;
+        product_subtotal: unknown;
+        product_discount_amount: unknown;
+        service_charge: unknown;
         delivery_fee: unknown;
         insurance_fee: unknown;
         manual_adjustment: unknown;
@@ -3557,7 +3749,13 @@ export async function POST(request: NextRequest) {
         delivery_slot,
         notes,
         base_price,
+        design_adjustment_total,
         add_on_total,
+        product_adjustment,
+        non_product_adjustment,
+        product_subtotal,
+        product_discount_amount,
+        service_charge,
         delivery_fee,
         insurance_fee,
         manual_adjustment,
@@ -3597,7 +3795,13 @@ export async function POST(request: NextRequest) {
         deliveryDate: row.delivery_date,
         deliverySlot: row.delivery_slot,
         basePrice: row.base_price,
+        designAdjustmentTotal: row.design_adjustment_total,
         addOnTotal: row.add_on_total,
+        productAdjustment: row.product_adjustment,
+        nonProductAdjustment: row.non_product_adjustment,
+        productSubtotal: row.product_subtotal,
+        productDiscountAmount: row.product_discount_amount,
+        serviceCharge: row.service_charge,
         deliveryFee: row.delivery_fee,
         insuranceFee: row.insurance_fee,
         manualAdjustment: row.manual_adjustment,
@@ -3713,7 +3917,13 @@ export async function POST(request: NextRequest) {
           delivery_slot,
           notes,
           base_price,
+          design_adjustment_total,
           add_on_total,
+          product_adjustment,
+          non_product_adjustment,
+          product_subtotal,
+          product_discount_amount,
+          service_charge,
           delivery_fee,
           manual_adjustment,
           dp_paid_amount,
@@ -3811,6 +4021,20 @@ export async function POST(request: NextRequest) {
           itemsMap.get(row.external_id) ?? [],
           productTokenLookup,
         );
+        const financialBreakdown = resolveOrderFinancialFields({
+          basePrice: row.base_price,
+          designAdjustmentTotal: row.design_adjustment_total,
+          addOnTotal: row.add_on_total,
+          productAdjustment: row.product_adjustment,
+          nonProductAdjustment: row.non_product_adjustment,
+          productSubtotal: row.product_subtotal,
+          productDiscountAmount: row.product_discount_amount,
+          serviceCharge: row.service_charge,
+          deliveryFee: row.delivery_fee,
+          insuranceFee: row.insurance_fee,
+          manualAdjustment: row.manual_adjustment,
+          notes: row.notes,
+        });
         const stagePercentages = getProductionStagePercentagesFromTemplates(
           resolveProductionStageTemplatesForCategory({
             category: resolvePrimaryProductionCategory(items),
@@ -3831,18 +4055,24 @@ export async function POST(request: NextRequest) {
             "",
           deliverySlot: row.delivery_slot ?? "",
           notes: row.notes ?? "",
-          basePrice: asNumber(row.base_price),
-          addOnTotal: asNumber(row.add_on_total),
-          deliveryFee: asNumber(row.delivery_fee),
-          manualAdjustment: asNumber(row.manual_adjustment),
+          basePrice: financialBreakdown.basePrice,
+          designAdjustmentTotal: financialBreakdown.designAdjustmentTotal,
+          addOnTotal: financialBreakdown.addOnTotal,
+          productAdjustment: financialBreakdown.productAdjustment,
+          nonProductAdjustment: financialBreakdown.nonProductAdjustment,
+          productSubtotal: financialBreakdown.productSubtotal,
+          productDiscountAmount: financialBreakdown.productDiscountAmount,
+          serviceCharge: financialBreakdown.serviceCharge,
+          deliveryFee: financialBreakdown.deliveryFee,
+          manualAdjustment: financialBreakdown.nonProductAdjustment,
           dpPaidAmount: asNumber(row.dp_paid_amount),
           finalPaidAmount: asNumber(row.final_paid_amount),
           totalPaidAmount: asNumber(row.total_paid_amount),
           downPaymentAmount: asNumber(row.down_payment_amount),
           remainingBalance: asNumber(row.remaining_balance),
           product: row.product ?? "",
-          totalPrice: asNumber(row.total_price),
-          insuranceFee: asNumber(row.insurance_fee),
+          totalPrice: financialBreakdown.totalPrice,
+          insuranceFee: financialBreakdown.insuranceFee,
           sales_channel: normalizeSalesChannel(row.sales_channel),
           paymentStatus: row.payment_status ?? "Pending",
           orderStatus: row.order_status ?? "Inquiry",
@@ -4533,7 +4763,13 @@ export async function POST(request: NextRequest) {
               delivery_slot,
               notes,
               base_price,
+              design_adjustment_total,
               add_on_total,
+              product_adjustment,
+              non_product_adjustment,
+              product_subtotal,
+              product_discount_amount,
+              service_charge,
               delivery_fee,
               manual_adjustment,
               dp_paid_amount,
@@ -4573,7 +4809,13 @@ export async function POST(request: NextRequest) {
               ${order.deliverySlot || null},
               ${order.notes || null},
               ${order.basePrice},
+              ${order.designAdjustmentTotal},
               ${order.addOnTotal},
+              ${order.productAdjustment},
+              ${order.nonProductAdjustment},
+              ${order.productSubtotal},
+              ${order.productDiscountAmount},
+              ${order.serviceCharge},
               ${order.deliveryFee},
               ${order.manualAdjustment},
               ${order.dpPaidAmount},
@@ -4613,7 +4855,13 @@ export async function POST(request: NextRequest) {
               delivery_slot = EXCLUDED.delivery_slot,
               notes = EXCLUDED.notes,
               base_price = EXCLUDED.base_price,
+              design_adjustment_total = EXCLUDED.design_adjustment_total,
               add_on_total = EXCLUDED.add_on_total,
+              product_adjustment = EXCLUDED.product_adjustment,
+              non_product_adjustment = EXCLUDED.non_product_adjustment,
+              product_subtotal = EXCLUDED.product_subtotal,
+              product_discount_amount = EXCLUDED.product_discount_amount,
+              service_charge = EXCLUDED.service_charge,
               delivery_fee = EXCLUDED.delivery_fee,
               manual_adjustment = EXCLUDED.manual_adjustment,
               dp_paid_amount = EXCLUDED.dp_paid_amount,

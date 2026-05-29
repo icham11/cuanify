@@ -5,10 +5,11 @@ interface PriceSummaryCardProps {
   basePrice: number;
   designAdjustmentTotal: number;
   addOnTotal: number;
+  productAdjustment?: number;
   deliveryFee: number;
   insuranceFee?: number;
   serviceCharge?: number;
-  manualAdjustment?: number;
+  nonProductAdjustment?: number;
   wholesaleDiscountPercent?: number;
   wholesaleDiscountAmount?: number;
   totalPrice: number;
@@ -35,10 +36,11 @@ export default function PriceSummaryCard({
   basePrice,
   designAdjustmentTotal,
   addOnTotal,
+  productAdjustment = 0,
   deliveryFee,
   insuranceFee = 0,
   serviceCharge = 0,
-  manualAdjustment = 0,
+  nonProductAdjustment = 0,
   wholesaleDiscountPercent = 0,
   wholesaleDiscountAmount = 0,
   totalPrice,
@@ -158,6 +160,12 @@ export default function PriceSummaryCard({
           <span>Add-ons</span>
           <span>{formatCurrency(addOnTotal)}</span>
         </div>
+        {productAdjustment !== 0 ? (
+          <div className="flex items-center justify-between text-sm text-gray-600">
+            <span>Adjustment Produk</span>
+            <span>{formatCurrency(productAdjustment)}</span>
+          </div>
+        ) : null}
         <div className="flex items-center justify-between text-sm text-gray-600">
           <span>Ongkir</span>
           <span>{formatCurrency(deliveryFee)}</span>
@@ -175,8 +183,8 @@ export default function PriceSummaryCard({
           </div>
         ) : null}
         <div className="flex items-center justify-between text-sm text-gray-600">
-          <span>Adjustment</span>
-          <span>{formatCurrency(manualAdjustment)}</span>
+          <span>Adjustment Non-Produk</span>
+          <span>{formatCurrency(nonProductAdjustment)}</span>
         </div>
         {wholesaleDiscountPercent > 0 ? (
           <div className="flex items-center justify-between text-sm text-emerald-700">
@@ -211,8 +219,8 @@ export default function PriceSummaryCard({
           <span className="text-lg">{formatCurrency(totalPrice)}</span>
         </div>
         <p className="text-xs text-gray-500">
-          Auto-updated from catalog base price, adjustment design/admin,
-          add-ons, ongkir, service charge, adjustment, dan discount grosir.
+          Auto-updated dari komponen produk, ongkir, service charge,
+          adjustment, dan discount grosir.
         </p>
       </CardContent>
     </Card>

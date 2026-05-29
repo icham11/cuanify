@@ -31,6 +31,7 @@ import {
 } from "../route";
 import { getBakeryBusinessSettings } from "@/lib/bakery/settings";
 import { getProductionStagePercentagesFromTemplates, resolvePrimaryProductionCategory, resolveProductionStageTemplatesForCategory } from "@/lib/bookings/production-stages";
+import { calculateOrderFinancialBreakdown } from "@/lib/bookings/financial-breakdown";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -267,7 +268,13 @@ export async function GET(
         delivery_slot,
         notes,
         base_price,
+        design_adjustment_total,
         add_on_total,
+        product_adjustment,
+        non_product_adjustment,
+        product_subtotal,
+        product_discount_amount,
+        service_charge,
         delivery_fee,
         manual_adjustment,
         dp_paid_amount,
@@ -308,6 +315,21 @@ export async function GET(
     }
 
     const row = orderRows[0];
+    const financialBreakdown = calculateOrderFinancialBreakdown({
+      basePrice: asNumber(row.base_price),
+      designAdjustmentTotal: asNumber(row.design_adjustment_total),
+      addOnTotal: asNumber(row.add_on_total),
+      productAdjustment: asNumber(row.product_adjustment),
+      nonProductAdjustment: asNumber(row.non_product_adjustment),
+      productSubtotal: asNumber(row.product_subtotal),
+      productDiscountAmount: asNumber(row.product_discount_amount),
+      serviceCharge: asNumber(row.service_charge),
+      deliveryFee: asNumber(row.delivery_fee),
+      insuranceFee: asNumber(row.insurance_fee),
+      totalPrice: asNumber(row.total_price),
+      legacyManualAdjustment: asNumber(row.manual_adjustment),
+      notes: row.notes ?? "",
+    });
 
     // 4. Load produk untuk pencarian token diffculty (DRY dengan list API)
     const productTokenLookup = await loadOrderProductTokenLookup(businessId);
@@ -394,18 +416,24 @@ export async function GET(
       deliveryDate: row.delivery_date ?? "",
       deliverySlot: row.delivery_slot ?? "",
       notes: row.notes ?? "",
-      basePrice: asNumber(row.base_price),
-      addOnTotal: asNumber(row.add_on_total),
-      deliveryFee: asNumber(row.delivery_fee),
-      manualAdjustment: asNumber(row.manual_adjustment),
+      basePrice: financialBreakdown.basePrice,
+      designAdjustmentTotal: financialBreakdown.designAdjustmentTotal,
+      addOnTotal: financialBreakdown.addOnTotal,
+      productAdjustment: financialBreakdown.productAdjustment,
+      nonProductAdjustment: financialBreakdown.nonProductAdjustment,
+      productSubtotal: financialBreakdown.productSubtotal,
+      productDiscountAmount: financialBreakdown.productDiscountAmount,
+      serviceCharge: financialBreakdown.serviceCharge,
+      deliveryFee: financialBreakdown.deliveryFee,
+      manualAdjustment: financialBreakdown.nonProductAdjustment,
       dpPaidAmount: asNumber(row.dp_paid_amount),
       finalPaidAmount: asNumber(row.final_paid_amount),
       totalPaidAmount: asNumber(row.total_paid_amount),
       downPaymentAmount: asNumber(row.down_payment_amount),
       remainingBalance: asNumber(row.remaining_balance),
       product: row.product ?? "",
-      totalPrice: asNumber(row.total_price),
-      insuranceFee: asNumber(row.insurance_fee),
+      totalPrice: financialBreakdown.totalPrice,
+      insuranceFee: financialBreakdown.insuranceFee,
       sales_channel: normalizeSalesChannel(row.sales_channel),
       paymentStatus: row.payment_status ?? "Pending",
       orderStatus: row.order_status ?? "Inquiry",

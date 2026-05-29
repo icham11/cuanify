@@ -34,4 +34,68 @@ describe("booking form price breakdown", () => {
     expect(breakdown.totalAmount).toBe(200000);
     expect(breakdown.addOnDetails.length).toBe(0);
   });
+
+  it("does not multiply additional design add-on by cookie quantity", () => {
+    const breakdown = getDraftItemPriceBreakdown({
+      catalog: BOOKING_PRODUCT_CATALOG,
+      addOnCatalog: {
+        ...BOOKING_ADD_ON_CATALOG,
+        Cookies: [
+          ...BOOKING_ADD_ON_CATALOG.Cookies,
+          {
+            id: "cookie-additional-design",
+            label: "Additional Design",
+            price: 10000,
+          },
+        ],
+      },
+      item: {
+        category: "Cookies",
+        subcategory: "Custom Cookies",
+        productName: "Custom Cookies",
+        size: "Hard",
+        quantity: 60,
+        tokenDifficulty: "HARD",
+        addOns: ["cookie-additional-design"],
+        addOnQuantities: {
+          "cookie-additional-design": 1,
+        },
+        addOnPriceOverrides: {},
+        customAddOns: [],
+        notes: "",
+      } as never,
+    });
+
+    expect(breakdown.baseAmount).toBe(1500000);
+    expect(breakdown.addOnAmount).toBe(10000);
+    expect(breakdown.designAdjustmentAmount).toBe(0);
+    expect(breakdown.totalAmount).toBe(1510000);
+  });
+
+  it("uses parsed custom card quantity from recap instead of defaulting to one", () => {
+    const breakdown = getDraftItemPriceBreakdown({
+      catalog: BOOKING_PRODUCT_CATALOG,
+      addOnCatalog: BOOKING_ADD_ON_CATALOG,
+      item: {
+        category: "Cookies",
+        subcategory: "Custom Cookies",
+        productName: "Custom Cookies",
+        size: "Hard",
+        quantity: 55,
+        tokenDifficulty: "HARD",
+        addOns: ["custom-card"],
+        addOnQuantities: {
+          "custom-card": 55,
+        },
+        addOnPriceOverrides: {},
+        customAddOns: [],
+        notes: "",
+      } as never,
+    });
+
+    expect(breakdown.baseAmount).toBe(1375000);
+    expect(breakdown.addOnAmount).toBe(110000);
+    expect(breakdown.designAdjustmentAmount).toBe(0);
+    expect(breakdown.totalAmount).toBe(1485000);
+  });
 });
