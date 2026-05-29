@@ -91,7 +91,7 @@ const commonFieldDefinitions: FieldDefinition[] = [
   {
     key: "bookingCode",
     label: "KODE BOOKING",
-    aliases: ["kode booking", "booking code", "kode"],
+    aliases: ["kode booking", "booking code", "booking"],
   },
   {
     key: "order",
@@ -1223,8 +1223,12 @@ function readFieldValue(
     );
     const match = rawText.match(regex);
     if (match?.[1]) {
-      const value = cleanupValue(match[1]);
-      if (value) return value;
+      const value = match[1].trim();
+      // Jangan ambil value jika value tersebut ternyata adalah header field lain
+      if (!looksLikeLabeledLine(value)) {
+        const cleaned = cleanupValue(value);
+        if (cleaned) return cleaned;
+      }
     }
   }
 

@@ -705,19 +705,23 @@ function getDailyBookingSequence(
 function generateBookingCode(
   customerName: string,
   customerPhone: string,
-  deliveryDate: string,
-  sequence: number,
+  _deliveryDate: string,
+  _sequence: number,
 ) {
-  const initials = customerName
-    .replace(/[^a-zA-Z]/g, "")
-    .slice(0, 2)
-    .toUpperCase()
-    .padEnd(2, "X");
-  const phoneDigits = customerPhone.replace(/\D/g, "");
-  const lastThree = phoneDigits.slice(-3).padStart(3, "0");
-  const datePart = toBookingDatePart(deliveryDate);
-  const sequencePart = String(sequence).padStart(3, "0");
-  return `${initials}${lastThree}-${datePart}-${sequencePart}`;
+  try {
+    const nameStr = (customerName || "").trim().replace(/[^a-zA-Z]/g, "");
+    const phoneStr = (customerPhone || "").replace(/[^0-9]/g, "");
+    const namePrefix =
+      nameStr.length >= 2 ? nameStr.substring(0, 2) : nameStr.padEnd(2, "X");
+    const phoneSuffix =
+      phoneStr.length >= 2
+        ? phoneStr.substring(phoneStr.length - 2)
+        : phoneStr.padStart(2, "0");
+
+    return `${namePrefix.toUpperCase()}-${phoneSuffix}`;
+  } catch {
+    return "XX-00";
+  }
 }
 
 function generateShippingReferenceId(
