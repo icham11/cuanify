@@ -50,14 +50,14 @@ function formatFooterTime(value?: string): string {
   return normalized.length === 5 ? `${normalized} WIB` : normalized;
 }
 
-function resolvePreferredBookingCode(order: BakeryOrder): string {
-  return (
-    normalizeText(order.whatsAppParsedData?.common?.bookingCode) ||
-    normalizeText(order.resi) ||
-    normalizeText(order.bookingCode) ||
-    normalizeText(order.id) ||
-    "PENDING"
-  );
+function resolveLabelBookingCode(name: string, phone: string): string {
+  const initials = normalizeText(name)
+    .replace(/[^a-zA-Z]/g, "")
+    .slice(0, 2)
+    .toUpperCase()
+    .padEnd(2, "X");
+  const lastTwoDigits = normalizeText(phone).replace(/\D/g, "").slice(-2).padStart(2, "0");
+  return `${initials} - ${lastTwoDigits}`;
 }
 
 function resolveRecipientName(order: BakeryOrder): string {
@@ -264,11 +264,11 @@ function buildItemRows(order: BakeryOrder): string {
 }
 
 function buildLabelHtml(order: BakeryOrder): string {
-  const bookingCode = resolvePreferredBookingCode(order);
-  const shippingMethod = resolveShippingMethod(order);
-  const shippingEmoji = resolveShippingEmoji(shippingMethod);
   const recipientName = resolveRecipientName(order);
   const recipientPhone = resolveRecipientPhone(order);
+  const bookingCode = resolveLabelBookingCode(recipientName, recipientPhone);
+  const shippingMethod = resolveShippingMethod(order);
+  const shippingEmoji = resolveShippingEmoji(shippingMethod);
   const fullAddress = resolveFullAddress(order);
   const greetingNote = resolveGreetingNote(order);
   const footerDate = formatShortDate(order.deliveryDate);
