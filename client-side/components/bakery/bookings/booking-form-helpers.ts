@@ -1234,7 +1234,9 @@ export function resolveBubblewrapUnitPrice(args: {
 }
 
 export function isOrderLevelAddOnId(addonId: string): boolean {
-  return addonId === "bubblewrap" || addonId === "custom-card";
+  if (addonId.includes("bubblewrap") || addonId === "custom-card") return true;
+  if (COOKIE_ADDITIONAL_DESIGN_ADDON_IDS.includes(addonId as any)) return true;
+  return false;
 }
 
 export function calculatePerUnitAddOnPrice(args: {

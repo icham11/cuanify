@@ -17,11 +17,26 @@ export type WhatsAppOrderType =
   | "cookies"
   | "cupcakes"
   | "buket"
-  | "cookies_tower";
+  | "cookies_tower"
+  | string;
 
-export type WhatsAppOrderTypeOrUnknown = WhatsAppOrderType | "unknown";
+export type WhatsAppOrderTypeOrUnknown = WhatsAppOrderType | string | "unknown";
 
 export type WhatsAppSourceType = "text" | "manual" | "image" | "email";
+
+export interface DynamicOrderTemplateField {
+  key: string;
+  label: string;
+  aliases: string[];
+  isRequired: boolean;
+  displayOrder: number;
+}
+
+export interface DynamicOrderTemplate {
+  typeKey: string;
+  name: string;
+  fields: DynamicOrderTemplateField[];
+}
 
 export interface BookingParserCatalogContext {
   productCatalog?: PricelistCategory[];
@@ -349,6 +364,37 @@ const allFieldDefinitions: FieldDefinition[] = [
   ...commonFieldDefinitions,
   ...Object.values(detailFieldDefinitions).flat(),
 ];
+
+export function getEffectiveDetailFieldDefinitions(
+  dynamicTemplates?: DynamicOrderTemplate[]
+): Record<string, FieldDefinition[]> {
+  if (!dynamicTemplates || dynamicTemplates.length === 0) {
+    return detailFieldDefinitions;
+  }
+  
+  const effective: Record<string, FieldDefinition[]> = { ...detailFieldDefinitions };
+  for (const template of dynamicTemplates) {
+    effective[template.typeKey] = template.fields.map(f => ({
+      key: f.key,
+      label: f.label,
+      aliases: f.aliases
+    }));
+  }
+  return effective;
+}
+
+export function getEffectiveAllFieldDefinitions(
+  dynamicTemplates?: DynamicOrderTemplate[]
+): FieldDefinition[] {
+  if (!dynamicTemplates || dynamicTemplates.length === 0) {
+    return allFieldDefinitions;
+  }
+  
+  return [
+    ...commonFieldDefinitions,
+    ...Object.values(getEffectiveDetailFieldDefinitions(dynamicTemplates)).flat(),
+  ];
+}
 
 const requiredCommonKeys = [
   "deliveryDate",
@@ -702,7 +748,7 @@ function isRecapTotalsLine(line: string): boolean {
 
 function looksLikeLabeledLine(
   value: string,
-  options?: { insideBlock?: boolean },
+  options?: { insideBlock?: boolean; dynamicTemplates?: DynamicOrderTemplate[] },
 ): boolean {
   const normalized = normalizeLabel(value);
   if (!normalized) return false;
@@ -718,7 +764,9 @@ function looksLikeLabeledLine(
   if (normalized.startsWith("jenis pesanan")) return true;
   if (/^[a-z0-9\s]{2,60}\s*[:=-]\s*/i.test(value.trim())) return true;
 
-  return [...allFieldDefinitions, ...recapItemFieldDefinitions].some((field) =>
+  const effectiveAllFields = getEffectiveAllFieldDefinitions(options?.dynamicTemplates);
+
+  return [...effectiveAllFields, ...recapItemFieldDefinitions].some((field) =>
     field.aliases.some((alias) => normalized.startsWith(normalizeLabel(alias))),
   );
 }
@@ -727,6 +775,7 @@ function collectBlockValue(
   lines: string[],
   startIndex: number,
   firstLineValue: string,
+  dynamicTemplates?: DynamicOrderTemplate[]
 ): string {
   const parts: string[] = [];
   if (firstLineValue) {
@@ -736,16 +785,18 @@ function collectBlockValue(
   for (let index = startIndex + 1; index < lines.length; index += 1) {
     const line = lines[index]?.trim() ?? "";
     if (!line) continue;
-    if (looksLikeLabeledLine(line, { insideBlock: true })) break;
+    if (looksLikeLabeledLine(line, { insideBlock: true, dynamicTemplates })) break;
     parts.push(line);
   }
 
   return joinCollectedBlockParts(parts);
 }
 
-function buildKeyValueLookup(lines: string[]): Map<string, string> {
+function buildKeyValueLookup(lines: string[], dynamicTemplates?: DynamicOrderTemplate[]): Map<string, string> {
   const lookup = new Map<string, string>();
   let currentParentKey = "";
+  
+  const effectiveAllFields = getEffectiveAllFieldDefinitions(dynamicTemplates);
 
   lines.forEach((line, index) => {
     // Reset context jika bertemu baris kosong, karena ini memisahkan antar section utama.
@@ -766,14 +817,14 @@ function buildKeyValueLookup(lines: string[]): Map<string, string> {
     // Jika key ini adalah sebuah root field yang valid (seperti "Jumlah Bunga" atau "Warna Bunga"),
     // kita harus mereset parent context agar tidak tersedot ke dalam parent sebelumnya
     // (karena baris kosong sudah dibuang sebelumnya oleh parser)
-    const isRootKey = [...allFieldDefinitions, ...recapItemFieldDefinitions].some((field) =>
+    const isRootKey = [...effectiveAllFields, ...recapItemFieldDefinitions].some((field) =>
       field.aliases.some((alias) => key === normalizeLabel(alias))
     );
     if (isRootKey) {
       currentParentKey = "";
     }
 
-    const value = collectBlockValue(lines, index, cleanupValue(rawValue));
+    const value = collectBlockValue(lines, index, cleanupValue(rawValue), dynamicTemplates);
 
     // Jika line ini adalah header (tanpa value text sama sekali, hanya titik dua)
     // Jadikan ini sebagai parent context untuk line di bawahnya
@@ -1153,14 +1204,16 @@ function buildDetailsByOrderType(
   rawText: string,
   lines: string[],
   lookup: Map<string, string>,
+  dynamicTemplates?: DynamicOrderTemplate[]
 ): ParsedWhatsAppDetailsByOrderType {
   const detailsByOrderType: ParsedWhatsAppDetailsByOrderType = {};
+  const effectiveDetails = getEffectiveDetailFieldDefinitions(dynamicTemplates);
 
-  for (const orderType of ORDER_TYPE_SEQUENCE) {
+  for (const orderType of Object.keys(effectiveDetails)) {
     const details: Record<string, string> = {};
 
-    for (const field of detailFieldDefinitions[orderType]) {
-      const value = readFieldValue(rawText, lines, lookup, field);
+    for (const field of effectiveDetails[orderType]) {
+      const value = readFieldValue(rawText, lines, lookup, field, dynamicTemplates);
       details[field.key] = normalizeByKey(field.key, value);
     }
 
@@ -1175,6 +1228,7 @@ function readFieldValue(
   lines: string[],
   lookup: Map<string, string>,
   definition: FieldDefinition,
+  dynamicTemplates?: DynamicOrderTemplate[]
 ): string {
   const normalizedAliases = definition.aliases.map((alias) =>
     normalizeLabel(alias),
@@ -1225,7 +1279,7 @@ function readFieldValue(
     if (match?.[1]) {
       const value = match[1].trim();
       // Jangan ambil value jika value tersebut ternyata adalah header field lain
-      if (!looksLikeLabeledLine(value)) {
+      if (!looksLikeLabeledLine(value, { dynamicTemplates })) {
         const cleaned = cleanupValue(value);
         if (cleaned) return cleaned;
       }
@@ -1559,15 +1613,40 @@ function detectOrderType(
   rawText: string,
   lookup: Map<string, string>,
   preferredOrderType: WhatsAppOrderTypeOrUnknown,
+  dynamicTemplates?: DynamicOrderTemplate[]
 ): WhatsAppOrderType {
   if (preferredOrderType !== "unknown") return preferredOrderType;
 
   const explicitOrderType = parseOrderTypeFromText(rawText);
+  if (explicitOrderType !== "unknown") return explicitOrderType;
 
   const normalizedText = normalizeLabel(rawText);
   const normalizedKeys = Array.from(lookup.keys()).map((key) =>
     normalizeLabel(key),
   );
+
+  const effectiveDetails = getEffectiveDetailFieldDefinitions(dynamicTemplates);
+  let bestMatch = "cake";
+  let maxScore = -1;
+
+  for (const [typeKey, fields] of Object.entries(effectiveDetails)) {
+    let score = 0;
+    for (const field of fields) {
+      for (const alias of field.aliases) {
+        const normalizedAlias = normalizeLabel(alias);
+        if (normalizedKeys.some(k => k === normalizedAlias || k.includes(normalizedAlias))) {
+          score += 2;
+        } else if (normalizedText.includes(normalizedAlias)) {
+          score += 1;
+        }
+      }
+    }
+    
+    if (score > maxScore) {
+      maxScore = score;
+      bestMatch = typeKey;
+    }
+  }
 
   const hasMarkerInKeys = (markers: string[]): boolean => {
     return markers.some((marker) => {
@@ -1712,10 +1791,12 @@ function hasFilledDetailValues(details?: Record<string, string>): boolean {
 function buildDetailNotesForOrderType(
   parsed: ParsedWhatsAppOrder,
   orderType: WhatsAppOrderType,
+  dynamicTemplates?: DynamicOrderTemplate[],
 ): string {
   const details = getDetailsForOrderType(parsed, orderType);
+  const effectiveDetails = getEffectiveDetailFieldDefinitions(dynamicTemplates)[orderType] || [];
 
-  return detailFieldDefinitions[orderType]
+  return effectiveDetails
     .map((field) => {
       const value = details[field.key];
       if (!value) return "";
@@ -1728,8 +1809,9 @@ function buildDetailNotesForOrderType(
 function buildItemNotesForOrderType(
   parsed: ParsedWhatsAppOrder,
   orderType: WhatsAppOrderType,
+  dynamicTemplates?: DynamicOrderTemplate[],
 ): string {
-  return buildDetailNotesForOrderType(parsed, orderType).slice(0, 300);
+  return buildDetailNotesForOrderType(parsed, orderType, dynamicTemplates).slice(0, 300);
 }
 
 function formatCurrencyNote(value?: number): string {
@@ -4048,7 +4130,33 @@ function buildCupcakeAutoFillItems(
   return buildDefaultAutoFillItems(parsed, itemNotes, catalogContext);
 }
 
-export function buildWhatsAppTemplate(orderType: WhatsAppOrderType): string {
+export function buildWhatsAppTemplate(
+  orderType: WhatsAppOrderType,
+  dynamicTemplates?: DynamicOrderTemplate[]
+): string {
+  if (dynamicTemplates && dynamicTemplates.length > 0) {
+    const template = dynamicTemplates.find(t => t.typeKey === orderType);
+    if (template) {
+      const lines = [
+        `Data ${template.name}`,
+        "Tanggal Pengiriman (/Maret/26):",
+        "KODE BOOKING:",
+        "Order:",
+      ];
+      for (const field of template.fields) {
+        lines.push(`${field.label}:`);
+      }
+      lines.push(
+        "Jam Pengiriman:",
+        "Metode Pengiriman:",
+        "Nama penerima:",
+        "No. telp penerima:",
+        "Alamat lengkap:"
+      );
+      return lines.join("\n");
+    }
+  }
+
   switch (orderType) {
     case "cake":
       return [
@@ -4154,30 +4262,33 @@ export function parseWhatsAppOrderText(
   options?: {
     preferredOrderType?: WhatsAppOrderTypeOrUnknown;
     sourceType?: WhatsAppSourceType;
+    dynamicTemplates?: DynamicOrderTemplate[];
   },
 ): ParsedWhatsAppOrder {
   const sourceType = options?.sourceType ?? "text";
   const preferredOrderType = options?.preferredOrderType ?? "unknown";
+  const dynamicTemplates = options?.dynamicTemplates;
   const text = rawText.trim();
   const lines = text
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
 
-  const lookup = buildKeyValueLookup(lines);
-  const orderType = detectOrderType(text, lookup, preferredOrderType);
-  const detailsByOrderType = buildDetailsByOrderType(text, lines, lookup);
+  const lookup = buildKeyValueLookup(lines, dynamicTemplates);
+  const orderType = detectOrderType(text, lookup, preferredOrderType, dynamicTemplates);
+  const detailsByOrderType = buildDetailsByOrderType(text, lines, lookup, dynamicTemplates);
   const orderRecap = parseOrderRecap(text, lines);
   const requestedImageLabels =
     extractRequestedImageLabelsFromParsedDetails(detailsByOrderType);
 
   const common = buildEmptyCommonFields();
   for (const field of commonFieldDefinitions) {
-    const value = readFieldValue(text, lines, lookup, field);
+    const value = readFieldValue(text, lines, lookup, field, dynamicTemplates);
     common[field.key as CommonFieldKey] = normalizeByKey(field.key, value);
   }
 
-  const detailDefinitions = detailFieldDefinitions[orderType];
+  const effectiveDetailDefinitions = getEffectiveDetailFieldDefinitions(dynamicTemplates);
+  const detailDefinitions = effectiveDetailDefinitions[orderType] || [];
   const details = detailsByOrderType[orderType] ?? {};
 
   if (orderType === "buket" && !details.cookieCount) {
@@ -4323,8 +4434,9 @@ export function formatParsedWhatsAppForNotes(
 export function buildBookingAutoFillFromParsed(
   parsed: ParsedWhatsAppOrder,
   catalogContext?: BookingParserCatalogContext,
+  dynamicTemplates?: DynamicOrderTemplate[],
 ): BookingFormAutoFill {
-  const itemNotes = buildItemNotesForOrderType(parsed, parsed.orderType);
+  const itemNotes = buildItemNotesForOrderType(parsed, parsed.orderType, dynamicTemplates);
   const recapAutoFillItems = buildRecapAutoFillItems(parsed, catalogContext);
   const recapTotals = parsed.orderRecap?.totals;
 

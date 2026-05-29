@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, AuthError } from "@/lib/auth/session";
+import { prisma } from "@/lib/prisma";
 import { loadEffectiveBookingCatalog } from "@/lib/bookings/catalog-config-server";
 import { analyzeBusinessData } from "@/lib/groq";
 import {
@@ -17,6 +18,7 @@ import {
   type WhatsAppOrderType,
   type WhatsAppOrderTypeOrUnknown,
   type WhatsAppSourceType,
+  type DynamicOrderTemplate,
 } from "@/lib/bookings/whatsapp-parser";
 
 export const runtime = "nodejs";
@@ -63,11 +65,16 @@ function parseOrderTypeFromText(value: string): WhatsAppOrderTypeOrUnknown {
 
 function buildVisionPrompt(
   preferredOrderType: WhatsAppOrderTypeOrUnknown,
+  dynamicTemplates?: DynamicOrderTemplate[],
 ): string {
+  const typeKeys = dynamicTemplates?.length 
+    ? dynamicTemplates.map(t => t.typeKey).join(" | ")
+    : "cake | cookies | cupcakes | buket | cookies_tower";
+
   const selectedTypeInstruction =
     preferredOrderType === "unknown"
       ? `
-1) Tentukan jenis pesanan paling cocok: cake | cookies | cupcakes | buket | cookies_tower.
+1) Tentukan jenis pesanan paling cocok: ${typeKeys}.
 2) Tulis baris pertama: Jenis Pesanan: <jenis pesanan>.
 3) Setelah itu susun hasil ekstraksi dengan format label yang sesuai jenis pesanan.
 `
@@ -77,26 +84,37 @@ function buildVisionPrompt(
 3) Setelah itu susun hasil ekstraksi dengan format label berikut.
 `;
 
+  const buildAllTemplatesString = () => {
+    if (dynamicTemplates && dynamicTemplates.length > 0) {
+      return ["Pilih salah satu template ini:", ...dynamicTemplates.flatMap(t => [
+        `- ${t.typeKey}`,
+        buildWhatsAppTemplate(t.typeKey, dynamicTemplates),
+        ""
+      ])].join("\n");
+    }
+    return [
+      "Pilih salah satu template ini:",
+      "- cake",
+      buildWhatsAppTemplate("cake"),
+      "",
+      "- cookies",
+      buildWhatsAppTemplate("cookies"),
+      "",
+      "- cupcakes",
+      buildWhatsAppTemplate("cupcakes"),
+      "",
+      "- buket",
+      buildWhatsAppTemplate("buket"),
+      "",
+      "- cookies_tower",
+      buildWhatsAppTemplate("cookies_tower"),
+    ].join("\n");
+  };
+
   const template =
     preferredOrderType === "unknown"
-      ? [
-          "Pilih salah satu template ini:",
-          "- cake",
-          buildWhatsAppTemplate("cake"),
-          "",
-          "- cookies",
-          buildWhatsAppTemplate("cookies"),
-          "",
-          "- cupcakes",
-          buildWhatsAppTemplate("cupcakes"),
-          "",
-          "- buket",
-          buildWhatsAppTemplate("buket"),
-          "",
-          "- cookies_tower",
-          buildWhatsAppTemplate("cookies_tower"),
-        ].join("\n")
-      : buildWhatsAppTemplate(preferredOrderType as WhatsAppOrderType);
+      ? buildAllTemplatesString()
+      : buildWhatsAppTemplate(preferredOrderType as WhatsAppOrderType, dynamicTemplates);
 
   return `Kamu membaca screenshot chat WhatsApp pesanan.
 Ekstrak data pesanan dengan teliti.
@@ -113,11 +131,16 @@ ${template}`;
 function buildEmailPrompt(
   preferredOrderType: WhatsAppOrderTypeOrUnknown,
   emailText: string,
+  dynamicTemplates?: DynamicOrderTemplate[],
 ): string {
+  const typeKeys = dynamicTemplates?.length 
+    ? dynamicTemplates.map(t => t.typeKey).join(" | ")
+    : "cake | cookies | cupcakes | buket | cookies_tower";
+
   const selectedTypeInstruction =
     preferredOrderType === "unknown"
       ? `
-1) Tentukan jenis pesanan paling cocok: cake | cookies | cupcakes | buket | cookies_tower.
+1) Tentukan jenis pesanan paling cocok: ${typeKeys}.
 2) Tulis baris pertama: Jenis Pesanan: <jenis pesanan>.
 3) Susun output menggunakan label format pesanan (gaya form booking).
 `
@@ -127,20 +150,30 @@ function buildEmailPrompt(
 3) Susun output menggunakan label format pesanan.
 `;
 
+  const buildAllTemplatesString = () => {
+    if (dynamicTemplates && dynamicTemplates.length > 0) {
+      return dynamicTemplates.flatMap(t => [
+        buildWhatsAppTemplate(t.typeKey, dynamicTemplates),
+        ""
+      ]).join("\n");
+    }
+    return [
+      buildWhatsAppTemplate("cake"),
+      "",
+      buildWhatsAppTemplate("cookies"),
+      "",
+      buildWhatsAppTemplate("cupcakes"),
+      "",
+      buildWhatsAppTemplate("buket"),
+      "",
+      buildWhatsAppTemplate("cookies_tower"),
+    ].join("\n");
+  };
+
   const template =
     preferredOrderType === "unknown"
-      ? [
-          buildWhatsAppTemplate("cake"),
-          "",
-          buildWhatsAppTemplate("cookies"),
-          "",
-          buildWhatsAppTemplate("cupcakes"),
-          "",
-          buildWhatsAppTemplate("buket"),
-          "",
-          buildWhatsAppTemplate("cookies_tower"),
-        ].join("\n")
-      : buildWhatsAppTemplate(preferredOrderType as WhatsAppOrderType);
+      ? buildAllTemplatesString()
+      : buildWhatsAppTemplate(preferredOrderType as WhatsAppOrderType, dynamicTemplates);
 
   return `Kamu membaca notifikasi email pesanan e-commerce.
 Ekstrak data order secara akurat ke format terstruktur.
@@ -343,6 +376,22 @@ export async function POST(request: NextRequest) {
     const auth = await requireAuth();
     const bookingCatalog = await loadEffectiveBookingCatalog(auth.businessId);
 
+    const rawTemplates = await prisma.orderTemplate.findMany({
+      where: { businessId: auth.businessId, isActive: true },
+      include: { fields: { orderBy: { displayOrder: "asc" } } }
+    });
+    const dynamicTemplates: DynamicOrderTemplate[] = rawTemplates.map(rt => ({
+      typeKey: rt.typeKey,
+      name: rt.name,
+      fields: rt.fields.map(f => ({
+        key: f.key,
+        label: f.label,
+        aliases: f.aliases,
+        isRequired: f.isRequired,
+        displayOrder: f.displayOrder
+      }))
+    }));
+
     const contentType = request.headers.get("content-type") || "";
 
     let sourceType: WhatsAppSourceType = "text";
@@ -454,7 +503,7 @@ export async function POST(request: NextRequest) {
       const extractionBlocks: string[] = [];
       for (const imageUrl of uploadedImageUrls) {
         const extractedFromImage = await analyzeBusinessData({
-          prompt: buildVisionPrompt(preferredOrderType),
+          prompt: buildVisionPrompt(preferredOrderType, dynamicTemplates),
           imageUrl,
           temperature: 0.1,
           maxTokens: 1600,
@@ -473,7 +522,7 @@ export async function POST(request: NextRequest) {
 
     if (sourceType === "email") {
       visionRawOutput = await analyzeBusinessData({
-        prompt: buildEmailPrompt(preferredOrderType, extractedText),
+        prompt: buildEmailPrompt(preferredOrderType, extractedText, dynamicTemplates),
         temperature: 0.1,
         maxTokens: 1600,
       });
@@ -491,9 +540,10 @@ export async function POST(request: NextRequest) {
     const parsed = parseWhatsAppOrderText(extractedText, {
       preferredOrderType: effectiveOrderType,
       sourceType,
+      dynamicTemplates,
     });
 
-    const autoFill = buildBookingAutoFillFromParsed(parsed, bookingCatalog);
+    const autoFill = buildBookingAutoFillFromParsed(parsed, bookingCatalog, dynamicTemplates);
     const parsedWithImage = {
       ...parsed,
       imageUrl: uploadedImageUrls[0],

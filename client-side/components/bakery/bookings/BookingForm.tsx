@@ -1928,7 +1928,9 @@ function resolveBubblewrapUnitPrice(args: {
 }
 
 function isOrderLevelAddOnId(addonId: string): boolean {
-  return addonId === "bubblewrap" || addonId === "custom-card";
+  if (addonId.includes("bubblewrap") || addonId === "custom-card") return true;
+  if (COOKIE_ADDITIONAL_DESIGN_ADDON_IDS.includes(addonId as any)) return true;
+  return false;
 }
 
 function calculatePerUnitAddOnPrice(args: {
@@ -9581,6 +9583,7 @@ export default function BookingForm({
                                             ? " (adjusted)"
                                             : ""}
                                           {!isBouquetFlowerAddOnId(addon.id) &&
+                                          !isOrderLevelAddOnId(addon.id) &&
                                           quantityValue > 0
                                             ? ` (x${quantityValue} = ${formatCurrency(effectiveUnitPrice * quantityValue)})`
                                             : ""}
