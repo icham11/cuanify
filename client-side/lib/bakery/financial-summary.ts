@@ -21,6 +21,8 @@ export type BakeryFinancialOrder = {
   deliveryDate?: string;
   product?: string;
   totalPrice?: number;
+  deliveryFee?: number;
+  insuranceFee?: number;
   totalPaidAmount?: number;
   dpPaidAmount?: number;
   finalPaidAmount?: number;
@@ -250,7 +252,12 @@ function getRevenueAmountInRange(
     return 0;
   }
 
-  return Math.max(0, Number(order.totalPrice || 0));
+  const baseTotal = Number(order.totalPrice || 0);
+  const deliveryFee = Number(order.deliveryFee || 0);
+  const insuranceFee = Number(order.insuranceFee || 0);
+
+  // Revenue should exclude pass-through costs like shipping and insurance
+  return Math.max(0, baseTotal - deliveryFee - insuranceFee);
 }
 
 function getCashFlowInAmountInRange(
@@ -464,10 +471,13 @@ export function calculateBakeryFinancialSummary(args: {
   const productCostMap = buildProductCostMap(args.products);
   const productCostEntries = buildProductCostEntries(args.products);
   const bookedRevenue = filteredOrders.reduce(
-    (sum, order) =>
-      sum +
-      Math.max(0, Number(order.totalPrice || 0)) *
-        (isCancelledOrder(order) ? -1 : 1),
+    (sum, order) => {
+      const baseTotal = Number(order.totalPrice || 0);
+      const deliveryFee = Number(order.deliveryFee || 0);
+      const insuranceFee = Number(order.insuranceFee || 0);
+      const netRevenue = Math.max(0, baseTotal - deliveryFee - insuranceFee);
+      return sum + netRevenue * (isCancelledOrder(order) ? -1 : 1);
+    },
     0,
   );
   let totalRevenue = 0;

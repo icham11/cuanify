@@ -120,6 +120,8 @@ function mapOrderToFinancialOrder(order: BakeryOrder): BakeryFinancialOrder {
     deliveryDate: order.deliveryDate,
     product: order.product,
     totalPrice: order.totalPrice,
+    deliveryFee: order.deliveryFee,
+    insuranceFee: order.insuranceFee,
     totalPaidAmount: order.totalPaidAmount,
     dpPaidAmount: order.dpPaidAmount,
     finalPaidAmount: order.finalPaidAmount,
