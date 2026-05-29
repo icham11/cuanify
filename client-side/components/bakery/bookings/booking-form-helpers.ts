@@ -1556,14 +1556,14 @@ export function getItemQuantityRule( // Definisikan fungsi penentu aturan kuanti
   const bouquetType = detectBouquetTypeFromItem(item); // Cek apakah produk bertipe Buket
   if (bouquetType === "HAND") { // Jika bertipe Buket Tangan (Hand Bouquet)
     return { // Kembalikan aturan kuantitas Hand Bouquet
-      label: "Quantity (isi cookies)", // Label input
+      label: "Jumlah Buket / Total Cookies", // Label input
       min: 1, // Batas min unit
       helperText: `Hand bouquet: isi cookies ${BOUQUET_HAND_MIN_QTY}-${BOUQUET_HAND_MAX_QTY}. Qty 1-${BOUQUET_HAND_MIN_QTY - 1} dibaca sebagai jumlah unit bouquet (harga start from).`, // Penjelasan di UI
     }; // Akhir return objek
   } // Akhir pengecekan HAND
   if (bouquetType === "STANDING") { // Jika bertipe Buket Berdiri (Standing Bouquet)
     return { // Kembalikan aturan kuantitas Standing Bouquet
-      label: "Quantity (isi cookies)", // Label input
+      label: "Jumlah Buket / Total Cookies", // Label input
       min: 1, // Batas min unit
       helperText: `Standing bouquet: isi cookies ${getBouquetQtyRangeLabel("STANDING")}. Qty 1-${BOUQUET_STANDING_MIN_QTY - 1} dibaca sebagai jumlah unit bouquet (harga start from).`, // Penjelasan di UI
     }; // Akhir return objek

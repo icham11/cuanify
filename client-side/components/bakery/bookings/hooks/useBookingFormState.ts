@@ -1749,12 +1749,7 @@ export function useBookingFormState() {
         return;
       }
 
-      if (!isValidBouquetQuantity(quantity, bouquetType)) {
-        toast.error(
-          `${bouquetType === "HAND" ? "Hand" : "Standing"} bouquet wajib qty ${getBouquetQtyRangeLabel(bouquetType)} cookies.`,
-        );
-        return;
-      }
+
     }
 
     const totalCustomCookieQty = values.items.reduce((sum, item) => {

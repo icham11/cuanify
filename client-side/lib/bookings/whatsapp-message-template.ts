@@ -172,7 +172,9 @@ function appendOrderDeliveryDetailLines(
     | "postalCode"
   >,
 ) {
-  lines.push(`Tanggal Pengiriman : ${formatWhatsAppDeliveryDate(input.deliveryDate)}`);
+  lines.push(
+    `Tanggal Pengiriman : ${formatWhatsAppDeliveryDate(input.deliveryDate)}`,
+  );
   lines.push("");
 
   let finalBookingCode = normalizeInlineValue(input.bookingCode || "");
@@ -191,9 +193,7 @@ function appendOrderDeliveryDetailLines(
     const qtyPrefix =
       item.quantity && item.quantity > 0 ? `${item.quantity}pcs ` : "";
     lines.push(
-      normalizeInlineValue(
-        `•  ${qtyPrefix}${item.productName || "-"}`,
-      ),
+      normalizeInlineValue(`•  ${qtyPrefix}${item.productName || "-"}`),
     );
   }
   lines.push("");
@@ -207,11 +207,15 @@ function appendOrderDeliveryDetailLines(
     lines.push("");
   }
 
-  lines.push(`Jam Pengiriman: ${formatWhatsAppDeliveryTime(input.deliveryTime)}`);
+  lines.push(
+    `Jam Pengiriman: ${formatWhatsAppDeliveryTime(input.deliveryTime)}`,
+  );
   lines.push(
     `Metode Pengiriman : ${normalizeInlineValue(input.shippingMethod || "-")}`,
   );
-  lines.push(`Nama penerima : ${normalizeInlineValue(input.recipientName || "-")}`);
+  lines.push(
+    `Nama penerima : ${normalizeInlineValue(input.recipientName || "-")}`,
+  );
   lines.push(
     `No. telp penerima : ${normalizeInlineValue(input.recipientPhone || "-")}`,
   );
@@ -221,9 +225,7 @@ function appendOrderDeliveryDetailLines(
   }
 }
 
-export function buildOrderRecapWhatsAppText(
-  input: WhatsAppRecapInput,
-): string {
+export function buildOrderRecapWhatsAppText(input: WhatsAppRecapInput): string {
   const lines: string[] = ["REKAP ORDER"];
 
   input.items.forEach((item, index) => {

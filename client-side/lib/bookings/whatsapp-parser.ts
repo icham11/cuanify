@@ -264,7 +264,12 @@ export const detailFieldDefinitions: Record<
     },
     {
       key: "flowerCount",
-      label: "Jumlah Bunga / Isi Bouquet",
+      label: "Jumlah Bunga",
+      aliases: ["jumlah bunga", "qty bunga", "flower", "bunga"],
+    },
+    {
+      key: "cookieCount",
+      label: "Isi Bouquet",
       aliases: [
         "jumlah cookies",
         "qty cookies",
@@ -274,8 +279,6 @@ export const detailFieldDefinitions: Record<
         "jumlah cookies isi buket",
         "isi bouquet",
         "isi buket",
-        "jumlah bunga",
-        "qty bunga",
       ],
     },
     {
@@ -336,8 +339,8 @@ const optionalDetailFieldKeys: Record<WhatsAppOrderType, string[]> = {
   cookies: ["toFromNotes", "cookieCount"],
   // Tipe cupcakes tidak memiliki field detail opsional wajib
   cupcakes: [],
-  // Tipe buket memiliki field opsional harga, jumlah bunga, dan warna bunga
-  buket: ["cookiePrice", "flowerCount", "flowerColor"],
+  // Tipe buket memiliki field opsional harga, jumlah bunga, warna bunga, dan isi bouquet
+  buket: ["cookiePrice", "flowerCount", "flowerColor", "cookieCount"],
   // Tipe cookies tower tidak memiliki field detail opsional wajib
   cookies_tower: [],
 };
@@ -742,8 +745,16 @@ function collectBlockValue(
 
 function buildKeyValueLookup(lines: string[]): Map<string, string> {
   const lookup = new Map<string, string>();
+  let currentParentKey = "";
 
   lines.forEach((line, index) => {
+    // Reset context jika bertemu baris kosong, karena ini memisahkan antar section utama.
+    // Mencegah field "Jumlah Bunga" tersedot masuk ke dalam "Warna kertas bouquet"
+    if (!line.trim()) {
+      currentParentKey = "";
+      return;
+    }
+
     const match = line.match(/^(.{2,80}?)\s*[:=-]\s*(.*)$/);
     if (!match) return;
 
@@ -752,10 +763,32 @@ function buildKeyValueLookup(lines: string[]): Map<string, string> {
     const key = normalizeLabel(rawKey);
     if (!key) return;
 
+    // Jika key ini adalah sebuah root field yang valid (seperti "Jumlah Bunga" atau "Warna Bunga"),
+    // kita harus mereset parent context agar tidak tersedot ke dalam parent sebelumnya
+    // (karena baris kosong sudah dibuang sebelumnya oleh parser)
+    const isRootKey = [...allFieldDefinitions, ...recapItemFieldDefinitions].some((field) =>
+      field.aliases.some((alias) => key === normalizeLabel(alias))
+    );
+    if (isRootKey) {
+      currentParentKey = "";
+    }
+
     const value = collectBlockValue(lines, index, cleanupValue(rawValue));
+
+    // Jika line ini adalah header (tanpa value text sama sekali, hanya titik dua)
+    // Jadikan ini sebagai parent context untuk line di bawahnya
+    if (!value && !rawValue) {
+      currentParentKey = key + " ";
+    }
 
     if (!lookup.has(key) || value) {
       lookup.set(key, value);
+    }
+
+    // Jika sedang berada di bawah suatu header (misal "Kartu ucapan :"), 
+    // simpan juga dengan prefix headernya agar terbaca sebagai kesatuan
+    if (currentParentKey && currentParentKey !== key + " ") {
+      lookup.set(currentParentKey + key, value);
     }
   });
 
@@ -1008,10 +1041,9 @@ function parseOrderRecap(
                 .join(" | "),
             )
           : null;
-      const quantity =
-        category === "Buket" && rawQuantity <= 1 && bouquetIsiQuantity
-          ? bouquetIsiQuantity
-          : rawQuantity;
+      // Gunakan kuantitas baku dari input tanpa melakukan override dengan jumlah isi buket
+      // Hal ini mencegah error dimana 1 buket isi 20 terdeteksi sebagai 20 buket
+      const quantity = rawQuantity;
       const addOn = cleanupValue(addOnValue);
       const unitPrice = parseCurrencyAmount(unitPriceValue) ?? undefined;
       const totalItemCost =
@@ -1148,32 +1180,41 @@ function readFieldValue(
     normalizeLabel(alias),
   );
 
-  for (const alias of normalizedAliases) {
-    if (lookup.has(alias)) {
-      return lookup.get(alias) ?? "";
+  const matchedValues: string[] = [];
+
+  // Cari semua key di lookup yang persis sama atau diawali dengan alias + spasi
+  // Ini memungkinkan penangkapan multiple design block, misal "Design 1", "Design 2"
+  for (const [key, value] of lookup.entries()) {
+    for (const alias of normalizedAliases) {
+      // Untuk "design", gunakan pengecekan ketat (hanya membolehkan suffix angka seperti "design 1", "design 2").
+      // Ini untuk mencegah tertukarnya "design 1 pokemon" milik kartu ucapan ke dalam field design utama.
+      // Untuk field lain (seperti "kartu ucapan", "warna kertas"), gunakan pengecekan prefix biasa
+      // agar mereka bisa menangkap sub-header yang ada di bawahnya.
+      const isDesign = alias === "design" || alias === "desain";
+      const aliasPatternStr = escapeRegExp(alias).replace(/\s+/g, "\\s+");
+      
+      const isMatch = isDesign
+        ? key === alias || new RegExp(`^${aliasPatternStr}\\s+\\d+$`).test(key)
+        : key === alias || key.startsWith(alias + " ");
+      
+      if (isMatch && value) {
+        // Jika ada suffix (misal " 1"), gunakan sebagai prefix tampilan (misal "1 : ")
+        const prefix = key === alias ? "" : key.substring(alias.length).trim() + " : ";
+        matchedValues.push(prefix ? `${prefix}\n${value}` : value);
+        break; // Lanjut ke key berikutnya di lookup
+      }
     }
   }
 
-  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
-    const line = lines[lineIndex];
-    const normalizedLine = normalizeLabel(line);
-    if (!normalizedLine) continue;
-
-    for (
-      let aliasIndex = 0;
-      aliasIndex < definition.aliases.length;
-      aliasIndex += 1
-    ) {
-      const alias = definition.aliases[aliasIndex];
-      const normalizedAlias = normalizedAliases[aliasIndex];
-      if (!normalizedLine.startsWith(normalizedAlias)) continue;
-
-      const inlineValue = getInlineValueAfterLabel(line, alias);
-      const blockValue = collectBlockValue(lines, lineIndex, inlineValue);
-      if (blockValue) return blockValue;
-    }
+  if (matchedValues.length > 0) {
+    // Gabungkan multiple blocks dengan delimiter " | " 
+    // karena fungsi cleanupValue() selanjutnya akan menghapus semua karakter newline (\n)
+    // dan merubahnya menjadi spasi. Karakter " | " nantinya akan diubah kembali
+    // menjadi newline oleh normalizeByKey() untuk field-field tertentu.
+    return matchedValues.join(" | ");
   }
 
+  // Fallback membaca text raw jika tidak tertangkap block parser
   for (const alias of definition.aliases) {
     const aliasPattern = escapeRegExp(alias).replace(/\s+/g, "\\s+");
     const regex = new RegExp(
@@ -2817,9 +2858,12 @@ function extractOrderQuantity(value: string): number | null {
     return null;
   };
 
+  // Regex ini menangkap jumlah order khusus buket dari teks bebas
+  // Perubahan: Menghapus tanda '?' setelah (?:qty|jumlah|x) untuk mewajibkan adanya kata kunci kuantitas
+  // Ini mencegah deteksi keliru di mana angka isi buket (misal: "20 pcs") dianggap sebagai jumlah buket
   const bouquetContextual = parseMatchedQuantity(
     text.match(
-      /(?:hbq|sbq|hand\s*bouquet|standing\s*bouquet|standing\s*bucket|bucket|bouquet|buket)\b(?:\s+(?:qty|jumlah|x))?\s*[:=\-]?\s*(\d{1,4})\b/i,
+      /(?:hbq|sbq|hand\s*bouquet|standing\s*bouquet|standing\s*bucket|bucket|bouquet|buket)\b(?:\s+(?:qty|jumlah|x))\s*[:=\-]?\s*(\d{1,4})\b/i,
     ),
   );
   if (bouquetContextual) return bouquetContextual;
@@ -2923,21 +2967,23 @@ function chooseQuantity(parsed: ParsedWhatsAppOrder): number {
   if (parsed.orderType === "buket") {
     // Ambil string nama produk order untuk pengecekan kata kunci tambahan
     const orderText = parsed.common.order ?? "";
-    // Cari kuantitas berdasarkan kata kunci buket yang sering dipakai
-    const bouquetOrderCount =
-      // Jalankan fungsi pencarian kuantitas berbasis kata kunci
-      extractQuantityForKeywords(orderText, [
-        "hbq",
-        "sbq",
-        "hand bouquet",
-        "standing bouquet",
-        "standing bucket",
-        "bucket",
-        "bouquet",
-        "buket",
-      ]) ?? extractOrderQuantity(orderText); // Gunakan ekstraksi kuantitas order umum jika tidak ketemu
-
-    // Kembalikan kuantitas buket dari order atau fallback ke nilai 1
+    
+    // Cari kuantitas berdasarkan awalan kuantitas sebelum kata kunci buket yang sering dipakai
+    // Contoh: "2x hbq", "2 standing bouquet"
+    const bouquetOrderCount = extractQuantityForKeywords(orderText, [
+      "hbq",
+      "sbq",
+      "hand bouquet",
+      "standing bouquet",
+      "standing bucket",
+      "bucket",
+      "bouquet",
+      "buket",
+    ]);
+    
+    // Jangan lakukan fallback ke extractOrderQuantity karena fungsi tsb dapat dengan keliru
+    // menangkap teks seperti "10 pcs" sebagai jumlah buket (padahal itu isi buketnya).
+    // Kembalikan kuantitas buket dari order yang eksplisit, atau default ke nilai 1.
     return bouquetOrderCount ?? 1;
   }
 
@@ -4130,10 +4176,10 @@ export function parseWhatsAppOrderText(
   const detailDefinitions = detailFieldDefinitions[orderType];
   const details = detailsByOrderType[orderType] ?? {};
 
-  if (orderType === "buket" && !details.flowerCount) {
-    const extractedFlowerCount = extractBouquetIsiQuantity(common.order || "");
-    if (extractedFlowerCount) {
-      details.flowerCount = String(extractedFlowerCount);
+  if (orderType === "buket" && !details.cookieCount) {
+    const extractedCookieCount = extractBouquetIsiQuantity(common.order || "");
+    if (extractedCookieCount) {
+      details.cookieCount = String(extractedCookieCount);
     }
   }
 

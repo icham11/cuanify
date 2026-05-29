@@ -422,8 +422,8 @@ export async function sendOrderToWhatsApp(
       ok: true,
       stage: "send",
       message: `WhatsApp production notification sent successfully (${outboundMessages.length} message(s)).`,
-      imageUrl:
-        outboundMessages.findLast((entry) => Boolean(entry.imageUrl))?.imageUrl,
+      imageUrl: outboundMessages.findLast((entry) => Boolean(entry.imageUrl))
+        ?.imageUrl,
     };
   } catch (error) {
     lastResult = {
@@ -433,8 +433,8 @@ export async function sendOrderToWhatsApp(
         error instanceof Error
           ? error.message
           : "Failed to send WhatsApp production notification.",
-      imageUrl:
-        outboundMessages.findLast((entry) => Boolean(entry.imageUrl))?.imageUrl,
+      imageUrl: outboundMessages.findLast((entry) => Boolean(entry.imageUrl))
+        ?.imageUrl,
     };
   }
 

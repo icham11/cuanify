@@ -2301,14 +2301,14 @@ function getItemQuantityRule( // Definisikan fungsi lokal untuk mengambil batas 
   const bouquetType = detectBouquetTypeFromItem(item); // Cek tipe buket bunga dari item
   if (bouquetType === "HAND") {
     return {
-      label: "Quantity (isi cookies)",
+      label: "Jumlah Buket / Total Cookies",
       min: 1,
       helperText: `Hand bouquet: isi cookies ${BOUQUET_HAND_MIN_QTY}-${BOUQUET_HAND_MAX_QTY}. Qty 1-${BOUQUET_HAND_MIN_QTY - 1} dibaca sebagai jumlah unit bouquet (harga start from).`,
     };
   }
   if (bouquetType === "STANDING") {
     return {
-      label: "Quantity (isi cookies)",
+      label: "Jumlah Buket / Total Cookies",
       min: 1,
       helperText: `Standing bouquet: isi cookies ${getBouquetQtyRangeLabel("STANDING")}. Qty 1-${BOUQUET_STANDING_MIN_QTY - 1} dibaca sebagai jumlah unit bouquet (harga start from).`,
     };
@@ -5515,12 +5515,7 @@ export default function BookingForm({
         return;
       }
 
-      if (!isValidBouquetQuantity(quantity, bouquetType)) {
-        showSubmitFeedback(
-          `${bouquetType === "HAND" ? "Hand" : "Standing"} bouquet wajib qty ${getBouquetQtyRangeLabel(bouquetType)} cookies.`,
-        );
-        return;
-      }
+
     }
 
     const totalCustomCookieQty = values.items.reduce((sum, item) => {

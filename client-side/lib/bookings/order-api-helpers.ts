@@ -1003,7 +1003,7 @@ export function buildCaptionItemDetailLines(
         });
       }
 
-      return value ? { label: field.label, value } : null;
+      return value ? { label: field.label, value: formatCaptionMultilineValue(value) } : null;
     })
     .filter((entry): entry is { label: string; value: string } => Boolean(entry));
 }
