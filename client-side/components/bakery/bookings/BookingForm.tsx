@@ -1968,16 +1968,24 @@ function resolveBubblewrapUnitPrice(args: {
   return roundedDefault;
 }
 
+// @deprecated - Menggunakan string matching (legacy).
+// Dipertahankan karena isPerOrderPricedAddOn local ini belum di-import dari helpers.
 function isOrderLevelAddOnId(addonId: string): boolean {
   if (addonId.includes("bubblewrap") || addonId === "custom-card") return true;
   if (COOKIE_ADDITIONAL_DESIGN_ADDON_IDS.includes(addonId as any)) return true;
   return false;
 }
 
+// Data-driven: prioritaskan pricingStrategy jika ada, fallback ke legacy string matching
 function isPerOrderPricedAddOn(args: {
   addonId: string;
   addonLabel?: string;
+  pricingStrategy?: import("@/lib/bookings/pricelist").AddOnPricingStrategy;
 }): boolean {
+  // Prioritaskan field pricingStrategy jika tersedia di data catalog
+  if (args.pricingStrategy === "PER_ORDER") return true;
+  if (args.pricingStrategy === "PER_ITEM") return false;
+  // Fallback ke legacy string matching untuk data lama
   return (
     isOrderLevelAddOnId(args.addonId) || isAdditionalDesignStyleAddOn(args)
   );
@@ -2000,7 +2008,8 @@ function calculatePerUnitAddOnPrice(args: {
       (entry) => entry.id === addonId,
     );
     if (!addon) return sum;
-    if (isPerOrderPricedAddOn({ addonId, addonLabel: addon.label })) {
+    // Teruskan pricingStrategy agar logika data-driven bekerja
+    if (isPerOrderPricedAddOn({ addonId, addonLabel: addon.label, pricingStrategy: addon.pricingStrategy })) {
       return sum;
     }
 
@@ -2046,7 +2055,8 @@ function calculateOrderLevelAddOnPrice(args: {
       (entry) => entry.id === addonId,
     );
     if (!addon) return sum;
-    if (!isPerOrderPricedAddOn({ addonId, addonLabel: addon.label })) {
+    // Teruskan pricingStrategy agar logika data-driven bekerja
+    if (!isPerOrderPricedAddOn({ addonId, addonLabel: addon.label, pricingStrategy: addon.pricingStrategy })) {
       return sum;
     }
 
@@ -5850,6 +5860,7 @@ export default function BookingForm({
                     isPerOrderPricedAddOn({
                       addonId,
                       addonLabel: addon.label,
+                      pricingStrategy: addon.pricingStrategy,
                     })
                       ? "order"
                       : "item"
@@ -8219,6 +8230,7 @@ export default function BookingForm({
                               isPerOrderPricedAddOn({
                                 addonId: addon.id,
                                 addonLabel: addon.label,
+                                pricingStrategy: addon.pricingStrategy,
                               })
                             ) {
                               const overriddenPrice =
@@ -9669,6 +9681,7 @@ export default function BookingForm({
                                     isPerOrderPricedAddOn({
                                       addonId: addon.id,
                                       addonLabel: addon.label,
+                                      pricingStrategy: addon.pricingStrategy,
                                     });
                                   const effectiveUnitPrice =
                                     (normalizedSelection.category === "Buket"

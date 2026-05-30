@@ -37,6 +37,7 @@ import {
 } from "@/lib/bookings/whatsapp-parser";
 import {
   getDefaultCatalogSelection,
+  type AddOnPricingStrategy,
   type CatalogAddOn,
   type CatalogSelection,
   type PricelistCategory,
@@ -1269,12 +1270,17 @@ export function resolveBubblewrapUnitPrice(args: {
   return roundedDefault;
 }
 
-export function isOrderLevelAddOnId(
+// Fungsi legacy sebagai fallback untuk Add-on lama yang belum punya field pricingStrategy.
+// Menggunakan string matching pada ID / label Add-on.
+// @internal - jangan dipakai langsung, gunakan isPerOrderPricedAddOn()
+function isLegacyOrderLevelAddOnId(
   addonId: string,
   addonLabel?: string,
 ): boolean {
   const normalizedLabel = (addonLabel || "").toLowerCase();
+  // Cek berdasarkan ID yang diketahui
   if (addonId.includes("bubblewrap") || addonId === "custom-card") return true;
+  // Cek berdasarkan label (untuk Add-on kustom dari Admin)
   if (
     normalizedLabel.includes("bubblewrap") ||
     normalizedLabel.includes("custom card") ||
@@ -1286,13 +1292,29 @@ export function isOrderLevelAddOnId(
   return false;
 }
 
+// Tetap di-export untuk backward-compat (beberapa file masih memanggilnya langsung)
+// @deprecated - Gunakan isPerOrderPricedAddOn() dengan meneruskan pricingStrategy
+export function isOrderLevelAddOnId(
+  addonId: string,
+  addonLabel?: string,
+): boolean {
+  return isLegacyOrderLevelAddOnId(addonId, addonLabel);
+}
+
+// Fungsi utama yang data-driven.
+// Jika Add-on sudah punya field pricingStrategy → ikuti field tersebut.
+// Jika belum ada (data lama) → fallback ke legacy string matching.
 export function isPerOrderPricedAddOn(args: {
   addonId: string;
   addonLabel?: string;
+  pricingStrategy?: AddOnPricingStrategy; // dari CatalogAddOn.pricingStrategy
 }): boolean {
-  return (
-    isOrderLevelAddOnId(args.addonId, args.addonLabel) || isAdditionalDesignStyleAddOn(args)
-  );
+  // Data-driven: prioritaskan field pricingStrategy jika tersedia
+  if (args.pricingStrategy === "PER_ORDER") return true;
+  if (args.pricingStrategy === "PER_ITEM") return false;
+
+  // Fallback ke legacy string matching untuk data lama tanpa field pricingStrategy
+  return isLegacyOrderLevelAddOnId(args.addonId, args.addonLabel) || isAdditionalDesignStyleAddOn(args);
 }
 
 export function calculatePerUnitAddOnPrice(args: {
@@ -1312,7 +1334,8 @@ export function calculatePerUnitAddOnPrice(args: {
       (entry) => entry.id === addonId,
     );
     if (!addon) return sum;
-    if (isPerOrderPricedAddOn({ addonId, addonLabel: addon.label })) {
+    // Teruskan pricingStrategy dari catalog agar logika data-driven bisa dipakai
+    if (isPerOrderPricedAddOn({ addonId, addonLabel: addon.label, pricingStrategy: addon.pricingStrategy })) {
       return sum;
     }
 
@@ -1358,7 +1381,8 @@ export function calculateOrderLevelAddOnPrice(args: {
       (entry) => entry.id === addonId,
     );
     if (!addon) return sum;
-    if (!isPerOrderPricedAddOn({ addonId, addonLabel: addon.label })) {
+    // Teruskan pricingStrategy dari catalog agar logika data-driven bisa dipakai
+    if (!isPerOrderPricedAddOn({ addonId, addonLabel: addon.label, pricingStrategy: addon.pricingStrategy })) {
       return sum;
     }
 

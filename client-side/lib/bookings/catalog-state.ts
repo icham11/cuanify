@@ -1,6 +1,7 @@
 import {
   BOOKING_ADD_ON_CATALOG,
   BOOKING_PRODUCT_CATALOG,
+  type AddOnPricingStrategy,
   type CatalogAddOn,
   type PricelistCategory,
 } from "@/lib/bookings/pricelist";
@@ -20,6 +21,8 @@ export interface CustomAddOnEntry {
   label: string;
   price: number;
   cogs?: number;
+  // Strategi harga Add-on: PER_ITEM (default) atau PER_ORDER (flat, tidak dikali qty)
+  pricingStrategy?: AddOnPricingStrategy;
 }
 
 export interface CatalogAdminState {
@@ -179,6 +182,11 @@ export function normalizeCatalogAdminState(
             label: String(entry.label || ""),
             price: normalizeMoney(entry.price),
             cogs: normalizeMoney(entry.cogs),
+            // Preserve pricingStrategy jika ada; default tidak diset (fallback ke legacy logic)
+            pricingStrategy:
+              entry.pricingStrategy === "PER_ORDER" || entry.pricingStrategy === "PER_ITEM"
+                ? (entry.pricingStrategy as AddOnPricingStrategy)
+                : undefined,
           }))
           .filter(
             (entry) =>

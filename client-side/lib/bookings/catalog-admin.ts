@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BOOKING_ADD_ON_CATALOG,
   BOOKING_PRODUCT_CATALOG,
+  type AddOnPricingStrategy,
   type CatalogAddOn,
   type PricelistCategory,
 } from "@/lib/bookings/pricelist";
@@ -23,6 +24,8 @@ export interface CustomAddOnEntry {
   label: string;
   price: number;
   cogs?: number;
+  // Strategi harga Add-on: PER_ITEM (default) atau PER_ORDER (flat, tidak dikali qty)
+  pricingStrategy?: AddOnPricingStrategy;
 }
 
 export interface CatalogAdminState {
@@ -293,11 +296,13 @@ function buildEffectiveAddOnCatalog(
     const list = next[entry.category] ?? [];
     const exists = list.some((item) => item.id === entry.id);
     if (exists) return;
+    // Teruskan pricingStrategy dari customAddOn agar logika kalkulasi bisa membacanya
     list.push({
       id: entry.id,
       label: entry.label,
       price: normalizeMoney(entry.price),
       cogs: normalizeMoney(entry.cogs ?? 0),
+      pricingStrategy: entry.pricingStrategy, // Data-driven: diteruskan ke catalog aktif
     });
     next[entry.category] = list;
   });

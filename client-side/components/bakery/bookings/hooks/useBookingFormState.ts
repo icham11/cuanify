@@ -1976,10 +1976,11 @@ export function useBookingFormState() {
                     isPerOrderPricedAddOn({
                       addonId,
                       addonLabel: addon.label,
+                      pricingStrategy: addon.pricingStrategy,
                     })
                       ? "order"
                       : "item"
-                  })`;
+                  }`;
                 })
                 .filter((line) => line.length > 0);
               return adjusted.length > 0

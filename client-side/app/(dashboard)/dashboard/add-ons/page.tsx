@@ -11,13 +11,16 @@ import {
   X,
   Loader2,
   ArrowUpDown,
+  Tag,
 } from "lucide-react";
 import {
   makeAddOnKey,
   useCatalogAdminState,
 } from "@/lib/bookings/catalog-admin";
+import { type AddOnPricingStrategy } from "@/lib/bookings/pricelist";
 import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import { useRole } from "@/context/RoleContext";
+
 
 function normalizeId(value: string): string {
   return value
@@ -42,6 +45,8 @@ type GroupedAddOnRow = {
   cogs: number;
   margin: number;
   categories: string[];
+  // Strategi harga: dibaca langsung dari data catalog (data-driven)
+  pricingStrategy?: AddOnPricingStrategy;
 };
 
 type SortOption = {
@@ -68,11 +73,16 @@ const SORT_OPTIONS: SortOption[] = [
   },
 ];
 
+// Menampilkan tipe penetapan harga Add-on berdasarkan field pricingStrategy (data-driven).
+// Tidak lagi menggunakan regex/string matching yang tidak scalable.
 function inferAddOnType(row: GroupedAddOnRow): string {
+  if (row.pricingStrategy === "PER_ORDER") return "Per Order (Flat)";
+  if (row.pricingStrategy === "PER_ITEM") return "Per Item (x Qty)";
+  // Fallback untuk Add-on lama tanpa field pricingStrategy
   const text = `${row.id} ${row.label}`.toLowerCase();
-  return /(additional|extra|qty|flower|small|medium|large)/.test(text)
-    ? "Per Qty"
-    : "Per Item";
+  return /(bubblewrap|custom.card|kartu.ucapan)/.test(text)
+    ? "Per Order (Flat)"
+    : "Per Item (x Qty)";
 }
 
 function formatPercent(value: number): string {
@@ -180,6 +190,8 @@ export default function AddOnsPage() {
   const [formId, setFormId] = useState("");
   const [formPrice, setFormPrice] = useState(0);
   const [formCogs, setFormCogs] = useState(0);
+  // Strategi harga default: PER_ITEM (harga dikali qty produk)
+  const [formPricingStrategy, setFormPricingStrategy] = useState<AddOnPricingStrategy>("PER_ITEM");
   const [modalError, setModalError] = useState<string | null>(null);
 
   const categoryOptions = useMemo(
@@ -205,6 +217,7 @@ export default function AddOnsPage() {
             cogs,
             margin: price > 0 ? ((price - cogs) / price) * 100 : 0,
             categories: [category],
+            pricingStrategy: item.pricingStrategy, // Baca dari data catalog
           });
           return;
         }
@@ -252,6 +265,7 @@ export default function AddOnsPage() {
     setFormId("");
     setFormPrice(0);
     setFormCogs(0);
+    setFormPricingStrategy("PER_ITEM"); // Reset ke default
     setModalError(null);
   };
 
@@ -308,6 +322,7 @@ export default function AddOnsPage() {
               label: nextLabel,
               price: Math.max(0, Math.round(Number(formPrice || 0))),
               cogs: Math.max(0, Math.round(Number(formCogs || 0))),
+              pricingStrategy: formPricingStrategy, // Simpan pilihan Admin
             },
           ];
 
@@ -635,6 +650,45 @@ export default function AddOnsPage() {
               setFormCogs(Math.max(0, Number(event.target.value) || 0))
             }
           />
+        </div>
+
+        {/* Toggle Tipe Penetapan Harga - kunci fitur scalable */}
+        <div className="space-y-2">
+          <label className="block text-xs font-bold uppercase tracking-wide text-[#8d6a55]">
+            <Tag size={12} className="mr-1 inline" />
+            Tipe Penetapan Harga
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setFormPricingStrategy("PER_ITEM")}
+              className={`flex flex-col items-center rounded-xl border px-3 py-2.5 text-left transition ${
+                formPricingStrategy === "PER_ITEM"
+                  ? "border-[var(--crumbella-accent)] bg-[#fff0e7] text-[#c86030]"
+                  : "border-[#e0d0c4] bg-white text-[#6b4a38]"
+              }`}
+            >
+              <span className="text-sm font-bold">Per Item</span>
+              <span className="mt-0.5 text-[10px] text-[#8d6a55]">Dikali qty produk</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setFormPricingStrategy("PER_ORDER")}
+              className={`flex flex-col items-center rounded-xl border px-3 py-2.5 text-left transition ${
+                formPricingStrategy === "PER_ORDER"
+                  ? "border-[var(--crumbella-accent)] bg-[#fff0e7] text-[#c86030]"
+                  : "border-[#e0d0c4] bg-white text-[#6b4a38]"
+              }`}
+            >
+              <span className="text-sm font-bold">Per Order</span>
+              <span className="mt-0.5 text-[10px] text-[#8d6a55]">Flat, tidak dikali qty</span>
+            </button>
+          </div>
+          <p className="text-[10px] text-[#b89080]">
+            {formPricingStrategy === "PER_ORDER"
+              ? "Harga dihitung sekali per transaksi. Cocok untuk: Bubblewrap, Custom Card, Paper Bag, dll."
+              : "Harga dikalikan jumlah item. Cocok untuk: Topper, Flower Extra, Flavor, dll."}
+          </p>
         </div>
       </AddOnModal>
 

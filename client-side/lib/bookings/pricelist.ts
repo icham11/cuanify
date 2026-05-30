@@ -35,11 +35,19 @@ export interface CatalogSelection {
   size: string;
 }
 
+// Strategi penetapan harga Add-on:
+// - PER_ITEM: harga dikali jumlah item (quantity produk)
+// - PER_ORDER: harga flat, tidak bergantung pada quantity (misal: Bubblewrap, Custom Card)
+export type AddOnPricingStrategy = "PER_ITEM" | "PER_ORDER";
+
 export interface CatalogAddOn {
   id: string;
   label: string;
   price: number;
   cogs?: number;
+  // Menentukan apakah harga Add-on dihitung per item atau per order
+  // Jika tidak diset, default-nya adalah PER_ITEM
+  pricingStrategy?: AddOnPricingStrategy;
 }
 
 function variant(
@@ -661,12 +669,14 @@ export const BOOKING_ADD_ON_CATALOG: Record<string, CatalogAddOn[]> = {
     { id: "fondant-decor", label: "Fondant Decor", price: 100000 },
   ],
   Cookies: [
-    { id: "custom-card", label: "Custom Card", price: 2000 },
-    { id: "bubblewrap", label: "Extra Bubblewrap", price: 2000 },
+    // PER_ORDER: Custom Card dan Bubblewrap harganya flat, tidak dikali qty cookies
+    { id: "custom-card", label: "Custom Card", price: 2000, pricingStrategy: "PER_ORDER" },
+    { id: "bubblewrap", label: "Extra Bubblewrap", price: 2000, pricingStrategy: "PER_ORDER" },
   ],
   "Seasonal Event": [
-    { id: "custom-card", label: "Custom Card", price: 2000 },
-    { id: "bubblewrap", label: "Extra Bubblewrap", price: 2000 },
+    // PER_ORDER: sama seperti Cookies, flat per transaksi
+    { id: "custom-card", label: "Custom Card", price: 2000, pricingStrategy: "PER_ORDER" },
+    { id: "bubblewrap", label: "Extra Bubblewrap", price: 2000, pricingStrategy: "PER_ORDER" },
   ],
   Cupcakes: [
     ...CUPCAKE_FLAVOR_OPTIONS.map((option) => ({
