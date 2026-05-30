@@ -211,6 +211,8 @@ export const detailFieldDefinitions: Record<
         "cookies design",
         "desain cookies",
         "design cookie",
+        "design",
+        "desain",
       ],
     },
     // Kolom baru untuk menangkap jumlah/kuantitas cookies
@@ -1880,6 +1882,32 @@ function inferCookieDesignCountFromText(value: string): number | undefined {
   if (!normalized) return undefined;
   if (normalized.startsWith("breakdown ")) return undefined;
 
+  const shouldIgnoreSegment = (segment: string): boolean => {
+    const normalizedSegment = normalizeLabel(segment)
+      .replace(/^\(+|\)+$/g, "")
+      .trim();
+    if (!normalizedSegment) return true;
+
+    if (
+      /^(?:all\s+)?design\s+(?:face|full|half)\s+body(?:\s+only)?$/.test(
+        normalizedSegment,
+      )
+    ) {
+      return true;
+    }
+
+    if (
+      /^(?:all\s+)?design\s+face\s+only$/.test(normalizedSegment) ||
+      /^(?:all\s+)?face\s+only$/.test(normalizedSegment) ||
+      /^(?:all\s+)?full\s+body(?:\s+only)?$/.test(normalizedSegment) ||
+      /^(?:all\s+)?half\s+body(?:\s+only)?$/.test(normalizedSegment)
+    ) {
+      return true;
+    }
+
+    return false;
+  };
+
   const segments = raw
     .split(/\n|\||;|,/)
     .map((entry) => cleanupValue(entry))
@@ -1889,7 +1917,8 @@ function inferCookieDesignCountFromText(value: string): number | undefined {
         .replace(/^\d+[.):-]?\s*/, "")
         .trim(),
     )
-    .filter((entry) => entry.length > 0);
+    .filter((entry) => entry.length > 0)
+    .filter((entry) => !shouldIgnoreSegment(entry));
 
   if (segments.length === 0) return undefined;
 
@@ -3673,6 +3702,10 @@ function buildRecapAutoFillItems(
         ? inferTokenDifficultyFromText(itemSpecificSearchSource) ??
           inferTokenDifficultyFromCookiePrice(item.unitPrice)
         : undefined;
+    const cookieDesignCount =
+      orderType === "cookies"
+        ? inferCookieDesignCountFromText(orderTypeDetails.cookieDesign || "")
+        : undefined;
     const autoFillItem = createAutoFillItemFromCategory({
       category: resolvedCategory,
       searchSource,
@@ -3680,6 +3713,7 @@ function buildRecapAutoFillItems(
       notes,
       addOnSource: item.addOn,
       allowImplicitAddOnDetection: false,
+      cookieDesignCount,
       tokenDifficultyHint,
       catalogContext,
     });
