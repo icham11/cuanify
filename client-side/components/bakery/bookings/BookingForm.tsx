@@ -1755,6 +1755,15 @@ function getCustomAddOnTotal(
   return perUnit * Math.max(1, quantity || 0);
 }
 
+function getPrimaryProductQuantityForAddOns(
+  item: Pick<
+    BookingItemInput,
+    "category" | "subcategory" | "productName" | "size" | "quantity"
+  >,
+): number {
+  return Math.max(1, resolveShippingParcelCount(item));
+}
+
 function supportsAddOnQuantity(category: string, addonId: string): boolean {
   if (addonId === DARK_COLOR_BUTTERCREAM_ADDON_ID) return false;
   if (isBouquetFlowerAddOnId(addonId)) return false;
@@ -2674,6 +2683,7 @@ function getDraftItemPriceBreakdown(args: {
 } {
   const { catalog, addOnCatalog, item } = args;
   const quantity = Number(item.quantity) || 0;
+  const primaryProductQuantity = getPrimaryProductQuantityForAddOns(item);
   const categoryLabel = item.category?.trim() || "Lainnya";
   const groupLabel = getBookingItemGroupLabel(item);
   const itemVariantLabel =
@@ -2749,7 +2759,7 @@ function getDraftItemPriceBreakdown(args: {
               productName: item.productName,
               size: item.size,
             },
-          }) * quantity +
+          }) * primaryProductQuantity +
           calculateOrderLevelAddOnPrice({
             category: item.category,
             bouquetType,
@@ -2779,10 +2789,10 @@ function getDraftItemPriceBreakdown(args: {
         itemSelection: {
           category: item.category,
           subcategory: item.subcategory,
-        productName: item.productName,
-        size: item.size,
-      },
-      }) * quantity +
+          productName: item.productName,
+          size: item.size,
+        },
+      }) * primaryProductQuantity +
       calculateOrderLevelAddOnPrice({
         category: item.category,
         bouquetType,
@@ -2828,7 +2838,7 @@ function getDraftItemPriceBreakdown(args: {
               productName: item.productName,
               size: item.size,
             },
-          }) * quantity +
+          }) * primaryProductQuantity +
           calculateOrderLevelAddOnPrice({
             category: item.category,
             bouquetType,
@@ -2861,7 +2871,7 @@ function getDraftItemPriceBreakdown(args: {
           productName: item.productName,
           size: item.size,
         },
-      }) * quantity +
+      }) * primaryProductQuantity +
       calculateOrderLevelAddOnPrice({
         category: item.category,
         bouquetType,
@@ -2878,7 +2888,7 @@ function getDraftItemPriceBreakdown(args: {
       });
   const customAddOnAmount = getCustomAddOnTotal(
     normalizedCustomAddOns,
-    quantity,
+    primaryProductQuantity,
   );
   const actualAddOnFromSelection =
     actualSelectedAddOnAmount + customAddOnAmount;
@@ -5733,6 +5743,7 @@ export default function BookingForm({
       const darkButtercreamColors = normalizeDarkButtercreamColors(
         item.darkColorButtercreamColors ?? [],
       );
+      const primaryProductQuantity = getPrimaryProductQuantityForAddOns(item);
       const addOnTotalForItem = hasParsedRecapPrice
         ? 0
         : calculatePerUnitAddOnPrice({
@@ -5749,7 +5760,7 @@ export default function BookingForm({
               size: item.size,
             },
           }) *
-            item.quantity +
+            primaryProductQuantity +
           calculateOrderLevelAddOnPrice({
             category: item.category,
             bouquetType,
@@ -5764,7 +5775,7 @@ export default function BookingForm({
               size: item.size,
             },
           }) +
-          getCustomAddOnTotal(normalizedCustomAddOns, item.quantity);
+          getCustomAddOnTotal(normalizedCustomAddOns, primaryProductQuantity);
       const selectedFlavorOption = getFlavorOptionsForCategory(
         item.category,
       ).find((option) => (item.addOns ?? []).includes(option.id));
@@ -8185,6 +8196,14 @@ export default function BookingForm({
                         const hasMultipleProducts = products.length > 1;
                         const hasMultipleVariants = displayVariants.length > 1;
                         const quantityValue = Number(item?.quantity) || 0;
+                        const primaryProductQuantity =
+                          getPrimaryProductQuantityForAddOns({
+                            category: normalizedSelection.category,
+                            subcategory: normalizedSelection.subcategory,
+                            productName: normalizedSelection.productName,
+                            size: normalizedSelection.size,
+                            quantity: quantityValue,
+                          });
                         const normalizedAddOnQuantities =
                           normalizeAddOnQuantities(item?.addOnQuantities);
                         const normalizedAddOnPriceOverrides =
@@ -8310,7 +8329,7 @@ export default function BookingForm({
                               size: normalizedSelection.size,
                             },
                           }) *
-                            Math.max(1, quantityValue) +
+                            primaryProductQuantity +
                           calculateOrderLevelAddOnPrice({
                             category: normalizedSelection.category,
                             bouquetType,
@@ -8332,7 +8351,7 @@ export default function BookingForm({
                           flowerAddOnsPrice + nonFlowerAddOnsPrice;
                         const customAddOnTotal = getCustomAddOnTotal(
                           customAddOns,
-                          quantityValue,
+                          primaryProductQuantity,
                         );
                         const cookieBreakdownSubtotal = isCustomCookiesItem
                           ? cookieDifficultyRows.reduce((sum, row) => {
@@ -9710,9 +9729,9 @@ export default function BookingForm({
                                             ? " (adjusted)"
                                             : ""}
                                           {!isBouquetFlowerAddOnId(addon.id) &&
-                                          quantityValue > 0 &&
+                                          primaryProductQuantity > 0 &&
                                           !isPerOrderPriced
-                                            ? ` (x${quantityValue} = ${formatCurrency(effectiveUnitPrice * quantityValue)})`
+                                            ? ` (x${primaryProductQuantity} = ${formatCurrency(effectiveUnitPrice * primaryProductQuantity)})`
                                             : ""}
                                         </span>
                                       </span>

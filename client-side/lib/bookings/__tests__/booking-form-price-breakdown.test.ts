@@ -98,4 +98,65 @@ describe("booking form price breakdown", () => {
     expect(breakdown.designAdjustmentAmount).toBe(0);
     expect(breakdown.totalAmount).toBe(1485000);
   });
+
+  it("uses bouquet unit quantity for bubblewrap instead of cookie fill quantity", () => {
+    const breakdown = getDraftItemPriceBreakdown({
+      catalog: BOOKING_PRODUCT_CATALOG,
+      addOnCatalog: {
+        ...BOOKING_ADD_ON_CATALOG,
+        Buket: [
+          ...BOOKING_ADD_ON_CATALOG.Buket,
+          {
+            id: "bubblewrap",
+            label: "Extra Bubblewrap Bouquet",
+            price: 20000,
+            pricingStrategy: "PER_ORDER",
+          },
+        ],
+      },
+      item: {
+        category: "Buket",
+        subcategory: "Bouquet",
+        productName: "Hand Bouquet (7-10 pcs)",
+        size: "Start From",
+        quantity: 7,
+        tokenDifficulty: "SIMPLE",
+        addOns: ["bubblewrap"],
+        addOnQuantities: {
+          bubblewrap: 1,
+        },
+        addOnPriceOverrides: {},
+        customAddOns: [],
+        notes: "",
+      } as never,
+    });
+
+    expect(breakdown.baseAmount).toBe(200000);
+    expect(breakdown.addOnAmount).toBe(20000);
+    expect(breakdown.totalAmount).toBe(220000);
+  });
+
+  it("uses bouquet unit quantity for custom add-ons instead of cookie fill quantity", () => {
+    const breakdown = getDraftItemPriceBreakdown({
+      catalog: BOOKING_PRODUCT_CATALOG,
+      addOnCatalog: BOOKING_ADD_ON_CATALOG,
+      item: {
+        category: "Buket",
+        subcategory: "Bouquet",
+        productName: "Hand Bouquet (7-10 pcs)",
+        size: "Start From",
+        quantity: 7,
+        tokenDifficulty: "SIMPLE",
+        addOns: [],
+        addOnQuantities: {},
+        addOnPriceOverrides: {},
+        customAddOns: [{ label: "Premium Wrap", price: 15000 }],
+        notes: "",
+      } as never,
+    });
+
+    expect(breakdown.baseAmount).toBe(200000);
+    expect(breakdown.addOnAmount).toBe(15000);
+    expect(breakdown.totalAmount).toBe(215000);
+  });
 });

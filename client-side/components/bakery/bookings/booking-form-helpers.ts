@@ -1057,6 +1057,15 @@ export function getCustomAddOnTotal(
   return perUnit * Math.max(1, quantity || 0);
 }
 
+export function getPrimaryProductQuantityForAddOns(
+  item: Pick<
+    BookingItemInput,
+    "category" | "subcategory" | "productName" | "size" | "quantity"
+  >,
+): number {
+  return Math.max(1, resolveShippingParcelCount(item));
+}
+
 export function supportsAddOnQuantity(category: string, addonId: string): boolean {
   if (addonId === DARK_COLOR_BUTTERCREAM_ADDON_ID) return false;
   if (isBouquetFlowerAddOnId(addonId)) return false;
@@ -1929,6 +1938,7 @@ export function getDraftItemPriceBreakdown(args: {
 } {
   const { catalog, addOnCatalog, item } = args;
   const quantity = Number(item.quantity) || 0;
+  const primaryProductQuantity = getPrimaryProductQuantityForAddOns(item);
   const categoryLabel = item.category?.trim() || "Lainnya";
   const groupLabel = getBookingItemGroupLabel(item);
   const itemVariantLabel =
@@ -2004,7 +2014,7 @@ export function getDraftItemPriceBreakdown(args: {
               productName: item.productName,
               size: item.size,
             },
-          }) * quantity +
+          }) * primaryProductQuantity +
           calculateOrderLevelAddOnPrice({
             category: item.category,
             bouquetType,
@@ -2037,7 +2047,7 @@ export function getDraftItemPriceBreakdown(args: {
           productName: item.productName,
           size: item.size,
         },
-      }) * quantity +
+      }) * primaryProductQuantity +
       calculateOrderLevelAddOnPrice({
         category: item.category,
         bouquetType,
@@ -2083,7 +2093,7 @@ export function getDraftItemPriceBreakdown(args: {
               productName: item.productName,
               size: item.size,
             },
-          }) * quantity +
+          }) * primaryProductQuantity +
           calculateOrderLevelAddOnPrice({
             category: item.category,
             bouquetType,
@@ -2116,7 +2126,7 @@ export function getDraftItemPriceBreakdown(args: {
           productName: item.productName,
           size: item.size,
         },
-      }) * quantity +
+      }) * primaryProductQuantity +
       calculateOrderLevelAddOnPrice({
         category: item.category,
         bouquetType,
@@ -2133,7 +2143,7 @@ export function getDraftItemPriceBreakdown(args: {
       });
   const customAddOnAmount = getCustomAddOnTotal(
     normalizedCustomAddOns,
-    quantity,
+    primaryProductQuantity,
   );
   const actualAddOnFromSelection =
     actualSelectedAddOnAmount + customAddOnAmount;
