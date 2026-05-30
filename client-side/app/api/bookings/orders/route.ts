@@ -1862,7 +1862,9 @@ function buildCaptionItems(
       addOnText: formatCaptionAddOns(item),
       subtotal: resolveCaptionItemSubtotal(item),
       orderLabel: productName,
-      detailLines: buildCaptionItemDetailLines(order, item),
+      detailLines: itemSize
+        ? buildCaptionItemDetailLines(order, item).filter((line) => line.label.toLowerCase().trim() !== "ukuran cake")
+        : buildCaptionItemDetailLines(order, item),
     };
   });
 }

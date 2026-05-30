@@ -1166,7 +1166,10 @@ export function buildCaptionItems(
       mapProductTypeToDetailOrderType(item.productType) ||
       (normalizedOrderType as WhatsAppOrderType);
     const isCookieItem = detailOrderType === "cookies";
-    const detailLines = buildProductionCaptionDetailLines(order, item);
+    const rawDetailLines = buildProductionCaptionDetailLines(order, item);
+    const detailLines = itemSize
+      ? rawDetailLines.filter((line) => normalizeCaptionDetailLabel(line.label) !== "ukuran cake")
+      : rawDetailLines;
     const hasDesignLine = detailLines.some(
       (line) => normalizeCaptionDetailLabel(line.label) === "design",
     );

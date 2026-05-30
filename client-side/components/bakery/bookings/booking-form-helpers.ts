@@ -1269,8 +1269,19 @@ export function resolveBubblewrapUnitPrice(args: {
   return roundedDefault;
 }
 
-export function isOrderLevelAddOnId(addonId: string): boolean {
+export function isOrderLevelAddOnId(
+  addonId: string,
+  addonLabel?: string,
+): boolean {
+  const normalizedLabel = (addonLabel || "").toLowerCase();
   if (addonId.includes("bubblewrap") || addonId === "custom-card") return true;
+  if (
+    normalizedLabel.includes("bubblewrap") ||
+    normalizedLabel.includes("custom card") ||
+    normalizedLabel.includes("kartu ucapan")
+  ) {
+    return true;
+  }
   if (COOKIE_ADDITIONAL_DESIGN_ADDON_IDS.includes(addonId as any)) return true;
   return false;
 }
@@ -1280,7 +1291,7 @@ export function isPerOrderPricedAddOn(args: {
   addonLabel?: string;
 }): boolean {
   return (
-    isOrderLevelAddOnId(args.addonId) || isAdditionalDesignStyleAddOn(args)
+    isOrderLevelAddOnId(args.addonId, args.addonLabel) || isAdditionalDesignStyleAddOn(args)
   );
 }
 
