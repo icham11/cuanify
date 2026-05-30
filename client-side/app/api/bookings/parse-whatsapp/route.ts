@@ -371,26 +371,142 @@ function getErrorMessage(error: unknown): string {
   }
 }
 
+type OrderTemplateQueryRow = {
+  templateId: number;
+  typeKey: string;
+  name: string;
+  fieldId: number | null;
+  fieldKey: string | null;
+  fieldLabel: string | null;
+  fieldAliases: string[] | null;
+  fieldIsRequired: boolean | null;
+  fieldDisplayOrder: number | null;
+};
+
+let _orderTemplateTablesEnsured = false;
+let _orderTemplateTablesEnsuredPromise: Promise<void> | null = null;
+
+async function ensureOrderTemplateTables(): Promise<void> {
+  if (_orderTemplateTablesEnsured) return;
+  if (_orderTemplateTablesEnsuredPromise) {
+    await _orderTemplateTablesEnsuredPromise;
+    return;
+  }
+
+  _orderTemplateTablesEnsuredPromise = (async () => {
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "OrderTemplate" (
+        "id" SERIAL PRIMARY KEY,
+        "businessId" INTEGER NOT NULL REFERENCES "Business"("id") ON DELETE CASCADE,
+        "name" TEXT NOT NULL,
+        "typeKey" TEXT NOT NULL,
+        "isActive" BOOLEAN NOT NULL DEFAULT true,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "OrderTemplateField" (
+        "id" SERIAL PRIMARY KEY,
+        "templateId" INTEGER NOT NULL REFERENCES "OrderTemplate"("id") ON DELETE CASCADE,
+        "key" TEXT NOT NULL,
+        "label" TEXT NOT NULL,
+        "aliases" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+        "isRequired" BOOLEAN NOT NULL DEFAULT false,
+        "displayOrder" INTEGER NOT NULL DEFAULT 0
+      );
+    `);
+
+    await prisma.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "OrderTemplate_businessId_idx"
+      ON "OrderTemplate" ("businessId");
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE UNIQUE INDEX IF NOT EXISTS "OrderTemplate_businessId_typeKey_key"
+      ON "OrderTemplate" ("businessId", "typeKey");
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "OrderTemplateField_templateId_idx"
+      ON "OrderTemplateField" ("templateId");
+    `);
+
+    _orderTemplateTablesEnsured = true;
+  })();
+
+  try {
+    await _orderTemplateTablesEnsuredPromise;
+  } catch (error) {
+    _orderTemplateTablesEnsuredPromise = null;
+    throw error;
+  }
+}
+
+async function loadDynamicTemplatesSafe(
+  businessId: number,
+): Promise<DynamicOrderTemplate[]> {
+  try {
+    await ensureOrderTemplateTables();
+
+    const rows = await prisma.$queryRaw<OrderTemplateQueryRow[]>`
+      SELECT
+        t."id" AS "templateId",
+        t."typeKey" AS "typeKey",
+        t."name" AS "name",
+        f."id" AS "fieldId",
+        f."key" AS "fieldKey",
+        f."label" AS "fieldLabel",
+        f."aliases" AS "fieldAliases",
+        f."isRequired" AS "fieldIsRequired",
+        f."displayOrder" AS "fieldDisplayOrder"
+      FROM "OrderTemplate" t
+      LEFT JOIN "OrderTemplateField" f
+        ON f."templateId" = t."id"
+      WHERE t."businessId" = ${businessId}
+        AND t."isActive" = true
+      ORDER BY t."createdAt" ASC, f."displayOrder" ASC, f."id" ASC
+    `;
+
+    const grouped = new Map<number, DynamicOrderTemplate>();
+    for (const row of rows) {
+      const existing = grouped.get(row.templateId);
+      const target =
+        existing ??
+        ({
+          typeKey: row.typeKey,
+          name: row.name,
+          fields: [],
+        } satisfies DynamicOrderTemplate);
+
+      if (row.fieldId !== null && row.fieldKey && row.fieldLabel) {
+        target.fields.push({
+          key: row.fieldKey,
+          label: row.fieldLabel,
+          aliases: Array.isArray(row.fieldAliases) ? row.fieldAliases : [],
+          isRequired: Boolean(row.fieldIsRequired),
+          displayOrder: Number(row.fieldDisplayOrder || 0),
+        });
+      }
+
+      grouped.set(row.templateId, target);
+    }
+
+    return Array.from(grouped.values());
+  } catch (error) {
+    console.error(
+      "[parse-whatsapp] Failed to load dynamic order templates, falling back to defaults:",
+      getErrorMessage(error),
+    );
+    return [];
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const auth = await requireAuth();
     const bookingCatalog = await loadEffectiveBookingCatalog(auth.businessId);
 
-    const rawTemplates = await prisma.orderTemplate.findMany({
-      where: { businessId: auth.businessId, isActive: true },
-      include: { fields: { orderBy: { displayOrder: "asc" } } }
-    });
-    const dynamicTemplates: DynamicOrderTemplate[] = rawTemplates.map(rt => ({
-      typeKey: rt.typeKey,
-      name: rt.name,
-      fields: rt.fields.map(f => ({
-        key: f.key,
-        label: f.label,
-        aliases: f.aliases,
-        isRequired: f.isRequired,
-        displayOrder: f.displayOrder
-      }))
-    }));
+    const dynamicTemplates = await loadDynamicTemplatesSafe(auth.businessId);
 
     const contentType = request.headers.get("content-type") || "";
 

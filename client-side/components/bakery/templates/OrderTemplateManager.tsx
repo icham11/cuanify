@@ -231,7 +231,7 @@ export function OrderTemplateManager() {
                     <p className="text-xs text-slate-500">Kata kunci ini akan dikenali oleh parser AI saat membaca WA customer.</p>
                   </div>
                 </div>
-                <Button variant="ghost" size="icon" className="text-red-500" onClick={() => removeField(i)}>
+                <Button variant="ghost" className="h-9 w-9 p-0 text-red-500" onClick={() => removeField(i)}>
                   <Trash2 className="w-4 h-4" />
                 </Button>
               </div>
