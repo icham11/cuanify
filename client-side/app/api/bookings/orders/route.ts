@@ -2910,22 +2910,22 @@ export async function GET(request: NextRequest) {
         // Frontend selalu kirim startDate/endDate untuk render kalender,
         // guard ini hanya safety net jika parameter tidak ada.
         whereClauses.push(
-          Prisma.sql`delivery_date >= (CURRENT_DATE - INTERVAL '7 days')
-            AND delivery_date <= (CURRENT_DATE + INTERVAL '90 days')`,
+          Prisma.sql`delivery_date >= TO_CHAR(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')
+            AND delivery_date <= TO_CHAR(CURRENT_DATE + INTERVAL '90 days', 'YYYY-MM-DD')`,
         );
       } else if (isDashboardMode && !dateFilter && !searchQuery && !statusFilter) {
         // Guard: Jika mode dashboard tanpa filter apapun,
         // batasi ke order dengan delivery date dalam 12 bulan ke depan + 2 bulan lalu
         // untuk menampilkan statistik yang relevan tanpa pull all-time data.
         whereClauses.push(
-          Prisma.sql`delivery_date >= (CURRENT_DATE - INTERVAL '60 days')
-            AND delivery_date <= (CURRENT_DATE + INTERVAL '365 days')`,
+          Prisma.sql`delivery_date >= TO_CHAR(CURRENT_DATE - INTERVAL '60 days', 'YYYY-MM-DD')
+            AND delivery_date <= TO_CHAR(CURRENT_DATE + INTERVAL '365 days', 'YYYY-MM-DD')`,
         );
       } else if (isFinancialMode && !startDate && !endDate) {
         // Guard: Jika mode financial tanpa filter tanggal, batasi maksimal 12 bulan terakhir
         // untuk mencegah full table scan pada seluruh riwayat transaksi.
         whereClauses.push(
-          Prisma.sql`delivery_date >= (CURRENT_DATE - INTERVAL '365 days')`
+          Prisma.sql`delivery_date >= TO_CHAR(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')`
         );
       }
 
