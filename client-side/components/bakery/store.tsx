@@ -361,7 +361,32 @@ interface OrdersContextValue {
   }>;
 }
 
+// ─── Context Split: Data vs Actions ────────────────────────────────────────
+// Root cause re-render: dulu satu context menggabungkan orders (data, berubah
+// setiap 60s) dengan semua callbacks (stabil). Akibatnya 16+ komponen
+// re-render setiap polling meski tidak butuh data orders sama sekali.
+//
+// Solusi: pisah menjadi 2 context.
+// - OrdersDataContext    → hanya { orders }, re-render setiap polling
+// - OrdersActionsContext → hanya callbacks, STABIL, tidak pernah re-render
+// - OrdersContext        → gabungan keduanya (backward compat, tetap ada)
+
+/** Type khusus untuk data orders saja */
+interface OrdersDataContextValue {
+  orders: BakeryOrder[];
+}
+
+/** Type khusus untuk semua action callbacks saja (tanpa orders) */
+type OrdersActionsContextValue = Omit<OrdersContextValue, "orders">;
+
+// Context lama dipertahankan agar useOrders() masih bisa dipanggil
 const OrdersContext = createContext<OrdersContextValue | null>(null);
+
+// Context baru — data orders saja, re-render tiap polling
+const OrdersDataContext = createContext<OrdersDataContextValue | null>(null);
+
+// Context baru — actions saja, TIDAK pernah re-render akibat polling
+const OrdersActionsContext = createContext<OrdersActionsContextValue | null>(null);
 
 const initialOrders: BakeryOrder[] = [];
 const STORAGE_KEY = BAKERY_ORDERS_STORAGE_KEY;
@@ -3973,9 +3998,12 @@ export function OrdersProvider({
     [],
   );
 
-  const value = useMemo(
+  // ─── Memoize actions terpisah dari data ───────────────────────────────────
+  // Dependency array TIDAK menyertakan `orders`. Ini berarti `actionsValue`
+  // hanya di-recreate jika salah satu callback benar-benar berubah referensi.
+  // Komponen yang consume OrdersActionsContext TIDAK akan re-render saat polling.
+  const actionsValue = useMemo<OrdersActionsContextValue>(
     () => ({
-      orders,
       addOrder,
       updateOrder,
       updateOrderStatus,
@@ -3995,7 +4023,6 @@ export function OrdersProvider({
       fetchPaginatedOrders,
     }),
     [
-      orders,
       addOrder,
       updateOrder,
       updateOrderStatus,
@@ -4016,15 +4043,72 @@ export function OrdersProvider({
     ],
   );
 
+  // ─── Memoize data orders saja ─────────────────────────────────────────────
+  // Berubah setiap kali `orders` berubah (misal dari polling 60s).
+  // Hanya komponen yang consume OrdersDataContext yang akan re-render.
+  const dataValue = useMemo<OrdersDataContextValue>(
+    () => ({ orders }),
+    [orders],
+  );
+
+  // ─── Legacy combined value (backward compat) ──────────────────────────────
+  // Digunakan oleh useOrders() agar semua kode lama tetap jalan tanpa perubahan.
+  // Dibuat dari spread kedua memoized value di atas.
+  const value = useMemo<OrdersContextValue>(
+    () => ({ ...dataValue, ...actionsValue }),
+    [dataValue, actionsValue],
+  );
+
   return (
-    <OrdersContext.Provider value={value}>{children}</OrdersContext.Provider>
+    // Nested provider: actions di luar agar tidak re-render saat orders berubah
+    <OrdersActionsContext.Provider value={actionsValue}>
+      <OrdersDataContext.Provider value={dataValue}>
+        {/* Legacy context tetap ada untuk backward compat */}
+        <OrdersContext.Provider value={value}>{children}</OrdersContext.Provider>
+      </OrdersDataContext.Provider>
+    </OrdersActionsContext.Provider>
   );
 }
 
+// ─── Hooks ────────────────────────────────────────────────────────────────
+
+/**
+ * Hook legacy — backward compatible. Menggabungkan data + actions.
+ * Re-render setiap kali `orders` berubah (setiap polling 60s).
+ * Gunakan useOrdersData() atau useOrdersActions() jika komponen hanya butuh salah satunya.
+ */
 export function useOrders() {
   const context = useContext(OrdersContext);
   if (!context) {
     throw new Error("useOrders must be used within OrdersProvider");
+  }
+  return context;
+}
+
+/**
+ * Hook khusus data orders.
+ * Re-render setiap kali `orders` berubah (setiap polling 60s).
+ * Gunakan ini jika komponen hanya butuh list orders untuk ditampilkan.
+ */
+export function useOrdersData() {
+  const context = useContext(OrdersDataContext);
+  if (!context) {
+    throw new Error("useOrdersData must be used within OrdersProvider");
+  }
+  return context;
+}
+
+/**
+ * Hook khusus actions (addOrder, updateOrder, deleteOrder, dll).
+ * TIDAK re-render saat orders berubah — sangat efisien untuk komponen
+ * yang hanya melakukan mutasi (tambah/edit/hapus) tanpa perlu membaca data orders.
+ *
+ * Contoh ideal: edit form, delete button, action buttons di tabel.
+ */
+export function useOrdersActions() {
+  const context = useContext(OrdersActionsContext);
+  if (!context) {
+    throw new Error("useOrdersActions must be used within OrdersProvider");
   }
   return context;
 }

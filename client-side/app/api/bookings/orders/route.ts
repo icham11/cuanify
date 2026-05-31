@@ -2921,6 +2921,12 @@ export async function GET(request: NextRequest) {
           Prisma.sql`delivery_date >= (CURRENT_DATE - INTERVAL '60 days')
             AND delivery_date <= (CURRENT_DATE + INTERVAL '365 days')`,
         );
+      } else if (isFinancialMode && !startDate && !endDate) {
+        // Guard: Jika mode financial tanpa filter tanggal, batasi maksimal 12 bulan terakhir
+        // untuk mencegah full table scan pada seluruh riwayat transaksi.
+        whereClauses.push(
+          Prisma.sql`delivery_date >= (CURRENT_DATE - INTERVAL '365 days')`
+        );
       }
 
       const where = Prisma.sql`WHERE ${Prisma.join(whereClauses, " AND ")}`;

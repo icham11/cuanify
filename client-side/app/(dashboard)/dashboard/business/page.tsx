@@ -398,7 +398,7 @@ function BusinessPageContent() {
         await Promise.all([
         safeApiFetch<BakerySettingsResponse>("/api/bakery/settings"),
         safeApiFetch<ProductsResponse>("/api/products?mode=financial&limit=999"),
-        safeApiFetch<OrdersResponse>("/api/bookings/orders?mode=financial", 20000),
+        safeApiFetch<OrdersResponse>(`/api/bookings/orders?mode=financial&startDate=${previousRange.startDate}&endDate=${currentRange.endDate}`, 20000),
       ]);
 
       if (!active) return;

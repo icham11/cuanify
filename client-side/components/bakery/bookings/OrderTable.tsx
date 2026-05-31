@@ -8,7 +8,7 @@ import { MessageCircle, Pencil, Trash2, Loader2 } from "lucide-react";
 import { useRole } from "@/context/RoleContext";
 
 import OrderHighlightBadge from "@/components/bakery/bookings/OrderHighlightBadge";
-import { type BakeryOrder, useOrders } from "@/components/bakery/store";
+import { type BakeryOrder, useOrdersActions } from "@/components/bakery/store";
 import { BOOKING_STATUS_OPTIONS } from "@/lib/bookings/order-status";
 import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 import { getOrderItemsSummary } from "@/lib/bookings/order-display";
@@ -135,7 +135,9 @@ function DeleteConfirmModal({
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
-  const { deleteOrder } = useOrders();
+  // Gunakan useOrdersActions — komponen ini hanya butuh deleteOrder (action),
+  // tidak pernah butuh data orders[] sehingga tidak perlu re-render saat polling.
+  const { deleteOrder } = useOrdersActions();
 
   const handleDelete = async () => {
     setDeleting(true);
@@ -218,8 +220,10 @@ export default function OrderTable({
   onOrderStatusUpdated,
 }: OrderTableProps) {
   const { settings } = useBakerySettings();
+  // Gunakan useOrdersActions — OrderTable menerima orders sebagai props dari parent,
+  // sehingga tidak perlu subscribe ke seluruh orders context.
   const { getCustomerMessagePreview, updateOrderStatus, updatePaymentStatus } =
-    useOrders();
+    useOrdersActions();
   const { isOwner } = useRole();
   const router = useRouter();
   const [deleteModal, setDeleteModal] = useState<BakeryOrder | null>(null);

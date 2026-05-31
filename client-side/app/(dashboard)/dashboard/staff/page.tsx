@@ -156,8 +156,12 @@ export default function StaffPage() {
   // ── Generate random password ──
   function generatePassword() {
     const chars = "abcdefghijkmnpqrstuvwxyz23456789";
+    const randomArray = new Uint32Array(8);
+    window.crypto.getRandomValues(randomArray);
     let pw = "";
-    for (let i = 0; i < 8; i++) pw += chars[Math.floor(Math.random() * chars.length)];
+    for (let i = 0; i < 8; i++) {
+      pw += chars[randomArray[i] % chars.length];
+    }
     setRegPassword(pw);
     setShowPassword(true);
   }

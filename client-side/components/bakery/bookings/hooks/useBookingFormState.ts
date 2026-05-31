@@ -317,9 +317,6 @@ export function useBookingFormState() {
     };
 
     void refreshTokenMap();
-    const intervalId = window.setInterval(() => {
-      void refreshTokenMap();
-    }, 10_000);
     const onFocus = () => {
       void refreshTokenMap();
     };
@@ -333,7 +330,6 @@ export function useBookingFormState() {
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       cancelled = true;
-      window.clearInterval(intervalId);
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };

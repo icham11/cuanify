@@ -4,13 +4,15 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import BookingForm from "@/components/bakery/bookings/BookingForm";
-import { useOrders, type BakeryOrder } from "@/components/bakery/store";
+import { useOrdersActions, type BakeryOrder } from "@/components/bakery/store";
 
 export default function EditBookingPage() {
   const params = useParams<{ id: string }>();
   const orderId = Array.isArray(params?.id) ? params.id[0] : params?.id || "";
   const hasValidOrderId = orderId.length > 0;
-  const { fetchOrderById } = useOrders();
+  // Gunakan useOrdersActions — halaman edit hanya butuh fetchOrderById,
+  // tidak pernah membaca list orders[], sehingga tidak perlu re-render saat polling.
+  const { fetchOrderById } = useOrdersActions();
   const [order, setOrder] = useState<BakeryOrder | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");

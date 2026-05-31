@@ -159,7 +159,9 @@ function formatUpcomingDeliveryItems(order: BakeryOrder) {
 
 export default function BakeryDashboardPage() {
   const router = useRouter();
-  const { orders } = useOrders();
+  const { orders: globalOrders } = useOrders();
+  const [dashboardOrders, setDashboardOrders] = useState<BakeryOrder[] | null>(null);
+  const orders = dashboardOrders ?? globalOrders;
   const { business } = useBusiness();
   const { isAdmin, isStaff } = useRole();
   const { settings: bakerySettings } = useBakerySettings();
@@ -274,6 +276,31 @@ export default function BakeryDashboardPage() {
   useEffect(() => {
     void loadTeamMembers();
   }, [loadTeamMembers]);
+
+  useEffect(() => {
+    if (!business?.id) {
+      setDashboardOrders(null);
+      return;
+    }
+    let active = true;
+    fetch("/api/bookings/orders?mode=dashboard&limit=9999", { cache: "no-store" })
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to fetch dashboard orders");
+        return res.json();
+      })
+      .then((data) => {
+        if (!active) return;
+        if (Array.isArray(data?.data?.orders)) {
+          setDashboardOrders(data.data.orders);
+        }
+      })
+      .catch((err) => {
+        console.error("Dashboard orders fetch error:", err);
+      });
+    return () => {
+      active = false;
+    };
+  }, [business?.id]);
 
   useEffect(() => {
     const handleRefresh = () => {

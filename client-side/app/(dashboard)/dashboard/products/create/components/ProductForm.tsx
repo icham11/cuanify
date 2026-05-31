@@ -305,6 +305,14 @@ export default function ProductForm({ initialDraft, onSuccess }: Props) {
       return;
     }
 
+    // Guard: Mencegah margin minus tersimpan tanpa konfirmasi eksplisit (Keamanan Harga)
+    if (margin < 0) {
+      const confirmNegativeMargin = window.confirm(
+        "Peringatan: Harga Jual lebih kecil dari COGS/HPP (Margin Minus). Apakah Anda yakin ingin menyimpan produk ini?"
+      );
+      if (!confirmNegativeMargin) return;
+    }
+
     setSubmitting(true);
     setError(null);
     setCatalogSyncWarning(null);

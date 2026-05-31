@@ -695,7 +695,6 @@ export default function BakerySettingsPage() {
       );
     }
 
-    await refetch({ force: true }).catch(() => payload.data ?? null);
     window.dispatchEvent(new Event(BAKERY_SETTINGS_UPDATED_EVENT));
 
     return payload;
