@@ -408,7 +408,8 @@ export default function OrderTable({
                     if (nextStatus === order.paymentStatus) return;
                     setPendingPaymentOrderId(order.id);
                     try {
-                      updatePaymentStatus(order.id, nextStatus);
+                      await updatePaymentStatus(order.id, nextStatus);
+                      await onOrderStatusUpdated?.();
                     } finally {
                       setPendingPaymentOrderId(null);
                     }

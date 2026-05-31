@@ -21,6 +21,10 @@ export function toIsoDateString(value: Date): string {
 }
 
 export function normalizeDateInput(value: unknown): string | null {
+  if (value instanceof Date) {
+    if (!isValid(value)) return null;
+    return format(value, "yyyy-MM-dd");
+  }
   if (typeof value !== "string") return null;
   const raw = value.trim();
   if (!raw) return null;
@@ -62,13 +66,13 @@ export function parseSafeDate(dateStr: string): Date | null {
 }
 
 export function normalizeDateOrThrow(
-  dateStr: string,
+  dateStr: unknown,
   fieldLabel = "date",
 ): string {
   const normalized = normalizeDateInput(dateStr);
   if (!normalized) {
     throw new Error(
-      `Invalid ${fieldLabel} format: ${dateStr}. Expected YYYY-MM-DD.`,
+      `Invalid ${fieldLabel} format: ${String(dateStr)}. Expected YYYY-MM-DD.`,
     );
   }
   return normalized;

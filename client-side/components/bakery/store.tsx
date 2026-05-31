@@ -320,7 +320,7 @@ interface OrdersContextValue {
     >,
   ) => void;
   clearOrderAssignee: (id: string) => void;
-  updatePaymentStatus: (id: string, status: PaymentStatus) => void;
+  updatePaymentStatus: (id: string, status: PaymentStatus) => Promise<void>;
   recordPayment: (
     id: string,
     payload: {
@@ -3584,7 +3584,7 @@ export function OrdersProvider({
   );
 
   const updatePaymentStatus = useCallback(
-    (id: string, status: PaymentStatus) => {
+    async (id: string, status: PaymentStatus) => {
       const targetOrder = orders.find((order) => order.id === id);
       const hasGojekGrabTag = targetOrder
         ? isGrabOrGojekOrder(targetOrder)
@@ -3672,13 +3672,21 @@ export function OrdersProvider({
         };
       });
       persistOrders(nextOrders);
+      
+      try {
+        await syncOrdersToServer(nextOrders, [id]);
+        await replaceLocalOrdersWithServer({ force: true });
+      } catch (error) {
+        console.error("Failed to sync payment status immediately", error);
+      }
+
       toast.message(
         hasGojekGrabTag
           ? "Payment status updated (order Grab/Gojek)"
           : "Payment status updated",
       );
     },
-    [orders, persistOrders, actorIdentity, defaultDpPercentage],
+    [orders, persistOrders, syncOrdersToServer, replaceLocalOrdersWithServer, actorIdentity, defaultDpPercentage],
   );
 
   const recordPayment = useCallback(
