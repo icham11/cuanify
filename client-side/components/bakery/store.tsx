@@ -69,6 +69,7 @@ import {
 } from "@/lib/bookings/production-stages";
 import { getLatestOrderActivityTimestamp } from "@/lib/bookings/order-activity";
 import { choosePreferredOrderCandidate } from "@/lib/bookings/order-deduplication";
+import { reconcileEditedPaymentTransactions } from "@/lib/bookings/payment-transactions";
 import {
   BAKERY_ORDERS_STORAGE_KEY,
   BAKERY_ORDERS_UPDATED_EVENT,
@@ -3373,35 +3374,22 @@ export function OrdersProvider({
       const remainingBalance = Math.max(0, totalPrice - totalPaidAmount);
       const paymentStatus = inferPaymentStatus(totalPrice, totalPaidAmount);
 
-      const deltaDp = requestedDpPaid - previousDpPaid;
-      const deltaFinal = requestedFinalPaid - previousFinalPaid;
       const nowIso = new Date().toISOString();
       const eventTimestamp = isHistoricalBackfillOrder(nextDeliveryDate)
         ? buildHistoricalOrderTimestamp(nextDeliveryDate, nextDeliverySlot) || nowIso
         : nowIso;
-      const appendedTransactions: PaymentTransaction[] = [];
-      if (deltaDp !== 0) {
-        appendedTransactions.push({
-          id: `pay-${id}-dp-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-          timestamp: eventTimestamp,
-          amount: deltaDp,
-          type: "DP",
-          note: "Edit order - penyesuaian DP",
-          userId: actorIdentity.userId,
-          actorName: actorIdentity.name,
-        });
-      }
-      if (deltaFinal !== 0) {
-        appendedTransactions.push({
-          id: `pay-${id}-final-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-          timestamp: eventTimestamp,
-          amount: deltaFinal,
-          type: "Final",
-          note: "Edit order - penyesuaian pelunasan",
-          userId: actorIdentity.userId,
-          actorName: actorIdentity.name,
-        });
-      }
+      const nextPaymentTransactions = reconcileEditedPaymentTransactions({
+        orderId: id,
+        existingTransactions: Array.isArray(existingOrder.paymentTransactions)
+          ? existingOrder.paymentTransactions
+          : [],
+        previousDpPaid,
+        previousFinalPaid,
+        nextDpPaid: requestedDpPaid,
+        nextFinalPaid: requestedFinalPaid,
+        eventTimestamp,
+        actorIdentity,
+      });
 
       const stagePercentages = getProductionStagePercentagesFromTemplates(
         resolveProductionStageTemplatesForCategory({
@@ -3519,12 +3507,7 @@ export function OrdersProvider({
         totalPrice,
         paymentStatus,
         sales_channel: payload.sales_channel ?? existingOrder.sales_channel ?? "direct",
-        paymentTransactions: [
-          ...(Array.isArray(existingOrder.paymentTransactions)
-            ? existingOrder.paymentTransactions
-            : []),
-          ...appendedTransactions,
-        ],
+        paymentTransactions: nextPaymentTransactions,
         shipment: shouldClearShipment ? null : existingOrder.shipment ?? null,
         shippingQuote: shouldClearQuote
           ? null
