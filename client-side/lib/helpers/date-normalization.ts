@@ -20,7 +20,8 @@ export function toIsoDateString(value: Date): string {
   return format(value, "yyyy-MM-dd");
 }
 
-export function normalizeDateInput(value: string): string | null {
+export function normalizeDateInput(value: unknown): string | null {
+  if (typeof value !== "string") return null;
   const raw = value.trim();
   if (!raw) return null;
 

@@ -206,7 +206,7 @@ async function ensureBakeryOrderTables() {
       customer_name TEXT,
       customer_phone TEXT,
       customer_address TEXT,
-      delivery_date TEXT,
+      delivery_date DATE,
       delivery_slot TEXT,
       notes TEXT,
       total_price NUMERIC(14,2) NOT NULL DEFAULT 0,
@@ -216,6 +216,23 @@ async function ensureBakeryOrderTables() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       UNIQUE (business_id, external_id)
     );
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS idx_bakery_orders_business_delivery_date
+    ON bakery_orders (business_id, delivery_date DESC);
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    DO $$ 
+    BEGIN 
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name='bakery_orders' AND column_name='delivery_date' AND data_type='text'
+      ) THEN
+        ALTER TABLE bakery_orders ALTER COLUMN delivery_date TYPE DATE USING NULLIF(BTRIM(delivery_date), '')::date;
+      END IF;
+    END $$;
   `);
 
   await prisma.$executeRawUnsafe(`
@@ -230,6 +247,29 @@ async function ensureBakeryOrderTables() {
   `);
 
   await prisma.$executeRawUnsafe(`
+    DO $$ 
+    BEGIN 
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name='fk_bakery_order_items_order'
+      ) THEN
+        DELETE FROM bakery_order_items 
+        WHERE NOT EXISTS (
+          SELECT 1 FROM bakery_orders 
+          WHERE bakery_orders.business_id = bakery_order_items.business_id 
+            AND bakery_orders.external_id = bakery_order_items.order_external_id
+        );
+
+        ALTER TABLE bakery_order_items
+        ADD CONSTRAINT fk_bakery_order_items_order
+        FOREIGN KEY (business_id, order_external_id)
+        REFERENCES bakery_orders(business_id, external_id)
+        ON DELETE CASCADE;
+      END IF;
+    END $$;
+  `);
+
+  await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS bakery_order_addresses (
       id BIGSERIAL PRIMARY KEY,
       business_id INTEGER NOT NULL,
@@ -238,6 +278,29 @@ async function ensureBakeryOrderTables() {
       payload JSONB NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    DO $$ 
+    BEGIN 
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name='fk_bakery_order_addresses_order'
+      ) THEN
+        DELETE FROM bakery_order_addresses 
+        WHERE NOT EXISTS (
+          SELECT 1 FROM bakery_orders 
+          WHERE bakery_orders.business_id = bakery_order_addresses.business_id 
+            AND bakery_orders.external_id = bakery_order_addresses.order_external_id
+        );
+
+        ALTER TABLE bakery_order_addresses
+        ADD CONSTRAINT fk_bakery_order_addresses_order
+        FOREIGN KEY (business_id, order_external_id)
+        REFERENCES bakery_orders(business_id, external_id)
+        ON DELETE CASCADE;
+      END IF;
+    END $$;
   `);
 }
 

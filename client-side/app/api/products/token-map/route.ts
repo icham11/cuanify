@@ -3,6 +3,11 @@ import { requireAuth, isAuthError } from "@/lib/auth/session";
 import prisma from "@/lib/prisma";
 import { loadEffectiveBookingCatalog } from "@/lib/bookings/catalog-config-server";
 import { flattenCatalogProductsForDashboard } from "@/lib/bookings/product-sync";
+import {
+  isPrismaConnectionTimeout,
+  prismaConnectionErrorResponse,
+  withPrismaRetry,
+} from "@/lib/prisma-errors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,20 +20,22 @@ export async function GET() {
   try {
     const { businessId } = await requireAuth();
     const [products, effectiveCatalog] = await Promise.all([
-      prisma.product.findMany({ // Query data produk menggunakan Prisma ORM
-        where: { // Kriteria pencarian data
-          businessId, // Bisnis aktif yang sedang login
-          deletedAt: null, // Hanya ambil produk yang tidak dihapus (aktif/soft-delete check)
-        }, // Akhir dari kriteria where
-        select: { // Pilih kolom tertentu untuk menghemat bandwidth
-          name: true, // Ambil nama produk dashboard
-          productionToken: true, // Ambil token produksi aktif
-          minimumOrder: true, // TAMBAHKAN: Ambil batas minimal order dari DB
-        }, // Akhir dari select
-        orderBy: { // Urutan pengembalian data
-          name: "asc", // Urutkan nama produk dari A ke Z
-        }, // Akhir dari orderBy
-      }), // Akhir dari query findMany
+      withPrismaRetry(() =>
+        prisma.product.findMany({ // Query data produk menggunakan Prisma ORM
+          where: { // Kriteria pencarian data
+            businessId, // Bisnis aktif yang sedang login
+            deletedAt: null, // Hanya ambil produk yang tidak dihapus (aktif/soft-delete check)
+          }, // Akhir dari kriteria where
+          select: { // Pilih kolom tertentu untuk menghemat bandwidth
+            name: true, // Ambil nama produk dashboard
+            productionToken: true, // Ambil token produksi aktif
+            minimumOrder: true, // TAMBAHKAN: Ambil batas minimal order dari DB
+          }, // Akhir dari select
+          orderBy: { // Urutan pengembalian data
+            name: "asc", // Urutkan nama produk dari A ke Z
+          }, // Akhir dari orderBy
+        }),
+      ), // Akhir dari query findMany dengan retry
       loadEffectiveBookingCatalog(businessId), // Muat katalog booking efektif untuk fallback token
     ]); // Akhir dari Promise.all
 
@@ -53,6 +60,11 @@ export async function GET() {
   } catch (error) {
     if (isAuthError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (isPrismaConnectionTimeout(error)) {
+      return prismaConnectionErrorResponse(
+        "Koneksi database sedang sibuk atau offline (Serverless Timeout).",
+      );
     }
     console.error("GET /api/products/token-map error:", error);
     return NextResponse.json(

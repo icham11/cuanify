@@ -18,17 +18,17 @@ test('E2E All Features Test', async ({ page }) => {
 
   // List of paths to test (except POS)
   const pathsToTest = [
-    { name: 'Dashboard Home', path: '/dashboard' },
-    { name: 'Staff Management', path: '/dashboard/staff' },
-    { name: 'Products Catalog', path: '/dashboard/products' },
-    { name: 'Business Settings', path: '/dashboard/business' },
-    { name: 'Sales History', path: '/dashboard/sales-history' },
-    { name: 'Add-ons', path: '/dashboard/add-ons' },
-    { name: 'Ingredients', path: '/dashboard/ingredients' },
-    { name: 'Debts', path: '/dashboard/debts' },
-    { name: 'Export', path: '/dashboard/export' },
-    { name: 'Production', path: '/dashboard/production' },
-    { name: 'Recipes', path: '/dashboard/recipes' }
+    { name: 'Bakery Dashboard', path: '/bakery/dashboard' },
+    { name: 'Bakery Bookings', path: '/bakery/bookings' },
+    { name: 'Bakery Calendar', path: '/bakery/calendar' },
+    { name: 'Bakery Catalog', path: '/bakery/catalog' },
+    { name: 'Bakery Customers', path: '/bakery/customers' },
+    { name: 'Bakery E-Commerce', path: '/bakery/ecommerce' },
+    { name: 'Bakery Omzet Harian', path: '/bakery/omzet-harian' },
+    { name: 'Bakery Production', path: '/bakery/production' },
+    { name: 'Bakery Reports', path: '/bakery/reports' },
+    { name: 'Bakery Templates', path: '/bakery/templates' },
+    { name: 'Bakery Attendance', path: '/bakery/attendance' }
   ];
 
   // 4. Navigate through each feature
@@ -36,7 +36,7 @@ test('E2E All Features Test', async ({ page }) => {
     console.log(`Navigating to ${item.name} (${item.path})`);
     
     // Some routes might be nested or have different actual paths, but we try standard paths
-    const response = await page.goto(`http://localhost:3000${item.path}`, { waitUntil: 'networkidle' });
+    const response = await page.goto(`http://localhost:3000${item.path}`, { waitUntil: 'load' });
     
     // Check if page loaded OK (status 200 or 304, or maybe 404 if path is slightly different)
     if (response) {

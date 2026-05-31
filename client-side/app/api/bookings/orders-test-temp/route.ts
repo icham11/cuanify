@@ -2372,7 +2372,7 @@ async function ensureBakeryTables() {
       customer_name TEXT,
       customer_phone TEXT,
       customer_address TEXT,
-      delivery_date TEXT,
+      delivery_date DATE,
       delivery_slot TEXT,
       notes TEXT,
       base_price NUMERIC(14,2) NOT NULL DEFAULT 0,
@@ -2410,6 +2410,23 @@ async function ensureBakeryTables() {
   `);
 
     await prisma.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS idx_bakery_orders_business_delivery_date
+    ON bakery_orders (business_id, delivery_date DESC);
+  `);
+
+    await prisma.$executeRawUnsafe(`
+    DO $$ 
+    BEGIN 
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name='bakery_orders' AND column_name='delivery_date' AND data_type='text'
+      ) THEN
+        ALTER TABLE bakery_orders ALTER COLUMN delivery_date TYPE DATE USING NULLIF(BTRIM(delivery_date), '')::date;
+      END IF;
+    END $$;
+  `);
+
+    await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS bakery_order_items (
       id BIGSERIAL PRIMARY KEY,
       business_id INTEGER NOT NULL,
@@ -2418,6 +2435,29 @@ async function ensureBakeryTables() {
       payload JSONB NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+  `);
+
+    await prisma.$executeRawUnsafe(`
+    DO $$ 
+    BEGIN 
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name='fk_bakery_order_items_order'
+      ) THEN
+        DELETE FROM bakery_order_items 
+        WHERE NOT EXISTS (
+          SELECT 1 FROM bakery_orders 
+          WHERE bakery_orders.business_id = bakery_order_items.business_id 
+            AND bakery_orders.external_id = bakery_order_items.order_external_id
+        );
+
+        ALTER TABLE bakery_order_items
+        ADD CONSTRAINT fk_bakery_order_items_order
+        FOREIGN KEY (business_id, order_external_id)
+        REFERENCES bakery_orders(business_id, external_id)
+        ON DELETE CASCADE;
+      END IF;
+    END $$;
   `);
 
     await prisma.$executeRawUnsafe(`
@@ -2434,6 +2474,29 @@ async function ensureBakeryTables() {
       payload JSONB NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+  `);
+
+    await prisma.$executeRawUnsafe(`
+    DO $$ 
+    BEGIN 
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name='fk_bakery_order_addresses_order'
+      ) THEN
+        DELETE FROM bakery_order_addresses 
+        WHERE NOT EXISTS (
+          SELECT 1 FROM bakery_orders 
+          WHERE bakery_orders.business_id = bakery_order_addresses.business_id 
+            AND bakery_orders.external_id = bakery_order_addresses.order_external_id
+        );
+
+        ALTER TABLE bakery_order_addresses
+        ADD CONSTRAINT fk_bakery_order_addresses_order
+        FOREIGN KEY (business_id, order_external_id)
+        REFERENCES bakery_orders(business_id, external_id)
+        ON DELETE CASCADE;
+      END IF;
+    END $$;
   `);
 
     await prisma.$executeRawUnsafe(`
@@ -2700,30 +2763,30 @@ export async function GET(request: NextRequest) {
         whereClauses.push(Prisma.sql`order_status = ${statusFilter}`);
       }
       if (dateFilter) {
-        whereClauses.push(Prisma.sql`delivery_date = ${dateFilter}`);
+        whereClauses.push(Prisma.sql`delivery_date = ${dateFilter}::date`);
       }
       if (searchQuery) {
         const queryParam = `%${searchQuery}%`;
         whereClauses.push(Prisma.sql`(customer_name ILIKE ${queryParam} OR booking_code ILIKE ${queryParam} OR resi ILIKE ${queryParam} OR external_id ILIKE ${queryParam})`);
       }
       if (startDate && endDate) {
-        whereClauses.push(Prisma.sql`delivery_date >= ${startDate} AND delivery_date <= ${endDate}`);
+        whereClauses.push(Prisma.sql`delivery_date >= ${startDate}::date AND delivery_date <= ${endDate}::date`);
       } else if (isCalendarMode && !dateFilter) {
         // Guard: Jika mode calendar tanpa filter tanggal eksplisit,
         // batasi ke window ±90 hari dari hari ini agar tidak full table scan.
         // Frontend selalu kirim startDate/endDate untuk render kalender,
         // guard ini hanya safety net jika parameter tidak ada.
         whereClauses.push(
-          Prisma.sql`delivery_date >= (CURRENT_DATE - INTERVAL '7 days')
-            AND delivery_date <= (CURRENT_DATE + INTERVAL '90 days')`,
+          Prisma.sql`delivery_date >= (CURRENT_DATE - INTERVAL '7 days')::date
+            AND delivery_date <= (CURRENT_DATE + INTERVAL '90 days')::date`,
         );
       } else if (isDashboardMode && !dateFilter && !searchQuery && !statusFilter) {
         // Guard: Jika mode dashboard tanpa filter apapun,
         // batasi ke order dengan delivery date dalam 12 bulan ke depan + 2 bulan lalu
         // untuk menampilkan statistik yang relevan tanpa pull all-time data.
         whereClauses.push(
-          Prisma.sql`delivery_date >= (CURRENT_DATE - INTERVAL '60 days')
-            AND delivery_date <= (CURRENT_DATE + INTERVAL '365 days')`,
+          Prisma.sql`delivery_date >= (CURRENT_DATE - INTERVAL '60 days')::date
+            AND delivery_date <= (CURRENT_DATE + INTERVAL '365 days')::date`,
         );
       }
 
@@ -2930,7 +2993,9 @@ export async function GET(request: NextRequest) {
         if (isFinancialMode) {
           const orders = orderRows.map((row) => ({
             // Pertahankan string asli YYYY-MM-DD dari DB agar parsing tanggal di kalender/UI frontend tidak rusak/null
-            deliveryDate: row.delivery_date ?? "",
+            deliveryDate: row.delivery_date instanceof Date 
+                ? `${row.delivery_date.getFullYear()}-${String(row.delivery_date.getMonth() + 1).padStart(2, '0')}-${String(row.delivery_date.getDate()).padStart(2, '0')}`
+                : (typeof row.delivery_date === "string" ? (row.delivery_date as string).split("T")[0] : ""),
             product: row.product ?? "",
             totalPrice: asNumber(row.total_price),
             totalPaidAmount: asNumber(row.total_paid_amount),
@@ -3046,7 +3111,9 @@ export async function GET(request: NextRequest) {
             customerPhone: row.customer_phone ?? "",
             customerAddress: row.customer_address ?? "",
             // Pertahankan string asli YYYY-MM-DD dari DB agar parsing tanggal di kalender/UI frontend tidak rusak/null
-            deliveryDate: row.delivery_date ?? "",
+            deliveryDate: row.delivery_date instanceof Date 
+                ? `${row.delivery_date.getFullYear()}-${String(row.delivery_date.getMonth() + 1).padStart(2, '0')}-${String(row.delivery_date.getDate()).padStart(2, '0')}`
+                : (typeof row.delivery_date === "string" ? (row.delivery_date as string).split("T")[0] : ""),
             deliverySlot: row.delivery_slot ?? "",
             notes: row.notes ?? "",
             basePrice: asNumber(row.base_price),

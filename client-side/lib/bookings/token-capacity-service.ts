@@ -199,20 +199,19 @@ async function reconcileCapacityLedgerForRange(
       WITH active_tokens AS (
         SELECT
           -- Ubah delivery_date (TEXT) menjadi DATE secara aman dari nilai kosong/spasi
-          NULLIF(TRIM(delivery_date), '')::date AS delivery_date,
+          delivery_date,
           -- Ambil nilai terbesar antara 0 dengan jumlah token_used, casting sebagai integer
           GREATEST(0, COALESCE(SUM(token_used), 0))::integer AS used_token
         FROM bakery_orders
         WHERE business_id = ${businessId}
-          -- Filter hanya pesanan yang memiliki delivery_date valid dan bukan string kosong
+          -- Filter hanya pesanan yang memiliki delivery_date
           AND delivery_date IS NOT NULL
-          AND TRIM(delivery_date) <> ''
           -- Hanya hitung pesanan yang belum dihapus secara soft-delete
           AND deleted_at IS NULL
           -- Bandingkan nilai DATE dengan casting yang setara agar tidak memicu type mismatch
-          AND NULLIF(TRIM(delivery_date), '')::date >= ${startDate}::date
+          AND delivery_date >= ${startDate}::date
           -- Batasi pencarian hingga tanggal akhir yang dicasting ke DATE
-          AND NULLIF(TRIM(delivery_date), '')::date <= ${endDate}::date
+          AND delivery_date <= ${endDate}::date
           -- Kecualikan status pesanan yang tidak memakan kapasitas token produksi
           AND order_status NOT IN (
             ${CAPACITY_INACTIVE_ORDER_STATUSES[0]},
@@ -220,8 +219,8 @@ async function reconcileCapacityLedgerForRange(
             ${CAPACITY_INACTIVE_ORDER_STATUSES[2]},
             ${CAPACITY_INACTIVE_ORDER_STATUSES[3]}
           )
-        -- Kelompokkan berdasarkan tanggal pengiriman setelah dikonversi ke tipe DATE
-        GROUP BY NULLIF(TRIM(delivery_date), '')::date
+        -- Kelompokkan berdasarkan tanggal pengiriman
+        GROUP BY delivery_date
       )
       -- Masukkan atau perbarui record kapasitas produksi harian
       INSERT INTO production_capacity (
@@ -267,13 +266,12 @@ async function reconcileCapacityLedgerForRange(
           SELECT 1
           FROM bakery_orders bo
           WHERE bo.business_id = pc.business_id
-            -- Filter hanya pesanan dengan delivery_date valid dan bukan kosong
+            -- Filter hanya pesanan dengan delivery_date valid
             AND bo.delivery_date IS NOT NULL
-            AND TRIM(bo.delivery_date) <> ''
             -- Pastikan pesanan belum dihapus
             AND bo.deleted_at IS NULL
-            -- Konversi delivery_date secara aman dari TEXT ke DATE untuk dibandingkan dengan pc.date
-            AND NULLIF(TRIM(bo.delivery_date), '')::date = pc.date
+            -- Bandingkan dengan pc.date
+            AND bo.delivery_date = pc.date
             -- Pastikan status pesanannya aktif (bukan cancelled/completed)
             AND bo.order_status NOT IN (
               ${CAPACITY_INACTIVE_ORDER_STATUSES[0]},

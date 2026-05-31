@@ -103,14 +103,14 @@ test.describe("New Booking Flow - Comprehensive E2E", () => {
     await loginToDashboard(page);
 
     // Buka halaman create booking
-    await page.goto("/bakery/bookings/create", { waitUntil: "domcontentloaded" });
+    await page.goto("/bakery/bookings/new", { waitUntil: "domcontentloaded" });
 
     // 1. Isi Data Kustomer
     const nameInput = page.locator('input[name="customerName"]');
     await nameInput.waitFor({ state: "visible", timeout: 15000 });
     await nameInput.fill("Budi Tester");
     
-    await page.locator('input[name="customerPhone"]').fill("081234567890");
+    await page.locator('input[name="phoneNumber"]').fill("081234567890");
 
     // 2. Tambah Item (Pilih Produk)
     // Skenario: Klik tombol tambah produk (menyesuaikan struktur yang ada)
@@ -129,14 +129,17 @@ test.describe("New Booking Flow - Comprehensive E2E", () => {
     await page.waitForTimeout(1000);
 
     // Memastikan tombol submit tersedia dan kita submit (simpan pesanan)
-    const submitBtn = page.getByRole('button', { name: /simpan/i });
-    // Jika tidak ada button submit atau beda nama, kita catch dan cari yang tipe submit
-    try {
-       await submitBtn.waitFor({ state: "visible", timeout: 5000 });
-       await submitBtn.click();
-    } catch(e) {
-       await page.locator('button[type="submit"]').click();
-    }
+    // Langkah 1: Klik "Preview Booking"
+    const previewBtn = page.getByRole('button', { name: /preview booking/i });
+    await previewBtn.waitFor({ state: "visible", timeout: 5000 });
+    await previewBtn.click();
+    
+    await page.waitForTimeout(1000);
+    
+    // Langkah 2: Klik "✓ Create Booking" pada layar preview
+    const createBtn = page.getByRole('button', { name: /create booking/i });
+    await createBtn.waitFor({ state: "visible", timeout: 5000 });
+    await createBtn.click();
 
     // 3. Verifikasi Payload Egress (Memastikan Data Konsisten dan Aman)
     await page.waitForTimeout(2000); // Tunggu request

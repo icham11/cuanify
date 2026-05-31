@@ -558,7 +558,7 @@ model bakery_orders {
   customer_name          String?
   customer_phone         String?
   customer_address       String?
-  delivery_date          String?
+  delivery_date          DateTime? @db.Date
   delivery_slot          String?
   notes                  String?
   base_price             Decimal   @default(0) @db.Decimal(14, 2)
