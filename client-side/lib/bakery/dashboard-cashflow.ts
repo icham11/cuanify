@@ -76,7 +76,7 @@ export function buildCashFlowBreakdownForDate(
     };
 
     for (const transaction of datedTransactions) {
-      existing.amountToday += Math.max(0, Number(transaction.amount || 0));
+      existing.amountToday += Number(transaction.amount || 0);
       existing.transactionCount += 1;
       existing.paymentTypes.add(transaction.type || "Payment");
     }
