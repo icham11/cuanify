@@ -3214,9 +3214,10 @@ export async function GET(request: NextRequest) {
           const orders = orderRows.map((row) => ({
             id: row.external_id,
             // Pertahankan string asli YYYY-MM-DD dari DB agar parsing tanggal di kalender/UI frontend tidak rusak/null
-            deliveryDate: row.delivery_date instanceof Date 
-                ? `${row.delivery_date.getFullYear()}-${String(row.delivery_date.getMonth() + 1).padStart(2, '0')}-${String(row.delivery_date.getDate()).padStart(2, '0')}`
-                : (typeof row.delivery_date === "string" ? (row.delivery_date as string).split("T")[0] : ""),
+            deliveryDate:
+              typeof row.delivery_date === "string"
+                ? row.delivery_date.split("T")[0]
+                : "",
             product: row.product ?? "",
             totalPrice: asNumber(row.total_price),
             totalPaidAmount: asNumber(row.total_paid_amount),
@@ -3348,9 +3349,10 @@ export async function GET(request: NextRequest) {
             customerPhone: row.customer_phone ?? "",
             customerAddress: row.customer_address ?? "",
             // Pertahankan string asli YYYY-MM-DD dari DB agar parsing tanggal di kalender/UI frontend tidak rusak/null
-            deliveryDate: row.delivery_date instanceof Date 
-                ? `${row.delivery_date.getFullYear()}-${String(row.delivery_date.getMonth() + 1).padStart(2, '0')}-${String(row.delivery_date.getDate()).padStart(2, '0')}`
-                : (typeof row.delivery_date === "string" ? (row.delivery_date as string).split("T")[0] : ""),
+            deliveryDate:
+              typeof row.delivery_date === "string"
+                ? row.delivery_date.split("T")[0]
+                : "",
             deliverySlot: row.delivery_slot ?? "",
             notes: row.notes ?? "",
             basePrice: financialBreakdown.basePrice,
