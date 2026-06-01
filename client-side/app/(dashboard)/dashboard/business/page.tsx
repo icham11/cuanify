@@ -90,6 +90,8 @@ const BUSINESS_VIEW_CACHE = new Map<
   string,
   { value: ViewState; cachedAt: number }
 >();
+const BUSINESS_REFERENCE_CACHE_TTL_MS = 5 * 60 * 1000;
+const BUSINESS_ORDERS_CACHE_TTL_MS = 30 * 1000;
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat("id-ID", {
@@ -177,27 +179,6 @@ function filterOrdersByDeliveryDateRange<
   });
 }
 
-function mergeOrdersForBusinessView(
-  localOrders: BakeryOrder[],
-  serverOrders: BakeryOrder[],
-) {
-  const merged = new Map<string, BakeryOrder>();
-
-  serverOrders.forEach((order) => {
-    const key = String(order.id || "");
-    if (!key) return;
-    merged.set(key, order);
-  });
-
-  localOrders.forEach((order) => {
-    const key = String(order.id || "");
-    if (!key) return;
-    merged.set(key, order);
-  });
-
-  return Array.from(merged.values());
-}
-
 function buildExportCsv(args: {
   monthLabel: string;
   businessName: string;
@@ -244,10 +225,18 @@ function didRequestFail(payload: unknown): boolean {
 
 async function safeApiFetch<T>(
   path: string,
-  timeoutMs = 15000,
+  options?: {
+    timeoutMs?: number;
+    cacheTtlMs?: number;
+  },
 ): Promise<T | null> {
+  const timeoutMs = options?.timeoutMs ?? 15000;
   try {
-    return (await apiFetch(path, { cache: "no-store" }, timeoutMs)) as T;
+    return (await apiFetch(
+      path,
+      { cacheTtlMs: options?.cacheTtlMs },
+      timeoutMs,
+    )) as T;
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       console.warn(`Fetch timeout for ${path} after ${timeoutMs}ms`);
@@ -396,10 +385,20 @@ function BusinessPageContent() {
 
       const [bakerySettingsPayload, productsPayload, ordersPayload] =
         await Promise.all([
-        safeApiFetch<BakerySettingsResponse>("/api/bakery/settings"),
-        safeApiFetch<ProductsResponse>("/api/products?mode=financial&limit=999"),
-        safeApiFetch<OrdersResponse>(`/api/bookings/orders?mode=financial&startDate=${previousRange.startDate}&endDate=${currentRange.endDate}`, 20000),
-      ]);
+          safeApiFetch<BakerySettingsResponse>("/api/bakery/settings", {
+            cacheTtlMs: BUSINESS_REFERENCE_CACHE_TTL_MS,
+          }),
+          safeApiFetch<ProductsResponse>("/api/products?mode=financial&limit=999", {
+            cacheTtlMs: BUSINESS_REFERENCE_CACHE_TTL_MS,
+          }),
+          safeApiFetch<OrdersResponse>(
+            `/api/bookings/orders?mode=financial&startDate=${previousRange.startDate}&endDate=${currentRange.endDate}`,
+            {
+              timeoutMs: 20000,
+              cacheTtlMs: BUSINESS_ORDERS_CACHE_TTL_MS,
+            },
+          ),
+        ]);
 
       if (!active) return;
 
@@ -409,12 +408,11 @@ function BusinessPageContent() {
       const bakerySettings = bakerySettingsPayload?.data ?? null;
       const products = productsPayload?.data ?? [];
       const serverOrders = Array.isArray(ordersPayload?.data?.orders)
-        ? ordersPayload.data.orders
+        ? (ordersPayload.data.orders as BakeryOrder[])
         : [];
-      const authoritativeOrders = mergeOrdersForBusinessView(
-        orders,
-        serverOrders as BakeryOrder[],
-      );
+      const authoritativeOrders = ordersRequestFailed
+        ? orders
+        : serverOrders;
       const deliveryRangeOrders = filterOrdersByDeliveryDateRange(
         authoritativeOrders,
         currentRange.startDate,

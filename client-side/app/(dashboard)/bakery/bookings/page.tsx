@@ -91,6 +91,17 @@ function addDaysToIsoDate(isoDate: string, days: number): string {
   return value.toISOString().slice(0, 10);
 }
 
+function isTransientBookingsFetchError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error || "");
+  const normalized = message.trim().toLowerCase();
+  return (
+    normalized.includes("failed to fetch") ||
+    normalized.includes("networkerror") ||
+    normalized.includes("load failed") ||
+    normalized.includes("network request failed")
+  );
+}
+
 function resolveOrderSource(order: {
   notes?: string;
   whatsAppParsedData?: { common?: { deliveryMethod?: string } };
@@ -109,7 +120,10 @@ function resolveOrderSource(order: {
 
   if (!deliveryMethod || deliveryMethod === "PICKUP") return null;
   if (deliveryMethod === "CUSTOMER_APP_COURIER") return "customer";
-  if (deliveryMethod.startsWith("ASSISTED_") || deliveryMethod === "REGULAR_JNE_JNT") {
+  if (
+    deliveryMethod.startsWith("ASSISTED_") ||
+    deliveryMethod === "REGULAR_JNE_JNT"
+  ) {
     return "admin";
   }
 
@@ -155,7 +169,10 @@ export default function BookingListPage() {
   const linkedSource = searchParams.get("source");
   const isCalendarLinkedView = linkedSource === "calendar";
   const fetchCurrentPageOrders = useMemo(
-    () => async (pageOverride = currentPage) =>
+    () => async (
+      pageOverride = currentPage,
+      options?: { signal?: AbortSignal },
+    ) =>
       fetchPaginatedOrders({
         page: pageOverride,
         limit: PAGE_SIZE,
@@ -164,12 +181,17 @@ export default function BookingListPage() {
         date: dateFilter,
         view: activeSavedView,
         today,
+        courier: courierFilter,
+        orderSource: orderSourceFilter,
+        signal: options?.signal,
       }),
     [
       activeSavedView,
+      courierFilter,
       currentPage,
       dateFilter,
       fetchPaginatedOrders,
+      orderSourceFilter,
       query,
       statusFilter,
       today,
@@ -179,53 +201,64 @@ export default function BookingListPage() {
   // Effect untuk me-load data paginated dari server-side dengan debounce pencarian
   useEffect(() => {
     let active = true;
+    const controller = new AbortController();
 
     const debounceHandler = setTimeout(() => {
-      if (active) {
-        setIsLoading(true);
-      }
+      const run = async () => {
+        if (active) {
+          setIsLoading(true);
+        }
 
-      fetchCurrentPageOrders()
-        .then((res) => {
-          if (!active) return;
-          setOrdersList(res.orders);
-          setTotalCount(res.pagination.totalCount);
-          setTotalPages(res.pagination.totalPages);
-          setIsLoading(false);
-        })
-        .catch((error) => {
-          console.error("Gagal memuat daftar pesanan paginated:", error);
-          if (active) {
+        let lastError: unknown = null;
+        for (let attempt = 0; attempt < 8; attempt += 1) {
+          try {
+            const res = await fetchCurrentPageOrders(currentPage, {
+              signal: controller.signal,
+            });
+            if (!active) return;
+            setOrdersList(res.orders);
+            setTotalCount(res.pagination.totalCount);
+            setTotalPages(res.pagination.totalPages);
             setIsLoading(false);
+            return;
+          } catch (error) {
+            if (
+              controller.signal.aborted ||
+              (error instanceof Error && error.name === "AbortError")
+            ) {
+              return;
+            }
+            lastError = error;
+            if (!isTransientBookingsFetchError(error) || attempt === 7) {
+              break;
+            }
+            const retryDelayMs = Math.min(2500, 700 + attempt * 400);
+            await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+            if (controller.signal.aborted) {
+              return;
+            }
           }
-        });
+        }
+
+        console.error("Gagal memuat daftar pesanan paginated:", lastError);
+        if (active) {
+          setIsLoading(false);
+        }
+      };
+
+      void run();
     }, 250); // Debounce typing 250ms
 
     return () => {
       active = false;
+      controller.abort();
       clearTimeout(debounceHandler);
     };
-  }, [fetchCurrentPageOrders]);
+  }, [currentPage, fetchCurrentPageOrders]);
 
   // Client-side sorting dari halaman ter-load
   const pagedOrders = useMemo(() => {
-    let result = ordersList;
-
-    if (courierFilter || orderSourceFilter) {
-      result = result.filter((order) => {
-        const provider = resolveShippingProvider(order);
-        const matchesCourier =
-          courierFilter === ""
-            ? true
-            : courierFilter === "grab-gojek"
-              ? provider === "GRAB" || provider === "GOJEK"
-              : provider === "PAXEL";
-        const source = resolveOrderSource(order);
-        const matchesOrderSource =
-          orderSourceFilter === "" ? true : source === orderSourceFilter;
-        return matchesCourier && matchesOrderSource;
-      });
-    }
+    const result = ordersList;
 
     if (sortBy === "delivery-asc") {
       return result.slice().sort((a, b) => a.deliveryDate.localeCompare(b.deliveryDate));
@@ -240,7 +273,112 @@ export default function BookingListPage() {
     }
 
     return result.slice().sort((a, b) => (b.totalPrice || 0) - (a.totalPrice || 0));
-  }, [ordersList, courierFilter, orderSourceFilter, sortBy]);
+  }, [ordersList, sortBy]);
+
+  const fallbackFilteredOrders = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+
+    return orders.filter((order) => {
+      const normalizedStatus = normalizeOrderStatus(order.orderStatus);
+
+      if (
+        activeSavedView === "active" &&
+        ["Delivery", "Delivered", "Completed", "Cancelled"].includes(
+          normalizedStatus,
+        )
+      ) {
+        return false;
+      }
+
+      if (
+        activeSavedView === "late" &&
+        !(
+          order.deliveryDate < today &&
+          !["Delivery", "Delivered", "Completed", "Cancelled"].includes(
+            normalizedStatus,
+          )
+        )
+      ) {
+        return false;
+      }
+
+      if (statusFilter && order.orderStatus !== statusFilter) {
+        return false;
+      }
+
+      if (dateFilter && order.deliveryDate !== dateFilter) {
+        return false;
+      }
+
+      if (normalizedQuery) {
+        const searchable = [
+          order.customerName,
+          order.bookingCode,
+          order.resi,
+          order.id,
+        ]
+          .join(" ")
+          .toLowerCase();
+        if (!searchable.includes(normalizedQuery)) {
+          return false;
+        }
+      }
+
+      if (courierFilter) {
+        const provider = resolveShippingProvider(order);
+        if (courierFilter === "grab-gojek") {
+          if (provider !== "GRAB" && provider !== "GOJEK") return false;
+        } else if (provider !== "PAXEL") {
+          return false;
+        }
+      }
+
+      if (orderSourceFilter) {
+        if (resolveOrderSource(order) !== orderSourceFilter) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [
+    activeSavedView,
+    courierFilter,
+    dateFilter,
+    orderSourceFilter,
+    orders,
+    query,
+    statusFilter,
+    today,
+  ]);
+
+  const fallbackPagedOrders = useMemo(() => {
+    const sorted = fallbackFilteredOrders.slice().sort((a, b) => {
+      if (sortBy === "delivery-desc") {
+        return b.deliveryDate.localeCompare(a.deliveryDate);
+      }
+      if (sortBy === "name-asc") {
+        return a.customerName.localeCompare(b.customerName);
+      }
+      if (sortBy === "value-desc") {
+        return (b.totalPrice || 0) - (a.totalPrice || 0);
+      }
+      return a.deliveryDate.localeCompare(b.deliveryDate);
+    });
+
+    const fallbackOffset = (currentPage - 1) * PAGE_SIZE;
+    return sorted.slice(fallbackOffset, fallbackOffset + PAGE_SIZE);
+  }, [currentPage, fallbackFilteredOrders, sortBy]);
+
+  const shouldUseFallbackList =
+    ordersList.length === 0 && orders.length > 0 && (isLoading || totalCount === 0);
+  const displayOrders = shouldUseFallbackList ? fallbackPagedOrders : pagedOrders;
+  const displayTotalCount = shouldUseFallbackList
+    ? fallbackFilteredOrders.length
+    : totalCount;
+  const displayTotalPages = shouldUseFallbackList
+    ? Math.max(1, Math.ceil(fallbackFilteredOrders.length / PAGE_SIZE))
+    : totalPages;
 
   const activeOrdersCount = useMemo(
     () =>
@@ -252,8 +390,11 @@ export default function BookingListPage() {
   );
 
   const unpaidCount = useMemo(
-    () => ordersList.filter((order) => order.paymentStatus !== "Paid").length,
-    [ordersList],
+    () =>
+      (shouldUseFallbackList ? fallbackFilteredOrders : ordersList).filter(
+        (order) => order.paymentStatus !== "Paid",
+      ).length,
+    [fallbackFilteredOrders, ordersList, shouldUseFallbackList],
   );
 
   const hasActiveFilters = Boolean(
@@ -266,11 +407,14 @@ export default function BookingListPage() {
       sortBy !== "delivery-asc",
   );
 
-  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const safeCurrentPage = Math.min(currentPage, displayTotalPages);
+  const hasRenderableOrders = displayOrders.length > 0;
 
   const handleOrderDeleted = async () => {
     const fallbackPage =
-      pagedOrders.length === 1 && currentPage > 1 ? currentPage - 1 : currentPage;
+      displayOrders.length === 1 && currentPage > 1
+        ? currentPage - 1
+        : currentPage;
 
     if (fallbackPage !== currentPage) {
       setCurrentPage(fallbackPage);
@@ -292,7 +436,9 @@ export default function BookingListPage() {
 
   const handleOrderStatusUpdated = async () => {
     const fallbackPage =
-      pagedOrders.length === 1 && currentPage > 1 ? currentPage - 1 : currentPage;
+      displayOrders.length === 1 && currentPage > 1
+        ? currentPage - 1
+        : currentPage;
 
     if (fallbackPage !== currentPage) {
       setCurrentPage(fallbackPage);
@@ -515,7 +661,7 @@ export default function BookingListPage() {
         <div className="flex items-start justify-between gap-3 px-1">
           <div className="min-w-0">
             <p className="text-[1.25rem] font-extrabold leading-none text-[var(--foreground)]">
-              {totalCount} order
+              {displayTotalCount} order
             </p>
             <p className="mt-1 text-[11px] text-[var(--crumbella-muted)]">
               DP = {unpaidCount} belum lunas
@@ -542,7 +688,7 @@ export default function BookingListPage() {
           </div>
         </div>
 
-        {isLoading ? (
+        {isLoading && !shouldUseFallbackList && !hasRenderableOrders ? (
           <div className="flex h-40 items-center justify-center rounded-[28px] border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] shadow-none">
             <div className="flex items-center gap-2 text-sm text-[var(--crumbella-muted)]">
               <Loader2 className="h-5 w-5 animate-spin text-[var(--crumbella-accent)]" />
@@ -550,17 +696,25 @@ export default function BookingListPage() {
             </div>
           </div>
         ) : (
-          <OrderTable
-            orders={pagedOrders}
-            onOrderDeleted={handleOrderDeleted}
-            onOrderStatusUpdated={handleOrderStatusUpdated}
-          />
+          <div className="space-y-3">
+            {isLoading ? (
+              <div className="flex items-center gap-2 rounded-2xl border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] px-4 py-3 text-xs text-[var(--crumbella-muted)]">
+                <Loader2 className="h-4 w-4 animate-spin text-[var(--crumbella-accent)]" />
+                Memperbarui data booking...
+              </div>
+            ) : null}
+            <OrderTable
+              orders={displayOrders}
+              onOrderDeleted={handleOrderDeleted}
+              onOrderStatusUpdated={handleOrderStatusUpdated}
+            />
+          </div>
         )}
 
-        {totalCount > PAGE_SIZE ? (
+        {displayTotalCount > PAGE_SIZE ? (
           <div className="flex items-center justify-between gap-3 px-1 pt-1">
             <p className="text-[11px] text-[var(--crumbella-muted)]">
-              Page {safeCurrentPage} dari {totalPages}
+              Page {safeCurrentPage} dari {displayTotalPages}
             </p>
             <div className="flex items-center gap-2">
               <button
@@ -573,8 +727,10 @@ export default function BookingListPage() {
               </button>
               <button
                 type="button"
-                onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
-                disabled={safeCurrentPage === totalPages}
+                onClick={() =>
+                  setCurrentPage((prev) => Math.min(displayTotalPages, prev + 1))
+                }
+                disabled={safeCurrentPage === displayTotalPages}
                 className="inline-flex h-9 items-center justify-center rounded-xl border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] px-3 text-[11px] font-semibold text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-45"
               >
                 Next

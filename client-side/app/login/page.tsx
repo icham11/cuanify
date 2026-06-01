@@ -31,6 +31,49 @@ async function waitForActiveSession(timeoutMs = 5000): Promise<boolean> {
   return false;
 }
 
+function fallbackLoginErrorMessage(status: number): string {
+  if (status === 400) return "Email dan password wajib diisi";
+  if (status === 401) return "Email atau password salah";
+  if (status === 503) {
+    return "Koneksi database sedang sibuk. Coba login lagi beberapa saat.";
+  }
+  return "Login gagal. Coba lagi.";
+}
+
+async function readLoginErrorMessage(response: Response): Promise<string> {
+  const contentType = response.headers.get("content-type") || "";
+
+  if (contentType.includes("application/json")) {
+    const payload = await response.json().catch(() => null);
+    if (payload && typeof payload.error === "string" && payload.error.trim()) {
+      return payload.error;
+    }
+    if (
+      payload &&
+      typeof payload.message === "string" &&
+      payload.message.trim()
+    ) {
+      return payload.message;
+    }
+  }
+
+  const text = (await response.text()).trim();
+
+  if (!text) {
+    return fallbackLoginErrorMessage(response.status);
+  }
+
+  if (
+    text.startsWith("<!DOCTYPE") ||
+    text.startsWith("<html") ||
+    text.includes("<body")
+  ) {
+    return fallbackLoginErrorMessage(response.status);
+  }
+
+  return text;
+}
+
 export default function LoginPage() {
   const router = useRouter();
 
@@ -98,8 +141,7 @@ export default function LoginPage() {
       });
 
       if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text);
+        throw new Error(await readLoginErrorMessage(res));
       }
 
       const sessionReady = await waitForActiveSession(1500);

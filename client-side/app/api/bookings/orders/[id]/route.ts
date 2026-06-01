@@ -32,6 +32,7 @@ import {
 import { getBakeryBusinessSettings } from "@/lib/bakery/settings";
 import { getProductionStagePercentagesFromTemplates, resolvePrimaryProductionCategory, resolveProductionStageTemplatesForCategory } from "@/lib/bookings/production-stages";
 import { calculateOrderFinancialBreakdown } from "@/lib/bookings/financial-breakdown";
+import { normalizeDateInput } from "@/lib/helpers/date-normalization";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -412,8 +413,10 @@ export async function GET(
       customerName: row.customer_name ?? "",
       customerPhone: row.customer_phone ?? "",
       customerAddress: row.customer_address ?? "",
-      // Pertahankan string asli YYYY-MM-DD dari DB agar parsing tanggal di kalender/UI frontend tidak rusak/null
-      deliveryDate: row.delivery_date ?? "",
+      deliveryDate:
+        normalizeDateInput(row.delivery_date ?? "") ??
+        row.delivery_date ??
+        "",
       deliverySlot: row.delivery_slot ?? "",
       notes: row.notes ?? "",
       basePrice: financialBreakdown.basePrice,

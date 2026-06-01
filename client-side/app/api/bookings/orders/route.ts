@@ -22,7 +22,10 @@ import {
   isPastDate,
 } from "@/lib/calendar/getCalendarStatus";
 import { normalizeDateInput } from "@/lib/helpers/date-normalization";
-import { getJakartaTodayIsoDate } from "@/lib/bookings/shipping-schedule";
+import {
+  getJakartaTodayIsoDate,
+  resolveShippingProvider,
+} from "@/lib/bookings/shipping-schedule";
 import {
   sendOrderToWhatsApp,
   type SendOrderToWhatsAppResult,
@@ -251,6 +254,96 @@ export interface DbProductionStageRow {
   stage: ProductionStage;
   staff_id: string | null;
   token_amount: unknown;
+}
+
+type BookingCourierFilter = "" | "grab-gojek" | "paxel";
+type BookingOrderSourceFilter = "" | "customer" | "admin";
+
+function parseBookingCourierFilter(
+  value: string | null,
+): BookingCourierFilter | null {
+  if (value === null) return "";
+  if (value === "" || value === "grab-gojek" || value === "paxel") {
+    return value;
+  }
+  return null;
+}
+
+function parseBookingOrderSourceFilter(
+  value: string | null,
+): BookingOrderSourceFilter | null {
+  if (value === null) return "";
+  if (value === "" || value === "customer" || value === "admin") {
+    return value;
+  }
+  return null;
+}
+
+function resolveBookingOrderSource(order: {
+  notes?: string | null;
+  shippingQuote?: unknown;
+}): BookingOrderSourceFilter | "" {
+  const shippingQuote = order.shippingQuote as
+    | {
+        provider?: string | null;
+        courierCode?: string | null;
+        courierServiceCode?: string | null;
+        courierServiceName?: string | null;
+      }
+    | null
+    | undefined;
+  const deliveryMethod = resolveOrderDeliveryMethod({
+    notes: order.notes,
+    shippingQuote,
+  });
+
+  if (!deliveryMethod || deliveryMethod === "PICKUP") return "";
+  if (deliveryMethod === "CUSTOMER_APP_COURIER") return "customer";
+  if (
+    deliveryMethod.startsWith("ASSISTED_") ||
+    deliveryMethod === "REGULAR_JNE_JNT"
+  ) {
+    return "admin";
+  }
+
+  return "";
+}
+
+function matchesBookingCourierFilter(
+  order: {
+    notes?: string | null;
+    shippingQuote?: unknown;
+  },
+  courierFilter: BookingCourierFilter,
+): boolean {
+  if (!courierFilter) return true;
+  const provider = resolveShippingProvider({
+    notes: order.notes,
+    shippingQuote: order.shippingQuote as
+      | {
+          provider?: string | null;
+          courierCode?: string | null;
+          courierServiceCode?: string | null;
+          courierServiceName?: string | null;
+        }
+      | null
+      | undefined,
+  });
+  if (courierFilter === "grab-gojek") {
+    return provider === "GRAB" || provider === "GOJEK";
+  }
+  return provider === "PAXEL";
+}
+
+function matchesBookingOrderSourceFilter(
+  order: {
+    notes?: string | null;
+    shippingQuote?: unknown;
+  },
+  orderSourceFilter: BookingOrderSourceFilter,
+): boolean {
+  if (!orderSourceFilter) return true;
+  return resolveBookingOrderSource(order) === orderSourceFilter;
 }
 
 interface ExistingAssignmentState {
@@ -2913,11 +3006,20 @@ export async function GET(request: NextRequest) {
     const isFinancialMode = mode === "financial";
     const isCalendarMode = mode === "calendar";
     const isDashboardMode = mode === "dashboard";
+    const isPaginatedBookingsListMode =
+      url.searchParams.has("page") &&
+      !isFinancialMode &&
+      !isCalendarMode &&
+      !isDashboardMode;
     
     // Parameter pencarian & filter (server-side)
     const searchQuery = url.searchParams.get("query") || "";
     const statusFilter = url.searchParams.get("status") || "";
     const dateFilter = url.searchParams.get("date") || "";
+    const courierFilter =
+      parseBookingCourierFilter(url.searchParams.get("courier")) ?? "";
+    const orderSourceFilter =
+      parseBookingOrderSourceFilter(url.searchParams.get("orderSource")) ?? "";
     const startDate = url.searchParams.get("startDate") || "";
     const endDate = url.searchParams.get("endDate") || "";
     const todayFilter =
@@ -2930,9 +3032,13 @@ export async function GET(request: NextRequest) {
     const offset = (page - 1) * limit;
 
     // 3. Muat pemetaan token produk (tidak diperlukan pada financial mode)
-    const productTokenLookup = isFinancialMode
+    const productTokenLookup = isFinancialMode || isPaginatedBookingsListMode
       ? new Map<string, number>()
       : await loadOrderProductTokenLookup(businessId);
+    let totalCount = 0;
+    let totalPages = 0;
+    let effectiveTotalCount = 0;
+    let effectiveTotalPages = 0;
 
     try {
       // Pastikan tabel bakery_orders sudah ada
@@ -2999,15 +3105,23 @@ export async function GET(request: NextRequest) {
       // Ini mencegah query besar saat ada ratusan order historis.
       const isProductionListMode = !url.searchParams.has("page") && !isCalendarMode && !isDashboardMode && !isFinancialMode;
       const productionListLimit = 500;
+      const needsPostHydrationBookingFilters =
+        url.searchParams.has("page") &&
+        !isCalendarMode &&
+        !isDashboardMode &&
+        !isFinancialMode &&
+        Boolean(courierFilter || orderSourceFilter);
 
       // 5. Eksekusi query COUNT dinamis untuk mendapatkan total data pada server-side pagination
-      const countRows = await prisma.$queryRaw<Array<{ count: bigint }>>`
-        SELECT COUNT(*)::bigint as count
-        FROM bakery_orders
-        ${where}
-      `;
-      const totalCount = Number(countRows[0]?.count || 0);
-      const totalPages = Math.ceil(totalCount / limit);
+      if (!needsPostHydrationBookingFilters) {
+        const countRows = await prisma.$queryRaw<Array<{ count: bigint }>>`
+          SELECT COUNT(*)::bigint as count
+          FROM bakery_orders
+          ${where}
+        `;
+        totalCount = Number(countRows[0]?.count || 0);
+        totalPages = totalCount > 0 ? Math.ceil(totalCount / limit) : 0;
+      }
 
       // 6. Ambil data baris pesanan dari database (kolom ringan, tidak memuat JSONB besar)
       let orderRows: DbOrderRow[] = [];
@@ -3138,54 +3252,133 @@ export async function GET(request: NextRequest) {
           }
         } else {
           // Default list: gunakan server-side pagination (LIMIT/OFFSET)
-          orderRows = await prisma.$queryRaw<DbOrderRow[]>`
-            SELECT
-              order_uuid,
-              external_id,
-              booking_code,
-              resi,
-              customer_name,
-              customer_phone,
-              customer_address,
-              delivery_date,
-              delivery_slot,
-              notes,
-              base_price,
-              design_adjustment_total,
-              add_on_total,
-              product_adjustment,
-              non_product_adjustment,
-              product_subtotal,
-              product_discount_amount,
-              service_charge,
-              delivery_fee,
-              manual_adjustment,
-              dp_paid_amount,
-              final_paid_amount,
-              total_paid_amount,
-              down_payment_amount,
-              remaining_balance,
-              product,
-              total_price,
-              insurance_fee,
-              sales_channel,
-              payment_status,
-              order_status,
-              assigned_staff_user_id,
-              assigned_staff_name,
-              production_assigned_at,
-              shipping_quote,
-              shipment,
-              simulations,
-              payment_transactions,
-              created_at,
-              updated_at
-            FROM bakery_orders
-            ${where}
-            ORDER BY updated_at DESC
-            LIMIT ${limit} OFFSET ${offset}
-          `;
+          if (needsPostHydrationBookingFilters) {
+            orderRows = await prisma.$queryRaw<DbOrderRow[]>`
+              SELECT
+                order_uuid,
+                external_id,
+                booking_code,
+                resi,
+                customer_name,
+                customer_phone,
+                customer_address,
+                delivery_date,
+                delivery_slot,
+                notes,
+                base_price,
+                design_adjustment_total,
+                add_on_total,
+                product_adjustment,
+                non_product_adjustment,
+                product_subtotal,
+                product_discount_amount,
+                service_charge,
+                delivery_fee,
+                manual_adjustment,
+                dp_paid_amount,
+                final_paid_amount,
+                total_paid_amount,
+                down_payment_amount,
+                remaining_balance,
+                product,
+                total_price,
+                insurance_fee,
+                sales_channel,
+                payment_status,
+                order_status,
+                assigned_staff_user_id,
+                assigned_staff_name,
+                production_assigned_at,
+                shipping_quote,
+                shipment,
+                simulations,
+                payment_transactions,
+                created_at,
+                updated_at
+              FROM bakery_orders
+              ${where}
+              ORDER BY updated_at DESC
+            `;
+          } else {
+            orderRows = await prisma.$queryRaw<DbOrderRow[]>`
+              SELECT
+                order_uuid,
+                external_id,
+                booking_code,
+                resi,
+                customer_name,
+                customer_phone,
+                customer_address,
+                delivery_date,
+                delivery_slot,
+                notes,
+                base_price,
+                design_adjustment_total,
+                add_on_total,
+                product_adjustment,
+                non_product_adjustment,
+                product_subtotal,
+                product_discount_amount,
+                service_charge,
+                delivery_fee,
+                manual_adjustment,
+                dp_paid_amount,
+                final_paid_amount,
+                total_paid_amount,
+                down_payment_amount,
+                remaining_balance,
+                product,
+                total_price,
+                insurance_fee,
+                sales_channel,
+                payment_status,
+                order_status,
+                assigned_staff_user_id,
+                assigned_staff_name,
+                production_assigned_at,
+                shipping_quote,
+                shipment,
+                simulations,
+                payment_transactions,
+                created_at,
+                updated_at
+              FROM bakery_orders
+              ${where}
+              ORDER BY updated_at DESC
+              LIMIT ${limit} OFFSET ${offset}
+            `;
+          }
         }
+      }
+
+      effectiveTotalCount = totalCount;
+      effectiveTotalPages = totalPages;
+
+      if (isPaginatedBookingsListMode && needsPostHydrationBookingFilters) {
+        const filteredOrderRows = orderRows.filter((row) => {
+          const shippingQuote = parseJsonField(row.shipping_quote);
+          return (
+            matchesBookingCourierFilter(
+              {
+                notes: row.notes,
+                shippingQuote,
+              },
+              courierFilter,
+            ) &&
+            matchesBookingOrderSourceFilter(
+              {
+                notes: row.notes,
+                shippingQuote,
+              },
+              orderSourceFilter,
+            )
+          );
+        });
+
+        effectiveTotalCount = filteredOrderRows.length;
+        effectiveTotalPages =
+          effectiveTotalCount > 0 ? Math.ceil(effectiveTotalCount / limit) : 0;
+        orderRows = filteredOrderRows.slice(offset, offset + limit);
       }
 
       // 7. Jika ada baris order yang ditemukan, muat items, alamat, dan tahapan produksinya
@@ -3213,11 +3406,7 @@ export async function GET(request: NextRequest) {
         if (isFinancialMode) {
           const orders = orderRows.map((row) => ({
             id: row.external_id,
-            // Pertahankan string asli YYYY-MM-DD dari DB agar parsing tanggal di kalender/UI frontend tidak rusak/null
-            deliveryDate:
-              typeof row.delivery_date === "string"
-                ? row.delivery_date.split("T")[0]
-                : "",
+            deliveryDate: normalizeDateInput(row.delivery_date) ?? "",
             product: row.product ?? "",
             totalPrice: asNumber(row.total_price),
             totalPaidAmount: asNumber(row.total_paid_amount),
@@ -3243,6 +3432,134 @@ export async function GET(request: NextRequest) {
               source: "rows",
               orders,
               updatedAt: orderRows[0]?.updated_at?.toISOString() ?? null,
+            },
+          });
+        }
+
+        if (isPaginatedBookingsListMode) {
+          const orderExternalByUuid = new Map(
+            orderRows.map((row) => [
+              row.order_uuid ?? orderTaskUuid(businessId, row.external_id),
+              row.external_id,
+            ]),
+          );
+          const orderUuids = [...orderExternalByUuid.keys()];
+          const stageRows =
+            orderUuids.length > 0
+              ? await prisma.$queryRaw<DbProductionStageRow[]>`
+                  SELECT order_id::text AS order_id, stage, staff_id::text AS staff_id, token_amount
+                  FROM production_tasks
+                  WHERE order_id::text IN (${Prisma.join(orderUuids)})
+                  ORDER BY order_id ASC, stage ASC
+                `
+              : [];
+
+          const stagesMap = new Map<string, ProductionStageAssignment[]>();
+          for (const row of stageRows) {
+            const externalId = orderExternalByUuid.get(row.order_id);
+            if (!externalId) continue;
+            const stage = normalizeProductionStageKey(row.stage);
+            if (!stage) continue;
+            const current = stagesMap.get(externalId) ?? [];
+            current.push({
+              stage,
+              staffId: row.staff_id ? 1 : null,
+              tokenAmount: asNumber(row.token_amount),
+              percentage: 0,
+            });
+            stagesMap.set(externalId, current);
+          }
+
+          const orders = orderRows.map((row) => {
+            const items = hydrateOrderItemsWithProductTokens(
+              itemsMap.get(row.external_id) ?? [],
+              productTokenLookup,
+            );
+            const financialBreakdown = resolveOrderFinancialFields({
+              basePrice: row.base_price,
+              designAdjustmentTotal: row.design_adjustment_total,
+              addOnTotal: row.add_on_total,
+              productAdjustment: row.product_adjustment,
+              nonProductAdjustment: row.non_product_adjustment,
+              productSubtotal: row.product_subtotal,
+              productDiscountAmount: row.product_discount_amount,
+              serviceCharge: row.service_charge,
+              deliveryFee: row.delivery_fee,
+              insuranceFee: row.insurance_fee,
+              manualAdjustment: row.manual_adjustment,
+              notes: row.notes,
+            });
+
+            const order: NormalizedOrder = {
+              id: row.external_id,
+              bookingCode: row.booking_code ?? "",
+              resi: row.resi ?? "",
+              createdAt: row.created_at.toISOString(),
+              updatedAt: row.updated_at.toISOString(),
+              customerName: row.customer_name ?? "",
+              customerPhone: row.customer_phone ?? "",
+              customerAddress: row.customer_address ?? "",
+              deliveryDate: normalizeDateInput(row.delivery_date) ?? "",
+              deliverySlot: row.delivery_slot ?? "",
+              notes: row.notes ?? "",
+              basePrice: financialBreakdown.basePrice,
+              designAdjustmentTotal: financialBreakdown.designAdjustmentTotal,
+              addOnTotal: financialBreakdown.addOnTotal,
+              productAdjustment: financialBreakdown.productAdjustment,
+              nonProductAdjustment: financialBreakdown.nonProductAdjustment,
+              productSubtotal: financialBreakdown.productSubtotal,
+              productDiscountAmount: financialBreakdown.productDiscountAmount,
+              serviceCharge: financialBreakdown.serviceCharge,
+              deliveryFee: financialBreakdown.deliveryFee,
+              manualAdjustment: financialBreakdown.nonProductAdjustment,
+              dpPaidAmount: asNumber(row.dp_paid_amount),
+              finalPaidAmount: asNumber(row.final_paid_amount),
+              totalPaidAmount: asNumber(row.total_paid_amount),
+              downPaymentAmount: asNumber(row.down_payment_amount),
+              remainingBalance: asNumber(row.remaining_balance),
+              product: row.product ?? "",
+              totalPrice: financialBreakdown.totalPrice,
+              insuranceFee: financialBreakdown.insuranceFee,
+              sales_channel: normalizeSalesChannel(row.sales_channel),
+              paymentStatus: row.payment_status ?? "Pending",
+              orderStatus: row.order_status ?? "Inquiry",
+              assignedStaffUserId: asPositiveIntOrNull(
+                row.assigned_staff_user_id,
+              ),
+              assignedStaffName: row.assigned_staff_name ?? "",
+              productionAssignedAt: toIsoOrNull(row.production_assigned_at),
+              shippingQuote: parseJsonField(row.shipping_quote),
+              shipment: parseJsonField(row.shipment),
+              simulations: parseJsonField(row.simulations),
+              whatsAppParsedData: null,
+              statusHistory: [],
+              automationLogs: [],
+              paymentTransactions: asArrayOfRecords(
+                parseJsonField(row.payment_transactions),
+              ),
+              productionStages: stagesMap.get(row.external_id) ?? [],
+              items,
+              deliveryAddresses: [],
+            };
+
+            return {
+              ...order,
+              ...resolvePersistedImageFields(order),
+            };
+          });
+
+          return NextResponse.json({
+            success: true,
+            data: {
+              source: "rows",
+              orders,
+              updatedAt: orderRows[0]?.updated_at?.toISOString() ?? null,
+              pagination: {
+                totalCount: effectiveTotalCount,
+                page,
+                limit,
+                totalPages: effectiveTotalPages || 1,
+              },
             },
           });
         }
@@ -3313,7 +3630,7 @@ export async function GET(request: NextRequest) {
         }
 
         // 8. Bentuk daftar pesanan ter-normalisasi yang sangat ringan
-        const orders = orderRows.map((row) => {
+        const hydratedOrders = orderRows.map((row) => {
           const items = hydrateOrderItemsWithProductTokens(
             itemsMap.get(row.external_id) ?? [],
             productTokenLookup,
@@ -3348,11 +3665,7 @@ export async function GET(request: NextRequest) {
             customerName: row.customer_name ?? "",
             customerPhone: row.customer_phone ?? "",
             customerAddress: row.customer_address ?? "",
-            // Pertahankan string asli YYYY-MM-DD dari DB agar parsing tanggal di kalender/UI frontend tidak rusak/null
-            deliveryDate:
-              typeof row.delivery_date === "string"
-                ? row.delivery_date.split("T")[0]
-                : "",
+            deliveryDate: normalizeDateInput(row.delivery_date) ?? "",
             deliverySlot: row.delivery_slot ?? "",
             notes: row.notes ?? "",
             basePrice: financialBreakdown.basePrice,
@@ -3401,6 +3714,23 @@ export async function GET(request: NextRequest) {
             ...resolvePersistedImageFields(order),
           };
         });
+        const filteredOrders = needsPostHydrationBookingFilters
+          ? hydratedOrders.filter(
+              (order) =>
+                matchesBookingCourierFilter(order, courierFilter) &&
+                matchesBookingOrderSourceFilter(order, orderSourceFilter),
+            )
+          : hydratedOrders;
+        const orders = needsPostHydrationBookingFilters
+          ? filteredOrders.slice(offset, offset + limit)
+          : filteredOrders;
+        effectiveTotalCount = needsPostHydrationBookingFilters
+          ? filteredOrders.length
+          : totalCount;
+        effectiveTotalPages = Math.max(
+          1,
+          Math.ceil(effectiveTotalCount / limit),
+        );
 
         // 9. Kembalikan data list bersama metadata pagination
         const rowUpdatedAt = orderRows[0]?.updated_at?.toISOString() ?? null;
@@ -3411,10 +3741,10 @@ export async function GET(request: NextRequest) {
             orders,
             updatedAt: rowUpdatedAt,
             pagination: {
-              totalCount,
+              totalCount: effectiveTotalCount,
               page,
               limit,
-              totalPages,
+              totalPages: effectiveTotalPages,
             },
           },
         });
@@ -3444,10 +3774,10 @@ export async function GET(request: NextRequest) {
         orders: [],
         updatedAt: null,
         pagination: {
-          totalCount: 0,
+          totalCount: effectiveTotalCount,
           page,
           limit,
-          totalPages: 0,
+          totalPages: effectiveTotalPages,
         },
       },
     });
@@ -3869,7 +4199,10 @@ export async function POST(request: NextRequest) {
       const orderFingerprint = buildParsedOrderFingerprint({
         customerName: row.customer_name,
         customerPhone: row.customer_phone,
-        deliveryDate: row.delivery_date,
+        deliveryDate:
+          normalizeDateInput(row.delivery_date ?? "") ??
+          row.delivery_date ??
+          "",
         deliverySlot: row.delivery_slot,
         basePrice: row.base_price,
         designAdjustmentTotal: row.design_adjustment_total,

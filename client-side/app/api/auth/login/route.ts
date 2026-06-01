@@ -2,6 +2,13 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
 import { signToken } from "@/lib/auth/jwt";
+import {
+  isPrismaConnectionTimeout,
+  prismaConnectionErrorResponse,
+  withPrismaRetry,
+} from "@/lib/prisma-errors";
+
+export const runtime = "nodejs";
 
 /**
  * POST /api/auth/login
@@ -18,90 +25,129 @@ import { signToken } from "@/lib/auth/jwt";
  *   401 — "Invalid credentials" (plain text)
  */
 export async function POST(req: Request) {
-  const body = await req.json();
-  const { email, password } = body;
+  try {
+    const body = await req.json().catch(() => null);
+    const email =
+      typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
+    const password = typeof body?.password === "string" ? body.password : "";
 
-  if (!email || !password) {
-    return new NextResponse("Missing credentials", { status: 400 });
-  }
+    if (!email || !password) {
+      return NextResponse.json(
+        { error: "Email dan password wajib diisi" },
+        { status: 400 },
+      );
+    }
 
-  const user = await prisma.user.findUnique({
-    where: { email },
-  });
+    const user = await withPrismaRetry(() =>
+      prisma.user.findUnique({
+        where: { email },
+      }),
+    );
 
-  if (!user) {
-    return new NextResponse("Invalid credentials", { status: 401 });
-  }
+    if (!user) {
+      return NextResponse.json(
+        { error: "Email atau password salah" },
+        { status: 401 },
+      );
+    }
 
-  const isValid = await bcrypt.compare(password, user.password);
+    if (!user.password) {
+      return NextResponse.json(
+        { error: "Akun ini tidak menggunakan password login" },
+        { status: 400 },
+      );
+    }
 
-  if (!isValid) {
-    return new NextResponse("Invalid credentials", { status: 401 });
-  }
+    const isValid = await bcrypt.compare(password, user.password);
 
-  const ownedBusiness = await prisma.business.findFirst({
-    where: { userId: user.id },
-    select: { id: true },
-    orderBy: { createdAt: "desc" },
-  });
+    if (!isValid) {
+      return NextResponse.json(
+        { error: "Email atau password salah" },
+        { status: 401 },
+      );
+    }
 
-  const membership = ownedBusiness
-      ? null
-      : await prisma.businessMember.findFirst({
+    const ownedBusiness = await withPrismaRetry(() =>
+      prisma.business.findFirst({
         where: { userId: user.id },
-        select: { businessId: true, role: true },
+        select: { id: true },
         orderBy: { createdAt: "desc" },
-      });
+      }),
+    );
 
-  const role = ownedBusiness ? "Owner" : membership?.role;
-  const businessId = ownedBusiness?.id ?? membership?.businessId;
+    const membership = ownedBusiness
+      ? null
+      : await withPrismaRetry(() =>
+          prisma.businessMember.findFirst({
+            where: { userId: user.id },
+            select: { businessId: true, role: true },
+            orderBy: { createdAt: "desc" },
+          }),
+        );
 
-  const token = signToken({
-    userId: user.id,
-    name: user.name,
-    email: user.email,
-    ...(role ? { role } : {}),
-    ...(businessId ? { businessId } : {}),
-  });
+    const role = ownedBusiness ? "Owner" : membership?.role;
+    const businessId = ownedBusiness?.id ?? membership?.businessId;
 
-  const response = NextResponse.json({ success: true });
+    const token = signToken({
+      userId: user.id,
+      name: user.name,
+      email: user.email,
+      ...(role ? { role } : {}),
+      ...(businessId ? { businessId } : {}),
+    });
 
-  response.cookies.set("token", token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 7 * 24 * 60 * 60, // 7 days
-  });
+    const response = NextResponse.json({ success: true });
 
-  if (businessId) {
-    response.cookies.set("active_business_id", String(businessId), {
-      httpOnly: false,
+    response.cookies.set("token", token, {
+      httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
       path: "/",
-      maxAge: 7 * 24 * 60 * 60,
+      maxAge: 7 * 24 * 60 * 60, // 7 days
     });
-  }
 
-  for (const legacyCookieName of [
-    "next-auth.session-token",
-    "__Secure-next-auth.session-token",
-    "next-auth.callback-url",
-    "__Secure-next-auth.callback-url",
-    "next-auth.csrf-token",
-    "__Host-next-auth.csrf-token",
-  ]) {
-    response.cookies.set(legacyCookieName, "", {
-      httpOnly: true,
-      secure:
-        process.env.NODE_ENV === "production" ||
-        legacyCookieName.startsWith("__"),
-      sameSite: "lax",
-      path: "/",
-      maxAge: 0,
-    });
-  }
+    if (businessId) {
+      response.cookies.set("active_business_id", String(businessId), {
+        httpOnly: false,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/",
+        maxAge: 7 * 24 * 60 * 60,
+      });
+    }
 
-  return response;
+    for (const legacyCookieName of [
+      "next-auth.session-token",
+      "__Secure-next-auth.session-token",
+      "next-auth.callback-url",
+      "__Secure-next-auth.callback-url",
+      "next-auth.csrf-token",
+      "__Host-next-auth.csrf-token",
+    ]) {
+      response.cookies.set(legacyCookieName, "", {
+        httpOnly: true,
+        secure:
+          process.env.NODE_ENV === "production" ||
+          legacyCookieName.startsWith("__"),
+        sameSite: "lax",
+        path: "/",
+        maxAge: 0,
+      });
+    }
+
+    return response;
+  } catch (error) {
+    console.error("[auth/login] Failed to process login request:", error);
+
+    if (isPrismaConnectionTimeout(error)) {
+      return prismaConnectionErrorResponse(
+        "Koneksi database sedang sibuk. Coba login lagi beberapa saat.",
+      );
+    }
+
+    return NextResponse.json(
+      { error: "Terjadi kesalahan saat login" },
+      { status: 500 },
+    );
+  }
 }

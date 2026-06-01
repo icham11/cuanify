@@ -319,13 +319,11 @@ export function peekCachedCategoryOptions(): { id: number; name: string }[] {
 export async function getCategoryOptions(): Promise<
   { id: number; name: string }[]
 > {
-  const res = await fetch("/api/categories", {
-    credentials: "include",
-    cache: "no-store",
-  });
-  if (!res.ok) return []; // categories may not have a dedicated endpoint — fallback to empty
-  const data = await res.json();
-  return data.data ?? [];
+  try {
+    return await getCategoryOptionsCached();
+  } catch {
+    return [];
+  }
 }
 
 export async function updateProduct(

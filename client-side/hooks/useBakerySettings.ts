@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { apiFetch } from "@/lib/api/client";
 import type { BakeryBusinessSettings } from "@/lib/bakery/settings";
 
 export const BAKERY_SETTINGS_UPDATED_EVENT = "bakery-settings-updated";
@@ -64,15 +65,11 @@ export function invalidateBakerySettingsCache() {
 }
 
 async function fetchBakerySettingsFromApi(): Promise<BakeryBusinessSettings | null> {
-  const response = await fetch("/api/bakery/settings", {
-    cache: "no-store",
-  });
+  const payload = (await apiFetch("/api/bakery/settings", {
+    cacheTtlMs: SETTINGS_CACHE_TTL_MS,
+  })) as BakerySettingsResponse;
 
-  const payload = (await response
-    .json()
-    .catch(() => ({}))) as BakerySettingsResponse;
-
-  if (!response.ok || !payload.data) {
+  if (!payload.data) {
     throw new Error(payload.error || "Failed to load bakery settings");
   }
 

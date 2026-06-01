@@ -45,7 +45,7 @@ import {
   resolveDeliveryMethodLabel,
   resolveOrderDeliveryMethod,
 } from "@/lib/bookings/delivery-method";
-import { invalidateApiCache } from "@/lib/api/client";
+import { apiFetch, invalidateApiCache } from "@/lib/api/client";
 import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 import {
   getJakartaTodayIsoDate,
@@ -351,6 +351,9 @@ interface OrdersContextValue {
     mode?: string;
     view?: string;
     today?: string;
+    courier?: string;
+    orderSource?: string;
+    signal?: AbortSignal;
   }) => Promise<{
     orders: BakeryOrder[];
     pagination: {
@@ -401,6 +404,9 @@ const ORDERS_SYNC_ENDPOINT = NORMALIZED_BOOKINGS_API_BASE
 const INITIAL_SNAPSHOT = JSON.stringify(initialOrders);
 const LOCAL_WRITE_STALE_GUARD_MS = 10000;
 const ORDERS_SYNC_DEBOUNCE_MS = 450;
+const ORDERS_HYDRATION_CACHE_TTL_MS = 15 * 1000;
+const ORDER_DETAIL_CACHE_TTL_MS = 30 * 1000;
+const ORDERS_LIST_CACHE_TTL_MS = 30 * 1000;
 // Interval polling dinaikkan dari 10 detik ke 60 detik untuk mengurangi egress ke Neon DB.
 // Perubahan real-time tetap instant lewat optimistic update + sync pasca-aksi.
 const SERVER_HYDRATION_INTERVAL_MS = 60_000;
@@ -1260,6 +1266,9 @@ function parseSnapshot(snapshot: string): BakeryOrder[] {
     return dedupeOrdersForSync(
       parsed.map((order) => ({
         ...order,
+        deliveryDate:
+          normalizeDateInput(String(order.deliveryDate ?? "").trim()) ??
+          String(order.deliveryDate ?? "").trim(),
         productionStages: normalizeProductionStageAssignments({
           totalTokens: summarizeProductionTokensByItems(order.items ?? []),
           stages: order.productionStages ?? [],
@@ -1812,16 +1821,14 @@ export function OrdersProvider({
       return null as { orders: BakeryOrder[]; source: string } | null;
 
     try {
-      const response = await fetch(ORDERS_SYNC_ENDPOINT, {
-        method: "GET",
-        cache: "no-store",
-      });
-      const payload = (await response.json().catch(() => ({}))) as {
+      const payload = (await apiFetch(ORDERS_SYNC_ENDPOINT, {
+        cacheTtlMs: ORDERS_HYDRATION_CACHE_TTL_MS,
+      })) as {
         success?: boolean;
         data?: { orders?: BakeryOrder[]; source?: string };
       };
 
-      if (!response.ok || !payload.success) return null;
+      if (!payload.success) return null;
       if (!Array.isArray(payload.data?.orders)) {
         return { orders: [], source: payload.data?.source ?? "" };
       }
@@ -3886,17 +3893,15 @@ export function OrdersProvider({
   const fetchOrderById = useCallback(
     async (id: string): Promise<BakeryOrder> => {
       try {
-        const response = await fetch(`/api/bookings/orders/${id}`, {
-          method: "GET",
-          cache: "no-store",
-        });
-        const payload = (await response.json().catch(() => ({}))) as {
+        const payload = (await apiFetch(`${ORDERS_SYNC_ENDPOINT}/${id}`, {
+          cacheTtlMs: ORDER_DETAIL_CACHE_TTL_MS,
+        })) as {
           success?: boolean;
           data?: BakeryOrder;
           error?: string;
         };
 
-        if (!response.ok || !payload.success || !payload.data) {
+        if (!payload.success || !payload.data) {
           throw new Error(payload.error || "Gagal memuat detail pesanan.");
         }
 
@@ -3933,6 +3938,9 @@ export function OrdersProvider({
       mode?: string;
       view?: string;
       today?: string;
+      courier?: string;
+      orderSource?: string;
+      signal?: AbortSignal;
     }) => {
       try {
         const queryParams = new URLSearchParams();
@@ -3946,12 +3954,16 @@ export function OrdersProvider({
         if (params.mode) queryParams.set("mode", params.mode);
         if (params.view) queryParams.set("view", params.view);
         if (params.today) queryParams.set("today", params.today);
+        if (params.courier) queryParams.set("courier", params.courier);
+        if (params.orderSource) queryParams.set("orderSource", params.orderSource);
 
-        const response = await fetch(`/api/bookings/orders?${queryParams.toString()}`, {
-          method: "GET",
-          cache: "no-store",
-        });
-        const payload = (await response.json().catch(() => ({}))) as {
+        const payload = (await apiFetch(
+          `${ORDERS_SYNC_ENDPOINT}?${queryParams.toString()}`,
+          {
+            signal: params.signal,
+            cacheTtlMs: ORDERS_LIST_CACHE_TTL_MS,
+          },
+        )) as {
           success?: boolean;
           data?: {
             orders?: BakeryOrder[];
@@ -3965,7 +3977,7 @@ export function OrdersProvider({
           error?: string;
         };
 
-        if (!response.ok || !payload.success) {
+        if (!payload.success) {
           throw new Error(payload.error || "Gagal memuat data orders.");
         }
 
@@ -3982,6 +3994,9 @@ export function OrdersProvider({
           pagination,
         };
       } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") {
+          throw error;
+        }
         console.error("fetchPaginatedOrders error:", error);
         throw error;
       }
