@@ -247,7 +247,7 @@ async function safeApiFetch<T>(
   timeoutMs = 15000,
 ): Promise<T | null> {
   try {
-    return (await apiFetch(path, undefined, timeoutMs)) as T;
+    return (await apiFetch(path, { cache: "no-store" }, timeoutMs)) as T;
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       console.warn(`Fetch timeout for ${path} after ${timeoutMs}ms`);
@@ -475,20 +475,32 @@ function BusinessPageContent() {
         bakerySettings,
         cogsBreakdown: currentSummary.cogsBreakdown,
       };
-      BUSINESS_VIEW_CACHE.set(cacheKey, {
-        value: nextViewState,
-        cachedAt: Date.now(),
-      });
-      setViewState(nextViewState);
 
       const hasPrimaryData =
-        Boolean(business?.id) ||
         currentRevenue > 0 ||
         currentProfit > 0 ||
         deliveryRangeOrders.length > 0 ||
         currentSummary.paidOrdersCount > 0 ||
         currentSummary.topProducts.length > 0;
       const hasBackendFailure = productsRequestFailed || ordersRequestFailed;
+      const hasTrustedProducts = !productsRequestFailed || products.length > 0;
+      const hasTrustedOrders =
+        !ordersRequestFailed || authoritativeOrders.length > 0;
+      const shouldPersistViewState =
+        hasPrimaryData || (hasTrustedProducts && hasTrustedOrders);
+
+      if (shouldPersistViewState) {
+        BUSINESS_VIEW_CACHE.set(cacheKey, {
+          value: nextViewState,
+          cachedAt: Date.now(),
+        });
+      }
+
+      if (hasBackendFailure && !hasPrimaryData && cachedEntry) {
+        setViewState(cachedEntry.value);
+      } else {
+        setViewState(nextViewState);
+      }
 
       setError(
         hasBackendFailure && !hasPrimaryData

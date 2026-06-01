@@ -834,43 +834,29 @@ export default function ProductionTable() {
     );
   }, [isStaff, readyOrders, viewer?.userId]);
 
-  const visibleOrders = useMemo(() => {
+  const currentScopeOrders = useMemo(() => {
     if (isStaff) {
-      const source =
-        staffViewTab === "available"
-          ? staffAvailableOrders
-          : staffViewTab === "mine"
-            ? staffAssignedOrders
-            : staffCompletedOrders;
-
-      return source.filter((order) => {
-        if (!matchesDateFilter(order.deliveryDate)) return false;
-        if (!orderMatchesSearch(order, normalizedQuery)) return false;
-
-        if (quickFilter === "mine") {
-          if (
-            !viewer?.userId ||
-            !getOrderClaimedStaffIds(order).includes(viewer.userId)
-          ) {
-            return false;
-          }
-        }
-
-        if (quickFilter === "unassigned") {
-          if (!isOrderFullyUnassigned(order)) return false;
-        }
-
-        if (quickFilter === "heavy") {
-          const token = summarizeProductionTokensByItems(order.items ?? []);
-          if (token < 15) return false;
-        }
-
-        return true;
-      });
+      return staffViewTab === "available"
+        ? staffAvailableOrders
+        : staffViewTab === "mine"
+          ? staffAssignedOrders
+          : staffCompletedOrders;
     }
 
-    const source = activeTab === "active" ? activeOrders : readyOrders;
-    return source.filter((order) => {
+    return activeTab === "active" ? activeOrders : readyOrders;
+  }, [
+    activeOrders,
+    activeTab,
+    isStaff,
+    readyOrders,
+    staffAssignedOrders,
+    staffAvailableOrders,
+    staffCompletedOrders,
+    staffViewTab,
+  ]);
+
+  const visibleOrders = useMemo(() => {
+    return currentScopeOrders.filter((order) => {
       if (!matchesDateFilter(order.deliveryDate)) return false;
       if (!orderMatchesSearch(order, normalizedQuery)) return false;
 
@@ -895,19 +881,27 @@ export default function ProductionTable() {
       return true;
     });
   }, [
-    activeTab,
-    activeOrders,
-    readyOrders,
-    isStaff,
+    currentScopeOrders,
     matchesDateFilter,
     normalizedQuery,
     quickFilter,
-    staffAssignedOrders,
-    staffAvailableOrders,
-    staffCompletedOrders,
-    staffViewTab,
     viewer,
   ]);
+
+  const hasActiveFilters = useMemo(
+    () =>
+      filterMonth !== "all" ||
+      filterYear !== "all" ||
+      filterDate.trim().length > 0 ||
+      normalizedQuery.length > 0 ||
+      quickFilter !== "all",
+    [filterDate, filterMonth, filterYear, normalizedQuery, quickFilter],
+  );
+
+  const hiddenOrderCount = Math.max(
+    0,
+    currentScopeOrders.length - visibleOrders.length,
+  );
 
   const queueSummary = useMemo(() => {
     let totalToken = 0;
@@ -1764,11 +1758,14 @@ export default function ProductionTable() {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-[11px] font-medium text-[var(--crumbella-muted)]">
-                  Kapasitas hari ini
+                  Kapasitas assignment hari ini
                 </p>
                 <p className="mt-1 text-[11px] text-[var(--crumbella-muted)]">
-                  Sisa {currentViewerRemainingTodayToken} token. Tap Assign
-                  untuk menambah tugas.
+                  Sisa {currentViewerRemainingTodayToken} token berdasarkan
+                  assignment yang dibuat hari ini.{" "}
+                  {staffAvailableOrders.length > 0
+                    ? `Masih ada ${staffAvailableOrders.length} order yang belum di-assign.`
+                    : "Tap Assign untuk menambah tugas."}
                 </p>
               </div>
               <p className="text-lg font-extrabold text-[var(--foreground)]">
@@ -2030,16 +2027,22 @@ export default function ProductionTable() {
                     : dailyPct >= 70
                       ? "bg-[#d27b31]"
                       : "bg-[#7ca693]";
+                const isViewingTodayAssignments =
+                  effectiveStaffStatsDateKey === todayDateKey;
                 const dailyStatusText =
                   overDailyToken > 0
                     ? `Over ${overDailyToken} token`
+                    : usedDailyToken <= 0
+                      ? isViewingTodayAssignments
+                        ? "Belum ada assignment baru"
+                        : "Belum ada assignment di tanggal ini"
                     : dailyPct >= 100
                       ? "Limit tercapai"
                       : `Sisa ${remainingDailyToken} token`;
                 const tokenLabel =
-                  effectiveStaffStatsDateKey === todayDateKey
-                    ? "Token hari ini"
-                    : "Token tanggal";
+                  isViewingTodayAssignments
+                    ? "Token di-assign hari ini"
+                    : "Token di-assign di tanggal";
 
                 return (
                   <div
@@ -2056,7 +2059,7 @@ export default function ProductionTable() {
                             {staff.name}
                           </p>
                           <p className="mt-1 text-[11px] text-[var(--crumbella-muted)]">
-                            Token hari ini {staff.assignedActive} • In progress{" "}
+                            Assignment aktif {staff.assignedActive} • In progress{" "}
                             {staff.inProgress}
                           </p>
                         </div>
@@ -2118,7 +2121,7 @@ export default function ProductionTable() {
 
       {isStaff && currentViewerStaffStat ? (
         <div className="rounded-[22px] border border-[var(--crumbella-border)] bg-white px-4 py-3 text-[11px] text-[var(--crumbella-muted)] shadow-[0_10px_18px_-20px_rgba(30,18,10,0.7)]">
-          Token hari ini {currentViewerStaffStat.assignedActive} • In progress{" "}
+          Assignment aktif {currentViewerStaffStat.assignedActive} • In progress{" "}
           {currentViewerStaffStat.inProgress} • Selesai{" "}
           {currentViewerStaffStat.doneVisible}
         </div>
@@ -2215,7 +2218,22 @@ export default function ProductionTable() {
       >
         {groupedOrders.length === 0 ? (
           <div className="rounded-[22px] border border-dashed border-[var(--crumbella-border)] bg-white px-4 py-5 text-center text-sm text-[var(--crumbella-muted)]">
-            Tidak ada order pada filter yang dipilih.
+            <p>
+              {currentScopeOrders.length === 0
+                ? "Belum ada order pada tab ini."
+                : hiddenOrderCount > 0
+                  ? `${hiddenOrderCount} order ada di queue, tetapi tersembunyi oleh filter saat ini.`
+                  : "Tidak ada order pada filter yang dipilih."}
+            </p>
+            {(hasActiveFilters || hiddenOrderCount > 0) && (
+              <button
+                type="button"
+                onClick={resetFilters}
+                className="mt-3 inline-flex items-center justify-center rounded-full border border-[var(--crumbella-border)] bg-[var(--background)] px-4 py-2 text-xs font-semibold text-[var(--crumbella-primary)] transition hover:bg-[var(--crumbella-accent-soft)]"
+              >
+                Reset Filter
+              </button>
+            )}
           </div>
         ) : (
           <div className="space-y-4">
