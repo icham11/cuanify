@@ -8,6 +8,18 @@ import {
 export const BAKERY_ORDERS_STORAGE_KEY = "bakeryOrdersState";
 export const BAKERY_ORDERS_STORAGE_EVENT = "bakeryOrdersUpdated";
 
+function getActiveBusinessScope() {
+  if (typeof document === "undefined") return "anon";
+  const match = document.cookie.match(
+    /(?:^|;\s*)active_business_id=([^;]*)/,
+  );
+  return match ? decodeURIComponent(match[1]) : "anon";
+}
+
+function getScopedBakeryOrdersStorageKey() {
+  return `${BAKERY_ORDERS_STORAGE_KEY}:${getActiveBusinessScope()}`;
+}
+
 export interface LocalBakeryItem {
   productName?: string;
   size?: string;
@@ -231,7 +243,8 @@ export function parseLocalBakeryOrders(
 export function readLocalBakeryOrders(): LocalBakeryOrder[] {
   if (typeof window === "undefined") return [];
   return parseLocalBakeryOrders(
-    window.localStorage.getItem(BAKERY_ORDERS_STORAGE_KEY),
+    window.localStorage.getItem(getScopedBakeryOrdersStorageKey()) ??
+      window.localStorage.getItem(BAKERY_ORDERS_STORAGE_KEY),
   );
 }
 

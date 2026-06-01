@@ -17,13 +17,38 @@ interface BakerySettingsResponse {
 let cachedSettings: BakeryBusinessSettings | null = null;
 let cachedSettingsFetchedAt = 0;
 let inFlightSettingsRequest: Promise<BakeryBusinessSettings | null> | null = null;
+let cachedSettingsScope = "";
 const SETTINGS_CACHE_TTL_MS = 5 * 60 * 1000;
 const SETTINGS_STORAGE_KEY = "bakery-settings-cache:v1";
 
-function readSettingsFromStorage() {
+function getActiveBusinessScope() {
+  if (typeof document === "undefined") return "anon";
+  const match = document.cookie.match(
+    /(?:^|;\s*)active_business_id=([^;]*)/,
+  );
+  return match ? decodeURIComponent(match[1]) : "anon";
+}
+
+function getSettingsStorageKey(scope: string) {
+  return `${SETTINGS_STORAGE_KEY}:${scope}`;
+}
+
+function resetInMemorySettingsCache() {
+  cachedSettings = null;
+  cachedSettingsFetchedAt = 0;
+  inFlightSettingsRequest = null;
+}
+
+function ensureSettingsCacheScope(scope: string) {
+  if (cachedSettingsScope === scope) return;
+  cachedSettingsScope = scope;
+  resetInMemorySettingsCache();
+}
+
+function readSettingsFromStorage(scope: string) {
   if (typeof window === "undefined") return null;
   try {
-    const raw = window.sessionStorage.getItem(SETTINGS_STORAGE_KEY);
+    const raw = window.sessionStorage.getItem(getSettingsStorageKey(scope));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as {
       data?: BakeryBusinessSettings;
@@ -37,13 +62,14 @@ function readSettingsFromStorage() {
 }
 
 function writeSettingsToStorage(
+  scope: string,
   data: BakeryBusinessSettings,
   fetchedAt: number,
 ) {
   if (typeof window === "undefined") return;
   try {
     window.sessionStorage.setItem(
-      SETTINGS_STORAGE_KEY,
+      getSettingsStorageKey(scope),
       JSON.stringify({ data, fetchedAt }),
     );
   } catch {
@@ -52,19 +78,25 @@ function writeSettingsToStorage(
 }
 
 export function invalidateBakerySettingsCache() {
-  cachedSettings = null;
-  cachedSettingsFetchedAt = 0;
-  inFlightSettingsRequest = null;
+  resetInMemorySettingsCache();
 
   if (typeof window === "undefined") return;
   try {
-    window.sessionStorage.removeItem(SETTINGS_STORAGE_KEY);
+    const keysToRemove: string[] = [];
+    for (let index = 0; index < window.sessionStorage.length; index += 1) {
+      const key = window.sessionStorage.key(index);
+      if (!key || !key.startsWith(`${SETTINGS_STORAGE_KEY}:`)) continue;
+      keysToRemove.push(key);
+    }
+    keysToRemove.forEach((key) => window.sessionStorage.removeItem(key));
   } catch {
     // Ignore storage errors.
   }
 }
 
-async function fetchBakerySettingsFromApi(): Promise<BakeryBusinessSettings | null> {
+async function fetchBakerySettingsFromApi(
+  scope: string,
+): Promise<BakeryBusinessSettings | null> {
   const payload = (await apiFetch("/api/bakery/settings", {
     cacheTtlMs: SETTINGS_CACHE_TTL_MS,
   })) as BakerySettingsResponse;
@@ -83,13 +115,16 @@ async function fetchBakerySettingsFromApi(): Promise<BakeryBusinessSettings | nu
 
   cachedSettings = payload.data;
   cachedSettingsFetchedAt = Date.now();
-  writeSettingsToStorage(payload.data, cachedSettingsFetchedAt);
+  writeSettingsToStorage(scope, payload.data, cachedSettingsFetchedAt);
   return payload.data;
 }
 
 export function useBakerySettings(options?: { enabled?: boolean }) {
+  const scope = getActiveBusinessScope();
+  ensureSettingsCacheScope(scope);
+
   if (!cachedSettings) {
-    const cachedFromStorage = readSettingsFromStorage();
+    const cachedFromStorage = readSettingsFromStorage(scope);
     if (cachedFromStorage) {
       cachedSettings = cachedFromStorage.data ?? null;
       cachedSettingsFetchedAt = cachedFromStorage.fetchedAt ?? 0;
@@ -121,9 +156,11 @@ export function useBakerySettings(options?: { enabled?: boolean }) {
 
     try {
       if (!inFlightSettingsRequest) {
-        inFlightSettingsRequest = fetchBakerySettingsFromApi().finally(() => {
-          inFlightSettingsRequest = null;
-        });
+        inFlightSettingsRequest = fetchBakerySettingsFromApi(scope).finally(
+          () => {
+            inFlightSettingsRequest = null;
+          },
+        );
       }
 
       const nextSettings = await inFlightSettingsRequest;
@@ -137,7 +174,7 @@ export function useBakerySettings(options?: { enabled?: boolean }) {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [scope]);
 
   useEffect(() => {
     if (!enabled) {

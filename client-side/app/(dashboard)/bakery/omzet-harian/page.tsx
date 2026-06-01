@@ -207,7 +207,10 @@ export default function AdminDailyOmzetPage() {
     };
 
     const handleStorage = (event: StorageEvent) => {
-      if (event.key === BAKERY_ORDERS_STORAGE_KEY) {
+      if (
+        event.key === BAKERY_ORDERS_STORAGE_KEY ||
+        event.key?.startsWith(`${BAKERY_ORDERS_STORAGE_KEY}:`)
+      ) {
         void fetchDailyOmzet(true);
       }
     };

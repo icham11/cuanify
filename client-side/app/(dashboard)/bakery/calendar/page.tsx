@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Calendar,
@@ -119,6 +119,50 @@ function parseOrderDateTime(dateValue: string, slotValue?: string | null) {
   );
 
   return parsed;
+}
+
+function findBestCalendarFocusDate(
+  orders: BakeryOrder[],
+  referenceDate: Date,
+): Date | null {
+  const referenceKey = toDateKey(referenceDate);
+  const uniqueDateKeys = Array.from(
+    new Set(
+      orders
+        .map((order) => normalizeCalendarDeliveryDate(order.deliveryDate))
+        .filter(Boolean),
+    ),
+  ).sort((left, right) => left.localeCompare(right));
+
+  if (uniqueDateKeys.length === 0) return null;
+
+  const currentMonthKey = referenceKey.slice(0, 7);
+  const hasCurrentMonthOrders = uniqueDateKeys.some(
+    (dateKey) => dateKey.slice(0, 7) === currentMonthKey,
+  );
+  if (hasCurrentMonthOrders) {
+    return null;
+  }
+
+  const referenceTime = new Date(`${referenceKey}T00:00:00`).getTime();
+  let bestDateKey = uniqueDateKeys[0];
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  uniqueDateKeys.forEach((dateKey) => {
+    const nextTime = new Date(`${dateKey}T00:00:00`).getTime();
+    if (!Number.isFinite(nextTime)) return;
+    const distance = Math.abs(nextTime - referenceTime);
+    if (
+      distance < bestDistance ||
+      (distance === bestDistance && dateKey > bestDateKey)
+    ) {
+      bestDateKey = dateKey;
+      bestDistance = distance;
+    }
+  });
+
+  const focusedDate = new Date(`${bestDateKey}T00:00:00`);
+  return Number.isFinite(focusedDate.getTime()) ? focusedDate : null;
 }
 
 function getCalendarOrderItemSummary(order: BakeryOrder) {
@@ -241,6 +285,7 @@ export default function BakeryCalendarPage() {
     connectedEmail: string | null;
     calendarId: string | null;
   }>({ connected: false, connectedEmail: null, calendarId: null });
+  const didAutoFocusInitialPeriodRef = useRef(false);
 
   const calendarRange = useMemo(
     () => getCalendarRange(currentDate, currentView),
@@ -473,6 +518,18 @@ export default function BakeryCalendarPage() {
     if (calendarViewMode !== "google") return;
     void fetchGoogleEvents(currentDate, currentView);
   }, [calendarViewMode, currentDate, currentView]);
+
+  useEffect(() => {
+    if (didAutoFocusInitialPeriodRef.current) return;
+    if (orders.length === 0) return;
+
+    const focusedDate = findBestCalendarFocusDate(orders, new Date());
+    didAutoFocusInitialPeriodRef.current = true;
+    if (!focusedDate) return;
+
+    setCurrentDate(focusedDate);
+    setSelectedDate(focusedDate);
+  }, [orders]);
 
   const filteredInternalOrders = useMemo(() => {
     if (listFilterMode === "needs-sync") {

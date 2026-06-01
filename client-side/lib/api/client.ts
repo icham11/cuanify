@@ -10,6 +10,19 @@ export const DEFAULT_API_CACHE_TTL_MS = 5 * 60 * 1000;
 const apiMemoryCache = new Map<string, ApiCacheEntry>();
 const apiInFlightRequests = new Map<string, Promise<unknown>>();
 
+function readCookieValue(name: string) {
+  if (typeof document === "undefined") return null;
+
+  const match = document.cookie.match(
+    new RegExp(`(?:^|;\\s*)${name}=([^;]*)`),
+  );
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function resolveClientCacheScope() {
+  return readCookieValue("active_business_id") || "anon";
+}
+
 function resolveRequestMethod(input: RequestInfo, init?: RequestInit): string {
   return (init?.method ?? (input instanceof Request ? input.method : "GET"))
     .toUpperCase()
@@ -31,7 +44,7 @@ function isCacheableRequest(input: RequestInfo, init?: RequestInit) {
 }
 
 function buildApiCacheKey(input: RequestInfo, init?: RequestInit) {
-  return `${resolveRequestMethod(input, init)}:${resolveRequestUrl(input)}`;
+  return `${resolveRequestMethod(input, init)}:${resolveRequestUrl(input)}:business=${resolveClientCacheScope()}`;
 }
 
 function readApiCacheFromStorage(cacheKey: string): ApiCacheEntry | null {

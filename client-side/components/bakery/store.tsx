@@ -496,6 +496,27 @@ const AUTO_REQUOTE_ERROR_KEYWORDS = [
 ];
 let hasHydrated = false;
 
+function getActiveBusinessScope() {
+  if (typeof document === "undefined") return "anon";
+  const match = document.cookie.match(
+    /(?:^|;\s*)active_business_id=([^;]*)/,
+  );
+  return match ? decodeURIComponent(match[1]) : "anon";
+}
+
+function getOrdersStorageKey() {
+  return `${STORAGE_KEY}:${getActiveBusinessScope()}`;
+}
+
+function readOrdersSnapshotFromStorage() {
+  if (typeof window === "undefined") return INITIAL_SNAPSHOT;
+  return (
+    window.localStorage.getItem(getOrdersStorageKey()) ??
+    window.localStorage.getItem(STORAGE_KEY) ??
+    INITIAL_SNAPSHOT
+  );
+}
+
 type OrdersSyncResponse = {
   success?: boolean;
   error?: string;
@@ -1252,7 +1273,7 @@ function subscribe(callback: () => void) {
 function getSnapshot() {
   if (typeof window === "undefined") return INITIAL_SNAPSHOT;
   if (!hasHydrated) return INITIAL_SNAPSHOT;
-  return window.localStorage.getItem(STORAGE_KEY) ?? INITIAL_SNAPSHOT;
+  return readOrdersSnapshotFromStorage();
 }
 
 function getServerSnapshot() {
@@ -1488,7 +1509,11 @@ function dedupeOrdersForSync(orders: BakeryOrder[]): BakeryOrder[] {
 function writeOrdersSnapshot(nextOrders: BakeryOrder[]) {
   if (typeof window === "undefined") return;
   const sanitizedOrders = dedupeOrdersForSync(nextOrders);
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitizedOrders));
+  const serializedOrders = JSON.stringify(sanitizedOrders);
+  window.localStorage.setItem(getOrdersStorageKey(), serializedOrders);
+  if (window.localStorage.getItem(STORAGE_KEY) !== null) {
+    window.localStorage.removeItem(STORAGE_KEY);
+  }
   window.dispatchEvent(new Event(STORAGE_EVENT));
 }
 
@@ -1850,7 +1875,7 @@ export function OrdersProvider({
         typeof window === "undefined"
           ? orders
           : parseSnapshot(
-              window.localStorage.getItem(STORAGE_KEY) ?? INITIAL_SNAPSHOT,
+              readOrdersSnapshotFromStorage(),
             );
       const shouldReplaceLocalSnapshot =
         options?.force === true ||
@@ -1893,7 +1918,7 @@ export function OrdersProvider({
       if (syncInFlightRef.current && !force) return;
 
       hydrationInFlightRef.current = true;
-      const localSnapshot = window.localStorage.getItem(STORAGE_KEY);
+      const localSnapshot = readOrdersSnapshotFromStorage();
       const localOrders = parseSnapshot(localSnapshot ?? INITIAL_SNAPSHOT);
 
       try {
@@ -2035,7 +2060,7 @@ export function OrdersProvider({
 
     const rollbackSnapshot =
       syncRollbackSnapshotRef.current ??
-      window.localStorage.getItem(STORAGE_KEY) ??
+      readOrdersSnapshotFromStorage() ??
       INITIAL_SNAPSHOT;
 
     const changedOrderIds = Array.from(syncChangedOrderIdsRef.current);
@@ -2117,7 +2142,7 @@ export function OrdersProvider({
       if (typeof window === "undefined") return;
       const shouldSyncToServer = options?.syncToServer !== false;
       const previousSnapshot =
-        window.localStorage.getItem(STORAGE_KEY) ?? INITIAL_SNAPSHOT;
+        readOrdersSnapshotFromStorage() ?? INITIAL_SNAPSHOT;
       const prevOrders = parseSnapshot(previousSnapshot);
       const prevOrderMap = new Map(prevOrders.map((o) => [o.id, JSON.stringify(o)]));
       lastLocalWriteAtRef.current = Date.now();
@@ -2157,7 +2182,7 @@ export function OrdersProvider({
   const getLatestOrdersSnapshot = useCallback((): BakeryOrder[] => {
     if (typeof window === "undefined") return orders;
     const currentSnapshot =
-      window.localStorage.getItem(STORAGE_KEY) ?? INITIAL_SNAPSHOT;
+      readOrdersSnapshotFromStorage() ?? INITIAL_SNAPSHOT;
     return parseSnapshot(currentSnapshot);
   }, [orders]);
 
@@ -2166,7 +2191,7 @@ export function OrdersProvider({
       if (typeof window === "undefined") return;
 
       const currentSnapshot =
-        window.localStorage.getItem(STORAGE_KEY) ?? INITIAL_SNAPSHOT;
+        readOrdersSnapshotFromStorage() ?? INITIAL_SNAPSHOT;
       const currentOrders = parseSnapshot(currentSnapshot);
       const targetOrder = currentOrders.find((item) => item.id === orderId);
       if (!targetOrder) return;
@@ -2294,7 +2319,7 @@ export function OrdersProvider({
       processingShipmentIdsRef.current.add(orderId);
       try {
         const currentSnapshot =
-          window.localStorage.getItem(STORAGE_KEY) ?? INITIAL_SNAPSHOT;
+          readOrdersSnapshotFromStorage() ?? INITIAL_SNAPSHOT;
         const currentOrders = parseSnapshot(currentSnapshot);
         const order = currentOrders.find((item) => item.id === orderId);
         if (!order || order.shipment || !order.shippingQuote) return;
@@ -2477,7 +2502,7 @@ export function OrdersProvider({
             }
 
             const latestSnapshot =
-              window.localStorage.getItem(STORAGE_KEY) ?? INITIAL_SNAPSHOT;
+              readOrdersSnapshotFromStorage() ?? INITIAL_SNAPSHOT;
             const latestOrders = parseSnapshot(latestSnapshot);
             const ordersWithRefreshedQuote = latestOrders.map((entry) =>
               entry.id === orderId
@@ -2516,7 +2541,7 @@ export function OrdersProvider({
           const createdShipment = payload.shipment;
 
           const latestSnapshot =
-            window.localStorage.getItem(STORAGE_KEY) ?? INITIAL_SNAPSHOT;
+            readOrdersSnapshotFromStorage() ?? INITIAL_SNAPSHOT;
           const latestOrders = parseSnapshot(latestSnapshot);
           const nextOrders = latestOrders.map((entry) => {
             if (entry.id !== orderId) return entry;

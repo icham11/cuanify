@@ -20,14 +20,39 @@ interface AuthMeResponse {
 let cachedAuthMe: AuthMePayload | null = null;
 let cachedAuthMeFetchedAt = 0;
 let inFlightAuthMeRequest: Promise<AuthMePayload | null> | null = null;
+let cachedAuthMeScope = "";
 
 const AUTH_ME_CACHE_TTL_MS = 5 * 60 * 1000;
 const AUTH_ME_STORAGE_KEY = "auth-me-cache:v1";
 
-function readAuthMeFromStorage() {
+function getActiveBusinessScope() {
+  if (typeof document === "undefined") return "anon";
+  const match = document.cookie.match(
+    /(?:^|;\s*)active_business_id=([^;]*)/,
+  );
+  return match ? decodeURIComponent(match[1]) : "anon";
+}
+
+function getAuthMeStorageKey(scope: string) {
+  return `${AUTH_ME_STORAGE_KEY}:${scope}`;
+}
+
+function resetInMemoryAuthMeCache() {
+  cachedAuthMe = null;
+  cachedAuthMeFetchedAt = 0;
+  inFlightAuthMeRequest = null;
+}
+
+function ensureAuthMeCacheScope(scope: string) {
+  if (cachedAuthMeScope === scope) return;
+  cachedAuthMeScope = scope;
+  resetInMemoryAuthMeCache();
+}
+
+function readAuthMeFromStorage(scope: string) {
   if (typeof window === "undefined") return null;
   try {
-    const raw = window.sessionStorage.getItem(AUTH_ME_STORAGE_KEY);
+    const raw = window.sessionStorage.getItem(getAuthMeStorageKey(scope));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as {
       data?: Partial<AuthMePayload>;
@@ -47,11 +72,15 @@ function readAuthMeFromStorage() {
   }
 }
 
-function writeAuthMeToStorage(payload: AuthMePayload, fetchedAt: number) {
+function writeAuthMeToStorage(
+  scope: string,
+  payload: AuthMePayload,
+  fetchedAt: number,
+) {
   if (typeof window === "undefined") return;
   try {
     window.sessionStorage.setItem(
-      AUTH_ME_STORAGE_KEY,
+      getAuthMeStorageKey(scope),
       JSON.stringify({ data: payload, fetchedAt }),
     );
   } catch {
@@ -60,13 +89,17 @@ function writeAuthMeToStorage(payload: AuthMePayload, fetchedAt: number) {
 }
 
 export function invalidateAuthMeCache() {
-  cachedAuthMe = null;
-  cachedAuthMeFetchedAt = 0;
-  inFlightAuthMeRequest = null;
+  resetInMemoryAuthMeCache();
 
   if (typeof window === "undefined") return;
   try {
-    window.sessionStorage.removeItem(AUTH_ME_STORAGE_KEY);
+    const keysToRemove: string[] = [];
+    for (let index = 0; index < window.sessionStorage.length; index += 1) {
+      const key = window.sessionStorage.key(index);
+      if (!key || !key.startsWith(`${AUTH_ME_STORAGE_KEY}:`)) continue;
+      keysToRemove.push(key);
+    }
+    keysToRemove.forEach((key) => window.sessionStorage.removeItem(key));
   } catch {
     // Ignore storage errors.
   }
@@ -106,8 +139,11 @@ function normalizeAuthMePayload(value: Partial<AuthMePayload> | undefined) {
 }
 
 export async function fetchAuthMe(options?: { force?: boolean }) {
+  const scope = getActiveBusinessScope();
+  ensureAuthMeCacheScope(scope);
+
   if (!cachedAuthMe) {
-    const cachedFromStorage = readAuthMeFromStorage();
+    const cachedFromStorage = readAuthMeFromStorage(scope);
     if (cachedFromStorage) {
       cachedAuthMe = cachedFromStorage.data;
       cachedAuthMeFetchedAt = cachedFromStorage.fetchedAt;
@@ -144,7 +180,7 @@ export async function fetchAuthMe(options?: { force?: boolean }) {
 
         cachedAuthMe = normalized;
         cachedAuthMeFetchedAt = Date.now();
-        writeAuthMeToStorage(normalized, cachedAuthMeFetchedAt);
+        writeAuthMeToStorage(scope, normalized, cachedAuthMeFetchedAt);
         return normalized;
       })
       .finally(() => {

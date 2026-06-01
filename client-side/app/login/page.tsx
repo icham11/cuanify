@@ -74,6 +74,30 @@ async function readLoginErrorMessage(response: Response): Promise<string> {
   return text;
 }
 
+function clearClientStateForFreshLogin() {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.clear();
+  } catch {
+    // Ignore storage errors.
+  }
+
+  try {
+    window.sessionStorage.clear();
+  } catch {
+    // Ignore storage errors.
+  }
+
+  if ("caches" in window) {
+    void caches.keys().then((names) => {
+      names.forEach((name) => {
+        void caches.delete(name);
+      });
+    });
+  }
+}
+
 export default function LoginPage() {
   const router = useRouter();
 
@@ -129,6 +153,7 @@ export default function LoginPage() {
 
     try {
       setLoading(true);
+      clearClientStateForFreshLogin();
 
       const res = await fetch("/api/auth/login", {
         method: "POST",
