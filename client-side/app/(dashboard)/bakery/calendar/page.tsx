@@ -99,6 +99,29 @@ function normalizeCalendarDeliveryDate(value: string | null | undefined) {
   return normalizeDateInput(value ?? "") ?? "";
 }
 
+function extractCalendarDateFromBookingReference(value: string | null | undefined) {
+  const normalized = String(value ?? "").trim().toUpperCase();
+  if (!normalized) return "";
+
+  const match = normalized.match(/-(\d{2})(\d{2})(\d{2})-(\d{3})$/);
+  if (!match) return "";
+
+  const [, day, month, year] = match;
+  return normalizeDateInput(`20${year}-${month}-${day}`) ?? "";
+}
+
+function resolveCalendarOrderDateKey(order: Pick<BakeryOrder, "deliveryDate" | "bookingCode" | "resi">) {
+  const fromDeliveryDate = normalizeCalendarDeliveryDate(order.deliveryDate);
+  if (fromDeliveryDate) return fromDeliveryDate;
+
+  const fromBookingCode = extractCalendarDateFromBookingReference(
+    order.bookingCode,
+  );
+  if (fromBookingCode) return fromBookingCode;
+
+  return extractCalendarDateFromBookingReference(order.resi);
+}
+
 function parseOrderDateTime(dateValue: string, slotValue?: string | null) {
   const normalizedDate = normalizeCalendarDeliveryDate(dateValue);
   if (!normalizedDate) return null;
@@ -128,9 +151,7 @@ function findBestCalendarFocusDate(
   const referenceKey = toDateKey(referenceDate);
   const uniqueDateKeys = Array.from(
     new Set(
-      orders
-        .map((order) => normalizeCalendarDeliveryDate(order.deliveryDate))
-        .filter(Boolean),
+      orders.map((order) => resolveCalendarOrderDateKey(order)).filter(Boolean),
     ),
   ).sort((left, right) => left.localeCompare(right));
 
@@ -339,7 +360,7 @@ export default function BakeryCalendarPage() {
     const result = new Map<string, number>();
 
     for (const order of orders) {
-      const normalizedDate = normalizeCalendarDeliveryDate(order.deliveryDate);
+      const normalizedDate = resolveCalendarOrderDateKey(order);
       if (!normalizedDate) continue;
 
       const normalizedStatus = normalizeOrderStatus(order.orderStatus);
@@ -545,7 +566,8 @@ export default function BakeryCalendarPage() {
 
   const internalEvents = useMemo<CalendarOrderEvent[]>(() => {
     return filteredInternalOrders.flatMap((order) => {
-      const start = parseOrderDateTime(order.deliveryDate, order.deliverySlot);
+      const effectiveDate = resolveCalendarOrderDateKey(order);
+      const start = parseOrderDateTime(effectiveDate, order.deliverySlot);
       if (!start) return [];
       return {
         id: order.id,
@@ -588,7 +610,7 @@ export default function BakeryCalendarPage() {
   const ordersByDate = useMemo(() => {
     const result = new Map<string, BakeryOrder[]>();
     filteredInternalOrders.forEach((order) => {
-      const normalizedDate = normalizeCalendarDeliveryDate(order.deliveryDate);
+      const normalizedDate = resolveCalendarOrderDateKey(order);
       if (!normalizedDate) return;
 
       const dateOrders = result.get(normalizedDate) ?? [];
@@ -598,6 +620,44 @@ export default function BakeryCalendarPage() {
     return result;
   }, [filteredInternalOrders]);
 
+  const currentPeriodOrderDates = useMemo(() => {
+    const startKey = safeToDateKey(calendarRange.start);
+    const endKey = safeToDateKey(calendarRange.end);
+    if (!startKey || !endKey) return [];
+
+    return Array.from(ordersByDate.keys())
+      .filter((dateKey) => dateKey >= startKey && dateKey <= endKey)
+      .sort((left, right) => left.localeCompare(right));
+  }, [calendarRange, ordersByDate]);
+
+  const currentPeriodOrderCount = useMemo(() => {
+    return currentPeriodOrderDates.reduce(
+      (total, dateKey) => total + (ordersByDate.get(dateKey)?.length ?? 0),
+      0,
+    );
+  }, [currentPeriodOrderDates, ordersByDate]);
+
+  const nearestOrderInScope = useMemo(
+    () => findBestCalendarFocusDate(orders, currentDate),
+    [currentDate, orders],
+  );
+
+  const currentPeriodEmptyMessage = useMemo(() => {
+    if (orders.length === 0) {
+      return "Belum ada order pada business ini.";
+    }
+    if (currentPeriodOrderCount > 0) return "";
+    if (!nearestOrderInScope) {
+      return "Belum ada order pada periode kalender ini.";
+    }
+
+    return `Belum ada order di periode ini. Order terdekat ada pada ${format(
+      nearestOrderInScope,
+      "dd MMMM yyyy",
+      { locale: localeId },
+    )}.`;
+  }, [currentPeriodOrderCount, nearestOrderInScope, orders.length]);
+
   const selectedDateLabel = selectedDate
     ? format(selectedDate, "EEEE, dd MMMM yyyy", { locale: localeId })
     : "Select a date";
@@ -606,8 +666,7 @@ export default function BakeryCalendarPage() {
     if (!selectedDateKey) return [];
     return orders
       .filter(
-        (order) =>
-          normalizeCalendarDeliveryDate(order.deliveryDate) === selectedDateKey,
+        (order) => resolveCalendarOrderDateKey(order) === selectedDateKey,
       )
       .slice()
       .sort((a, b) => a.deliverySlot.localeCompare(b.deliverySlot));
@@ -629,7 +688,7 @@ export default function BakeryCalendarPage() {
 
   const todayKey = toDateKey(new Date());
   const internalTodayCount = orders.filter(
-    (order) => normalizeCalendarDeliveryDate(order.deliveryDate) === todayKey,
+    (order) => resolveCalendarOrderDateKey(order) === todayKey,
   ).length;
   const needsSyncCount = orders.filter(
     (order) => !order.simulations?.calendarEventCreated,
@@ -650,7 +709,7 @@ export default function BakeryCalendarPage() {
     const maxDate = safeToDateKey(new Date(timeMax));
     if (!minDate || !maxDate) return null;
     return orders.filter((order) => {
-      const normalizedDate = normalizeCalendarDeliveryDate(order.deliveryDate);
+      const normalizedDate = resolveCalendarOrderDateKey(order);
       if (!normalizedDate) return false;
       if (normalizedDate < minDate || normalizedDate > maxDate) return false;
       if (["Cancelled", "Delivered", "Completed"].includes(order.orderStatus))
@@ -837,7 +896,10 @@ export default function BakeryCalendarPage() {
                     scrollToTime={calendarScrollToTime}
                     selectable
                     popup
-                    onNavigate={(newDate) => setCurrentDate(newDate)}
+                    onNavigate={(newDate) => {
+                      setCurrentDate(newDate);
+                      setSelectedDate(newDate);
+                    }}
                     onView={(nextView) => setCurrentView(nextView)}
                     onSelectSlot={(slotInfo) => {
                       openDateOrdersPopup(slotInfo.start);
@@ -921,6 +983,12 @@ export default function BakeryCalendarPage() {
                   H-1
                 </span>
               </div>
+
+              {currentPeriodEmptyMessage ? (
+                <div className="mt-3 rounded-[18px] border border-[#ead8cb] bg-[#fff8f2] px-4 py-3 text-xs leading-5 text-[#8a6a54] md:text-sm">
+                  {currentPeriodEmptyMessage}
+                </div>
+              ) : null}
             </div>
           </div>
 
@@ -1272,8 +1340,22 @@ export default function BakeryCalendarPage() {
         }
 
         .rbc-month-view .rbc-row-content {
-          pointer-events: none;
+          pointer-events: auto;
           overflow: hidden;
+        }
+
+        .rbc-month-view .rbc-event {
+          pointer-events: auto;
+          margin: 2px 4px 0;
+          min-height: 20px;
+          font-size: 10px;
+          line-height: 1.15;
+        }
+
+        .rbc-month-view .rbc-event-content {
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
 
         .rbc-month-view .rbc-date-cell {
