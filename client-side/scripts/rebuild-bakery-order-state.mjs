@@ -309,6 +309,7 @@ async function reconcileCapacity(client, businessId) {
       )
       INSERT INTO production_capacity (
         business_id,
+        "businessId",
         date,
         max_token,
         used_token,
@@ -316,6 +317,7 @@ async function reconcileCapacity(client, businessId) {
         updated_at
       )
       SELECT
+        $1,
         $1,
         active_tokens.delivery_date,
         $6,
@@ -325,6 +327,7 @@ async function reconcileCapacity(client, businessId) {
       FROM active_tokens
       ON CONFLICT (business_id, date)
       DO UPDATE SET
+        "businessId" = EXCLUDED."businessId",
         used_token = LEAST(
           production_capacity.max_token,
           GREATEST(0, EXCLUDED.used_token)

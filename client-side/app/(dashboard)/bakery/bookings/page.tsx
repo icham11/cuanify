@@ -8,6 +8,7 @@ import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import OrderTable from "@/components/bakery/bookings/OrderTable";
 import { Select } from "@/components/ui/select";
 import { useOrders } from "@/components/bakery/store";
+import { useBusiness } from "@/context/BusinessContext";
 import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 import { resolveOrderDeliveryMethod } from "@/lib/bookings/delivery-method";
 import {
@@ -134,6 +135,7 @@ export default function BookingListPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { orders, fetchPaginatedOrders } = useOrders();
+  const { business } = useBusiness();
   const initialQuery = searchParams.get("query") ?? "";
   const initialStatusFilter = searchParams.get("status") ?? "";
   const initialDateFilter = searchParams.get("date") ?? "";
@@ -507,7 +509,7 @@ export default function BookingListPage() {
     <div className="mx-auto max-w-7xl space-y-4 pb-10">
       <GradientPageHeader
         title="Bookings"
-        description={`${activeOrdersCount} order aktif`}
+        description={`${activeOrdersCount} order aktif${business?.name ? ` · ${business.name}` : ""}`}
         icon={BookOpen}
         actions={
           <Link

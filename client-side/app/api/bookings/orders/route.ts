@@ -2477,15 +2477,51 @@ async function upsertOrdersSnapshot(
   });
 }
 
+function extractDeliveryDateFromBookingReference(value: string) {
+  const normalized = String(value || "").trim().toUpperCase();
+  if (!normalized) return "";
+
+  const match = normalized.match(/-(\d{2})(\d{2})(\d{2})-(\d{3})$/);
+  if (!match) return "";
+
+  const [, day, month, year] = match;
+  return normalizeDateInput(`20${year}-${month}-${day}`) ?? "";
+}
+
+function resolveIncomingOrderDeliveryDate(record: JsonRecord) {
+  const rawDeliveryDate = asString(record.deliveryDate);
+  const normalizedDeliveryDate =
+    normalizeDateInput(rawDeliveryDate) ?? rawDeliveryDate.trim();
+  if (normalizedDeliveryDate) {
+    return normalizedDeliveryDate;
+  }
+
+  const fromBookingCode = extractDeliveryDateFromBookingReference(
+    asString(record.bookingCode),
+  );
+  if (fromBookingCode) {
+    return fromBookingCode;
+  }
+
+  const fromResi = extractDeliveryDateFromBookingReference(asString(record.resi));
+  if (fromResi) {
+    return fromResi;
+  }
+
+  const fromCreatedAt = normalizeDateInput(asString(record.createdAt));
+  if (fromCreatedAt) {
+    return fromCreatedAt;
+  }
+
+  return normalizeDateInput(asString(record.updatedAt)) ?? "";
+}
+
 function normalizeOrder(raw: unknown, index: number): NormalizedOrder | null {
   const record = asRecord(raw);
   if (!record) return null;
 
   const id = asString(record.id).trim() || `legacy-${index + 1}`;
-
-  const rawDeliveryDate = asString(record.deliveryDate);
-  const normalizedDeliveryDate =
-    normalizeDateInput(rawDeliveryDate) ?? rawDeliveryDate.trim();
+  const normalizedDeliveryDate = resolveIncomingOrderDeliveryDate(record);
   const sales_channel = normalizeIncomingSalesChannel(record.sales_channel);
   const totalPrice = asNumber(record.totalPrice);
   const insuranceFee = computeInsuranceFee({
@@ -5093,8 +5129,9 @@ export async function POST(request: NextRequest) {
                     if (tokenOnlySameDate) {
                       // Direct atomic set: kita tahu slot sudah dibebaskan, aman langsung tulis
                       await tx.$executeRaw`
-                    INSERT INTO production_capacity (business_id, date, max_token, used_token, created_at, updated_at)
+                    INSERT INTO production_capacity (business_id, "businessId", date, max_token, used_token, created_at, updated_at)
                     VALUES (
+                      ${businessId},
                       ${businessId},
                       ${order.deliveryDate}::date,
                       ${bakerySettings.dailyProductionTokenLimit},
@@ -5106,6 +5143,7 @@ export async function POST(request: NextRequest) {
                       NOW()
                     )
                     ON CONFLICT (business_id, date) DO UPDATE SET
+                      "businessId" = EXCLUDED."businessId",
                       used_token = LEAST(
                         production_capacity.max_token,
                         GREATEST(0, production_capacity.used_token + ${tokenForOrder})
@@ -5162,6 +5200,7 @@ export async function POST(request: NextRequest) {
                 await tx.$executeRaw`
             INSERT INTO bakery_orders (
               business_id,
+              "businessId",
               order_uuid,
               external_id,
               booking_code,
@@ -5207,6 +5246,7 @@ export async function POST(request: NextRequest) {
               token_used,
               updated_at
             ) VALUES (
+              ${businessId},
               ${businessId},
               ${orderUuid}::uuid,
               ${order.id},
@@ -5255,6 +5295,7 @@ export async function POST(request: NextRequest) {
             )
             ON CONFLICT (business_id, external_id)
             DO UPDATE SET
+              "businessId" = EXCLUDED."businessId",
               booking_code = EXCLUDED.booking_code,
               order_uuid = EXCLUDED.order_uuid,
               resi = EXCLUDED.resi,
@@ -5463,6 +5504,7 @@ export async function POST(request: NextRequest) {
               )
               INSERT INTO production_capacity (
                 business_id,
+                "businessId",
                 date,
                 max_token,
                 used_token,
@@ -5470,6 +5512,7 @@ export async function POST(request: NextRequest) {
                 updated_at
               )
               SELECT
+                ${businessId},
                 ${businessId},
                 active_tokens.delivery_date,
                 ${DEFAULT_MAX_TOKEN},
@@ -5479,6 +5522,7 @@ export async function POST(request: NextRequest) {
               FROM active_tokens
               ON CONFLICT (business_id, date)
               DO UPDATE SET
+                "businessId" = EXCLUDED."businessId",
                 used_token = LEAST(
                   production_capacity.max_token,
                   GREATEST(0, EXCLUDED.used_token)

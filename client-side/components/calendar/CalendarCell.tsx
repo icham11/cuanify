@@ -107,7 +107,7 @@ export default function CalendarCell({
             <span
               className={`h-1.5 w-1.5 rounded-full ${getOrderIndicatorColor(status)}`}
             />
-            {orderCount > 1 ? orderCount : null}
+            {orderCount}
           </span>
         ) : (
           <span className="block h-4" aria-hidden="true" />

@@ -44,6 +44,7 @@ import { normalizeDateInput } from "@/lib/helpers/date-normalization";
 import { useCalendarCapacity } from "@/hooks/useCalendarCapacity";
 import { useBakerySettings } from "@/hooks/useBakerySettings";
 import CalendarCell from "@/components/calendar/CalendarCell";
+import { useBusiness } from "@/context/BusinessContext";
 import { useRole } from "@/context/RoleContext";
 import { summarizeProductionTokensByItems } from "@/lib/bookings/operations";
 import { getOrderItemsSummary } from "@/lib/bookings/order-display";
@@ -110,7 +111,12 @@ function extractCalendarDateFromBookingReference(value: string | null | undefine
   return normalizeDateInput(`20${year}-${month}-${day}`) ?? "";
 }
 
-function resolveCalendarOrderDateKey(order: Pick<BakeryOrder, "deliveryDate" | "bookingCode" | "resi">) {
+function resolveCalendarOrderDateKey(
+  order: Pick<
+    BakeryOrder,
+    "deliveryDate" | "bookingCode" | "resi" | "createdAt" | "updatedAt"
+  >,
+) {
   const fromDeliveryDate = normalizeCalendarDeliveryDate(order.deliveryDate);
   if (fromDeliveryDate) return fromDeliveryDate;
 
@@ -119,7 +125,13 @@ function resolveCalendarOrderDateKey(order: Pick<BakeryOrder, "deliveryDate" | "
   );
   if (fromBookingCode) return fromBookingCode;
 
-  return extractCalendarDateFromBookingReference(order.resi);
+  const fromResi = extractCalendarDateFromBookingReference(order.resi);
+  if (fromResi) return fromResi;
+
+  const fromCreatedAt = normalizeDateInput(order.createdAt ?? "") ?? "";
+  if (fromCreatedAt) return fromCreatedAt;
+
+  return normalizeDateInput(order.updatedAt ?? "") ?? "";
 }
 
 function parseOrderDateTime(dateValue: string, slotValue?: string | null) {
@@ -283,6 +295,7 @@ function CalendarToolbar({
 export default function BakeryCalendarPage() {
   const router = useRouter();
   const { orders } = useOrders();
+  const { business } = useBusiness();
   const { isOwner, isAdmin, loading: isRoleLoading } = useRole();
   const canManageCalendarConnection = isOwner || isAdmin;
   const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
@@ -808,7 +821,7 @@ export default function BakeryCalendarPage() {
     <div className="mx-auto max-w-7xl space-y-4 pb-10 text-[#2f1e13]">
       <GradientPageHeader
         title="Calendar"
-        description={`Kapasitas ${calendarMaxToken} tok/hari · ${isRoleLoading ? "..." : ""}`}
+        description={`Kapasitas ${calendarMaxToken} tok/hari${business?.name ? ` · ${business.name}` : ""}`}
         icon={IconCalendar}
       />
 

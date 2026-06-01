@@ -225,6 +225,7 @@ async function reconcileCapacityLedgerForRange(
       -- Masukkan atau perbarui record kapasitas produksi harian
       INSERT INTO production_capacity (
         business_id,
+        "businessId",
         date,
         max_token,
         used_token,
@@ -232,6 +233,7 @@ async function reconcileCapacityLedgerForRange(
         updated_at
       )
       SELECT
+        ${businessId},
         ${businessId},
         active_tokens.delivery_date,
         ${defaultMaxToken},
@@ -243,6 +245,7 @@ async function reconcileCapacityLedgerForRange(
       -- Jika terjadi konflik pada kombinasi unik (business_id, date), lakukan pembaruan
       ON CONFLICT (business_id, date)
       DO UPDATE SET
+        "businessId" = EXCLUDED."businessId",
         -- Set used_token dengan nilai baru terbatas max_token dan minimal 0
         used_token = LEAST(
           production_capacity.max_token,
@@ -448,8 +451,8 @@ export async function consumeToken(
   // Use INSERT ... ON CONFLICT to handle concurrent inserts safely
   try {
     await db.$executeRaw`
-      INSERT INTO production_capacity (business_id, date, max_token, used_token, created_at, updated_at)
-      VALUES (${businessId}, ${normalizedDate}::date, ${defaultMaxToken}, 0, NOW(), NOW())
+      INSERT INTO production_capacity (business_id, "businessId", date, max_token, used_token, created_at, updated_at)
+      VALUES (${businessId}, ${businessId}, ${normalizedDate}::date, ${defaultMaxToken}, 0, NOW(), NOW())
       ON CONFLICT (business_id, date) DO NOTHING
     `;
   } catch {

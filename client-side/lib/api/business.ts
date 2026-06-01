@@ -1,6 +1,7 @@
 import { apiFetch, invalidateApiCache, peekApiCache } from "./client"
 import { invalidateAuthMeCache } from "@/lib/auth/auth-me-client"
 import { invalidateBakerySettingsCache } from "@/hooks/useBakerySettings"
+import { BAKERY_ORDERS_UPDATED_EVENT } from "@/lib/bookings/client-events"
 
 export type Business = {
   id: string
@@ -9,6 +10,7 @@ export type Business = {
 }
 
 const ACTIVE_BUSINESS_COOKIE = "active_business_id"
+export const ACTIVE_BUSINESS_CHANGED_EVENT = "activeBusinessChanged"
 
 /** Read active_business_id cookie from the browser. */
 function getActiveBusinessId(): string | null {
@@ -69,6 +71,14 @@ export function switchBusiness(id: string | number) {
   invalidateAuthMeCache()
   invalidateBakerySettingsCache()
   invalidateApiCache()
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent(ACTIVE_BUSINESS_CHANGED_EVENT, {
+        detail: { businessId: String(id) },
+      }),
+    )
+    window.dispatchEvent(new Event(BAKERY_ORDERS_UPDATED_EVENT))
+  }
 }
 
 // 🔹 CREATE business

@@ -12,7 +12,7 @@ type Props = {
 
 export default function SidebarUserInfo({ jwtUserName, jwtUserEmail }: Props) {
   const { data: session, status } = useSession();
-  const { business, loading } = useBusiness();
+  const { business, businesses, loading, switchBusiness } = useBusiness();
   const { role, userName: roleUserName } = useRole();
   const isCashier = role === "Cashier";
 
@@ -60,6 +60,35 @@ export default function SidebarUserInfo({ jwtUserName, jwtUserEmail }: Props) {
           </p>
         </div>
       </div>
+
+      {businesses.length > 1 ? (
+        <div className="mt-3">
+          <label
+            htmlFor="sidebar-business-switcher"
+            className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--crumbella-muted)]"
+          >
+            Business Aktif
+          </label>
+          <select
+            id="sidebar-business-switcher"
+            value={business?.id ?? ""}
+            onChange={(event) => {
+              const nextBusinessId = event.target.value;
+              if (!nextBusinessId || String(business?.id ?? "") === nextBusinessId) {
+                return;
+              }
+              void switchBusiness(nextBusinessId);
+            }}
+            className="h-10 w-full rounded-2xl border border-[var(--crumbella-border)] bg-white px-3 text-xs font-semibold text-[var(--foreground)] outline-none transition focus:ring-2 focus:ring-[var(--crumbella-focus)]"
+          >
+            {businesses.map((entry) => (
+              <option key={entry.id} value={entry.id}>
+                {entry.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
 
       {isCashier ? (
         <div className="mt-3 rounded-2xl border border-[#ecd8a7] bg-[#fff8e8] px-3 py-2 text-[11px] font-medium text-[#9a6b10]">

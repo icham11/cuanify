@@ -46,6 +46,7 @@ import {
   resolveOrderDeliveryMethod,
 } from "@/lib/bookings/delivery-method";
 import { apiFetch, invalidateApiCache } from "@/lib/api/client";
+import { ACTIVE_BUSINESS_CHANGED_EVENT } from "@/lib/api/business";
 import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 import {
   getJakartaTodayIsoDate,
@@ -778,23 +779,19 @@ function getDailyBookingSequence(
 function generateBookingCode(
   customerName: string,
   customerPhone: string,
-  _deliveryDate: string,
-  _sequence: number,
+  deliveryDate: string,
+  sequence: number,
 ) {
-  try {
-    const nameStr = (customerName || "").trim().replace(/[^a-zA-Z]/g, "");
-    const phoneStr = (customerPhone || "").replace(/[^0-9]/g, "");
-    const namePrefix =
-      nameStr.length >= 2 ? nameStr.substring(0, 2) : nameStr.padEnd(2, "X");
-    const phoneSuffix =
-      phoneStr.length >= 2
-        ? phoneStr.substring(phoneStr.length - 2)
-        : phoneStr.padStart(2, "0");
-
-    return `${namePrefix.toUpperCase()}-${phoneSuffix}`;
-  } catch {
-    return "XX-00";
-  }
+  const initials = customerName
+    .replace(/[^a-zA-Z]/g, "")
+    .slice(0, 2)
+    .toUpperCase()
+    .padEnd(2, "X");
+  const phoneDigits = customerPhone.replace(/\D/g, "");
+  const lastThree = phoneDigits.slice(-3).padStart(3, "0");
+  const datePart = toBookingDatePart(deliveryDate);
+  const sequencePart = String(sequence).padStart(3, "0");
+  return `${initials}${lastThree}-${datePart}-${sequencePart}`;
 }
 
 function generateShippingReferenceId(
@@ -925,92 +922,6 @@ function resolveParsedBookingReferenceForOrder(order: {
   return normalized;
 }
 
-function buildOrderDeduplicationFingerprint(order: {
-  customerName?: string;
-  customerPhone?: string;
-  deliveryDate?: string;
-  deliverySlot?: string;
-  notes?: string;
-  basePrice?: number;
-  designAdjustmentTotal?: number;
-  addOnTotal?: number;
-  productAdjustment?: number;
-  nonProductAdjustment?: number;
-  productSubtotal?: number;
-  productDiscountAmount?: number;
-  serviceCharge?: number;
-  deliveryFee?: number;
-  insuranceFee?: number;
-  manualAdjustment?: number;
-  dpPaidAmount?: number;
-  finalPaidAmount?: number;
-  totalPrice?: number;
-  sales_channel?: BakeryOrder["sales_channel"];
-  items: OrderItem[];
-  deliveryAddresses: DeliveryAddress[];
-}): string {
-  return JSON.stringify({
-    customerName: normalizeBookingFingerprintText(order.customerName),
-    customerPhone: String(order.customerPhone || "").replace(/\D/g, ""),
-    deliveryDate: normalizeDateInput(order.deliveryDate ?? "") ?? order.deliveryDate,
-    deliverySlot: normalizeBookingFingerprintText(order.deliverySlot),
-    notes: normalizeBookingFingerprintText(order.notes),
-    basePrice: normalizeMoney(order.basePrice),
-    designAdjustmentTotal: normalizeMoney(order.designAdjustmentTotal),
-    addOnTotal: normalizeMoney(order.addOnTotal),
-    productAdjustment: normalizeMoney(order.productAdjustment),
-    nonProductAdjustment: normalizeMoney(
-      order.nonProductAdjustment ?? (order.manualAdjustment || 0),
-    ),
-    productSubtotal: normalizeMoney(order.productSubtotal),
-    productDiscountAmount: normalizeMoney(order.productDiscountAmount),
-    serviceCharge: normalizeMoney(order.serviceCharge),
-    deliveryFee: normalizeMoney(order.deliveryFee),
-    insuranceFee: normalizeMoney(order.insuranceFee),
-    manualAdjustment: normalizeMoney(order.manualAdjustment),
-    dpPaidAmount: normalizeMoney(order.dpPaidAmount),
-    finalPaidAmount: normalizeMoney(order.finalPaidAmount),
-    totalPrice: normalizeMoney(order.totalPrice),
-    salesChannel: order.sales_channel,
-    items: order.items.map((item) => ({
-      category: normalizeBookingFingerprintText(item.category),
-      subcategory: normalizeBookingFingerprintText(item.subcategory),
-      productName: normalizeBookingFingerprintText(item.productName),
-      size: normalizeBookingFingerprintText(item.size),
-      quantity: Math.max(0, Number(item.quantity) || 0),
-      tokenDifficulty: item.tokenDifficulty ?? "",
-      customTokenPerUnit: normalizeMoney(item.customTokenPerUnit),
-      basePrice: normalizeMoney(item.basePrice),
-      selectedPrice: normalizeMoney(item.selectedPrice),
-      cookiePrice: normalizeMoney(item.cookiePrice),
-      designCount: Math.max(0, Number(item.designCount) || 0),
-      additionalDesignCount: Math.max(
-        0,
-        Number(item.additionalDesignCount) || 0,
-      ),
-      lineTotal: normalizeMoney(item.lineTotal),
-      addOns: [...(item.addOns ?? [])]
-        .map((entry) => normalizeBookingFingerprintText(entry))
-        .filter(Boolean)
-        .sort((left, right) => left.localeCompare(right)),
-      addOnQuantities: Object.entries(item.addOnQuantities ?? {})
-        .map(([key, value]) => ({
-          key: normalizeBookingFingerprintText(key),
-          value: Math.max(0, Number(value) || 0),
-        }))
-        .filter((entry) => entry.key.length > 0 || entry.value > 0)
-        .sort((left, right) => left.key.localeCompare(right.key)),
-      addOnTotal: normalizeMoney(item.addOnTotal),
-      notes: normalizeBookingFingerprintText(item.notes),
-    })),
-    deliveryAddresses: order.deliveryAddresses.map((address) => ({
-      label: normalizeBookingFingerprintText(address.label),
-      area: normalizeBookingFingerprintText(address.area),
-      addressLine: normalizeBookingFingerprintText(address.addressLine),
-    })),
-  });
-}
-
 function buildNewOrderSubmissionFingerprint(order: NewOrderInput): string {
   return JSON.stringify({
     customerName: normalizeBookingFingerprintText(order.customerName),
@@ -1093,17 +1004,6 @@ function inferPaymentStatus(
   if (totalPaidAmount <= 0) return "Pending";
   if (totalPaidAmount >= Math.max(0, normalizeMoney(totalPrice))) return "Paid";
   return "DP Paid";
-}
-
-function parseWholesaleDiscountPercentFromNotes(notes?: string | null): number {
-  const match = String(notes || "").match(
-    /wholesale\s*discount\s*:\s*(\d+(?:[.,]\d+)?)\s*%/i,
-  );
-  if (!match?.[1]) return 0;
-
-  const parsed = Number(match[1].replace(",", "."));
-  if (!Number.isFinite(parsed)) return 0;
-  return Math.max(0, Math.min(100, Number(parsed.toFixed(2))));
 }
 
 function resolveOrderItemBaseAmount(item: OrderItem): number {
@@ -1264,9 +1164,17 @@ function subscribe(callback: () => void) {
   const handler = () => callback();
   window.addEventListener("storage", handler);
   window.addEventListener(STORAGE_EVENT, handler as EventListener);
+  window.addEventListener(
+    ACTIVE_BUSINESS_CHANGED_EVENT,
+    handler as EventListener,
+  );
   return () => {
     window.removeEventListener("storage", handler);
     window.removeEventListener(STORAGE_EVENT, handler as EventListener);
+    window.removeEventListener(
+      ACTIVE_BUSINESS_CHANGED_EVENT,
+      handler as EventListener,
+    );
   };
 }
 
@@ -1284,18 +1192,16 @@ function parseSnapshot(snapshot: string): BakeryOrder[] {
   try {
     const parsed = JSON.parse(snapshot) as BakeryOrder[];
     if (!Array.isArray(parsed)) return initialOrders;
-    return dedupeOrdersForSync(
-      parsed.map((order) => ({
-        ...order,
-        deliveryDate:
-          normalizeDateInput(String(order.deliveryDate ?? "").trim()) ??
-          String(order.deliveryDate ?? "").trim(),
-        productionStages: normalizeProductionStageAssignments({
-          totalTokens: summarizeProductionTokensByItems(order.items ?? []),
-          stages: order.productionStages ?? [],
-        }),
-      })),
-    );
+    return parsed.map((order) => ({
+      ...order,
+      deliveryDate:
+        normalizeDateInput(String(order.deliveryDate ?? "").trim()) ??
+        String(order.deliveryDate ?? "").trim(),
+      productionStages: normalizeProductionStageAssignments({
+        totalTokens: summarizeProductionTokensByItems(order.items ?? []),
+        stages: order.productionStages ?? [],
+      }),
+    }));
   } catch {
     return initialOrders;
   }
@@ -1315,13 +1221,10 @@ function areOrdersLikelySameBooking(
 ): boolean {
   const leftParsedReference = resolveParsedBookingReferenceForOrder(left);
   const rightParsedReference = resolveParsedBookingReferenceForOrder(right);
-  if (leftParsedReference && leftParsedReference === rightParsedReference) {
-    return true;
-  }
-
-  return (
-    buildOrderDeduplicationFingerprint(left) ===
-    buildOrderDeduplicationFingerprint(right)
+  return Boolean(
+    leftParsedReference &&
+      rightParsedReference &&
+      leftParsedReference === rightParsedReference,
   );
 }
 
@@ -1445,7 +1348,6 @@ function dedupeOrdersForSync(orders: BakeryOrder[]): BakeryOrder[] {
   const dedupedOrders: BakeryOrder[] = [];
   const dedupedOrderIndexesById = new Map<string, number>();
   const dedupedOrderIndexesByParsedReference = new Map<string, number>();
-  const dedupedOrderIndexesByFingerprint = new Map<string, number>();
 
   const unregisterOrderKeys = (order: BakeryOrder, index: number) => {
     if (dedupedOrderIndexesById.get(order.id) === index) {
@@ -1459,11 +1361,6 @@ function dedupeOrdersForSync(orders: BakeryOrder[]): BakeryOrder[] {
     ) {
       dedupedOrderIndexesByParsedReference.delete(parsedReference);
     }
-
-    const fingerprint = buildOrderDeduplicationFingerprint(order);
-    if (dedupedOrderIndexesByFingerprint.get(fingerprint) === index) {
-      dedupedOrderIndexesByFingerprint.delete(fingerprint);
-    }
   };
 
   const registerOrderKeys = (order: BakeryOrder, index: number) => {
@@ -1473,22 +1370,15 @@ function dedupeOrdersForSync(orders: BakeryOrder[]): BakeryOrder[] {
     if (parsedReference) {
       dedupedOrderIndexesByParsedReference.set(parsedReference, index);
     }
-
-    dedupedOrderIndexesByFingerprint.set(
-      buildOrderDeduplicationFingerprint(order),
-      index,
-    );
   };
 
   for (const order of orders) {
     const parsedReference = resolveParsedBookingReferenceForOrder(order);
-    const fingerprint = buildOrderDeduplicationFingerprint(order);
     const existingIndex =
       dedupedOrderIndexesById.get(order.id) ??
       (parsedReference
         ? dedupedOrderIndexesByParsedReference.get(parsedReference)
-        : undefined) ??
-      dedupedOrderIndexesByFingerprint.get(fingerprint);
+        : undefined);
 
     if (existingIndex === undefined) {
       dedupedOrders.push(order);
@@ -1508,8 +1398,7 @@ function dedupeOrdersForSync(orders: BakeryOrder[]): BakeryOrder[] {
 
 function writeOrdersSnapshot(nextOrders: BakeryOrder[]) {
   if (typeof window === "undefined") return;
-  const sanitizedOrders = dedupeOrdersForSync(nextOrders);
-  const serializedOrders = JSON.stringify(sanitizedOrders);
+  const serializedOrders = JSON.stringify(nextOrders);
   window.localStorage.setItem(getOrdersStorageKey(), serializedOrders);
   if (window.localStorage.getItem(STORAGE_KEY) !== null) {
     window.localStorage.removeItem(STORAGE_KEY);
@@ -1980,6 +1869,28 @@ export function OrdersProvider({
     },
     [enabled, syncOrdersToServer],
   );
+
+  useEffect(() => {
+    if (!enabled) return;
+    if (typeof window === "undefined") return;
+
+    const handleBusinessChanged = () => {
+      lastLocalWriteAtRef.current = 0;
+      void hydrateOrdersFromServer(true);
+    };
+
+    window.addEventListener(
+      ACTIVE_BUSINESS_CHANGED_EVENT,
+      handleBusinessChanged as EventListener,
+    );
+
+    return () => {
+      window.removeEventListener(
+        ACTIVE_BUSINESS_CHANGED_EVENT,
+        handleBusinessChanged as EventListener,
+      );
+    };
+  }, [enabled, hydrateOrdersFromServer]);
 
   useEffect(() => {
     if (!enabled) return;
