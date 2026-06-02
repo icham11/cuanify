@@ -224,7 +224,7 @@ export default function OrderTable({
   // sehingga tidak perlu subscribe ke seluruh orders context.
   const { getCustomerMessagePreview, updateOrderStatus, updatePaymentStatus } =
     useOrdersActions();
-  const { isOwner } = useRole();
+  const { isOwner, isAdmin, loading: roleLoading } = useRole();
   const router = useRouter();
   const [deleteModal, setDeleteModal] = useState<BakeryOrder | null>(null);
   const [pendingStatusOrderId, setPendingStatusOrderId] = useState<
@@ -233,6 +233,7 @@ export default function OrderTable({
   const [pendingPaymentOrderId, setPendingPaymentOrderId] = useState<
     string | null
   >(null);
+  const canDeleteOrder = !roleLoading && (isOwner || isAdmin);
 
   const highlightMap = useMemo<Map<string, Highlight>>(() => {
     const today = new Date().toISOString().slice(0, 10);
@@ -474,7 +475,7 @@ export default function OrderTable({
                 <Pencil size={13} />
                 Edit
               </Link>
-              {isOwner && (
+              {canDeleteOrder && (
                 <button
                   type="button"
                   onClick={(event) => {
