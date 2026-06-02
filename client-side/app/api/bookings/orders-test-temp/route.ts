@@ -2777,7 +2777,7 @@ export async function GET(request: NextRequest) {
         // Frontend selalu kirim startDate/endDate untuk render kalender,
         // guard ini hanya safety net jika parameter tidak ada.
         whereClauses.push(
-          Prisma.sql`delivery_date >= (CURRENT_DATE - INTERVAL '7 days')::date
+          Prisma.sql`delivery_date >= (CURRENT_DATE - INTERVAL '14 days')::date
             AND delivery_date <= (CURRENT_DATE + INTERVAL '90 days')::date`,
         );
       } else if (isDashboardMode && !dateFilter && !searchQuery && !statusFilter) {
@@ -2793,10 +2793,10 @@ export async function GET(request: NextRequest) {
       const where = Prisma.sql`WHERE ${Prisma.join(whereClauses, " AND ")}`;
 
       // Guard khusus mode production (list tanpa param page):
-      // Batasi ke 500 order terdekat berdasarkan delivery date agar tidak unlimited.
+      // Batasi ke 2000 order terdekat berdasarkan delivery date agar tidak unlimited.
       // Ini mencegah query besar saat ada ratusan order historis.
       const isProductionListMode = !url.searchParams.has("page") && !isCalendarMode && !isDashboardMode && !isFinancialMode;
-      const productionListLimit = 500;
+      const productionListLimit = 2000;
 
       // 5. Eksekusi query COUNT dinamis untuk mendapatkan total data pada server-side pagination
       const countRows = await prisma.$queryRaw<Array<{ count: bigint }>>`
