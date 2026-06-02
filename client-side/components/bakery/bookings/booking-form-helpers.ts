@@ -36,6 +36,7 @@ import {
   WHATSAPP_ORDER_LABELS,
 } from "@/lib/bookings/whatsapp-parser";
 import {
+  BOOKING_ADD_ON_CATALOG,
   getDefaultCatalogSelection,
   type AddOnPricingStrategy,
   type CatalogAddOn,

@@ -34,8 +34,15 @@
   ],
   "exclude": [
     "node_modules",
+    "tests",
+    "scripts",
+    "tmp",
     "scratch",
     "scratch-*.ts",
+    "scratch*.ts",
+    "parse_test*.ts",
+    "debug_*.ts",
+    "test-*.ts",
     "**/__tests__/**",
     "**/*.test.ts",
     "**/*.test.tsx"
