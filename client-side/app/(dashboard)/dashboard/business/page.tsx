@@ -64,6 +64,14 @@ type ViewState = {
     cogsPerItem: number;
     totalCogs: number;
   }>;
+  dailyTransactions: Array<{
+    date: string;
+    transactions: Array<{
+      revenue: number;
+      cogs: number;
+      description: string;
+    }>;
+  }>;
 };
 
 const EMPTY_VIEW_STATE: ViewState = {
@@ -84,6 +92,7 @@ const EMPTY_VIEW_STATE: ViewState = {
   topProducts: [],
   bakerySettings: null,
   cogsBreakdown: [],
+  dailyTransactions: [],
 };
 
 const BUSINESS_VIEW_CACHE = new Map<
@@ -192,23 +201,113 @@ function buildExportCsv(args: {
     quantitySold: number;
     revenue: number;
   }>;
+  dailyTransactions: Array<{
+    date: string;
+    transactions: Array<{
+      revenue: number;
+      cogs: number;
+      description: string;
+    }>;
+  }>;
 }) {
+  const formatIdr = (val: number) => {
+    return new Intl.NumberFormat("id-ID", {
+      style: "currency",
+      currency: "IDR",
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(val);
+  };
+
+  const formatPercent = (val: number) => {
+    return new Intl.NumberFormat("id-ID", {
+      style: "percent",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(val / 100);
+  };
+
+  const formatNum = (val: number) => {
+    return new Intl.NumberFormat("id-ID").format(val);
+  };
+
   const rows = [
+    ["Executive Summary", ""],
     ["Business", args.businessName],
     ["Periode", args.monthLabel],
-    ["Revenue", String(args.revenue)],
-    ["COGS/HPP", String(args.totalCost)],
-    ["Profit Bersih", String(args.profit)],
-    ["Order Aktif", String(args.activeOrders)],
-    ["Margin Kotor", String(args.margin)],
+    ["Order Aktif", formatNum(args.activeOrders)],
+    ["Total Revenue", formatIdr(args.revenue)],
+    ["Total COGS/HPP", formatIdr(args.totalCost)],
+    ["Profit Bersih", formatIdr(args.profit)],
+    ["Margin Kotor", formatPercent(args.margin)],
     [],
-    ["Top Produk", "Order", "Revenue"],
+    ["Top Produk", "Kuantitas", "Total Revenue"],
     ...args.topProducts.map((item) => [
       item.productName,
-      String(item.quantitySold),
-      String(item.revenue),
+      formatNum(item.quantitySold),
+      formatIdr(item.revenue),
     ]),
+    [],
   ];
+
+  if (args.dailyTransactions && args.dailyTransactions.length > 0) {
+    rows.push(["Ringkasan Transaksi Per Hari", "", "", "", ""]);
+    rows.push([
+      "Tanggal",
+      "Jumlah Transaksi",
+      "Total Revenue",
+      "Total COGS/HPP",
+      "Margin Kotor",
+    ]);
+
+    args.dailyTransactions.forEach((day) => {
+      const dayLabel = new Date(day.date).toLocaleDateString("id-ID", {
+        day: "2-digit",
+        month: "long",
+        year: "numeric",
+      });
+      const dayRev = day.transactions.reduce((acc, t) => acc + t.revenue, 0);
+      const dayCogs = day.transactions.reduce((acc, t) => acc + t.cogs, 0);
+      const dayMargin = dayRev > 0 ? ((dayRev - dayCogs) / dayRev) * 100 : 0;
+
+      rows.push([
+        dayLabel,
+        formatNum(day.transactions.length),
+        formatIdr(dayRev),
+        formatIdr(dayCogs),
+        formatPercent(dayMargin),
+      ]);
+    });
+
+    rows.push([]);
+
+    rows.push(["Detail per Transaksi", "", "", "", ""]);
+    rows.push([
+      "Tanggal",
+      "Keterangan (Customer - Produk)",
+      "Revenue",
+      "COGS/HPP",
+      "Margin Kotor",
+    ]);
+    args.dailyTransactions.forEach((day) => {
+      const dayLabel = new Date(day.date).toLocaleDateString("id-ID", {
+        day: "2-digit",
+        month: "long",
+        year: "numeric",
+      });
+      day.transactions.forEach((t) => {
+        const marginPct =
+          t.revenue > 0 ? ((t.revenue - t.cogs) / t.revenue) * 100 : 0;
+        rows.push([
+          dayLabel,
+          t.description,
+          formatIdr(t.revenue),
+          formatIdr(t.cogs),
+          formatPercent(marginPct),
+        ]);
+      });
+    });
+  }
 
   return rows
     .map((row) =>
@@ -448,6 +547,37 @@ function BusinessPageContent() {
       const avgMargin =
         currentRevenue > 0 ? (currentProfit / currentRevenue) * 100 : 0;
 
+      const dailyTransactions: ViewState["dailyTransactions"] = [];
+      const ordersByDate = new Map<string, BakeryOrder[]>();
+      deliveryRangeOrders.forEach((o) => {
+        if (normalizeOrderStatus(o.orderStatus) === "Cancelled") return;
+        const d = String(o.deliveryDate || "").split("T")[0];
+        if (!d) return;
+        const arr = ordersByDate.get(d) || [];
+        arr.push(o);
+        ordersByDate.set(d, arr);
+      });
+      const sortedDates = Array.from(ordersByDate.keys()).sort();
+      for (const d of sortedDates) {
+        const dOrders = ordersByDate.get(d) || [];
+        const txs = dOrders.map((o) => {
+          const s = calculateBakeryFinancialSummary({
+            orders: [o],
+            products,
+            settings: bakerySettings,
+            fromDate: d,
+            toDate: d,
+          });
+          const customerName = String(o.customerName || "Customer").trim();
+          return {
+            revenue: s.totalRevenue,
+            cogs: s.cogsCost,
+            description: `${customerName} - ${o.product}`,
+          };
+        });
+        dailyTransactions.push({ date: d, transactions: txs });
+      }
+
       const nextViewState: ViewState = {
         viewerName: userName?.trim() || "",
         businessName: business.name,
@@ -472,6 +602,7 @@ function BusinessPageContent() {
         topProducts: currentSummary.topProducts,
         bakerySettings,
         cogsBreakdown: currentSummary.cogsBreakdown,
+        dailyTransactions,
       };
 
       const hasPrimaryData =
@@ -584,6 +715,7 @@ function BusinessPageContent() {
       activeOrders: viewState.paidSalesCount,
       margin: viewState.avgMargin,
       topProducts: viewState.topProducts,
+      dailyTransactions: viewState.dailyTransactions || [],
     });
 
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });

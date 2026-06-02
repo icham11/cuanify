@@ -703,7 +703,45 @@ export default function ReportsPage() {
     });
   }, [allCustomers, filteredCustomerKeys]);
 
-  const exportExcel = (type: "bookings" | "items" | "customers") => {
+  const financialTransactionRows = useMemo(() => {
+    return filteredOrders
+      .map((order) => {
+        if (normalizeOrderStatus(order.orderStatus) === "Cancelled") return null;
+        const d = String(order.deliveryDate || "").split("T")[0] || "";
+        if (!d) return null;
+
+        const s = calculateBakeryFinancialSummary({
+          orders: [order],
+          products,
+          settings: bakerySettings,
+          fromDate: d,
+          toDate: d,
+        });
+
+        if (s.totalRevenue === 0 && s.cogsCost === 0) return null;
+
+        return {
+          date: d,
+          customer: order.customerName || "Customer",
+          product: order.product || "Produk",
+          revenue: s.totalRevenue,
+          cogs: s.cogsCost,
+          margin: s.totalRevenue - s.cogsCost,
+        };
+      })
+      .filter((r) => r !== null) as Array<{
+      date: string;
+      customer: string;
+      product: string;
+      revenue: number;
+      cogs: number;
+      margin: number;
+    }>;
+  }, [filteredOrders, products, bakerySettings]);
+
+  const exportExcel = (
+    type: "bookings" | "items" | "customers" | "financial-transactions",
+  ) => {
     const selectedSheet =
       type === "bookings"
         ? [
@@ -742,15 +780,30 @@ export default function ReportsPage() {
                 rows: itemRows,
               },
             ]
-          : [
+          : type === "customers"
+            ? [
+                {
+                  name: "Customers",
+                  columns: [
+                    { key: "customer", header: "Customer", width: 24 },
+                    { key: "orderCount", header: "Total Orders", width: 14 },
+                    { key: "firstOrder", header: "First Order", width: 18 },
+                  ],
+                  rows: customerRows,
+                },
+              ]
+            : [
               {
-                name: "Customers",
+                name: "Financial Transactions",
                 columns: [
+                  { key: "date", header: "Delivery Date", width: 16 },
                   { key: "customer", header: "Customer", width: 24 },
-                  { key: "orderCount", header: "Total Orders", width: 14 },
-                  { key: "firstOrder", header: "First Order", width: 18 },
+                  { key: "product", header: "Product", width: 24 },
+                  { key: "revenue", header: "Revenue (Rp)", width: 18 },
+                  { key: "cogs", header: "COGS/HPP (Rp)", width: 18 },
+                  { key: "margin", header: "Margin Kotor (Rp)", width: 18 },
                 ],
-                rows: customerRows,
+                rows: financialTransactionRows,
               },
             ];
 
@@ -760,7 +813,9 @@ export default function ReportsPage() {
         ? "reports-bookings"
         : type === "items"
           ? "reports-booking-items"
-          : "reports-customers";
+          : type === "customers"
+            ? "reports-customers"
+            : "reports-financial";
     const filename = `${filePrefix}-${toDateInputValue(new Date())}.xlsx`;
     setIsExportPickerOpen(false);
     const url = URL.createObjectURL(blob);
@@ -804,6 +859,9 @@ export default function ReportsPage() {
                 </Button>
                 <Button onClick={() => exportExcel("customers")} className="justify-start">
                   Customers
+                </Button>
+                <Button onClick={() => exportExcel("financial-transactions")} className="justify-start">
+                  Financial & COGS
                 </Button>
               </div>
               <div className="mt-4">

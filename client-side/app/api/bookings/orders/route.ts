@@ -3132,6 +3132,11 @@ export async function GET(request: NextRequest) {
         whereClauses.push(
           Prisma.sql`delivery_date >= (CURRENT_DATE - INTERVAL '365 days')::date`
         );
+      } else if (!url.searchParams.has("page") && !isCalendarMode && !isDashboardMode && !isFinancialMode && !searchQuery) {
+        whereClauses.push(
+          Prisma.sql`delivery_date >= (CURRENT_DATE - INTERVAL '30 days')::date
+            AND delivery_date <= (CURRENT_DATE + INTERVAL '90 days')::date`,
+        );
       }
 
       const where = Prisma.sql`WHERE ${Prisma.join(whereClauses, " AND ")}`;
@@ -4694,12 +4699,12 @@ export async function POST(request: NextRequest) {
       );
       orders = [...mergedIncomingOrders, ...missingExistingOrders];
     } else if (!canManageAssignments) {
-      const existingById = new Map(
+      const existingByIdUnprivileged = new Map(
         existingOrders.map((order) => [order.id, order]),
       );
 
       orders = orders.map((incomingOrder) => {
-        const existingOrder = existingById.get(incomingOrder.id);
+        const existingOrder = existingByIdUnprivileged.get(incomingOrder.id);
 
         if (!existingOrder) {
           return {

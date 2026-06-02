@@ -33,6 +33,11 @@ export function normalizeDateInput(value: unknown): string | null {
     return raw;
   }
 
+  if (raw.includes("T")) {
+    const parsed = new Date(raw);
+    if (isValid(parsed)) return format(parsed, "yyyy-MM-dd");
+  }
+
   const ymdWithSlash = raw.match(YMD_SLASH_REGEX);
   if (ymdWithSlash?.[1] && ymdWithSlash[2] && ymdWithSlash[3]) {
     const year = Number(ymdWithSlash[1]);

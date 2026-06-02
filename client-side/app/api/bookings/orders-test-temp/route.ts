@@ -4038,12 +4038,12 @@ export async function POST(request: NextRequest) {
       );
       orders = [...mergedIncomingOrders, ...missingExistingOrders];
     } else if (!canManageAssignments) {
-      const existingById = new Map(
+      const existingByIdUnprivileged = new Map(
         existingOrders.map((order) => [order.id, order]),
       );
 
       orders = orders.map((incomingOrder) => {
-        const existingOrder = existingById.get(incomingOrder.id);
+        const existingOrder = existingByIdUnprivileged.get(incomingOrder.id);
 
         if (!existingOrder) {
           return {
