@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
     // Kita gunakan string SQL mentah karena Prisma template literal tidak
     // mendukung conditional clause dengan baik di queryRaw.
     const yearFilterSql = hasYearFilter
-      ? `AND EXTRACT(YEAR FROM COALESCE(NULLIF(delivery_date, '')::date, updated_at::date)) = ${year}`
+      ? `AND EXTRACT(YEAR FROM COALESCE(delivery_date, updated_at::date)) = ${year}`
       : "";
 
     // Fix: Jalankan kedua query secara CONCURRENT (Promise.all) bukan sequential.
@@ -75,7 +75,7 @@ export async function GET(request: NextRequest) {
           ORDER BY business_id, order_external_id, item_index, created_at DESC, id DESC
         )
         SELECT
-          TO_CHAR(COALESCE(NULLIF(bo.delivery_date, '')::date, bo.updated_at::date), 'YYYY-MM') AS month_key,
+          TO_CHAR(COALESCE(bo.delivery_date, bo.updated_at::date), 'YYYY-MM') AS month_key,
           COALESCE(
             NULLIF(item.payload->>'productId', ''),
             NULLIF(item.payload->>'product_id', ''),
