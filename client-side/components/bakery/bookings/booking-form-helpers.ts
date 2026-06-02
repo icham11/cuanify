@@ -1339,9 +1339,12 @@ export function calculatePerUnitAddOnPrice(args: {
   >;
 }): number {
   return args.selectedAddOnIds.reduce((sum, addonId) => {
-    const addon = args.addOnCatalogEntries.find(
+    let addon = args.addOnCatalogEntries.find(
       (entry) => entry.id === addonId,
     );
+    if (!addon && BOOKING_ADD_ON_CATALOG[args.category]) {
+      addon = BOOKING_ADD_ON_CATALOG[args.category].find((entry) => entry.id === addonId);
+    }
     if (!addon) return sum;
     // Teruskan pricingStrategy dari catalog agar logika data-driven bisa dipakai
     if (isPerOrderPricedAddOn({ addonId, addonLabel: addon.label, pricingStrategy: addon.pricingStrategy })) {
@@ -1386,9 +1389,13 @@ export function calculateOrderLevelAddOnPrice(args: {
   >;
 }): number {
   return args.selectedAddOnIds.reduce((sum, addonId) => {
-    const addon = args.addOnCatalogEntries.find(
+    let addon = args.addOnCatalogEntries.find(
       (entry) => entry.id === addonId,
     );
+    // Fallback ke catalog global jika state client out-of-sync
+    if (!addon && BOOKING_ADD_ON_CATALOG[args.category]) {
+      addon = BOOKING_ADD_ON_CATALOG[args.category].find((entry) => entry.id === addonId);
+    }
     if (!addon) return sum;
     // Teruskan pricingStrategy dari catalog agar logika data-driven bisa dipakai
     if (!isPerOrderPricedAddOn({ addonId, addonLabel: addon.label, pricingStrategy: addon.pricingStrategy })) {
@@ -2174,30 +2181,31 @@ export function getDraftItemPriceBreakdown(args: {
   const addOnDetails: string[] = [];
   const selectedAddOnIds = Array.isArray(item.addOns) ? item.addOns : [];
 
-  if (!hasParsedRecapPrice) {
-    selectedAddOnIds.forEach((addOnId: string) => {
-      const addOn = categoryAddOns.find((entry) => entry.id === addOnId);
-      if (!addOn) return;
-
-      const quantityMultiplier = getAddOnUnitMultiplier({
-        category: item.category,
-        addonId: addOnId,
-        addOnQuantities: normalizedAddOnQuantities,
-      });
-      const qtyText = quantityMultiplier > 1 ? ` x${quantityMultiplier}` : "";
-      addOnDetails.push(`${addOn.label}${qtyText}`);
-    });
-
-    normalizedCustomAddOns.forEach((entry) => {
-      if (!entry.label.trim()) return;
-      addOnDetails.push(`Custom: ${entry.label}`);
-    });
-
-    if (customCookieAdditionalDesignCount > 0) {
-      addOnDetails.push(
-        `Surcharge design (${customCookieAdditionalDesignCount} x ${formatCurrency(customCookieAdditionalDesignUnitPrice)})`,
-      );
+  selectedAddOnIds.forEach((addOnId: string) => {
+    let addOn = categoryAddOns.find((entry) => entry.id === addOnId);
+    if (!addOn && item.category && BOOKING_ADD_ON_CATALOG[item.category]) {
+      addOn = BOOKING_ADD_ON_CATALOG[item.category].find((entry) => entry.id === addOnId);
     }
+    if (!addOn) return;
+
+    const quantityMultiplier = getAddOnUnitMultiplier({
+      category: item.category || "",
+      addonId: addOnId,
+      addOnQuantities: normalizedAddOnQuantities,
+    });
+    const qtyText = quantityMultiplier > 1 ? ` x${quantityMultiplier}` : "";
+    addOnDetails.push(`${addOn.label}${qtyText}`);
+  });
+
+  normalizedCustomAddOns.forEach((entry) => {
+    if (!entry.label.trim()) return;
+    addOnDetails.push(`Custom: ${entry.label}`);
+  });
+
+  if (customCookieAdditionalDesignCount > 0) {
+    addOnDetails.push(
+      `Surcharge design (${customCookieAdditionalDesignCount} x ${formatCurrency(customCookieAdditionalDesignUnitPrice)})`,
+    );
   }
 
   const baseBeforeSplit =
@@ -2251,12 +2259,12 @@ export function getDraftItemPriceBreakdown(args: {
             customCookieAdditionalDesignCharge,
         ),
       );
-  const baseAmount = hasParsedRecapPrice ? totalAmount : catalogBaseAmount;
-  const addOnAmount = hasParsedRecapPrice
-    ? 0
-    : Math.max(0, Math.round(catalogAddOnAmount));
+  const addOnAmount = Math.max(0, Math.round(actualAddOnFromSelection));
+  const baseAmount = hasParsedRecapPrice 
+    ? Math.max(0, totalAmount - addOnAmount - customCookieAdditionalDesignCharge) 
+    : catalogBaseAmount;
   const designAdjustmentAmount = hasParsedRecapPrice
-    ? 0
+    ? customCookieAdditionalDesignCharge
     : Math.round(totalAmount - baseAmount - addOnAmount);
 
   return {

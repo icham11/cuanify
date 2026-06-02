@@ -55,6 +55,7 @@ import {
 } from "@/lib/bookings/whatsapp-parser";
 import { prepareReferenceImagesForUpload } from "@/lib/bookings/reference-image-upload";
 import {
+  BOOKING_ADD_ON_CATALOG,
   getDefaultCatalogSelection,
   type CatalogAddOn,
   type CatalogSelection,
@@ -2918,30 +2919,34 @@ function getDraftItemPriceBreakdown(args: {
     customCookieAdditionalDesignCount * customCookieAdditionalDesignUnitPrice;
   const addOnDetails: string[] = [];
   const selectedAddOnIds = Array.isArray(item.addOns) ? item.addOns : [];
-  if (!hasParsedRecapPrice) {
-    selectedAddOnIds.forEach((addOnId) => {
-      const addOn = categoryAddOns.find((entry) => entry.id === addOnId);
-      if (!addOn) return;
-
-      const quantityMultiplier = getAddOnUnitMultiplier({
-        category: item.category,
-        addonId: addOnId,
-        addOnQuantities: normalizedAddOnQuantities,
-      });
-      const qtyText = quantityMultiplier > 1 ? ` x${quantityMultiplier}` : "";
-      addOnDetails.push(`${addOn.label}${qtyText}`);
-    });
-
-    normalizedCustomAddOns.forEach((entry) => {
-      if (!entry.label.trim()) return;
-      addOnDetails.push(`Custom: ${entry.label}`);
-    });
-
-    if (customCookieAdditionalDesignCount > 0) {
-      addOnDetails.push(
-        `Surcharge design (${customCookieAdditionalDesignCount} x ${formatCurrency(customCookieAdditionalDesignUnitPrice)})`,
-      );
+  // Selalu populate addOnDetails, termasuk untuk item dari rekap WA
+  // agar add-on seperti custom-card tetap terlihat di Price Summary
+  selectedAddOnIds.forEach((addOnId) => {
+    let addOn = categoryAddOns.find((entry) => entry.id === addOnId);
+    // Fallback ke catalog global jika add-on tidak ada di effective catalog
+    if (!addOn && item.category && BOOKING_ADD_ON_CATALOG[item.category]) {
+      addOn = BOOKING_ADD_ON_CATALOG[item.category].find((entry) => entry.id === addOnId);
     }
+    if (!addOn) return;
+
+    const quantityMultiplier = getAddOnUnitMultiplier({
+      category: item.category,
+      addonId: addOnId,
+      addOnQuantities: normalizedAddOnQuantities,
+    });
+    const qtyText = quantityMultiplier > 1 ? ` x${quantityMultiplier}` : "";
+    addOnDetails.push(`${addOn.label}${qtyText}`);
+  });
+
+  normalizedCustomAddOns.forEach((entry) => {
+    if (!entry.label.trim()) return;
+    addOnDetails.push(`Custom: ${entry.label}`);
+  });
+
+  if (customCookieAdditionalDesignCount > 0) {
+    addOnDetails.push(
+      `Surcharge design (${customCookieAdditionalDesignCount} x ${formatCurrency(customCookieAdditionalDesignUnitPrice)})`,
+    );
   }
 
   const baseBeforeSplit =
@@ -2985,8 +2990,14 @@ function getDraftItemPriceBreakdown(args: {
           ),
         )
       : null;
+  // Hitung add-on amount dari katalog (selalu, termasuk untuk recap)
+  const computedAddOnAmount = Math.max(0, Math.round(catalogAddOnAmount));
   const totalAmount = hasParsedRecapPrice
-    ? recapTotalOverride ?? Math.max(0, Math.round(baseBeforeSplit))
+    ? (() => {
+        // Untuk item recap: base dari subtotal + add-on yang ter-parse
+        const recapBase = recapTotalOverride ?? Math.max(0, Math.round(baseBeforeSplit));
+        return recapBase + computedAddOnAmount;
+      })()
     : Math.max(
         0,
         Math.round(
@@ -2995,10 +3006,10 @@ function getDraftItemPriceBreakdown(args: {
             customCookieAdditionalDesignCharge,
         ),
       );
-  const baseAmount = hasParsedRecapPrice ? totalAmount : catalogBaseAmount;
-  const addOnAmount = hasParsedRecapPrice
-    ? 0
-    : Math.max(0, Math.round(catalogAddOnAmount));
+  const baseAmount = hasParsedRecapPrice
+    ? (recapTotalOverride ?? Math.max(0, Math.round(baseBeforeSplit)))
+    : catalogBaseAmount;
+  const addOnAmount = computedAddOnAmount;
   const designAdjustmentAmount = hasParsedRecapPrice
     ? 0
     : Math.round(totalAmount - baseAmount - addOnAmount);
@@ -4335,13 +4346,27 @@ export default function BookingForm({
   );
 
   const itemPriceBreakdowns = useMemo(() => {
-    return watchedItems.map((item) =>
-      getDraftItemPriceBreakdown({
+    return watchedItems.map((item) => {
+      const breakdown = getDraftItemPriceBreakdown({
         catalog: productCatalog,
         addOnCatalog,
         item,
-      }),
-    );
+      });
+      // Debug: log detail untuk tracing add-on 0 issue
+      const catAddOns = addOnCatalog[item.category] ?? [];
+      console.log("=== ADDON DEBUG ===", {
+        category: item.category,
+        itemAddOns: item.addOns,
+        itemAddOnQuantities: item.addOnQuantities,
+        catalogAddOnIds: catAddOns.map((a: CatalogAddOn) => a.id),
+        hasParsedRecapPrice: !!(item as any).pricingSource,
+        breakdownAddOnAmount: breakdown.addOnAmount,
+        breakdownAddOnDetails: breakdown.addOnDetails,
+        breakdownBaseAmount: breakdown.baseAmount,
+        breakdownTotalAmount: breakdown.totalAmount,
+      });
+      return breakdown;
+    });
   }, [watchedItems, productCatalog, addOnCatalog]);
 
   const effectiveReferenceImages = useMemo(
@@ -5744,9 +5769,9 @@ export default function BookingForm({
         item.darkColorButtercreamColors ?? [],
       );
       const primaryProductQuantity = getPrimaryProductQuantityForAddOns(item);
-      const addOnTotalForItem = hasParsedRecapPrice
-        ? 0
-        : calculatePerUnitAddOnPrice({
+      // Selalu hitung add-on total, termasuk untuk item dari rekap WA
+      // agar add-on seperti custom-card tetap terhitung saat submit
+      const addOnTotalForItem = calculatePerUnitAddOnPrice({
             category: item.category,
             bouquetType,
             selectedAddOnIds: item.addOns ?? [],

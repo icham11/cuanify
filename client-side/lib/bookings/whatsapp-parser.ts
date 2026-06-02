@@ -3676,16 +3676,22 @@ function buildRecapAutoFillItems(
               ? `Design Cookies: ${orderTypeDetails.cookieDesign}`
               : "",
             item.designNotes ? `Design/Notes: ${item.designNotes}` : "",
+            item.addOn ? `Add On: ${item.addOn}` : "",
           ]
         : [];
     const noteParts =
       orderType === "cake"
-        ? [cleanupValue(orderTypeDetails.cakeDesign || ""), item.designNotes]
+        ? [
+            cleanupValue(orderTypeDetails.cakeDesign || ""),
+            item.designNotes,
+            item.addOn ? `Add On: ${item.addOn}` : "",
+          ]
         : orderType === "cookies"
           ? cookieRecapNoteParts
           : [
               item.designNotes ? `Design/Notes: ${item.designNotes}` : "",
               buildItemNotesForOrderType(parsed, orderType),
+              item.addOn ? `Add On: ${item.addOn}` : "",
             ];
     const notes = noteParts
       .filter(Boolean)
