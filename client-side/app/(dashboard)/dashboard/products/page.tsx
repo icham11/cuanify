@@ -20,6 +20,7 @@ import {
   getProducts,
   getCategoryOptionsCached,
   deleteProduct,
+  bulkDeleteProducts,
   peekCachedCategoryOptions,
   peekCachedProducts,
 } from "@/lib/api/products";
@@ -439,6 +440,93 @@ function DeleteConfirmModal({
   );
 }
 
+function BulkDeleteConfirmModal({
+  selectedCount,
+  onClose,
+  onConfirm,
+}: {
+  selectedCount: number;
+  onClose: () => void;
+  onConfirm: () => void | Promise<void>;
+}) {
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    setError(null);
+    try {
+      await onConfirm();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal menghapus produk");
+      setDeleting(false);
+    }
+  };
+
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
+    <div
+      ref={overlayRef}
+      className="fixed inset-0 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4"
+      style={{ zIndex: 200 }}
+      onMouseDown={(event) =>
+        event.target === overlayRef.current ? onClose() : undefined
+      }
+    >
+      <div className="w-full overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:max-w-sm sm:rounded-3xl">
+        <div className="flex justify-center pt-3 sm:hidden">
+          <div className="h-1 w-10 rounded-full bg-gray-200" />
+        </div>
+        <div className="space-y-4 px-6 py-5">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-100 text-red-600">
+              <Trash2 size={18} />
+            </div>
+            <div>
+              <h2 className="text-base font-extrabold text-slate-800">
+                Hapus {selectedCount} Produk?
+              </h2>
+              <p className="mt-1 text-sm text-gray-500">
+                Produk dan seluruh resepnya akan dihapus permanen.
+              </p>
+            </div>
+          </div>
+
+          {error ? (
+            <div className="rounded-xl bg-red-50 p-3 text-xs text-red-600">
+              {error}
+            </div>
+          ) : null}
+
+          <div className="flex gap-3">
+            <button
+              onClick={onClose}
+              className="flex-1 rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-600"
+            >
+              Batal
+            </button>
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50"
+            >
+              {deleting ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : (
+                <Trash2 size={16} />
+              )}
+              Hapus
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 export default function ProductsPage() {
   const { isOwner, isAdmin, loading: roleLoading } = useRole();
   const canManageProducts = isOwner;
@@ -469,6 +557,8 @@ export default function ProductsPage() {
   const [deleteModal, setDeleteModal] = useState<Product | null>(null);
   const [recipeModal, setRecipeModal] = useState<Product | null>(null);
   const [addProductModalOpen, setAddProductModalOpen] = useState(false);
+  const [selectedProductIds, setSelectedProductIds] = useState<Set<number>>(new Set());
+  const [bulkDeleteModalOpen, setBulkDeleteModalOpen] = useState(false);
   const activeFetchControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -864,6 +954,48 @@ export default function ProductsPage() {
             Urutan aktif: {activeSortLabel}
           </p>
 
+          {canManageProducts && pageProducts.length > 0 && !loading && !error ? (
+            <div className="flex items-center justify-between gap-3 px-1 pt-2 pb-1">
+              <label className="group flex cursor-pointer items-center gap-2">
+                <div className="relative flex items-center justify-center">
+                  <input
+                    type="checkbox"
+                    className="peer h-5 w-5 cursor-pointer appearance-none rounded-md border-2 border-gray-300 bg-white transition checked:border-[var(--crumbella-accent)] checked:bg-[var(--crumbella-accent)]"
+                    checked={pageProducts.length > 0 && pageProducts.every(p => selectedProductIds.has(p.id))}
+                    onChange={(e) => {
+                      const next = new Set(selectedProductIds);
+                      if (e.target.checked) {
+                        pageProducts.forEach(p => next.add(p.id));
+                      } else {
+                        pageProducts.forEach(p => next.delete(p.id));
+                      }
+                      setSelectedProductIds(next);
+                    }}
+                  />
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-white opacity-0 peer-checked:opacity-100">
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M10 3L4.5 8.5L2 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </div>
+                </div>
+                <span className="text-sm font-semibold text-[#8d6a55] transition group-hover:text-[#7c3410]">
+                  Pilih Semua di Halaman Ini
+                </span>
+              </label>
+
+              {selectedProductIds.size > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setBulkDeleteModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-red-50 px-3 py-1.5 text-xs font-bold text-red-600 transition hover:bg-red-100"
+                >
+                  <Trash2 size={14} />
+                  Hapus {selectedProductIds.size} Terpilih
+                </button>
+              )}
+            </div>
+          ) : null}
+
           {loading && allProducts.length === 0 ? (
             <div className="rounded-[24px] border border-[#e0d0c4] bg-[#fdfaf7] px-6 py-16 text-center">
               <Loader2
@@ -933,9 +1065,34 @@ export default function ProductsPage() {
                   return (
                     <article
                       key={product.id}
-                      className={`overflow-hidden rounded-[20px] border border-[#e0d0c4] bg-[#fdfaf7] shadow-[0_1px_4px_rgba(30,18,10,0.06)] ${status.cardClassName}`}
+                      className={`overflow-hidden rounded-[20px] border ${
+                        selectedProductIds.has(product.id) ? "border-[var(--crumbella-accent)] ring-1 ring-[var(--crumbella-accent)]" : "border-[#e0d0c4]"
+                      } bg-[#fdfaf7] shadow-[0_1px_4px_rgba(30,18,10,0.06)] ${status.cardClassName} transition-all`}
                     >
                       <div className="flex items-start justify-between gap-3 border-b border-[#e0d0c4] px-4 py-3">
+                        {canManageProducts && (
+                          <div className="relative mt-[2px] flex h-5 w-5 shrink-0 items-center justify-center">
+                            <input
+                              type="checkbox"
+                              className="peer h-5 w-5 cursor-pointer appearance-none rounded-md border-2 border-gray-300 bg-white transition checked:border-[var(--crumbella-accent)] checked:bg-[var(--crumbella-accent)]"
+                              checked={selectedProductIds.has(product.id)}
+                              onChange={(e) => {
+                                const next = new Set(selectedProductIds);
+                                if (e.target.checked) {
+                                  next.add(product.id);
+                                } else {
+                                  next.delete(product.id);
+                                }
+                                setSelectedProductIds(next);
+                              }}
+                            />
+                            <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-white opacity-0 peer-checked:opacity-100">
+                              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M10 3L4.5 8.5L2 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                              </svg>
+                            </div>
+                          </div>
+                        )}
                         <button
                           type="button"
                           onClick={() => setRecipeModal(product)}
@@ -1100,9 +1257,23 @@ export default function ProductsPage() {
           onClose={() => setDeleteModal(null)}
           onDeleted={async () => {
             setAllProducts((prev) =>
-              prev.filter((product) => product.id !== deleteModal.id),
+              prev.filter((p) => p.id !== deleteModal.id),
             );
+            await refreshProducts();
+            await refreshCategories();
             setDeleteModal(null);
+          }}
+        />
+      ) : null}
+
+      {bulkDeleteModalOpen ? (
+        <BulkDeleteConfirmModal
+          selectedCount={selectedProductIds.size}
+          onClose={() => setBulkDeleteModalOpen(false)}
+          onConfirm={async () => {
+            await bulkDeleteProducts(Array.from(selectedProductIds));
+            setSelectedProductIds(new Set());
+            setBulkDeleteModalOpen(false);
             await refreshProducts();
             await refreshCategories();
           }}

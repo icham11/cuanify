@@ -2997,10 +2997,14 @@ function extractOrderQuantity(value: string): number | null {
   if (explicitQuantity) return explicitQuantity;
 
   const withUnit = text.match(
-    /\b(\d{1,4})\s*(box|pack|pkt|paket|pcs|pc|dozen|lusin)\b/i,
+    /(?<![-\d~]\s*)\b(\d{1,4})\s*(box|pack|pkt|paket|pcs|pc|dozen|lusin)\b/i,
   );
   const unitQuantity = parseMatchedQuantity(withUnit);
   if (unitQuantity) return unitQuantity;
+
+  const startQty = text.match(/^(\d{1,4})\s+[a-z]/i);
+  const startQuantity = parseMatchedQuantity(startQty);
+  if (startQuantity) return startQuantity;
 
   return null;
 }
