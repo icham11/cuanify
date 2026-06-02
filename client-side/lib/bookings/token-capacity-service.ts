@@ -198,7 +198,7 @@ async function reconcileCapacityLedgerForRange(
     await db.$executeRaw`
       WITH active_tokens AS (
         SELECT
-          -- Ubah delivery_date (TEXT) menjadi DATE secara aman dari nilai kosong/spasi
+          -- delivery_date sudah bertipe DATE; agregasikan langsung per hari kirim
           delivery_date,
           -- Ambil nilai terbesar antara 0 dengan jumlah token_used, casting sebagai integer
           GREATEST(0, COALESCE(SUM(token_used), 0))::integer AS used_token
@@ -208,9 +208,9 @@ async function reconcileCapacityLedgerForRange(
           AND delivery_date IS NOT NULL
           -- Hanya hitung pesanan yang belum dihapus secara soft-delete
           AND deleted_at IS NULL
-          -- Bandingkan nilai DATE dengan casting yang setara agar tidak memicu type mismatch
+          -- Bandingkan nilai DATE secara langsung di dalam range yang diminta
           AND delivery_date >= ${startDate}::date
-          -- Batasi pencarian hingga tanggal akhir yang dicasting ke DATE
+          -- Batasi pencarian hingga tanggal akhir
           AND delivery_date <= ${endDate}::date
           -- Kecualikan status pesanan yang tidak memakan kapasitas token produksi
           AND order_status NOT IN (

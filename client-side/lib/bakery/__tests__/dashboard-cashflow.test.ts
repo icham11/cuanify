@@ -136,4 +136,39 @@ describe("dashboard cashflow helpers", () => {
     expect(toJakartaDateKey("2026-05-15T18:30:00.000Z")).toBe("2026-05-16");
     expect(toJakartaDateKey("")).toBe("");
   });
+
+  it("falls back to booking timestamp and paid amount when transaction logs are missing", () => {
+    const orders: BakeryOrder[] = [
+      createOrder({
+        id: "legacy-1",
+        bookingCode: "BK-LEGACY",
+        customerName: "Lina",
+        customerPhone: "08199",
+        createdAt: "2026-05-16T02:00:00.000Z",
+        totalPrice: 120000,
+        totalPaidAmount: 120000,
+        paymentStatus: "Paid",
+        product: "Brownies",
+      }),
+    ];
+
+    const breakdown = buildCashFlowBreakdownForDate(orders, "2026-05-16");
+    const history = buildCashFlowHistory(orders, { monthKey: "2026-05" });
+
+    expect(breakdown).toHaveLength(1);
+    expect(breakdown[0]).toMatchObject({
+      customerName: "Lina",
+      amountToday: 120000,
+      orderCount: 1,
+      transactionCount: 1,
+      paymentLabel: "Pelunasan",
+      bookingCode: "BK-LEGACY",
+    });
+    expect(history.history[0]).toMatchObject({
+      dateKey: "2026-05-16",
+      totalAmount: 120000,
+      customerCount: 1,
+      transactionCount: 1,
+    });
+  });
 });

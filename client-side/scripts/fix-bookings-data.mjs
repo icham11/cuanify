@@ -170,7 +170,7 @@ async function main() {
       resi,
       customer_name,
       customer_phone,
-      delivery_date::text AS delivery_date,
+      delivery_date,
       delivery_slot,
       simulations,
       created_at::text AS created_at,

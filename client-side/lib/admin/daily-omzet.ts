@@ -141,12 +141,6 @@ function toNumber(value: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-function normalizeDateKey(value: string | null | undefined): string {
-  const raw = String(value || "").trim();
-  const match = raw.match(/^(\d{4}-\d{2}-\d{2})$/);
-  return match?.[1] || "";
-}
-
 function isInRange(date: Date | null, startUtc: Date, endUtc: Date): boolean {
   if (!date || Number.isNaN(date.getTime())) return false;
   return date >= startUtc && date < endUtc;
@@ -224,7 +218,7 @@ export async function buildDailyOmzetSnapshot(
       WHERE business_id = ${businessId}
         AND COALESCE(sales_channel, 'direct') = 'direct'
         AND (
-          NULLIF(TRIM(delivery_date), '')::date = ${normalizedDateKey}::date
+          delivery_date = ${normalizedDateKey}::date
           OR
           (created_at >= ${startUtc} AND created_at < ${endUtc})
           OR (updated_at >= ${startUtc} AND updated_at < ${endUtc})

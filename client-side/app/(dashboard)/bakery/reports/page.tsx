@@ -11,6 +11,7 @@ import { generateExcel } from "@/lib/export/excel";
 import { useOrders, type BakeryOrder } from "@/components/bakery/store";
 import { calculateOrderTokenFromItems } from "@/lib/bookings/order-token-calculator";
 import {
+  calculateBakeryOrderNetRevenue,
   calculateBakeryFinancialSummary,
   getMonthKeyFromDateValue,
   type BakeryFinancialOrder,
@@ -114,11 +115,46 @@ function parseNumericId(value: unknown): number | null {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
-function mapOrderToFinancialOrder(order: BakeryOrder): BakeryFinancialOrder {
+function normalizeReportTokenDifficulty(
+  value: unknown,
+): BakeryOrder["items"][number]["tokenDifficulty"] {
+  switch (value) {
+    case "SIMPLE":
+    case "NORMAL":
+    case "HARD":
+    case "ADVANCED":
+    case "EXPERT":
+    case "MEDIUM":
+    case "DIFFICULT":
+      return value;
+    default:
+      return undefined;
+  }
+}
+
+function mapFinancialOrderToReportOrder(order: BakeryFinancialOrder): BakeryOrder {
   return {
-    id: order.id,
-    deliveryDate: order.deliveryDate,
-    product: order.product,
+    id: String(order.id || ""),
+    bookingCode: String(order.bookingCode || ""),
+    resi: String(order.resi || ""),
+    createdAt:
+      typeof order.createdAt === "string"
+        ? order.createdAt
+        : order.createdAt instanceof Date
+          ? order.createdAt.toISOString()
+          : undefined,
+    updatedAt:
+      typeof order.updatedAt === "string"
+        ? order.updatedAt
+        : order.updatedAt instanceof Date
+          ? order.updatedAt.toISOString()
+          : undefined,
+    customerName: String(order.customerName || ""),
+    customerPhone: String(order.customerPhone || ""),
+    customerAddress: "",
+    deliveryDate: String(order.deliveryDate || ""),
+    deliverySlot: String(order.deliverySlot || ""),
+    notes: String(order.notes || ""),
     basePrice: order.basePrice,
     designAdjustmentTotal: order.designAdjustmentTotal,
     addOnTotal: order.addOnTotal,
@@ -127,48 +163,164 @@ function mapOrderToFinancialOrder(order: BakeryOrder): BakeryFinancialOrder {
     productSubtotal: order.productSubtotal,
     productDiscountAmount: order.productDiscountAmount,
     serviceCharge: order.serviceCharge,
-    totalPrice: order.totalPrice,
     deliveryFee: order.deliveryFee,
     insuranceFee: order.insuranceFee,
-    totalPaidAmount: order.totalPaidAmount,
+    manualAdjustment: order.manualAdjustment,
     dpPaidAmount: order.dpPaidAmount,
     finalPaidAmount: order.finalPaidAmount,
-    paymentStatus: order.paymentStatus,
-    orderStatus: order.orderStatus,
-    paymentTransactions: order.paymentTransactions,
-    createdAt: order.createdAt,
-    updatedAt: order.updatedAt,
-    items: order.items,
+    totalPaidAmount: order.totalPaidAmount,
+    downPaymentAmount: 0,
+    remainingBalance: 0,
+    paymentTransactions: (order.paymentTransactions ?? []).map((transaction, index) => ({
+      id:
+        typeof transaction.id === "string" && transaction.id.trim().length > 0
+          ? transaction.id
+          : `payment-${String(order.id || "order")}-${index}`,
+      timestamp:
+        typeof transaction.timestamp === "string"
+          ? transaction.timestamp
+          : transaction.timestamp instanceof Date
+            ? transaction.timestamp.toISOString()
+            : "",
+      amount: Number(transaction.amount || 0),
+      type: transaction.type === "DP" ? "DP" : "Final",
+      note: transaction.note,
+    })),
+    items: (order.items ?? []).map((item, index) => ({
+      id: `item-${String(order.id || "order")}-${index}`,
+      category: String(item.category || ""),
+      subcategory: String(item.subcategory || ""),
+      productName: String(item.productName || ""),
+      size: String(item.size || ""),
+      quantity: Math.max(0, Number(item.quantity || 0)),
+      tokenDifficulty: normalizeReportTokenDifficulty(item.tokenDifficulty),
+      basePrice: Number(item.basePrice || 0),
+      selectedPrice: Number(item.selectedPrice || 0),
+      lineTotal: Number(item.lineTotal || 0),
+      addOns: Array.isArray(item.addOns)
+        ? item.addOns.map((entry) => String(entry || "")).filter(Boolean)
+        : [],
+      addOnTotal: Number(item.addOnTotal || 0),
+    })),
+    deliveryAddresses: [],
+    product: String(order.product || ""),
+    totalPrice: Number(order.totalPrice || 0),
+    sales_channel:
+      order.sales_channel === "tokopedia" || order.sales_channel === "shopee"
+        ? order.sales_channel
+        : "direct",
+    paymentStatus:
+      order.paymentStatus === "Paid" || order.paymentStatus === "DP Paid"
+        ? order.paymentStatus
+        : "Pending",
+    orderStatus:
+      order.orderStatus === "Quoted" ||
+      order.orderStatus === "DP Paid" ||
+      order.orderStatus === "Confirmed" ||
+      order.orderStatus === "In Production" ||
+      order.orderStatus === "Ready" ||
+      order.orderStatus === "Delivery" ||
+      order.orderStatus === "Completed" ||
+      order.orderStatus === "Cancelled" ||
+      order.orderStatus === "Delivered"
+        ? order.orderStatus
+        : "Inquiry",
+    assignedStaffUserId: order.assignedStaffUserId ?? null,
+    assignedStaffName: order.assignedStaffName,
+    productionAssignedAt: null,
+    productionStages: [],
+    statusHistory: [],
+    automationLogs: [],
   };
 }
 
-function mergeFinancialOrdersForReports(
+function getReportFetchRange() {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth() - 18, 1);
+  const end = new Date(now.getFullYear(), now.getMonth() + 6, 0);
+  return {
+    startDate: toDateInputValue(start),
+    endDate: toDateInputValue(end),
+  };
+}
+
+function mergeOrdersForReports(
   localOrders: BakeryOrder[],
   serverOrders: BakeryFinancialOrder[] | null,
-): BakeryFinancialOrder[] {
+): BakeryOrder[] {
   if (!serverOrders || serverOrders.length === 0) {
-    return localOrders.map(mapOrderToFinancialOrder);
+    return localOrders;
   }
 
-  const merged = new Map<string, BakeryFinancialOrder>();
-  const fallbackOrders: BakeryFinancialOrder[] = [];
+  const merged = new Map<string, BakeryOrder>();
+  const localById = new Map(localOrders.map((order) => [String(order.id || "").trim(), order]));
+  const localOnlyOrders = new Map(localById);
+  const fallbackOrders: BakeryOrder[] = [];
 
   serverOrders.forEach((order) => {
+    const key = String(order.id || "").trim();
+    const mappedServerOrder = mapFinancialOrderToReportOrder(order);
+    if (!key) {
+      fallbackOrders.push(mappedServerOrder);
+      return;
+    }
+    const localOrder = localById.get(key);
+    if (!localOrder) {
+      merged.set(key, mappedServerOrder);
+      return;
+    }
+
+    localOnlyOrders.delete(key);
+    merged.set(key, {
+      ...localOrder,
+      ...mappedServerOrder,
+      id: mappedServerOrder.id || localOrder.id,
+      bookingCode: mappedServerOrder.bookingCode || localOrder.bookingCode,
+      resi: mappedServerOrder.resi || localOrder.resi,
+      customerName: mappedServerOrder.customerName || localOrder.customerName,
+      customerPhone: mappedServerOrder.customerPhone || localOrder.customerPhone,
+      deliveryDate: mappedServerOrder.deliveryDate || localOrder.deliveryDate,
+      deliverySlot: mappedServerOrder.deliverySlot || localOrder.deliverySlot,
+      notes: mappedServerOrder.notes || localOrder.notes,
+      product: mappedServerOrder.product || localOrder.product,
+      items:
+        mappedServerOrder.items.length > 0
+          ? mappedServerOrder.items
+          : localOrder.items,
+      paymentTransactions:
+        (mappedServerOrder.paymentTransactions?.length ?? 0) > 0
+          ? mappedServerOrder.paymentTransactions
+          : localOrder.paymentTransactions,
+      assignedStaffUserId:
+        mappedServerOrder.assignedStaffUserId ?? localOrder.assignedStaffUserId,
+      assignedStaffName:
+        mappedServerOrder.assignedStaffName || localOrder.assignedStaffName,
+      productionStages:
+        (localOrder.productionStages?.length ?? 0) > 0
+          ? localOrder.productionStages
+          : mappedServerOrder.productionStages,
+      deliveryAddresses:
+        (localOrder.deliveryAddresses?.length ?? 0) > 0
+          ? localOrder.deliveryAddresses
+          : mappedServerOrder.deliveryAddresses,
+      statusHistory:
+        (localOrder.statusHistory?.length ?? 0) > 0
+          ? localOrder.statusHistory
+          : mappedServerOrder.statusHistory,
+      automationLogs:
+        (localOrder.automationLogs?.length ?? 0) > 0
+          ? localOrder.automationLogs
+          : mappedServerOrder.automationLogs,
+    });
+  });
+
+  localOnlyOrders.forEach((order) => {
     const key = String(order.id || "").trim();
     if (!key) {
       fallbackOrders.push(order);
       return;
     }
     merged.set(key, order);
-  });
-
-  localOrders.forEach((order) => {
-    const key = String(order.id || "").trim();
-    if (!key) {
-      fallbackOrders.push(mapOrderToFinancialOrder(order));
-      return;
-    }
-    merged.set(key, mapOrderToFinancialOrder(order));
   });
 
   return [...merged.values(), ...fallbackOrders];
@@ -333,9 +485,13 @@ export default function ReportsPage() {
 
     const loadFinancialOrders = async () => {
       try {
-        const response = await fetch("/api/bookings/orders?mode=financial", {
-          cache: "no-store",
-        });
+        const fetchRange = getReportFetchRange();
+        const response = await fetch(
+          `/api/bookings/orders?mode=financial&startDate=${fetchRange.startDate}&endDate=${fetchRange.endDate}`,
+          {
+            cache: "no-store",
+          },
+        );
         const payload = (await response.json().catch(() => ({}))) as {
           data?: { orders?: BakeryFinancialOrder[] };
         };
@@ -401,23 +557,28 @@ export default function ReportsPage() {
     };
   }, [fromDate, isExactSelectedMonthRange, selectedMonth, toDate]);
 
+  const reportOrders = useMemo<BakeryOrder[]>(
+    () => mergeOrdersForReports(orders, serverFinancialOrders),
+    [orders, serverFinancialOrders],
+  );
+
   const selectableMonthKeys = useMemo(
     () =>
       buildSelectableMonthKeys({
         monthsBack: 18,
         monthsForward: 5,
-        includeMonthKeys: orders.map((order) => monthKeyFromDate(order.deliveryDate)),
+        includeMonthKeys: reportOrders.map((order) => monthKeyFromDate(order.deliveryDate)),
       }).sort((left, right) => right.localeCompare(left)),
-    [orders],
+    [reportOrders],
   );
 
   const filteredOrders = useMemo(() => {
-    return orders.filter((order) => {
+    return reportOrders.filter((order) => {
       if (fromDate && order.deliveryDate < fromDate) return false;
       if (toDate && order.deliveryDate > toDate) return false;
       return true;
     });
-  }, [orders, fromDate, toDate]);
+  }, [reportOrders, fromDate, toDate]);
 
   const today = toDateInputValue(new Date());
   const lateOrders = useMemo(
@@ -427,16 +588,11 @@ export default function ReportsPage() {
 
   const totalOrders = filteredOrders.length;
 
-  const financialOrders = useMemo<BakeryFinancialOrder[]>(
-    () => mergeFinancialOrdersForReports(orders, serverFinancialOrders),
-    [orders, serverFinancialOrders],
-  );
-
   useEffect(() => {
     if (hasInitializedFullRangeRef.current) return;
-    if (financialOrders.length === 0) return;
+    if (reportOrders.length === 0) return;
 
-    const availableDates = financialOrders
+    const availableDates = reportOrders
       .map((order) => order.deliveryDate)
       .filter((value): value is string => typeof value === "string" && value.length > 0)
       .sort((left, right) => left.localeCompare(right));
@@ -449,17 +605,17 @@ export default function ReportsPage() {
     setToDate(nextToDate);
     setSelectedMonth(monthKeyFromDate(nextToDate));
     hasInitializedFullRangeRef.current = true;
-  }, [financialOrders]);
+  }, [reportOrders]);
 
   const financialSummary = useMemo(() => {
     return calculateBakeryFinancialSummary({
-      orders: financialOrders,
+      orders: reportOrders,
       products,
       settings: bakerySettings,
       fromDate,
       toDate,
     });
-  }, [bakerySettings, financialOrders, fromDate, products, toDate]);
+  }, [bakerySettings, reportOrders, fromDate, products, toDate]);
 
   const totalRevenue = financialSummary.totalRevenue;
   const totalCashFlowIn = financialSummary.totalCashFlowIn;
@@ -468,7 +624,14 @@ export default function ReportsPage() {
     isCompletedOrderForReports(order.orderStatus),
   ).length;
   const avgOrderValue =
-    totalOrders > 0 ? Math.round(financialSummary.bookedRevenue / totalOrders) : 0;
+    totalOrders > 0
+      ? Math.round(
+          filteredOrders.reduce(
+            (sum, order) => sum + calculateBakeryOrderNetRevenue(order),
+            0,
+          ) / totalOrders,
+        )
+      : 0;
 
   const allCustomers = useMemo(() => {
     const grouped = new Map<
@@ -476,7 +639,7 @@ export default function ReportsPage() {
       { name: string; firstOrder: string; totalOrders: number }
     >();
 
-    orders.forEach((order) => {
+    reportOrders.forEach((order) => {
       const name = (order.customerName || "Walk-in Customer").trim();
       const phone = (order.customerPhone || "").trim();
       const key = `${name.toLowerCase()}||${phone.toLowerCase()}`;
@@ -499,7 +662,7 @@ export default function ReportsPage() {
     });
 
     return grouped;
-  }, [orders]);
+  }, [reportOrders]);
 
   const filteredCustomerKeys = useMemo(() => {
     return Array.from(
@@ -529,34 +692,12 @@ export default function ReportsPage() {
   const repeatRate = totalCustomers > 0 ? (repeatCustomers / totalCustomers) * 100 : 0;
 
   const topProducts = useMemo(() => {
-    const grouped = new Map<
-      string,
-      { name: string; revenue: number; orderCount: number }
-    >();
-
-    filteredOrders.forEach((order) => {
-      (order.items || []).forEach((item) => {
-        const key = item.productName || order.product || "Produk";
-        const row = grouped.get(key) ?? {
-          name: key,
-          revenue: 0,
-          orderCount: 0,
-        };
-        row.revenue += Number(
-          item.lineTotal ||
-            item.selectedPrice ||
-            item.basePrice * Math.max(1, Number(item.quantity || 1)) ||
-            0,
-        );
-        row.orderCount += Math.max(1, Number(item.quantity || 1));
-        grouped.set(key, row);
-      });
-    });
-
-    return Array.from(grouped.values())
-      .sort((a, b) => b.revenue - a.revenue)
-      .slice(0, 3);
-  }, [filteredOrders]);
+    return financialSummary.topProducts.slice(0, 3).map((product) => ({
+      name: product.productName,
+      revenue: product.revenue,
+      orderCount: product.quantitySold,
+    }));
+  }, [financialSummary.topProducts]);
 
   const roleMap = useMemo(() => {
     const map = new Map<number, "Admin" | "Staff">();

@@ -204,13 +204,13 @@ async function recalculateProductionCapacityForDate(
   const INACTIVE_STATUSES = ["Completed", "Delivered", "Cancelled", "Inquiry"];
   await tx.$executeRaw`
     WITH daily_totals AS (
-      SELECT delivery_date::date as delivery_date, COALESCE(SUM(token_used), 0) AS total_token_amount
+      SELECT delivery_date AS delivery_date, COALESCE(SUM(token_used), 0) AS total_token_amount
       FROM bakery_orders
       WHERE business_id = ${params.businessId}
-        AND delivery_date::date = ${params.deliveryDate}::date
+        AND delivery_date = ${params.deliveryDate}::date
         AND deleted_at IS NULL
         AND order_status NOT IN (${INACTIVE_STATUSES[0]}, ${INACTIVE_STATUSES[1]}, ${INACTIVE_STATUSES[2]}, ${INACTIVE_STATUSES[3]})
-      GROUP BY delivery_date::date
+      GROUP BY delivery_date
     )
     UPDATE production_capacity
     SET
@@ -229,7 +229,7 @@ async function recalculateProductionCapacityForDate(
         SELECT 1
         FROM bakery_orders
         WHERE business_id = ${params.businessId}
-          AND delivery_date::date = ${params.deliveryDate}::date
+          AND delivery_date = ${params.deliveryDate}::date
           AND deleted_at IS NULL
           AND order_status NOT IN (${INACTIVE_STATUSES[0]}, ${INACTIVE_STATUSES[1]}, ${INACTIVE_STATUSES[2]}, ${INACTIVE_STATUSES[3]})
       )
@@ -729,13 +729,13 @@ export async function DELETE(
           const INACTIVE_STATUSES = ["Completed", "Delivered", "Cancelled", "Inquiry"];
           await tx.$executeRaw`
             WITH daily_totals AS (
-              SELECT delivery_date::date as delivery_date, COALESCE(SUM(token_used), 0) AS total_token_amount
+              SELECT delivery_date AS delivery_date, COALESCE(SUM(token_used), 0) AS total_token_amount
               FROM bakery_orders
               WHERE business_id = ${businessId}
-                AND delivery_date::date = ${deliveryDate}::date
+                AND delivery_date = ${deliveryDate}::date
                 AND deleted_at IS NULL
                 AND order_status NOT IN (${INACTIVE_STATUSES[0]}, ${INACTIVE_STATUSES[1]}, ${INACTIVE_STATUSES[2]}, ${INACTIVE_STATUSES[3]})
-              GROUP BY delivery_date::date
+              GROUP BY delivery_date
             )
             UPDATE production_capacity
             SET
@@ -754,7 +754,7 @@ export async function DELETE(
                 SELECT 1
                 FROM bakery_orders
                 WHERE business_id = ${businessId}
-                  AND delivery_date::date = ${deliveryDate}::date
+                  AND delivery_date = ${deliveryDate}::date
                   AND deleted_at IS NULL
                   AND order_status NOT IN (${INACTIVE_STATUSES[0]}, ${INACTIVE_STATUSES[1]}, ${INACTIVE_STATUSES[2]}, ${INACTIVE_STATUSES[3]})
               )

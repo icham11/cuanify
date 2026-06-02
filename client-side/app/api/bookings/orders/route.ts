@@ -1453,9 +1453,14 @@ function toFinancialOrderItems(value: unknown) {
     productName: asString(item.productName),
     size: asString(item.size),
     quantity: asNumber(item.quantity),
+    tokenDifficulty: asString(item.tokenDifficulty) || null,
     basePrice: asNumber(item.basePrice),
     selectedPrice: asNumber(item.selectedPrice),
     lineTotal: asNumber(item.lineTotal),
+    addOnTotal: asNumber(item.addOnTotal),
+    addOns: (Array.isArray(item.addOns) ? item.addOns : [])
+      .map((entry) => asString(entry))
+      .filter(Boolean),
   }));
 }
 
@@ -3172,14 +3177,34 @@ export async function GET(request: NextRequest) {
         orderRows = await prisma.$queryRaw<DbOrderRow[]>`
           SELECT
             external_id,
+            booking_code,
+            resi,
+            customer_name,
+            customer_phone,
             delivery_date,
+            delivery_slot,
+            notes,
+            base_price,
+            design_adjustment_total,
+            add_on_total,
+            product_adjustment,
+            non_product_adjustment,
+            product_subtotal,
+            product_discount_amount,
+            service_charge,
+            delivery_fee,
+            manual_adjustment,
             dp_paid_amount,
             final_paid_amount,
             total_paid_amount,
             product,
             total_price,
+            insurance_fee,
+            sales_channel,
             payment_status,
             order_status,
+            assigned_staff_user_id,
+            assigned_staff_name,
             payment_transactions,
             created_at,
             updated_at
@@ -3447,14 +3472,34 @@ export async function GET(request: NextRequest) {
         if (isFinancialMode) {
           const orders = orderRows.map((row) => ({
             id: row.external_id,
+            bookingCode: row.booking_code ?? "",
+            resi: row.resi ?? "",
+            customerName: row.customer_name ?? "",
+            customerPhone: row.customer_phone ?? "",
             deliveryDate: normalizeDateInput(row.delivery_date) ?? "",
+            deliverySlot: row.delivery_slot ?? "",
+            notes: row.notes ?? "",
+            basePrice: asNumber(row.base_price),
+            designAdjustmentTotal: asNumber(row.design_adjustment_total),
+            addOnTotal: asNumber(row.add_on_total),
+            productAdjustment: asNumber(row.product_adjustment),
+            nonProductAdjustment: asNumber(row.non_product_adjustment),
+            productSubtotal: asNumber(row.product_subtotal),
+            productDiscountAmount: asNumber(row.product_discount_amount),
+            serviceCharge: asNumber(row.service_charge),
             product: row.product ?? "",
+            deliveryFee: asNumber(row.delivery_fee),
+            insuranceFee: asNumber(row.insurance_fee),
+            manualAdjustment: asNumber(row.manual_adjustment),
             totalPrice: asNumber(row.total_price),
             totalPaidAmount: asNumber(row.total_paid_amount),
             dpPaidAmount: asNumber(row.dp_paid_amount),
             finalPaidAmount: asNumber(row.final_paid_amount),
             paymentStatus: row.payment_status ?? "Pending",
             orderStatus: row.order_status ?? "Inquiry",
+            sales_channel: normalizeSalesChannel(row.sales_channel),
+            assignedStaffUserId: row.assigned_staff_user_id,
+            assignedStaffName: row.assigned_staff_name ?? "",
             paymentTransactions: asArrayOfRecords(
               parseJsonField(row.payment_transactions),
             ).map((transaction) => ({
@@ -5498,14 +5543,14 @@ export async function POST(request: NextRequest) {
                 await tx.$executeRaw`
               WITH active_tokens AS (
                 SELECT
-                  delivery_date::date AS delivery_date,
+                  delivery_date AS delivery_date,
                   GREATEST(0, COALESCE(SUM(token_used), 0))::integer AS used_token
                 FROM bakery_orders
                 WHERE business_id = ${businessId}
                   AND delivery_date IS NOT NULL
                   AND deleted_at IS NULL
                   AND order_status NOT IN (${INACTIVE_STATUSES[0]}, ${INACTIVE_STATUSES[1]}, ${INACTIVE_STATUSES[2]}, ${INACTIVE_STATUSES[3]})
-                GROUP BY delivery_date::date
+                GROUP BY delivery_date
               )
               INSERT INTO production_capacity (
                 business_id,
@@ -5546,7 +5591,7 @@ export async function POST(request: NextRequest) {
                   WHERE bo.business_id = pc.business_id
                     AND bo.delivery_date IS NOT NULL
                     AND bo.deleted_at IS NULL
-                    AND bo.delivery_date::date = pc.date
+                    AND bo.delivery_date = pc.date
                     AND bo.order_status NOT IN (${INACTIVE_STATUSES[0]}, ${INACTIVE_STATUSES[1]}, ${INACTIVE_STATUSES[2]}, ${INACTIVE_STATUSES[3]})
                     AND bo.token_used > 0
                 )

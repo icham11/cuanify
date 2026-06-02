@@ -12,15 +12,23 @@ export type BakeryFinancialOrderItem = {
   productName?: string;
   size?: string;
   quantity?: number;
+  tokenDifficulty?: string | null;
   basePrice?: number;
   selectedPrice?: number;
   lineTotal?: number;
   addOnTotal?: number;
+  addOns?: string[];
 };
 
 export type BakeryFinancialOrder = {
   id?: string;
+  bookingCode?: string;
+  resi?: string;
+  customerName?: string;
+  customerPhone?: string;
   deliveryDate?: string;
+  deliverySlot?: string;
+  notes?: string;
   product?: string;
   basePrice?: number;
   addOnTotal?: number;
@@ -39,7 +47,17 @@ export type BakeryFinancialOrder = {
   finalPaidAmount?: number;
   paymentStatus?: string;
   orderStatus?: string;
+  sales_channel?: string;
+  assignedStaffUserId?: number | null;
+  assignedStaffName?: string;
+  productionStages?: Array<{
+    stage?: string;
+    staffId?: number | string | null;
+    tokenAmount?: number | null;
+    percentage?: number | null;
+  }>;
   paymentTransactions?: Array<{
+    id?: string;
     timestamp?: string | Date | null;
     amount?: number;
     type?: string;
@@ -247,22 +265,24 @@ function getPaymentAmountInRange(
   return getCappedTotalPaid(order);
 }
 
-function getRevenueAmountInRange(
-  order: BakeryFinancialOrder,
-  fromDate: string,
-  toDate: string,
+export function calculateBakeryOrderNetRevenue(
+  order: Pick<
+    BakeryFinancialOrder,
+    | "basePrice"
+    | "designAdjustmentTotal"
+    | "addOnTotal"
+    | "productAdjustment"
+    | "nonProductAdjustment"
+    | "productSubtotal"
+    | "productDiscountAmount"
+    | "serviceCharge"
+    | "deliveryFee"
+    | "insuranceFee"
+    | "totalPrice"
+    | "manualAdjustment"
+    | "notes"
+  >,
 ): number {
-  // Revenue is recognized from the sales value on delivery date,
-  // independent from when or whether the cash has been paid in.
-  const deliveryDateKey = String(order.deliveryDate || "").trim();
-
-  if (
-    !deliveryDateKey ||
-    !isDateKeyWithinRange(deliveryDateKey, fromDate, toDate)
-  ) {
-    return 0;
-  }
-
   const financialBreakdown = calculateOrderFinancialBreakdown({
     basePrice: order.basePrice,
     designAdjustmentTotal: order.designAdjustmentTotal,
@@ -279,6 +299,25 @@ function getRevenueAmountInRange(
   });
 
   return financialBreakdown.productNetRevenue;
+}
+
+function getRevenueAmountInRange(
+  order: BakeryFinancialOrder,
+  fromDate: string,
+  toDate: string,
+): number {
+  // Revenue is recognized from the sales value on delivery date,
+  // independent from when or whether the cash has been paid in.
+  const deliveryDateKey = String(order.deliveryDate || "").trim();
+
+  if (
+    !deliveryDateKey ||
+    !isDateKeyWithinRange(deliveryDateKey, fromDate, toDate)
+  ) {
+    return 0;
+  }
+
+  return calculateBakeryOrderNetRevenue(order);
 }
 
 function getCashFlowInAmountInRange(
@@ -493,20 +532,7 @@ export function calculateBakeryFinancialSummary(args: {
   const productCostEntries = buildProductCostEntries(args.products);
   const bookedRevenue = filteredOrders.reduce(
     (sum, order) => {
-      const netRevenue = calculateOrderFinancialBreakdown({
-        basePrice: order.basePrice,
-        designAdjustmentTotal: order.designAdjustmentTotal,
-        addOnTotal: order.addOnTotal,
-        productAdjustment: order.productAdjustment,
-        nonProductAdjustment: order.nonProductAdjustment,
-        productSubtotal: order.productSubtotal,
-        productDiscountAmount: order.productDiscountAmount,
-        serviceCharge: order.serviceCharge,
-        deliveryFee: order.deliveryFee,
-        insuranceFee: order.insuranceFee,
-        totalPrice: order.totalPrice,
-        legacyManualAdjustment: order.manualAdjustment,
-      }).productNetRevenue;
+      const netRevenue = calculateBakeryOrderNetRevenue(order);
       return sum + netRevenue * (isCancelledOrder(order) ? -1 : 1);
     },
     0,
@@ -563,20 +589,7 @@ export function calculateBakeryFinancialSummary(args: {
     // Use 0..1 to avoid negative recognition which caused inconsistent signs
     // between revenue/COGS and quantity.
     const recognitionRatio = revenueAmountInRange > 0 ? 1 : 0;
-    const orderProductNetRevenue = calculateOrderFinancialBreakdown({
-      basePrice: order.basePrice,
-      designAdjustmentTotal: order.designAdjustmentTotal,
-      addOnTotal: order.addOnTotal,
-      productAdjustment: order.productAdjustment,
-      nonProductAdjustment: order.nonProductAdjustment,
-      productSubtotal: order.productSubtotal,
-      productDiscountAmount: order.productDiscountAmount,
-      serviceCharge: order.serviceCharge,
-      deliveryFee: order.deliveryFee,
-      insuranceFee: order.insuranceFee,
-      totalPrice: order.totalPrice,
-      legacyManualAdjustment: order.manualAdjustment,
-    }).productNetRevenue;
+    const orderProductNetRevenue = calculateBakeryOrderNetRevenue(order);
     const itemGrossRevenueEntries = (order.items || []).map((item) => {
       const baseRevenue =
         Number(

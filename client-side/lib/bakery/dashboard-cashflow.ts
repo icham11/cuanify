@@ -36,6 +36,22 @@ export function toJakartaDateKey(value: string | null | undefined) {
   return `${year}-${month}-${day}`;
 }
 
+function getFallbackCashflowAmount(order: BakeryOrder): number {
+  const totalPrice = Math.max(0, Number(order.totalPrice || 0));
+  const totalPaidAmount = Math.max(
+    0,
+    Number(order.totalPaidAmount ?? 0) ||
+      Number(order.dpPaidAmount ?? 0) + Number(order.finalPaidAmount ?? 0),
+  );
+
+  if (totalPrice <= 0) return totalPaidAmount;
+  return Math.min(totalPrice, totalPaidAmount);
+}
+
+function getFallbackCashflowDateKey(order: BakeryOrder): string {
+  return toJakartaDateKey(order.createdAt) || toJakartaDateKey(order.updatedAt);
+}
+
 export function buildCashFlowBreakdownForDate(
   orders: BakeryOrder[],
   dateKey: string,
@@ -59,8 +75,6 @@ export function buildCashFlowBreakdownForDate(
       (transaction) => toJakartaDateKey(transaction.timestamp) === dateKey,
     );
 
-    if (datedTransactions.length === 0) continue;
-
     const customerName = (order.customerName || "").trim() || "Customer";
     const customerPhone = (order.customerPhone || "").trim();
     const key = `${customerName.toLowerCase()}||${customerPhone.toLowerCase()}`;
@@ -75,10 +89,22 @@ export function buildCashFlowBreakdownForDate(
       paymentTypes: new Set<string>(),
     };
 
-    for (const transaction of datedTransactions) {
-      existing.amountToday += Number(transaction.amount || 0);
+    if (datedTransactions.length > 0) {
+      for (const transaction of datedTransactions) {
+        existing.amountToday += Number(transaction.amount || 0);
+        existing.transactionCount += 1;
+        existing.paymentTypes.add(transaction.type || "Payment");
+      }
+    } else {
+      const fallbackDateKey = getFallbackCashflowDateKey(order);
+      const fallbackAmount = getFallbackCashflowAmount(order);
+      if (fallbackDateKey !== dateKey || fallbackAmount <= 0) continue;
+
+      existing.amountToday += fallbackAmount;
       existing.transactionCount += 1;
-      existing.paymentTypes.add(transaction.type || "Payment");
+      existing.paymentTypes.add(
+        order.paymentStatus === "Paid" ? "Final" : "DP",
+      );
     }
 
     existing.orderIds.add(order.id);
@@ -135,12 +161,21 @@ export function buildCashFlowHistory(
   const dateKeys = new Set<string>();
 
   orders.forEach((order) => {
-    (order.paymentTransactions ?? []).forEach((transaction) => {
-      const dateKey = toJakartaDateKey(transaction.timestamp);
-      if (dateKey) {
-        dateKeys.add(dateKey);
-      }
-    });
+    const transactions = order.paymentTransactions ?? [];
+    if (transactions.length > 0) {
+      transactions.forEach((transaction) => {
+        const dateKey = toJakartaDateKey(transaction.timestamp);
+        if (dateKey) {
+          dateKeys.add(dateKey);
+        }
+      });
+      return;
+    }
+
+    const fallbackDateKey = getFallbackCashflowDateKey(order);
+    if (fallbackDateKey && getFallbackCashflowAmount(order) > 0) {
+      dateKeys.add(fallbackDateKey);
+    }
   });
 
   Array.from(dateKeys).forEach((dateKey) => {

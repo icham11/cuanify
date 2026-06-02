@@ -298,14 +298,14 @@ async function reconcileCapacity(client, businessId) {
     `
       WITH active_tokens AS (
         SELECT
-          delivery_date::date AS delivery_date,
+          delivery_date AS delivery_date,
           GREATEST(0, COALESCE(SUM(token_used), 0))::integer AS used_token
         FROM bakery_orders
         WHERE business_id = $1
           AND delivery_date IS NOT NULL
           AND deleted_at IS NULL
           AND order_status NOT IN ($2, $3, $4, $5)
-        GROUP BY delivery_date::date
+        GROUP BY delivery_date
       )
       INSERT INTO production_capacity (
         business_id,
@@ -353,7 +353,7 @@ async function reconcileCapacity(client, businessId) {
           WHERE bo.business_id = pc.business_id
             AND bo.delivery_date IS NOT NULL
             AND bo.deleted_at IS NULL
-            AND bo.delivery_date::date = pc.date
+            AND bo.delivery_date = pc.date
             AND bo.order_status NOT IN ($2, $3, $4, $5)
             AND bo.token_used > 0
         )
