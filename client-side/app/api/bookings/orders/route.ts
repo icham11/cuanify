@@ -3134,7 +3134,7 @@ export async function GET(request: NextRequest) {
         );
       } else if (!url.searchParams.has("page") && !isCalendarMode && !isDashboardMode && !isFinancialMode && !searchQuery) {
         whereClauses.push(
-          Prisma.sql`delivery_date >= (CURRENT_DATE - INTERVAL '30 days')::date
+          Prisma.sql`delivery_date >= (CURRENT_DATE - INTERVAL '14 days')::date
             AND delivery_date <= (CURRENT_DATE + INTERVAL '90 days')::date`,
         );
       }
@@ -3145,7 +3145,7 @@ export async function GET(request: NextRequest) {
       // Batasi ke 500 order terdekat berdasarkan delivery date agar tidak unlimited.
       // Ini mencegah query besar saat ada ratusan order historis.
       const isProductionListMode = !url.searchParams.has("page") && !isCalendarMode && !isDashboardMode && !isFinancialMode;
-      const productionListLimit = 500;
+      const productionListLimit = 2000;
       const needsPostHydrationBookingFilters =
         url.searchParams.has("page") &&
         !isCalendarMode &&
