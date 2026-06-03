@@ -3,7 +3,11 @@ import { z } from "zod";
 import prisma from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth/session";
 import { createShippingResi } from "@/lib/bookings/shipping-service";
-import { estimateOperationalWeightGram } from "@/lib/bookings/delivery-rules";
+import {
+  calculateShippingWeightGram,
+  getProductLookupKeyFromItem,
+  normalizeProductLookupKey,
+} from "@/lib/bookings/product-weight";
 import { normalizeDateInput } from "@/lib/helpers/date-normalization";
 import {
   getJakartaTodayIsoDate,
@@ -124,7 +128,10 @@ function buildReferenceId(row: DueOrderRow): string {
   return sanitizeReferenceId(`${bookingCode || externalId}-SCHEDULED`);
 }
 
-function buildShippingItems(itemsPayload: JsonRecord[]): ShippingQuoteItemInput[] {
+function buildShippingItems(
+  itemsPayload: JsonRecord[],
+  weightByProductName?: Map<string, number>,
+): ShippingQuoteItemInput[] {
   const items = itemsPayload
     .map((item) => {
       const quantity = Math.max(1, Math.round(asNumber(item.quantity) || 1));
@@ -141,20 +148,36 @@ function buildShippingItems(itemsPayload: JsonRecord[]): ShippingQuoteItemInput[
         .replace(/\(\s*\)/g, "")
         .trim();
       const name = nameRaw || "Order Item";
+      const productLookupKey = getProductLookupKeyFromItem({
+        category: asString(item.category),
+        subcategory: asString(item.subcategory),
+        productName: asString(item.productName),
+        size: asString(item.size),
+        quantity,
+        tokenDifficulty: asString(item.tokenDifficulty),
+      });
 
       const weightGram = Math.max(
         100,
-        estimateOperationalWeightGram({
-          category: asString(item.category),
-          subcategory: asString(item.subcategory),
-          productName: asString(item.productName),
-          size: asString(item.size),
-          quantity,
-        }),
+        calculateShippingWeightGram(
+          {
+            category: asString(item.category),
+            subcategory: asString(item.subcategory),
+            productName: asString(item.productName),
+            size: asString(item.size),
+            quantity,
+            tokenDifficulty: asString(item.tokenDifficulty),
+            productLookupKey,
+          },
+          {
+            weightByProductName,
+          },
+        ),
       );
 
       return {
         name,
+        productLookupKey,
         quantity,
         weightGram,
         value,
@@ -163,6 +186,28 @@ function buildShippingItems(itemsPayload: JsonRecord[]): ShippingQuoteItemInput[
     .filter((item) => item.quantity > 0);
 
   return items;
+}
+
+async function loadProductWeightMap(
+  businessId: number,
+): Promise<Map<string, number>> {
+  const products = await prisma.product.findMany({
+    where: {
+      businessId,
+      deletedAt: null,
+    },
+    select: {
+      name: true,
+      weightGram: true,
+    },
+  });
+
+  return new Map(
+    products.map((product) => [
+      normalizeProductLookupKey(product.name),
+      Math.max(0, Number(product.weightGram ?? 0)),
+    ]),
+  );
 }
 
 function extractPrimaryAddress(
@@ -336,7 +381,10 @@ async function loadOrderPayloadRows(args: {
   };
 }
 
-async function processOrder(row: DueOrderRow): Promise<CronResultItem> {
+async function processOrder(
+  row: DueOrderRow,
+  weightByProductName: Map<string, number>,
+): Promise<CronResultItem> {
   const businessId = Number(row.business_id);
   const orderId = asString(row.external_id);
   const bookingCode =
@@ -356,7 +404,7 @@ async function processOrder(row: DueOrderRow): Promise<CronResultItem> {
   }
 
   const payloadRows = await loadOrderPayloadRows({ businessId, orderId });
-  const items = buildShippingItems(payloadRows.items);
+  const items = buildShippingItems(payloadRows.items, weightByProductName);
 
   if (items.length === 0) {
     return {
@@ -578,9 +626,17 @@ async function handleCronRequest(req: NextRequest) {
     });
 
     const results: CronResultItem[] = [];
+    const productWeightMapCache = new Map<number, Map<string, number>>();
     for (const row of dueRows) {
       try {
-        const result = await processOrder(row);
+        const businessId = Number(row.business_id);
+        let weightByProductName = productWeightMapCache.get(businessId);
+        if (!weightByProductName) {
+          weightByProductName = await loadProductWeightMap(businessId);
+          productWeightMapCache.set(businessId, weightByProductName);
+        }
+
+        const result = await processOrder(row, weightByProductName);
         results.push(result);
       } catch (error) {
         results.push({

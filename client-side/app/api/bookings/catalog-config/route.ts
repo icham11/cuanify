@@ -15,6 +15,7 @@ import {
   normalizeCatalogAdminState,
 } from "@/lib/bookings/catalog-state";
 import { syncBakeryCatalogToDashboardProducts } from "@/lib/bookings/product-sync";
+import { invalidateProductTokenMapCache } from "@/lib/products/product-token-map-cache";
 import {
   isPrismaConnectionTimeout,
   prismaConnectionErrorResponse,
@@ -217,6 +218,7 @@ export async function PUT(request: NextRequest) {
     }
 
     revalidateTag("catalog", "max");
+    invalidateProductTokenMapCache(businessId);
 
     return NextResponse.json(
       { success: true, productSync, productSyncError },

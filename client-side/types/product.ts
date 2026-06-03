@@ -41,6 +41,7 @@ export type Product = {
   recipes: ProductRecipeItem[];
   cogs: number;
   productionToken?: number;
+  weightGram?: number;
   manualStock?: number;
   minimumOrder?: number;
 };
@@ -71,6 +72,7 @@ export type ProductDraft = {
   productType?: "ReadyStock" | "PreOrder";
   recipe: DraftRecipeRow[];
   cogs: number;
+  weightGram?: number;
   minimumOrder?: number;
   /** Flag set when populated by AI */
   aiGenerated?: boolean;
@@ -89,6 +91,7 @@ export type CreateProductInput = {
   sellingPrice: number;
   cogs: number;
   productionToken?: number;
+  weightGram?: number;
   manualStock?: number;
   minimumOrder?: number;
   productType?: "ReadyStock" | "PreOrder";

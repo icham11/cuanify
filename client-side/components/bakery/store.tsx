@@ -34,12 +34,15 @@ import {
 } from "@/lib/bookings/operations";
 import {
   parseInsuranceFeeFromNotes,
-  estimateOperationalWeightGram,
   usesShippingEngine,
   parseServiceChargeFromNotes,
   resolveShippingParcelCount,
   type DeliveryMethod,
 } from "@/lib/bookings/delivery-rules";
+import {
+  calculateShippingWeightGram,
+  getProductLookupKeyFromItem,
+} from "@/lib/bookings/product-weight";
 import { calculateOrderFinancialBreakdown } from "@/lib/bookings/financial-breakdown";
 import {
   resolveDeliveryMethodLabel,
@@ -2243,8 +2246,9 @@ export function OrdersProvider({
 
         const items = (order.items ?? []).map((item) => ({
           name: `${item.productName} (${item.size})`,
+          productLookupKey: getProductLookupKeyFromItem(item),
           quantity: resolveShippingParcelCount(item),
-          weightGram: estimateOperationalWeightGram(item),
+          weightGram: calculateShippingWeightGram(item),
           value: Math.max(
             1000,
             Math.round((item.basePrice || 0) + (item.addOnTotal || 0)),

@@ -16,6 +16,7 @@ import {
   normalizeProductName,
 } from "@/lib/products/uniqueness";
 import { getProductFieldAvailability } from "@/lib/products/prisma-product-capabilities";
+import { invalidateProductTokenMapCache } from "@/lib/products/product-token-map-cache";
 import { ensureOwnerDefaultProducts } from "@/lib/bookings/owner-product-bootstrap";
 import { loadEffectiveBookingCatalog } from "@/lib/bookings/catalog-config-server";
 import { flattenCatalogProductsForDashboard } from "@/lib/bookings/product-sync";
@@ -271,7 +272,7 @@ export async function GET(request: NextRequest) {
     }
     const whereRaw = Prisma.join(whereParts, " AND ");
 
-    const [total, statsRows, { hasProductionToken, hasManualStock, hasMinimumOrder }] =
+    const [total, statsRows, { hasProductionToken, hasWeightGram, hasManualStock, hasMinimumOrder }] =
       await Promise.all([
         prisma.product.count({ where }),
         prisma.$queryRaw<{ avg_price: string | null; avg_margin: string | null }[]>`
@@ -324,6 +325,7 @@ export async function GET(request: NextRequest) {
       cogs: true,
     };
     if (hasProductionToken) selectBase.productionToken = true;
+    if (hasWeightGram) selectBase.weightGram = true;
     if (hasManualStock) selectBase.manualStock = true;
     if (hasMinimumOrder) selectBase.minimumOrder = true;
 
@@ -362,6 +364,10 @@ export async function GET(request: NextRequest) {
           const fallback = catalogTokenMap?.get(normalizeTokenKey(p.name)) ?? 0;
           return fallback;
         })(),
+        weightGram: Math.max(
+          0,
+          Number((p as { weightGram?: number }).weightGram ?? 0),
+        ),
         availableStock: Math.max(
           0,
           Number((p as { manualStock?: number }).manualStock ?? 0),
@@ -500,6 +506,10 @@ export async function GET(request: NextRequest) {
             catalogTokenMap?.get(normalizeTokenKey(product.name)) ?? 0;
           return fallback;
         })(),
+        weightGram: Math.max(
+          0,
+          Number((product as { weightGram?: number }).weightGram ?? 0),
+        ),
         recipes: recipesWithCost,
         cogs: Number(product.cogs),
         availableStock: Math.max(
@@ -582,7 +592,7 @@ export async function POST(request: NextRequest) {
     requireRole(auth, "Owner");
     const { businessId } = auth;
     const body = await request.json();
-    const { hasProductionToken, hasManualStock, hasMinimumOrder } =
+    const { hasProductionToken, hasWeightGram, hasManualStock, hasMinimumOrder } =
       await getProductFieldAvailability();
 
     // Determine single vs bulk
@@ -644,6 +654,9 @@ export async function POST(request: NextRequest) {
             if (hasProductionToken) {
               productData.productionToken = item.productionToken ?? 0;
             }
+            if (hasWeightGram) {
+              productData.weightGram = item.weightGram ?? 0;
+            }
             if (hasManualStock) {
               productData.manualStock = item.manualStock ?? 0;
             }
@@ -689,6 +702,7 @@ export async function POST(request: NextRequest) {
         },
       });
 
+      invalidateProductTokenMapCache(businessId);
       return NextResponse.json({ success: true, data: result }, { status: 201 });
     }
 
@@ -710,6 +724,7 @@ export async function POST(request: NextRequest) {
       cogs,
       manualCogs,
       productionToken,
+      weightGram,
       manualStock,
       minimumOrder,
     } = parsed.data;
@@ -751,6 +766,9 @@ export async function POST(request: NextRequest) {
         };
         if (hasProductionToken) {
           productData.productionToken = productionToken ?? 0;
+        }
+        if (hasWeightGram) {
+          productData.weightGram = weightGram ?? 0;
         }
         if (hasManualStock) {
           productData.manualStock = manualStock ?? 0;
@@ -795,6 +813,7 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    invalidateProductTokenMapCache(businessId);
     return NextResponse.json({ success: true, data: result }, { status: 201 });
   } catch (error: unknown) {
     if (isAuthError(error)) {
@@ -871,6 +890,7 @@ export async function DELETE(request: NextRequest) {
     const now = new Date();
     await prisma.product.updateMany({ where: { id: { in: ids }, businessId }, data: { deletedAt: now } });
 
+    invalidateProductTokenMapCache(businessId);
     return NextResponse.json({ success: true, deleted: ids.length });
   } catch (error) {
     if (isAuthError(error)) {

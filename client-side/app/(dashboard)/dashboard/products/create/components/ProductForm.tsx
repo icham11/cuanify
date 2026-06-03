@@ -35,6 +35,7 @@ interface Props {
     categoryName?: string;
     sellingPrice?: number;
     cogs?: number;
+    weightGram?: number;
     minimumOrder?: number;
     recipe?: DraftRecipeRow[];
   };
@@ -206,6 +207,9 @@ export default function ProductForm({ initialDraft, onSuccess }: Props) {
   const [directCogs, setDirectCogs] = useState<number>(
     initialDraft?.cogs ?? 0,
   );
+  const [weightGram, setWeightGram] = useState<number>(
+    Math.max(0, Number(initialDraft?.weightGram ?? 0)),
+  );
   const [minimumOrder, setMinimumOrder] = useState<number>(
     initialDraft?.minimumOrder ?? 0,
   );
@@ -322,6 +326,7 @@ export default function ProductForm({ initialDraft, onSuccess }: Props) {
         categoryName: categoryName.trim(),
         sellingPrice,
         cogs: directCogs,
+        weightGram,
         minimumOrder: minimumOrder > 0 ? minimumOrder : 0,
         productType,
         recipe: [],
@@ -537,6 +542,25 @@ export default function ProductForm({ initialDraft, onSuccess }: Props) {
           <p className="text-xs text-gray-400">
             Kosongkan atau isi 0 kalau tidak ada batas minimal. Isi angka kalau
             produk hanya boleh dipesan mulai jumlah tertentu.
+          </p>
+        </div>
+
+        <div className="space-y-2 rounded-2xl border border-gray-100 bg-white p-5 shadow">
+          <label className="text-sm font-bold text-gray-700">
+            Berat Produk (gram)
+          </label>
+          <input
+            type="number"
+            min={0}
+            value={weightGram}
+            onChange={(event) =>
+              setWeightGram(Math.max(0, Number(event.target.value) || 0))
+            }
+            placeholder="0"
+            className="w-full rounded-xl border border-indigo-200 bg-white px-4 py-2.5 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-indigo-400"
+          />
+          <p className="text-xs text-gray-400">
+            Berat per produk untuk kalkulasi ongkir. Isi 0 jika belum tahu, maka sistem pakai fallback estimator.
           </p>
         </div>
 

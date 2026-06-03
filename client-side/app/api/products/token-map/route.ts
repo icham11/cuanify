@@ -4,6 +4,11 @@ import prisma from "@/lib/prisma";
 import { loadEffectiveBookingCatalog } from "@/lib/bookings/catalog-config-server";
 import { flattenCatalogProductsForDashboard } from "@/lib/bookings/product-sync";
 import {
+  getCachedProductTokenMap,
+  setCachedProductTokenMap,
+  type ProductTokenMapEntry,
+} from "@/lib/products/product-token-map-cache";
+import {
   isPrismaConnectionTimeout,
   prismaConnectionErrorResponse,
   withPrismaRetry,
@@ -19,42 +24,58 @@ function normalizeKey(value: string): string {
 export async function GET() {
   try {
     const { businessId } = await requireAuth();
-    const [products, effectiveCatalog] = await Promise.all([
-      withPrismaRetry(() =>
-        prisma.product.findMany({ // Query data produk menggunakan Prisma ORM
-          where: { // Kriteria pencarian data
-            businessId, // Bisnis aktif yang sedang login
-            deletedAt: null, // Hanya ambil produk yang tidak dihapus (aktif/soft-delete check)
-          }, // Akhir dari kriteria where
-          select: { // Pilih kolom tertentu untuk menghemat bandwidth
-            name: true, // Ambil nama produk dashboard
-            productionToken: true, // Ambil token produksi aktif
-            minimumOrder: true, // TAMBAHKAN: Ambil batas minimal order dari DB
-          }, // Akhir dari select
-          orderBy: { // Urutan pengembalian data
-            name: "asc", // Urutkan nama produk dari A ke Z
-          }, // Akhir dari orderBy
-        }),
-      ), // Akhir dari query findMany dengan retry
-      loadEffectiveBookingCatalog(businessId), // Muat katalog booking efektif untuk fallback token
-    ]); // Akhir dari Promise.all
+    const cached = getCachedProductTokenMap(businessId);
+    if (cached) {
+      return NextResponse.json({ success: true, data: cached });
+    }
 
-    const fallbackTokenMap = new Map<string, number>(); // Inisialisasi map untuk token fallback
-    flattenCatalogProductsForDashboard(effectiveCatalog.productCatalog).forEach( // Iterasi produk katalog
-      (item) => { // Setiap item katalog diproses
-        fallbackTokenMap.set(normalizeKey(item.name), Math.max(0, Number(item.productionToken || 0))); // Set token fallback dengan key nama produk yang dinormalisasi
-      }, // Akhir iterasi item
-    ); // Akhir dari forEach
+    const products = await withPrismaRetry(() =>
+      prisma.product.findMany({
+        where: {
+          businessId,
+          deletedAt: null,
+        },
+        select: {
+          name: true,
+          productionToken: true,
+          weightGram: true,
+          minimumOrder: true,
+        },
+        orderBy: {
+          name: "asc",
+        },
+      }),
+    );
 
-    const data = products.map((product) => { // Petakan setiap produk hasil DB ke array response
+    const needsFallbackTokenCatalog = products.some(
+      (product) => Math.max(0, Number(product.productionToken || 0)) === 0,
+    );
+
+    const fallbackTokenMap = new Map<string, number>();
+    if (needsFallbackTokenCatalog) {
+      const effectiveCatalog = await loadEffectiveBookingCatalog(businessId);
+      flattenCatalogProductsForDashboard(effectiveCatalog.productCatalog).forEach(
+        (item) => {
+          fallbackTokenMap.set(
+            normalizeKey(item.name),
+            Math.max(0, Number(item.productionToken || 0)),
+          );
+        },
+      );
+    }
+
+    const data: ProductTokenMapEntry[] = products.map((product) => {
       const current = Math.max(0, Number(product.productionToken || 0)); // Parsing token produksi aktif dari DB
       const fallback = fallbackTokenMap.get(normalizeKey(product.name)) ?? 0; // Dapatkan fallback token jika token DB bernilai 0
       return { // Kembalikan objek data produk terformat
         name: product.name, // Nama produk dashboard
         productionToken: current > 0 ? current : fallback, // Gunakan token aktif DB atau fallback katalog
+        weightGram: Math.max(0, Number(product.weightGram || 0)), // Berat produk aktif dari DB (gram)
         minimumOrder: Math.max(0, Number(product.minimumOrder || 0)), // Sertakan batas minimal order dari DB
       }; // Akhir pengembalian objek
     }); // Akhir pemetaan map data
+
+    setCachedProductTokenMap(businessId, data);
 
     return NextResponse.json({ success: true, data });
   } catch (error) {

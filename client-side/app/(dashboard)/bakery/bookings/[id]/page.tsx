@@ -32,9 +32,12 @@ import { openInvoicePrintWindow } from "@/components/bakery/bookings/InvoiceTemp
 import { openLabelPrintWindow } from "@/components/bakery/bookings/LabelTemplate";
 import type { ShippingResiResponse } from "@/lib/bookings/shipping-types";
 import {
-  estimateOperationalWeightGram,
   resolveShippingParcelCount,
 } from "@/lib/bookings/delivery-rules";
+import {
+  calculateShippingWeightGram,
+  getProductLookupKeyFromItem,
+} from "@/lib/bookings/product-weight";
 import {
   BOOKING_STATUS_OPTIONS,
   normalizeOrderStatus,
@@ -258,8 +261,9 @@ export default function OrderDetailPage() {
     try {
       const items = (order.items ?? []).map((item) => ({
         name: `${item.productName} (${item.size})`,
+        productLookupKey: getProductLookupKeyFromItem(item),
         quantity: resolveShippingParcelCount(item),
-        weightGram: estimateOperationalWeightGram(item),
+        weightGram: calculateShippingWeightGram(item),
         value: Math.max(
           1000,
           Math.round((item.basePrice || 0) + (item.addOnTotal || 0)),

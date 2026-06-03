@@ -88,7 +88,6 @@ import {
 } from "@/lib/helpers/date-normalization";
 import {
   DELIVERY_METHOD_OPTIONS,
-  estimateOperationalWeightGram,
   getGrabCarOnlyReasons,
   isGrabCarOnlyItem,
   isBouquetItem,
@@ -97,6 +96,10 @@ import {
   type DeliveryMethod,
   usesShippingEngine,
 } from "@/lib/bookings/delivery-rules";
+import {
+  calculateShippingWeightGram,
+  getProductLookupKeyFromItem,
+} from "@/lib/bookings/product-weight";
 import { calculateOrderFinancialBreakdown } from "@/lib/bookings/financial-breakdown";
 import {
   resolveDeliveryMethodLabel,
@@ -3655,6 +3658,9 @@ export default function BookingForm({
   const [productMinimumOrderByName, setProductMinimumOrderByName] = useState< // TAMBAHKAN: Definisikan state untuk peta minimal order produk dari DB
     Map<string, number> // TAMBAHKAN: Tipe: Map dari nama produk dashboard ke batas minimal order
   >(new Map()); // TAMBAHKAN: Nilai awal: Map kosong
+  const [productWeightByName, setProductWeightByName] = useState<
+    Map<string, number>
+  >(new Map());
 
   useEffect(() => { // Effect untuk melakukan polling data token kesulitan dan minimal order
     let cancelled = false; // Flag status mount komponen
@@ -3668,18 +3674,28 @@ export default function BookingForm({
         if (!response.ok) return; // Jika gagal (e.g. 500, 401), abaikan
         const payload = (await response.json().catch(() => ({}))) as { // Parse data JSON, fallback ke objek kosong
           success?: boolean; // Indikator sukses API
-          data?: Array<{ name: string; productionToken: number; minimumOrder?: number }>; // Payload termasuk field minimumOrder
+          data?: Array<{
+            name: string;
+            productionToken: number;
+            weightGram?: number;
+            minimumOrder?: number;
+          }>;
         }; // Akhir casting tipe
         if (!payload.success || !Array.isArray(payload.data)) return; // Validasi payload response
         if (cancelled) return; // Hentikan jika komponen unmounted
         const tokenMap = new Map<string, number>(); // Instansiasi map token baru
         const minOrderMap = new Map<string, number>(); // TAMBAHKAN: Instansiasi map minimal order baru
+        const weightMap = new Map<string, number>();
         payload.data.forEach((product) => { // Looping setiap produk
           const lookupKey = normalizeTokenLookupKey(product.name); // Dapatkan lookup key terformat nama produk
           tokenMap.set( // Masukkan ke map token
             lookupKey, // Gunakan key nama produk dashboard ter-normalisasi
             Math.max(0, Number(product.productionToken ?? 0)), // Parsing token produksi aman >= 0
           ); // Akhir tokenMap.set
+          weightMap.set(
+            lookupKey,
+            Math.max(0, Number(product.weightGram ?? 0)),
+          );
           if (product.minimumOrder !== undefined) { // TAMBAHKAN: Cek ketersediaan field minimumOrder
             minOrderMap.set( // TAMBAHKAN: Masukkan minimal order ke map
               lookupKey, // TAMBAHKAN: Gunakan key nama produk dashboard ter-normalisasi
@@ -3689,6 +3705,7 @@ export default function BookingForm({
         }); // Akhir loop forEach
         setProductTokenByName(tokenMap); // Update state token map
         setProductMinimumOrderByName(minOrderMap); // TAMBAHKAN: Update state minimal order map
+        setProductWeightByName(weightMap);
       } catch { // Tangkap error jika ada
         // fallback ke calculator path saja jika API gagal
       } // Akhir block try-catch
@@ -5257,12 +5274,15 @@ export default function BookingForm({
 
       return {
         name: `${item.productName} (${item.size})`,
+        productLookupKey: getProductLookupKeyFromItem(item),
         quantity: resolveShippingParcelCount(item),
-        weightGram: estimateOperationalWeightGram(item),
+        weightGram: calculateShippingWeightGram(item, {
+          weightByProductName: productWeightByName,
+        }),
         value: Math.max(1000, Math.round(itemBasePrice)),
       };
     });
-  }, [watchedItems, productCatalog, addOnCatalog]);
+  }, [watchedItems, productCatalog, addOnCatalog, productWeightByName]);
 
   const shippingWeightSummary = useMemo(() => {
     const rows = shippingItems.map((item, index) => {

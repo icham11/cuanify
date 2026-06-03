@@ -276,10 +276,10 @@ function RecipeModal({
           </button>
         </div>
 
-        <div className="grid grid-cols-3 divide-x divide-gray-100 border-b border-gray-100 text-center">
-          <div className="px-3 py-3">
-            <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400">
-              Harga Jual
+          <div className="grid grid-cols-3 divide-x divide-gray-100 border-b border-gray-100 text-center">
+            <div className="px-3 py-3">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                Harga Jual
             </p>
             <p className="mt-1 text-sm font-extrabold text-[#c86030]">
               {formatCurrency(sellingPrice)}
@@ -293,15 +293,23 @@ function RecipeModal({
               {cogs > 0 ? formatCurrency(cogs) : "—"}
             </p>
           </div>
-          <div className="px-3 py-3">
+            <div className="px-3 py-3">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                Margin
+              </p>
+              <p className="mt-1 text-sm font-extrabold">
+                {margin !== null ? <MarginBadge margin={margin} /> : "—"}
+              </p>
+            </div>
+          </div>
+          <div className="border-b border-gray-100 px-4 py-3 text-center">
             <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400">
-              Margin
+              Berat Produk
             </p>
-            <p className="mt-1 text-sm font-extrabold">
-              {margin !== null ? <MarginBadge margin={margin} /> : "—"}
+            <p className="mt-1 text-sm font-extrabold text-slate-700">
+              {Math.max(0, Number(product.weightGram ?? 0))} g
             </p>
           </div>
-        </div>
 
         <div className="max-h-[55dvh] overflow-y-auto px-4 py-4 sm:px-6">
           {product.recipes.length === 0 ? (
@@ -1187,6 +1195,9 @@ export default function ProductsPage() {
                           <span className="inline-flex rounded-full bg-[#f5e7dc] px-2.5 py-1 text-[10px] font-bold text-[#8d5a3d]">
                             Min {Math.max(0, Number(product.minimumOrder ?? 0))} pcs
                           </span>
+                          <span className="inline-flex rounded-full bg-[#eef4ff] px-2.5 py-1 text-[10px] font-bold text-[#34548a]">
+                            {Math.max(0, Number(product.weightGram ?? 0))} g
+                          </span>
                         </div>
                         <p className="text-[10px] text-[#b89080]">
                           Diperbarui {formatProductTimestamp(product)}
@@ -1244,9 +1255,9 @@ export default function ProductsPage() {
             setRecipeModal((prev) =>
               prev?.id === updated.id ? updated : prev,
             );
-            await refreshProducts();
-            await refreshCategories();
             setEditModal(null);
+            void refreshProducts();
+            void refreshCategories();
           }}
         />
       ) : null}

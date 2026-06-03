@@ -442,6 +442,17 @@ function inferBookingFieldsFromDashboardName(args: {
   };
 }
 
+function entriesMatch(left: CustomProductEntry, right: CustomProductEntry): boolean {
+  return (
+    left.category.trim() === right.category.trim() &&
+    left.subcategory.trim() === right.subcategory.trim() &&
+    left.productName.trim() === right.productName.trim() &&
+    left.variantLabel.trim() === right.variantLabel.trim() &&
+    Math.max(0, Math.round(Number(left.price || 0))) ===
+      Math.max(0, Math.round(Number(right.price || 0)))
+  );
+}
+
 export default function EditProductModal({ product, categories, onClose, onSaved }: EditProductModalProps) {
   const initialSubcategory = product.category?.name ?? "";
   const initialResolvedMainCategory = initialSubcategory
@@ -476,6 +487,9 @@ export default function EditProductModal({ product, categories, onClose, onSaved
   );
   const [productionToken, setProductionToken] = useState<number>(
     Math.max(0, Number(product.productionToken || 0)),
+  );
+  const [weightGram, setWeightGram] = useState<number>(
+    Math.max(0, Number(product.weightGram ?? 0)),
   );
   const [manualStock, setManualStock] = useState<number>(
     Math.max(0, Number(product.availableStock ?? product.manualStock ?? 0)),
@@ -673,36 +687,44 @@ export default function EditProductModal({ product, categories, onClose, onSaved
         ...(Number(directCogs) > 0 ? { cogs: Number(directCogs) } : {}),
         minimumOrder: Number(minimumOrder) > 0 ? Number(minimumOrder) : 0,
         productionToken: Number(productionToken),
+        weightGram: Number(weightGram),
         manualStock: Number(manualStock),
         productType,
         recipe: recipePayload,
         ...(recipePayload.length === 0 ? { manualCogs: Number(directCogs) } : {}),
       });
 
-      try {
-        const productSyncError = await syncToBookingCatalogPrice(
-          {
-            category: productCategory.trim(),
-            subcategory: bookingSubcategory.trim(),
-            productName: itemName.trim(),
-            variantLabel: bookingVariantLabel.trim(),
-            price: Number(sellingPrice),
-          },
-          resolvedInitialCatalogEntryRef.current,
-        );
-        setCatalogSyncWarning(
-          productSyncError
-            ? `Perubahan catalog booking berhasil disimpan, tetapi sinkron dashboard product belum sempurna: ${productSyncError}`
-            : null,
-        );
-      } catch (syncError) {
-        setCatalogSyncWarning(
-          `Produk dashboard tersimpan, tetapi sinkron booking catalog gagal: ${
-            syncError instanceof Error
-              ? syncError.message
-              : "Terjadi error sinkronisasi."
-          }`,
-        );
+      const nextCatalogEntry: CustomProductEntry = {
+        category: productCategory.trim(),
+        subcategory: bookingSubcategory.trim(),
+        productName: itemName.trim(),
+        variantLabel: bookingVariantLabel.trim(),
+        price: Number(sellingPrice),
+      };
+
+      const shouldSyncBookingCatalog =
+        !entriesMatch(nextCatalogEntry, resolvedInitialCatalogEntryRef.current);
+
+      if (shouldSyncBookingCatalog) {
+        try {
+          const productSyncError = await syncToBookingCatalogPrice(
+            nextCatalogEntry,
+            resolvedInitialCatalogEntryRef.current,
+          );
+          setCatalogSyncWarning(
+            productSyncError
+              ? `Perubahan catalog booking berhasil disimpan, tetapi sinkron dashboard product belum sempurna: ${productSyncError}`
+              : null,
+          );
+        } catch (syncError) {
+          setCatalogSyncWarning(
+            `Produk dashboard tersimpan, tetapi sinkron booking catalog gagal: ${
+              syncError instanceof Error
+                ? syncError.message
+                : "Terjadi error sinkronisasi."
+            }`,
+          );
+        }
       }
 
       await onSaved(updatedProduct);
@@ -935,6 +957,19 @@ export default function EditProductModal({ product, categories, onClose, onSaved
                 onChange={(e) => setProductionToken(Math.max(0, Number(e.target.value) || 0))}
                 className="w-full border border-indigo-200 rounded-xl px-4 py-2.5 text-base font-semibold text-slate-700 bg-white focus:ring-2 focus:ring-indigo-400 outline-none"
               />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Berat Produk (gram)</label>
+              <input
+                type="number"
+                min={0}
+                value={weightGram}
+                onChange={(e) => setWeightGram(Math.max(0, Number(e.target.value) || 0))}
+                className="w-full border border-indigo-200 rounded-xl px-4 py-2.5 text-base font-semibold text-slate-700 bg-white focus:ring-2 focus:ring-indigo-400 outline-none"
+              />
+              <p className="mt-1 text-[11px] text-gray-400">
+                Dipakai untuk estimator ongkir. Isi 0 untuk fallback otomatis.
+              </p>
             </div>
             <div>
               <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Stock (Manual)</label>

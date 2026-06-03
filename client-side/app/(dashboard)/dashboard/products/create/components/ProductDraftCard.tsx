@@ -118,6 +118,9 @@ export default function ProductDraftCard({
               <span className="text-xs text-gray-400">
                 COGS {cogs > 0 ? formatCurrency(cogs) : "-"}
               </span>
+              <span className="text-xs text-gray-400">
+                Berat {Math.max(0, Number(draft.weightGram ?? 0))} g
+              </span>
               {draft.sellingPrice > 0 && (
                 <span
                   className={`rounded-full px-2 py-0.5 text-xs font-bold ${
@@ -164,7 +167,7 @@ export default function ProductDraftCard({
 
         {expanded && (
           <div className="space-y-4 rounded-b-2xl border-t border-gray-100 bg-indigo-50/30 px-5 py-4">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
               <div>
                 <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">
                   Kategori
@@ -205,6 +208,23 @@ export default function ProductDraftCard({
                   value={draft.cogs ?? 0}
                   onChange={(event) =>
                     onChange({ ...draft, cogs: Number(event.target.value) })
+                  }
+                  className="mt-1 w-full rounded-lg border border-indigo-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-indigo-400"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  Berat (gram)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  value={draft.weightGram ?? 0}
+                  onChange={(event) =>
+                    onChange({
+                      ...draft,
+                      weightGram: Math.max(0, Number(event.target.value) || 0),
+                    })
                   }
                   className="mt-1 w-full rounded-lg border border-indigo-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-indigo-400"
                 />

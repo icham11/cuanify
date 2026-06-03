@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 
 type ProductFieldAvailability = {
   hasProductionToken: boolean;
+  hasWeightGram: boolean;
   hasManualStock: boolean;
   hasMinimumOrder: boolean;
 };
@@ -20,6 +21,7 @@ let productFieldAvailabilityPromise: Promise<ProductFieldAvailability> | null =
 export function getProductPrismaFieldAvailability(): ProductFieldAvailability {
   return {
     hasProductionToken: productPrismaFieldNames.has("productionToken"),
+    hasWeightGram: productPrismaFieldNames.has("weightGram"),
     hasManualStock: productPrismaFieldNames.has("manualStock"),
     hasMinimumOrder: productPrismaFieldNames.has("minimumOrder"),
   };
@@ -34,7 +36,7 @@ export async function getProductFieldAvailability(): Promise<ProductFieldAvailab
        FROM information_schema.columns
        WHERE table_schema = current_schema()
          AND table_name = 'Product'
-         AND column_name IN ('productionToken', 'manualStock', 'minimumOrder')`
+         AND column_name IN ('productionToken', 'weightGram', 'manualStock', 'minimumOrder')`
       .then((rows) => {
         const columns = new Set(rows.map((row) => row.column_name));
 
@@ -42,6 +44,9 @@ export async function getProductFieldAvailability(): Promise<ProductFieldAvailab
           hasProductionToken:
             prismaFieldAvailability.hasProductionToken &&
             columns.has("productionToken"),
+          hasWeightGram:
+            prismaFieldAvailability.hasWeightGram &&
+            columns.has("weightGram"),
           hasManualStock:
             prismaFieldAvailability.hasManualStock &&
             columns.has("manualStock"),

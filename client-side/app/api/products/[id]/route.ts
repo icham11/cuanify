@@ -14,6 +14,7 @@ import {
   normalizeProductName,
 } from "@/lib/products/uniqueness";
 import { getProductFieldAvailability } from "@/lib/products/prisma-product-capabilities";
+import { invalidateProductTokenMapCache } from "@/lib/products/product-token-map-cache";
 import { recipeItemSchema } from "@/lib/validations/product";
 import { normalizeDirectCogs } from "@/lib/cogs/config";
 import {
@@ -41,6 +42,7 @@ const patchSchema = z.object({
     .optional(),
   cogs: z.coerce.number().positive("COGS must be greater than 0").optional(),
   productionToken: z.coerce.number().int().min(0).optional(),
+  weightGram: z.coerce.number().int().min(0).optional(),
   manualStock: z.coerce.number().int().min(0).optional(),
   minimumOrder: z.coerce.number().int().min(0).optional(),
   productType: z.enum(["ReadyStock", "PreOrder"]).optional(),
@@ -84,7 +86,7 @@ export async function PATCH(
         { status: 400 },
       );
     }
-    const { hasProductionToken, hasManualStock, hasMinimumOrder } =
+    const { hasProductionToken, hasWeightGram, hasManualStock, hasMinimumOrder } =
       await getProductFieldAvailability();
 
     await prisma.$transaction(async (tx) => {
@@ -138,6 +140,8 @@ export async function PATCH(
         updateData.cogs = normalizeDirectCogs(parsed.data.cogs);
       if (hasProductionToken && parsed.data.productionToken !== undefined)
         updateData.productionToken = parsed.data.productionToken;
+      if (hasWeightGram && parsed.data.weightGram !== undefined)
+        updateData.weightGram = parsed.data.weightGram;
       if (hasManualStock && parsed.data.manualStock !== undefined)
         updateData.manualStock = parsed.data.manualStock;
       if (hasMinimumOrder && parsed.data.minimumOrder !== undefined)
@@ -176,6 +180,8 @@ export async function PATCH(
         recipes: { include: { ingredient: true } },
       },
     });
+
+    invalidateProductTokenMapCache(businessId);
 
     return NextResponse.json({ success: true, data: result });
   } catch (error: unknown) {
@@ -249,6 +255,8 @@ export async function DELETE(
       where: { id },
       data: { deletedAt: new Date() },
     });
+
+    invalidateProductTokenMapCache(businessId);
 
     return NextResponse.json({ success: true });
   } catch (error: unknown) {

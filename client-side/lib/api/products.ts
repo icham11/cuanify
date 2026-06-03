@@ -335,6 +335,7 @@ export async function updateProduct(
     sellingPrice?: number;
     cogs?: number;
     productionToken?: number;
+    weightGram?: number;
     manualStock?: number;
     minimumOrder?: number;
     productType?: "ReadyStock" | "PreOrder";

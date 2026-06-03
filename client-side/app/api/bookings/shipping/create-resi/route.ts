@@ -6,6 +6,10 @@ import { createShippingResi } from "@/lib/bookings/shipping-service";
 import { inferScheduledProviderFromQuote } from "@/lib/bookings/shipping-schedule";
 import { calculateShippingInsuranceFee } from "@/lib/bookings/shipping-insurance";
 import {
+  applyWeightOverridesToShippingItems,
+  normalizeProductLookupKey,
+} from "@/lib/bookings/product-weight";
+import {
   isPrismaConnectionTimeout,
   prismaConnectionErrorResponse,
 } from "@/lib/prisma-errors";
@@ -60,6 +64,7 @@ const createResiSchema = z.object({
     .array(
       z.object({
         name: z.string().min(1),
+        productLookupKey: z.string().optional(),
         quantity: z.number().min(1),
         weightGram: z.number().min(1),
         value: z.number().min(0),
@@ -190,6 +195,29 @@ export async function POST(request: NextRequest) {
         { status: 200 },
       );
     }
+
+    const productWeights = await prisma.product.findMany({
+      where: {
+        businessId,
+        deletedAt: null,
+      },
+      select: {
+        name: true,
+        weightGram: true,
+      },
+    });
+
+    const weightByProductName = new Map(
+      productWeights.map((product) => [
+        normalizeProductLookupKey(product.name),
+        Math.max(0, Number(product.weightGram ?? 0)),
+      ]),
+    );
+
+    normalizedPayload.items = applyWeightOverridesToShippingItems(
+      normalizedPayload.items,
+      weightByProductName,
+    );
 
     const result = await createShippingResi(normalizedPayload);
     const status = result.success ? 200 : 400;

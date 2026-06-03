@@ -10,6 +10,7 @@ export type ShippingQuoteRateType = "coordinate" | "postal";
 
 export interface ShippingQuoteItemInput {
   name: string;
+  productLookupKey?: string;
   // Number of parcels/boxes that should be quoted for this line item.
   quantity: number;
   // Total weight for this row (all quantity), in grams.

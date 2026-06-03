@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAuth, AuthError } from "@/lib/auth/session";
+import prisma from "@/lib/prisma";
+import {
+  applyWeightOverridesToShippingItems,
+  normalizeProductLookupKey,
+} from "@/lib/bookings/product-weight";
 import { getShippingQuote } from "@/lib/bookings/shipping-service";
 import type { ShippingQuoteRequest } from "@/lib/bookings/shipping-types";
 
@@ -18,6 +23,7 @@ const quoteSchema = z.object({
     .array(
       z.object({
         name: z.string().min(1),
+        productLookupKey: z.string().optional(),
         quantity: z.number().min(1),
         weightGram: z.number().min(1),
         value: z.number().min(0),
@@ -38,7 +44,7 @@ function getErrorMessage(error: unknown): string {
 
 export async function POST(request: NextRequest) {
   try {
-    await requireAuth();
+    const { businessId } = await requireAuth();
 
     const body = (await request.json()) as ShippingQuoteRequest;
     const parsed = quoteSchema.safeParse(body);
@@ -54,7 +60,33 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const result = await getShippingQuote(parsed.data);
+    const productWeights = await prisma.product.findMany({
+      where: {
+        businessId,
+        deletedAt: null,
+      },
+      select: {
+        name: true,
+        weightGram: true,
+      },
+    });
+
+    const weightByProductName = new Map(
+      productWeights.map((product) => [
+        normalizeProductLookupKey(product.name),
+        Math.max(0, Number(product.weightGram ?? 0)),
+      ]),
+    );
+
+    const normalizedPayload: ShippingQuoteRequest = {
+      ...parsed.data,
+      items: applyWeightOverridesToShippingItems(
+        parsed.data.items,
+        weightByProductName,
+      ),
+    };
+
+    const result = await getShippingQuote(normalizedPayload);
     const status = result.success ? 200 : 400;
     return NextResponse.json(result, { status });
   } catch (error: unknown) {

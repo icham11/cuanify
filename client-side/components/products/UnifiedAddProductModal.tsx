@@ -184,6 +184,7 @@ export default function UnifiedAddProductModal({ open, onClose, onSaved }: Props
   const [sellingPrice, setSellingPrice] = useState(0);
   const [directCogs, setDirectCogs] = useState(0);
   const [productionToken, setProductionToken] = useState(0);
+  const [weightGram, setWeightGram] = useState(0);
   const [manualStock, setManualStock] = useState(0);
   const [bookingVariantLabel, setBookingVariantLabel] = useState("Standard");
   const [appendVariantToDashboardName, setAppendVariantToDashboardName] =
@@ -248,6 +249,7 @@ export default function UnifiedAddProductModal({ open, onClose, onSaved }: Props
     setSellingPrice(0);
     setDirectCogs(0);
     setProductionToken(0);
+    setWeightGram(0);
     setManualStock(0);
     setBookingVariantLabel("Standard");
     setAppendVariantToDashboardName(true);
@@ -290,6 +292,7 @@ export default function UnifiedAddProductModal({ open, onClose, onSaved }: Props
           sellingPrice,
           cogs: directCogs,
           productionToken,
+          weightGram,
           manualStock,
           recipe: [],
         });
@@ -468,6 +471,17 @@ export default function UnifiedAddProductModal({ open, onClose, onSaved }: Props
                 value={productionToken}
                 onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
                   setProductionToken(Math.max(0, Number(event.target.value) || 0))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-semibold text-slate-700">Berat Produk (gram)</label>
+              <Input
+                type="number"
+                min={0}
+                value={weightGram}
+                onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                  setWeightGram(Math.max(0, Number(event.target.value) || 0))
                 }
               />
             </div>
