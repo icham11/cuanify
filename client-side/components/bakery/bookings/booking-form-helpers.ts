@@ -42,7 +42,6 @@ import {
   type CatalogAddOn,
   type CatalogSelection,
   type PricelistCategory,
-  BOOKING_ADD_ON_CATALOG,
 } from "@/lib/bookings/pricelist";
 import {
   getFlavorAddOnIdsByCategory,

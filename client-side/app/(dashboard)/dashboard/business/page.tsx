@@ -6,7 +6,6 @@ import { useRole } from "@/context/RoleContext";
 import {
   OrdersProvider,
   useOrders,
-  type BakeryOrder,
 } from "@/components/bakery/store";
 import MonthYearPicker, {
   buildSelectableMonthKeys,
@@ -14,7 +13,11 @@ import MonthYearPicker, {
 import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import { BAKERY_SETTINGS_UPDATED_EVENT } from "@/hooks/useBakerySettings";
 import { apiFetch } from "@/lib/api/client";
-import { calculateBakeryFinancialSummary } from "@/lib/bakery/financial-summary";
+import {
+  calculateBakeryFinancialSummary,
+  calculateOperationalCostForDateRange,
+  type BakeryFinancialOrder,
+} from "@/lib/bakery/financial-summary";
 import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 import type { BakeryBusinessSettings } from "@/lib/bakery/settings";
 import type { Product } from "@/types/product";
@@ -30,7 +33,7 @@ type ProductsResponse = {
 
 type OrdersResponse = {
   data?: {
-    orders?: BakeryOrder[];
+    orders?: BakeryFinancialOrder[];
     source?: string;
   };
 };
@@ -48,6 +51,8 @@ type ViewState = {
   currentRevenue: number;
   currentProfit: number;
   previousRevenue: number;
+  cogsCost: number;
+  operationalCost: number;
   cancelledRevenue: number;
   cancelledCogsCost: number;
   returnRefundAmount: number;
@@ -81,6 +86,8 @@ const EMPTY_VIEW_STATE: ViewState = {
   currentRevenue: 0,
   currentProfit: 0,
   previousRevenue: 0,
+  cogsCost: 0,
+  operationalCost: 0,
   cancelledRevenue: 0,
   cancelledCogsCost: 0,
   returnRefundAmount: 0,
@@ -95,10 +102,23 @@ const EMPTY_VIEW_STATE: ViewState = {
   dailyTransactions: [],
 };
 
-const BUSINESS_VIEW_CACHE = new Map<
+type BusinessReferenceData = {
+  bakerySettings: BakeryBusinessSettings | null;
+  products: Product[];
+  serverFinancialOrders: BakeryFinancialOrder[] | null;
+};
+
+const EMPTY_REFERENCE_DATA: BusinessReferenceData = {
+  bakerySettings: null,
+  products: [],
+  serverFinancialOrders: null,
+};
+
+const BUSINESS_REFERENCE_DATA_CACHE = new Map<
   string,
-  { value: ViewState; cachedAt: number }
+  { value: BusinessReferenceData; cachedAt: number }
 >();
+const BUSINESS_DATA_CACHE_TTL_MS = 30 * 1000;
 const BUSINESS_REFERENCE_CACHE_TTL_MS = 5 * 60 * 1000;
 const BUSINESS_ORDERS_CACHE_TTL_MS = 30 * 1000;
 
@@ -110,21 +130,9 @@ function formatCurrency(value: number) {
   }).format(Math.round(Number(value || 0)));
 }
 
-function formatCompactRupiah(value: number) {
+function formatFullRupiah(value: number) {
   const amount = Math.round(Number(value || 0));
-  const absoluteAmount = Math.abs(amount);
-  const sign = amount < 0 ? "-" : "";
-
-  if (absoluteAmount >= 1_000_000_000) {
-    return `${sign}Rp${(absoluteAmount / 1_000_000_000).toFixed(1).replace(".0", "")}M`;
-  }
-  if (absoluteAmount >= 1_000_000) {
-    return `${sign}Rp${(absoluteAmount / 1_000_000).toFixed(1).replace(".0", "")}jt`;
-  }
-  if (absoluteAmount >= 1_000) {
-    return `${sign}Rp${(absoluteAmount / 1_000).toFixed(0)}rb`;
-  }
-  return `${sign}Rp${absoluteAmount}`;
+  return `Rp ${amount.toLocaleString("id-ID")}`;
 }
 
 function formatSignedCurrency(value: number) {
@@ -160,6 +168,16 @@ function getMonthRange(monthKey: string) {
   };
 }
 
+function getBusinessFetchRange() {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth() - 18, 1);
+  const end = new Date(now.getFullYear(), now.getMonth() + 6, 0);
+  return {
+    startDate: `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-01`,
+    endDate: `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, "0")}-${String(end.getDate()).padStart(2, "0")}`,
+  };
+}
+
 function getInitials(name: string) {
   return name
     .trim()
@@ -192,6 +210,8 @@ function buildExportCsv(args: {
   monthLabel: string;
   businessName: string;
   revenue: number;
+  cogsCost: number;
+  operationalCost: number;
   totalCost: number;
   profit: number;
   activeOrders: number;
@@ -237,7 +257,9 @@ function buildExportCsv(args: {
     ["Periode", args.monthLabel],
     ["Order Aktif", formatNum(args.activeOrders)],
     ["Total Revenue", formatIdr(args.revenue)],
-    ["Total COGS/HPP", formatIdr(args.totalCost)],
+    ["Total COGS/HPP", formatIdr(args.cogsCost)],
+    ["Total Biaya Operasional", formatIdr(args.operationalCost)],
+    ["Total Biaya", formatIdr(args.totalCost)],
     ["Profit Bersih", formatIdr(args.profit)],
     ["Margin Kotor", formatPercent(args.margin)],
     [],
@@ -429,7 +451,8 @@ function BusinessPageContent() {
   const { userName } = useRole();
   const { orders } = useOrders();
   const [selectedMonth, setSelectedMonth] = useState(getMonthKey(new Date()));
-  const [viewState, setViewState] = useState<ViewState>(EMPTY_VIEW_STATE);
+  const [referenceData, setReferenceData] =
+    useState<BusinessReferenceData>(EMPTY_REFERENCE_DATA);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -440,12 +463,12 @@ function BusinessPageContent() {
         monthsForward: 5,
         includeMonthKeys: [
           ...orders.map((order) => getMonthKeyFromDateValue(order.deliveryDate)),
-          ...(viewState.bakerySettings?.monthlyExpenses ?? []).map(
+          ...(referenceData.bakerySettings?.monthlyExpenses ?? []).map(
             (entry) => entry.monthKey,
           ),
         ],
       }),
-    [orders, viewState.bakerySettings?.monthlyExpenses],
+    [orders, referenceData.bakerySettings?.monthlyExpenses],
   );
 
   const reloadKey = useMemo(() => BAKERY_SETTINGS_UPDATED_EVENT, []);
@@ -468,19 +491,21 @@ function BusinessPageContent() {
     let active = true;
 
     const load = async () => {
-      const cacheKey = `${business.id}:${selectedMonth}`;
-      const cachedEntry = BUSINESS_VIEW_CACHE.get(cacheKey);
+      const cacheKey = String(business.id);
+      const cachedEntry = BUSINESS_REFERENCE_DATA_CACHE.get(cacheKey);
 
-      if (cachedEntry) {
-        setViewState(cachedEntry.value);
+      if (
+        cachedEntry &&
+        Date.now() - cachedEntry.cachedAt < BUSINESS_DATA_CACHE_TTL_MS
+      ) {
+        setReferenceData(cachedEntry.value);
         setLoading(false);
       } else {
         setLoading(true);
       }
       setError(null);
 
-      const currentRange = getMonthRange(selectedMonth);
-      const previousRange = getMonthRange(currentRange.prevMonthKey);
+      const fetchRange = getBusinessFetchRange();
 
       const [bakerySettingsPayload, productsPayload, ordersPayload] =
         await Promise.all([
@@ -491,7 +516,7 @@ function BusinessPageContent() {
             cacheTtlMs: BUSINESS_REFERENCE_CACHE_TTL_MS,
           }),
           safeApiFetch<OrdersResponse>(
-            `/api/bookings/orders?mode=financial&startDate=${previousRange.startDate}&endDate=${currentRange.endDate}`,
+            `/api/bookings/orders?mode=financial&startDate=${fetchRange.startDate}&endDate=${fetchRange.endDate}`,
             {
               timeoutMs: 20000,
               cacheTtlMs: BUSINESS_ORDERS_CACHE_TTL_MS,
@@ -503,137 +528,39 @@ function BusinessPageContent() {
 
       const productsRequestFailed = didRequestFail(productsPayload);
       const ordersRequestFailed = didRequestFail(ordersPayload);
-
-      const bakerySettings = bakerySettingsPayload?.data ?? null;
-      const products = productsPayload?.data ?? [];
-      const serverOrders = Array.isArray(ordersPayload?.data?.orders)
-        ? (ordersPayload.data.orders as BakeryOrder[])
-        : [];
-      const authoritativeOrders = ordersRequestFailed
-        ? orders
-        : serverOrders;
-      const deliveryRangeOrders = filterOrdersByDeliveryDateRange(
-        authoritativeOrders,
-        currentRange.startDate,
-        currentRange.endDate,
-      );
-      const currentSummary = calculateBakeryFinancialSummary({
-        orders: authoritativeOrders,
-        products,
-        settings: bakerySettings,
-        fromDate: currentRange.startDate,
-        toDate: currentRange.endDate,
-      });
-      const previousSummary = calculateBakeryFinancialSummary({
-        orders: authoritativeOrders,
-        products,
-        settings: bakerySettings,
-        fromDate: previousRange.startDate,
-        toDate: previousRange.endDate,
-      });
-
-      const currentRevenue = currentSummary.totalRevenue;
-      const currentProfit = currentSummary.grossProfit;
-      const totalCost = currentSummary.cogsCost;
-      const previousRevenue = previousSummary.totalRevenue;
-      const cancelledOrders = authoritativeOrders.filter((order) => {
-        const deliveryDate = String(order.deliveryDate || "").trim();
-        if (!deliveryDate) return false;
-        if (deliveryDate < currentRange.startDate || deliveryDate > currentRange.endDate) {
-          return false;
-        }
-        return normalizeOrderStatus(order.orderStatus) === "Cancelled";
-      });
-      const avgMargin =
-        currentRevenue > 0 ? (currentProfit / currentRevenue) * 100 : 0;
-
-      const dailyTransactions: ViewState["dailyTransactions"] = [];
-      const ordersByDate = new Map<string, BakeryOrder[]>();
-      deliveryRangeOrders.forEach((o) => {
-        if (normalizeOrderStatus(o.orderStatus) === "Cancelled") return;
-        const d = String(o.deliveryDate || "").split("T")[0];
-        if (!d) return;
-        const arr = ordersByDate.get(d) || [];
-        arr.push(o);
-        ordersByDate.set(d, arr);
-      });
-      const sortedDates = Array.from(ordersByDate.keys()).sort();
-      for (const d of sortedDates) {
-        const dOrders = ordersByDate.get(d) || [];
-        const txs = dOrders.map((o) => {
-          const s = calculateBakeryFinancialSummary({
-            orders: [o],
-            products,
-            settings: bakerySettings,
-            fromDate: d,
-            toDate: d,
-          });
-          const customerName = String(o.customerName || "Customer").trim();
-          return {
-            revenue: s.totalRevenue,
-            cogs: s.cogsCost,
-            description: `${customerName} - ${o.product}`,
-          };
-        });
-        dailyTransactions.push({ date: d, transactions: txs });
-      }
-
-      const nextViewState: ViewState = {
-        viewerName: userName?.trim() || "",
-        businessName: business.name,
-        businessLocation: business.location || "",
-        currentRevenue,
-        currentProfit,
-        previousRevenue,
-        cancelledRevenue: currentSummary.cancelledRevenue,
-        cancelledCogsCost: currentSummary.cancelledCogsCost,
-        returnRefundAmount: currentSummary.returnRefundAmount,
-        cancelledOrdersCount: cancelledOrders.length,
-        totalCost,
-        avgMargin,
-        totalSalesCount: deliveryRangeOrders.length,
-        paidSalesCount: deliveryRangeOrders.filter((order) => {
-          const totalPaid = Number(order.totalPaidAmount ?? 0);
-          const fallbackPaid =
-            Number(order.dpPaidAmount ?? 0) +
-            Number(order.finalPaidAmount ?? 0);
-          return totalPaid > 0 || fallbackPaid > 0;
-        }).length,
-        topProducts: currentSummary.topProducts,
-        bakerySettings,
-        cogsBreakdown: currentSummary.cogsBreakdown,
-        dailyTransactions,
+      const nextReferenceData: BusinessReferenceData = {
+        bakerySettings: bakerySettingsPayload?.data ?? null,
+        products: productsPayload?.data ?? [],
+        serverFinancialOrders: Array.isArray(ordersPayload?.data?.orders)
+          ? ordersPayload.data.orders
+          : ordersRequestFailed
+            ? null
+            : [],
       };
 
-      const hasPrimaryData =
-        currentRevenue > 0 ||
-        currentProfit > 0 ||
-        deliveryRangeOrders.length > 0 ||
-        currentSummary.paidOrdersCount > 0 ||
-        currentSummary.topProducts.length > 0;
-      const hasBackendFailure = productsRequestFailed || ordersRequestFailed;
-      const hasTrustedProducts = !productsRequestFailed || products.length > 0;
-      const hasTrustedOrders =
-        !ordersRequestFailed || authoritativeOrders.length > 0;
-      const shouldPersistViewState =
-        hasPrimaryData || (hasTrustedProducts && hasTrustedOrders);
+      const hasUsableData =
+        nextReferenceData.products.length > 0 ||
+        (nextReferenceData.serverFinancialOrders?.length ?? 0) > 0 ||
+        Boolean(nextReferenceData.bakerySettings);
 
-      if (shouldPersistViewState) {
-        BUSINESS_VIEW_CACHE.set(cacheKey, {
-          value: nextViewState,
+      if (hasUsableData) {
+        BUSINESS_REFERENCE_DATA_CACHE.set(cacheKey, {
+          value: nextReferenceData,
           cachedAt: Date.now(),
         });
       }
 
-      if (hasBackendFailure && !hasPrimaryData && cachedEntry) {
-        setViewState(cachedEntry.value);
+      if (ordersRequestFailed && cachedEntry && !hasUsableData) {
+        setReferenceData(cachedEntry.value);
       } else {
-        setViewState(nextViewState);
+        setReferenceData(nextReferenceData);
       }
 
       setError(
-        hasBackendFailure && !hasPrimaryData
-          ? "Data business belum berhasil dimuat dari backend untuk periode ini."
+        (productsRequestFailed || ordersRequestFailed) &&
+          !cachedEntry &&
+          orders.length === 0
+          ? "Data business belum berhasil dimuat dari backend."
           : null,
       );
       setLoading(false);
@@ -646,11 +573,154 @@ function BusinessPageContent() {
     };
   }, [
     business?.id,
-    business?.name,
-    business?.location,
     orders,
-    selectedMonth,
     refreshToken,
+  ]);
+
+  const authoritativeOrders = useMemo(
+    () => referenceData.serverFinancialOrders ?? orders,
+    [orders, referenceData.serverFinancialOrders],
+  );
+  const currentRange = useMemo(
+    () => getMonthRange(selectedMonth),
+    [selectedMonth],
+  );
+  const previousRange = useMemo(
+    () => getMonthRange(currentRange.prevMonthKey),
+    [currentRange.prevMonthKey],
+  );
+  const currentSummary = useMemo(
+    () =>
+      calculateBakeryFinancialSummary({
+        orders: authoritativeOrders,
+        products: referenceData.products,
+        settings: referenceData.bakerySettings,
+        fromDate: currentRange.startDate,
+        toDate: currentRange.endDate,
+      }),
+    [
+      authoritativeOrders,
+      currentRange.endDate,
+      currentRange.startDate,
+      referenceData.bakerySettings,
+      referenceData.products,
+    ],
+  );
+  const previousSummary = useMemo(
+    () =>
+      calculateBakeryFinancialSummary({
+        orders: authoritativeOrders,
+        products: referenceData.products,
+        settings: referenceData.bakerySettings,
+        fromDate: previousRange.startDate,
+        toDate: previousRange.endDate,
+      }),
+    [
+      authoritativeOrders,
+      previousRange.endDate,
+      previousRange.startDate,
+      referenceData.bakerySettings,
+      referenceData.products,
+    ],
+  );
+  const deliveryRangeOrders = useMemo(
+    () =>
+      filterOrdersByDeliveryDateRange(
+        authoritativeOrders,
+        currentRange.startDate,
+        currentRange.endDate,
+      ),
+    [authoritativeOrders, currentRange.endDate, currentRange.startDate],
+  );
+  const operationalBreakdown = useMemo(
+    () =>
+      calculateOperationalCostForDateRange({
+        settings: referenceData.bakerySettings,
+        fromDate: currentRange.startDate,
+        toDate: currentRange.endDate,
+      }),
+    [currentRange.endDate, currentRange.startDate, referenceData.bakerySettings],
+  );
+  const viewState = useMemo<ViewState>(() => {
+    if (!business?.id) return EMPTY_VIEW_STATE;
+
+    const cancelledOrders = deliveryRangeOrders.filter(
+      (order) => normalizeOrderStatus(order.orderStatus) === "Cancelled",
+    );
+    const grossMargin =
+      currentSummary.totalRevenue > 0
+        ? (currentSummary.grossProfit / currentSummary.totalRevenue) * 100
+        : 0;
+    const dailyTransactions: ViewState["dailyTransactions"] = [];
+    const ordersByDate = new Map<string, typeof authoritativeOrders>();
+
+    deliveryRangeOrders.forEach((order) => {
+      if (normalizeOrderStatus(order.orderStatus) === "Cancelled") return;
+      const dateKey = String(order.deliveryDate || "").split("T")[0];
+      if (!dateKey) return;
+      const current = ordersByDate.get(dateKey) ?? [];
+      current.push(order);
+      ordersByDate.set(dateKey, current);
+    });
+
+    Array.from(ordersByDate.keys())
+      .sort()
+      .forEach((dateKey) => {
+        const dayOrders = ordersByDate.get(dateKey) ?? [];
+        dailyTransactions.push({
+          date: dateKey,
+          transactions: dayOrders.map((order) => {
+            const summary = calculateBakeryFinancialSummary({
+              orders: [order],
+              products: referenceData.products,
+              settings: referenceData.bakerySettings,
+              fromDate: dateKey,
+              toDate: dateKey,
+            });
+            const customerName = String(order.customerName || "Customer").trim();
+            return {
+              revenue: summary.totalRevenue,
+              cogs: summary.cogsCost,
+              description: `${customerName} - ${order.product}`,
+            };
+          }),
+        });
+      });
+
+    return {
+      viewerName: userName?.trim() || "",
+      businessName: business.name,
+      businessLocation: business.location || "",
+      currentRevenue: currentSummary.totalRevenue,
+      currentProfit: currentSummary.netProfit,
+      previousRevenue: previousSummary.totalRevenue,
+      cogsCost: currentSummary.cogsCost,
+      operationalCost: currentSummary.totalOperationalCost,
+      cancelledRevenue: currentSummary.cancelledRevenue,
+      cancelledCogsCost: currentSummary.cancelledCogsCost,
+      returnRefundAmount: currentSummary.returnRefundAmount,
+      cancelledOrdersCount: cancelledOrders.length,
+      totalCost: currentSummary.totalCost,
+      avgMargin: grossMargin,
+      totalSalesCount: deliveryRangeOrders.length,
+      paidSalesCount: deliveryRangeOrders.filter((order) => {
+        const totalPaid = Number(order.totalPaidAmount ?? 0);
+        const fallbackPaid =
+          Number(order.dpPaidAmount ?? 0) + Number(order.finalPaidAmount ?? 0);
+        return totalPaid > 0 || fallbackPaid > 0;
+      }).length,
+      topProducts: currentSummary.topProducts,
+      bakerySettings: referenceData.bakerySettings,
+      cogsBreakdown: currentSummary.cogsBreakdown,
+      dailyTransactions,
+    };
+  }, [
+    business,
+    currentSummary,
+    deliveryRangeOrders,
+    previousSummary.totalRevenue,
+    referenceData.bakerySettings,
+    referenceData.products,
     userName,
   ]);
 
@@ -674,33 +744,12 @@ function BusinessPageContent() {
     );
   }, [viewState.currentRevenue, viewState.previousRevenue]);
 
-  const selectedMonthExpenses = (
-    viewState.bakerySettings?.monthlyExpenses ?? []
-  ).filter((entry) => entry.monthKey === selectedMonth);
-  const expenseAmountByCategory = new Map(
-    selectedMonthExpenses.map((entry) => [
-      entry.category,
-      Number(entry.amount || 0),
-    ]),
-  );
-  const customExpenses = selectedMonthExpenses.filter(
+  const customExpenses = operationalBreakdown.expenseRows.filter(
     (entry) => entry.category === "custom",
   );
-  const staffPayrollRows = (
-    viewState.bakerySettings?.staffSettings ?? []
-  ).filter((entry) => entry.isActive);
-  const staffCost = staffPayrollRows.reduce(
-    (sum, entry) => sum + Number(entry.takeHomePay || 0),
-    0,
-  );
-  const adsCost = Number(expenseAmountByCategory.get("ads") ?? 0);
-  const customExpenseTotal = customExpenses.reduce(
-    (sum, entry) => sum + Number(entry.amount || 0),
-    0,
-  );
-  const totalOperationalCost =
-    staffCost + adsCost + customExpenseTotal;
-  const netProfit = viewState.currentProfit - totalOperationalCost;
+  const staffPayrollRows = operationalBreakdown.staffPayrollRows;
+  const staffCost = operationalBreakdown.staffCost;
+  const adsCost = operationalBreakdown.adsCost;
   const avatarLabel = getInitials(
     `${viewState.viewerName || "Owner"} ${viewState.businessName || ""}`,
   );
@@ -710,8 +759,10 @@ function BusinessPageContent() {
       monthLabel,
       businessName: viewState.businessName || "Business",
       revenue: viewState.currentRevenue,
+      cogsCost: viewState.cogsCost,
+      operationalCost: viewState.operationalCost,
       totalCost: viewState.totalCost,
-      profit: netProfit,
+      profit: viewState.currentProfit,
       activeOrders: viewState.paidSalesCount,
       margin: viewState.avgMargin,
       topProducts: viewState.topProducts,
@@ -801,7 +852,10 @@ function BusinessPageContent() {
                 <div className="pr-3">
                   <p className="text-[11px] text-[#b58872]">Total Revenue</p>
                   <p className="mt-1 text-[20px] font-extrabold leading-none text-[#1f120e]">
-                    {formatCompactRupiah(viewState.currentRevenue)}
+                    {formatFullRupiah(viewState.currentRevenue)}
+                  </p>
+                  <p className="mt-2 text-[11px] leading-tight text-[#9b775e]">
+                    Hanya penjualan produk/booking item. Ongkir dan biaya admin tidak masuk.
                   </p>
                   <p
                     className={`mt-2 text-[11px] font-semibold ${
@@ -817,10 +871,12 @@ function BusinessPageContent() {
                   <p className="text-[11px] text-[#b58872]">Profit Bersih</p>
                   <p
                     className={`mt-1 text-[20px] font-extrabold leading-none ${
-                      netProfit >= 0 ? "text-[#17653d]" : "text-[#c85d34]"
+                      viewState.currentProfit >= 0
+                        ? "text-[#17653d]"
+                        : "text-[#c85d34]"
                     }`}
                   >
-                    {formatCompactRupiah(netProfit)}
+                    {formatFullRupiah(viewState.currentProfit)}
                   </p>
                   <p className="mt-2 text-[11px] text-[#b58872]">
                     setelah semua biaya yang tersedia
@@ -858,8 +914,8 @@ function BusinessPageContent() {
                     label="Revenue"
                     note={
                       viewState.cancelledRevenue > 0
-                        ? "Sudah dikurangi revenue dari order yang dibatalkan"
-                        : undefined
+                        ? "Hanya penjualan produk. Sudah dikurangi revenue dari order yang dibatalkan"
+                        : "Hanya penjualan produk. Ongkir dan biaya admin tidak ikut dihitung."
                     }
                     amount={viewState.currentRevenue}
                     tone={viewState.currentRevenue >= 0 ? "positive" : "profit"}
@@ -877,7 +933,7 @@ function BusinessPageContent() {
                   <BreakdownRow
                     label="COGS / HPP"
                     note="Klik untuk melihat penjabaran dari produk"
-                    amount={viewState.totalCost}
+                    amount={viewState.cogsCost}
                   >
                     {viewState.cogsBreakdown.length > 0 ? (
                       <div className="space-y-1.5 border-l-2 border-[#ead8cb] pl-3">
@@ -949,7 +1005,7 @@ function BusinessPageContent() {
                   )}
                   <BreakdownRow
                     label="Profit Bersih"
-                    amount={netProfit}
+                    amount={viewState.currentProfit}
                     tone="profit"
                   />
                 </div>

@@ -437,7 +437,7 @@ export default function ReportsPage() {
 
     const loadProducts = async () => {
       try {
-        const response = await fetch("/api/products?limit=999&withRecipe=false", {
+        const response = await fetch("/api/products?mode=financial&limit=999", {
           cache: "no-store",
         });
         const payload = (await response.json().catch(() => ({}))) as {
@@ -1145,7 +1145,10 @@ export default function ReportsPage() {
                   Saat dikirim
                 </p>
                 <p className="mt-2 text-[11px] leading-5 text-[#7f6049]">
-                  Masuk mengikuti tanggal delivery dan otomatis berkurang saat order dibatalkan.
+                  Hanya penjualan produk/booking item, mengikuti tanggal delivery, dan otomatis berkurang saat order dibatalkan.
+                </p>
+                <p className="mt-2 text-[11px] leading-5 text-[#7f6049]">
+                  Ongkir, service/admin fee, dan biaya non-produk tidak masuk ke total revenue.
                 </p>
               </div>
               <div className="rounded-[16px] border border-[#eedfd3] bg-white px-3 py-3">
