@@ -206,6 +206,56 @@ function filterOrdersByDeliveryDateRange<
   });
 }
 
+function getOrderTimestamp(value: string | Date | null | undefined) {
+  if (!value) return 0;
+  const date = value instanceof Date ? value : new Date(value);
+  const timestamp = date.getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function mergeFinancialOrdersWithLocal(
+  localOrders: BakeryFinancialOrder[],
+  serverOrders: BakeryFinancialOrder[] | null,
+): BakeryFinancialOrder[] {
+  if (!serverOrders || serverOrders.length === 0) {
+    return localOrders;
+  }
+
+  const merged = new Map<string, BakeryFinancialOrder>();
+  const localById = new Map(
+    localOrders.map((order) => [String(order.id || "").trim(), order]),
+  );
+
+  serverOrders.forEach((serverOrder) => {
+    const key = String(serverOrder.id || "").trim();
+    if (!key) return;
+
+    const localOrder = localById.get(key);
+    if (!localOrder) {
+      merged.set(key, serverOrder);
+      return;
+    }
+
+    const localTimestamp = Math.max(
+      getOrderTimestamp(localOrder.updatedAt),
+      getOrderTimestamp(localOrder.createdAt),
+    );
+    const serverTimestamp = Math.max(
+      getOrderTimestamp(serverOrder.updatedAt),
+      getOrderTimestamp(serverOrder.createdAt),
+    );
+
+    merged.set(key, localTimestamp >= serverTimestamp ? localOrder : serverOrder);
+    localById.delete(key);
+  });
+
+  localById.forEach((order, key) => {
+    merged.set(key, order);
+  });
+
+  return Array.from(merged.values());
+}
+
 function buildExportCsv(args: {
   monthLabel: string;
   businessName: string;
@@ -578,7 +628,7 @@ function BusinessPageContent() {
   ]);
 
   const authoritativeOrders = useMemo(
-    () => referenceData.serverFinancialOrders ?? orders,
+    () => mergeFinancialOrdersWithLocal(orders, referenceData.serverFinancialOrders),
     [orders, referenceData.serverFinancialOrders],
   );
   const currentRange = useMemo(

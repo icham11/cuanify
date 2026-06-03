@@ -457,6 +457,111 @@ describe("Revenue vs Cashflow Calculation", () => {
     expect(juneSummary.totalRevenue).toBe(250000);
   });
 
+  it("should reflect edited booking price changes in total revenue", () => {
+    const originalOrder: BakeryFinancialOrder = {
+      id: "edited-order",
+      deliveryDate: "2024-05-10",
+      totalPrice: 100000,
+      totalPaidAmount: 100000,
+      paymentStatus: "Paid",
+      orderStatus: "Completed",
+      createdAt: new Date("2024-05-01"),
+      updatedAt: new Date("2024-05-01T08:00:00.000Z"),
+      items: [
+        {
+          productName: "Kue Coklat",
+          quantity: 1,
+          basePrice: 100000,
+          lineTotal: 100000,
+        },
+      ],
+    };
+
+    const editedOrder: BakeryFinancialOrder = {
+      ...originalOrder,
+      totalPrice: 150000,
+      totalPaidAmount: 150000,
+      updatedAt: new Date("2024-05-02T08:00:00.000Z"),
+      items: [
+        {
+          productName: "Kue Coklat",
+          quantity: 1,
+          basePrice: 150000,
+          lineTotal: 150000,
+        },
+      ],
+    };
+
+    const originalSummary = calculateBakeryFinancialSummary({
+      orders: [originalOrder],
+      products: mockProducts,
+      fromDate: "2024-05-10",
+      toDate: "2024-05-10",
+    });
+    const editedSummary = calculateBakeryFinancialSummary({
+      orders: [editedOrder],
+      products: mockProducts,
+      fromDate: "2024-05-10",
+      toDate: "2024-05-10",
+    });
+
+    expect(originalSummary.totalRevenue).toBe(100000);
+    expect(editedSummary.totalRevenue).toBe(150000);
+  });
+
+  it("should reduce total revenue when an order is removed from the source data", () => {
+    const firstOrder: BakeryFinancialOrder = {
+      id: "order-1",
+      deliveryDate: "2024-05-10",
+      totalPrice: 100000,
+      totalPaidAmount: 100000,
+      paymentStatus: "Paid",
+      orderStatus: "Completed",
+      createdAt: new Date("2024-05-01"),
+      items: [
+        {
+          productName: "Kue Coklat",
+          quantity: 1,
+          basePrice: 100000,
+          lineTotal: 100000,
+        },
+      ],
+    };
+    const secondOrder: BakeryFinancialOrder = {
+      id: "order-2",
+      deliveryDate: "2024-05-12",
+      totalPrice: 50000,
+      totalPaidAmount: 50000,
+      paymentStatus: "Paid",
+      orderStatus: "Completed",
+      createdAt: new Date("2024-05-01"),
+      items: [
+        {
+          productName: "Roti Tawar",
+          quantity: 1,
+          basePrice: 50000,
+          lineTotal: 50000,
+        },
+      ],
+    };
+
+    const beforeDeleteSummary = calculateBakeryFinancialSummary({
+      orders: [firstOrder, secondOrder],
+      products: mockProducts,
+      fromDate: "2024-05-01",
+      toDate: "2024-05-31",
+    });
+    const afterDeleteSummary = calculateBakeryFinancialSummary({
+      orders: [firstOrder],
+      products: mockProducts,
+      fromDate: "2024-05-01",
+      toDate: "2024-05-31",
+    });
+
+    expect(beforeDeleteSummary.totalRevenue).toBe(150000);
+    expect(afterDeleteSummary.totalRevenue).toBe(100000);
+  });
+
   it("should match seasonal product cogs from product name aliases", () => {
     const orders: BakeryFinancialOrder[] = [
       {

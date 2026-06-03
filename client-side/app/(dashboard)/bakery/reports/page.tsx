@@ -244,6 +244,13 @@ function getReportFetchRange() {
   };
 }
 
+function getOrderTimestamp(value: string | Date | null | undefined) {
+  if (!value) return 0;
+  const date = value instanceof Date ? value : new Date(value);
+  const timestamp = date.getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
 function mergeOrdersForReports(
   localOrders: BakeryOrder[],
   serverOrders: BakeryFinancialOrder[] | null,
@@ -271,6 +278,20 @@ function mergeOrdersForReports(
     }
 
     localOnlyOrders.delete(key);
+    const localTimestamp = Math.max(
+      getOrderTimestamp(localOrder.updatedAt),
+      getOrderTimestamp(localOrder.createdAt),
+    );
+    const serverTimestamp = Math.max(
+      getOrderTimestamp(mappedServerOrder.updatedAt),
+      getOrderTimestamp(mappedServerOrder.createdAt),
+    );
+
+    if (localTimestamp >= serverTimestamp) {
+      merged.set(key, localOrder);
+      return;
+    }
+
     merged.set(key, {
       ...localOrder,
       ...mappedServerOrder,
