@@ -5576,7 +5576,7 @@ export async function POST(request: NextRequest) {
                 const existingAuditOrder = existingOrdersById.get(order.id);
                 const shouldWriteCreateAudit = !existingAuditOrder;
                 const shouldWriteEditAudit =
-                  Boolean(existingAuditOrder) &&
+                  existingAuditOrder !== undefined &&
                   buildBookingAuditComparableSnapshot(existingAuditOrder) !==
                     buildBookingAuditComparableSnapshot({
                       ...order,
