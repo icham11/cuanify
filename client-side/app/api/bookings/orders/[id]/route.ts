@@ -4,7 +4,10 @@ import path from "path";
 import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { AuthError, ForbiddenError, requireAuth } from "@/lib/auth/session";
-import { isPrismaConnectionTimeout, prismaConnectionErrorResponse } from "@/lib/prisma-errors";
+import {
+  isPrismaConnectionTimeout,
+  prismaConnectionErrorResponse,
+} from "@/lib/prisma-errors";
 import {
   asRecord,
   asNumber,
@@ -30,7 +33,11 @@ import {
   type DbProductionStageRow,
 } from "../route";
 import { getBakeryBusinessSettings } from "@/lib/bakery/settings";
-import { getProductionStagePercentagesFromTemplates, resolvePrimaryProductionCategory, resolveProductionStageTemplatesForCategory } from "@/lib/bookings/production-stages";
+import {
+  getProductionStagePercentagesFromTemplates,
+  resolvePrimaryProductionCategory,
+  resolveProductionStageTemplatesForCategory,
+} from "@/lib/bookings/production-stages";
 import { calculateOrderFinancialBreakdown } from "@/lib/bookings/financial-breakdown";
 import { normalizeDateInput } from "@/lib/helpers/date-normalization";
 
@@ -56,15 +63,17 @@ function appendStatusHistory(
     actorName: string;
   },
 ) {
-  const currentHistory = asArrayOfRecords(parseJsonField(currentValue)).map((entry) => ({
-    ...entry,
-    id: asString(entry.id),
-    status: asString(entry.status),
-    timestamp: asString(entry.timestamp),
-    note: asString(entry.note),
-    userId: asPositiveIntOrNull(entry.userId),
-    actorName: asString(entry.actorName),
-  }));
+  const currentHistory = asArrayOfRecords(parseJsonField(currentValue)).map(
+    (entry) => ({
+      ...entry,
+      id: asString(entry.id),
+      status: asString(entry.status),
+      timestamp: asString(entry.timestamp),
+      note: asString(entry.note),
+      userId: asPositiveIntOrNull(entry.userId),
+      actorName: asString(entry.actorName),
+    }),
+  );
 
   return [
     ...currentHistory,
@@ -247,12 +256,15 @@ export async function GET(
   try {
     // 1. Autentikasi dan dapatkan businessId
     const { businessId } = await requireAuth();
-    
+
     // 2. Dapatkan order external ID dari parameter route Next.js
     const { id } = await context.params;
 
     if (!id) {
-      return NextResponse.json({ error: "Order ID tidak valid." }, { status: 400 });
+      return NextResponse.json(
+        { error: "Order ID tidak valid." },
+        { status: 400 },
+      );
     }
 
     // 3. Query satu baris data bakery_orders lengkap dengan seluruh kolom JSONB berat
@@ -368,7 +380,7 @@ export async function GET(
 
     // 7. Ambil pengaturan produksi bisnis untuk menghitung persentase tahapan produksi
     const bakerySettings = await getBakeryBusinessSettings(businessId);
-    
+
     // 8. Query data tahapan tugas produksi (production_tasks) untuk order ini
     const staffMembers = await prisma.businessMember.findMany({
       where: { businessId },
@@ -377,7 +389,8 @@ export async function GET(
     const staffIdByUuid = buildStaffIdByUuid(
       staffMembers.map((member) => member.userId),
     );
-    const orderUuid = row.order_uuid ?? orderTaskUuid(businessId, row.external_id);
+    const orderUuid =
+      row.order_uuid ?? orderTaskUuid(businessId, row.external_id);
 
     const stageRows = await prisma.$queryRaw<DbProductionStageRow[]>`
       SELECT order_id::text AS order_id, stage, staff_id::text AS staff_id, token_amount
@@ -397,7 +410,9 @@ export async function GET(
 
       return {
         stage,
-        staffId: stageRow.staff_id ? (staffIdByUuid.get(stageRow.staff_id) ?? null) : null,
+        staffId: stageRow.staff_id
+          ? (staffIdByUuid.get(stageRow.staff_id) ?? null)
+          : null,
         tokenAmount: asNumber(stageRow.token_amount),
         percentage: stagePercentages[stage] ?? 0,
       };
@@ -414,9 +429,7 @@ export async function GET(
       customerPhone: row.customer_phone ?? "",
       customerAddress: row.customer_address ?? "",
       deliveryDate:
-        normalizeDateInput(row.delivery_date ?? "") ??
-        row.delivery_date ??
-        "",
+        normalizeDateInput(row.delivery_date ?? "") ?? row.delivery_date ?? "",
       deliverySlot: row.delivery_slot ?? "",
       notes: row.notes ?? "",
       basePrice: financialBreakdown.basePrice,
@@ -449,7 +462,9 @@ export async function GET(
       whatsAppParsedData: parseJsonField(row.whatsapp_parsed_data),
       statusHistory: asArrayOfRecords(parseJsonField(row.status_history)),
       automationLogs: asArrayOfRecords(parseJsonField(row.automation_logs)),
-      paymentTransactions: asArrayOfRecords(parseJsonField(row.payment_transactions)),
+      paymentTransactions: asArrayOfRecords(
+        parseJsonField(row.payment_transactions),
+      ),
       productionStages,
       items,
       deliveryAddresses,
@@ -463,7 +478,6 @@ export async function GET(
         ...resolvePersistedImageFields(order),
       },
     });
-
   } catch (error) {
     // Tangani error token/autentikasi
     if (error instanceof AuthError) {
@@ -495,7 +509,10 @@ export async function PATCH(
     const { id } = await context.params;
 
     if (!id) {
-      return NextResponse.json({ error: "Order ID tidak valid." }, { status: 400 });
+      return NextResponse.json(
+        { error: "Order ID tidak valid." },
+        { status: 400 },
+      );
     }
 
     const body = (await request.json().catch(() => ({}))) as {
@@ -542,13 +559,32 @@ export async function PATCH(
     }
 
     const existingOrder = rows[0];
+
+    // Mencegah modifikasi data untuk order di bulan-bulan sebelumnya demi integritas laporan
+    if (existingOrder.delivery_date) { // Pastikan delivery date tidak null
+      const deliveryDateObj = new Date(existingOrder.delivery_date); // Parse string ke object Date
+      const nowDate = new Date(); // Ambil waktu saat ini
+      const isPreviousMonth = 
+        deliveryDateObj.getFullYear() < nowDate.getFullYear() || // Jika tahunnya lebih lampau
+        (deliveryDateObj.getFullYear() === nowDate.getFullYear() && // Atau tahunnya sama...
+          deliveryDateObj.getMonth() < nowDate.getMonth()); // Tapi bulannya lebih lampau
+          
+      if (isPreviousMonth) { // Jika pesanan terdeteksi sebagai bulan sebelumnya
+        throw new ForbiddenError(
+          "Tidak dapat mengubah status order dari bulan sebelumnya. Data telah dikunci."
+        ); // Tolak request dan berikan error
+      }
+    }
+
     const currentStatus = normalizeOrderStatus(existingOrder.order_status);
     if (currentStatus === requestedStatus) {
       return NextResponse.json({
         success: true,
         data: {
           orderStatus: requestedStatus,
-          statusHistory: asArrayOfRecords(parseJsonField(existingOrder.status_history)),
+          statusHistory: asArrayOfRecords(
+            parseJsonField(existingOrder.status_history),
+          ),
           updatedAt: new Date().toISOString(),
         },
       });
@@ -585,12 +621,15 @@ export async function PATCH(
       requestedStatus === "In Production"
         ? "Order masuk produksi"
         : `Status changed to ${requestedStatus}`;
-    const nextStatusHistory = appendStatusHistory(existingOrder.status_history, {
-      status: requestedStatus,
-      note,
-      userId,
-      actorName,
-    });
+    const nextStatusHistory = appendStatusHistory(
+      existingOrder.status_history,
+      {
+        status: requestedStatus,
+        note,
+        userId,
+        actorName,
+      },
+    );
     const nextUpdatedAt = new Date().toISOString();
 
     await prisma.$transaction(
@@ -666,7 +705,10 @@ export async function DELETE(
     const { id } = await context.params;
 
     if (!id) {
-      return NextResponse.json({ error: "Order ID tidak valid." }, { status: 400 });
+      return NextResponse.json(
+        { error: "Order ID tidak valid." },
+        { status: 400 },
+      );
     }
 
     const roleName = String(role);
@@ -693,6 +735,23 @@ export async function DELETE(
     }
 
     const deliveryDate = rows[0].delivery_date;
+
+    // Mencegah penghapusan data untuk order di bulan-bulan sebelumnya demi integritas laporan
+    if (deliveryDate) { // Pastikan pesanan punya delivery date
+      const deliveryDateObj = new Date(deliveryDate); // Parse string ke object Date
+      const nowDate = new Date(); // Ambil waktu server saat ini
+      const isPreviousMonth = 
+        deliveryDateObj.getFullYear() < nowDate.getFullYear() || // Jika tahunnya lebih lampau
+        (deliveryDateObj.getFullYear() === nowDate.getFullYear() && // Atau tahunnya sama...
+          deliveryDateObj.getMonth() < nowDate.getMonth()); // Tapi bulannya lebih lampau
+          
+      if (isPreviousMonth) { // Jika masuk kategori bulan sebelumnya
+        throw new ForbiddenError(
+          "Tidak dapat menghapus order dari bulan sebelumnya. Data telah dikunci."
+        ); // Batalkan proses hapus dan keluarkan peringatan
+      }
+    }
+
     const orderUuid = rows[0].order_uuid ?? orderTaskUuid(businessId, id);
 
     await prisma.$transaction(
@@ -726,7 +785,12 @@ export async function DELETE(
         });
 
         if (deliveryDate) {
-          const INACTIVE_STATUSES = ["Completed", "Delivered", "Cancelled", "Inquiry"];
+          const INACTIVE_STATUSES = [
+            "Completed",
+            "Delivered",
+            "Cancelled",
+            "Inquiry",
+          ];
           await tx.$executeRaw`
             WITH daily_totals AS (
               SELECT delivery_date AS delivery_date, COALESCE(SUM(token_used), 0) AS total_token_amount
@@ -776,7 +840,8 @@ export async function DELETE(
       return NextResponse.json({ error: error.message }, { status: 403 });
     }
     console.error("DELETE /api/bookings/orders/[id] error:", error);
-    const errorDetails = error instanceof Error ? (error.stack ?? error.message) : String(error);
+    const errorDetails =
+      error instanceof Error ? (error.stack ?? error.message) : String(error);
     fs.writeFileSync(path.join(process.cwd(), "last-error.log"), errorDetails);
     return NextResponse.json(
       { error: "Gagal menghapus pesanan." },
