@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  bookingStatusFilterMatchesBlank,
+  getBookingStatusFilterAliases,
   isClosedOrderStatus,
   isFulfilledOrderStatus,
+  matchesBookingStatusFilter,
   normalizeOrderStatus,
 } from "@/lib/bookings/order-status";
 
@@ -28,5 +31,22 @@ describe("order status helpers", () => {
     expect(isFulfilledOrderStatus("Delivery")).toBe(true);
     expect(isFulfilledOrderStatus("Cancelled")).toBe(false);
     expect(isFulfilledOrderStatus("Ready")).toBe(false);
+  });
+
+  it("keeps booking status filter aliases scoped to filter behavior", () => {
+    expect(bookingStatusFilterMatchesBlank("Inquiry")).toBe(true);
+    expect(getBookingStatusFilterAliases("Completed")).toEqual([
+      "Completed",
+      "Complete",
+    ]);
+    expect(getBookingStatusFilterAliases("Cancelled")).toEqual([
+      "Cancelled",
+      "Canceled",
+    ]);
+    expect(matchesBookingStatusFilter(undefined, "Inquiry")).toBe(true);
+    expect(matchesBookingStatusFilter("Inquiry", "Inquiry")).toBe(true);
+    expect(matchesBookingStatusFilter("Complete", "Completed")).toBe(true);
+    expect(matchesBookingStatusFilter("Canceled", "Cancelled")).toBe(true);
+    expect(matchesBookingStatusFilter("Quoted", "In Production")).toBe(false);
   });
 });

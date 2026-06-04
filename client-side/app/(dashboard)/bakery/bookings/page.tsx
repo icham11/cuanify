@@ -9,7 +9,11 @@ import OrderTable from "@/components/bakery/bookings/OrderTable";
 import { Select } from "@/components/ui/select";
 import { useOrders } from "@/components/bakery/store";
 import { useBusiness } from "@/context/BusinessContext";
-import { normalizeOrderStatus } from "@/lib/bookings/order-status";
+import {
+  BOOKING_STATUS_FILTER_OPTIONS,
+  matchesBookingStatusFilter,
+  normalizeOrderStatus,
+} from "@/lib/bookings/order-status";
 import { resolveOrderDeliveryMethod } from "@/lib/bookings/delivery-method";
 import {
   getJakartaTodayIsoDate,
@@ -304,7 +308,7 @@ export default function BookingListPage() {
         return false;
       }
 
-      if (statusFilter && order.orderStatus !== statusFilter) {
+      if (statusFilter && !matchesBookingStatusFilter(order.orderStatus, statusFilter)) {
         return false;
       }
 
@@ -412,28 +416,37 @@ export default function BookingListPage() {
   const safeCurrentPage = Math.min(currentPage, displayTotalPages);
   const hasRenderableOrders = displayOrders.length > 0;
 
-  const handleOrderDeleted = async () => {
+  const handleOrderDeleted = async (deletedOrderId: string) => {
+    const remainingOrdersOnPage = displayOrders.filter(
+      (order) => order.id !== deletedOrderId,
+    );
+    const nextTotalCount = Math.max(0, totalCount - 1);
+    const nextTotalPages = Math.max(1, Math.ceil(nextTotalCount / PAGE_SIZE));
     const fallbackPage =
-      displayOrders.length === 1 && currentPage > 1
+      remainingOrdersOnPage.length === 0 && currentPage > 1
         ? currentPage - 1
         : currentPage;
+
+    setOrdersList((currentOrders) =>
+      currentOrders.filter((order) => order.id !== deletedOrderId),
+    );
+    setTotalCount(nextTotalCount);
+    setTotalPages(nextTotalPages);
 
     if (fallbackPage !== currentPage) {
       setCurrentPage(fallbackPage);
       return;
     }
 
-    setIsLoading(true);
-    try {
-      const res = await fetchCurrentPageOrders(fallbackPage);
-      setOrdersList(res.orders);
-      setTotalCount(res.pagination.totalCount);
-      setTotalPages(res.pagination.totalPages);
-    } catch (error) {
-      console.error("Gagal memuat ulang daftar pesanan setelah dihapus:", error);
-    } finally {
-      setIsLoading(false);
-    }
+    void fetchCurrentPageOrders(fallbackPage)
+      .then((res) => {
+        setOrdersList(res.orders);
+        setTotalCount(res.pagination.totalCount);
+        setTotalPages(res.pagination.totalPages);
+      })
+      .catch((error) => {
+        console.error("Gagal memuat ulang daftar pesanan setelah dihapus:", error);
+      });
   };
 
   const handleOrderStatusUpdated = async () => {
@@ -627,16 +640,11 @@ export default function BookingListPage() {
             className="h-10 rounded-xl border-[var(--crumbella-border)] bg-white text-xs"
           >
             <option value="">Semua status</option>
-            <option value="Inquiry">Inquiry</option>
-            <option value="Quoted">Quoted</option>
-            <option value="DP Paid">DP Paid</option>
-            <option value="Confirmed">Confirmed</option>
-            <option value="In Production">In Production</option>
-            <option value="Ready">Ready</option>
-            <option value="Delivery">Delivery</option>
-            <option value="Completed">Completed</option>
-            <option value="Delivered">Delivered</option>
-            <option value="Cancelled">Cancelled</option>
+            {BOOKING_STATUS_FILTER_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
           </Select>
           <input
             type="date"

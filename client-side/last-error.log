@@ -2,31 +2,9 @@ PrismaClientKnownRequestError:
 Invalid `prisma.$executeRaw()` invocation:
 
 
-Transaction API error: A query cannot be executed on an expired transaction. The timeout for this transaction was 5000 ms, however 36166 ms passed since the start of the transaction. Consider increasing the interactive transaction timeout or doing less work in the transaction.
+Raw query failed. Code: `22P02`. Message: `invalid input syntax for type uuid: "bakery-111-qa-api-delete-1780587329414"`
     at zr.handleRequestError (D:\PROJECT\cuanify2\client-side\node_modules\@prisma\client\runtime\client.js:65:8172)
     at zr.handleAndLogRequestError (D:\PROJECT\cuanify2\client-side\node_modules\@prisma\client\runtime\client.js:65:7467)
     at zr.request (D:\PROJECT\cuanify2\client-side\node_modules\@prisma\client\runtime\client.js:65:7174)
     at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
     at async a (D:\PROJECT\cuanify2\client-side\node_modules\@prisma\client\runtime\client.js:75:5816)
-    at async eval (webpack-internal:///(rsc)/./app/api/bookings/orders/[id]/route.ts:476:13)
-    at async Proxy._transactionWithCallback (D:\PROJECT\cuanify2\client-side\node_modules\@prisma\client\runtime\client.js:75:4390)
-    at async DELETE (webpack-internal:///(rsc)/./app/api/bookings/orders/[id]/route.ts:471:9)
-    at async AppRouteRouteModule.do (D:\PROJECT\cuanify2\client-side\node_modules\next\dist\compiled\next-server\app-route.runtime.dev.js:5:37866)
-    at async AppRouteRouteModule.handle (D:\PROJECT\cuanify2\client-side\node_modules\next\dist\compiled\next-server\app-route.runtime.dev.js:5:45156)
-    at async responseGenerator (webpack-internal:///(rsc)/./node_modules/next/dist/build/webpack/loaders/next-app-loader/index.js?name=app%2Fapi%2Fbookings%2Forders%2F%5Bid%5D%2Froute&page=%2Fapi%2Fbookings%2Forders%2F%5Bid%5D%2Froute&appPaths=&pagePath=private-next-app-dir%2Fapi%2Fbookings%2Forders%2F%5Bid%5D%2Froute.ts&appDir=D%3A%5CPROJECT%5Ccuanify2%5Cclient-side%5Capp&pageExtensions=tsx&pageExtensions=ts&pageExtensions=jsx&pageExtensions=js&rootDir=D%3A%5CPROJECT%5Ccuanify2%5Cclient-side&isDev=true&tsconfigPath=&basePath=&assetPrefix=&nextConfigOutput=&preferredRegion=&middlewareConfig=e30%3D&isGlobalNotFoundEnabled=!:233:38)
-    at async AppRouteRouteModule.handleResponse (D:\PROJECT\cuanify2\client-side\node_modules\next\dist\compiled\next-server\app-route.runtime.dev.js:1:191863)
-    at async handleResponse (webpack-internal:///(rsc)/./node_modules/next/dist/build/webpack/loaders/next-app-loader/index.js?name=app%2Fapi%2Fbookings%2Forders%2F%5Bid%5D%2Froute&page=%2Fapi%2Fbookings%2Forders%2F%5Bid%5D%2Froute&appPaths=&pagePath=private-next-app-dir%2Fapi%2Fbookings%2Forders%2F%5Bid%5D%2Froute.ts&appDir=D%3A%5CPROJECT%5Ccuanify2%5Cclient-side%5Capp&pageExtensions=tsx&pageExtensions=ts&pageExtensions=jsx&pageExtensions=js&rootDir=D%3A%5CPROJECT%5Ccuanify2%5Cclient-side&isDev=true&tsconfigPath=&basePath=&assetPrefix=&nextConfigOutput=&preferredRegion=&middlewareConfig=e30%3D&isGlobalNotFoundEnabled=!:296:32)
-    at async Module.handler (webpack-internal:///(rsc)/./node_modules/next/dist/build/webpack/loaders/next-app-loader/index.js?name=app%2Fapi%2Fbookings%2Forders%2F%5Bid%5D%2Froute&page=%2Fapi%2Fbookings%2Forders%2F%5Bid%5D%2Froute&appPaths=&pagePath=private-next-app-dir%2Fapi%2Fbookings%2Forders%2F%5Bid%5D%2Froute.ts&appDir=D%3A%5CPROJECT%5Ccuanify2%5Cclient-side%5Capp&pageExtensions=tsx&pageExtensions=ts&pageExtensions=jsx&pageExtensions=js&rootDir=D%3A%5CPROJECT%5Ccuanify2%5Cclient-side&isDev=true&tsconfigPath=&basePath=&assetPrefix=&nextConfigOutput=&preferredRegion=&middlewareConfig=e30%3D&isGlobalNotFoundEnabled=!:350:13)
-    at async DevServer.renderToResponseWithComponentsImpl (D:\PROJECT\cuanify2\client-side\node_modules\next\dist\server\base-server.js:1442:9)
-    at async DevServer.renderPageComponent (D:\PROJECT\cuanify2\client-side\node_modules\next\dist\server\base-server.js:1494:24)
-    at async DevServer.renderToResponseImpl (D:\PROJECT\cuanify2\client-side\node_modules\next\dist\server\base-server.js:1544:32)
-    at async DevServer.pipeImpl (D:\PROJECT\cuanify2\client-side\node_modules\next\dist\server\base-server.js:1038:25)
-    at async NextNodeServer.handleCatchallRenderRequest (D:\PROJECT\cuanify2\client-side\node_modules\next\dist\server\next-server.js:395:17)
-    at async DevServer.handleRequestImpl (D:\PROJECT\cuanify2\client-side\node_modules\next\dist\server\base-server.js:929:17)
-    at async D:\PROJECT\cuanify2\client-side\node_modules\next\dist\server\dev\next-dev-server.js:387:20
-    at async Span.traceAsyncFn (D:\PROJECT\cuanify2\client-side\node_modules\next\dist\trace\trace.js:157:20)
-    at async DevServer.handleRequest (D:\PROJECT\cuanify2\client-side\node_modules\next\dist\server\dev\next-dev-server.js:383:24)
-    at async invokeRender (D:\PROJECT\cuanify2\client-side\node_modules\next\dist\server\lib\router-server.js:248:21)
-    at async handleRequest (D:\PROJECT\cuanify2\client-side\node_modules\next\dist\server\lib\router-server.js:447:24)
-    at async requestHandlerImpl (D:\PROJECT\cuanify2\client-side\node_modules\next\dist\server\lib\router-server.js:496:13)
-    at async Server.requestListener (D:\PROJECT\cuanify2\client-side\node_modules\next\dist\server\lib\start-server.js:226:13)

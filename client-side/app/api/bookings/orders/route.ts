@@ -64,6 +64,11 @@ import { loadEffectiveBookingCatalog } from "@/lib/bookings/catalog-config-serve
 import { flattenCatalogProductsForDashboard } from "@/lib/bookings/product-sync";
 import { buildDashboardProductName } from "@/lib/products/dashboard-name";
 import { calculateOrderFinancialBreakdown } from "@/lib/bookings/financial-breakdown";
+import {
+  bookingStatusFilterMatchesBlank,
+  getBookingStatusFilterAliases,
+} from "@/lib/bookings/order-status";
+import { buildBookingAuditDocument } from "@/lib/bookings/booking-audit";
 
 // ─── Custom Error for capacity-full rejections ───────────────────────────────
 
@@ -927,6 +932,53 @@ function serializeProductionStagesForComparison(
       };
     }),
   );
+}
+
+function buildBookingAuditComparableSnapshot(
+  order:
+    | ParsedOrder
+    | (ParsedOrderInput & {
+        insuranceFee?: number;
+      }),
+): string {
+  return stableSerializeForComparison({
+    bookingCode: order.bookingCode,
+    resi: order.resi,
+    customerName: order.customerName,
+    customerPhone: order.customerPhone,
+    customerAddress: order.customerAddress,
+    deliveryDate: order.deliveryDate,
+    deliverySlot: order.deliverySlot,
+    notes: order.notes,
+    basePrice: order.basePrice,
+    designAdjustmentTotal: order.designAdjustmentTotal,
+    addOnTotal: order.addOnTotal,
+    productAdjustment: order.productAdjustment,
+    nonProductAdjustment: order.nonProductAdjustment,
+    productSubtotal: order.productSubtotal,
+    productDiscountAmount: order.productDiscountAmount,
+    serviceCharge: order.serviceCharge,
+    deliveryFee: order.deliveryFee,
+    manualAdjustment: order.manualAdjustment,
+    dpPaidAmount: order.dpPaidAmount,
+    finalPaidAmount: order.finalPaidAmount,
+    totalPaidAmount: order.totalPaidAmount,
+    downPaymentAmount: order.downPaymentAmount,
+    remainingBalance: order.remainingBalance,
+    product: order.product,
+    totalPrice: order.totalPrice,
+    insuranceFee: "insuranceFee" in order ? order.insuranceFee ?? 0 : 0,
+    salesChannel: order.sales_channel,
+    paymentStatus: order.paymentStatus,
+    shippingQuote: order.shippingQuote ?? null,
+    shipment: order.shipment ?? null,
+    whatsAppParsedData: order.whatsAppParsedData ?? null,
+    imageUrl: order.imageUrl ?? "",
+    imageUrls: order.imageUrls ?? [],
+    referenceImages: order.referenceImages ?? [],
+    items: order.items ?? [],
+    deliveryAddresses: order.deliveryAddresses ?? [],
+  });
 }
 
 function mergeStaffClaimableProductionStages(params: {
@@ -3092,7 +3144,19 @@ export async function GET(request: NextRequest) {
       ];
 
       if (statusFilter) {
-        whereClauses.push(Prisma.sql`order_status = ${statusFilter}`);
+        const statusClauses = getBookingStatusFilterAliases(statusFilter).map(
+          (status) => Prisma.sql`BTRIM(COALESCE(order_status, '')) = ${status}`,
+        );
+
+        if (bookingStatusFilterMatchesBlank(statusFilter)) {
+          statusClauses.unshift(
+            Prisma.sql`order_status IS NULL OR BTRIM(order_status) = ''`,
+          );
+        }
+
+        whereClauses.push(
+          Prisma.sql`(${Prisma.join(statusClauses, " OR ")})`,
+        );
       }
       if (savedView === "active") {
         whereClauses.push(
@@ -3892,6 +3956,12 @@ export async function POST(request: NextRequest) {
 
   try {
     const { businessId, userId, role } = await requireAuth();
+    const actorUser = await prisma.user
+      .findUnique({
+        where: { id: userId },
+        select: { name: true, email: true },
+      })
+      .catch(() => null);
     const contentType = request.headers.get("content-type") ?? "";
     if (!contentType.toLowerCase().includes("application/json")) {
       return NextResponse.json(
@@ -4810,8 +4880,12 @@ export async function POST(request: NextRequest) {
         shippingQuote: order.shippingQuote,
         shipment: order.shipment,
         totalPrice: order.totalPrice,
-      }),
+        }),
     }));
+
+    const existingOrdersById = new Map(
+      existingOrders.map((order) => [order.id, order]),
+    );
 
     validateProjectedStaffDailyTokenLimit({
       orders,
@@ -4858,6 +4932,8 @@ export async function POST(request: NextRequest) {
               let capacityReconcileNeeded = false;
               const inventoryWarnings = new Set<string>();
               const createdOrdersForWhatsApp: QueuedWhatsAppNotification[] = [];
+              const auditDocuments: Prisma.BusinessDocumentCreateManyInput[] =
+                [];
 
               const existingRows = await tx.$queryRaw<
                 {
@@ -5479,6 +5555,32 @@ export async function POST(request: NextRequest) {
                   }
                 }
 
+                const existingAuditOrder = existingOrdersById.get(order.id);
+                const shouldWriteCreateAudit = !existingAuditOrder;
+                const shouldWriteEditAudit =
+                  Boolean(existingAuditOrder) &&
+                  buildBookingAuditComparableSnapshot(existingAuditOrder) !==
+                    buildBookingAuditComparableSnapshot({
+                      ...order,
+                      insuranceFee,
+                    });
+
+                if (shouldWriteCreateAudit || shouldWriteEditAudit) {
+                  auditDocuments.push(
+                    buildBookingAuditDocument({
+                      businessId,
+                      action: shouldWriteCreateAudit ? "created" : "edited",
+                      orderId: order.id,
+                      bookingCode: order.bookingCode || order.resi || order.id,
+                      customerName: order.customerName || "",
+                      actorUserId: userId,
+                      actorName:
+                        actorUser?.name || `User #${userId} (${String(role)})`,
+                      actorEmail: actorUser?.email || "",
+                    }),
+                  );
+                }
+
                 if (
                   shouldRewriteOrderItems ||
                   (existingOrder?.order_status ?? null) !==
@@ -5596,6 +5698,12 @@ export async function POST(request: NextRequest) {
                     AND bo.token_used > 0
                 )
             `;
+              }
+
+              if (auditDocuments.length > 0) {
+                await tx.businessDocument.createMany({
+                  data: auditDocuments,
+                });
               }
 
               await upsertOrdersSnapshot(tx, {

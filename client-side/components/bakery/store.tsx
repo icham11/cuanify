@@ -2841,12 +2841,12 @@ export function OrdersProvider({
     async (id: string) => {
       const latestOrders = getLatestOrdersSnapshot();
       const orderExists = latestOrders.some((o) => o.id === id);
-      if (!orderExists) return;
-
       const nextOrders = latestOrders.filter((order) => order.id !== id);
       
       try {
-        persistOrders(nextOrders);
+        if (orderExists) {
+          persistOrders(nextOrders, { syncToServer: false });
+        }
 
         const response = await fetch(`${ORDERS_SYNC_ENDPOINT}/${id}`, {
           method: "DELETE",
@@ -2877,7 +2877,9 @@ export function OrdersProvider({
         syncQueuedOrdersRef.current = null;
         syncRollbackSnapshotRef.current = null;
         syncChangedOrderIdsRef.current.clear();
-        persistOrders(latestOrders, { syncToServer: false });
+        if (orderExists) {
+          persistOrders(latestOrders, { syncToServer: false });
+        }
         throw error;
       }
     },

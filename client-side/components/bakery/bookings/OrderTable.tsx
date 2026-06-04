@@ -27,7 +27,7 @@ import {
 
 interface OrderTableProps {
   orders: BakeryOrder[];
-  onOrderDeleted?: () => void | Promise<void>;
+  onOrderDeleted?: (deletedOrderId: string) => void | Promise<void>;
   onOrderStatusUpdated?: () => void | Promise<void>;
 }
 
@@ -130,7 +130,7 @@ function DeleteConfirmModal({
 }: {
   order: BakeryOrder;
   onClose: () => void;
-  onDeleted: () => void | Promise<void>;
+  onDeleted: (deletedOrderId: string) => void | Promise<void>;
 }) {
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -144,7 +144,7 @@ function DeleteConfirmModal({
     setError(null);
     try {
       await deleteOrder(order.id);
-      await onDeleted();
+      await onDeleted(order.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal menghapus order");
       setDeleting(false);
@@ -189,12 +189,15 @@ function DeleteConfirmModal({
 
           <div className="flex gap-3">
             <button
+              type="button"
               onClick={onClose}
               className="flex-1 rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-600 transition hover:bg-gray-50"
             >
               Batal
             </button>
             <button
+              type="button"
+              data-testid="confirm-delete-booking"
               onClick={handleDelete}
               disabled={deleting}
               className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-red-700 disabled:opacity-50"
@@ -478,6 +481,7 @@ export default function OrderTable({
               {canDeleteOrder && (
                 <button
                   type="button"
+                  data-testid={`delete-booking-${order.id}`}
                   onClick={(event) => {
                     event.stopPropagation();
                     setDeleteModal(order);
@@ -515,9 +519,9 @@ export default function OrderTable({
         <DeleteConfirmModal
           order={deleteModal}
           onClose={() => setDeleteModal(null)}
-          onDeleted={async () => {
+          onDeleted={async (deletedOrderId) => {
             setDeleteModal(null);
-            await onOrderDeleted?.();
+            await onOrderDeleted?.(deletedOrderId);
           }}
         />
       )}

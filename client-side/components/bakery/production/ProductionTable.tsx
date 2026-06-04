@@ -5,6 +5,7 @@ import { Loader2, Search, Sparkles, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import StatusDropdown from "@/components/bakery/production/StatusDropdown";
+import BookingAuditLogPopup from "@/components/bakery/production/BookingAuditLogPopup";
 import { useOrders, type BakeryOrder } from "@/components/bakery/store";
 import { useRole } from "@/context/RoleContext";
 import { getOrderItemsSummary } from "@/lib/bookings/order-display";
@@ -1807,7 +1808,12 @@ export default function ProductionTable() {
               </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div
+              className={`grid grid-cols-2 gap-2 ${
+                isOwner ? "sm:grid-cols-5" : "sm:grid-cols-4"
+              }`}
+            >
+              {isOwner ? <BookingAuditLogPopup /> : null}
               <div className="rounded-[20px] border border-[var(--crumbella-border)] bg-white px-3 py-3 shadow-[0_10px_18px_-20px_rgba(30,18,10,0.7)]">
                 <p className="text-[10px] font-medium text-[var(--crumbella-muted)]">
                   Total Token

@@ -33,6 +33,7 @@ import { getBakeryBusinessSettings } from "@/lib/bakery/settings";
 import { getProductionStagePercentagesFromTemplates, resolvePrimaryProductionCategory, resolveProductionStageTemplatesForCategory } from "@/lib/bookings/production-stages";
 import { calculateOrderFinancialBreakdown } from "@/lib/bookings/financial-breakdown";
 import { normalizeDateInput } from "@/lib/helpers/date-normalization";
+import { buildBookingAuditDocument } from "@/lib/bookings/booking-audit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -83,6 +84,12 @@ type SnapshotStore =
   | Pick<typeof prisma, "businessDocument">
   | Pick<Prisma.TransactionClient, "businessDocument">;
 
+type SnapshotRemovalUpdate = {
+  id: number;
+  content: string;
+  metadata: Record<string, unknown>;
+};
+
 function parseSnapshotOrders(content: string | null | undefined): unknown[] {
   if (!content) return [];
   try {
@@ -93,14 +100,19 @@ function parseSnapshotOrders(content: string | null | undefined): unknown[] {
   }
 }
 
-async function removeOrderFromSnapshot(
-  db: SnapshotStore,
-  params: {
-    businessId: number;
-    orderId: string;
-  },
-) {
-  const existingSnapshot = await db.businessDocument.findFirst({
+function isUuidLike(value: string | null | undefined): value is string {
+  return typeof value === "string"
+    ? /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        value,
+      )
+    : false;
+}
+
+async function prepareSnapshotRemovalUpdate(params: {
+  businessId: number;
+  orderId: string;
+}): Promise<SnapshotRemovalUpdate | null> {
+  const existingSnapshot = await prisma.businessDocument.findFirst({
     where: {
       businessId: params.businessId,
       sourceType: SNAPSHOT_SOURCE_TYPE,
@@ -113,7 +125,7 @@ async function removeOrderFromSnapshot(
     },
   });
 
-  if (!existingSnapshot) return;
+  if (!existingSnapshot) return null;
 
   const currentOrders = parseSnapshotOrders(existingSnapshot.content);
   const nextOrders = currentOrders.filter((entry) => {
@@ -121,21 +133,18 @@ async function removeOrderFromSnapshot(
     return record?.id !== params.orderId;
   });
 
-  if (nextOrders.length === currentOrders.length) return;
+  if (nextOrders.length === currentOrders.length) return null;
 
-  const metadataRecord = asRecord(existingSnapshot.metadata) ?? {};
-  await db.businessDocument.update({
-    where: { id: existingSnapshot.id },
-    data: {
-      content: JSON.stringify(nextOrders),
-      metadata: {
-        ...metadataRecord,
-        itemCount: nextOrders.length,
-        updatedAt: new Date().toISOString(),
-        source: "rows",
-      },
+  return {
+    id: existingSnapshot.id,
+    content: JSON.stringify(nextOrders),
+    metadata: {
+      ...(asRecord(existingSnapshot.metadata) ?? {}),
+      itemCount: nextOrders.length,
+      updatedAt: new Date().toISOString(),
+      source: "rows",
     },
-  });
+  };
 }
 
 async function updateOrderStatusInSnapshot(
@@ -492,6 +501,12 @@ export async function PATCH(
 ) {
   try {
     const { businessId, userId, role } = await requireAuth();
+    const actorUser = await prisma.user
+      .findUnique({
+        where: { id: userId },
+        select: { name: true, email: true },
+      })
+      .catch(() => null);
     const { id } = await context.params;
 
     if (!id) {
@@ -515,6 +530,8 @@ export async function PATCH(
       Array<{
         external_id: string;
         order_uuid: string | null;
+        booking_code: string | null;
+        customer_name: string | null;
         order_status: string | null;
         delivery_date: string | null;
         status_history: unknown;
@@ -524,6 +541,8 @@ export async function PATCH(
       SELECT
         external_id,
         order_uuid,
+        booking_code,
+        customer_name,
         order_status,
         delivery_date,
         status_history,
@@ -613,6 +632,20 @@ export async function PATCH(
           statusHistory: nextStatusHistory,
         });
 
+        await tx.businessDocument.create({
+          data: buildBookingAuditDocument({
+            businessId,
+            action: "edited",
+            orderId: id,
+            bookingCode: existingOrder.booking_code || id,
+            customerName: existingOrder.customer_name || "",
+            actorUserId: userId,
+            actorName:
+              actorUser?.name || actorName || `User #${userId} (${String(role)})`,
+            actorEmail: actorUser?.email || "",
+          }),
+        });
+
         if (existingOrder.delivery_date) {
           await recalculateProductionCapacityForDate(tx, {
             businessId,
@@ -662,7 +695,13 @@ export async function DELETE(
   context: { params: Promise<{ id: string }> },
 ) {
   try {
-    const { businessId, role } = await requireAuth();
+    const { businessId, role, userId } = await requireAuth();
+    const actorUser = await prisma.user
+      .findUnique({
+        where: { id: userId },
+        select: { name: true, email: true },
+      })
+      .catch(() => null);
     const { id } = await context.params;
 
     if (!id) {
@@ -675,9 +714,14 @@ export async function DELETE(
     }
 
     const rows = await prisma.$queryRaw<
-      Array<{ delivery_date: string | null; order_uuid: string | null }>
+      Array<{
+        delivery_date: string | null;
+        order_uuid: string | null;
+        booking_code: string | null;
+        customer_name: string | null;
+      }>
     >`
-      SELECT delivery_date, order_uuid
+      SELECT delivery_date, order_uuid, booking_code, customer_name
       FROM bakery_orders
       WHERE business_id = ${businessId}
         AND external_id = ${id}
@@ -693,79 +737,115 @@ export async function DELETE(
     }
 
     const deliveryDate = rows[0].delivery_date;
-    const orderUuid = rows[0].order_uuid ?? orderTaskUuid(businessId, id);
+    const orderUuid = isUuidLike(rows[0].order_uuid)
+      ? rows[0].order_uuid
+      : null;
+    const snapshotRemovalUpdate = await prepareSnapshotRemovalUpdate({
+      businessId,
+      orderId: id,
+    });
 
-    await prisma.$transaction(
-      async (tx) => {
-        await tx.$executeRaw`
+    const transactionSteps: Prisma.PrismaPromise<unknown>[] = [
+      prisma.$executeRaw`
+        DELETE FROM bakery_order_items
+        WHERE business_id = ${businessId}
+          AND order_external_id = ${id}
+      `,
+      prisma.$executeRaw`
+        DELETE FROM bakery_order_addresses
+        WHERE business_id = ${businessId}
+          AND order_external_id = ${id}
+      `,
+      prisma.$executeRaw`
+        DELETE FROM bakery_orders
+        WHERE business_id = ${businessId}
+          AND external_id = ${id}
+      `,
+    ];
+
+    if (orderUuid) {
+      transactionSteps.unshift(
+        prisma.$executeRaw`
           DELETE FROM production_tasks
           WHERE order_id = ${orderUuid}::uuid
-        `;
+        `,
+      );
+    }
 
-        await tx.$executeRaw`
-          DELETE FROM bakery_order_items
-          WHERE business_id = ${businessId}
-            AND order_external_id = ${id}
-        `;
+    if (snapshotRemovalUpdate) {
+      transactionSteps.push(
+        prisma.businessDocument.update({
+          where: { id: snapshotRemovalUpdate.id },
+          data: {
+            content: snapshotRemovalUpdate.content,
+            metadata: snapshotRemovalUpdate.metadata,
+          },
+        }),
+      );
+    }
 
-        await tx.$executeRaw`
-          DELETE FROM bakery_order_addresses
-          WHERE business_id = ${businessId}
-            AND order_external_id = ${id}
-        `;
-
-        await tx.$executeRaw`
-          DELETE FROM bakery_orders
-          WHERE business_id = ${businessId}
-            AND external_id = ${id}
-        `;
-
-        await removeOrderFromSnapshot(tx, {
+    transactionSteps.push(
+      prisma.businessDocument.create({
+        data: buildBookingAuditDocument({
           businessId,
+          action: "deleted",
           orderId: id,
-        });
+          bookingCode: rows[0].booking_code || id,
+          customerName: rows[0].customer_name || "",
+          actorUserId: userId,
+          actorName:
+            actorUser?.name || `User #${userId} (${String(role)})`,
+          actorEmail: actorUser?.email || "",
+        }),
+      }),
+    );
 
-        if (deliveryDate) {
-          const INACTIVE_STATUSES = ["Completed", "Delivered", "Cancelled", "Inquiry"];
-          await tx.$executeRaw`
-            WITH daily_totals AS (
-              SELECT delivery_date AS delivery_date, COALESCE(SUM(token_used), 0) AS total_token_amount
+    if (deliveryDate) {
+      const INACTIVE_STATUSES = [
+        "Completed",
+        "Delivered",
+        "Cancelled",
+        "Inquiry",
+      ] as const;
+      transactionSteps.push(
+        prisma.$executeRaw`
+          WITH daily_totals AS (
+            SELECT delivery_date AS delivery_date, COALESCE(SUM(token_used), 0) AS total_token_amount
+            FROM bakery_orders
+            WHERE business_id = ${businessId}
+              AND delivery_date = ${deliveryDate}::date
+              AND deleted_at IS NULL
+              AND order_status NOT IN (${INACTIVE_STATUSES[0]}, ${INACTIVE_STATUSES[1]}, ${INACTIVE_STATUSES[2]}, ${INACTIVE_STATUSES[3]})
+            GROUP BY delivery_date
+          )
+          UPDATE production_capacity
+          SET
+            used_token = COALESCE((SELECT total_token_amount FROM daily_totals LIMIT 1), 0),
+            updated_at = NOW()
+          WHERE business_id = ${businessId}
+            AND date = ${deliveryDate}::date
+        `,
+        prisma.$executeRaw`
+          UPDATE production_capacity
+          SET used_token = 0, updated_at = NOW()
+          WHERE business_id = ${businessId}
+            AND date = ${deliveryDate}::date
+            AND NOT EXISTS (
+              SELECT 1
               FROM bakery_orders
               WHERE business_id = ${businessId}
                 AND delivery_date = ${deliveryDate}::date
                 AND deleted_at IS NULL
                 AND order_status NOT IN (${INACTIVE_STATUSES[0]}, ${INACTIVE_STATUSES[1]}, ${INACTIVE_STATUSES[2]}, ${INACTIVE_STATUSES[3]})
-              GROUP BY delivery_date
             )
-            UPDATE production_capacity
-            SET
-              used_token = COALESCE((SELECT total_token_amount FROM daily_totals LIMIT 1), 0),
-              updated_at = NOW()
-            WHERE business_id = ${businessId}
-              AND date = ${deliveryDate}::date
-          `;
+        `,
+      );
+    }
 
-          await tx.$executeRaw`
-            UPDATE production_capacity
-            SET used_token = 0, updated_at = NOW()
-            WHERE business_id = ${businessId}
-              AND date = ${deliveryDate}::date
-              AND NOT EXISTS (
-                SELECT 1
-                FROM bakery_orders
-                WHERE business_id = ${businessId}
-                  AND delivery_date = ${deliveryDate}::date
-                  AND deleted_at IS NULL
-                  AND order_status NOT IN (${INACTIVE_STATUSES[0]}, ${INACTIVE_STATUSES[1]}, ${INACTIVE_STATUSES[2]}, ${INACTIVE_STATUSES[3]})
-              )
-          `;
-        }
-      },
-      {
-        maxWait: 10_000,
-        timeout: 60_000,
-      },
-    );
+    await prisma.$transaction(transactionSteps, {
+      maxWait: 10_000,
+      timeout: 60_000,
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {
