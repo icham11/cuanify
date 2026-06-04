@@ -5013,6 +5013,24 @@ export async function POST(request: NextRequest) {
                 if (changedOrderIdsSet && !changedOrderIdsSet.has(order.id)) {
                   continue;
                 }
+
+                // Mencegah modifikasi data untuk order di bulan-bulan sebelumnya demi integritas laporan
+                const existingRowCheck = existingOrderMap.get(order.id);
+                if (existingRowCheck?.delivery_date) { // Pastikan pesanan lama punya delivery date
+                  const deliveryDateObj = new Date(existingRowCheck.delivery_date);
+                  const nowDate = new Date();
+                  const isPreviousMonth = 
+                    deliveryDateObj.getFullYear() < nowDate.getFullYear() ||
+                    (deliveryDateObj.getFullYear() === nowDate.getFullYear() &&
+                      deliveryDateObj.getMonth() < nowDate.getMonth());
+                      
+                  if (isPreviousMonth) {
+                    throw new ForbiddenError(
+                      `Tidak dapat mengubah detail pesanan dari bulan sebelumnya karena data telah dikunci.`
+                    );
+                  }
+                }
+
                 upsertedOrderCount += 1;
                 const orderUuid = orderTaskUuid(businessId, order.id);
 

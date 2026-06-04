@@ -1030,23 +1030,21 @@ export function suggestCatalogSelectionFromCatalog(
     return getDefaultCatalogSelectionFromCatalog(catalog, category);
   }
 
-  const variantByLabel = best.product.variants.find((entry) =>
-    includesKeyword(normalizedText, entry.label),
-  );
+  let bestVariant: PricelistVariant | undefined;
+  let bestVariantScore = 0;
 
-  const variantByKeyword = best.product.variants.find((entry) => {
-    return (entry.keywords ?? []).some((keyword) =>
-      includesKeyword(normalizedText, keyword),
-    );
+  best.product.variants.forEach((variant) => {
+    const score = scoreVariantMatch(normalizedText, variant);
+    if (score > bestVariantScore) {
+      bestVariantScore = score;
+      bestVariant = variant;
+    }
   });
 
   return ensureCatalogSelectionFromCatalog(catalog, {
     category: categoryData.category,
     subcategory: best.subcategory.name,
     productName: best.product.name,
-    size:
-      variantByKeyword?.label ??
-      variantByLabel?.label ??
-      getDefaultVariantLabel(best.product),
+    size: bestVariant?.label ?? getDefaultVariantLabel(best.product),
   });
 }

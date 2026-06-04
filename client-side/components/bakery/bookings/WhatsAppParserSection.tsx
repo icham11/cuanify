@@ -177,25 +177,61 @@ export default function WhatsAppParserSection({
             </span>
           </label>
 
-          <label className="grid gap-2 text-sm font-medium text-gray-700">
-            Label Desain per Gambar
-            <Textarea
-              value={referenceImageLabelsInput}
-              onChange={(event) => {
-                setReferenceImageLabelsInput(event.target.value);
-                if (draftImported) {
-                  setReferenceFilesChangedSinceParse(true);
+          {referenceImageFiles.length > 0 ? (
+            <div className="grid gap-3">
+              <span className="text-sm font-medium text-gray-700">Label Desain per Gambar</span>
+              {referenceImageFiles.map((file, index) => {
+                const labels = referenceImageLabelsInput.split("\n");
+                const currentLabel = labels[index] || "";
+                return (
+                  <div key={`${file.name}-${index}`} className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded border border-gray-200 bg-gray-50 flex-shrink-0 flex items-center justify-center text-xs font-semibold text-gray-500">
+                      #{index + 1}
+                    </div>
+                    <Input
+                      value={currentLabel}
+                      onChange={(event) => {
+                        const newLabels = [...labels];
+                        while (newLabels.length <= index) {
+                          newLabels.push("");
+                        }
+                        newLabels[index] = event.target.value;
+                        setReferenceImageLabelsInput(newLabels.join("\n"));
+                        if (draftImported) {
+                          setReferenceFilesChangedSinceParse(true);
+                        }
+                      }}
+                      placeholder={`Keterangan untuk gambar ${file.name}`}
+                      className="flex-1 bg-white"
+                    />
+                  </div>
+                );
+              })}
+              <span className="text-xs font-normal text-gray-500">
+                Dipakai untuk mencocokkan gambar ke slot/template produk.
+              </span>
+            </div>
+          ) : (
+            <label className="grid gap-2 text-sm font-medium text-gray-700">
+              Label Desain per Gambar
+              <Textarea
+                value={referenceImageLabelsInput}
+                onChange={(event) => {
+                  setReferenceImageLabelsInput(event.target.value);
+                  if (draftImported) {
+                    setReferenceFilesChangedSinceParse(true);
+                  }
+                }}
+                placeholder={
+                  "Opsional. Isi satu label per baris sesuai urutan upload.\nContoh:\nPikachu\nBulbasaur\nPiplup"
                 }
-              }}
-              placeholder={
-                "Opsional. Isi satu label per baris sesuai urutan upload.\nContoh:\nPikachu\nBulbasaur\nPiplup"
-              }
-              className="min-h-24"
-            />
-            <span className="text-xs font-normal text-gray-500">
-              Dipakai untuk mencocokkan gambar ke slot/template produk.
-            </span>
-          </label>
+                className="min-h-24"
+              />
+              <span className="text-xs font-normal text-gray-500">
+                Dipakai untuk mencocokkan gambar ke slot/template produk.
+              </span>
+            </label>
+          )}
 
           {/* ── File summary ───────────────────────────────────────────── */}
           {referenceImageFiles.length > 0 && (
