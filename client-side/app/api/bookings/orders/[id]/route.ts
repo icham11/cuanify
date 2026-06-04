@@ -796,14 +796,6 @@ export async function DELETE(
       }
     }
 
-    const orderUuid = rows[0].order_uuid ?? orderTaskUuid(businessId, id);
-
-    await prisma.$transaction(
-      async (tx) => {
-        await tx.$executeRaw`
-          DELETE FROM production_tasks
-          WHERE order_id = ${orderUuid}::uuid
-        `;
     const orderUuid = isUuidLike(rows[0].order_uuid)
       ? rows[0].order_uuid
       : null;
@@ -865,53 +857,6 @@ export async function DELETE(
           actorEmail: actorUser?.email || "",
         }),
       }),
-    );
-
-        if (deliveryDate) {
-          const INACTIVE_STATUSES = [
-            "Completed",
-            "Delivered",
-            "Cancelled",
-            "Inquiry",
-          ];
-          await tx.$executeRaw`
-            WITH daily_totals AS (
-              SELECT delivery_date AS delivery_date, COALESCE(SUM(token_used), 0) AS total_token_amount
-              FROM bakery_orders
-              WHERE business_id = ${businessId}
-                AND delivery_date = ${deliveryDate}::date
-                AND deleted_at IS NULL
-                AND order_status NOT IN (${INACTIVE_STATUSES[0]}, ${INACTIVE_STATUSES[1]}, ${INACTIVE_STATUSES[2]}, ${INACTIVE_STATUSES[3]})
-              GROUP BY delivery_date
-            )
-            UPDATE production_capacity
-            SET
-              used_token = COALESCE((SELECT total_token_amount FROM daily_totals LIMIT 1), 0),
-              updated_at = NOW()
-            WHERE business_id = ${businessId}
-              AND date = ${deliveryDate}::date
-          `;
-
-          await tx.$executeRaw`
-            UPDATE production_capacity
-            SET used_token = 0, updated_at = NOW()
-            WHERE business_id = ${businessId}
-              AND date = ${deliveryDate}::date
-              AND NOT EXISTS (
-                SELECT 1
-                FROM bakery_orders
-                WHERE business_id = ${businessId}
-                  AND delivery_date = ${deliveryDate}::date
-                  AND deleted_at IS NULL
-                  AND order_status NOT IN (${INACTIVE_STATUSES[0]}, ${INACTIVE_STATUSES[1]}, ${INACTIVE_STATUSES[2]}, ${INACTIVE_STATUSES[3]})
-              )
-          `;
-        }
-      },
-      {
-        maxWait: 10_000,
-        timeout: 60_000,
-      },
     );
     if (deliveryDate) {
       const INACTIVE_STATUSES = [
