@@ -901,8 +901,70 @@ export default function ReportsPage() {
     }>;
   }, [filteredOrders, products, bakerySettings]);
 
+  const templatePenjualanData = useMemo(() => {
+    let totalSubtotal = 0;
+    let totalTotalCogs = 0;
+    let totalLabaKotor = 0;
+
+    const rows = filteredOrders.flatMap((order) => {
+      if (normalizeOrderStatus(order.orderStatus) === "Cancelled") return [];
+      const d = String(order.deliveryDate || "").split("T")[0] || "";
+      if (!d) return [];
+
+      const s = calculateBakeryFinancialSummary({
+        orders: [order],
+        products,
+        settings: bakerySettings,
+        fromDate: d,
+        toDate: d,
+      });
+
+      return (order.items || []).map((item) => {
+        const productName = String(item.productName || "").trim() || String(order.product || "").trim() || "Produk";
+        const breakdown = s.cogsBreakdown.find(b => b.productName === productName);
+        const cogsPerItem = breakdown ? breakdown.cogsPerItem : 0;
+        
+        const qty = Number(item.quantity || 0);
+        const lineTotal = Number(item.lineTotal || 0);
+        const hargaSatuan = qty > 0 ? Math.round(lineTotal / qty) : 0;
+        const subtotal = lineTotal;
+        const itemTotalCogs = cogsPerItem * qty;
+        const labaKotor = subtotal - itemTotalCogs;
+        const margin = subtotal > 0 ? (labaKotor / subtotal) : 0;
+
+        totalSubtotal += subtotal;
+        totalTotalCogs += itemTotalCogs;
+        totalLabaKotor += labaKotor;
+
+        return {
+          idSales: order.bookingCode || order.resi || order.id,
+          tanggal: d,
+          namaProduk: productName,
+          kategori: item.category || "",
+          subkategori: item.size || (item.addOns || []).join(", "),
+          qty: qty,
+          hargaSatuan: hargaSatuan,
+          cogsSatuan: cogsPerItem,
+          subtotal: subtotal,
+          totalCogs: itemTotalCogs,
+          labaKotor: labaKotor,
+          margin: `${(margin * 100).toFixed(0)}%`,
+          statusBayar: order.paymentStatus || "Pending",
+        };
+      });
+    });
+
+    const totalMargin = totalSubtotal > 0 ? (totalLabaKotor / totalSubtotal) : 0;
+
+    const summaryRow = [
+      "", "", "", "", "", "", "", "TOTAL", totalSubtotal, totalTotalCogs, totalLabaKotor, `${(totalMargin * 100).toFixed(0)}%`, ""
+    ];
+
+    return { rows, summaryRow };
+  }, [filteredOrders, products, bakerySettings]);
+
   const exportExcel = (
-    type: "bookings" | "items" | "customers" | "financial-transactions",
+    type: "bookings" | "items" | "customers" | "financial-transactions" | "template-penjualan",
   ) => {
     const selectedSheet =
       type === "bookings"
@@ -954,7 +1016,32 @@ export default function ReportsPage() {
                   rows: customerRows,
                 },
               ]
-            : [
+            : type === "template-penjualan"
+              ? [
+                  {
+                    name: "Data Penjualan",
+                    title: "DATA PENJUALAN — Crumbella",
+                    subtitle: "Ekspor transaksi per pesanan. Subtotal, Laba & Margin terisi otomatis.",
+                    columns: [
+                      { key: "idSales", header: "ID Sales", width: 20 },
+                      { key: "tanggal", header: "Tanggal", width: 14 },
+                      { key: "namaProduk", header: "Nama Produk", width: 28 },
+                      { key: "kategori", header: "Kategori", width: 16 },
+                      { key: "subkategori", header: "Subkategori", width: 16 },
+                      { key: "qty", header: "Qty", width: 8 },
+                      { key: "hargaSatuan", header: "Harga Satuan", width: 16 },
+                      { key: "cogsSatuan", header: "COGS/HPP Satua", width: 18 },
+                      { key: "subtotal", header: "Subtotal", width: 16 },
+                      { key: "totalCogs", header: "Total COGS", width: 16 },
+                      { key: "labaKotor", header: "Laba Kotor", width: 16 },
+                      { key: "margin", header: "Margin", width: 10 },
+                      { key: "statusBayar", header: "Status Bayar", width: 14 },
+                    ],
+                    rows: templatePenjualanData.rows,
+                    summaryRow: templatePenjualanData.summaryRow,
+                  },
+                ]
+              : [
               {
                 name: "Financial Transactions",
                 columns: [
@@ -977,7 +1064,9 @@ export default function ReportsPage() {
           ? "reports-booking-items"
           : type === "customers"
             ? "reports-customers"
-            : "reports-financial";
+            : type === "template-penjualan"
+              ? "data-penjualan"
+              : "reports-financial";
     const filename = `${filePrefix}-${toDateInputValue(new Date())}.xlsx`;
     setIsExportPickerOpen(false);
     const url = URL.createObjectURL(blob);
@@ -1013,16 +1102,20 @@ export default function ReportsPage() {
                 Pilih salah satu jenis data Excel yang ingin diunduh.
               </p>
               <div className="mt-4 grid gap-2">
-                <Button onClick={() => exportExcel("bookings")} className="justify-start">
+                <Button onClick={() => exportExcel("template-penjualan")} className="justify-start border-[#dfc9b7] bg-white text-[#2f1e13] hover:bg-[#f6eee7] hover:text-[#2f1e13]">
+                  ⭐ Data Penjualan (Template)
+                </Button>
+                <div className="my-1 border-t border-[#ead6c8]" />
+                <Button onClick={() => exportExcel("bookings")} className="justify-start border-[#dfc9b7] bg-white text-[#2f1e13] hover:bg-[#f6eee7] hover:text-[#2f1e13]">
                   Bookings
                 </Button>
-                <Button onClick={() => exportExcel("items")} className="justify-start">
+                <Button onClick={() => exportExcel("items")} className="justify-start border-[#dfc9b7] bg-white text-[#2f1e13] hover:bg-[#f6eee7] hover:text-[#2f1e13]">
                   Booking Items
                 </Button>
-                <Button onClick={() => exportExcel("customers")} className="justify-start">
+                <Button onClick={() => exportExcel("customers")} className="justify-start border-[#dfc9b7] bg-white text-[#2f1e13] hover:bg-[#f6eee7] hover:text-[#2f1e13]">
                   Customers
                 </Button>
-                <Button onClick={() => exportExcel("financial-transactions")} className="justify-start">
+                <Button onClick={() => exportExcel("financial-transactions")} className="justify-start border-[#dfc9b7] bg-white text-[#2f1e13] hover:bg-[#f6eee7] hover:text-[#2f1e13]">
                   Financial & COGS
                 </Button>
               </div>

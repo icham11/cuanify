@@ -18,6 +18,9 @@ export interface ExcelSheetDef<T = Row> {
   name: string;
   columns: ExcelColumn<T>[];
   rows: T[];
+  title?: string;
+  subtitle?: string;
+  summaryRow?: any[];
 }
 
 /**
@@ -46,7 +49,17 @@ export function generateExcel(sheets: ExcelSheetDef[]): Blob {
       }),
     );
 
-    const ws = XLSX.utils.aoa_to_sheet([headers, ...data]);
+    const aoa: any[][] = [];
+    if (sheet.title) aoa.push([sheet.title]);
+    if (sheet.subtitle) aoa.push([sheet.subtitle]);
+    aoa.push(headers);
+    aoa.push(...data);
+
+    if (sheet.summaryRow) {
+      aoa.push(sheet.summaryRow);
+    }
+
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
 
     ws["!cols"] = sheet.columns.map((col) => ({
       wch: col.width ?? Math.max(col.header.length + 2, 14),
