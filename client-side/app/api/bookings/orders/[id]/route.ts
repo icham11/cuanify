@@ -99,7 +99,7 @@ type SnapshotStore =
 type SnapshotRemovalUpdate = {
   id: number;
   content: string;
-  metadata: Record<string, unknown>;
+  metadata: Prisma.InputJsonObject;
 };
 
 function parseSnapshotOrders(content: string | null | undefined): unknown[] {
@@ -166,15 +166,18 @@ async function prepareSnapshotRemovalUpdate(params: {
 
   if (nextOrders.length === currentOrders.length) return null;
 
+  const metadataRecord = (asRecord(existingSnapshot.metadata) ??
+    {}) as Prisma.InputJsonObject;
+
   return {
     id: existingSnapshot.id,
     content: JSON.stringify(nextOrders),
     metadata: {
-      ...(asRecord(existingSnapshot.metadata) ?? {}),
+      ...metadataRecord,
       itemCount: nextOrders.length,
       updatedAt: new Date().toISOString(),
       source: "rows",
-    },
+    } as Prisma.InputJsonObject,
   };
 }
 
@@ -934,10 +937,7 @@ export async function DELETE(
       );
     }
 
-    await prisma.$transaction(transactionSteps, {
-      maxWait: 10_000,
-      timeout: 60_000,
-    });
+    await prisma.$transaction(transactionSteps);
 
     return NextResponse.json({ success: true });
   } catch (error) {

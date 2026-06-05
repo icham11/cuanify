@@ -1,4 +1,5 @@
 import type { BakeryOrder, OrderItem } from "@/components/bakery/store";
+import { BOOKING_ADD_ON_CATALOG } from "@/lib/bookings/pricelist";
 import {
   resolveDeliveryMethodLabel,
   resolveOrderDeliveryMethod,
@@ -30,6 +31,12 @@ function uniq(values: string[]): string[] {
   return values.filter((value, index) => {
     const normalized = value.toLowerCase();
     return values.findIndex((entry) => entry.toLowerCase() === normalized) === index;
+  });
+}
+
+function toTitleCase(value: string): string {
+  return value.replace(/\b([a-z])([a-z]*)/gi, (_, first: string, rest: string) => {
+    return `${first.toUpperCase()}${rest.toLowerCase()}`;
   });
 }
 
@@ -195,6 +202,58 @@ function stripPriceDetails(value?: string | null): string {
     .trim();
 }
 
+function humanizeAddOnId(addOnId: string): string {
+  return toTitleCase(normalizeText(addOnId).replace(/[-_]+/g, " "));
+}
+
+function resolveCatalogAddOnLabel(item: OrderItem, addOnId: string): string {
+  const categoryEntries = BOOKING_ADD_ON_CATALOG[item.category] ?? [];
+  const categoryMatch = categoryEntries.find((entry) => entry.id === addOnId);
+  if (categoryMatch?.label) return categoryMatch.label;
+
+  for (const entries of Object.values(BOOKING_ADD_ON_CATALOG)) {
+    const match = entries.find((entry) => entry.id === addOnId);
+    if (match?.label) return match.label;
+  }
+
+  return humanizeAddOnId(addOnId);
+}
+
+function extractAddOnsFromNotes(item: OrderItem): string[] {
+  return splitLines(item.notes)
+    .flatMap((line) => {
+      const match = line.match(/^add-ons?\s*:\s*(.+)$/i);
+      if (!match?.[1]) return [];
+      return match[1]
+        .split(/\s*,\s*/g)
+        .map((entry) => stripPriceDetails(entry))
+        .filter(Boolean);
+    });
+}
+
+function buildItemAddOnLine(item: OrderItem): string {
+  const addOnLabelsFromIds = (item.addOns ?? []).map((addOnId) => {
+    const label = stripPriceDetails(resolveCatalogAddOnLabel(item, addOnId));
+    const quantity = Math.max(1, Math.round(Number(item.addOnQuantities?.[addOnId] ?? 1)));
+    return quantity > 1 ? `${label} x${quantity}` : label;
+  });
+
+  const customAddOnLabels = (item.customAddOns ?? [])
+    .map((entry) => stripPriceDetails(entry?.label))
+    .filter(Boolean);
+
+  const noteAddOnLabels = extractAddOnsFromNotes(item);
+
+  const addOnLabels = uniq(
+    [...addOnLabelsFromIds, ...customAddOnLabels, ...noteAddOnLabels]
+      .map((entry) => normalizeText(entry))
+      .filter(Boolean),
+  );
+
+  if (addOnLabels.length === 0) return "";
+  return `Add-on: ${addOnLabels.join(", ")}`;
+}
+
 function buildItemSubtitle(order: BakeryOrder, item: OrderItem): string {
   const details = getDetailsByType(order);
   const orderType = order.whatsAppParsedData?.orderType;
@@ -245,36 +304,18 @@ function buildItemSubtitle(order: BakeryOrder, item: OrderItem): string {
   return noteSummary;
 }
 
-function formatAddOnSummary(
-  addOns?: string[],
-  addOnQuantities?: Record<string, number>,
-): string {
-  if (!addOns || addOns.length === 0) return "";
-  return addOns
-    .map((addOn) => {
-      const quantity = Number(addOnQuantities?.[addOn] || 0);
-      if (!Number.isInteger(quantity) || quantity <= 1) return addOn;
-      return `${quantity}x ${addOn}`;
-    })
-    .join(", ");
-}
-
 function buildItemRows(order: BakeryOrder): string {
   const rows = (order.items ?? []).map((item) => {
     const title = normalizeText(item.productName) || "Produk";
+    const addOnLine = buildItemAddOnLine(item);
     const subtitle = buildItemSubtitle(order, item);
-    
-    const addOnText = formatAddOnSummary(item.addOns, item.addOnQuantities);
-    const customAddOnText = (item.customAddOns || []).map(c => c.label).join(", ");
-    const combinedAddOns = [addOnText, customAddOnText].filter(Boolean).join(", ");
-
     return `
       <div class="item-row">
         <div class="qty-chip">${escapeHtml(formatItemBadgeQuantity(item.quantity))}</div>
         <div class="item-copy">
           <div class="item-name">${escapeHtml(title)}</div>
+          ${addOnLine ? `<div class="item-addon">${escapeHtml(addOnLine)}</div>` : ""}
           ${subtitle ? `<div class="item-subtitle">${escapeHtml(subtitle)}</div>` : ""}
-          ${combinedAddOns ? `<div class="item-addon">Add-on: ${escapeHtml(combinedAddOns)}</div>` : ""}
         </div>
       </div>
     `;
@@ -476,6 +517,7 @@ function buildLabelHtml(order: BakeryOrder): string {
       font-size: 13px;
       font-weight: 800;
       line-height: 1.25;
+      word-break: break-word;
     }
 
     .item-subtitle {
@@ -483,6 +525,8 @@ function buildLabelHtml(order: BakeryOrder): string {
       font-size: 11px;
       line-height: 1.35;
       color: #595959;
+      white-space: normal;
+      word-break: break-word;
     }
 
     .item-addon {
@@ -491,6 +535,8 @@ function buildLabelHtml(order: BakeryOrder): string {
       line-height: 1.35;
       color: #737373;
       font-style: italic;
+      white-space: normal;
+      word-break: break-word;
     }
 
     .note-box {
