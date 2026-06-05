@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
+import { createPortal } from "react-dom";
+import { generateExcel } from "@/lib/export/excel";
 import { useBusiness } from "@/context/BusinessContext";
 import { useRole } from "@/context/RoleContext";
 import {
@@ -505,6 +507,19 @@ function BusinessPageContent() {
     useState<BusinessReferenceData>(EMPTY_REFERENCE_DATA);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isExportPickerOpen, setIsExportPickerOpen] = useState(false);
+  const exportDialogTitleRef = useRef<HTMLParagraphElement | null>(null);
+
+  useEffect(() => {
+    if (!isExportPickerOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setIsExportPickerOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isExportPickerOpen]);
 
   const selectableMonthKeys = useMemo(
     () =>
@@ -804,7 +819,108 @@ function BusinessPageContent() {
     `${viewState.viewerName || "Owner"} ${viewState.businessName || ""}`,
   );
 
-  const handleExport = () => {
+  const templatePenjualanData = useMemo(() => {
+    let totalSubtotal = 0;
+    let totalTotalCogs = 0;
+    let totalLabaKotor = 0;
+
+    const rows = deliveryRangeOrders.flatMap((order) => {
+      if (normalizeOrderStatus(order.orderStatus) === "Cancelled") return [];
+      const d = String(order.deliveryDate || "").split("T")[0] || "";
+      if (!d) return [];
+
+      const s = calculateBakeryFinancialSummary({
+        orders: [order],
+        products: referenceData.products,
+        settings: referenceData.bakerySettings,
+        fromDate: d,
+        toDate: d,
+      });
+
+      return (order.items || []).map((item) => {
+        const productName = String(item.productName || "").trim() || String(order.product || "").trim() || "Produk";
+        const breakdown = s.cogsBreakdown.find(b => b.productName === productName);
+        const cogsPerItem = breakdown ? breakdown.cogsPerItem : 0;
+        
+        const qty = Number(item.quantity || 0);
+        const lineTotal = Number(item.lineTotal || 0);
+        const hargaSatuan = qty > 0 ? Math.round(lineTotal / qty) : 0;
+        const subtotal = lineTotal;
+        const itemTotalCogs = cogsPerItem * qty;
+        const labaKotor = subtotal - itemTotalCogs;
+        const margin = subtotal > 0 ? (labaKotor / subtotal) : 0;
+
+        totalSubtotal += subtotal;
+        totalTotalCogs += itemTotalCogs;
+        totalLabaKotor += labaKotor;
+
+        return {
+          idSales: order.bookingCode || order.resi || order.id,
+          tanggal: d,
+          namaProduk: productName,
+          kategori: item.category || "",
+          subkategori: item.size || (item.addOns || []).join(", "),
+          qty: qty,
+          hargaSatuan: hargaSatuan,
+          cogsSatuan: cogsPerItem,
+          subtotal: subtotal,
+          totalCogs: itemTotalCogs,
+          labaKotor: labaKotor,
+          margin: `${(margin * 100).toFixed(0)}%`,
+          statusBayar: order.paymentStatus || "Pending",
+        };
+      });
+    });
+
+    const totalMargin = totalSubtotal > 0 ? (totalLabaKotor / totalSubtotal) : 0;
+
+    const summaryRow = [
+      "", "", "", "", "", "", "", "TOTAL", totalSubtotal, totalTotalCogs, totalLabaKotor, `${(totalMargin * 100).toFixed(0)}%`, ""
+    ];
+
+    return { rows, summaryRow };
+  }, [deliveryRangeOrders, referenceData.products, referenceData.bakerySettings]);
+
+  const handleExportExcel = async () => {
+    const selectedSheet = [
+      {
+        name: "Data Penjualan",
+        title: "DATA PENJUALAN — Crumbella",
+        subtitle: "Ekspor transaksi per pesanan. Subtotal, Laba & Margin terisi otomatis.",
+        columns: [
+          { key: "idSales", header: "ID Sales", width: 20 },
+          { key: "tanggal", header: "Tanggal", width: 14 },
+          { key: "namaProduk", header: "Nama Produk", width: 28 },
+          { key: "kategori", header: "Kategori", width: 16 },
+          { key: "subkategori", header: "Subkategori", width: 16 },
+          { key: "qty", header: "Qty", width: 8 },
+          { key: "hargaSatuan", header: "Harga Satuan", width: 16 },
+          { key: "cogsSatuan", header: "COGS/HPP Satua", width: 18 },
+          { key: "subtotal", header: "Subtotal", width: 16 },
+          { key: "totalCogs", header: "Total COGS", width: 16 },
+          { key: "labaKotor", header: "Laba Kotor", width: 16 },
+          { key: "margin", header: "Margin", width: 10 },
+          { key: "statusBayar", header: "Status Bayar", width: 14 },
+        ],
+        rows: templatePenjualanData.rows,
+        summaryRow: templatePenjualanData.summaryRow,
+      },
+    ];
+
+    const blob = await generateExcel(selectedSheet);
+    const filename = `data-penjualan-${selectedMonth}.xlsx`;
+    setIsExportPickerOpen(false);
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportCsv = () => {
     const csv = buildExportCsv({
       monthLabel,
       businessName: viewState.businessName || "Business",
@@ -826,6 +942,7 @@ function BusinessPageContent() {
     link.download = `business-${selectedMonth}.csv`;
     link.click();
     URL.revokeObjectURL(url);
+    setIsExportPickerOpen(false);
   };
 
   if (businessLoading || loading) {
@@ -862,7 +979,7 @@ function BusinessPageContent() {
         actions={
           <button
             type="button"
-            onClick={handleExport}
+            onClick={() => setIsExportPickerOpen(true)}
             className="inline-flex h-9 items-center gap-2 rounded-full bg-[var(--crumbella-accent)] px-4 text-xs font-semibold text-white transition hover:bg-[var(--crumbella-accent-hover)]"
           >
             <Download size={15} />
@@ -870,6 +987,51 @@ function BusinessPageContent() {
           </button>
         }
       />
+
+      {typeof document !== "undefined" &&
+        isExportPickerOpen &&
+        createPortal(
+          <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/35 p-4">
+            <div className="w-full max-w-md rounded-2xl border border-[#e9d4c2] bg-white p-5 shadow-2xl">
+              <p
+                ref={exportDialogTitleRef}
+                tabIndex={-1}
+                className="text-base font-bold text-slate-800 outline-none"
+              >
+                Pilih Data Export
+              </p>
+              <p className="mt-1 text-sm text-slate-600">
+                Pilih salah satu jenis format data yang ingin diunduh.
+              </p>
+              <div className="mt-4 grid gap-2">
+                <button
+                  type="button"
+                  onClick={handleExportExcel}
+                  className="inline-flex h-10 w-full items-center justify-start rounded-md border border-[#dfc9b7] bg-white px-4 py-2 text-sm font-medium text-[#2f1e13] transition-colors hover:bg-[#f6eee7]"
+                >
+                  ⭐ Data Penjualan (Template Excel)
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportCsv}
+                  className="inline-flex h-10 w-full items-center justify-start rounded-md border border-[#dfc9b7] bg-white px-4 py-2 text-sm font-medium text-[#2f1e13] transition-colors hover:bg-[#f6eee7]"
+                >
+                  Ringkasan Laporan (CSV)
+                </button>
+              </div>
+              <div className="mt-4">
+                <button
+                  type="button"
+                  onClick={() => setIsExportPickerOpen(false)}
+                  className="inline-flex h-10 w-full items-center justify-center rounded-md border border-[#e2e8f0] bg-white px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+                >
+                  Batal
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
 
       <div className="overflow-hidden rounded-[34px] border border-[#e4d2c4] bg-[#f8efe5] px-4 pb-6 pt-4 shadow-[0_26px_55px_-42px_rgba(94,53,30,0.6)] sm:px-5 xl:px-6">
         <div className="overflow-hidden rounded-[30px] border border-[#dcc8b8] bg-[#f7efe7] shadow-[0_14px_36px_rgba(84,56,36,0.10)]">

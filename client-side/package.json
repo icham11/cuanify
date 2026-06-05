@@ -46,6 +46,7 @@
     "cloudinary": "^2.9.0",
     "date-fns": "^4.1.0",
     "dotenv": "^17.3.1",
+    "exceljs": "^4.4.0",
     "framer-motion": "^12.34.0",
     "groq-sdk": "^0.37.0",
     "idb-keyval": "^6.2.2",

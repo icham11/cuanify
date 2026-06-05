@@ -1,9 +1,9 @@
 /**
  * Excel (XLSX) Export Utility
- * Uses the `xlsx` library (SheetJS) to generate proper .xlsx files.
+ * Uses the `exceljs` library to generate fully styled .xlsx files.
  */
 
-import * as XLSX from "xlsx";
+import * as ExcelJS from "exceljs";
 
 type Row = Record<string, unknown>;
 
@@ -28,47 +28,88 @@ export interface ExcelSheetDef<T = Row> {
  *
  * Usage:
  * ```ts
- * const buffer = generateExcel([
+ * const buffer = await generateExcel([
  *   { name: "Penjualan", columns: [...], rows: sales },
  *   { name: "Inventori", columns: [...], rows: ingredients },
  * ]);
  * ```
  */
-export function generateExcel(sheets: ExcelSheetDef[]): Blob {
-  const wb = XLSX.utils.book_new();
+export async function generateExcel(sheets: ExcelSheetDef[]): Promise<Blob> {
+  const wb = new ExcelJS.Workbook();
 
   for (const sheet of sheets) {
-    const headers = sheet.columns.map((c) => c.header);
+    const ws = wb.addWorksheet(sheet.name.slice(0, 31));
 
-    const data = sheet.rows.map((row) =>
-      sheet.columns.map((col) => {
-        if (col.format) return col.format(row);
-        const val = row[col.key];
-        if (val === null || val === undefined) return "";
-        return val;
-      }),
-    );
-
-    const aoa: any[][] = [];
-    if (sheet.title) aoa.push([sheet.title]);
-    if (sheet.subtitle) aoa.push([sheet.subtitle]);
-    aoa.push(headers);
-    aoa.push(...data);
-
-    if (sheet.summaryRow) {
-      aoa.push(sheet.summaryRow);
+    // Title
+    if (sheet.title) {
+      const row = ws.addRow([sheet.title]);
+      row.font = { bold: true, color: { argb: "FFCC5A27" }, size: 14 };
+      ws.mergeCells(row.number, 1, row.number, Math.max(1, sheet.columns.length));
     }
 
-    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    // Subtitle
+    if (sheet.subtitle) {
+      const row = ws.addRow([sheet.subtitle]);
+      row.font = { color: { argb: "FF666666" }, size: 11 };
+      ws.mergeCells(row.number, 1, row.number, Math.max(1, sheet.columns.length));
+    }
 
-    ws["!cols"] = sheet.columns.map((col) => ({
-      wch: col.width ?? Math.max(col.header.length + 2, 14),
-    }));
+    // Headers
+    const headerRow = ws.addRow(sheet.columns.map((c) => c.header));
+    headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
+    headerRow.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFCC5A27" },
+    };
 
-    XLSX.utils.book_append_sheet(wb, ws, sheet.name.slice(0, 31));
+    // Data
+    for (const row of sheet.rows) {
+      ws.addRow(
+        sheet.columns.map((col) => {
+          if (col.format) return col.format(row);
+          const val = row[col.key];
+          return val === null || val === undefined ? "" : val;
+        }),
+      );
+    }
+
+    // Summary
+    if (sheet.summaryRow) {
+      const sumRow = ws.addRow(sheet.summaryRow);
+      sumRow.font = { bold: true };
+      sumRow.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFFAE6D3" },
+      };
+    }
+
+    // Columns width
+    sheet.columns.forEach((col, i) => {
+      ws.getColumn(i + 1).width = col.width ?? Math.max(col.header.length + 2, 14);
+    });
+
+    // Style all cells
+    ws.eachRow((row, rowNumber) => {
+      row.eachCell({ includeEmpty: true }, (cell) => {
+        cell.border = {
+          top: { style: "thin", color: { argb: "FFEAD6C8" } },
+          left: { style: "thin", color: { argb: "FFEAD6C8" } },
+          bottom: { style: "thin", color: { argb: "FFEAD6C8" } },
+          right: { style: "thin", color: { argb: "FFEAD6C8" } },
+        };
+        const numHeaderRows = (sheet.title ? 1 : 0) + (sheet.subtitle ? 1 : 0);
+        if (rowNumber <= numHeaderRows) {
+          cell.alignment = { vertical: "middle", horizontal: "left" };
+        } else {
+          cell.alignment = { vertical: "middle", horizontal: "center" };
+        }
+      });
+    });
   }
 
-  const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" });
+  const buf = await wb.xlsx.writeBuffer();
   return new Blob([buf], {
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   });

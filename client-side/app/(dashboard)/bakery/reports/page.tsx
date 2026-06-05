@@ -963,7 +963,7 @@ export default function ReportsPage() {
     return { rows, summaryRow };
   }, [filteredOrders, products, bakerySettings]);
 
-  const exportExcel = (
+  const exportExcel = async (
     type: "bookings" | "items" | "customers" | "financial-transactions" | "template-penjualan",
   ) => {
     const selectedSheet =
@@ -1056,7 +1056,7 @@ export default function ReportsPage() {
               },
             ];
 
-    const blob = generateExcel(selectedSheet);
+    const blob = await generateExcel(selectedSheet);
     const filePrefix =
       type === "bookings"
         ? "reports-bookings"
@@ -1102,20 +1102,39 @@ export default function ReportsPage() {
                 Pilih salah satu jenis data Excel yang ingin diunduh.
               </p>
               <div className="mt-4 grid gap-2">
-                <Button onClick={() => exportExcel("template-penjualan")} className="justify-start border-[#dfc9b7] bg-white text-[#2f1e13] hover:bg-[#f6eee7] hover:text-[#2f1e13]">
+                <Button 
+                  onClick={() => exportExcel("template-penjualan")} 
+                  className="justify-start bg-[#b25222] text-white hover:bg-[#9a451b] font-semibold border-none"
+                >
                   ⭐ Data Penjualan (Template)
                 </Button>
                 <div className="my-1 border-t border-[#ead6c8]" />
-                <Button onClick={() => exportExcel("bookings")} className="justify-start border-[#dfc9b7] bg-white text-[#2f1e13] hover:bg-[#f6eee7] hover:text-[#2f1e13]">
+                <Button 
+                  onClick={() => exportExcel("bookings")} 
+                  variant="outline"
+                  className="justify-start border-[#dfc9b7] bg-white text-[#2f1e13] hover:bg-[#f6eee7] hover:text-[#2f1e13]"
+                >
                   Bookings
                 </Button>
-                <Button onClick={() => exportExcel("items")} className="justify-start border-[#dfc9b7] bg-white text-[#2f1e13] hover:bg-[#f6eee7] hover:text-[#2f1e13]">
+                <Button 
+                  onClick={() => exportExcel("items")} 
+                  variant="outline"
+                  className="justify-start border-[#dfc9b7] bg-white text-[#2f1e13] hover:bg-[#f6eee7] hover:text-[#2f1e13]"
+                >
                   Booking Items
                 </Button>
-                <Button onClick={() => exportExcel("customers")} className="justify-start border-[#dfc9b7] bg-white text-[#2f1e13] hover:bg-[#f6eee7] hover:text-[#2f1e13]">
+                <Button 
+                  onClick={() => exportExcel("customers")} 
+                  variant="outline"
+                  className="justify-start border-[#dfc9b7] bg-white text-[#2f1e13] hover:bg-[#f6eee7] hover:text-[#2f1e13]"
+                >
                   Customers
                 </Button>
-                <Button onClick={() => exportExcel("financial-transactions")} className="justify-start border-[#dfc9b7] bg-white text-[#2f1e13] hover:bg-[#f6eee7] hover:text-[#2f1e13]">
+                <Button 
+                  onClick={() => exportExcel("financial-transactions")} 
+                  variant="outline"
+                  className="justify-start border-[#dfc9b7] bg-white text-[#2f1e13] hover:bg-[#f6eee7] hover:text-[#2f1e13]"
+                >
                   Financial & COGS
                 </Button>
               </div>
