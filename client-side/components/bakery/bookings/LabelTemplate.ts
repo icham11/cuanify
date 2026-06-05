@@ -245,16 +245,36 @@ function buildItemSubtitle(order: BakeryOrder, item: OrderItem): string {
   return noteSummary;
 }
 
+function formatAddOnSummary(
+  addOns?: string[],
+  addOnQuantities?: Record<string, number>,
+): string {
+  if (!addOns || addOns.length === 0) return "";
+  return addOns
+    .map((addOn) => {
+      const quantity = Number(addOnQuantities?.[addOn] || 0);
+      if (!Number.isInteger(quantity) || quantity <= 1) return addOn;
+      return `${quantity}x ${addOn}`;
+    })
+    .join(", ");
+}
+
 function buildItemRows(order: BakeryOrder): string {
   const rows = (order.items ?? []).map((item) => {
     const title = normalizeText(item.productName) || "Produk";
     const subtitle = buildItemSubtitle(order, item);
+    
+    const addOnText = formatAddOnSummary(item.addOns, item.addOnQuantities);
+    const customAddOnText = (item.customAddOns || []).map(c => c.label).join(", ");
+    const combinedAddOns = [addOnText, customAddOnText].filter(Boolean).join(", ");
+
     return `
       <div class="item-row">
         <div class="qty-chip">${escapeHtml(formatItemBadgeQuantity(item.quantity))}</div>
         <div class="item-copy">
           <div class="item-name">${escapeHtml(title)}</div>
           ${subtitle ? `<div class="item-subtitle">${escapeHtml(subtitle)}</div>` : ""}
+          ${combinedAddOns ? `<div class="item-addon">Add-on: ${escapeHtml(combinedAddOns)}</div>` : ""}
         </div>
       </div>
     `;
@@ -463,6 +483,14 @@ function buildLabelHtml(order: BakeryOrder): string {
       font-size: 11px;
       line-height: 1.35;
       color: #595959;
+    }
+
+    .item-addon {
+      margin-top: 2px;
+      font-size: 10px;
+      line-height: 1.35;
+      color: #737373;
+      font-style: italic;
     }
 
     .note-box {
