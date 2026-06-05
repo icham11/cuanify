@@ -101,7 +101,7 @@ export async function GET(request: NextRequest) {
 
     if (type === "stock" || type === "all") {
       if (format === "xlsx" && type === "stock") {
-        const buffer = generateExcel([
+        const buffer = await generateExcel([
           { name: "Stok Inventori", columns: INGREDIENT_COLUMNS, rows: stockRows },
         ]);
         return new Response(buffer, {
@@ -149,7 +149,7 @@ export async function GET(request: NextRequest) {
 
     if (type === "movements") {
       if (format === "xlsx") {
-        const buffer = generateExcel([
+        const buffer = await generateExcel([
           { name: "Pergerakan Stok", columns: MOVEMENT_COLUMNS, rows: movementRows },
         ]);
         return new Response(buffer, {
@@ -172,7 +172,7 @@ export async function GET(request: NextRequest) {
     // ─── All (multi-sheet Excel) ────────────────────────
     if (type === "all") {
       if (format === "xlsx") {
-        const buffer = generateExcel([
+        const buffer = await generateExcel([
           { name: "Stok Inventori", columns: INGREDIENT_COLUMNS, rows: stockRows },
           { name: "Pergerakan Stok", columns: MOVEMENT_COLUMNS, rows: movementRows },
         ]);

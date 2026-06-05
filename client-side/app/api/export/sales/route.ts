@@ -107,7 +107,7 @@ export async function GET(request: NextRequest) {
       : new Date().toISOString().split("T")[0];
 
     if (format === "xlsx") {
-      const xlsxBlob = generateExcel([
+      const xlsxBlob = await generateExcel([
         { name: "Penjualan", columns: SALE_COLUMNS, rows: allRows },
       ]);
 
