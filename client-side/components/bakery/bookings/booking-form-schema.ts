@@ -102,6 +102,8 @@ export const bookingSchema = z
       .min(1, "At least one address is required"),
     isManualShippingOverride: z.boolean().default(false),
     manualShippingFee: z.number().default(0),
+    isManualDpOverride: z.boolean().default(false),
+    manualDpAmount: z.number().default(0),
   })
   .superRefine((values, ctx) => {
     values.deliveryAddresses.forEach((address, index) => {

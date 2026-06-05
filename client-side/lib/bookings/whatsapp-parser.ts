@@ -491,6 +491,8 @@ export interface BookingFormAutoFill {
   paymentStatus: "DP Paid" | "Paid";
   dpPaidAmount: number;
   finalPaidAmount: number;
+  isManualDpOverride?: boolean;
+  manualDpAmount?: number;
   manualAdjustment: number;
   deliveryAddresses: Array<{
     label: string;
@@ -4569,6 +4571,8 @@ export function buildBookingAutoFillFromParsed(
     paymentStatus,
     dpPaidAmount,
     finalPaidAmount,
+    isManualDpOverride: hasExplicitDownPayment,
+    manualDpAmount: hasExplicitDownPayment ? parsedDownPaymentAmount : 0,
     manualAdjustment,
     deliveryAddresses: [
       {

@@ -806,6 +806,10 @@ const bookingSchema = z
     deliveryAddresses: z
       .array(addressSchema)
       .min(1, "At least one address is required"),
+    isManualShippingOverride: z.boolean().default(false),
+    manualShippingFee: z.number().default(0),
+    isManualDpOverride: z.boolean().default(false),
+    manualDpAmount: z.number().default(0),
   })
   .superRefine((values, ctx) => {
     values.deliveryAddresses.forEach((address, index) => {
@@ -3788,6 +3792,10 @@ export default function BookingForm({
       wholesaleDiscountPercent: 0,
       productAdjustment: 0,
       nonProductAdjustment: 0,
+      isManualShippingOverride: false,
+      manualShippingFee: 0,
+      isManualDpOverride: false,
+      manualDpAmount: 0,
       items: [
         {
           category: defaultItemSelection.category,
@@ -4139,6 +4147,14 @@ export default function BookingForm({
     useWatch({ control, name: "nonProductAdjustment" }) ?? 0;
   const selectedPaymentStatus =
     useWatch({ control, name: "paymentStatus" }) ?? "DP Paid";
+  const isManualDpOverride =
+    useWatch({ control, name: "isManualDpOverride" }) ?? false;
+  const manualDpAmount =
+    useWatch({ control, name: "manualDpAmount" }) ?? 0;
+  const isManualShippingOverride =
+    useWatch({ control, name: "isManualShippingOverride" }) ?? false;
+  const manualShippingFee =
+    useWatch({ control, name: "manualShippingFee" }) ?? 0;
   const fragileOrderReasons = useMemo(
     () => getGrabCarOnlyReasons(watchedItems),
     [watchedItems],
@@ -4991,11 +5007,13 @@ export default function BookingForm({
     return null;
   }, [shippingDistanceKm, selectedShippingQuote]);
 
-  const deliveryFee = shouldUseShippingEngine
-    ? (selectedShippingQuote?.priceWithoutInsurance ??
-      selectedShippingQuote?.price ??
-      0)
-    : 0;
+  const deliveryFee = isManualShippingOverride
+    ? manualShippingFee
+    : shouldUseShippingEngine
+      ? (selectedShippingQuote?.priceWithoutInsurance ??
+        selectedShippingQuote?.price ??
+        0)
+      : 0;
   const insuranceFeeFromShipping = shouldUseShippingEngine
     ? (selectedShippingQuote?.insuranceFee ?? 0)
     : 0;
@@ -5044,7 +5062,9 @@ export default function BookingForm({
     Math.max(0, Number(totalPrice || 0)) * (defaultDpPercentage / 100),
   );
   const effectiveDpPaidAmount =
-    selectedPaymentStatus === "DP Paid" ? suggestedDownPaymentAmount : 0;
+    selectedPaymentStatus === "DP Paid"
+      ? (isManualDpOverride ? manualDpAmount : suggestedDownPaymentAmount)
+      : 0;
   const effectiveFinalPaidAmount =
     selectedPaymentStatus === "Paid" ? totalPrice : 0;
 
@@ -6797,6 +6817,16 @@ export default function BookingForm({
           shouldValidate: true,
         },
       );
+      if ("isManualDpOverride" in draft && draft.isManualDpOverride !== undefined) {
+        setValue("isManualDpOverride", Boolean(draft.isManualDpOverride), {
+          shouldValidate: true,
+        });
+      }
+      if ("manualDpAmount" in draft && draft.manualDpAmount !== undefined) {
+        setValue("manualDpAmount", Math.max(0, Number(draft.manualDpAmount || 0)), {
+          shouldValidate: true,
+        });
+      }
       setValue("dpPaidAmount", Math.max(0, Number(draft.dpPaidAmount || 0)), {
         shouldValidate: true,
       });
@@ -10450,6 +10480,58 @@ export default function BookingForm({
                           ini.
                         </p>
                       )}
+                  </div>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-3">
+                    <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                      <input
+                        type="checkbox"
+                        {...register("isManualShippingOverride")}
+                        className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-600"
+                      />
+                      Gunakan nominal Ongkir manual
+                    </label>
+                    {isManualShippingOverride && (
+                      <label className="grid gap-2 text-sm font-medium text-gray-700">
+                        Nominal Ongkir Manual
+                        <Input
+                          type="number"
+                          step="1000"
+                          min="0"
+                          placeholder="Masukkan ongkir manual..."
+                          {...register("manualShippingFee", {
+                            valueAsNumber: true,
+                          })}
+                        />
+                      </label>
+                    )}
+                  </div>
+
+                  <div className="space-y-3">
+                    <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                      <input
+                        type="checkbox"
+                        {...register("isManualDpOverride")}
+                        className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-600"
+                      />
+                      Gunakan nominal DP manual
+                    </label>
+                    {isManualDpOverride && selectedPaymentStatus === "DP Paid" && (
+                      <label className="grid gap-2 text-sm font-medium text-gray-700">
+                        Nominal DP Manual
+                        <Input
+                          type="number"
+                          step="1000"
+                          min="0"
+                          placeholder="Masukkan DP manual..."
+                          {...register("manualDpAmount", {
+                            valueAsNumber: true,
+                          })}
+                        />
+                      </label>
+                    )}
                   </div>
                 </div>
 
