@@ -40,7 +40,10 @@ import {
 } from "@/lib/bookings/production-stages";
 import { calculateOrderFinancialBreakdown } from "@/lib/bookings/financial-breakdown";
 import { normalizeDateInput } from "@/lib/helpers/date-normalization";
-import { buildBookingAuditDocument } from "@/lib/bookings/booking-audit";
+import {
+  buildBookingAuditDocument,
+  buildBookingAuditOrderSummary,
+} from "@/lib/bookings/booking-audit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -115,6 +118,25 @@ function isUuidLike(value: string | null | undefined): value is string {
         value,
       )
     : false;
+}
+
+async function loadBookingAuditOrderSummary(params: {
+  businessId: number;
+  orderId: string;
+  fallbackLabel?: string | null;
+}) {
+  const itemRows = await prisma.$queryRaw<Array<{ payload: Prisma.JsonValue }>>`
+    SELECT payload
+    FROM bakery_order_items
+    WHERE business_id = ${params.businessId}
+      AND order_external_id = ${params.orderId}
+    ORDER BY item_index ASC
+  `;
+
+  return buildBookingAuditOrderSummary({
+    items: itemRows.map((row) => asRecord(parseJsonField(row.payload))),
+    fallbackLabel: params.fallbackLabel,
+  });
 }
 
 async function prepareSnapshotRemovalUpdate(params: {
@@ -578,6 +600,11 @@ export async function PATCH(
     }
 
     const existingOrder = rows[0];
+    const orderSummary = await loadBookingAuditOrderSummary({
+      businessId,
+      orderId: id,
+      fallbackLabel: existingOrder.booking_code || id,
+    });
 
     // Mencegah modifikasi data untuk order di bulan-bulan sebelumnya demi integritas laporan
     if (existingOrder.delivery_date) { // Pastikan delivery date tidak null
@@ -678,6 +705,7 @@ export async function PATCH(
             orderId: id,
             bookingCode: existingOrder.booking_code || id,
             customerName: existingOrder.customer_name || "",
+            orderSummary,
             actorUserId: userId,
             actorName:
               actorUser?.name || actorName || `User #${userId} (${String(role)})`,
@@ -779,6 +807,11 @@ export async function DELETE(
     }
 
     const deliveryDate = rows[0].delivery_date;
+    const orderSummary = await loadBookingAuditOrderSummary({
+      businessId,
+      orderId: id,
+      fallbackLabel: rows[0].booking_code || id,
+    });
 
     // Mencegah penghapusan data untuk order di bulan-bulan sebelumnya demi integritas laporan
     if (deliveryDate) { // Pastikan pesanan punya delivery date
@@ -851,6 +884,7 @@ export async function DELETE(
           orderId: id,
           bookingCode: rows[0].booking_code || id,
           customerName: rows[0].customer_name || "",
+          orderSummary,
           actorUserId: userId,
           actorName:
             actorUser?.name || `User #${userId} (${String(role)})`,

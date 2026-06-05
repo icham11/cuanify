@@ -17,14 +17,22 @@ export async function GET(request: NextRequest) {
     }
 
     const limitValue = Number(request.nextUrl.searchParams.get("limit") ?? "40");
-    const entries = await listBookingAuditEntries({
+    const cursorValue = Number(request.nextUrl.searchParams.get("cursor") ?? "");
+    const page = await listBookingAuditEntries({
       businessId,
       limit: Number.isFinite(limitValue) ? limitValue : 40,
+      cursor:
+        Number.isFinite(cursorValue) && cursorValue > 0 ? cursorValue : null,
     });
 
     return NextResponse.json({
       success: true,
-      data: entries,
+      data: page.entries,
+      pageInfo: {
+        nextCursor: page.nextCursor,
+        hasMore: Boolean(page.nextCursor),
+        total: page.total,
+      },
     });
   } catch (error) {
     if (error instanceof ForbiddenError) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Clock3,
@@ -23,6 +23,7 @@ type BookingAuditEntry = {
   orderId: string;
   bookingCode: string;
   customerName: string;
+  orderSummary: string;
   actorUserId: number | null;
   actorName: string;
   actorEmail: string;
@@ -30,9 +31,16 @@ type BookingAuditEntry = {
   createdAt: string;
 };
 
+type BookingAuditPageInfo = {
+  nextCursor?: number | null;
+  hasMore?: boolean;
+  total?: number;
+};
+
 type BookingAuditResponse = {
   success?: boolean;
   data?: BookingAuditEntry[];
+  pageInfo?: BookingAuditPageInfo;
   error?: string;
 };
 
@@ -89,47 +97,87 @@ export default function BookingAuditLogPopup() {
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [entries, setEntries] = useState<BookingAuditEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [nextCursor, setNextCursor] = useState<number | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [totalEntries, setTotalEntries] = useState(0);
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  const loadEntries = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await fetch("/api/bookings/audit-logs?limit=40", {
-        credentials: "include",
-        cache: "no-store",
-      });
-      const payload = (await response.json().catch(() => ({}))) as BookingAuditResponse;
-      if (!response.ok || !payload.success) {
-        throw new Error(payload.error || "Gagal memuat log booking.");
+  const loadEntries = useCallback(
+    async (options?: {
+      cursor?: number | null;
+      append?: boolean;
+    }) => {
+      const append = Boolean(options?.append);
+      if (append) {
+        setLoadingMore(true);
+      } else {
+        setLoading(true);
+        setError(null);
       }
-      setEntries(payload.data ?? []);
-    } catch (loadError) {
-      setError(
-        loadError instanceof Error
-          ? loadError.message
-          : "Gagal memuat log booking.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
+
+      try {
+        const params = new URLSearchParams({
+          limit: "20",
+        });
+        if (options?.cursor) {
+          params.set("cursor", String(options.cursor));
+        }
+
+        const response = await fetch(
+          `/api/bookings/audit-logs?${params.toString()}`,
+          {
+            credentials: "include",
+            cache: "no-store",
+          },
+        );
+        const payload = (await response.json().catch(() => ({}))) as BookingAuditResponse;
+        if (!response.ok || !payload.success) {
+          throw new Error(payload.error || "Gagal memuat log booking.");
+        }
+
+        const nextEntries = payload.data ?? [];
+        setEntries((currentEntries) =>
+          append ? [...currentEntries, ...nextEntries] : nextEntries,
+        );
+        setNextCursor(payload.pageInfo?.nextCursor ?? null);
+        setHasMore(Boolean(payload.pageInfo?.hasMore));
+        setTotalEntries(payload.pageInfo?.total ?? nextEntries.length);
+      } catch (loadError) {
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : "Gagal memuat log booking.",
+        );
+      } finally {
+        if (append) {
+          setLoadingMore(false);
+        } else {
+          setLoading(false);
+        }
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!open) return;
     void loadEntries();
-  }, [open]);
+  }, [loadEntries, open]);
 
   const titleSummary = useMemo(() => {
-    if (loading) return "Memuat aktivitas booking...";
+    if (loading && entries.length === 0) return "Memuat aktivitas booking...";
     if (entries.length === 0) return "Belum ada aktivitas booking yang tercatat.";
-    return `${entries.length} aktivitas booking terbaru tercatat untuk owner.`;
-  }, [entries.length, loading]);
+    if (hasMore && totalEntries > entries.length) {
+      return `Menampilkan ${entries.length} dari ${totalEntries} aktivitas booking terbaru.`;
+    }
+    return `${Math.max(totalEntries, entries.length)} aktivitas booking tercatat untuk owner.`;
+  }, [entries.length, hasMore, loading, totalEntries]);
 
   return (
     <>
@@ -233,7 +281,7 @@ export default function BookingAuditLogPopup() {
                       </div>
                     ) : null}
 
-                    <div className="space-y-3">
+                    <div className="space-y-3 pb-5">
                       {entries.map((entry) => {
                         const actionMeta = getActionMeta(entry.action);
                         const ActionIcon = actionMeta.icon;
@@ -261,9 +309,17 @@ export default function BookingAuditLogPopup() {
                                     {orderLabel}
                                   </span>
                                 </div>
-                                <p className="mt-3 text-sm font-bold text-[var(--foreground)]">
-                                  {entry.customerName || "Customer tidak tersedia"}
-                                </p>
+                                <div className="mt-3 rounded-[18px] border border-[#efe1d3] bg-[#fff9f4] px-3 py-3">
+                                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--crumbella-primary)]">
+                                    Detail Booking
+                                  </p>
+                                  <p className="mt-1 text-sm font-bold text-[var(--foreground)]">
+                                    {entry.customerName || "Pemesan tidak tersedia"}
+                                  </p>
+                                  <p className="mt-1 text-xs leading-5 text-[var(--crumbella-muted)]">
+                                    {entry.orderSummary || "Ringkasan order tidak tersedia"}
+                                  </p>
+                                </div>
                                 <div className="mt-2 flex flex-col gap-2 text-xs text-[var(--crumbella-muted)] sm:flex-row sm:flex-wrap sm:items-center">
                                   <span className="inline-flex items-center gap-1.5">
                                     <UserRound className="h-3.5 w-3.5" />
@@ -293,6 +349,37 @@ export default function BookingAuditLogPopup() {
                         );
                       })}
                     </div>
+
+                    {!error && entries.length > 0 ? (
+                      <div className="mt-4 flex items-center justify-center">
+                        {hasMore ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void loadEntries({
+                                cursor: nextCursor,
+                                append: true,
+                              })
+                            }
+                            disabled={loadingMore || !nextCursor}
+                            className="inline-flex min-w-[220px] items-center justify-center gap-2 rounded-[18px] border border-[var(--crumbella-border)] bg-white px-4 py-3 text-sm font-semibold text-[var(--crumbella-primary)] transition hover:bg-[var(--crumbella-accent-soft)] disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {loadingMore ? (
+                              <>
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                Memuat riwayat...
+                              </>
+                            ) : (
+                              "Muat riwayat lebih lama"
+                            )}
+                          </button>
+                        ) : totalEntries > 20 ? (
+                          <p className="text-xs text-[var(--crumbella-muted)]">
+                            Semua riwayat booking sudah ditampilkan.
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               </div>

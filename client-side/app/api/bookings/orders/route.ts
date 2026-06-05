@@ -68,7 +68,10 @@ import {
   bookingStatusFilterMatchesBlank,
   getBookingStatusFilterAliases,
 } from "@/lib/bookings/order-status";
-import { buildBookingAuditDocument } from "@/lib/bookings/booking-audit";
+import {
+  buildBookingAuditDocument,
+  buildBookingAuditOrderSummary,
+} from "@/lib/bookings/booking-audit";
 
 // ─── Custom Error for capacity-full rejections ───────────────────────────────
 
@@ -5574,14 +5577,17 @@ export async function POST(request: NextRequest) {
                 }
 
                 const existingAuditOrder = existingOrdersById.get(order.id);
-                const shouldWriteCreateAudit = !existingAuditOrder;
+                const orderAlreadyExists = existingOrderMap.has(order.id);
+                const shouldWriteCreateAudit = !orderAlreadyExists;
                 const shouldWriteEditAudit =
-                  existingAuditOrder !== undefined &&
-                  buildBookingAuditComparableSnapshot(existingAuditOrder) !==
-                    buildBookingAuditComparableSnapshot({
-                      ...order,
-                      insuranceFee,
-                    });
+                  orderAlreadyExists &&
+                  (existingAuditOrder !== undefined
+                    ? buildBookingAuditComparableSnapshot(existingAuditOrder) !==
+                      buildBookingAuditComparableSnapshot({
+                        ...order,
+                        insuranceFee,
+                      })
+                    : changedOrderIdsSet?.has(order.id) ?? false);
 
                 if (shouldWriteCreateAudit || shouldWriteEditAudit) {
                   auditDocuments.push(
@@ -5591,6 +5597,10 @@ export async function POST(request: NextRequest) {
                       orderId: order.id,
                       bookingCode: order.bookingCode || order.resi || order.id,
                       customerName: order.customerName || "",
+                      orderSummary: buildBookingAuditOrderSummary({
+                        items: order.items,
+                        fallbackLabel: order.product,
+                      }),
                       actorUserId: userId,
                       actorName:
                         actorUser?.name || `User #${userId} (${String(role)})`,
