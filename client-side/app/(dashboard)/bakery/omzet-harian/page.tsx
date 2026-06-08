@@ -1,289 +1,58 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import { formatCurrency } from "@/components/orders/formatters";
 import { useRole } from "@/context/RoleContext";
 import {
-  BAKERY_ORDERS_STORAGE_KEY,
-  BAKERY_ORDERS_UPDATED_EVENT,
-} from "@/lib/bookings/client-events";
+  buildDailyOmzetSummaryCards,
+  formatDailyOmzetPaymentStatusLabel,
+  formatTimeWib,
+} from "@/lib/admin/daily-omzet-shared";
+import { useDailyOmzetSnapshot } from "@/lib/admin/use-daily-omzet-snapshot";
 import {
   BarChart3,
-  CalendarClock,
   Coins,
-  ReceiptText,
   RefreshCcw,
+  Wallet,
 } from "lucide-react";
 
-type PaymentStatus = "Paid" | "DP Paid" | "Pending" | "Unknown";
-
-interface DailyOmzetData {
-  businessDate: string;
-  businessDateLabel: string;
-  timeZone: string;
-  generatedAt: string;
-  summary: {
-    bookingCountCreatedToday: number;
-    fullyPaidBookingCountCreatedToday: number;
-    bookingSalesCreatedToday: number;
-    pendingFromCreatedToday: number;
-    paymentReceiptCountToday: number;
-    dpReceivedToday: number;
-    finalReceivedToday: number;
-    totalPaymentsReceived: number;
-  };
-  reconciliation: {
-    bakery: {
-      bookingSalesCreatedToday: number;
-      pendingSalesToday: number;
-      paymentsReceivedToday: number;
-      paymentReceiptCountToday: number;
-    };
-    deltaPaymentsMinusBookingSales: number;
-  };
-  sales: Array<{
-    id: string;
-    reference: string;
-    customerName: string;
-    paymentStatus: PaymentStatus;
-    totalPrice: number;
-    totalPaidAmount: number;
-    remainingBalance: number;
-    createdAt: string;
-  }>;
-  payments: Array<{
-    id: string;
-    reference: string;
-    customerName: string;
-    amount: number;
-    paymentType: "DP" | "Final";
-    note?: string;
-    createdAt: string;
-  }>;
-}
-
-const BUSINESS_TIME_ZONE = "Asia/Jakarta";
 const SALES_PAGE_SIZE = 5;
-
-function getJakartaDateKey(now: Date = new Date()): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: BUSINESS_TIME_ZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(now);
-}
-
-function toDateInputValue(date: Date) {
-  const year = date.getFullYear();
-  const month = `${date.getMonth() + 1}`.padStart(2, "0");
-  const day = `${date.getDate()}`.padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function formatTimeWib(dateIso: string): string {
-  return new Intl.DateTimeFormat("id-ID", {
-    timeZone: BUSINESS_TIME_ZONE,
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  }).format(new Date(dateIso));
-}
-
-function formatPaymentStatusLabel(status: PaymentStatus): string {
-  if (status === "Paid") return "Lunas";
-  if (status === "DP Paid") return "DP";
-  if (status === "Pending") return "Belum Bayar";
-  return "-";
-}
 
 export default function AdminDailyOmzetPage() {
   const { loading: roleLoading, isAdmin, isOwner } = useRole();
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState("");
-  const [data, setData] = useState<DailyOmzetData | null>(null);
   const [currentSalesPage, setCurrentSalesPage] = useState(1);
-  const [selectedDate, setSelectedDate] = useState(() => toDateInputValue(new Date()));
-  const dateKeyRef = useRef<string>(getJakartaDateKey());
   const canViewDailyOmzet = isAdmin || isOwner;
-
-  const fetchDailyOmzet = useCallback(async (silent = false) => {
-    if (silent) {
-      setRefreshing(true);
-    } else {
-      setLoading(true);
-    }
-
-    try {
-      const response = await fetch(
-        `/api/admin/daily-omzet?date=${encodeURIComponent(selectedDate)}`,
-        {
-        method: "GET",
-        credentials: "include",
-        cache: "no-store",
-        },
-      );
-
-      const payload = (await response.json()) as {
-        success?: boolean;
-        data?: DailyOmzetData;
-        error?: string;
-      };
-
-      if (!response.ok || !payload.success || !payload.data) {
-        throw new Error(payload.error || "Gagal memuat data omzet harian");
-      }
-
-      setData(payload.data);
-      setError("");
-      dateKeyRef.current = selectedDate;
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Gagal memuat data omzet harian",
-      );
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [selectedDate]);
-
-  useEffect(() => {
-    if (roleLoading || !canViewDailyOmzet) {
-      if (!roleLoading) {
-        setLoading(false);
-      }
-      return;
-    }
-
-    void fetchDailyOmzet(false);
-  }, [canViewDailyOmzet, fetchDailyOmzet, roleLoading]);
-
-  useEffect(() => {
-    if (roleLoading || !canViewDailyOmzet) return;
-
-    const timer = window.setInterval(() => {
-      const currentDateKey = getJakartaDateKey();
-      if (selectedDate === currentDateKey || currentDateKey !== dateKeyRef.current) {
-        dateKeyRef.current = selectedDate;
-        void fetchDailyOmzet(true);
-      }
-    }, 60_000);
-
-    return () => window.clearInterval(timer);
-  }, [canViewDailyOmzet, fetchDailyOmzet, roleLoading, selectedDate]);
-
-  useEffect(() => {
-    if (roleLoading || !canViewDailyOmzet) return;
-
-    const handleFocus = () => {
-      void fetchDailyOmzet(true);
-    };
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        void fetchDailyOmzet(true);
-      }
-    };
-
-    window.addEventListener("focus", handleFocus);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
-    return () => {
-      window.removeEventListener("focus", handleFocus);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
-  }, [canViewDailyOmzet, fetchDailyOmzet, roleLoading]);
-
-  useEffect(() => {
-    if (roleLoading || !canViewDailyOmzet) return;
-
-    const handleOrdersUpdated = () => {
-      void fetchDailyOmzet(true);
-    };
-
-    const handleStorage = (event: StorageEvent) => {
-      if (
-        event.key === BAKERY_ORDERS_STORAGE_KEY ||
-        event.key?.startsWith(`${BAKERY_ORDERS_STORAGE_KEY}:`)
-      ) {
-        void fetchDailyOmzet(true);
-      }
-    };
-
-    window.addEventListener(BAKERY_ORDERS_UPDATED_EVENT, handleOrdersUpdated);
-    window.addEventListener("storage", handleStorage);
-
-    return () => {
-      window.removeEventListener(
-        BAKERY_ORDERS_UPDATED_EVENT,
-        handleOrdersUpdated,
-      );
-      window.removeEventListener("storage", handleStorage);
-    };
-  }, [canViewDailyOmzet, fetchDailyOmzet, roleLoading]);
+  const {
+    data,
+    error,
+    fetchDailyOmzet,
+    loading,
+    refreshing,
+    selectedDate,
+    setSelectedDate,
+  } = useDailyOmzetSnapshot({
+    enabled: !roleLoading && canViewDailyOmzet,
+  });
 
   const summaryCards = useMemo(() => {
     if (!data) return [];
-
-    const paidBookingCount = data.sales.filter((sale) => sale.totalPaidAmount > 0)
-      .length;
-    const fullyPaidBookingCount = data.sales.filter(
-      (sale) => sale.totalPaidAmount > 0 && sale.remainingBalance <= 0,
-    ).length;
-    const dpReceiptCount = data.payments.filter(
-      (payment) => payment.paymentType === "DP" && payment.amount > 0,
-    ).length;
-    const finalReceiptCount = data.payments.filter(
-      (payment) => payment.paymentType === "Final" && payment.amount > 0,
-    ).length;
-
-    return [
-      {
-        title: "Uang Masuk Hari Ini",
-        value: formatCurrency(data.summary.totalPaymentsReceived),
-        hint: `${paidBookingCount} booking menerima pembayaran di tanggal ini`,
-        icon: ReceiptText,
-      },
-      {
-        title: "Total Pesanan Tanggal Ini",
-        value: formatCurrency(data.summary.bookingSalesCreatedToday),
-        hint: `${data.summary.bookingCountCreatedToday} booking masuk ke tanggal bisnis ini`,
-        icon: BarChart3,
-      },
-      {
-        title: "Sisa Belum Lunas Tanggal Ini",
-        value: formatCurrency(data.summary.pendingFromCreatedToday),
-        hint: "Sisa tagihan dari booking pada tanggal bisnis ini",
-        icon: CalendarClock,
-      },
-      {
-        title: "Booking Lunas di Tanggal Ini",
-        value: `${fullyPaidBookingCount} booking`,
-        hint: `${dpReceiptCount} transaksi DP, ${finalReceiptCount} transaksi pelunasan`,
-        icon: Coins,
-      },
-    ];
+    return buildDailyOmzetSummaryCards(data, formatCurrency);
   }, [data]);
 
   const totalSales = data?.sales.length ?? 0;
   const totalSalesPages = Math.max(1, Math.ceil(totalSales / SALES_PAGE_SIZE));
+  const activeSalesPage = Math.min(currentSalesPage, totalSalesPages);
 
   const paginatedSales = useMemo(() => {
     if (!data) return [];
 
-    const startIndex = (currentSalesPage - 1) * SALES_PAGE_SIZE;
+    const startIndex = (activeSalesPage - 1) * SALES_PAGE_SIZE;
     const endIndex = startIndex + SALES_PAGE_SIZE;
     return data.sales.slice(startIndex, endIndex);
-  }, [data, currentSalesPage]);
-
-  useEffect(() => {
-    setCurrentSalesPage((prev) => Math.min(prev, totalSalesPages));
-  }, [totalSalesPages]);
+  }, [activeSalesPage, data]);
 
   if (roleLoading || loading) {
     return (
@@ -405,7 +174,14 @@ export default function AdminDailyOmzetPage() {
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-2">
         {summaryCards.map((card) => {
-          const Icon = card.icon;
+          const Icon =
+            card.key === "paymentsReceived"
+              ? Wallet
+              : card.key === "bookingSales"
+                ? BarChart3
+                : card.key === "pendingBalance"
+                  ? RefreshCcw
+                  : Coins;
           return (
             <Card key={card.title} className="rounded-xl shadow-sm">
               <CardHeader className="p-6 pb-2">
@@ -466,7 +242,9 @@ export default function AdminDailyOmzetPage() {
                         </Link>
                       </td>
                       <td className="py-2 pr-4 text-gray-600">{sale.customerName}</td>
-                      <td className="py-2 pr-4 text-gray-600">{formatPaymentStatusLabel(sale.paymentStatus)}</td>
+                      <td className="py-2 pr-4 text-gray-600">
+                        {formatDailyOmzetPaymentStatusLabel(sale.paymentStatus)}
+                      </td>
                       <td className="py-2 text-right font-semibold text-gray-900">
                         {formatCurrency(sale.totalPrice)}
                       </td>
@@ -484,34 +262,36 @@ export default function AdminDailyOmzetPage() {
               {totalSalesPages > 1 ? (
                 <div className="mt-4 flex flex-col gap-2 text-sm text-gray-600 sm:flex-row sm:items-center sm:justify-between">
                   <span>
-                    Menampilkan {(currentSalesPage - 1) * SALES_PAGE_SIZE + 1}-
-                    {Math.min(currentSalesPage * SALES_PAGE_SIZE, totalSales)} dari {totalSales} booking
+                    Menampilkan {(activeSalesPage - 1) * SALES_PAGE_SIZE + 1}-
+                    {Math.min(activeSalesPage * SALES_PAGE_SIZE, totalSales)} dari {totalSales} booking
                   </span>
 
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
                       onClick={() =>
-                        setCurrentSalesPage((prev) => Math.max(1, prev - 1))
+                        setCurrentSalesPage((prev) =>
+                          Math.max(1, Math.min(prev, totalSalesPages) - 1),
+                        )
                       }
-                      disabled={currentSalesPage === 1}
+                      disabled={activeSalesPage === 1}
                       className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Sebelumnya
                     </button>
 
                     <span className="text-xs font-medium text-gray-500">
-                      Halaman {currentSalesPage} / {totalSalesPages}
+                      Halaman {activeSalesPage} / {totalSalesPages}
                     </span>
 
                     <button
                       type="button"
                       onClick={() =>
                         setCurrentSalesPage((prev) =>
-                          Math.min(totalSalesPages, prev + 1),
+                          Math.min(totalSalesPages, Math.min(prev, totalSalesPages) + 1),
                         )
                       }
-                      disabled={currentSalesPage === totalSalesPages}
+                      disabled={activeSalesPage === totalSalesPages}
                       className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Berikutnya

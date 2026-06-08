@@ -7,6 +7,7 @@ import {
   BarChart3,
   CalendarDays,
   Clock,
+  Coins,
   ShoppingCart,
   Package,
   Menu,
@@ -164,6 +165,15 @@ export default function MobileNav({ jwtUserName, jwtUserEmail }: MobileNavProps)
                           icon={FileText}
                           label="Reports"
                           active={isActive("/bakery/reports")}
+                          onClick={() => setIsDrawerOpen(false)}
+                        />
+                      ) : null}
+                      {isOwner ? (
+                        <NavLink
+                          href="/bakery/omzet-harian"
+                          icon={Coins}
+                          label="Omzet Harian"
+                          active={isActive("/bakery/omzet-harian")}
                           onClick={() => setIsDrawerOpen(false)}
                         />
                       ) : null}

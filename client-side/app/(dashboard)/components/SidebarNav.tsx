@@ -141,6 +141,14 @@ export default function SidebarNav() {
                   active={isActive("/bakery/reports")}
                 />
               ) : null}
+              {isOwner ? (
+                <SidebarLink
+                  href="/bakery/omzet-harian"
+                  icon={Coins}
+                  label="Omzet Harian"
+                  active={isActive("/bakery/omzet-harian")}
+                />
+              ) : null}
               <SidebarLink
                 href="/bakery/ecommerce"
                 icon={Store}

@@ -68,6 +68,12 @@ export const navSections: NavSection[] = [
         icon: FileText,
       },
       {
+        label: "Omzet Harian",
+        href: "/bakery/omzet-harian",
+        icon: History,
+        ownerOnly: true,
+      },
+      {
         label: "E-Commerce",
         href: "/bakery/ecommerce",
         icon: Store,
