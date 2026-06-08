@@ -2,6 +2,7 @@ import type {
   ShippingDistanceSource,
   ShippingProvider,
   ShippingQuote,
+  ShippingQuoteDeliveryMethod,
   ShippingQuoteRateType,
   ShippingQuoteRequest,
   ShippingQuoteResponse,
@@ -152,10 +153,18 @@ const destinationResolutionCache = new Map<
   string,
   TimedCacheEntry<DestinationResolution>
 >();
+const areaHintsCache = new Map<string, TimedCacheEntry<AreaHints>>();
+const biteshipRatesCache = new Map<string, TimedCacheEntry<ShippingQuote[]>>();
 const DESTINATION_RESOLUTION_CACHE_TTL_MS = Math.max(
   1000,
   Math.floor(
     parseNumber(process.env.SHIPPING_DESTINATION_CACHE_TTL_MS, 5 * 60 * 1000),
+  ),
+);
+const BITESHIP_RATES_CACHE_TTL_MS = Math.max(
+  1000,
+  Math.floor(
+    parseNumber(process.env.SHIPPING_RATES_CACHE_TTL_MS, 15 * 60 * 1000),
   ),
 );
 const FALLBACK_CAR_BASE_FEE = 18000;
@@ -768,6 +777,16 @@ async function resolveAreaHintsFromBiteship(
   const apiKey = process.env.BITESHIP_API_KEY || "";
   if (!apiKey) return {};
 
+  const areaHintsCacheKey = [
+    cleanSpaces(address).toLowerCase(),
+    cleanSpaces(destinationArea || "").toLowerCase(),
+    sanitizePostalCode(destinationPostalCode) || "",
+  ].join("|");
+  const cachedAreaHints = readTimedCache(areaHintsCache, areaHintsCacheKey);
+  if (cachedAreaHints) {
+    return cachedAreaHints;
+  }
+
   const queries = buildAreaLookupQueries(
     address,
     destinationArea,
@@ -830,20 +849,40 @@ async function resolveAreaHintsFromBiteship(
     }
 
     if (bestScore >= confidenceThreshold) {
-      return {
+      const result = {
         postalCode: bestPostalCode,
         point: bestPoint,
       };
+      writeTimedCache(
+        areaHintsCache,
+        areaHintsCacheKey,
+        result,
+        DESTINATION_RESOLUTION_CACHE_TTL_MS,
+      );
+      return result;
     }
   }
 
   if (bestScore > 0) {
-    return {
+    const result = {
       postalCode: bestPostalCode,
       point: bestPoint,
     };
+    writeTimedCache(
+      areaHintsCache,
+      areaHintsCacheKey,
+      result,
+      DESTINATION_RESOLUTION_CACHE_TTL_MS,
+    );
+    return result;
   }
 
+  writeTimedCache(
+    areaHintsCache,
+    areaHintsCacheKey,
+    {},
+    DESTINATION_RESOLUTION_CACHE_TTL_MS,
+  );
   return {};
 }
 
@@ -1109,28 +1148,106 @@ function getQuoteComparablePrice(quote: ShippingQuote): number {
   return Math.max(0, quote.priceWithoutInsurance ?? quote.price ?? 0);
 }
 
+interface CourierFetchScope {
+  modes: Array<RateDestination["mode"]>;
+  couriersByMode: Partial<Record<RateDestination["mode"], string>>;
+}
+
+function resolveCourierFetchScope(
+  deliveryMethod?: ShippingQuoteDeliveryMethod,
+): CourierFetchScope | null {
+  switch (deliveryMethod) {
+    case "REGULAR_JNE_JNT":
+      return {
+        modes: ["postal"],
+        couriersByMode: {
+          postal: POSTAL_ONLY_COURIERS.join(","),
+        },
+      };
+    case "ASSISTED_PAXEL":
+      return {
+        modes: ["coordinate", "postal"],
+        couriersByMode: {
+          coordinate: HYBRID_COURIERS.join(","),
+          postal: HYBRID_COURIERS.join(","),
+        },
+      };
+    case "ASSISTED_GOCAR":
+    case "ASSISTED_GRAB":
+      return {
+        modes: ["coordinate"],
+        couriersByMode: {
+          coordinate: COORDINATE_ONLY_COURIERS.join(","),
+        },
+      };
+    case "ASSISTED_GOSEND":
+      return {
+        modes: ["coordinate"],
+        couriersByMode: {
+          coordinate: "gojek",
+        },
+      };
+    case "ASSISTED_SAME_DAY":
+      return {
+        modes: ["coordinate"],
+        couriersByMode: {
+          coordinate: [...COORDINATE_ONLY_COURIERS, ...HYBRID_COURIERS].join(
+            ",",
+          ),
+        },
+      };
+    default:
+      return null;
+  }
+}
+
 function buildCourierAttemptPlan(
   mode: RateDestination["mode"],
+  courierOverride?: string,
 ): CourierAttemptPlan {
+  const courierGroup =
+    courierOverride ||
+    (mode === "coordinate"
+      ? [...COORDINATE_ONLY_COURIERS, ...HYBRID_COURIERS].join(",")
+      : [...POSTAL_ONLY_COURIERS, ...HYBRID_COURIERS].join(","));
+
   if (mode === "coordinate") {
     return {
-      coordinate: [
-        [...COORDINATE_ONLY_COURIERS, ...HYBRID_COURIERS].join(","),
-        COORDINATE_ONLY_COURIERS.join(","),
-        HYBRID_COURIERS.join(","),
-      ].filter(Boolean),
+      coordinate: [courierGroup].filter(Boolean),
       postal: [],
     };
   }
 
   return {
     coordinate: [],
-    postal: [
-      [...POSTAL_ONLY_COURIERS, ...HYBRID_COURIERS].join(","),
-      POSTAL_ONLY_COURIERS.join(","),
-      HYBRID_COURIERS.join(","),
-    ].filter(Boolean),
+    postal: [courierGroup].filter(Boolean),
   };
+}
+
+function buildRatesCacheKey(args: {
+  destination: RateDestination;
+  items: ShippingQuoteRequest["items"];
+  totalValue: number;
+  courierOverride?: string;
+}): string {
+  const destinationKey =
+    args.destination.mode === "coordinate"
+      ? `coord:${args.destination.latitude.toFixed(4)}:${args.destination.longitude.toFixed(4)}`
+      : `postal:${args.destination.postalCode}`;
+  const itemsKey = args.items
+    .map(
+      (item) =>
+        `${item.name}:${item.quantity}:${Math.round(item.weightGram)}:${Math.round(item.value)}`,
+    )
+    .join("|");
+  const totalValueBucket = Math.round(args.totalValue / 1000);
+
+  return [
+    destinationKey,
+    itemsKey,
+    String(totalValueBucket),
+    args.courierOverride || "all",
+  ].join("::");
 }
 
 function isPreferredPostalRegularQuote(quote: ShippingQuote): boolean {
@@ -1182,9 +1299,16 @@ async function getBiteshipRates(args: {
   destination: RateDestination;
   items: ShippingQuoteRequest["items"];
   totalValue: number;
+  courierOverride?: string;
 }): Promise<ShippingQuote[]> {
   const apiKey = process.env.BITESHIP_API_KEY || "";
   if (!apiKey) return [];
+
+  const ratesCacheKey = buildRatesCacheKey(args);
+  const cachedRates = readTimedCache(biteshipRatesCache, ratesCacheKey);
+  if (cachedRates) {
+    return cachedRates.map((quote) => ({ ...quote }));
+  }
 
   const origin = getOriginConfig();
   const basePayload = {
@@ -1212,7 +1336,10 @@ async function getBiteshipRates(args: {
     }),
   };
 
-  const courierPlan = buildCourierAttemptPlan(args.destination.mode);
+  const courierPlan = buildCourierAttemptPlan(
+    args.destination.mode,
+    args.courierOverride,
+  );
   const courierAttempts =
     args.destination.mode === "coordinate"
       ? courierPlan.coordinate
@@ -1313,7 +1440,7 @@ async function getBiteshipRates(args: {
     if (uniqueMapped.length > 0) {
       const rateType: ShippingQuoteRateType = args.destination.mode;
 
-      return uniqueMapped.map((entry) =>
+      const quotes = uniqueMapped.map((entry) =>
         applyShippingInsuranceToQuote(
           {
             id: `biteship-${entry.courierCode}-${entry.courierServiceCode}-${entry.price}`,
@@ -1330,6 +1457,13 @@ async function getBiteshipRates(args: {
           args.totalValue,
         ),
       );
+      writeTimedCache(
+        biteshipRatesCache,
+        ratesCacheKey,
+        quotes,
+        BITESHIP_RATES_CACHE_TTL_MS,
+      );
+      return quotes;
     }
   }
 
@@ -1447,56 +1581,83 @@ export async function getShippingQuote(
     : 0;
   const collectedQuotes: ShippingQuote[] = [];
   const quoteErrors: string[] = [];
-  const quoteTasks: Array<Promise<void>> = [];
+  const courierScope = resolveCourierFetchScope(payload.deliveryMethod);
+  const rateFetchTargets: Array<{
+    destination: RateDestination;
+    courierOverride?: string;
+    errorMessage: string;
+  }> = [];
 
-  if (destinationPoint) {
-    quoteTasks.push(
-      getBiteshipRates({
+  if (courierScope) {
+    if (
+      courierScope.modes.includes("coordinate") &&
+      destinationPoint
+    ) {
+      rateFetchTargets.push({
         destination: {
           mode: "coordinate",
           latitude: destinationPoint.latitude,
           longitude: destinationPoint.longitude,
         },
-        items: payload.items,
-        totalValue: payload.totalValue,
-      })
-        .then((quotes) => {
-          collectedQuotes.push(...quotes);
-        })
-        .catch((error: unknown) => {
-          quoteErrors.push(
-            error instanceof Error
-              ? error.message
-              : "Gagal mengambil ongkir mode koordinat.",
-          );
-        }),
-    );
-  }
+        courierOverride: courierScope.couriersByMode.coordinate,
+        errorMessage: "Gagal mengambil ongkir mode koordinat.",
+      });
+    }
 
-  if (destinationPostalCode) {
-    quoteTasks.push(
-      getBiteshipRates({
+    if (
+      courierScope.modes.includes("postal") &&
+      destinationPostalCode
+    ) {
+      rateFetchTargets.push({
         destination: {
           mode: "postal",
           postalCode: destinationPostalCode,
         },
+        courierOverride: courierScope.couriersByMode.postal,
+        errorMessage: "Gagal mengambil ongkir mode kode pos.",
+      });
+    }
+  } else {
+    if (destinationPoint) {
+      rateFetchTargets.push({
+        destination: {
+          mode: "coordinate",
+          latitude: destinationPoint.latitude,
+          longitude: destinationPoint.longitude,
+        },
+        errorMessage: "Gagal mengambil ongkir mode koordinat.",
+      });
+    }
+
+    if (destinationPostalCode) {
+      rateFetchTargets.push({
+        destination: {
+          mode: "postal",
+          postalCode: destinationPostalCode,
+        },
+        errorMessage: "Gagal mengambil ongkir mode kode pos.",
+      });
+    }
+  }
+
+  await Promise.all(
+    rateFetchTargets.map((target) =>
+      getBiteshipRates({
+        destination: target.destination,
         items: payload.items,
         totalValue: payload.totalValue,
+        courierOverride: target.courierOverride,
       })
         .then((quotes) => {
           collectedQuotes.push(...quotes);
         })
         .catch((error: unknown) => {
           quoteErrors.push(
-            error instanceof Error
-              ? error.message
-              : "Gagal mengambil ongkir mode kode pos.",
+            error instanceof Error ? error.message : target.errorMessage,
           );
         }),
-    );
-  }
-
-  await Promise.all(quoteTasks);
+    ),
+  );
 
   const biteshipQuotes = mergeQuotesByPreferredService(collectedQuotes);
 

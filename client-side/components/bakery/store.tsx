@@ -2369,6 +2369,7 @@ export function OrdersProvider({
                 )
                   ? Number(currentQuote.destinationLongitude)
                   : undefined,
+                deliveryMethod: order.deliveryMethod,
                 items,
                 totalValue: Math.max(1000, Math.round(order.totalPrice || 0)),
               }),

@@ -18,12 +18,21 @@ export interface ShippingQuoteItemInput {
   value: number;
 }
 
+export type ShippingQuoteDeliveryMethod =
+  | "REGULAR_JNE_JNT"
+  | "ASSISTED_PAXEL"
+  | "ASSISTED_GOSEND"
+  | "ASSISTED_GOCAR"
+  | "ASSISTED_GRAB"
+  | "ASSISTED_SAME_DAY";
+
 export interface ShippingQuoteRequest {
   destinationAddress: string;
   destinationPostalCode?: string;
   destinationArea?: string;
   destinationLatitude?: number;
   destinationLongitude?: number;
+  deliveryMethod?: ShippingQuoteDeliveryMethod;
   items: ShippingQuoteItemInput[];
   totalValue: number;
 }

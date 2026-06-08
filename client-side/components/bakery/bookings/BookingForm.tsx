@@ -5342,6 +5342,7 @@ export default function BookingForm({
       destinationPostalCode:
         sanitizePostalCodeInput(primaryAddress.postalCode || "") ||
         extractPostalCodeFromAddress(primaryAddress.addressLine),
+      deliveryMethod: effectiveDeliveryMethod,
       items: shippingItems,
       totalValue: Math.max(
         1000,
@@ -5352,6 +5353,7 @@ export default function BookingForm({
     addOnTotal,
     basePrice,
     designAdjustmentTotal,
+    effectiveDeliveryMethod,
     primaryAddress?.addressLine,
     primaryAddress?.area,
     primaryAddress?.postalCode,
@@ -5360,28 +5362,40 @@ export default function BookingForm({
   ]);
 
   const shippingPayloadRef = useRef(shippingPayload);
+  const lastShippingQuoteSignatureRef = useRef<string | null>(null);
+  const shippingQuoteSignature = useMemo(() => {
+    if (!shippingPayload) return null;
+    return JSON.stringify({
+      destinationAddress: shippingPayload.destinationAddress.trim(),
+      destinationArea: shippingPayload.destinationArea.trim(),
+      destinationPostalCode: shippingPayload.destinationPostalCode || "",
+      deliveryMethod: shippingPayload.deliveryMethod || "",
+      items: shippingPayload.items.map((item) => ({
+        name: item.name,
+        quantity: item.quantity,
+        weightGram: item.weightGram,
+      })),
+    });
+  }, [shippingPayload]);
 
   useEffect(() => {
     shippingPayloadRef.current = shippingPayload;
   }, [shippingPayload]);
 
-  useEffect(() => {
-    if (!hasHydratedDraftSnapshot) return;
+  const fetchShippingQuotes = useCallback(
+    async (signal: AbortSignal) => {
+      const currentShippingPayload = shippingPayloadRef.current;
 
-    const currentShippingPayload = shippingPayloadRef.current;
+      if (!currentShippingPayload) {
+        setIsCheckingShipping(false);
+        setShippingQuotes([]);
+        setSelectedShippingQuoteId("");
+        setShippingDistanceKm(null);
+        setShippingDistanceSource(undefined);
+        setShippingWarning("");
+        return;
+      }
 
-    if (!currentShippingPayload) {
-      setIsCheckingShipping(false);
-      setShippingQuotes([]);
-      setSelectedShippingQuoteId("");
-      setShippingDistanceKm(null);
-      setShippingDistanceSource(undefined);
-      setShippingWarning("");
-      return;
-    }
-
-    const controller = new AbortController();
-    const timer = setTimeout(async () => {
       setIsCheckingShipping(true);
       try {
         const response = await fetch("/api/bookings/shipping/quote", {
@@ -5389,7 +5403,7 @@ export default function BookingForm({
           headers: {
             "Content-Type": "application/json",
           },
-          signal: controller.signal,
+          signal,
           body: JSON.stringify(currentShippingPayload),
         });
 
@@ -5441,7 +5455,7 @@ export default function BookingForm({
         setShippingDistanceSource(payload.distanceSource);
         setShippingWarning(payload.warning || "");
       } catch (error: unknown) {
-        if (controller.signal.aborted) return;
+        if (signal.aborted) return;
         const message =
           error instanceof Error ? error.message : "Gagal cek ongkir.";
         setShippingQuotes([]);
@@ -5450,20 +5464,65 @@ export default function BookingForm({
         setShippingDistanceSource(undefined);
         setShippingWarning(message);
       } finally {
-        if (!controller.signal.aborted) {
+        if (!signal.aborted) {
           setIsCheckingShipping(false);
         }
       }
-    }, 400);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!hasHydratedDraftSnapshot) return;
+    if (composerStep === "preview") return;
+    if (!shippingQuoteSignature) return;
+
+    if (lastShippingQuoteSignatureRef.current === null) {
+      lastShippingQuoteSignatureRef.current = shippingQuoteSignature;
+      return;
+    }
+
+    if (lastShippingQuoteSignatureRef.current === shippingQuoteSignature) {
+      return;
+    }
+
+    lastShippingQuoteSignatureRef.current = shippingQuoteSignature;
+    setShippingQuotes([]);
+    setSelectedShippingQuoteId("");
+    selectedShippingQuoteServiceKeyRef.current = "";
+    setShippingDistanceKm(null);
+    setShippingDistanceSource(undefined);
+    setShippingWarning("");
+  }, [composerStep, hasHydratedDraftSnapshot, shippingQuoteSignature]);
+
+  useEffect(() => {
+    if (!hasHydratedDraftSnapshot) return;
+    if (manualCheckShippingTrigger === 0) return;
+
+    const controller = new AbortController();
+    void fetchShippingQuotes(controller.signal);
 
     return () => {
-      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [fetchShippingQuotes, hasHydratedDraftSnapshot, manualCheckShippingTrigger]);
+
+  useEffect(() => {
+    if (!hasHydratedDraftSnapshot) return;
+    if (composerStep !== "preview") return;
+    if (!shippingQuoteSignature) return;
+
+    const controller = new AbortController();
+    void fetchShippingQuotes(controller.signal);
+
+    return () => {
       controller.abort();
     };
   }, [
+    composerStep,
+    fetchShippingQuotes,
     hasHydratedDraftSnapshot,
-    manualCheckShippingTrigger,
-    shippingPayload,
+    shippingQuoteSignature,
   ]);
 
   const onSubmit: SubmitHandler<BookingFormValues> = async (rawValues) => {
@@ -10257,16 +10316,22 @@ export default function BookingForm({
                     </label>
 
                     {shouldUseShippingEngine && (
-                      <Button
-                        type="button"
-                        onClick={handleCheckShipping}
-                        disabled={isCheckingShipping}
-                        className="w-full"
-                      >
-                        {isCheckingShipping
-                          ? "Sedang cek ongkir..."
-                          : "Cek Ongkir"}
-                      </Button>
+                      <>
+                        <Button
+                          type="button"
+                          onClick={handleCheckShipping}
+                          disabled={isCheckingShipping || !shippingPayload}
+                          className="w-full"
+                        >
+                          {isCheckingShipping
+                            ? "Sedang cek ongkir..."
+                            : "Cek Ongkir"}
+                        </Button>
+                        <p className="text-xs text-gray-500">
+                          Ongkir dihitung saat tombol ini ditekan agar pemakaian
+                          API tetap efisien.
+                        </p>
+                      </>
                     )}
 
                     <p className="text-xs text-gray-500">

@@ -18,6 +18,16 @@ const quoteSchema = z.object({
   destinationArea: z.string().optional(),
   destinationLatitude: z.number().optional(),
   destinationLongitude: z.number().optional(),
+  deliveryMethod: z
+    .enum([
+      "REGULAR_JNE_JNT",
+      "ASSISTED_PAXEL",
+      "ASSISTED_GOSEND",
+      "ASSISTED_GOCAR",
+      "ASSISTED_GRAB",
+      "ASSISTED_SAME_DAY",
+    ])
+    .optional(),
   totalValue: z.number().min(0),
   items: z
     .array(
