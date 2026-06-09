@@ -173,6 +173,7 @@ function normalizeStructuredReferenceImages(
     if (!normalizedUrl) continue;
 
     const label = reference.label?.trim() || undefined;
+    const note = reference.note?.trim() || undefined;
     const orderIndex =
       typeof reference.orderIndex === "number" &&
       Number.isFinite(reference.orderIndex)
@@ -184,6 +185,7 @@ function normalizeStructuredReferenceImages(
       const nextReference = {
         url: normalizedUrl,
         label,
+        note,
         orderIndex,
       };
       byUrl.set(normalizedUrl, nextReference);
@@ -193,6 +195,9 @@ function normalizeStructuredReferenceImages(
 
     if (!existing.label && label) {
       existing.label = label;
+    }
+    if (!existing.note && note) {
+      existing.note = note;
     }
     if (existing.orderIndex === undefined && orderIndex !== undefined) {
       existing.orderIndex = orderIndex;
