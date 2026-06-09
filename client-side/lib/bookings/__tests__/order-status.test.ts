@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   bookingStatusFilterMatchesBlank,
+  BOOKING_STATUS_FILTER_OPTIONS,
+  getBookingPaymentStatusFilterAliases,
   getBookingStatusFilterAliases,
+  isBookingPaymentStatusFilter,
   isClosedOrderStatus,
   isFulfilledOrderStatus,
   matchesBookingStatusFilter,
@@ -35,6 +38,13 @@ describe("order status helpers", () => {
 
   it("keeps booking status filter aliases scoped to filter behavior", () => {
     expect(bookingStatusFilterMatchesBlank("Inquiry")).toBe(true);
+    expect(getBookingStatusFilterAliases("In Production")).toEqual([
+      "In Production",
+      "Inquiry",
+      "Quoted",
+      "DP Paid",
+      "Confirmed",
+    ]);
     expect(getBookingStatusFilterAliases("Completed")).toEqual([
       "Completed",
       "Complete",
@@ -43,10 +53,34 @@ describe("order status helpers", () => {
       "Cancelled",
       "Canceled",
     ]);
+    expect(getBookingPaymentStatusFilterAliases("DP Paid")).toEqual([
+      "DP Paid",
+    ]);
+    expect(getBookingPaymentStatusFilterAliases("Paid")).toEqual(["Paid"]);
+    expect(isBookingPaymentStatusFilter("DP Paid")).toBe(true);
+    expect(isBookingPaymentStatusFilter("Paid")).toBe(true);
     expect(matchesBookingStatusFilter(undefined, "Inquiry")).toBe(true);
     expect(matchesBookingStatusFilter("Inquiry", "Inquiry")).toBe(true);
     expect(matchesBookingStatusFilter("Complete", "Completed")).toBe(true);
     expect(matchesBookingStatusFilter("Canceled", "Cancelled")).toBe(true);
-    expect(matchesBookingStatusFilter("Quoted", "In Production")).toBe(false);
+    expect(matchesBookingStatusFilter("Quoted", "In Production")).toBe(true);
+    expect(
+      matchesBookingStatusFilter("In Production", "DP Paid", "DP Paid"),
+    ).toBe(true);
+    expect(matchesBookingStatusFilter("In Production", "Paid", "Paid")).toBe(
+      true,
+    );
+  });
+
+  it("shows payment statuses in filter options and hides inquiry from the UI list", () => {
+    expect(BOOKING_STATUS_FILTER_OPTIONS).toEqual(
+      expect.arrayContaining([
+        { value: "DP Paid", label: "DP" },
+        { value: "Paid", label: "Lunas" },
+      ]),
+    );
+    expect(BOOKING_STATUS_FILTER_OPTIONS).not.toEqual(
+      expect.arrayContaining([{ value: "Inquiry", label: "Inquiry" }]),
+    );
   });
 });

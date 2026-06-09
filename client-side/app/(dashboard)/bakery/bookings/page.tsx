@@ -14,13 +14,18 @@ import {
   matchesBookingStatusFilter,
   normalizeOrderStatus,
 } from "@/lib/bookings/order-status";
+import {
+  BOOKING_COURIER_FILTER_OPTIONS,
+  matchesCourierFilter,
+  parseCourierFilter,
+  type CourierFilter,
+} from "@/lib/bookings/courier-filter";
 import { resolveOrderDeliveryMethod } from "@/lib/bookings/delivery-method";
 import {
   getJakartaTodayIsoDate,
   resolveShippingProvider,
 } from "@/lib/bookings/shipping-schedule";
 
-type CourierFilter = "" | "grab-gojek" | "paxel";
 type OrderSourceFilter = "" | "customer" | "admin";
 type SavedView =
   | "all"
@@ -45,7 +50,6 @@ const SORT_OPTIONS: SortOption[] = [
   "name-asc",
   "value-desc",
 ];
-const COURIER_FILTER_OPTIONS: CourierFilter[] = ["", "grab-gojek", "paxel"];
 const ORDER_SOURCE_FILTER_OPTIONS: OrderSourceFilter[] = [
   "",
   "customer",
@@ -62,14 +66,6 @@ function parseSortOption(value: string | null): SortOption | null {
   return value && SORT_OPTIONS.includes(value as SortOption)
     ? (value as SortOption)
     : null;
-}
-
-function parseCourierFilter(value: string | null): CourierFilter | null {
-  return value && COURIER_FILTER_OPTIONS.includes(value as CourierFilter)
-    ? (value as CourierFilter)
-    : value === ""
-      ? ""
-      : null;
 }
 
 function parseOrderSourceFilter(value: string | null): OrderSourceFilter | null {
@@ -308,7 +304,14 @@ export default function BookingListPage() {
         return false;
       }
 
-      if (statusFilter && !matchesBookingStatusFilter(order.orderStatus, statusFilter)) {
+      if (
+        statusFilter &&
+        !matchesBookingStatusFilter(
+          order.orderStatus,
+          statusFilter,
+          order.paymentStatus,
+        )
+      ) {
         return false;
       }
 
@@ -332,9 +335,7 @@ export default function BookingListPage() {
 
       if (courierFilter) {
         const provider = resolveShippingProvider(order);
-        if (courierFilter === "grab-gojek") {
-          if (provider !== "GRAB" && provider !== "GOJEK") return false;
-        } else if (provider !== "PAXEL") {
+        if (!matchesCourierFilter(provider, courierFilter)) {
           return false;
         }
       }
@@ -611,8 +612,11 @@ export default function BookingListPage() {
             className="h-10 rounded-xl border-[var(--crumbella-border)] bg-white text-xs"
           >
             <option value="">Semua courier</option>
-            <option value="grab-gojek">Grab/Gojek</option>
-            <option value="paxel">Paxel</option>
+            {BOOKING_COURIER_FILTER_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
           </Select>
           <Select
             value={orderSourceFilter}

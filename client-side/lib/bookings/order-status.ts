@@ -7,15 +7,27 @@ export const BOOKING_STATUS_OPTIONS = [
 ] as const;
 
 export const BOOKING_STATUS_FILTER_OPTIONS = [
-  { value: "Inquiry", label: "Inquiry" },
   ...BOOKING_STATUS_OPTIONS,
   { value: "Delivered", label: "Delivered" },
+  { value: "DP Paid", label: "DP" },
+  { value: "Paid", label: "Lunas" },
 ] as const;
 
 const BOOKING_STATUS_FILTER_ALIASES: Record<string, readonly string[]> = {
-  Inquiry: ["Inquiry"],
+  "In Production": [
+    "In Production",
+    "Inquiry",
+    "Quoted",
+    "DP Paid",
+    "Confirmed",
+  ],
   Completed: ["Completed", "Complete"],
   Cancelled: ["Cancelled", "Canceled"],
+};
+
+const BOOKING_PAYMENT_STATUS_FILTER_ALIASES: Record<string, readonly string[]> = {
+  "DP Paid": ["DP Paid"],
+  Paid: ["Paid"],
 };
 
 const LEGACY_PRE_PRODUCTION_STATUSES = new Set([
@@ -66,19 +78,40 @@ export function getBookingStatusFilterAliases(status?: string | null): string[] 
   return [...(BOOKING_STATUS_FILTER_ALIASES[normalized] ?? [normalized])];
 }
 
+export function getBookingPaymentStatusFilterAliases(
+  status?: string | null,
+): string[] {
+  const normalized = typeof status === "string" ? status.trim() : "";
+  if (!normalized) return [];
+  return [...(BOOKING_PAYMENT_STATUS_FILTER_ALIASES[normalized] ?? [])];
+}
+
 export function bookingStatusFilterMatchesBlank(
   status?: string | null,
 ): boolean {
   return (typeof status === "string" ? status.trim() : "") === "Inquiry";
 }
 
+export function isBookingPaymentStatusFilter(status?: string | null): boolean {
+  return getBookingPaymentStatusFilterAliases(status).length > 0;
+}
+
 export function matchesBookingStatusFilter(
   currentStatus?: string | null,
   selectedStatus?: string | null,
+  paymentStatus?: string | null,
 ): boolean {
   const normalizedSelected =
     typeof selectedStatus === "string" ? selectedStatus.trim() : "";
   if (!normalizedSelected) return true;
+
+  if (isBookingPaymentStatusFilter(normalizedSelected)) {
+    const normalizedPaymentStatus =
+      typeof paymentStatus === "string" ? paymentStatus.trim() : "";
+    return getBookingPaymentStatusFilterAliases(normalizedSelected).includes(
+      normalizedPaymentStatus,
+    );
+  }
 
   const normalizedCurrent =
     typeof currentStatus === "string" ? currentStatus.trim() : "";

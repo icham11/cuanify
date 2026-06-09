@@ -2,19 +2,23 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import {
+  BOOKING_COURIER_FILTER_OPTIONS,
+  type CourierFilter,
+} from "@/lib/bookings/courier-filter";
 import { BOOKING_STATUS_OPTIONS } from "@/lib/bookings/order-status";
 
 interface OrderFiltersProps {
   query: string;
   status: string;
   date: string;
-  courier: "" | "grab-gojek" | "paxel";
+  courier: CourierFilter;
   sortBy: "delivery-asc" | "delivery-desc" | "name-asc" | "value-desc";
   hasActiveFilters: boolean;
   onQueryChange: (value: string) => void;
   onStatusChange: (value: string) => void;
   onDateChange: (value: string) => void;
-  onCourierChange: (value: "" | "grab-gojek" | "paxel") => void;
+  onCourierChange: (value: CourierFilter) => void;
   onSortChange: (
     value: "delivery-asc" | "delivery-desc" | "name-asc" | "value-desc",
   ) => void;
@@ -111,13 +115,16 @@ export default function OrderFilters({
           <Select
             value={courier}
             onChange={(event) =>
-              onCourierChange(event.target.value as "" | "grab-gojek" | "paxel")
+              onCourierChange(event.target.value as CourierFilter)
             }
             className="h-10 rounded-xl border-[var(--crumbella-border)] bg-white"
           >
             <option value="">All courier</option>
-            <option value="grab-gojek">Grab/Gojek</option>
-            <option value="paxel">Paxel</option>
+            {BOOKING_COURIER_FILTER_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
           </Select>
           <Select
             value={sortBy}

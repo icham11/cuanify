@@ -27,6 +27,11 @@ import {
   resolveShippingProvider,
 } from "@/lib/bookings/shipping-schedule";
 import {
+  matchesCourierFilter,
+  parseCourierFilter,
+  type CourierFilter as BookingCourierFilter,
+} from "@/lib/bookings/courier-filter";
+import {
   sendOrderToWhatsApp,
   type SendOrderToWhatsAppResult,
   type SendOrderToWhatsAppInput,
@@ -66,7 +71,9 @@ import { buildDashboardProductName } from "@/lib/products/dashboard-name";
 import { calculateOrderFinancialBreakdown } from "@/lib/bookings/financial-breakdown";
 import {
   bookingStatusFilterMatchesBlank,
+  getBookingPaymentStatusFilterAliases,
   getBookingStatusFilterAliases,
+  isBookingPaymentStatusFilter,
 } from "@/lib/bookings/order-status";
 import {
   buildBookingAuditDocument,
@@ -264,18 +271,7 @@ export interface DbProductionStageRow {
   token_amount: unknown;
 }
 
-type BookingCourierFilter = "" | "grab-gojek" | "paxel";
 type BookingOrderSourceFilter = "" | "customer" | "admin";
-
-function parseBookingCourierFilter(
-  value: string | null,
-): BookingCourierFilter | null {
-  if (value === null) return "";
-  if (value === "" || value === "grab-gojek" || value === "paxel") {
-    return value;
-  }
-  return null;
-}
 
 function parseBookingOrderSourceFilter(
   value: string | null,
@@ -337,10 +333,7 @@ function matchesBookingCourierFilter(
       | null
       | undefined,
   });
-  if (courierFilter === "grab-gojek") {
-    return provider === "GRAB" || provider === "GOJEK";
-  }
-  return provider === "PAXEL";
+  return matchesCourierFilter(provider, courierFilter);
 }
 
 function matchesBookingOrderSourceFilter(
@@ -3112,8 +3105,7 @@ export async function GET(request: NextRequest) {
     const searchQuery = url.searchParams.get("query") || "";
     const statusFilter = url.searchParams.get("status") || "";
     const dateFilter = url.searchParams.get("date") || "";
-    const courierFilter =
-      parseBookingCourierFilter(url.searchParams.get("courier")) ?? "";
+    const courierFilter = parseCourierFilter(url.searchParams.get("courier")) ?? "";
     const orderSourceFilter =
       parseBookingOrderSourceFilter(url.searchParams.get("orderSource")) ?? "";
     const startDate = url.searchParams.get("startDate") || "";
@@ -3147,19 +3139,33 @@ export async function GET(request: NextRequest) {
       ];
 
       if (statusFilter) {
-        const statusClauses = getBookingStatusFilterAliases(statusFilter).map(
-          (status) => Prisma.sql`BTRIM(COALESCE(order_status, '')) = ${status}`,
-        );
+        if (isBookingPaymentStatusFilter(statusFilter)) {
+          const paymentStatusClauses = getBookingPaymentStatusFilterAliases(
+            statusFilter,
+          ).map(
+            (status) =>
+              Prisma.sql`BTRIM(COALESCE(payment_status, '')) = ${status}`,
+          );
 
-        if (bookingStatusFilterMatchesBlank(statusFilter)) {
-          statusClauses.unshift(
-            Prisma.sql`order_status IS NULL OR BTRIM(order_status) = ''`,
+          whereClauses.push(
+            Prisma.sql`(${Prisma.join(paymentStatusClauses, " OR ")})`,
+          );
+        } else {
+          const statusClauses = getBookingStatusFilterAliases(statusFilter).map(
+            (status) =>
+              Prisma.sql`BTRIM(COALESCE(order_status, '')) = ${status}`,
+          );
+
+          if (bookingStatusFilterMatchesBlank(statusFilter)) {
+            statusClauses.unshift(
+              Prisma.sql`order_status IS NULL OR BTRIM(order_status) = ''`,
+            );
+          }
+
+          whereClauses.push(
+            Prisma.sql`(${Prisma.join(statusClauses, " OR ")})`,
           );
         }
-
-        whereClauses.push(
-          Prisma.sql`(${Prisma.join(statusClauses, " OR ")})`,
-        );
       }
       if (savedView === "active") {
         whereClauses.push(
