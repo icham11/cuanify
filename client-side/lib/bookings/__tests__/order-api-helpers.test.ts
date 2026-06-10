@@ -8,6 +8,7 @@ declare const expect: (value: unknown) => {
 
 import {
   buildCaptionItems,
+  buildTemplateSlotNotes,
   buildWhatsAppDesignNotes,
   type NormalizedOrder,
 } from "../order-api-helpers";
@@ -179,6 +180,46 @@ describe("order api helpers whatsapp caption", () => {
 
     expect(buildWhatsAppDesignNotes(order)).toBe(
       ["Design pertama", "Design kedua"].join("\n"),
+    );
+  });
+
+  it("prefers edited design note over generic image label for template slots", () => {
+    const order = createNormalizedOrder({
+      whatsAppParsedData: {
+        orderType: "cake",
+        referenceImages: [
+          {
+            url: "https://example.com/1.jpg",
+            label: "Gambar 1",
+            note: "Mobil orange",
+            orderIndex: 0,
+          },
+          {
+            url: "https://example.com/2.jpg",
+            label: "Gambar 2",
+            note: "Teddy bear balon",
+            orderIndex: 1,
+          },
+        ],
+      },
+      referenceImages: [
+        {
+          url: "https://example.com/1.jpg",
+          label: "Gambar 1",
+          note: "Mobil orange",
+          orderIndex: 0,
+        },
+        {
+          url: "https://example.com/2.jpg",
+          label: "Gambar 2",
+          note: "Teddy bear balon",
+          orderIndex: 1,
+        },
+      ],
+    });
+
+    expect(JSON.stringify(buildTemplateSlotNotes(order))).toBe(
+      JSON.stringify(["Mobil orange", "Teddy bear balon"]),
     );
   });
 });

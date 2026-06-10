@@ -53,12 +53,12 @@ import { useRole } from "@/context/RoleContext";
 import {
   DAILY_PRODUCTION_TOKEN_LIMIT,
   checkSlotAvailability,
-  countConcurrentOrdersByTypeForSlot,
-  getSlotLimitByOrderType,
+  countConcurrentOrdersForSlot,
   getDeliverySlotsForDate,
   inferOrderTypeFromItems,
   isSeasonalCookiesItem,
   isDateBlockedForOrdering,
+  SLOT_MAX_ORDERS_PER_HOUR,
   type SlotAvailabilityStatus,
   type SlotOrderType,
 } from "@/lib/bookings/operations";
@@ -1231,14 +1231,8 @@ export function useBookingFormState() {
     () => inferOrderTypeFromItems(watchedItems),
     [watchedItems],
   );
-  const slotLimitPerHour = useMemo(
-    () => getSlotLimitByOrderType(draftOrderType),
-    [draftOrderType],
-  );
-  const slotProfileLabel = useMemo(
-    () => orderTypeLabel(draftOrderType),
-    [draftOrderType],
-  );
+  const slotLimitPerHour = SLOT_MAX_ORDERS_PER_HOUR;
+  const slotProfileLabel = "Semua Order";
   const isBlockedDate = Boolean(
     deliveryDate &&
     (isDateBlockedForOrdering(deliveryDate, undefined, {
@@ -1261,11 +1255,11 @@ export function useBookingFormState() {
   const slotAvailability = useMemo(() => {
     if (!deliveryDate) return [];
     return deliverySlots.map((slot) => {
-      const used = countConcurrentOrdersByTypeForSlot({
+      const used = countConcurrentOrdersForSlot({
         orders,
         deliveryDate,
         deliverySlot: slot,
-        orderType: draftOrderType,
+        targetItems: watchedItems,
       });
       const status = checkSlotAvailability(deliveryDate, slot, draftOrderType, {
         orders,
@@ -1285,7 +1279,6 @@ export function useBookingFormState() {
     orders,
     deliveryDate,
     deliverySlots,
-    draftOrderType,
     deliveryMethod,
     watchedItems,
     blockedDates,

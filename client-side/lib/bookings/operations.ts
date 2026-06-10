@@ -49,6 +49,7 @@ export interface DateBlockingContext {
 
 export type SlotOrderType = "CUSTOM" | "SEASONAL";
 export type SlotAvailabilityStatus = "AVAILABLE" | "ALMOST_FULL" | "FULL";
+export const SLOT_MAX_ORDERS_PER_HOUR = 3;
 
 export type CapacityBucket =
   | "seasonal_cookies"
@@ -242,11 +243,13 @@ export function isSeasonalOrderItems(
 }
 
 export function getSlotLimitByItems(items: BookingItemForOperations[]): number {
-  return isSeasonalOrderItems(items) ? 7 : 3;
+  void items;
+  return SLOT_MAX_ORDERS_PER_HOUR;
 }
 
 export function getSlotLimitByOrderType(orderType: SlotOrderType): number {
-  return orderType === "SEASONAL" ? 7 : 3;
+  void orderType;
+  return SLOT_MAX_ORDERS_PER_HOUR;
 }
 
 export function inferOrderTypeFromItems(
@@ -689,16 +692,14 @@ export function countConcurrentOrdersForSlot(args: {
   targetItems: BookingItemForOperations[];
   excludeOrderId?: string;
 }): number {
-  const targetSeasonal = isSeasonalOrderItems(args.targetItems);
+  void args.targetItems;
 
   return args.orders.filter((order) => {
     if (args.excludeOrderId && order.id === args.excludeOrderId) return false;
     if (order.deliveryDate !== args.deliveryDate) return false;
     if (order.deliverySlot !== args.deliverySlot) return false;
     if (!isActiveOrder(order.orderStatus)) return false;
-
-    const orderSeasonal = isSeasonalOrderItems(order.items || []);
-    return orderSeasonal === targetSeasonal;
+    return true;
   }).length;
 }
 
@@ -728,20 +729,21 @@ export function checkSlotAvailability(
     dateContext?: DateBlockingContext;
   },
 ): SlotAvailabilityStatus {
+  void orderType;
   if (!isWithinBusinessHours(date, time, new Date(), options?.dateContext)) {
     return "FULL";
   }
 
   const orders = options?.orders ?? [];
-  const currentCount = countConcurrentOrdersByTypeForSlot({
+  const currentCount = countConcurrentOrdersForSlot({
     orders,
     deliveryDate: date,
     deliverySlot: time,
-    orderType,
+    targetItems: [],
     excludeOrderId: options?.excludeOrderId,
   });
 
-  const limit = getSlotLimitByOrderType(orderType);
+  const limit = SLOT_MAX_ORDERS_PER_HOUR;
   if (currentCount >= limit) return "FULL";
   if (currentCount >= Math.max(1, limit - 1)) return "ALMOST_FULL";
   return "AVAILABLE";

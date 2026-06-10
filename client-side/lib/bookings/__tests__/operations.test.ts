@@ -16,8 +16,11 @@ declare const expect: (value: unknown) => {
 };
 
 import {
+  checkSlotAvailability,
+  countConcurrentOrdersForSlot,
   DAILY_PRODUCTION_TOKEN_LIMIT,
   evaluateProductionTokenCapacity,
+  SLOT_MAX_ORDERS_PER_HOUR,
   summarizeProductionTokensByItems,
 } from "../operations";
 
@@ -68,5 +71,46 @@ describe("Booking operations — token helpers", () => {
     expect(result.allowed).toBe(DAILY_PRODUCTION_TOKEN_LIMIT);
     expect(result.isOverflow).toBe(false);
     expect(result.planned).toBe(103);
+  });
+
+  it("should cap concurrent active orders in the same date and hour at 3 regardless of order type", () => {
+    const orders = [
+      {
+        id: "cake-1",
+        deliveryDate: "2026-06-10",
+        deliverySlot: "10:00",
+        orderStatus: "In Production",
+        items: [{ category: "Cake", quantity: 1 }],
+      },
+      {
+        id: "cookies-1",
+        deliveryDate: "2026-06-10",
+        deliverySlot: "10:00",
+        orderStatus: "In Production",
+        items: [{ category: "Cookies", quantity: 12, tokenDifficulty: "simple" }],
+      },
+      {
+        id: "seasonal-1",
+        deliveryDate: "2026-06-10",
+        deliverySlot: "10:00",
+        orderStatus: "Ready",
+        items: [{ category: "Seasonal Event", productName: "Noel Box", quantity: 1 }],
+      },
+    ];
+
+    expect(
+      countConcurrentOrdersForSlot({
+        orders,
+        deliveryDate: "2026-06-10",
+        deliverySlot: "10:00",
+        targetItems: [{ category: "Cookies", quantity: 1 }],
+      }),
+    ).toBe(SLOT_MAX_ORDERS_PER_HOUR);
+
+    expect(
+      checkSlotAvailability("2026-06-10", "10:00", "SEASONAL", {
+        orders,
+      }),
+    ).toBe("FULL");
   });
 });

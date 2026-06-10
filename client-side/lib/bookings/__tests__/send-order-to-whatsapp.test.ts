@@ -6,7 +6,10 @@ declare const expect: (value: unknown) => {
   toBe: (expected: unknown) => void;
 };
 
-import { buildProductionCaption } from "@/lib/whatsapp/sendOrderToWhatsApp";
+import {
+  buildProductionCaption,
+  resolveOutboundReferenceCaption,
+} from "@/lib/whatsapp/sendOrderToWhatsApp";
 
 describe("sendOrderToWhatsApp production caption", () => {
   it("uses delivery-style group template instead of recap template", () => {
@@ -131,5 +134,16 @@ describe("sendOrderToWhatsApp production caption", () => {
         "Alamat lengkap : Jl. TMP Kalibata Gg Langgar No 45 RT 10 RW 07 Duren Tiga, Pancoran Jaksel. | (Kontrakan Ibu Tika Pintu ke-4)",
       ].join("\n"),
     );
+  });
+
+  it("prefers edited design caption over generic image label", () => {
+    const caption = resolveOutboundReferenceCaption({
+      referenceLabel: "Gambar 1",
+      slotNote: "Mobil orange",
+      requestedImageLabel: "Mobil orange",
+      productName: "Real Cake - D14-T10",
+    });
+
+    expect(caption).toBe("Mobil orange");
   });
 });

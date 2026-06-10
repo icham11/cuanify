@@ -70,14 +70,12 @@ import { useRole } from "@/context/RoleContext";
 import {
   DAILY_PRODUCTION_TOKEN_LIMIT,
   checkSlotAvailability,
-  countConcurrentOrdersByTypeForSlot,
-  getSlotLimitByOrderType,
+  countConcurrentOrdersForSlot,
   getDeliverySlotsForDate,
-  inferOrderTypeFromItems,
   isSeasonalCookiesItem,
   isDateBlockedForOrdering,
+  SLOT_MAX_ORDERS_PER_HOUR,
   type SlotAvailabilityStatus,
-  type SlotOrderType,
 } from "@/lib/bookings/operations";
 import { BAKERY_BLOCKED_DATES } from "@/lib/bookings/config";
 import { calculateOrderTokenFromItems } from "@/lib/bookings/order-token-calculator";
@@ -1074,10 +1072,6 @@ interface ItemQuantityRule {
   helperText?: string;
 }
 
-function orderTypeLabel(orderType: SlotOrderType): string {
-  return orderType === "SEASONAL" ? "Seasonal/Bulk" : "Custom";
-}
-
 type BookingItemGroupLabel = "CUSTOM" | "SEASONAL_EVENT";
 
 function getBookingItemGroupLabel(item: {
@@ -1208,12 +1202,43 @@ const whatsappOrderTypeOptions: Array<{
   { value: "buket", label: WHATSAPP_ORDER_LABELS.buket },
   { value: "cookies_tower", label: WHATSAPP_ORDER_LABELS.cookies_tower },
 ];
+function parseReferenceLabelLines(value: string): string[] {
+  const lines = value
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.trim().replace(/\s+/g, " "));
+
+  while (lines.length > 0 && !lines[lines.length - 1]) {
+    lines.pop();
+  }
+
+  return lines;
+}
+
+function updateReferenceLabelLineAtIndex(
+  value: string,
+  index: number,
+  nextLineValue: string,
+): string {
+  const lines = parseReferenceLabelLines(value);
+  while (lines.length <= index) {
+    lines.push("");
+  }
+
+  lines[index] = nextLineValue.trim().replace(/\s+/g, " ");
+
+  while (lines.length > 0 && !lines[lines.length - 1]) {
+    lines.pop();
+  }
+
+  return lines.join("\n");
+}
+
 function normalizeReferenceLabelInput(value: string): string[] {
   const labels: string[] = [];
   const seen = new Set<string>();
 
-  for (const rawEntry of value.split(/\n|,|;/g)) {
-    const normalized = rawEntry.trim().replace(/\s+/g, " ");
+  for (const normalized of parseReferenceLabelLines(value)) {
     if (!normalized) continue;
 
     const matchKey = normalized.toLowerCase();
@@ -1989,7 +2014,13 @@ function resolveBubblewrapUnitPrice(args: {
 // Dipertahankan karena isPerOrderPricedAddOn local ini belum di-import dari helpers.
 function isOrderLevelAddOnId(addonId: string): boolean {
   if (addonId.includes("bubblewrap") || addonId === "custom-card") return true;
-  if (COOKIE_ADDITIONAL_DESIGN_ADDON_IDS.includes(addonId as any)) return true;
+  if (
+    COOKIE_ADDITIONAL_DESIGN_ADDON_IDS.includes(
+      addonId as (typeof COOKIE_ADDITIONAL_DESIGN_ADDON_IDS)[number],
+    )
+  ) {
+    return true;
+  }
   return false;
 }
 
@@ -4361,21 +4392,21 @@ export default function BookingForm({
     selectedCalendarStatus === "FULL" ||
     selectedCalendarStatus === "CUTOFF";
 
+  const orderedReferenceImageLabels = useMemo(
+    () => parseReferenceLabelLines(referenceImageLabelsInput),
+    [referenceImageLabelsInput],
+  );
   const normalizedReferenceImageLabels = useMemo(
-    () =>
-      referenceImageLabelsInput
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean),
+    () => normalizeReferenceLabelInput(referenceImageLabelsInput),
     [referenceImageLabelsInput],
   );
   const referenceInputSignature = useMemo(
     () =>
       buildReferenceInputSignature({
         files: referenceImageFiles,
-        requestedLabels: normalizedReferenceImageLabels,
+        requestedLabels: orderedReferenceImageLabels,
       }),
-    [normalizedReferenceImageLabels, referenceImageFiles],
+    [orderedReferenceImageLabels, referenceImageFiles],
   );
 
   const itemPriceBreakdowns = useMemo(() => {
@@ -4392,7 +4423,7 @@ export default function BookingForm({
         itemAddOns: item.addOns,
         itemAddOnQuantities: item.addOnQuantities,
         catalogAddOnIds: catAddOns.map((a: CatalogAddOn) => a.id),
-        hasParsedRecapPrice: !!(item as any).pricingSource,
+        hasParsedRecapPrice: Boolean(item.pricingSource),
         breakdownAddOnAmount: breakdown.addOnAmount,
         breakdownAddOnDetails: breakdown.addOnDetails,
         breakdownBaseAmount: breakdown.baseAmount,
@@ -4426,14 +4457,94 @@ export default function BookingForm({
 
     return referenceImageFiles.map((file, index) => ({
       label: `Gambar ${index + 1}`,
-      note: normalizedReferenceImageLabels[index] || "",
+      note: orderedReferenceImageLabels[index] || "",
       url: "",
     }));
   }, [
     effectiveReferenceImages,
-    normalizedReferenceImageLabels,
+    orderedReferenceImageLabels,
     referenceImageFiles,
   ]);
+  const updateReferenceImageNote = useCallback(
+    (index: number, value: string) => {
+      const nextInput = updateReferenceLabelLineAtIndex(
+        referenceImageLabelsInput,
+        index,
+        value,
+      );
+      const nextOrderedLabels = parseReferenceLabelLines(nextInput);
+      const nextRequestedImageLabels = normalizeReferenceLabelInput(nextInput);
+
+      setReferenceImageLabelsInput(nextInput);
+      setReferenceFilesChangedSinceParse(false);
+      setReferenceSyncStatus("idle");
+      lastParsedReferenceSignatureRef.current = buildReferenceInputSignature({
+        files: referenceImageFiles,
+        requestedLabels: nextOrderedLabels,
+      });
+      lastFailedAutoParseReferenceSignatureRef.current = "";
+
+      if (parsedPreview) {
+        const nextParsedPreview: ParsedWhatsAppOrder = {
+          ...parsedPreview,
+          referenceImages: buildParsedReferenceImages({
+            parsed: parsedPreview,
+            requestedLabels: nextOrderedLabels,
+          }),
+          requestedImageLabels: nextRequestedImageLabels,
+        };
+        const nextPersistedReferenceImages = normalizePersistedReferenceImages(
+          nextParsedPreview.referenceImages,
+        );
+
+        setParsedPreview(nextParsedPreview);
+        setPersistedReferenceImages(nextPersistedReferenceImages);
+
+        if (!isEditMode) {
+          const parsedValues = bookingSchema.safeParse(getValues());
+          if (parsedValues.success) {
+            saveBookingDraftSnapshot({
+              composerStep,
+              quickPaste,
+              selectedOrderType,
+              parsedPreview: nextParsedPreview,
+              persistedReferenceImages: nextPersistedReferenceImages,
+              productionPreviewImageUrl,
+              draftImported: true,
+              referenceImageLabelsInput: nextInput,
+              referenceFilesChangedSinceParse: false,
+              shippingQuotes,
+              selectedShippingQuoteId:
+                selectedShippingQuoteIdRef.current || selectedShippingQuoteId,
+              selectedShippingQuoteServiceKey:
+                resolveSelectedShippingQuoteServiceKey(),
+              shippingDistanceKm,
+              shippingDistanceSource,
+              shippingWarning,
+              formValues: parsedValues.data,
+            });
+          }
+        }
+      }
+    },
+    [
+      composerStep,
+      getValues,
+      isEditMode,
+      parsedPreview,
+      productionPreviewImageUrl,
+      quickPaste,
+      referenceImageFiles,
+      referenceImageLabelsInput,
+      resolveSelectedShippingQuoteServiceKey,
+      selectedOrderType,
+      selectedShippingQuoteId,
+      shippingDistanceKm,
+      shippingDistanceSource,
+      shippingQuotes,
+      shippingWarning,
+    ],
+  );
   const previewAlertMessage = parsedPreview
     ? "Ada yang salah? Kembali ke halaman sebelumnya, edit teks WA, lalu parse ulang."
     : "Ada yang salah? Kembali ke halaman sebelumnya dan cek lagi data booking sebelum disimpan.";
@@ -5096,18 +5207,7 @@ export default function BookingForm({
       allowHistoricalBackfillForSelectedDate,
     ],
   );
-  const draftOrderType = useMemo<SlotOrderType>(
-    () => inferOrderTypeFromItems(watchedItems),
-    [watchedItems],
-  );
-  const slotLimitPerHour = useMemo(
-    () => getSlotLimitByOrderType(draftOrderType),
-    [draftOrderType],
-  );
-  const slotProfileLabel = useMemo(
-    () => orderTypeLabel(draftOrderType),
-    [draftOrderType],
-  );
+  const slotLimitPerHour = SLOT_MAX_ORDERS_PER_HOUR;
   const isBlockedDate = Boolean(
     deliveryDate &&
     !canBackfillPastOrders &&
@@ -5120,25 +5220,16 @@ export default function BookingForm({
     }),
   );
 
-  useEffect(() => {
-    if (!deliveryDate) return;
-    const currentIsValid =
-      Boolean(deliverySlot) && deliverySlots.includes(deliverySlot);
-    if (currentIsValid) return;
-
-    setValue("deliverySlot", deliverySlots[0] ?? "", { shouldValidate: true });
-  }, [deliveryDate, deliverySlot, deliverySlots, setValue]);
-
   const slotAvailability = useMemo(() => {
     if (!deliveryDate) return [];
     return deliverySlots.map((slot) => {
-      const used = countConcurrentOrdersByTypeForSlot({
+      const used = countConcurrentOrdersForSlot({
         orders,
         deliveryDate,
         deliverySlot: slot,
-        orderType: draftOrderType,
+        targetItems: watchedItems,
       });
-      const status = checkSlotAvailability(deliveryDate, slot, draftOrderType, {
+      const status = checkSlotAvailability(deliveryDate, slot, "CUSTOM", {
         orders,
         dateContext: {
           deliveryMethod: effectiveDeliveryMethod,
@@ -5158,7 +5249,6 @@ export default function BookingForm({
     orders,
     deliveryDate,
     deliverySlots,
-    draftOrderType,
     effectiveDeliveryMethod,
     watchedItems,
     blockedDates,
@@ -5170,6 +5260,29 @@ export default function BookingForm({
   const slotStatusByTime = useMemo(() => {
     return new Map(slotAvailability.map((entry) => [entry.slot, entry.status]));
   }, [slotAvailability]);
+
+  useEffect(() => {
+    if (!deliveryDate) return;
+    const currentStatus = deliverySlot
+      ? (slotStatusByTime.get(deliverySlot) ?? "AVAILABLE")
+      : "AVAILABLE";
+    const currentIsValid =
+      Boolean(deliverySlot) &&
+      deliverySlots.includes(deliverySlot) &&
+      currentStatus !== "FULL";
+    if (currentIsValid) return;
+
+    const firstAvailableSlot =
+      slotAvailability.find((entry) => entry.status !== "FULL")?.slot ?? "";
+    setValue("deliverySlot", firstAvailableSlot, { shouldValidate: true });
+  }, [
+    deliveryDate,
+    deliverySlot,
+    deliverySlots,
+    slotAvailability,
+    slotStatusByTime,
+    setValue,
+  ]);
 
   const incomingProductionTokens = useMemo(() => {
     return getTotalProductionTokenSynced(watchedItems, productTokenByName);
@@ -5593,6 +5706,16 @@ export default function BookingForm({
 
     if (!canBackfillPastOrders && isPastDate(normalizedDeliveryDate)) {
       showSubmitFeedback("Tanggal sudah terlewat");
+      return;
+    }
+
+    const selectedSlotStatus = values.deliverySlot
+      ? (slotStatusByTime.get(values.deliverySlot) ?? "AVAILABLE")
+      : "AVAILABLE";
+    if (selectedSlotStatus === "FULL") {
+      showSubmitFeedback(
+        `Jam ${values.deliverySlot} pada tanggal ${normalizedDeliveryDate} sudah penuh (maksimal ${slotLimitPerHour} order). Pilih jam lain.`,
+      );
       return;
     }
 
@@ -6090,6 +6213,9 @@ export default function BookingForm({
       area: address.area,
       addressLine: address.addressLine,
     }));
+    const orderedRequestedImageLabels = parseReferenceLabelLines(
+      referenceImageLabelsInput,
+    );
     const explicitRequestedImageLabels = normalizeReferenceLabelInput(
       referenceImageLabelsInput,
     );
@@ -6107,24 +6233,9 @@ export default function BookingForm({
             ...parsedPreviewWithPersistedReferences,
             referenceImages: buildParsedReferenceImages({
               parsed: parsedPreviewWithPersistedReferences,
-              requestedLabels: explicitRequestedImageLabels,
+              requestedLabels: orderedRequestedImageLabels,
             }),
-            requestedImageLabels: [
-              ...(Array.isArray(
-                parsedPreviewWithPersistedReferences.requestedImageLabels,
-              )
-                ? parsedPreviewWithPersistedReferences.requestedImageLabels
-                : []),
-              ...explicitRequestedImageLabels,
-            ].filter((value, index, array) => {
-              const normalized = value.trim().toLowerCase();
-              if (!normalized) return false;
-              return (
-                array.findIndex(
-                  (entry) => entry.trim().toLowerCase() === normalized,
-                ) === index
-              );
-            }),
+            requestedImageLabels: explicitRequestedImageLabels,
           }
         : {}) as Partial<ParsedWhatsAppOrder>),
       common: {
@@ -7220,7 +7331,9 @@ export default function BookingForm({
         ...payload.parsed,
         referenceImages: buildParsedReferenceImages({
           parsed: payload.parsed,
-          requestedLabels: explicitRequestedImageLabels,
+          requestedLabels: parseReferenceLabelLines(
+            mergedRequestedImageLabels.join("\n"),
+          ),
         }),
         detectedItems:
           Array.isArray(payload.parsed.detectedItems) &&
@@ -7243,7 +7356,9 @@ export default function BookingForm({
       setReferenceSyncStatus("idle");
       lastParsedReferenceSignatureRef.current = buildReferenceInputSignature({
         files: referenceImageFiles,
-        requestedLabels: mergedRequestedImageLabels,
+        requestedLabels: parseReferenceLabelLines(
+          mergedRequestedImageLabels.join("\n"),
+        ),
       });
       lastFailedAutoParseReferenceSignatureRef.current = "";
       setShowOrderTypeSelector(false);
@@ -7380,12 +7495,9 @@ export default function BookingForm({
       ...parsedPreview,
       referenceImages: buildParsedReferenceImages({
         parsed: parsedPreview,
-        requestedLabels: normalizedReferenceImageLabels,
+        requestedLabels: orderedReferenceImageLabels,
       }),
-      requestedImageLabels: mergeRequestedImageLabels(
-        parsedPreview.requestedImageLabels,
-        normalizedReferenceImageLabels,
-      ),
+      requestedImageLabels: normalizedReferenceImageLabels,
     };
 
     setParsedPreview(nextParsedPreview);
@@ -7445,6 +7557,7 @@ export default function BookingForm({
     shippingDistanceSource,
     shippingQuotes,
     shippingWarning,
+    orderedReferenceImageLabels,
     normalizedReferenceImageLabels,
   ]);
 
@@ -7630,7 +7743,8 @@ export default function BookingForm({
                       🎨 Gambar Referensi
                     </p>
                     <p className="mt-1 text-sm text-[var(--crumbella-muted)]">
-                      Upload gambar desain customer, notes opsional
+                      Upload gambar desain customer. Nama design diisi di mode
+                      review, langsung di bawah masing-masing gambar.
                     </p>
                   </div>
                   <div className="rounded-2xl border border-[var(--crumbella-border)] bg-[#fdf7f0] px-3 py-1.5 text-xs font-semibold text-[var(--foreground)]">
@@ -7665,26 +7779,14 @@ export default function BookingForm({
                   </span>
                 </label>
 
-                <label className="grid gap-2 text-sm font-medium text-[var(--foreground)]">
-                  Label Desain per Gambar
-                  <Textarea
-                    value={referenceImageLabelsInput}
-                    onChange={(event) => {
-                      setReferenceImageLabelsInput(event.target.value);
-                      if (draftImported) {
-                        setReferenceFilesChangedSinceParse(true);
-                        setReferenceSyncStatus("idle");
-                      }
-                    }}
-                    placeholder={
-                      "Opsional. Isi satu label per baris sesuai urutan upload.\nContoh:\nPikachu\nBulbasaur\nPiplup"
-                    }
-                    className="min-h-24 rounded-[18px] border-[#e6cfbc] bg-[#fdf7f0]"
-                  />
-                  <span className="text-xs font-normal text-[var(--crumbella-muted)]">
-                    Dipakai untuk mencocokkan gambar ke slot/template produk.
-                  </span>
-                </label>
+                <div className="rounded-[18px] border border-dashed border-[#e6cfbc] bg-[#fdf7f0] px-4 py-3 text-xs leading-6 text-[var(--crumbella-muted)]">
+                  Nama design per gambar diisi setelah klik{" "}
+                  <span className="font-semibold text-[var(--foreground)]">
+                    Parse WhatsApp
+                  </span>{" "}
+                  dan masuk ke halaman review. Input-nya muncul langsung di
+                  bawah kartu gambar supaya urutannya lebih jelas.
+                </div>
 
                 {referenceImageFiles.length > 0 ? (
                   <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600">
@@ -7897,7 +7999,11 @@ export default function BookingForm({
                           const status =
                             slotStatusByTime.get(slot) ?? "AVAILABLE";
                           return (
-                            <option key={slot} value={slot}>
+                            <option
+                              key={slot}
+                              value={slot}
+                              disabled={status === "FULL"}
+                            >
                               {slot} - {slotStatusLabel(status)}
                             </option>
                           );
@@ -7921,8 +8027,8 @@ export default function BookingForm({
                   {deliveryDate && (
                     <div className="space-y-2 rounded-xl border border-gray-200 bg-gray-50/60 p-4">
                       <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                        Slot Availability ({deliveryDate}) - {slotProfileLabel}{" "}
-                        Limit {slotLimitPerHour}/hour
+                        Slot Availability ({deliveryDate}) - Semua Order Limit{" "}
+                        {slotLimitPerHour}/hour
                       </p>
                       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                         {slotAvailability.map((entry) => (
@@ -10909,7 +11015,7 @@ export default function BookingForm({
                     previewReferenceImages.map((image, index) => {
                       return (
                         <div
-                          key={`${image.label}-${index}`}
+                          key={`${image.url || image.label}-${index}`}
                           className="overflow-hidden rounded-[14px] border border-[var(--crumbella-border)] bg-[#fffdfa] p-[9px] shadow-[0_10px_24px_-22px_rgba(30,18,10,0.45)]"
                         >
                           <div className="overflow-hidden rounded-[11px] border border-[#ebe2d7] bg-[linear-gradient(90deg,#f6f1ea_0%,#fcfaf7_50%,#f6f1ea_100%)]">
@@ -10918,7 +11024,7 @@ export default function BookingForm({
                                 {/* eslint-disable-next-line @next/next/no-img-element */}
                                 <img
                                   src={image.url}
-                                  alt={image.label}
+                                  alt={image.note || image.label}
                                   className="h-[168px] w-full object-contain"
                                 />
                               </>
@@ -10929,17 +11035,28 @@ export default function BookingForm({
                             )}
                           </div>
                           <div className="px-[2px] pb-[2px] pt-3">
-                            <p className="text-[12.5px] font-semibold leading-[1.45] text-[var(--foreground)]">
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#b47b58]">
                               {image.label}
                             </p>
-                            <p
-                              className={`mt-[4px] text-[11px] leading-[1.5] ${
-                                image.note
-                                  ? "text-[var(--crumbella-muted)]"
-                                  : "italic text-[var(--crumbella-muted)]"
-                              }`}
-                            >
-                              {image.note || "Tidak ada notes"}
+                            <label className="mt-3 grid gap-1.5">
+                              <span className="text-[11px] font-semibold text-[var(--foreground)]">
+                                Nama design
+                              </span>
+                              <Input
+                                value={image.note}
+                                onChange={(event) =>
+                                  updateReferenceImageNote(
+                                    index,
+                                    event.target.value,
+                                  )
+                                }
+                                placeholder="Contoh: Minion senyum"
+                                className="h-10 rounded-[12px] border-[#e6cfbc] bg-[#fdf7f0] text-[12px]"
+                              />
+                            </label>
+                            <p className="mt-[6px] text-[10.5px] leading-[1.5] text-[var(--crumbella-muted)]">
+                              Nama ini dipakai untuk slot/template gambar dan
+                              caption referensi di WA.
                             </p>
                           </div>
                         </div>

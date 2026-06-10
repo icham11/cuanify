@@ -138,10 +138,29 @@ class PastDateError extends Error {
   }
 }
 
+class SlotCapacityFullError extends Error {
+  public readonly date: string;
+  public readonly slot: string;
+  public readonly activeOrders: number;
+  public readonly limit: number;
+
+  constructor(date: string, slot: string, activeOrders: number, limit: number) {
+    super(
+      `Jam ${slot} pada tanggal ${date} sudah penuh (${activeOrders}/${limit} order).`,
+    );
+    this.name = "SlotCapacityFullError";
+    this.date = date;
+    this.slot = slot;
+    this.activeOrders = activeOrders;
+    this.limit = limit;
+  }
+}
+
 const INACTIVE_STATUSES = ["Cancelled", "Completed", "Delivery", "Delivered"];
 const STAFF_DAILY_TOKEN_LIMIT = BAKERY_STAFF_DAILY_TOKEN_LIMIT;
 const STAFF_DAILY_TOKEN_LIMIT_MESSAGE =
   "Token harian staff melebihi limit assignment";
+const MAX_ACTIVE_ORDERS_PER_DELIVERY_SLOT = 3;
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -1749,12 +1768,11 @@ function extractRequestedImageLabels(order: NormalizedOrder): string[] {
   const details = asRecord(parsedData?.details);
   const candidates = [
     ...asStringArray(parsedData?.requestedImageLabels),
+    ...asArrayOfRecords(order.referenceImages).map((entry) =>
+      resolveReferenceImageDisplayText(entry),
+    ),
     ...asArrayOfRecords(parsedData?.referenceImages).map((entry) =>
-      asString(
-        IMAGE_LABEL_KEYS.map((key) => entry[key]).find((value) =>
-          Boolean(asString(value)),
-        ),
-      ),
+      resolveReferenceImageDisplayText(entry),
     ),
     ...DESIGN_REQUEST_KEYS.map((key) => asString(details?.[key])),
     asString(order.notes),
@@ -1765,6 +1783,20 @@ function extractRequestedImageLabels(order: NormalizedOrder): string[] {
     .filter(Boolean);
 
   return Array.from(new Set(candidates));
+}
+
+function resolveReferenceImageDisplayText(value: unknown): string {
+  const entry = asRecord(value);
+  if (!entry) return "";
+
+  const note = asString(entry.note).trim();
+  if (note) return note;
+
+  return asString(
+    IMAGE_LABEL_KEYS.map((key) => entry[key]).find((candidate) =>
+      Boolean(asString(candidate)),
+    ),
+  ).trim();
 }
 
 function normalizeParsedOrderTypeKey(value: unknown): string {
@@ -2098,15 +2130,11 @@ function buildTemplateFields(
 
 function buildTemplateSlotNotes(order: NormalizedOrder): string[] {
   const parsedData = asRecord(order.whatsAppParsedData);
-  const explicitLabels = asArrayOfRecords(parsedData?.referenceImages)
-    .map((entry) =>
-      asString(
-        IMAGE_LABEL_KEYS.map((key) => entry[key]).find((value) =>
-          Boolean(asString(value)),
-        ),
-      ),
-    )
-    .map((label) => label.trim())
+  const explicitLabels = [
+    ...asArrayOfRecords(order.referenceImages),
+    ...asArrayOfRecords(parsedData?.referenceImages),
+  ]
+    .map((entry) => resolveReferenceImageDisplayText(entry))
     .filter(Boolean);
 
   if (explicitLabels.length > 0) {
@@ -2257,6 +2285,34 @@ function hasCapacityAffectingChange(
   return (
     JSON.stringify(current.items ?? []) !== JSON.stringify(next.items ?? [])
   );
+}
+
+function countActiveOrdersForDeliverySlot(
+  rows: Iterable<{
+    external_id: string;
+    delivery_date: string | null;
+    delivery_slot: string | null;
+    order_status: string | null;
+  }>,
+  params: {
+    deliveryDate: string;
+    deliverySlot: string;
+    excludeOrderId?: string;
+  },
+): number {
+  let total = 0;
+
+  for (const row of rows) {
+    if (params.excludeOrderId && row.external_id === params.excludeOrderId) {
+      continue;
+    }
+    if (row.delivery_date !== params.deliveryDate) continue;
+    if ((row.delivery_slot ?? "") !== params.deliverySlot) continue;
+    if (INACTIVE_STATUSES.includes(row.order_status || "")) continue;
+    total += 1;
+  }
+
+  return total;
 }
 
 function calculateOrderTokenForLimit(
@@ -4949,6 +5005,7 @@ export async function POST(request: NextRequest) {
                   order_uuid: string | null;
                   external_id: string;
                   delivery_date: string | null;
+                  delivery_slot: string | null;
                   token_used: number;
                   order_status: string | null;
                   assigned_staff_user_id: number | null;
@@ -4959,6 +5016,7 @@ export async function POST(request: NextRequest) {
             order_uuid,
             external_id,
             delivery_date,
+            delivery_slot,
             token_used,
             order_status,
             assigned_staff_user_id,
@@ -5166,6 +5224,7 @@ export async function POST(request: NextRequest) {
                       existingOrder.order_status || "",
                     )
                   : false;
+                const existingDeliverySlot = existingOrder?.delivery_slot ?? "";
 
                 const shouldValidateSchedule =
                   hasCapacityChange &&
@@ -5174,6 +5233,15 @@ export async function POST(request: NextRequest) {
                     !wasActive ||
                     existingOrder.delivery_date !==
                       (order.deliveryDate || null));
+                const shouldValidateSlotCapacity =
+                  isActiveStatus &&
+                  Boolean(order.deliveryDate) &&
+                  Boolean(order.deliverySlot) &&
+                  (!existingOrder ||
+                    !wasActive ||
+                    existingOrder.delivery_date !==
+                      (order.deliveryDate || null) ||
+                    existingDeliverySlot !== (order.deliverySlot || ""));
 
                 // Enforce H-1 cutoff policy in backend as final authority.
                 if (shouldValidateSchedule && order.deliveryDate) {
@@ -5210,6 +5278,32 @@ export async function POST(request: NextRequest) {
                     throw new CapacityCutoffError(
                       order.deliveryDate,
                       bakerySettings.cutoffHour,
+                    );
+                  }
+                }
+
+                if (
+                  shouldValidateSlotCapacity &&
+                  order.deliveryDate &&
+                  order.deliverySlot
+                ) {
+                  const activeOrdersInSlot = countActiveOrdersForDeliverySlot(
+                    existingOrderMap.values(),
+                    {
+                      deliveryDate: order.deliveryDate,
+                      deliverySlot: order.deliverySlot,
+                      excludeOrderId: order.id,
+                    },
+                  );
+
+                  if (
+                    activeOrdersInSlot >= MAX_ACTIVE_ORDERS_PER_DELIVERY_SLOT
+                  ) {
+                    throw new SlotCapacityFullError(
+                      order.deliveryDate,
+                      order.deliverySlot,
+                      activeOrdersInSlot,
+                      MAX_ACTIVE_ORDERS_PER_DELIVERY_SLOT,
                     );
                   }
                 }
@@ -5667,6 +5761,7 @@ export async function POST(request: NextRequest) {
                   order_uuid: orderUuid,
                   external_id: order.id,
                   delivery_date: order.deliveryDate || null,
+                  delivery_slot: order.deliverySlot || null,
                   token_used: finalTokenUsed,
                   order_status: order.orderStatus || null,
                   assigned_staff_user_id: order.assignedStaffUserId ?? null,
@@ -5935,6 +6030,22 @@ export async function POST(request: NextRequest) {
         },
       });
     } catch (rowError) {
+      if (rowError instanceof SlotCapacityFullError) {
+        return NextResponse.json(
+          {
+            error: "Delivery slot full",
+            details: rowError.message,
+            slotCapacity: {
+              date: rowError.date,
+              slot: rowError.slot,
+              activeOrders: rowError.activeOrders,
+              limit: rowError.limit,
+            },
+          },
+          { status: 409 },
+        );
+      }
+
       // ── Handle capacity-full errors with 409 ──
       if (rowError instanceof CapacityFullError) {
         return NextResponse.json(
@@ -6038,6 +6149,22 @@ export async function POST(request: NextRequest) {
 
     if (error instanceof ForbiddenError) {
       return NextResponse.json({ error: error.message }, { status: 403 });
+    }
+
+    if (error instanceof SlotCapacityFullError) {
+      return NextResponse.json(
+        {
+          error: "Delivery slot full",
+          details: error.message,
+          slotCapacity: {
+            date: error.date,
+            slot: error.slot,
+            activeOrders: error.activeOrders,
+            limit: error.limit,
+          },
+        },
+        { status: 409 },
+      );
     }
 
     if (error instanceof CapacityFullError) {

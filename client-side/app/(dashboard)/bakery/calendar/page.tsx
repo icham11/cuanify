@@ -314,6 +314,10 @@ export default function BakeryCalendarPage() {
     [],
   );
   const [isLoadingGoogleEvents, setIsLoadingGoogleEvents] = useState(false);
+  const [calendarRangeOrders, setCalendarRangeOrders] = useState<BakeryOrder[]>(
+    [],
+  );
+  const [loadedCalendarRangeKey, setLoadedCalendarRangeKey] = useState("");
   const [oauthStatus, setOauthStatus] = useState<{
     connected: boolean;
     connectedEmail: string | null;
@@ -328,6 +332,15 @@ export default function BakeryCalendarPage() {
   const calendarMinTime = useMemo(() => setHours(new Date(), 6), []);
   const calendarMaxTime = useMemo(() => setHours(new Date(), 21), []);
   const calendarScrollToTime = useMemo(() => setHours(new Date(), 8), []);
+  const calendarRangeStartKey = useMemo(
+    () => safeToDateKey(calendarRange.start),
+    [calendarRange.start],
+  );
+  const calendarRangeEndKey = useMemo(
+    () => safeToDateKey(calendarRange.end),
+    [calendarRange.end],
+  );
+  const calendarRangeKey = `${calendarRangeStartKey}:${calendarRangeEndKey}`;
 
   const { settings: bakerySettings } = useBakerySettings();
   const blockedDates = bakerySettings?.blockedDates;
@@ -369,10 +382,74 @@ export default function BakeryCalendarPage() {
     refetchCapacity();
   }, [calendarMaxToken, refetchCapacity]);
 
+  useEffect(() => {
+    if (!calendarRangeStartKey || !calendarRangeEndKey) return;
+
+    const controller = new AbortController();
+
+    const loadCalendarOrders = async () => {
+      try {
+        const params = new URLSearchParams({
+          mode: "calendar",
+          view: "all",
+          startDate: calendarRangeStartKey,
+          endDate: calendarRangeEndKey,
+        });
+        const response = await fetch(
+          `/api/bookings/orders?${params.toString()}`,
+          {
+            cache: "no-store",
+            signal: controller.signal,
+          },
+        );
+        const payload = (await response.json().catch(() => ({}))) as {
+          success?: boolean;
+          data?: { orders?: BakeryOrder[] };
+        };
+
+        if (!response.ok || !payload.success) return;
+        setCalendarRangeOrders(
+          Array.isArray(payload.data?.orders) ? payload.data.orders : [],
+        );
+        setLoadedCalendarRangeKey(calendarRangeKey);
+      } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") return;
+      }
+    };
+
+    void loadCalendarOrders();
+
+    return () => {
+      controller.abort();
+    };
+  }, [calendarRangeEndKey, calendarRangeKey, calendarRangeStartKey]);
+
+  const scopedCalendarOrders = useMemo(() => {
+    if (loadedCalendarRangeKey === calendarRangeKey) {
+      return calendarRangeOrders;
+    }
+
+    return orders.filter((order) => {
+      const dateKey = resolveCalendarOrderDateKey(order);
+      return (
+        Boolean(dateKey) &&
+        dateKey >= calendarRangeStartKey &&
+        dateKey <= calendarRangeEndKey
+      );
+    });
+  }, [
+    calendarRangeEndKey,
+    calendarRangeKey,
+    calendarRangeOrders,
+    calendarRangeStartKey,
+    loadedCalendarRangeKey,
+    orders,
+  ]);
+
   const liveUsedTokenByDate = useMemo(() => {
     const result = new Map<string, number>();
 
-    for (const order of orders) {
+    for (const order of scopedCalendarOrders) {
       const normalizedDate = resolveCalendarOrderDateKey(order);
       if (!normalizedDate) continue;
 
@@ -389,7 +466,7 @@ export default function BakeryCalendarPage() {
     }
 
     return result;
-  }, [orders]);
+  }, [scopedCalendarOrders]);
 
   const getEffectiveCapacity = useMemo(() => {
     return (dateKey: string) => {
@@ -567,15 +644,17 @@ export default function BakeryCalendarPage() {
 
   const filteredInternalOrders = useMemo(() => {
     if (listFilterMode === "needs-sync") {
-      return orders.filter((order) => !order.simulations?.calendarEventCreated);
+      return scopedCalendarOrders.filter(
+        (order) => !order.simulations?.calendarEventCreated,
+      );
     }
     if (listFilterMode === "synced") {
-      return orders.filter((order) =>
+      return scopedCalendarOrders.filter((order) =>
         Boolean(order.simulations?.calendarEventCreated),
       );
     }
-    return orders;
-  }, [orders, listFilterMode]);
+    return scopedCalendarOrders;
+  }, [listFilterMode, scopedCalendarOrders]);
 
   const internalEvents = useMemo<CalendarOrderEvent[]>(() => {
     return filteredInternalOrders.flatMap((order) => {
@@ -656,10 +735,13 @@ export default function BakeryCalendarPage() {
   );
 
   const currentPeriodEmptyMessage = useMemo(() => {
+    if (scopedCalendarOrders.length === 0) {
+      return "Belum ada order pada periode kalender ini.";
+    }
+    if (currentPeriodOrderCount > 0) return "";
     if (orders.length === 0) {
       return "Belum ada order pada business ini.";
     }
-    if (currentPeriodOrderCount > 0) return "";
     if (!nearestOrderInScope) {
       return "Belum ada order pada periode kalender ini.";
     }
@@ -669,7 +751,12 @@ export default function BakeryCalendarPage() {
       "dd MMMM yyyy",
       { locale: localeId },
     )}.`;
-  }, [currentPeriodOrderCount, nearestOrderInScope, orders.length]);
+  }, [
+    currentPeriodOrderCount,
+    nearestOrderInScope,
+    orders.length,
+    scopedCalendarOrders.length,
+  ]);
 
   const selectedDateLabel = selectedDate
     ? format(selectedDate, "EEEE, dd MMMM yyyy", { locale: localeId })
@@ -677,13 +764,13 @@ export default function BakeryCalendarPage() {
 
   const selectedDateOrdersAll = useMemo(() => {
     if (!selectedDateKey) return [];
-    return orders
+    return scopedCalendarOrders
       .filter(
         (order) => resolveCalendarOrderDateKey(order) === selectedDateKey,
       )
       .slice()
       .sort((a, b) => a.deliverySlot.localeCompare(b.deliverySlot));
-  }, [orders, selectedDateKey]);
+  }, [scopedCalendarOrders, selectedDateKey]);
 
   const openSelectedDateInBookings = () => {
     if (!selectedDateKey) return;

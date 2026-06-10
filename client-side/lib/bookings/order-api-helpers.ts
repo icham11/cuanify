@@ -8,6 +8,7 @@ import {
 import type { SendOrderToWhatsAppInput } from "@/lib/whatsapp/sendOrderToWhatsApp";
 import { calculateShippingInsuranceFee } from "@/lib/bookings/shipping-insurance";
 import { detailFieldDefinitions, type WhatsAppOrderType } from "@/lib/bookings/whatsapp-parser";
+import { sanitizeRawWhatsAppTemplateSection } from "@/lib/bookings/whatsapp-message-template";
 import {
   resolveDeliveryMethodLabel,
   resolveOrderDeliveryMethod,
@@ -799,12 +800,11 @@ export function extractRequestedImageLabels(order: NormalizedOrder): string[] {
   const details = asRecord(parsedData?.details);
   const candidates = [
     ...asStringArray(parsedData?.requestedImageLabels),
+    ...asArrayOfRecords(order.referenceImages).map((entry) =>
+      resolveReferenceImageDisplayText(entry),
+    ),
     ...asArrayOfRecords(parsedData?.referenceImages).map((entry) =>
-      asString(
-        IMAGE_LABEL_KEYS.map((key) => entry[key]).find((value) =>
-          Boolean(asString(value)),
-        ),
-      ),
+      resolveReferenceImageDisplayText(entry),
     ),
     ...DESIGN_REQUEST_KEYS.map((key) => asString(details?.[key])),
     asString(order.notes),
@@ -815,6 +815,20 @@ export function extractRequestedImageLabels(order: NormalizedOrder): string[] {
     .filter(Boolean);
 
   return Array.from(new Set(candidates));
+}
+
+export function resolveReferenceImageDisplayText(value: unknown): string {
+  const entry = asRecord(value);
+  if (!entry) return "";
+
+  const note = asString(entry.note).trim();
+  if (note) return note;
+
+  return asString(
+    IMAGE_LABEL_KEYS.map((key) => entry[key]).find((candidate) =>
+      Boolean(asString(candidate)),
+    ),
+  ).trim();
 }
 
 export function normalizeParsedOrderTypeKey(value: unknown): string {
@@ -1280,15 +1294,11 @@ export function buildTemplateFields(
 
 export function buildTemplateSlotNotes(order: NormalizedOrder): string[] {
   const parsedData = asRecord(order.whatsAppParsedData);
-  const explicitLabels = asArrayOfRecords(parsedData?.referenceImages)
-    .map((entry) =>
-      asString(
-        IMAGE_LABEL_KEYS.map((key) => entry[key]).find((value) =>
-          Boolean(asString(value)),
-        ),
-      ),
-    )
-    .map((label) => label.trim())
+  const explicitLabels = [
+    ...asArrayOfRecords(order.referenceImages),
+    ...asArrayOfRecords(parsedData?.referenceImages),
+  ]
+    .map((entry) => resolveReferenceImageDisplayText(entry))
     .filter(Boolean);
 
   if (explicitLabels.length > 0) {
@@ -1315,7 +1325,7 @@ export function buildWhatsAppDesignNotes(order: NormalizedOrder): string {
   const details = getParsedDetailsForTemplate(order);
   const rawDesignBlock = extractDesignBlockFromRawText(parsedData?.rawText);
   if (rawDesignBlock) {
-    return rawDesignBlock;
+    return sanitizeRawWhatsAppTemplateSection(rawDesignBlock);
   }
 
   const referenceNotes = [
@@ -1397,6 +1407,7 @@ export function toWhatsAppPayload(order: NormalizedOrder): SendOrderToWhatsAppIn
     downPaymentAmount: asNumber(order.downPaymentAmount),
     remainingBalance: asNumber(order.remainingBalance),
     captionItems: buildCaptionItems(order),
+    rawTemplateText: asString(parsedData?.rawText),
     imageUrl: imageUrls[0] || "",
     imageUrls,
     referenceImages,

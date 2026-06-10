@@ -35,11 +35,28 @@ function normalizeInlineValue(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
 
+function normalizeRawTextValue(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
 function normalizeMultilineValue(value: string): string[] {
   return value
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
+}
+
+export function isGenericImagePlaceholderLine(value: string): boolean {
+  const normalized = value
+    .trim()
+    .replace(/^[*\-•]+\s*/, "")
+    .replace(/\s+/g, " ");
+
+  if (!normalized) return false;
+
+  return /^(gambar|image|img|foto|photo|pic)(?:\s+referensi)?(?:\s+ke)?\s*(\d+|pertama|kedua|ketiga|keempat|kelima|keenam|ketujuh|kedelapan|kesembilan|kesepuluh)$/i.test(
+    normalized,
+  );
 }
 
 function formatMoney(value: unknown): string {
@@ -134,6 +151,32 @@ function compactEmptyLines(lines: string[]): string[] {
   while (compacted[compacted.length - 1] === "") compacted.pop();
 
   return compacted;
+}
+
+export function sanitizeRawWhatsAppTemplateSection(value: string): string {
+  const filteredLines = value
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .filter((line) => !isGenericImagePlaceholderLine(line));
+
+  return compactEmptyLines(filteredLines).join("\n");
+}
+
+export function extractRawOrderDeliveryDetailsWhatsAppText(
+  rawText: unknown,
+): string {
+  const lines = normalizeRawTextValue(rawText)
+    .replace(/\r\n/g, "\n")
+    .split("\n");
+  const startIndex = lines.findIndex((line) =>
+    /^\s*tanggal pengiriman\s*:/i.test(line),
+  );
+
+  if (startIndex < 0) {
+    return "";
+  }
+
+  return sanitizeRawWhatsAppTemplateSection(lines.slice(startIndex).join("\n"));
 }
 
 function generateAutomatedBookingCode(

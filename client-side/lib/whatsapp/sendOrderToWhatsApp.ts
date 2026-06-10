@@ -4,6 +4,8 @@ import type {
 } from "@/lib/whatsapp/generateOrderImage";
 import {
   buildOrderDeliveryDetailsWhatsAppText,
+  extractRawOrderDeliveryDetailsWhatsAppText,
+  isGenericImagePlaceholderLine,
   type WhatsAppRecapItem,
 } from "@/lib/bookings/whatsapp-message-template";
 import { uploadToCloudinary } from "@/lib/whatsapp/uploadToCloudinary";
@@ -17,6 +19,7 @@ export interface SendOrderToWhatsAppInput extends WhatsAppOrderImagePayload {
   imageUrl?: string;
   customerNotes?: string;
   designNotes?: string;
+  rawTemplateText?: string;
   fullAddress?: string;
   postalCode?: string;
   deliveryFee?: number;
@@ -59,6 +62,13 @@ function isMeaningfulImageCaption(value?: string): boolean {
   if (/^[a-f0-9-]{12,}$/i.test(text)) return false;
   if (/^[a-f0-9-]{12,}$/i.test(text.replace(/\s+/g, "-"))) return false;
   if (/^(img|image|foto|photo)\s*\d[\d\s-]*$/i.test(text)) return false;
+  if (isGenericImagePlaceholderLine(text)) return false;
+  if (/^(yang|yg)\s+(pertama|kedua|ketiga|keempat|kelima|keenam|ketujuh|kedelapan|kesembilan|kesepuluh)$/i.test(text)) {
+    return false;
+  }
+  if (/^(dan\s+)?(yang|yg)\s+(pertama|kedua|ketiga|keempat|kelima|keenam|ketujuh|kedelapan|kesembilan|kesepuluh)$/i.test(text)) {
+    return false;
+  }
   if (/\.(jpe?g|png|webp|gif|heic|heif)$/i.test(text)) return false;
   return true;
 }
@@ -66,6 +76,13 @@ function isMeaningfulImageCaption(value?: string): boolean {
 export function buildProductionCaption(
   order: SendOrderToWhatsAppInput,
 ): string {
+  const rawTemplateCaption = extractRawOrderDeliveryDetailsWhatsAppText(
+    order.rawTemplateText,
+  );
+  if (rawTemplateCaption) {
+    return rawTemplateCaption;
+  }
+
   const fallbackDetailLines: Array<{ label: string; value: string }> = [];
   if ((order.designNotes || "").trim()) {
     fallbackDetailLines.push({
@@ -217,6 +234,32 @@ type OutboundWhatsAppMessage = {
   imageUrl?: string;
 };
 
+export function resolveOutboundReferenceCaption(params: {
+  referenceLabel?: string;
+  referenceNote?: string;
+  slotNote?: string;
+  requestedImageLabel?: string;
+  productName?: string;
+}): string {
+  if (isMeaningfulImageCaption(params.referenceNote)) {
+    return params.referenceNote!.trim();
+  }
+  if (isMeaningfulImageCaption(params.referenceLabel)) {
+    return params.referenceLabel!.trim();
+  }
+  if (isMeaningfulImageCaption(params.slotNote)) {
+    return params.slotNote!.trim();
+  }
+  if (isMeaningfulImageCaption(params.requestedImageLabel)) {
+    return params.requestedImageLabel!.trim();
+  }
+  if (isMeaningfulImageCaption(params.productName)) {
+    return params.productName!.trim();
+  }
+
+  return "Referensi desain";
+}
+
 async function sendOutboundWhatsAppSequence(
   messages: OutboundWhatsAppMessage[],
 ): Promise<void> {
@@ -367,6 +410,10 @@ export async function sendOrderToWhatsApp(
   const outboundMessages: OutboundWhatsAppMessage[] = [];
   const recapText = buildProductionCaption(order);
   outboundMessages.push({ message: recapText });
+  const slotNotes = Array.isArray(order.slotNotes) ? order.slotNotes : [];
+  const requestedImageLabels = Array.isArray(order.requestedImageLabels)
+    ? order.requestedImageLabels
+    : [];
 
   // Siapkan satu per satu gambar user-upload, caption = detail gambar dari parser
   for (let i = 0; i < finalImagesToUpload.length; i++) {
@@ -375,19 +422,14 @@ export async function sendOrderToWhatsApp(
       label: referenceLabel,
       note: referenceNote,
     } = finalImagesToUpload[i];
-    let caption = "";
-
-    // Ambil label/notes dari referenceImages jika ada, jika tidak dari captionItems
     const productName = order.captionItems?.[i]?.productName;
-    if (isMeaningfulImageCaption(referenceNote)) {
-      caption = referenceNote!.trim();
-    } else if (isMeaningfulImageCaption(referenceLabel)) {
-      caption = referenceLabel.trim();
-    } else if (isMeaningfulImageCaption(productName)) {
-      caption = productName!.trim();
-    } else {
-      caption = `Referensi ${i + 1}`;
-    }
+    const caption = resolveOutboundReferenceCaption({
+      referenceNote,
+      referenceLabel,
+      slotNote: slotNotes[i],
+      requestedImageLabel: requestedImageLabels[i],
+      productName,
+    });
 
     try {
       const imgUrl = await prepareOutboundWhatsAppImageUrl(sourceImgUrl, i);
