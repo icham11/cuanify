@@ -35,6 +35,21 @@ type BusinessAccessResult =
   | { businessId: number; role: UserRole }
   | null
 
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message
+  }
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof error.message === "string"
+  ) {
+    return error.message
+  }
+  return String(error)
+}
+
 function normalizeNumericId(value: unknown): number | undefined {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value
@@ -177,12 +192,6 @@ async function resolvePayloadFromNextAuth(): Promise<{ userId?: number; business
     console.error("[Auth] resolvePayloadFromNextAuth error:", error)
   }
   return undefined
-}
-
-async function resolveUserIdFromNextAuthJwt(): Promise<number | undefined> {
-  // Panggil helper modular terpadu untuk mendapatkan userId
-  const payload = await resolvePayloadFromNextAuth()
-  return payload?.userId
 }
 
 async function resolveBusinessAccess(args: {
@@ -330,12 +339,7 @@ export const requireAuth = cache(async (): Promise<AuthResult> => {
       }
     } catch (error) { // Tangkap transient DB error
       // Konversi error ke format string secara aman
-      const errString =
-        error instanceof Error
-          ? error.message
-          : typeof error === "object" && error !== null && "message" in error
-            ? String((error as any).message)
-            : String(error);
+      const errString = getErrorMessage(error)
 
       // Cek apakah terdeteksi masalah koneksi database
       const isConnectionIssue =
@@ -380,12 +384,7 @@ export const requireAuth = cache(async (): Promise<AuthResult> => {
       })
     } catch (error) { // Tangkap potensi kesalahan koneksi atau transient TLS database error
       // Konversi error ke format string secara aman
-      const errString =
-        error instanceof Error
-          ? error.message
-          : typeof error === "object" && error !== null && "message" in error
-            ? String((error as any).message)
-            : String(error);
+      const errString = getErrorMessage(error)
 
       // Cek apakah terdeteksi masalah koneksi database
       const isConnectionIssue =
@@ -427,12 +426,7 @@ export const requireAuth = cache(async (): Promise<AuthResult> => {
       })
     } catch (error) { // Tangkap potensi kesalahan koneksi atau transient TLS database error
       // Konversi error ke format string secara aman
-      const errString =
-        error instanceof Error
-          ? error.message
-          : typeof error === "object" && error !== null && "message" in error
-            ? String((error as any).message)
-            : String(error);
+      const errString = getErrorMessage(error)
 
       // Cek apakah terdeteksi masalah koneksi database
       const isConnectionIssue =
