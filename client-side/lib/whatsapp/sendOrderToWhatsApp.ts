@@ -263,6 +263,25 @@ export function resolveOutboundReferenceCaption(params: {
 async function sendOutboundWhatsAppSequence(
   messages: OutboundWhatsAppMessage[],
 ): Promise<void> {
+  const containsImageMessage = messages.some((entry) => Boolean(entry.imageUrl));
+  if (containsImageMessage) {
+    for (let index = 0; index < messages.length; index += 1) {
+      const entry = messages[index];
+      if (entry.imageUrl) {
+        await sendWhatsAppImage(
+          entry.imageUrl,
+          entry.message,
+          undefined,
+          WA_IMAGE_BASE_DELAY_SECONDS + index * WA_IMAGE_DELAY_STEP_SECONDS,
+        );
+      } else {
+        await sendWhatsAppText(entry.message, undefined, WA_TEXT_DELAY_SECONDS);
+      }
+      await waitForMessageOrdering(INTER_MESSAGE_DELAY_MS);
+    }
+    return;
+  }
+
   try {
     await sendWhatsAppSequence(messages);
   } catch (error) {

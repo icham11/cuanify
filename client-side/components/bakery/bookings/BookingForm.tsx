@@ -1202,11 +1202,10 @@ const whatsappOrderTypeOptions: Array<{
   { value: "buket", label: WHATSAPP_ORDER_LABELS.buket },
   { value: "cookies_tower", label: WHATSAPP_ORDER_LABELS.cookies_tower },
 ];
-function parseReferenceLabelLines(value: string): string[] {
+function splitReferenceLabelLinesRaw(value: string): string[] {
   const lines = value
     .replace(/\r\n/g, "\n")
-    .split("\n")
-    .map((line) => line.trim().replace(/\s+/g, " "));
+    .split("\n");
 
   while (lines.length > 0 && !lines[lines.length - 1]) {
     lines.pop();
@@ -1215,17 +1214,23 @@ function parseReferenceLabelLines(value: string): string[] {
   return lines;
 }
 
+function parseReferenceLabelLines(value: string): string[] {
+  return splitReferenceLabelLinesRaw(value).map((line) =>
+    line.trim().replace(/\s+/g, " "),
+  );
+}
+
 function updateReferenceLabelLineAtIndex(
   value: string,
   index: number,
   nextLineValue: string,
 ): string {
-  const lines = parseReferenceLabelLines(value);
+  const lines = splitReferenceLabelLinesRaw(value);
   while (lines.length <= index) {
     lines.push("");
   }
 
-  lines[index] = nextLineValue.trim().replace(/\s+/g, " ");
+  lines[index] = nextLineValue;
 
   while (lines.length > 0 && !lines[lines.length - 1]) {
     lines.pop();
@@ -4392,8 +4397,8 @@ export default function BookingForm({
     selectedCalendarStatus === "FULL" ||
     selectedCalendarStatus === "CUTOFF";
 
-  const orderedReferenceImageLabels = useMemo(
-    () => parseReferenceLabelLines(referenceImageLabelsInput),
+  const rawReferenceImageLabelLines = useMemo(
+    () => splitReferenceLabelLinesRaw(referenceImageLabelsInput),
     [referenceImageLabelsInput],
   );
   const normalizedReferenceImageLabels = useMemo(
@@ -4404,9 +4409,9 @@ export default function BookingForm({
     () =>
       buildReferenceInputSignature({
         files: referenceImageFiles,
-        requestedLabels: orderedReferenceImageLabels,
+        requestedLabels: rawReferenceImageLabelLines,
       }),
-    [orderedReferenceImageLabels, referenceImageFiles],
+    [rawReferenceImageLabelLines, referenceImageFiles],
   );
 
   const itemPriceBreakdowns = useMemo(() => {
@@ -4450,19 +4455,22 @@ export default function BookingForm({
     if (effectiveReferenceImages.length > 0) {
       return effectiveReferenceImages.map((entry, index) => ({
         label: entry.label?.trim() || `Gambar ${index + 1}`,
-        note: entry.note?.trim() || "",
+        note:
+          rawReferenceImageLabelLines[index] ??
+          entry.note?.trim() ??
+          "",
         url: entry.url?.trim() || "",
       }));
     }
 
     return referenceImageFiles.map((file, index) => ({
       label: `Gambar ${index + 1}`,
-      note: orderedReferenceImageLabels[index] || "",
+      note: rawReferenceImageLabelLines[index] || "",
       url: "",
     }));
   }, [
     effectiveReferenceImages,
-    orderedReferenceImageLabels,
+    rawReferenceImageLabelLines,
     referenceImageFiles,
   ]);
   const updateReferenceImageNote = useCallback(
@@ -4472,30 +4480,43 @@ export default function BookingForm({
         index,
         value,
       );
-      const nextOrderedLabels = parseReferenceLabelLines(nextInput);
+      const nextRawLabels = splitReferenceLabelLinesRaw(nextInput);
       const nextRequestedImageLabels = normalizeReferenceLabelInput(nextInput);
+      const nextPersistedReferenceImages =
+        effectiveReferenceImages.length > 0
+          ? effectiveReferenceImages.map((entry, entryIndex) =>
+              entryIndex === index
+                ? {
+                    ...entry,
+                    note: value || undefined,
+                  }
+                : entry,
+            )
+          : normalizePersistedReferenceImages(persistedReferenceImages).map(
+              (entry, entryIndex) =>
+                entryIndex === index
+                  ? {
+                      ...entry,
+                      note: value || undefined,
+                    }
+                  : entry,
+            );
 
       setReferenceImageLabelsInput(nextInput);
       setReferenceFilesChangedSinceParse(false);
       setReferenceSyncStatus("idle");
       lastParsedReferenceSignatureRef.current = buildReferenceInputSignature({
         files: referenceImageFiles,
-        requestedLabels: nextOrderedLabels,
+        requestedLabels: nextRawLabels,
       });
       lastFailedAutoParseReferenceSignatureRef.current = "";
 
       if (parsedPreview) {
         const nextParsedPreview: ParsedWhatsAppOrder = {
           ...parsedPreview,
-          referenceImages: buildParsedReferenceImages({
-            parsed: parsedPreview,
-            requestedLabels: nextOrderedLabels,
-          }),
+          referenceImages: nextPersistedReferenceImages,
           requestedImageLabels: nextRequestedImageLabels,
         };
-        const nextPersistedReferenceImages = normalizePersistedReferenceImages(
-          nextParsedPreview.referenceImages,
-        );
 
         setParsedPreview(nextParsedPreview);
         setPersistedReferenceImages(nextPersistedReferenceImages);
@@ -4531,7 +4552,9 @@ export default function BookingForm({
       composerStep,
       getValues,
       isEditMode,
-      parsedPreview,
+        parsedPreview,
+        effectiveReferenceImages,
+        persistedReferenceImages,
       productionPreviewImageUrl,
       quickPaste,
       referenceImageFiles,
@@ -7495,7 +7518,7 @@ export default function BookingForm({
       ...parsedPreview,
       referenceImages: buildParsedReferenceImages({
         parsed: parsedPreview,
-        requestedLabels: orderedReferenceImageLabels,
+        requestedLabels: rawReferenceImageLabelLines,
       }),
       requestedImageLabels: normalizedReferenceImageLabels,
     };
@@ -7557,7 +7580,7 @@ export default function BookingForm({
     shippingDistanceSource,
     shippingQuotes,
     shippingWarning,
-    orderedReferenceImageLabels,
+    rawReferenceImageLabelLines,
     normalizedReferenceImageLabels,
   ]);
 
