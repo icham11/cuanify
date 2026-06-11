@@ -42,6 +42,20 @@ const INTER_MESSAGE_DELAY_MS = 3500; // Increased to ensure text is fully sent b
 const WA_TEXT_DELAY_SECONDS = 0; // Server-side delay di Fonnte (gunakan client-side delay saja)
 const WA_IMAGE_BASE_DELAY_SECONDS = 1; // Minimal delay, rely on INTER_MESSAGE_DELAY_MS
 const WA_IMAGE_DELAY_STEP_SECONDS = 2;
+// Serialize seluruh notif produksi agar request booking yang berdekatan
+// tidak menabrakkan pengiriman ke target grup yang sama di Fonnte.
+let productionNotificationQueue: Promise<void> = Promise.resolve();
+
+function enqueueProductionNotification<T>(
+  task: () => Promise<T>,
+): Promise<T> {
+  const run = productionNotificationQueue.catch(() => undefined).then(task);
+  productionNotificationQueue = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
 
 function sanitizeBookingCode(value?: string): string {
   const raw = (value || "").trim();
@@ -356,7 +370,7 @@ async function prepareOutboundWhatsAppImageUrl(
   return sourceUrl;
 }
 
-export async function sendOrderToWhatsApp(
+async function sendOrderToWhatsAppImmediately(
   order: SendOrderToWhatsAppInput,
 ): Promise<SendOrderToWhatsAppResult> {
   const selectedImageUrls = normalizeReferenceImageUrls(order);
@@ -505,4 +519,12 @@ export async function sendOrderToWhatsApp(
   }
 
   return lastResult;
+}
+
+export async function sendOrderToWhatsApp(
+  order: SendOrderToWhatsAppInput,
+): Promise<SendOrderToWhatsAppResult> {
+  return enqueueProductionNotification(() =>
+    sendOrderToWhatsAppImmediately(order),
+  );
 }

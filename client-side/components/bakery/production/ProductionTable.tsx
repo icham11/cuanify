@@ -1460,9 +1460,7 @@ export default function ProductionTable() {
                 viewerUserId !== null && stageData?.staffId === viewerUserId;
               const stageTone = isAssignedToViewer
                 ? "border-[#9ed5bb] bg-[#dff3ea] text-[#21583f]"
-                : isClaimed
-                  ? "border-[#c9e4d7] bg-[#eef8f3] text-[#21583f]"
-                  : "border-[#e5d5c4] bg-[#fbf5ef] text-[#8a6047]";
+                : "border-[#e5d5c4] bg-[#fbf5ef] text-[#8a6047]";
 
               return (
                 <div

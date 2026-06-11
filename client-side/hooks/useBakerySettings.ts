@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { apiFetch } from "@/lib/api/client";
+import { apiFetch, invalidateApiCache } from "@/lib/api/client";
 import type { BakeryBusinessSettings } from "@/lib/bakery/settings";
 
 export const BAKERY_SETTINGS_UPDATED_EVENT = "bakery-settings-updated";
@@ -20,6 +20,7 @@ let inFlightSettingsRequest: Promise<BakeryBusinessSettings | null> | null = nul
 let cachedSettingsScope = "";
 const SETTINGS_CACHE_TTL_MS = 5 * 60 * 1000;
 const SETTINGS_STORAGE_KEY = "bakery-settings-cache:v1";
+const BAKERY_SETTINGS_API_CACHE_MATCHER = /\/api\/bakery\/settings(?:\?|$)/;
 
 function getActiveBusinessScope() {
   if (typeof document === "undefined") return "anon";
@@ -79,6 +80,7 @@ function writeSettingsToStorage(
 
 export function invalidateBakerySettingsCache() {
   resetInMemorySettingsCache();
+  invalidateApiCache(BAKERY_SETTINGS_API_CACHE_MATCHER);
 
   if (typeof window === "undefined") return;
   try {
@@ -96,9 +98,15 @@ export function invalidateBakerySettingsCache() {
 
 async function fetchBakerySettingsFromApi(
   scope: string,
+  options?: { force?: boolean },
 ): Promise<BakeryBusinessSettings | null> {
+  if (options?.force) {
+    invalidateApiCache(BAKERY_SETTINGS_API_CACHE_MATCHER);
+  }
+
   const payload = (await apiFetch("/api/bakery/settings", {
-    cacheTtlMs: SETTINGS_CACHE_TTL_MS,
+    cache: options?.force ? "no-store" : undefined,
+    cacheTtlMs: options?.force ? 0 : SETTINGS_CACHE_TTL_MS,
   })) as BakerySettingsResponse;
 
   if (!payload.data) {
@@ -155,6 +163,14 @@ export function useBakerySettings(options?: { enabled?: boolean }) {
     setError(null);
 
     try {
+      if (options?.force) {
+        const nextSettings = await fetchBakerySettingsFromApi(scope, {
+          force: true,
+        });
+        setSettings(nextSettings);
+        return nextSettings;
+      }
+
       if (!inFlightSettingsRequest) {
         inFlightSettingsRequest = fetchBakerySettingsFromApi(scope).finally(
           () => {

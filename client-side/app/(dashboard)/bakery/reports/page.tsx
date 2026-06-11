@@ -20,9 +20,12 @@ import {
   isCompletedOrderForReports,
   isLateOrderForReports,
 } from "@/lib/bakery/reports-orders";
-import type { BakeryBusinessSettings } from "@/lib/bakery/settings";
 import type { Product } from "@/types/product";
 import { useRole } from "@/context/RoleContext";
+import {
+  BAKERY_SETTINGS_UPDATED_EVENT,
+  useBakerySettings,
+} from "@/hooks/useBakerySettings";
 import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import MonthYearPicker, {
   buildSelectableMonthKeys,
@@ -411,6 +414,8 @@ export default function ReportsPage() {
   const [serverFinancialOrders, setServerFinancialOrders] = useState<
     BakeryFinancialOrder[] | null
   >(null);
+  const { settings: bakerySettings } = useBakerySettings();
+  const [settingsRefreshToken, setSettingsRefreshToken] = useState(0);
 
   useEffect(() => {
     if (roleLoading) return;
@@ -418,8 +423,6 @@ export default function ReportsPage() {
       router.replace("/bakery/bookings");
     }
   }, [isOwner, roleLoading, router]);
-  const [bakerySettings, setBakerySettings] =
-    useState<BakeryBusinessSettings | null>(null);
   const [attendanceTeam, setAttendanceTeam] = useState<AttendanceMember[]>([]);
   const [attendanceSelf, setAttendanceSelf] = useState<AttendanceSelfData | null>(null);
   const [isAttendanceLoading, setIsAttendanceLoading] = useState(true);
@@ -478,26 +481,19 @@ export default function ReportsPage() {
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-
-    const loadBakerySettings = async () => {
-      try {
-        const response = await fetch("/api/bakery/settings", {
-          cache: "no-store",
-        });
-        const payload = (await response.json().catch(() => ({}))) as {
-          data?: BakeryBusinessSettings;
-        };
-        if (!response.ok || cancelled) return;
-        setBakerySettings(payload.data ?? null);
-      } catch {
-        if (!cancelled) setBakerySettings(null);
-      }
+    const handleSettingsUpdated = () => {
+      setSettingsRefreshToken((current) => current + 1);
     };
 
-    void loadBakerySettings();
+    window.addEventListener(
+      BAKERY_SETTINGS_UPDATED_EVENT,
+      handleSettingsUpdated,
+    );
     return () => {
-      cancelled = true;
+      window.removeEventListener(
+        BAKERY_SETTINGS_UPDATED_EVENT,
+        handleSettingsUpdated,
+      );
     };
   }, []);
 
@@ -576,7 +572,13 @@ export default function ReportsPage() {
     return () => {
       cancelled = true;
     };
-  }, [fromDate, isExactSelectedMonthRange, selectedMonth, toDate]);
+  }, [
+    fromDate,
+    isExactSelectedMonthRange,
+    selectedMonth,
+    settingsRefreshToken,
+    toDate,
+  ]);
 
   const reportOrders = useMemo<BakeryOrder[]>(
     () => mergeOrdersForReports(orders, serverFinancialOrders),

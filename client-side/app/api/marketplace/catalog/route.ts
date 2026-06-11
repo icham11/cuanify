@@ -47,6 +47,7 @@ export async function GET() {
       select: {
         id: true,
         name: true,
+        sellingPrice: true,
         cogs: true,
         minimumOrder: true,
       },
@@ -57,6 +58,8 @@ export async function GET() {
         normalizeProductNameKey(product.name),
         {
           id: product.id,
+          name: product.name,
+          sellingPrice: Number(product.sellingPrice ?? 0),
           cogs: Number(product.cogs ?? 0),
           minimumOrder: Number(product.minimumOrder ?? 0),
         },
@@ -72,8 +75,8 @@ export async function GET() {
           subcategory: variant.subcategory,
           productName: variant.productName,
           size: variant.variantLabel,
-          displayName: variant.name,
-          price: variant.sellingPrice,
+          displayName: mapped?.name ?? variant.name,
+          price: mapped?.sellingPrice ?? variant.sellingPrice,
           cogs: mapped?.cogs ?? 0,
           minimumOrder: mapped?.minimumOrder ?? 0,
           productId: mapped?.id ?? null,

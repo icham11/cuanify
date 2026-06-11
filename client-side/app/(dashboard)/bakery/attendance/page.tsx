@@ -205,6 +205,23 @@ export default function BakeryAttendancePage() {
     void loadAttendance();
   }, [loadAttendance]);
 
+  useEffect(() => {
+    const handleSettingsUpdated = () => {
+      void loadAttendance();
+    };
+
+    window.addEventListener(
+      BAKERY_SETTINGS_UPDATED_EVENT,
+      handleSettingsUpdated,
+    );
+    return () => {
+      window.removeEventListener(
+        BAKERY_SETTINGS_UPDATED_EVENT,
+        handleSettingsUpdated,
+      );
+    };
+  }, [loadAttendance]);
+
   const submitAttendance = async (action: "check-in" | "check-out") => {
     setIsSubmitting(true);
     setError("");

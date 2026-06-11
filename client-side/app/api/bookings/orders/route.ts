@@ -899,12 +899,19 @@ function buildParsedOrderFingerprint(order: {
   items?: unknown[];
   deliveryAddresses?: unknown[];
 }): string {
+  const rawDeliveryDate =
+    order.deliveryDate instanceof Date
+      ? order.deliveryDate.toISOString().slice(0, 10)
+      : asString(order.deliveryDate).trim();
+  const normalizedDeliveryDate =
+    normalizeDateInput(rawDeliveryDate) ??
+    rawDeliveryDate.match(/^(\d{4}-\d{2}-\d{2})/)?.[1] ??
+    rawDeliveryDate;
+
   return buildOrderFingerprint({
     customerName: order.customerName,
     customerPhone: order.customerPhone,
-    deliveryDate:
-      normalizeDateInput(asString(order.deliveryDate)) ??
-      asString(order.deliveryDate),
+    deliveryDate: normalizedDeliveryDate,
     deliverySlot: order.deliverySlot,
     notes: order.notes,
     basePrice: order.basePrice,
@@ -4407,6 +4414,7 @@ export async function POST(request: NextRequest) {
       string,
       { existingOrderId: string; existingBookingCode: string }
     >();
+    const existingOrderFingerprintById = new Map<string, string>();
     const existingParsedBookingCodeMatches = new Map<
       string,
       {
@@ -4425,6 +4433,7 @@ export async function POST(request: NextRequest) {
           row.delivery_date ??
           "",
         deliverySlot: row.delivery_slot,
+        notes: row.notes,
         basePrice: row.base_price,
         designAdjustmentTotal: row.design_adjustment_total,
         addOnTotal: row.add_on_total,
@@ -4441,11 +4450,13 @@ export async function POST(request: NextRequest) {
         totalPrice: row.total_price,
         sales_channel: row.sales_channel,
         items: existingCapacityItemsMap.get(row.external_id) ?? [],
+        deliveryAddresses: existingAddressesMap.get(row.external_id) ?? [],
       });
       existingFingerprintMatches.set(orderFingerprint, {
         existingOrderId: row.external_id,
         existingBookingCode: row.booking_code || row.resi || row.external_id,
       });
+      existingOrderFingerprintById.set(row.external_id, orderFingerprint);
 
       const parsedBookingReference = resolveParsedBookingReference(
         row.whatsapp_parsed_data,
@@ -5081,23 +5092,6 @@ export async function POST(request: NextRequest) {
                   continue;
                 }
 
-                // Mencegah modifikasi data untuk order di bulan-bulan sebelumnya demi integritas laporan
-                const existingRowCheck = existingOrderMap.get(order.id);
-                if (existingRowCheck?.delivery_date) { // Pastikan pesanan lama punya delivery date
-                  const deliveryDateObj = new Date(existingRowCheck.delivery_date);
-                  const nowDate = new Date();
-                  const isPreviousMonth = 
-                    deliveryDateObj.getFullYear() < nowDate.getFullYear() ||
-                    (deliveryDateObj.getFullYear() === nowDate.getFullYear() &&
-                      deliveryDateObj.getMonth() < nowDate.getMonth());
-                      
-                  if (isPreviousMonth) {
-                    throw new ForbiddenError(
-                      `Tidak dapat mengubah detail pesanan dari bulan sebelumnya karena data telah dikunci.`
-                    );
-                  }
-                }
-
                 upsertedOrderCount += 1;
                 const orderUuid = orderTaskUuid(businessId, order.id);
 
@@ -5196,6 +5190,33 @@ export async function POST(request: NextRequest) {
                     currentPersistedAddresses,
                     order.deliveryAddresses,
                   );
+                const existingRowCheck = existingOrderMap.get(order.id);
+                if (existingRowCheck?.delivery_date) {
+                  const deliveryDateObj = new Date(existingRowCheck.delivery_date);
+                  const nowDate = new Date();
+                  const isPreviousMonth =
+                    deliveryDateObj.getFullYear() < nowDate.getFullYear() ||
+                    (deliveryDateObj.getFullYear() === nowDate.getFullYear() &&
+                      deliveryDateObj.getMonth() < nowDate.getMonth());
+
+                  if (isPreviousMonth) {
+                    const persistedFingerprint =
+                      existingOrderFingerprintById.get(order.id) ?? "";
+                    const incomingFingerprint =
+                      buildParsedOrderFingerprint(order);
+                    const detailChanged =
+                      persistedFingerprint !== incomingFingerprint;
+                    const statusChanged =
+                      (existingRowCheck.order_status ?? "Inquiry") !==
+                      (order.orderStatus || "Inquiry");
+
+                    if (detailChanged || statusChanged) {
+                      throw new ForbiddenError(
+                        "Tidak dapat mengubah detail pesanan dari bulan sebelumnya karena data telah dikunci.",
+                      );
+                    }
+                  }
+                }
                 const insuranceFee = computeInsuranceFee({
                   shippingQuote: order.shippingQuote,
                   shipment: order.shipment,
@@ -5600,7 +5621,6 @@ export async function POST(request: NextRequest) {
                     id,
                     order_id,
                     stage,
-                    "businessId",
                     staff_id,
                     token_amount,
                     created_at
@@ -5608,14 +5628,12 @@ export async function POST(request: NextRequest) {
                     ${productionTaskUuid(orderUuid, stage.stage)}::uuid,
                     ${orderUuid}::uuid,
                     ${stage.stage},
-                    ${businessId},
                     ${staffUuid(stage.staffId)}::uuid,
                     ${stage.tokenAmount},
                     NOW()
                   )
                   ON CONFLICT (order_id, stage)
                   DO UPDATE SET
-                    "businessId" = EXCLUDED."businessId",
                     staff_id = EXCLUDED.staff_id,
                     token_amount = EXCLUDED.token_amount
                 `;

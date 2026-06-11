@@ -8,6 +8,7 @@ import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import { useRole } from "@/context/RoleContext";
 import {
   BAKERY_SETTINGS_UPDATED_EVENT,
+  invalidateBakerySettingsCache,
   useBakerySettings,
 } from "@/hooks/useBakerySettings";
 import type {
@@ -272,7 +273,7 @@ function serializeProductionStageProfiles(
 }
 
 export default function BakerySettingsPage() {
-  const { settings, isLoading, refetch } = useBakerySettings();
+  const { settings, isLoading } = useBakerySettings();
   const { isOwner, loading: roleLoading } = useRole();
   const [isSaving, setIsSaving] = useState(false);
   const [isSavingProductionStages, setIsSavingProductionStages] =
@@ -687,6 +688,8 @@ export default function BakerySettingsPage() {
     if (!response.ok) {
       throw new Error(payload.error || "Gagal menyimpan bakery settings");
     }
+
+    invalidateBakerySettingsCache();
 
     if (payload.data?.productionStageProfiles) {
       setProductionStageProfiles(payload.data.productionStageProfiles);

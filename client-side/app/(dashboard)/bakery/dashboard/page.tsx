@@ -19,7 +19,10 @@ import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import { type BakeryOrder, useOrders } from "@/components/bakery/store";
 import { useBusiness } from "@/context/BusinessContext";
 import { useRole } from "@/context/RoleContext";
-import { useBakerySettings } from "@/hooks/useBakerySettings";
+import {
+  BAKERY_SETTINGS_UPDATED_EVENT,
+  useBakerySettings,
+} from "@/hooks/useBakerySettings";
 import {
   getLateOrders,
   LATE_ORDERS_PAGE_SIZE,
@@ -181,6 +184,7 @@ export default function BakeryDashboardPage() {
   const [isAttendanceLoading, setIsAttendanceLoading] = useState(false);
   const [isAttendanceSubmitting, setIsAttendanceSubmitting] = useState(false);
   const [attendanceFeedback, setAttendanceFeedback] = useState("");
+  const [attendanceRefreshToken, setAttendanceRefreshToken] = useState(0);
   const activeCashFlowMonthKey = today.slice(0, 7);
 
   const staffDailyTokenLimit =
@@ -657,7 +661,24 @@ export default function BakeryDashboardPage() {
     return () => {
       active = false;
     };
-  }, [isAdmin, isStaff, today]);
+  }, [attendanceRefreshToken, isAdmin, isStaff, today]);
+
+  useEffect(() => {
+    const handleSettingsUpdated = () => {
+      setAttendanceRefreshToken((current) => current + 1);
+    };
+
+    window.addEventListener(
+      BAKERY_SETTINGS_UPDATED_EVENT,
+      handleSettingsUpdated,
+    );
+    return () => {
+      window.removeEventListener(
+        BAKERY_SETTINGS_UPDATED_EVENT,
+        handleSettingsUpdated,
+      );
+    };
+  }, []);
 
   const submitAttendance = useCallback(async () => {
     const nextAction = attendanceSummary?.todayRecord ? "check-out" : "check-in";

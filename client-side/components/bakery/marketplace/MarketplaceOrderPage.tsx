@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Bolt, Loader2, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { useCatalogAdminState } from "@/lib/bookings/catalog-admin";
 import {
   buildBookingAutoFillFromParsed,
   buildWhatsAppTemplate,
@@ -425,10 +424,94 @@ function getCategoryOptions(productCatalog: PricelistCategory[]) {
   return productCatalog.map((entry) => entry.category);
 }
 
+function normalizeMarketplaceVariantRecord(
+  variant: CatalogVariantRecord,
+): CatalogVariantRecord {
+  if (variant.subcategory !== "Event Cookies") return variant;
+  return {
+    ...variant,
+    category: "Seasonal Event",
+  };
+}
+
+function buildProductCatalogFromLiveVariants(
+  variants: CatalogVariantRecord[],
+): PricelistCategory[] {
+  const categories = new Map<
+    string,
+    {
+      category: PricelistCategory;
+      subcategories: Map<
+        string,
+        {
+          subcategory: PricelistCategory["subcategories"][number];
+          products: Map<
+            string,
+            PricelistCategory["subcategories"][number]["products"][number]
+          >;
+        }
+      >;
+    }
+  >();
+
+  variants.forEach((variant) => {
+      let categoryEntry = categories.get(variant.category);
+      if (!categoryEntry) {
+        categoryEntry = {
+          category: {
+            category: variant.category,
+            keywords: [],
+            subcategories: [],
+          },
+          subcategories: new Map(),
+        };
+        categories.set(variant.category, categoryEntry);
+      }
+
+      let subcategoryEntry = categoryEntry.subcategories.get(variant.subcategory);
+      if (!subcategoryEntry) {
+        subcategoryEntry = {
+          subcategory: {
+            name: variant.subcategory,
+            keywords: [],
+            products: [],
+          },
+          products: new Map(),
+        };
+        categoryEntry.subcategories.set(variant.subcategory, subcategoryEntry);
+        categoryEntry.category.subcategories.push(subcategoryEntry.subcategory);
+      }
+
+      let productEntry = subcategoryEntry.products.get(variant.productName);
+      if (!productEntry) {
+        productEntry = {
+          name: variant.productName,
+          keywords: [],
+          variants: [],
+          defaultVariant: variant.size,
+        };
+        subcategoryEntry.products.set(variant.productName, productEntry);
+        subcategoryEntry.subcategory.products.push(productEntry);
+      }
+
+      const hasVariant = productEntry.variants.some(
+        (entry) => entry.label === variant.size,
+      );
+      if (hasVariant) return;
+
+      productEntry.variants.push({
+        label: variant.size,
+        price: variant.price,
+        keywords: [variant.displayName],
+      });
+    });
+
+  return Array.from(categories.values()).map((entry) => entry.category);
+}
+
 export default function MarketplaceOrderPage() {
   const router = useRouter();
   const manualSectionRef = useRef<HTMLDivElement | null>(null);
-  const { productCatalog, addOnCatalog } = useCatalogAdminState();
   const [loadingCatalog, setLoadingCatalog] = useState(true);
   const [savingOrder, setSavingOrder] = useState(false);
   const [catalog, setCatalog] = useState<CatalogPayload | null>(null);
@@ -492,10 +575,28 @@ export default function MarketplaceOrderPage() {
     };
 
     void loadCatalog();
+    const handleFocus = () => {
+      void loadCatalog();
+    };
+    window.addEventListener("focus", handleFocus);
     return () => {
       cancelled = true;
+      window.removeEventListener("focus", handleFocus);
     };
-  }, [productCatalog, addOnCatalog]);
+  }, []);
+
+  const liveVariants = useMemo(
+    () =>
+      (catalog?.variants ?? [])
+        .filter((variant) => variant.productId !== null)
+        .map(normalizeMarketplaceVariantRecord),
+    [catalog],
+  );
+  const productCatalog = useMemo(
+    () => buildProductCatalogFromLiveVariants(liveVariants),
+    [liveVariants],
+  );
+  const addOnCatalog = useMemo(() => catalog?.addOnCatalog ?? {}, [catalog]);
 
   useEffect(() => {
     if (productCatalog.length === 0) return;
@@ -516,7 +617,7 @@ export default function MarketplaceOrderPage() {
       (entry) => entry.name === draftSelection.productName,
     ) ?? null;
   const currentVariant =
-    catalog?.variants.find(
+    liveVariants.find(
       (variant) =>
         variant.category === draftSelection.category &&
         variant.subcategory === draftSelection.subcategory &&
@@ -531,8 +632,8 @@ export default function MarketplaceOrderPage() {
     Number(currentVariant?.minimumOrder ?? 0),
   );
   useEffect(() => {
-    if (!catalog?.variants.length) return;
-    const nextVariant = catalog.variants.find(
+    if (liveVariants.length === 0) return;
+    const nextVariant = liveVariants.find(
       (variant) =>
         variant.category === draftSelection.category &&
         variant.subcategory === draftSelection.subcategory &&
@@ -542,11 +643,11 @@ export default function MarketplaceOrderPage() {
     if (!nextVariant) return;
     setDraftUnitPrice(nextVariant.price);
     setDraftUnitCost(nextVariant.cogs);
-  }, [catalog, draftSelection]);
+  }, [draftSelection, liveVariants]);
   const totalIncome = items.reduce((sum, item) => sum + getGroupSubtotal(item), 0);
   const minimumOrderViolations = items
     .map((item) => {
-      const variant = catalog?.variants.find(
+      const variant = liveVariants.find(
         (entry) =>
           entry.productId === item.productId &&
           entry.category === item.selection.category &&
@@ -572,7 +673,7 @@ export default function MarketplaceOrderPage() {
       ...partial,
     });
     const nextVariant =
-      catalog?.variants.find(
+      liveVariants.find(
         (variant) =>
           variant.category === nextSelection.category &&
           variant.subcategory === nextSelection.subcategory &&
@@ -689,7 +790,7 @@ export default function MarketplaceOrderPage() {
     );
     const templateMapped = mapAutoFillItemsToMarketplaceGroups({
       autoFillItems: bookingAutoFill.items,
-      variants: catalog.variants,
+      variants: liveVariants,
       addOnCatalog,
     });
 
@@ -753,7 +854,7 @@ export default function MarketplaceOrderPage() {
         ? addOnCatalog[lastGroup.selection.category] ?? []
         : [];
       const addOnMatch = findBestAddOn(line, availableCategoryAddOns);
-      const variantMatch = findBestVariant(line, catalog.variants);
+      const variantMatch = findBestVariant(line, liveVariants);
       const quantity = extractQuantity(line);
       const explicitPrice = extractTrailingPrice(line);
 
@@ -1181,18 +1282,17 @@ export default function MarketplaceOrderPage() {
 
             <div ref={manualSectionRef} className="border-t border-[#eaded4] px-4 py-4">
               <p className="text-sm font-bold text-[#1d140e]">Input Manual</p>
-              {productCatalog.length === 0 ? (
+              {loadingCatalog ? (
                 <div className="mt-3 flex items-center gap-2 rounded-[14px] border border-[#e2d0c1] bg-white px-3 py-3 text-sm text-[#8c5a3c]">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   Menyiapkan catalog marketplace...
                 </div>
+              ) : productCatalog.length === 0 ? (
+                <div className="mt-3 rounded-[14px] border border-[#e2d0c1] bg-white px-3 py-3 text-sm text-[#8c5a3c]">
+                  Belum ada produk aktif yang siap dipakai untuk order e-commerce.
+                </div>
               ) : (
                 <div className="mt-3 grid gap-3">
-                  {loadingCatalog ? (
-                    <p className="text-[11px] text-[#c08965]">
-                      Sinkronisasi mapping produk sedang berjalan...
-                    </p>
-                  ) : null}
                   <Select
                     value={draftSelection.category}
                     onChange={(event) =>

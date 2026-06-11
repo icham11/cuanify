@@ -4728,7 +4728,6 @@ export async function POST(request: NextRequest) {
                     id,
                     order_id,
                     stage,
-                    "businessId",
                     staff_id,
                     token_amount,
                     created_at
@@ -4736,14 +4735,12 @@ export async function POST(request: NextRequest) {
                     ${productionTaskUuid(orderUuid, stage.stage)}::uuid,
                     ${orderUuid}::uuid,
                     ${stage.stage},
-                    ${businessId},
                     ${staffUuid(stage.staffId)}::uuid,
                     ${stage.tokenAmount},
                     NOW()
                   )
                   ON CONFLICT (order_id, stage)
                   DO UPDATE SET
-                    "businessId" = EXCLUDED."businessId",
                     staff_id = EXCLUDED.staff_id,
                     token_amount = EXCLUDED.token_amount
                 `;

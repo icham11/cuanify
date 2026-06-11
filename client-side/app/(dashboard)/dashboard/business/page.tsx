@@ -13,7 +13,10 @@ import MonthYearPicker, {
   buildSelectableMonthKeys,
 } from "@/components/bakery/shared/MonthYearPicker";
 import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
-import { BAKERY_SETTINGS_UPDATED_EVENT } from "@/hooks/useBakerySettings";
+import {
+  BAKERY_SETTINGS_UPDATED_EVENT,
+  invalidateBakerySettingsCache,
+} from "@/hooks/useBakerySettings";
 import { apiFetch } from "@/lib/api/client";
 import {
   calculateBakeryFinancialSummary,
@@ -541,6 +544,10 @@ function BusinessPageContent() {
 
   useEffect(() => {
     const handleSettingsUpdated = () => {
+      invalidateBakerySettingsCache();
+      if (business?.id) {
+        BUSINESS_REFERENCE_DATA_CACHE.delete(String(business.id));
+      }
       setRefreshToken((current) => current + 1);
     };
 
@@ -548,7 +555,7 @@ function BusinessPageContent() {
     return () => {
       window.removeEventListener(reloadKey, handleSettingsUpdated);
     };
-  }, [reloadKey]);
+  }, [business?.id, reloadKey]);
 
   useEffect(() => {
     if (!business?.id) return;
