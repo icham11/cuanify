@@ -17,7 +17,11 @@ import {
   type WhatsAppOrderType,
 } from "@/lib/bookings/whatsapp-parser";
 import { getOrderItemsSummary } from "@/lib/bookings/order-display";
-import { buildOrderRecapWhatsAppText } from "@/lib/bookings/whatsapp-message-template";
+import {
+  buildOrderRecapWhatsAppText,
+  formatWhatsAppDeliveryDate,
+  formatWhatsAppDeliveryTime,
+} from "@/lib/bookings/whatsapp-message-template";
 import type {
   BookingAutomationEvent,
   BookingAutomationOrderPayload,
@@ -323,6 +327,11 @@ interface OrdersContextValue {
     assignments: Partial<
       Record<ProductionStage, { userId: number; name: string } | null>
     >,
+  ) => void;
+  setProductionStageCompletion: (
+    id: string,
+    stage: ProductionStage,
+    completed: boolean,
   ) => void;
   clearOrderAssignee: (id: string) => void;
   updatePaymentStatus: (id: string, status: PaymentStatus) => Promise<void>;
@@ -1054,6 +1063,7 @@ function resolveOrderFinancialFields(order: {
 
 function buildAutomationPayload(
   order: BakeryOrder,
+  changeInfo?: BookingAutomationOrderPayload["changeInfo"],
 ): BookingAutomationOrderPayload {
   return {
     id: order.id,
@@ -1117,9 +1127,102 @@ function buildAutomationPayload(
       (Array.isArray(order.referenceImages) && order.referenceImages.length > 0
         ? order.referenceImages
         : order.whatsAppParsedData?.referenceImages) || [],
+    changeInfo,
     shippingQuote: order.shippingQuote ?? null,
     shipment: order.shipment ?? null,
     whatsAppParsedData: order.whatsAppParsedData ?? null,
+  };
+}
+
+function normalizeBookingChangeValue(value?: string | null): string {
+  const normalized = (value || "").replace(/\s+/g, " ").trim();
+  return normalized || "-";
+}
+
+function buildBookingEditChangeInfo(params: {
+  currentOrder: BakeryOrder;
+  nextOrder: Pick<
+    BakeryOrder,
+    | "customerName"
+    | "customerPhone"
+    | "customerAddress"
+    | "deliveryDate"
+    | "deliverySlot"
+    | "items"
+    | "product"
+    | "deliveryAddresses"
+  >;
+  previousDeliveryMethod?: string | null;
+  nextDeliveryMethod?: string | null;
+}): NonNullable<BookingAutomationOrderPayload["changeInfo"]> {
+  const { currentOrder, nextOrder, previousDeliveryMethod, nextDeliveryMethod } =
+    params;
+  const lines: string[] = [];
+  const currentItemSummary = getOrderItemsSummary(
+    currentOrder.items ?? [],
+    currentOrder.product || "Order",
+  );
+  const nextItemSummary = getOrderItemsSummary(
+    nextOrder.items ?? [],
+    nextOrder.product || "Order",
+  );
+  const currentAddress =
+    currentOrder.deliveryAddresses?.[0]?.addressLine ||
+    currentOrder.customerAddress ||
+    "";
+  const nextAddress =
+    nextOrder.deliveryAddresses?.[0]?.addressLine ||
+    nextOrder.customerAddress ||
+    "";
+
+  if (currentOrder.deliveryDate !== nextOrder.deliveryDate) {
+    lines.push(
+      `Tanggal Pengiriman: ${formatWhatsAppDeliveryDate(currentOrder.deliveryDate)} -> ${formatWhatsAppDeliveryDate(nextOrder.deliveryDate)}`,
+    );
+  }
+
+  if (currentOrder.deliverySlot !== nextOrder.deliverySlot) {
+    lines.push(
+      `Jam Pengiriman: ${formatWhatsAppDeliveryTime(currentOrder.deliverySlot)} -> ${formatWhatsAppDeliveryTime(nextOrder.deliverySlot)}`,
+    );
+  }
+
+  if (currentItemSummary !== nextItemSummary) {
+    lines.push(
+      `Order: ${normalizeBookingChangeValue(currentItemSummary)} -> ${normalizeBookingChangeValue(nextItemSummary)}`,
+    );
+  }
+
+  if (currentOrder.customerName !== nextOrder.customerName) {
+    lines.push(
+      `Nama penerima: ${normalizeBookingChangeValue(currentOrder.customerName)} -> ${normalizeBookingChangeValue(nextOrder.customerName)}`,
+    );
+  }
+
+  if (currentOrder.customerPhone !== nextOrder.customerPhone) {
+    lines.push(
+      `No. telp penerima: ${normalizeBookingChangeValue(currentOrder.customerPhone)} -> ${normalizeBookingChangeValue(nextOrder.customerPhone)}`,
+    );
+  }
+
+  if (normalizeBookingChangeValue(currentAddress) !== normalizeBookingChangeValue(nextAddress)) {
+    lines.push(
+      `Alamat lengkap: ${normalizeBookingChangeValue(currentAddress)} -> ${normalizeBookingChangeValue(nextAddress)}`,
+    );
+  }
+
+  if (
+    normalizeBookingChangeValue(previousDeliveryMethod) !==
+    normalizeBookingChangeValue(nextDeliveryMethod)
+  ) {
+    lines.push(
+      `Metode Pengiriman: ${normalizeBookingChangeValue(previousDeliveryMethod)} -> ${normalizeBookingChangeValue(nextDeliveryMethod)}`,
+    );
+  }
+
+  return {
+    summary: "Booking order diperbarui.",
+    lines,
   };
 }
 
@@ -2101,7 +2204,13 @@ export function OrdersProvider({
   }, [orders]);
 
   const runAutomationsForOrder = useCallback(
-    async (eventType: BookingAutomationEvent, orderId: string) => {
+    async (
+      eventType: BookingAutomationEvent,
+      orderId: string,
+      options?: {
+        changeInfo?: BookingAutomationOrderPayload["changeInfo"];
+      },
+    ) => {
       if (typeof window === "undefined") return;
 
       const currentSnapshot =
@@ -2118,7 +2227,7 @@ export function OrdersProvider({
           },
           body: JSON.stringify({
             eventType,
-            order: buildAutomationPayload(targetOrder),
+            order: buildAutomationPayload(targetOrder, options?.changeInfo),
           }),
         });
 
@@ -3218,6 +3327,65 @@ export function OrdersProvider({
     [assignProductionStagesStaff],
   );
 
+  const setProductionStageCompletion = useCallback(
+    (id: string, stage: ProductionStage, completed: boolean) => {
+      const latestOrders = getLatestOrdersSnapshot();
+      const nowIso = new Date().toISOString();
+
+      const nextOrders = latestOrders.map((order) => {
+        if (order.id !== id) return order;
+
+        const productionStages = normalizeProductionStageAssignments({
+          totalTokens: summarizeProductionTokensByItems(order.items ?? []),
+          stages: (order.productionStages ?? []).map((entry) => {
+            if (entry.stage !== stage) return entry;
+            if (!entry.staffId) return entry;
+
+            return {
+              ...entry,
+              completedAt: completed ? nowIso : null,
+              completedByUserId: completed
+                ? actorIdentity.userId ?? entry.staffId
+                : null,
+            };
+          }),
+          percentages: getProductionStagePercentagesFromTemplates(
+            resolveProductionStageTemplatesForCategory({
+              category: resolvePrimaryProductionCategory(order.items ?? []),
+              profiles: bakerySettings?.productionStageProfiles,
+            }),
+          ),
+        });
+
+        return {
+          ...order,
+          productionStages,
+          statusHistory: appendStatusLog(
+            order.statusHistory,
+            order.orderStatus,
+            completed
+              ? `Proses ${stage} ditandai selesai`
+              : `Status selesai proses ${stage} dibatalkan`,
+            actorIdentity,
+          ),
+        };
+      });
+
+      persistOrders(nextOrders);
+      toast.success(
+        completed
+          ? "Proses ditandai selesai"
+          : "Status selesai proses dibatalkan",
+      );
+    },
+    [
+      actorIdentity,
+      bakerySettings?.productionStageProfiles,
+      getLatestOrdersSnapshot,
+      persistOrders,
+    ],
+  );
+
   const updateOrder = useCallback(
     async (id: string, payload: UpdateOrderInput): Promise<BakeryOrder> => {
       const latestOrders = getLatestOrdersSnapshot();
@@ -3486,12 +3654,27 @@ export function OrdersProvider({
       const nextOrders = latestOrders.map((order) =>
         order.id === id ? nextOrder : order,
       );
+      const changeInfo = buildBookingEditChangeInfo({
+        currentOrder: existingOrder,
+        nextOrder: {
+          customerName: nextCustomerName,
+          customerPhone: nextCustomerPhone,
+          customerAddress: nextPrimaryAddress,
+          deliveryDate: nextDeliveryDate,
+          deliverySlot: nextDeliverySlot,
+          items: nextItems,
+          product: getOrderItemsSummary(nextItems, existingOrder.product || "Order"),
+          deliveryAddresses: nextDeliveryAddresses,
+        },
+        previousDeliveryMethod: previousResolvedMethod,
+        nextDeliveryMethod,
+      });
       persistOrders(nextOrders);
 
       void runAutomationsForOrder("order_calendar_sync", id);
 
       if (scheduleChanged) {
-        void runAutomationsForOrder("order_rescheduled", id);
+        void runAutomationsForOrder("order_rescheduled", id, { changeInfo });
       }
 
       if (
@@ -3960,6 +4143,7 @@ export function OrdersProvider({
       assignOrderToStaff,
       assignProductionStageStaff,
       assignProductionStagesStaff,
+      setProductionStageCompletion,
       clearOrderAssignee,
       updatePaymentStatus,
       recordPayment,
@@ -3979,6 +4163,7 @@ export function OrdersProvider({
       assignOrderToStaff,
       assignProductionStageStaff,
       assignProductionStagesStaff,
+      setProductionStageCompletion,
       clearOrderAssignee,
       updatePaymentStatus,
       recordPayment,

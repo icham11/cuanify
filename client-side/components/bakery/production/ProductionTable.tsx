@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Search, Sparkles, X } from "lucide-react";
+import { CheckCircle2, Loader2, Search, Sparkles, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import StatusDropdown from "@/components/bakery/production/StatusDropdown";
@@ -86,6 +86,7 @@ function getOrderStaffTokenAssignments(order: BakeryOrder): Array<{
   staffUserId: number;
   staffName: string;
   token: number;
+  completed: boolean;
 }> {
   const stageAssignments = (order.productionStages ?? [])
     .filter((stage) => stage.staffId && stage.tokenAmount > 0)
@@ -95,6 +96,7 @@ function getOrderStaffTokenAssignments(order: BakeryOrder): Array<{
         order.assignedStaffName ||
         `${stage.stage.charAt(0).toUpperCase()}${stage.stage.slice(1)} staff`,
       token: Math.max(0, Math.round(Number(stage.tokenAmount) || 0)),
+      completed: Boolean(stage.completedAt),
     }));
 
   if (stageAssignments.length > 0) return stageAssignments;
@@ -106,6 +108,7 @@ function getOrderStaffTokenAssignments(order: BakeryOrder): Array<{
       staffName:
         order.assignedStaffName || `Staff #${order.assignedStaffUserId}`,
       token: summarizeProductionTokensByItems(order.items ?? []),
+      completed: false,
     },
   ];
 }
@@ -233,6 +236,40 @@ function getOrderClaimedStaffIds(order: BakeryOrder): number[] {
   return order.assignedStaffUserId ? [order.assignedStaffUserId] : [];
 }
 
+function getAssignedStagesForStaff(
+  order: BakeryOrder,
+  staffUserId: number,
+  profiles?: ProductionStageCategoryProfile[],
+): ProductionStageAssignment[] {
+  return getEffectiveProductionStages(order, profiles).filter(
+    (stage) => parseNumericId(stage.staffId) === staffUserId,
+  );
+}
+
+function hasPendingAssignedStagesForStaff(
+  order: BakeryOrder,
+  staffUserId: number,
+  profiles?: ProductionStageCategoryProfile[],
+): boolean {
+  const assignedStages = getAssignedStagesForStaff(order, staffUserId, profiles);
+  return (
+    assignedStages.length > 0 &&
+    assignedStages.some((stage) => !stage.completedAt)
+  );
+}
+
+function hasCompletedAssignedStagesForStaff(
+  order: BakeryOrder,
+  staffUserId: number,
+  profiles?: ProductionStageCategoryProfile[],
+): boolean {
+  const assignedStages = getAssignedStagesForStaff(order, staffUserId, profiles);
+  return (
+    assignedStages.length > 0 &&
+    assignedStages.some((stage) => Boolean(stage.completedAt))
+  );
+}
+
 function isOrderFullyUnassigned(order: BakeryOrder): boolean {
   return getOrderClaimedStaffIds(order).length === 0;
 }
@@ -327,6 +364,7 @@ export default function ProductionTable() {
     updateOrderStatus,
     assignProductionStageStaff,
     assignProductionStagesStaff,
+    setProductionStageCompletion,
   } = useOrders();
   const { isOwner, isAdmin, isStaff, role, userName } = useRole();
   const isPrivilegedManager = isOwner || isAdmin;
@@ -706,13 +744,15 @@ export default function ProductionTable() {
           inProgress: 0,
         };
 
-        if (!["Delivery", "Completed", "Cancelled"].includes(status)) {
-          current.assignedActive += assignment.token;
+        if (status === "Cancelled") {
+          statsMap.set(assignment.staffUserId, current);
+          continue;
         }
 
-        if (["Ready", "Delivery", "Completed"].includes(status)) {
+        if (assignment.completed) {
           current.doneRaw += assignment.token;
-        } else if (status === "In Production") {
+        } else {
+          current.assignedActive += assignment.token;
           current.inProgress += assignment.token;
         }
 
@@ -822,18 +862,28 @@ export default function ProductionTable() {
   }, [activeOrders, isStaff]);
 
   const staffAssignedOrders = useMemo(() => {
-    if (!isStaff || !viewer?.userId) return [] as typeof activeOrders;
-    return activeOrders.filter((order) =>
-      getOrderClaimedStaffIds(order).includes(viewer.userId),
-    );
-  }, [activeOrders, isStaff, viewer?.userId]);
+    if (!isStaff || !viewer?.userId) return [] as typeof orders;
+    return orders.filter((order) => {
+      if (normalizeOrderStatus(order.orderStatus) === "Cancelled") return false;
+      return hasPendingAssignedStagesForStaff(
+        order,
+        viewer.userId,
+        bakerySettings?.productionStageProfiles,
+      );
+    });
+  }, [bakerySettings?.productionStageProfiles, isStaff, orders, viewer?.userId]);
 
   const staffCompletedOrders = useMemo(() => {
-    if (!isStaff || !viewer?.userId) return [] as typeof readyOrders;
-    return readyOrders.filter((order) =>
-      getOrderClaimedStaffIds(order).includes(viewer.userId),
-    );
-  }, [isStaff, readyOrders, viewer?.userId]);
+    if (!isStaff || !viewer?.userId) return [] as typeof orders;
+    return orders.filter((order) => {
+      if (normalizeOrderStatus(order.orderStatus) === "Cancelled") return false;
+      return hasCompletedAssignedStagesForStaff(
+        order,
+        viewer.userId,
+        bakerySettings?.productionStageProfiles,
+      );
+    });
+  }, [bakerySettings?.productionStageProfiles, isStaff, orders, viewer?.userId]);
 
   const currentScopeOrders = useMemo(() => {
     if (isStaff) {
@@ -1079,6 +1129,13 @@ export default function ProductionTable() {
       name: viewer.name || userName || "Staff",
     });
   };
+
+  const handleToggleStageCompletion = useCallback(
+    (orderId: string, stage: ProductionStage, completed: boolean) => {
+      setProductionStageCompletion(orderId, stage, completed);
+    },
+    [setProductionStageCompletion],
+  );
 
   const buildAssignmentsFromSelections = useCallback(
     (
@@ -1458,6 +1515,9 @@ export default function ProductionTable() {
               const viewerUserId = viewer?.userId ?? null;
               const isAssignedToViewer =
                 viewerUserId !== null && stageData?.staffId === viewerUserId;
+              const isStageCompleted = Boolean(stageData?.completedAt);
+              const canToggleStageCompletion =
+                isAssignedToViewer && isStaffViewer;
               const stageTone = isAssignedToViewer
                 ? "border-[#9ed5bb] bg-[#dff3ea] text-[#21583f]"
                 : "border-[#e5d5c4] bg-[#fbf5ef] text-[#8a6047]";
@@ -1478,13 +1538,40 @@ export default function ProductionTable() {
                       </p>
                       <p className="truncate text-[11px] text-current/80">
                         {assignedName}
+                        {isStageCompleted ? " • Ready" : ""}
                       </p>
                     </div>
                   </div>
 
                   {isClaimed ? (
-                    // Stage sudah diisi: Owner bisa transfer ke staff lain
-                    canManagerAssignOrTransfer ? (
+                    canToggleStageCompletion ? (
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleToggleStageCompletion(
+                            order.id,
+                            stage,
+                            !isStageCompleted,
+                          );
+                        }}
+                        className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition ${
+                          isStageCompleted
+                            ? "border-[#2f7a55]/25 bg-[#2f7a55] text-white hover:bg-[#276646]"
+                            : "border-current/30 bg-white/70 text-current hover:bg-current/10"
+                        }`}
+                        title={
+                          isStageCompleted
+                            ? "Batalkan status ready proses ini"
+                            : "Tandai proses ini sudah ready"
+                        }
+                      >
+                        <CheckCircle2 className="h-4 w-4" />
+                        <span>{isStageCompleted ? "Ready" : "Selesai"}</span>
+                        <span>{stageToken} tok</span>
+                      </button>
+                    ) : canManagerAssignOrTransfer ? (
+                      // Stage sudah diisi: Owner bisa transfer ke staff lain
                       <div className="relative" ref={activeStageDropdown === `${order.id}:${stage}` ? stageDropdownRef : null}>
                         <button
                           type="button"

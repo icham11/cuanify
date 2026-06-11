@@ -56,8 +56,8 @@ import {
   normalizeBookingReference,
 } from "@/lib/bookings/order-fingerprint";
 import {
-  distributeProductionTokens,
   getProductionStagePercentagesFromTemplates,
+  normalizeProductionStageAssignments,
   normalizeProductionStageKey,
   PRODUCTION_STAGE_ORDER,
   resolvePrimaryProductionCategory,
@@ -288,6 +288,8 @@ export interface DbProductionStageRow {
   stage: ProductionStage;
   staff_id: string | null;
   token_amount: unknown;
+  completed_at: unknown;
+  completed_by_staff_id: string | null;
 }
 
 type BookingOrderSourceFilter = "" | "customer" | "admin";
@@ -460,6 +462,8 @@ const normalizedOrderSchema = z.object({
       staffId: z.number().int().positive().nullable(),
       tokenAmount: z.number().finite().min(0),
       percentage: z.number().finite().min(0).max(100),
+      completedAt: z.string().nullable().optional(),
+      completedByUserId: z.number().int().positive().nullable().optional(),
     }),
   ),
   items: z.array(z.record(z.string(), z.unknown())),
@@ -804,20 +808,26 @@ function normalizeProductionStages(
   if (!Array.isArray(value)) return [];
 
   return value
-    .map((entry) => {
+    .map((entry): ProductionStageAssignment | null => {
       const record = asRecord(entry);
       if (!record) return null;
       const stage = normalizeProductionStageKey(record.stage);
       if (!stage) return null;
 
-      return {
+      const normalized: ProductionStageAssignment = {
         stage,
         staffId: asPositiveIntOrNull(record.staffId ?? record.staff_id),
         tokenAmount: asNumber(record.tokenAmount ?? record.token_amount),
         percentage: asNumber(record.percentage),
+        completedAt: asString(record.completedAt ?? record.completed_at) || null,
+        completedByUserId: asPositiveIntOrNull(
+          record.completedByUserId ?? record.completed_by_user_id,
+        ),
       };
+
+      return normalized;
     })
-    .filter((entry): entry is ProductionStageAssignment => Boolean(entry));
+    .filter((entry): entry is ProductionStageAssignment => entry !== null);
 }
 
 function stableSerializeForComparison(value: unknown): string {
@@ -940,6 +950,8 @@ function serializeProductionStagesForComparison(
         stage: stage.stage,
         staffId: asPositiveIntOrNull(stage.staffId),
         tokenAmount: Math.max(0, asNumber(stage.tokenAmount)),
+        completedAt: asString(stage.completedAt).trim() || null,
+        completedByUserId: asPositiveIntOrNull(stage.completedByUserId),
       },
     ]),
   );
@@ -951,6 +963,8 @@ function serializeProductionStagesForComparison(
         stage: stageKey,
         staffId: stage?.staffId ?? null,
         tokenAmount: stage?.tokenAmount ?? 0,
+        completedAt: stage?.completedAt ?? null,
+        completedByUserId: stage?.completedByUserId ?? null,
       };
     }),
   );
@@ -3050,6 +3064,12 @@ async function ensureBakeryTables() {
     ALTER TABLE production_tasks
       ADD COLUMN IF NOT EXISTS "businessId" INTEGER;
 
+    ALTER TABLE production_tasks
+      ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP;
+
+    ALTER TABLE production_tasks
+      ADD COLUMN IF NOT EXISTS completed_by_staff_id UUID;
+
     UPDATE production_tasks
     SET stage = 'lining'
     WHERE stage::text = 'listing';
@@ -3669,7 +3689,7 @@ export async function GET(request: NextRequest) {
           const stageRows =
             orderUuids.length > 0
               ? await prisma.$queryRaw<DbProductionStageRow[]>`
-                  SELECT order_id::text AS order_id, stage, staff_id::text AS staff_id, token_amount
+                  SELECT order_id::text AS order_id, stage, staff_id::text AS staff_id, token_amount, completed_at, completed_by_staff_id::text AS completed_by_staff_id
                   FROM production_tasks
                   WHERE order_id::text IN (${Prisma.join(orderUuids)})
                   ORDER BY order_id ASC, stage ASC
@@ -3688,6 +3708,8 @@ export async function GET(request: NextRequest) {
               staffId: row.staff_id ? 1 : null,
               tokenAmount: asNumber(row.token_amount),
               percentage: 0,
+              completedAt: toIsoOrNull(row.completed_at),
+              completedByUserId: row.completed_by_staff_id ? 1 : null,
             });
             stagesMap.set(externalId, current);
           }
@@ -3820,7 +3842,7 @@ export async function GET(request: NextRequest) {
         
         const stageRows = orderUuids.length > 0
           ? await prisma.$queryRaw<DbProductionStageRow[]>`
-              SELECT order_id::text AS order_id, stage, staff_id::text AS staff_id, token_amount
+              SELECT order_id::text AS order_id, stage, staff_id::text AS staff_id, token_amount, completed_at, completed_by_staff_id::text AS completed_by_staff_id
               FROM production_tasks
               WHERE order_id::text IN (${Prisma.join(orderUuids)})
               ORDER BY order_id ASC, stage ASC
@@ -3847,6 +3869,10 @@ export async function GET(request: NextRequest) {
             staffId: row.staff_id ? (staffIdByUuid.get(row.staff_id) ?? null) : null,
             tokenAmount: asNumber(row.token_amount),
             percentage: 0,
+            completedAt: toIsoOrNull(row.completed_at),
+            completedByUserId: row.completed_by_staff_id
+              ? (staffIdByUuid.get(row.completed_by_staff_id) ?? null)
+              : null,
           });
           stagesMap.set(externalId, current);
         }
@@ -4617,7 +4643,7 @@ export async function POST(request: NextRequest) {
       const stageRows =
         orderUuids.length > 0
           ? await prisma.$queryRaw<DbProductionStageRow[]>`
-              SELECT order_id::text AS order_id, stage, staff_id::text AS staff_id, token_amount
+              SELECT order_id::text AS order_id, stage, staff_id::text AS staff_id, token_amount, completed_at, completed_by_staff_id::text AS completed_by_staff_id
               FROM production_tasks
               WHERE order_id::text IN (${Prisma.join(orderUuids)})
               ORDER BY order_id ASC, stage ASC
@@ -4654,6 +4680,10 @@ export async function POST(request: NextRequest) {
             : null,
           tokenAmount: asNumber(row.token_amount),
           percentage: 0,
+          completedAt: toIsoOrNull(row.completed_at),
+          completedByUserId: row.completed_by_staff_id
+            ? (staffIdByUuid.get(row.completed_by_staff_id) ?? null)
+            : null,
         });
         stagesMap.set(externalId, current);
       }
@@ -5048,7 +5078,7 @@ export async function POST(request: NextRequest) {
               const stageRows =
                 existingOrderExternalByUuid.size > 0
                   ? await tx.$queryRaw<DbProductionStageRow[]>`
-                  SELECT order_id::text AS order_id, stage, staff_id::text AS staff_id, token_amount
+                  SELECT order_id::text AS order_id, stage, staff_id::text AS staff_id, token_amount, completed_at, completed_by_staff_id::text AS completed_by_staff_id
                   FROM production_tasks
                   WHERE order_id::text IN (${Prisma.join([...existingOrderExternalByUuid.keys()])})
                   ORDER BY order_id ASC, stage ASC
@@ -5079,6 +5109,10 @@ export async function POST(request: NextRequest) {
                     : null,
                   tokenAmount: asNumber(row.token_amount),
                   percentage: 0,
+                  completedAt: toIsoOrNull(row.completed_at),
+                  completedByUserId: row.completed_by_staff_id
+                    ? (staffIdByUuid.get(row.completed_by_staff_id) ?? null)
+                    : null,
                 });
                 existingStagesByExternalId.set(externalId, current);
               }
@@ -5153,8 +5187,9 @@ export async function POST(request: NextRequest) {
                   },
                   {} as Record<ProductionStage, number | null>,
                 );
-                const productionStages = distributeProductionTokens({
+                const productionStages = normalizeProductionStageAssignments({
                   totalTokens: tokenForOrder,
+                  stages: order.productionStages,
                   staffByStage,
                   percentages:
                     getProductionStagePercentagesFromTemplates(stageTemplates),
@@ -5623,6 +5658,8 @@ export async function POST(request: NextRequest) {
                     stage,
                     staff_id,
                     token_amount,
+                    completed_at,
+                    completed_by_staff_id,
                     created_at
                   ) VALUES (
                     ${productionTaskUuid(orderUuid, stage.stage)}::uuid,
@@ -5630,12 +5667,16 @@ export async function POST(request: NextRequest) {
                     ${stage.stage},
                     ${staffUuid(stage.staffId)}::uuid,
                     ${stage.tokenAmount},
+                    ${stage.completedAt ? new Date(stage.completedAt) : null},
+                    ${staffUuid(stage.completedByUserId ?? null)}::uuid,
                     NOW()
                   )
                   ON CONFLICT (order_id, stage)
                   DO UPDATE SET
                     staff_id = EXCLUDED.staff_id,
-                    token_amount = EXCLUDED.token_amount
+                    token_amount = EXCLUDED.token_amount,
+                    completed_at = EXCLUDED.completed_at,
+                    completed_by_staff_id = EXCLUDED.completed_by_staff_id
                 `;
                   }
                 }

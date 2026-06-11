@@ -35,6 +35,8 @@ export interface ProductionStageAssignment {
   staffId: number | null;
   tokenAmount: number;
   percentage: number;
+  completedAt?: string | null;
+  completedByUserId?: number | null;
 }
 
 export function normalizeProductionStageKey(
@@ -311,50 +313,17 @@ export function normalizeProductionStageAssignments(args: {
     staffByStage: mergedStaffByStage,
     percentages: args.percentages,
   });
-
-  const existingSignature = canonical.map((entry) => {
+  return canonical.map((entry) => {
     const existing = existingByStage.get(entry.stage);
-    return existing
-      ? {
-          stage: entry.stage,
-          staffId: existing.staffId ?? null,
-          tokenAmount: Math.max(0, Math.round(Number(existing.tokenAmount) || 0)),
-          percentage: Math.max(0, Math.round(Number(existing.percentage) || 0)),
-        }
-      : null;
+    const sameStaff = (existing?.staffId ?? null) === (entry.staffId ?? null);
+
+    return {
+      stage: entry.stage,
+      staffId: entry.staffId ?? null,
+      tokenAmount: entry.tokenAmount,
+      percentage: entry.percentage,
+      completedAt: sameStaff ? existing?.completedAt ?? null : null,
+      completedByUserId: sameStaff ? existing?.completedByUserId ?? null : null,
+    };
   });
-
-  const canonicalSignature = canonical.map((entry) => ({
-    stage: entry.stage,
-    staffId: entry.staffId ?? null,
-    tokenAmount: entry.tokenAmount,
-    percentage: entry.percentage,
-  }));
-
-  const isExactMatch =
-    existingSignature.every((entry, index) => {
-      const canonicalEntry = canonicalSignature[index];
-      return (
-        entry !== null &&
-        canonicalEntry !== undefined &&
-        entry.stage === canonicalEntry.stage &&
-        entry.staffId === canonicalEntry.staffId &&
-        entry.tokenAmount === canonicalEntry.tokenAmount &&
-        entry.percentage === canonicalEntry.percentage
-      );
-    }) && existingSignature.every(Boolean);
-
-  if (isExactMatch) {
-    return canonicalSignature.map((entry) => {
-      const existing = existingByStage.get(entry.stage);
-      return {
-        stage: entry.stage,
-        staffId: existing?.staffId ?? entry.staffId,
-        tokenAmount: entry.tokenAmount,
-        percentage: entry.percentage,
-      };
-    });
-  }
-
-  return canonical;
 }

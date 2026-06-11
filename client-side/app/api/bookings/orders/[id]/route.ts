@@ -427,7 +427,7 @@ export async function GET(
       row.order_uuid ?? orderTaskUuid(businessId, row.external_id);
 
     const stageRows = await prisma.$queryRaw<DbProductionStageRow[]>`
-      SELECT order_id::text AS order_id, stage, staff_id::text AS staff_id, token_amount
+      SELECT order_id::text AS order_id, stage, staff_id::text AS staff_id, token_amount, completed_at, completed_by_staff_id::text AS completed_by_staff_id
       FROM production_tasks
       WHERE order_id = ${orderUuid}::uuid
       ORDER BY stage ASC
@@ -449,6 +449,10 @@ export async function GET(
           : null,
         tokenAmount: asNumber(stageRow.token_amount),
         percentage: stagePercentages[stage] ?? 0,
+        completedAt: toIsoOrNull(stageRow.completed_at),
+        completedByUserId: stageRow.completed_by_staff_id
+          ? (staffIdByUuid.get(stageRow.completed_by_staff_id) ?? null)
+          : null,
       };
     });
 

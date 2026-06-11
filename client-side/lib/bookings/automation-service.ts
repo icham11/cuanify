@@ -1,6 +1,9 @@
 import { createSign } from "crypto";
 import prisma from "@/lib/prisma";
-import { sendOrderToWhatsApp } from "@/lib/whatsapp/sendOrderToWhatsApp";
+import {
+  buildProductionCaption,
+  sendOrderToWhatsApp,
+} from "@/lib/whatsapp/sendOrderToWhatsApp";
 import type {
   AutomationActionResult,
   BookingAutomationEvent,
@@ -127,6 +130,31 @@ function buildProductionMessage(order: BookingAutomationOrderPayload): string {
     `Jadwal Kirim: ${getDeliverySummary(order)}`,
     `Alamat: ${getPrimaryAddress(order)}`,
     `Catatan: ${notesSummary}`,
+  ].join("\n");
+}
+
+function buildEditedBookingProductionMessage(
+  order: BookingAutomationOrderPayload,
+): string {
+  const normalizedOrder = toNormalizedAutomationOrder(order);
+  const baseMessage = buildProductionCaption(toWhatsAppPayload(normalizedOrder));
+  const changeLines = Array.from(
+    new Set(
+      (order.changeInfo?.lines ?? [])
+        .map((line) => line.replace(/\s+/g, " ").trim())
+        .filter(Boolean),
+    ),
+  );
+
+  if (changeLines.length === 0) {
+    return `${baseMessage}\n\n*Info:* ${order.changeInfo?.summary || "Booking order diperbarui."}`;
+  }
+
+  return [
+    baseMessage,
+    "",
+    `*Info:* ${order.changeInfo?.summary || "Booking order diperbarui."}`,
+    ...changeLines.map((line) => `- ${line}`),
   ].join("\n");
 }
 
@@ -851,7 +879,7 @@ export async function runBookingAutomations(
       String(process.env.FONNTE_NOTIFY_RESCHEDULE_PRODUCTION || "true") ===
       "true";
     if (shouldNotifyReschedule) {
-      const rescheduleMessage = `${buildProductionMessage(order)}\n\n*Info:* Jadwal order telah di-reschedule.`;
+      const rescheduleMessage = buildEditedBookingProductionMessage(order);
       fonnteProduction = await sendFonnteMessage(
         productionTarget,
         rescheduleMessage,

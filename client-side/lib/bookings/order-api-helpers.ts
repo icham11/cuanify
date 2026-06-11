@@ -135,6 +135,8 @@ export interface DbProductionStageRow {
   stage: ProductionStage;
   staff_id: string | null;
   token_amount: unknown;
+  completed_at: unknown;
+  completed_by_staff_id: string | null;
 }
 
 export interface ExistingAssignmentState {
@@ -211,6 +213,8 @@ export const normalizedOrderSchema = z.object({
       staffId: z.number().int().positive().nullable(),
       tokenAmount: z.number().finite().min(0),
       percentage: z.number().finite().min(0).max(100),
+      completedAt: z.string().nullable().optional(),
+      completedByUserId: z.number().int().positive().nullable().optional(),
     }),
   ),
   items: z.array(z.record(z.string(), z.unknown())),

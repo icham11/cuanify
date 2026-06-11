@@ -65,6 +65,11 @@ const referenceImageSchema = z.object({
   orderIndex: z.number().optional(),
 });
 
+const changeInfoSchema = z.object({
+  summary: z.string().optional(),
+  lines: z.array(z.string()).optional(),
+});
+
 const requestSchema = z.object({
   eventType: z.enum([
     "order_created",
@@ -96,6 +101,7 @@ const requestSchema = z.object({
     imageUrl: z.string().optional(),
     imageUrls: z.array(z.string()).optional(),
     referenceImages: z.array(referenceImageSchema).optional(),
+    changeInfo: changeInfoSchema.optional(),
     shippingQuote: z.unknown().optional(),
     shipment: z.unknown().optional(),
     whatsAppParsedData: z.unknown().optional(),

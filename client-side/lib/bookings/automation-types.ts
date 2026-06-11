@@ -46,6 +46,11 @@ export interface BookingAutomationAddress {
   postalCode?: string;
 }
 
+export interface BookingAutomationChangeInfo {
+  summary?: string;
+  lines?: string[];
+}
+
 export interface BookingAutomationOrderPayload {
   id: string;
   bookingCode: string;
@@ -74,6 +79,7 @@ export interface BookingAutomationOrderPayload {
     note?: string;
     orderIndex?: number;
   }>;
+  changeInfo?: BookingAutomationChangeInfo;
   shippingQuote?: unknown;
   shipment?: unknown;
   whatsAppParsedData?: unknown;

@@ -101,8 +101,8 @@ const STAFF_ALLOWED_API_RULES: Array<{
   // Bakery settings — dibutuhkan oleh useBakerySettings (token limit, dll)
   { prefix: "/api/bakery/settings", methods: ["GET"] },
 
-  // Booking orders — Staff hanya perlu baca & sync data order produksi
-  { prefix: "/api/bookings/orders", methods: ["GET", "POST"] },
+  // Booking orders — Staff perlu baca, sync, dan update status order yang mereka pegang
+  { prefix: "/api/bookings/orders", methods: ["GET", "POST", "PATCH"] },
 
   // Booking automations — Staff perlu trigger notif produksi
   { prefix: "/api/bookings/automations", methods: ["GET", "POST"] },
