@@ -21,7 +21,12 @@ import {
   getCalendarStatus,
   isPastDate,
 } from "@/lib/calendar/getCalendarStatus";
-import { normalizeDateInput } from "@/lib/helpers/date-normalization";
+import {
+  extractIsoDateFromBookingReference,
+  isDateInPreviousMonth,
+  normalizeDateInput,
+  toIsoDateString,
+} from "@/lib/helpers/date-normalization";
 import {
   getJakartaTodayIsoDate,
   resolveShippingProvider,
@@ -911,7 +916,7 @@ function buildParsedOrderFingerprint(order: {
 }): string {
   const rawDeliveryDate =
     order.deliveryDate instanceof Date
-      ? order.deliveryDate.toISOString().slice(0, 10)
+      ? toIsoDateString(order.deliveryDate)
       : asString(order.deliveryDate).trim();
   const normalizedDeliveryDate =
     normalizeDateInput(rawDeliveryDate) ??
@@ -2607,33 +2612,31 @@ async function upsertOrdersSnapshot(
   });
 }
 
-function extractDeliveryDateFromBookingReference(value: string) {
-  const normalized = String(value || "").trim().toUpperCase();
-  if (!normalized) return "";
-
-  const match = normalized.match(/-(\d{2})(\d{2})(\d{2})-(\d{3})$/);
-  if (!match) return "";
-
-  const [, day, month, year] = match;
-  return normalizeDateInput(`20${year}-${month}-${day}`) ?? "";
-}
-
 function resolveIncomingOrderDeliveryDate(record: JsonRecord) {
   const rawDeliveryDate = asString(record.deliveryDate);
-  const normalizedDeliveryDate =
-    normalizeDateInput(rawDeliveryDate) ?? rawDeliveryDate.trim();
+  const normalizedDeliveryDate = normalizeDateInput(rawDeliveryDate);
   if (normalizedDeliveryDate) {
     return normalizedDeliveryDate;
   }
 
-  const fromBookingCode = extractDeliveryDateFromBookingReference(
-    asString(record.bookingCode),
-  );
+  const trimmedRawDeliveryDate = rawDeliveryDate.trim();
+  if (trimmedRawDeliveryDate) {
+    return trimmedRawDeliveryDate;
+  }
+
+  const parsedData = asRecord(record.whatsAppParsedData);
+  const parsedCommon = asRecord(parsedData?.common);
+  const parsedDeliveryDate = normalizeDateInput(asString(parsedCommon?.deliveryDate));
+  if (parsedDeliveryDate) {
+    return parsedDeliveryDate;
+  }
+
+  const fromBookingCode = extractIsoDateFromBookingReference(asString(record.bookingCode));
   if (fromBookingCode) {
     return fromBookingCode;
   }
 
-  const fromResi = extractDeliveryDateFromBookingReference(asString(record.resi));
+  const fromResi = extractIsoDateFromBookingReference(asString(record.resi));
   if (fromResi) {
     return fromResi;
   }
@@ -5226,30 +5229,24 @@ export async function POST(request: NextRequest) {
                     order.deliveryAddresses,
                   );
                 const existingRowCheck = existingOrderMap.get(order.id);
-                if (existingRowCheck?.delivery_date) {
-                  const deliveryDateObj = new Date(existingRowCheck.delivery_date);
-                  const nowDate = new Date();
-                  const isPreviousMonth =
-                    deliveryDateObj.getFullYear() < nowDate.getFullYear() ||
-                    (deliveryDateObj.getFullYear() === nowDate.getFullYear() &&
-                      deliveryDateObj.getMonth() < nowDate.getMonth());
+                if (
+                  existingRowCheck?.delivery_date &&
+                  isDateInPreviousMonth(existingRowCheck.delivery_date)
+                ) {
+                  const persistedFingerprint =
+                    existingOrderFingerprintById.get(order.id) ?? "";
+                  const incomingFingerprint =
+                    buildParsedOrderFingerprint(order);
+                  const detailChanged =
+                    persistedFingerprint !== incomingFingerprint;
+                  const statusChanged =
+                    (existingRowCheck.order_status ?? "Inquiry") !==
+                    (order.orderStatus || "Inquiry");
 
-                  if (isPreviousMonth) {
-                    const persistedFingerprint =
-                      existingOrderFingerprintById.get(order.id) ?? "";
-                    const incomingFingerprint =
-                      buildParsedOrderFingerprint(order);
-                    const detailChanged =
-                      persistedFingerprint !== incomingFingerprint;
-                    const statusChanged =
-                      (existingRowCheck.order_status ?? "Inquiry") !==
-                      (order.orderStatus || "Inquiry");
-
-                    if (detailChanged || statusChanged) {
-                      throw new ForbiddenError(
-                        "Tidak dapat mengubah detail pesanan dari bulan sebelumnya karena data telah dikunci.",
-                      );
-                    }
+                  if (detailChanged || statusChanged) {
+                    throw new ForbiddenError(
+                      "Tidak dapat mengubah detail pesanan dari bulan sebelumnya karena data telah dikunci.",
+                    );
                   }
                 }
                 const insuranceFee = computeInsuranceFee({

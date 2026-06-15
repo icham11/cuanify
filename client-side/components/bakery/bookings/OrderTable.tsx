@@ -14,6 +14,7 @@ import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 import { getOrderItemsSummary } from "@/lib/bookings/order-display";
 import {
   isGrabOrGojekOrder,
+  getJakartaTodayIsoDate,
   resolveShippingProvider,
 } from "@/lib/bookings/shipping-schedule";
 import { useBakerySettings } from "@/hooks/useBakerySettings";
@@ -24,6 +25,10 @@ import {
   resolvePrimaryProductionCategory,
   resolveProductionStageTemplatesForCategory,
 } from "@/lib/bookings/production-stages";
+import {
+  parseSafeDate,
+  toIsoDateString,
+} from "@/lib/helpers/date-normalization";
 
 interface OrderTableProps {
   orders: BakeryOrder[];
@@ -42,8 +47,8 @@ function compactText(value: string): string {
 
 function formatDeliveryDate(date: string): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return date;
-  const parsed = new Date(`${date}T00:00:00`);
-  if (Number.isNaN(parsed.getTime())) return date;
+  const parsed = parseSafeDate(date);
+  if (!parsed) return date;
   return new Intl.DateTimeFormat("id-ID", {
     day: "2-digit",
     month: "short",
@@ -239,10 +244,12 @@ export default function OrderTable({
   const canDeleteOrder = !roleLoading && (isOwner || isAdmin);
 
   const highlightMap = useMemo<Map<string, Highlight>>(() => {
-    const today = new Date().toISOString().slice(0, 10);
-    const tomorrowDate = new Date();
-    tomorrowDate.setDate(tomorrowDate.getDate() + 1);
-    const tomorrow = tomorrowDate.toISOString().slice(0, 10);
+    const today = getJakartaTodayIsoDate();
+    const tomorrowDate = parseSafeDate(today);
+    if (tomorrowDate) {
+      tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+    }
+    const tomorrow = tomorrowDate ? toIsoDateString(tomorrowDate) : today;
 
     return new Map<string, Highlight>(
       orders.map((order) => {

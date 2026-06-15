@@ -3661,6 +3661,7 @@ export default function BookingForm({
   const skipSubmitConfirmationRef = useRef(false);
   const pendingDuplicateSubmissionRef = useRef<BookingFormValues | null>(null);
   const skipDuplicateTemplateWarningRef = useRef(false);
+  const isPreviewStep = composerStep === "preview" || isReviewPage;
   const submitConfirmationPrimaryButtonRef = useRef<HTMLButtonElement | null>(
     null,
   );
@@ -4102,22 +4103,17 @@ export default function BookingForm({
       }
 
       setComposerStep("preview");
-      if (!isEditMode && !isReviewPage) {
-        router.push("/bakery/bookings/new/review");
-      }
     },
     [
       draftImported,
       getValues,
       isEditMode,
-      isReviewPage,
       parsedPreview,
       persistedReferenceImages,
       productionPreviewImageUrl,
       quickPaste,
       referenceFilesChangedSinceParse,
       referenceImageLabelsInput,
-      router,
       resolveSelectedShippingQuoteServiceKey,
       selectedOrderType,
       selectedShippingQuoteId,
@@ -5610,7 +5606,7 @@ export default function BookingForm({
 
   useEffect(() => {
     if (!hasHydratedDraftSnapshot) return;
-    if (composerStep === "preview") return;
+    if (isPreviewStep) return;
     if (!shippingQuoteSignature) return;
 
     if (lastShippingQuoteSignatureRef.current === null) {
@@ -5629,7 +5625,7 @@ export default function BookingForm({
     setShippingDistanceKm(null);
     setShippingDistanceSource(undefined);
     setShippingWarning("");
-  }, [composerStep, hasHydratedDraftSnapshot, shippingQuoteSignature]);
+  }, [hasHydratedDraftSnapshot, isPreviewStep, shippingQuoteSignature]);
 
   useEffect(() => {
     if (!hasHydratedDraftSnapshot) return;
@@ -5645,7 +5641,7 @@ export default function BookingForm({
 
   useEffect(() => {
     if (!hasHydratedDraftSnapshot) return;
-    if (composerStep !== "preview") return;
+    if (!isPreviewStep) return;
     if (!shippingQuoteSignature) return;
 
     const controller = new AbortController();
@@ -5655,9 +5651,9 @@ export default function BookingForm({
       controller.abort();
     };
   }, [
-    composerStep,
     fetchShippingQuotes,
     hasHydratedDraftSnapshot,
+    isPreviewStep,
     shippingQuoteSignature,
   ]);
 
@@ -5672,7 +5668,7 @@ export default function BookingForm({
     setSubmitError("");
     setSubmitSuccess("");
     setSubmitSuccessMeta(null);
-    const isPreviewSubmit = composerStep === "preview";
+    const isPreviewSubmit = isPreviewStep;
 
     const skipSubmitConfirmation = skipSubmitConfirmationRef.current;
     if (skipSubmitConfirmation) {
@@ -7636,7 +7632,7 @@ export default function BookingForm({
 
   return (
     <form onSubmit={submitBookingForm} className="space-y-6">
-      {composerStep === "input" ? (
+      {!isPreviewStep ? (
         <>
           <Card className="overflow-hidden rounded-[32px] border-[var(--crumbella-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(250,244,237,0.95)_100%)] shadow-[0_24px_40px_-30px_rgba(30,18,10,0.5)]">
             <CardHeader className="space-y-4 border-b border-[var(--crumbella-border)] px-5 pb-4 pt-5 sm:px-6">
@@ -10905,11 +10901,10 @@ export default function BookingForm({
                 <button
                   type="button"
                   onClick={() => {
-                    if (isEditMode) {
-                      setComposerStep("input");
-                      return;
+                    setComposerStep("input");
+                    if (!isEditMode && isReviewPage) {
+                      router.replace("/bakery/bookings/new");
                     }
-                    router.push("/bakery/bookings/new");
                   }}
                   className="flex h-8 w-8 items-center justify-center rounded-xl text-lg text-[var(--crumbella-muted)]"
                 >
@@ -11248,11 +11243,10 @@ export default function BookingForm({
                 <button
                   type="button"
                   onClick={() => {
-                    if (isEditMode) {
-                      setComposerStep("input");
-                      return;
+                    setComposerStep("input");
+                    if (!isEditMode && isReviewPage) {
+                      router.replace("/bakery/bookings/new");
                     }
-                    router.push("/bakery/bookings/new");
                   }}
                   className="flex-1 rounded-[13px] border-[1.5px] border-[var(--crumbella-border)] bg-white px-3 py-[13px] text-center text-[13px] font-semibold text-[var(--crumbella-muted)] transition hover:bg-gray-50"
                 >

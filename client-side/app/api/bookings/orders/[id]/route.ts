@@ -39,7 +39,10 @@ import {
   resolveProductionStageTemplatesForCategory,
 } from "@/lib/bookings/production-stages";
 import { calculateOrderFinancialBreakdown } from "@/lib/bookings/financial-breakdown";
-import { normalizeDateInput } from "@/lib/helpers/date-normalization";
+import {
+  isDateInPreviousMonth,
+  normalizeDateInput,
+} from "@/lib/helpers/date-normalization";
 import {
   buildBookingAuditDocument,
   buildBookingAuditOrderSummary,
@@ -615,14 +618,7 @@ export async function PATCH(
 
     // Mencegah modifikasi data untuk order di bulan-bulan sebelumnya demi integritas laporan
     if (existingOrder.delivery_date) { // Pastikan delivery date tidak null
-      const deliveryDateObj = new Date(existingOrder.delivery_date); // Parse string ke object Date
-      const nowDate = new Date(); // Ambil waktu saat ini
-      const isPreviousMonth = 
-        deliveryDateObj.getFullYear() < nowDate.getFullYear() || // Jika tahunnya lebih lampau
-        (deliveryDateObj.getFullYear() === nowDate.getFullYear() && // Atau tahunnya sama...
-          deliveryDateObj.getMonth() < nowDate.getMonth()); // Tapi bulannya lebih lampau
-          
-      if (isPreviousMonth) { // Jika pesanan terdeteksi sebagai bulan sebelumnya
+      if (isDateInPreviousMonth(existingOrder.delivery_date)) { // Jika pesanan terdeteksi sebagai bulan sebelumnya
         throw new ForbiddenError(
           "Tidak dapat mengubah status order dari bulan sebelumnya. Data telah dikunci."
         ); // Tolak request dan berikan error
@@ -822,14 +818,7 @@ export async function DELETE(
 
     // Mencegah penghapusan data untuk order di bulan-bulan sebelumnya demi integritas laporan
     if (deliveryDate) { // Pastikan pesanan punya delivery date
-      const deliveryDateObj = new Date(deliveryDate); // Parse string ke object Date
-      const nowDate = new Date(); // Ambil waktu server saat ini
-      const isPreviousMonth = 
-        deliveryDateObj.getFullYear() < nowDate.getFullYear() || // Jika tahunnya lebih lampau
-        (deliveryDateObj.getFullYear() === nowDate.getFullYear() && // Atau tahunnya sama...
-          deliveryDateObj.getMonth() < nowDate.getMonth()); // Tapi bulannya lebih lampau
-          
-      if (isPreviousMonth) { // Jika masuk kategori bulan sebelumnya
+      if (isDateInPreviousMonth(deliveryDate)) { // Jika masuk kategori bulan sebelumnya
         throw new ForbiddenError(
           "Tidak dapat menghapus order dari bulan sebelumnya. Data telah dikunci."
         ); // Batalkan proses hapus dan keluarkan peringatan

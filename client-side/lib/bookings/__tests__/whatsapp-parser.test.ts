@@ -1808,4 +1808,42 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
 
     expect(parsed.common.fullAddress).toBe("puri jimbaran 1 no E6/B7, ancol timur");
   });
+
+  it("keeps delivery date 17 June intact across supported parser formats", () => {
+    const samples = [
+      "17/06/2026",
+      "17-06-2026",
+      "17 Jun 2026",
+      "17 Juni 2026",
+      "17/Jun/26",
+    ];
+
+    const parsedDates = samples.map((deliveryDate) => {
+      const text = [
+        `Tanggal Pengiriman: ${deliveryDate}`,
+        "KODE BOOKING: TEST-17",
+        "Order: 10 custom cookies",
+        "Jumlah Cookies: 10",
+        "To From Notes: Test",
+        "Jam Pengiriman: 09.00",
+        "Metode Pengiriman: Pickup",
+        "Nama penerima: Debie",
+        "No. telp penerima: 08118772077",
+        "Alamat lengkap: Jakarta",
+      ].join("\n");
+
+      return parseWhatsAppOrderText(text, {
+        preferredOrderType: "cookies",
+        sourceType: "manual",
+      }).common.deliveryDate;
+    });
+
+    expect(parsedDates).toEqual([
+      "2026-06-17",
+      "2026-06-17",
+      "2026-06-17",
+      "2026-06-17",
+      "2026-06-17",
+    ]);
+  });
 });

@@ -1,43 +1,20 @@
 import path from "path";
+import bcrypt from "bcryptjs";
 import dotenv from "dotenv";
 import { test, expect, type Page } from "@playwright/test";
+import { Client } from "pg";
 
 dotenv.config({ path: path.resolve(process.cwd(), ".env") });
 
-const TEST_EMAIL = process.env.BOOKING_E2E_EMAIL || "qa-booking-preview@crumbella.local";
-const TEST_PASSWORD = process.env.BOOKING_E2E_PASSWORD || "QaBooking123!";
+const TEST_EMAIL =
+  process.env.BOOKING_E2E_EMAIL || "qa-booking-preview@crumbella.local";
+const TEST_PASSWORD =
+  process.env.BOOKING_E2E_PASSWORD || "QaBooking123!";
+const TEST_NAME = "QA Booking Preview";
+const TEST_DELIVERY_DATE = "2099-12-31";
+const TEST_CUSTOMER_NAME = "Budi Tester";
+const TEST_PHONE = "081234567890";
 
-/**
- * Fungsi untuk login ke dashboard
- * Menggunakan kredensial dummy dan interceptor jika diperlukan.
- */
-async function loginToDashboard(page: Page) {
-  let response;
-  // Coba login hingga 3 kali untuk menghindari flaky tests (karena environment mungkin belum siap)
-  for (let i = 0; i < 3; i++) {
-    try {
-      response = await page.context().request.post("/api/auth/login", {
-        data: {
-          email: TEST_EMAIL,
-          password: TEST_PASSWORD,
-        },
-      });
-      if (response.ok()) break;
-    } catch (e) {
-      console.warn(`Gagal memanggil API login pada percobaan ke-${i + 1}`);
-    }
-    console.warn(`Login attempt ${i + 1} failed, retrying in 2s...`);
-    await page.waitForTimeout(2000);
-  }
-
-  if (response && !response.ok()) {
-    const text = await response.text();
-    console.error("Login failed:", response.status(), text);
-    throw new Error(`Login failed: ${response.status()} ${text}`);
-  }
-}
-
-// Mock Katalog yang digunakan saat Booking Flow
 const mockCatalogResponse = {
   success: true,
   data: {
@@ -48,30 +25,123 @@ const mockCatalogResponse = {
     inactiveAddOns: [],
     customProducts: [
       {
-        category: "Kue Kering",
-        subcategory: "Nastar",
-        productName: "Nastar Keju Premium",
-        variantLabel: "Toples 500g",
-        price: 150000
-      }
+        category: "Cake",
+        subcategory: "One Tier Cake",
+        productName: "Real Cake",
+        variantLabel: "Diameter 16 cm x Tinggi 10 cm",
+        price: 450000,
+      },
     ],
-    customAddOns: [
-      {
-        category: "Kue Kering",
-        id: "mock-addon-kartu",
-        label: "Kartu Ucapan Ulang Tahun",
-        price: 15000,
-        cogs: 5000
-      }
-    ]
-  }
+    customAddOns: [],
+  },
 };
+
+async function ensureBookingTestUser() {
+  const connectionString = process.env.DIRECT_URL || process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error("DATABASE_URL atau DIRECT_URL belum tersedia.");
+  }
+
+  const client = new Client({
+    connectionString,
+    ssl: { rejectUnauthorized: false },
+  });
+
+  await client.connect();
+
+  try {
+    const businessResult = await client.query<{ id: number }>(`
+      SELECT b."id"
+      FROM "Business" b
+      JOIN "Product" p ON p."businessId" = b."id" AND p."deletedAt" IS NULL
+      GROUP BY b."id"
+      ORDER BY COUNT(p."id") DESC, b."id" DESC
+      LIMIT 1
+    `);
+
+    const businessId = businessResult.rows[0]?.id;
+    if (!businessId) {
+      throw new Error("Tidak ada business dengan product aktif untuk test.");
+    }
+
+    const passwordHash = await bcrypt.hash(TEST_PASSWORD, 10);
+    const userResult = await client.query<{ id: number }>(
+      `
+        INSERT INTO "User" ("name", "email", "password", "createdAt", "updatedAt")
+        VALUES ($1, $2, $3, NOW(), NOW())
+        ON CONFLICT ("email")
+        DO UPDATE SET
+          "name" = EXCLUDED."name",
+          "password" = EXCLUDED."password",
+          "updatedAt" = NOW()
+        RETURNING "id"
+      `,
+      [TEST_NAME, TEST_EMAIL, passwordHash],
+    );
+
+    const userId = userResult.rows[0]?.id;
+    if (!userId) {
+      throw new Error("Gagal membuat user E2E booking.");
+    }
+
+    await client.query(
+      `
+        INSERT INTO "BusinessMember" ("businessId", "userId", "role", "createdAt", "updatedAt")
+        VALUES ($1, $2, 'Admin', NOW(), NOW())
+        ON CONFLICT ("businessId", "userId")
+        DO UPDATE SET
+          "role" = 'Admin',
+          "updatedAt" = NOW()
+      `,
+      [businessId, userId],
+    );
+  } finally {
+    await client.end();
+  }
+}
+
+async function loginToDashboard(page: Page) {
+  let response;
+
+  for (let i = 0; i < 3; i += 1) {
+    response = await page.context().request.post("/api/auth/login", {
+      data: {
+        email: TEST_EMAIL,
+        password: TEST_PASSWORD,
+      },
+    });
+    if (response.ok()) break;
+    await page.waitForTimeout(2000);
+  }
+
+  if (response && !response.ok()) {
+    throw new Error(`Login failed: ${response.status()} ${await response.text()}`);
+  }
+}
+
+async function fillBaseBookingForm(page: Page) {
+  await page.goto("/bakery/bookings/new", { waitUntil: "domcontentloaded" });
+  await expect(page).toHaveURL(/\/bakery\/bookings\/new$/);
+
+  await page.locator('input[name="customerName"]').fill(TEST_CUSTOMER_NAME);
+  await page.locator('input[name="phoneNumber"]').fill(TEST_PHONE);
+  await page.locator('input[name="deliveryDate"]').fill(TEST_DELIVERY_DATE);
+  await page.locator('select[name="sales_channel"]').selectOption("direct");
+  await page.locator('select[name="deliveryMethod"]').selectOption("PICKUP");
+
+  const deliverySlotSelect = page.locator('select[name="deliverySlot"]');
+  await expect(deliverySlotSelect.locator("option")).toHaveCount(25);
+  await deliverySlotSelect.selectOption({ label: "10:00 - AVAILABLE" });
+}
 
 test.describe("New Booking Flow - Comprehensive E2E", () => {
   test.setTimeout(90_000);
 
+  test.beforeAll(async () => {
+    await ensureBookingTestUser();
+  });
+
   test.beforeEach(async ({ page }) => {
-    // Intercept catalog API agar konsisten dan tidak tergantung DB sesungguhnya
     await page.route("**/api/bookings/catalog-config", async (route) => {
       await route.fulfill({
         status: 200,
@@ -81,85 +151,98 @@ test.describe("New Booking Flow - Comprehensive E2E", () => {
     });
   });
 
-  test("berhasil membuat booking baru dengan egress yang efisien", async ({ page }) => {
-    // Root Cause: Memanggil endpoint berulang kali membuat UI lag dan membebani server
-    // Solusi Egress Efisien: Mocking endpoint dengan interceptor Playwright
-    let createPayload: any = null;
-    
-    // Intercept API pembuatan order (kita mock agar tidak masuk ke DB beneran)
+  test("berhasil membuat booking baru dan mengirim payload create", async ({
+    page,
+  }) => {
+    let createPayload: { orders?: Array<Record<string, unknown>> } | null = null;
+
     await page.route("**/api/bookings/orders", async (route) => {
-      if (route.request().method() === "POST") {
-        createPayload = route.request().postDataJSON();
+      const method = route.request().method();
+
+      if (method === "GET") {
         await route.fulfill({
-          status: 201,
+          status: 200,
           contentType: "application/json",
-          body: JSON.stringify({ success: true, data: { id: "new-order-id-123" } })
+          body: JSON.stringify({
+            success: true,
+            data: {
+              orders: [],
+              source: "snapshot-fallback",
+            },
+          }),
         });
-      } else {
-        await route.continue();
+        return;
       }
+
+      if (method === "POST") {
+        createPayload = route.request().postDataJSON() as {
+          orders?: Array<Record<string, unknown>>;
+        };
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            success: true,
+            data: {
+              mode: "test",
+              itemCount: createPayload?.orders?.length ?? 0,
+              waNotificationMode: "skipped",
+              warnings: [],
+            },
+          }),
+        });
+        return;
+      }
+
+      await route.continue();
     });
 
     await loginToDashboard(page);
+    await fillBaseBookingForm(page);
 
-    // Buka halaman create booking
-    await page.goto("/bakery/bookings/new", { waitUntil: "domcontentloaded" });
+    await page.getByRole("button", { name: "Preview Booking" }).click();
 
-    // 1. Isi Data Kustomer
-    const nameInput = page.locator('input[name="customerName"]');
-    await nameInput.waitFor({ state: "visible", timeout: 15000 });
-    await nameInput.fill("Budi Tester");
-    
-    await page.locator('input[name="phoneNumber"]').fill("081234567890");
+    const createButton = page.getByRole("button", { name: /Create Booking/i });
+    await createButton.waitFor({ state: "visible", timeout: 30_000 });
+    await createButton.scrollIntoViewIfNeeded();
+    await createButton.click({ force: true });
+    const submitConfirmationDialog = page.getByRole("dialog", {
+      name: "Konfirmasi submit booking",
+    });
+    const confirmationVisible = await submitConfirmationDialog
+      .waitFor({ state: "visible", timeout: 5_000 })
+      .then(() => true)
+      .catch(() => false);
 
-    // 2. Tambah Item (Pilih Produk)
-    // Skenario: Klik tombol tambah produk (menyesuaikan struktur yang ada)
-    // Asumsi: Ada combobox/select untuk Product Name
-    try {
-      // Kita coba klik tombol Tambah Item atau langsung isi input yang ada
-      const addItemBtn = page.getByRole('button', { name: /tambah/i });
-      if (await addItemBtn.isVisible()) {
-        await addItemBtn.click();
-      }
-    } catch (e) {
-      // Abaikan jika sudah ada form default
+    if (confirmationVisible) {
+      await submitConfirmationDialog
+        .getByRole("button", { name: "Ya, Sudah Dicek" })
+        .click({ force: true });
+      await submitConfirmationDialog.waitFor({ state: "hidden" });
     }
 
-    // Tunggu sedikit agar state update
-    await page.waitForTimeout(1000);
+    const payloadDelivered = await expect
+      .poll(() => createPayload, {
+        timeout: 15_000,
+      })
+      .not.toBeNull()
+      .then(() => true)
+      .catch(() => false);
 
-    // Memastikan tombol submit tersedia dan kita submit (simpan pesanan)
-    // Langkah 1: Klik "Preview Booking"
-    const previewBtn = page.getByRole('button', { name: /preview booking/i });
-    await previewBtn.waitFor({ state: "visible", timeout: 5000 });
-    await previewBtn.click();
-    
-    await page.waitForTimeout(1000);
-    
-    // Langkah 2: Klik "✓ Create Booking" pada layar preview
-    const createBtn = page.getByRole('button', { name: /create booking/i });
-    await createBtn.waitFor({ state: "visible", timeout: 5000 });
-    await createBtn.click();
-
-    // 3. Verifikasi Payload Egress (Memastikan Data Konsisten dan Aman)
-    await page.waitForTimeout(2000); // Tunggu request
-    
-    // Pastikan request berhasil ditangkap (walaupun datanya kosong jika validasi UI gagal, minimal kita tahu egress-nya intercepted)
-    if (createPayload) {
-      expect(createPayload).toBeDefined();
-      console.log("Berhasil mencegat payload Egress. Payload efisien dan tidak over-fetch.");
+    if (!payloadDelivered) {
+      const visibleFeedback = await page
+        .locator('text=/Booking belum bisa dilanjutkan|Masih ada field wajib|Gagal menyimpan|Submit booking sebelumnya|Perubahan referensi|Template parse/i')
+        .allTextContents();
+      throw new Error(
+        `Payload booking belum terkirim ke endpoint orders. Feedback: ${visibleFeedback.join(" | ") || "tidak ada feedback terlihat"}`,
+      );
     }
-    
-    // Catatan: Edge Case
-    // Jika data customer tidak lengkap, UI harusnya mencegah klik tombol submit
-    // Testing memastikan logic validation berjalan semestinya di sisi client.
+
+    const submittedOrder = createPayload?.orders?.[0] ?? null;
+    expect(submittedOrder).toBeTruthy();
+    expect(submittedOrder?.customerName).toBe(TEST_CUSTOMER_NAME);
+    expect(submittedOrder?.customerPhone).toBe(TEST_PHONE);
+    expect(submittedOrder?.deliveryDate).toBe(TEST_DELIVERY_DATE);
+    expect(submittedOrder?.deliverySlot).toBe("10:00");
   });
 });
-
-/**
- * PENJELASAN STEP-BY-STEP:
- * 1. Menyiapkan kredensial dummy dan fungsi login yang bisa melakukan retry jika gagal (Try-Catch).
- * 2. Meng-intercept (mencegat) request ke `catalog-config` dan `orders` agar tidak mengotori Database produksi/staging (Egress efficiency).
- * 3. Mengisi data kustomer dan mensimulasikan proses klik submit pada formulir booking baru.
- * 4. Memeriksa payload JSON yang dikirimkan oleh React Client, memastikan data yang terkirim itu sesuai dan "aman".
- */

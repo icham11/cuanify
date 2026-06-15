@@ -1,5 +1,6 @@
 import type { BakeryOrder, OrderItem } from "@/components/bakery/store";
 import { parseServiceChargeFromNotes } from "@/lib/bookings/delivery-rules";
+import { parseSafeDate } from "@/lib/helpers/date-normalization";
 
 // ==================== KONSTANTA ====================
 
@@ -91,7 +92,7 @@ export function generateInvoiceNumber(order: BakeryOrder): string {
 
   // Ambil tahun & bulan dari deliveryDate atau hari ini
   const dateSource = order.deliveryDate
-    ? new Date(order.deliveryDate)
+    ? (parseSafeDate(order.deliveryDate) ?? new Date())
     : new Date();
   const year = dateSource.getFullYear();
   const monthIndex = dateSource.getMonth();

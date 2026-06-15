@@ -8,6 +8,10 @@ import {
 } from "lucide-react";
 import { OrderStatusLog } from "@/components/bakery/store";
 import { normalizeOrderStatus } from "@/lib/bookings/order-status";
+import {
+  parseSafeDate,
+  toIsoDateString,
+} from "@/lib/helpers/date-normalization";
 
 const timelineSteps = [
   { key: "Created", label: "Booking Created", icon: CheckCircle2, offset: -2 },
@@ -35,9 +39,10 @@ function resolveIndex(status: string) {
 }
 
 function formatDate(baseDate: string, offset: number) {
-  const date = new Date(baseDate);
+  const date = parseSafeDate(baseDate);
+  if (!date) return `${baseDate} 09:00`;
   date.setDate(date.getDate() + offset);
-  return `${date.toISOString().slice(0, 10)} 09:00`;
+  return `${toIsoDateString(date)} 09:00`;
 }
 
 function formatActor(entry: OrderStatusLog): string {

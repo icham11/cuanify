@@ -788,6 +788,26 @@ function getDailyBookingSequence(
   return max + 1;
 }
 
+function resolveOrderBookingSequence(
+  orders: BakeryOrder[],
+  currentOrder: Pick<BakeryOrder, "id" | "bookingCode" | "resi">,
+  deliveryDate: string,
+): number {
+  const datePart = toBookingDatePart(deliveryDate);
+  const existingSequence = Math.max(
+    extractSequenceForDate(currentOrder.bookingCode || "", datePart),
+    extractSequenceForDate(currentOrder.resi || "", datePart),
+  );
+  if (existingSequence > 0) {
+    return existingSequence;
+  }
+
+  return getDailyBookingSequence(
+    orders.filter((order) => order.id !== currentOrder.id),
+    deliveryDate,
+  );
+}
+
 function generateBookingCode(
   customerName: string,
   customerPhone: string,
@@ -1834,7 +1854,9 @@ export function OrdersProvider({
     }, delayMs);
   }, []);
 
-  const fetchLatestOrdersFromServer = useCallback(async () => {
+  const fetchLatestOrdersFromServer = useCallback(async (
+    options?: { forceFresh?: boolean },
+  ) => {
     if (!enabled)
       return null as { orders: BakeryOrder[]; source: string } | null;
     if (typeof window === "undefined")
@@ -1842,7 +1864,9 @@ export function OrdersProvider({
 
     try {
       const payload = (await apiFetch(ORDERS_SYNC_ENDPOINT, {
-        cacheTtlMs: ORDERS_HYDRATION_CACHE_TTL_MS,
+        ...(options?.forceFresh
+          ? { cache: "no-store" as const }
+          : { cacheTtlMs: ORDERS_HYDRATION_CACHE_TTL_MS }),
       })) as {
         success?: boolean;
         data?: { orders?: BakeryOrder[]; source?: string };
@@ -1863,7 +1887,9 @@ export function OrdersProvider({
 
   const replaceLocalOrdersWithServer = useCallback(
     async (options?: { force?: boolean }) => {
-      const latestServerOrders = await fetchLatestOrdersFromServer();
+      const latestServerOrders = await fetchLatestOrdersFromServer({
+        forceFresh: options?.force === true,
+      });
       if (!latestServerOrders) return null;
 
       const currentLocalOrders =
@@ -2662,7 +2688,9 @@ export function OrdersProvider({
       let createdOrder: BakeryOrder | null = null;
 
       try {
-        const latestServerOrders = await fetchLatestOrdersFromServer();
+        const latestServerOrders = await fetchLatestOrdersFromServer({
+          forceFresh: true,
+        });
         const latestLocalOrders = getLatestOrdersSnapshot();
         const baseOrders = latestServerOrders?.orders ?? latestLocalOrders;
 
@@ -3567,12 +3595,32 @@ export function OrdersProvider({
         scheduleChanged || addressChanged || deliveryMethodChanged;
       const shouldClearQuote =
         deliveryMethodChanged && !usesShippingEngine(nextDeliveryMethod);
+      const bookingIdentityChanged =
+        existingOrder.customerName !== nextCustomerName ||
+        existingOrder.customerPhone !== nextCustomerPhone ||
+        existingOrder.deliveryDate !== nextDeliveryDate;
+      const nextBookingSequence = resolveOrderBookingSequence(
+        latestOrders,
+        existingOrder,
+        nextDeliveryDate,
+      );
+      const nextBookingCode =
+        bookingIdentityChanged || !existingOrder.bookingCode
+          ? generateBookingCode(
+              nextCustomerName,
+              nextCustomerPhone,
+              nextDeliveryDate,
+              nextBookingSequence,
+            )
+          : existingOrder.bookingCode;
 
       const parsedCommon = {
         ...(existingOrder.whatsAppParsedData?.common ?? {}),
         recipientName: nextCustomerName,
         recipientPhone: nextCustomerPhone,
         fullAddress: nextPrimaryAddress,
+        deliveryDate: nextDeliveryDate,
+        deliveryTime: nextDeliverySlot,
         deliveryMethod: nextDeliveryMethod,
       };
 
@@ -3596,6 +3644,7 @@ export function OrdersProvider({
       const nextOrder: BakeryOrder = {
         ...existingOrder,
         updatedAt: nowIso,
+        bookingCode: nextBookingCode,
         customerName: nextCustomerName,
         customerPhone: nextCustomerPhone,
         customerAddress: nextPrimaryAddress,
@@ -3630,6 +3679,10 @@ export function OrdersProvider({
         shippingQuote: shouldClearQuote
           ? null
           : (existingOrder.shippingQuote ?? null),
+        shippingReferenceId:
+          nextBookingCode !== existingOrder.bookingCode
+            ? generateShippingReferenceId(nextBookingCode, id)
+            : existingOrder.shippingReferenceId,
         resi:
           shouldClearShipment && existingOrder.shipment?.trackingNumber
             ? ""
@@ -3669,24 +3722,37 @@ export function OrdersProvider({
         previousDeliveryMethod: previousResolvedMethod,
         nextDeliveryMethod,
       });
-      persistOrders(nextOrders);
+      persistOrders(nextOrders, { syncToServer: false });
 
-      void runAutomationsForOrder("order_calendar_sync", id);
+      try {
+        await syncOrdersToServer(nextOrders, [id]);
+        const latestSyncedOrders = await replaceLocalOrdersWithServer({
+          force: true,
+        });
+        const syncedOrder =
+          latestSyncedOrders?.find((order) => order.id === id) ?? nextOrder;
 
-      if (scheduleChanged) {
-        void runAutomationsForOrder("order_rescheduled", id, { changeInfo });
+        void runAutomationsForOrder("order_calendar_sync", id);
+
+        if (scheduleChanged) {
+          void runAutomationsForOrder("order_rescheduled", id, { changeInfo });
+        }
+
+        if (
+          scheduleChanged &&
+          isDueForScheduledShipment(syncedOrder, getJakartaTodayIsoDate())
+        ) {
+          void createShipmentForOrder(id);
+        }
+
+        toast.success("Perubahan booking tersimpan");
+        return syncedOrder;
+      } catch (error) {
+        writeOrdersSnapshot(latestOrders);
+        lastLocalWriteAtRef.current = 0;
+        void hydrateOrdersFromServer(true);
+        throw error;
       }
-
-      if (
-        scheduleChanged &&
-        isDueForScheduledShipment(nextOrder, getJakartaTodayIsoDate())
-      ) {
-        void createShipmentForOrder(id);
-      }
-
-      toast.success("Perubahan booking tersimpan");
-      void hydrateOrdersFromServer(true);
-      return nextOrder;
     },
     [
       actorIdentity,
@@ -3695,7 +3761,9 @@ export function OrdersProvider({
       getLatestOrdersSnapshot,
       hydrateOrdersFromServer,
       persistOrders,
+      replaceLocalOrdersWithServer,
       runAutomationsForOrder,
+      syncOrdersToServer,
     ],
   );
 
@@ -3901,10 +3969,29 @@ export function OrdersProvider({
     (id: string, deliveryDate: string, deliverySlot: string) => {
       const nextOrders: BakeryOrder[] = orders.map((order) => {
         if (order.id !== id) return order;
+        const nextBookingCode = generateBookingCode(
+          order.customerName,
+          order.customerPhone,
+          deliveryDate,
+          resolveOrderBookingSequence(orders, order, deliveryDate),
+        );
         return {
           ...order,
+          bookingCode: nextBookingCode,
           deliveryDate,
           deliverySlot,
+          shippingReferenceId:
+            nextBookingCode !== order.bookingCode
+              ? generateShippingReferenceId(nextBookingCode, order.id)
+              : order.shippingReferenceId,
+          whatsAppParsedData: {
+            ...(order.whatsAppParsedData ?? {}),
+            common: {
+              ...(order.whatsAppParsedData?.common ?? {}),
+              deliveryDate,
+              deliveryTime: deliverySlot,
+            },
+          } as ParsedWhatsAppOrder,
           statusHistory: appendStatusLog(
             order.statusHistory,
             order.orderStatus,

@@ -16,6 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatCurrency } from "@/components/orders/formatters";
 import { useOrders } from "@/components/bakery/store";
 import SkeletonBlock from "@/components/bakery/shared/SkeletonBlock";
+import { parseSafeDate } from "@/lib/helpers/date-normalization";
 
 export default function OrdersChart() {
   const { orders } = useOrders();
@@ -26,10 +27,15 @@ export default function OrdersChart() {
     return () => clearTimeout(timer);
   }, []);
 
+  const getDeliveryWeekday = (deliveryDate: string): number | null => {
+    const parsed = parseSafeDate(deliveryDate);
+    if (!parsed) return null;
+    return parsed.getDay();
+  };
+
   const ordersPerDay = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day, index) => {
     const count = orders.filter((order) => {
-      const date = new Date(order.deliveryDate);
-      return Number.isFinite(date.getTime()) && date.getDay() === (index + 1) % 7;
+      return getDeliveryWeekday(order.deliveryDate) === (index + 1) % 7;
     }).length;
     return { day, orders: count };
   });
@@ -37,8 +43,10 @@ export default function OrdersChart() {
   const revenueTrend = ordersPerDay.map((dayItem) => {
     const revenue = orders
       .filter((order) => {
-        const date = new Date(order.deliveryDate);
-        return Number.isFinite(date.getTime()) && date.getDay() === (["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].indexOf(dayItem.day) + 1) % 7;
+        return (
+          getDeliveryWeekday(order.deliveryDate) ===
+          (["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].indexOf(dayItem.day) + 1) % 7
+        );
       })
       .reduce((sum, order) => sum + (order.totalPrice || 0), 0);
     return { day: dayItem.day, revenue };

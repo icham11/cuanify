@@ -44,6 +44,10 @@ import {
 } from "@/lib/bookings/order-status";
 import { getJakartaTodayIsoDate } from "@/lib/bookings/shipping-schedule";
 import { TEAM_MEMBERS_UPDATED_EVENT } from "@/lib/staff/events";
+import {
+  getIsoMonthKey,
+  parseSafeDate,
+} from "@/lib/helpers/date-normalization";
 
 type TeamMember = {
   userId: number;
@@ -100,8 +104,8 @@ function formatRupiah(value: number) {
 
 function formatDisplayDate(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
-  const date = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return value;
+  const date = parseSafeDate(value);
+  if (!date) return value;
   return new Intl.DateTimeFormat("id-ID", {
     day: "numeric",
     month: "short",
@@ -335,18 +339,15 @@ export default function BakeryDashboardPage() {
   );
 
   const completedOrdersThisMonth = useMemo(() => {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth();
+    const currentMonthKey = getIsoMonthKey(today);
+    if (!currentMonthKey) return [];
 
     return orders.filter((order) => {
       if (!order.deliveryDate) return false;
       if (!isFulfilledOrderStatus(order.orderStatus)) return false;
-
-      const date = new Date(`${order.deliveryDate}T00:00:00`);
-      return date.getFullYear() === year && date.getMonth() === month;
+      return getIsoMonthKey(order.deliveryDate) === currentMonthKey;
     });
-  }, [orders]);
+  }, [orders, today]);
 
   const lateOrders = useMemo(
     () => getLateOrders(orders, today),

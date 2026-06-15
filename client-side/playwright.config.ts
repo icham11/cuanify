@@ -1,6 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const baseURL = process.env.VISUAL_BASE_URL || "http://127.0.0.1:3001";
+const baseURL = process.env.VISUAL_BASE_URL || "http://localhost:3001";
 const useManagedWebServer = !process.env.VISUAL_BASE_URL;
 
 export default defineConfig({

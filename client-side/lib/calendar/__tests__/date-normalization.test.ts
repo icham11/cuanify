@@ -9,6 +9,7 @@ declare const expect: (value: unknown) => {
 
 import { isPastDate } from "@/lib/calendar/getCalendarStatus";
 import {
+  extractIsoDateFromBookingReference,
   normalizeDateInput,
   parseSafeDate,
   toIsoDateString,
@@ -39,5 +40,17 @@ describe("Date normalization and past-date detection", () => {
 
     const parsed = parseSafeDate("2026-04-04");
     expect(toIsoDateString(parsed ?? new Date(0))).toBe("2026-04-04");
+  });
+
+  it("Case 5: month-word dates on day 17 should normalize safely", () => {
+    expect(normalizeDateInput("17 Jun 2026")).toBe("2026-06-17");
+    expect(normalizeDateInput("17 Juni 2026")).toBe("2026-06-17");
+    expect(normalizeDateInput("Jun 17 2026")).toBe("2026-06-17");
+  });
+
+  it("Case 6: booking reference date extraction should keep day 17 intact", () => {
+    expect(extractIsoDateFromBookingReference("DE077-170626-001")).toBe(
+      "2026-06-17",
+    );
   });
 });
