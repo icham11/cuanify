@@ -2537,6 +2537,166 @@ async function readOrdersSnapshot(businessId: number) {
   });
 }
 
+function parseNormalizedSnapshotOrders(content: string | null | undefined) {
+  return parseOrdersContent(content)
+    .map((entry, index) => normalizeOrder(entry, index))
+    .filter((entry): entry is NormalizedOrder => Boolean(entry));
+}
+
+function matchesSnapshotOrderStatusFilter(
+  order: NormalizedOrder,
+  statusFilter: string,
+) {
+  if (!statusFilter) return true;
+
+  if (isBookingPaymentStatusFilter(statusFilter)) {
+    return getBookingPaymentStatusFilterAliases(statusFilter).includes(
+      order.paymentStatus || "",
+    );
+  }
+
+  const allowedStatuses = getBookingStatusFilterAliases(statusFilter);
+  if (allowedStatuses.includes(order.orderStatus || "")) {
+    return true;
+  }
+
+  return (
+    bookingStatusFilterMatchesBlank(statusFilter) &&
+    !(order.orderStatus || "").trim()
+  );
+}
+
+function filterSnapshotOrders(args: {
+  orders: NormalizedOrder[];
+  savedView: string;
+  todayFilter: string;
+  searchQuery: string;
+  statusFilter: string;
+  dateFilter: string;
+  startDate: string;
+  endDate: string;
+  implicitStartDate?: string;
+  implicitEndDate?: string;
+  courierFilter: BookingCourierFilter;
+  orderSourceFilter: BookingOrderSourceFilter;
+}) {
+  const query = args.searchQuery.trim().toLowerCase();
+
+  return args.orders.filter((order) => {
+    const deliveryDate = normalizeDateInput(order.deliveryDate) ?? order.deliveryDate;
+
+    if (!matchesSnapshotOrderStatusFilter(order, args.statusFilter)) {
+      return false;
+    }
+
+    if (args.savedView === "active") {
+      if (INACTIVE_STATUSES.includes(order.orderStatus || "")) {
+        return false;
+      }
+    }
+
+    if (args.savedView === "late") {
+      if (
+        !deliveryDate ||
+        deliveryDate >= args.todayFilter ||
+        INACTIVE_STATUSES.includes(order.orderStatus || "")
+      ) {
+        return false;
+      }
+    }
+
+    if (args.dateFilter && deliveryDate !== args.dateFilter) {
+      return false;
+    }
+
+    if (query) {
+      const haystacks = [
+        order.customerName,
+        order.bookingCode,
+        order.resi,
+        order.id,
+      ]
+        .map((value) => value.toLowerCase())
+        .join(" ");
+
+      if (!haystacks.includes(query)) {
+        return false;
+      }
+    }
+
+    if (args.startDate && (!deliveryDate || deliveryDate < args.startDate)) {
+      return false;
+    }
+
+    if (args.endDate && (!deliveryDate || deliveryDate > args.endDate)) {
+      return false;
+    }
+
+    if (
+      args.implicitStartDate &&
+      (!deliveryDate || deliveryDate < args.implicitStartDate)
+    ) {
+      return false;
+    }
+
+    if (
+      args.implicitEndDate &&
+      (!deliveryDate || deliveryDate > args.implicitEndDate)
+    ) {
+      return false;
+    }
+
+    if (!matchesBookingCourierFilter(order, args.courierFilter)) {
+      return false;
+    }
+
+    if (!matchesBookingOrderSourceFilter(order, args.orderSourceFilter)) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
+function sortSnapshotOrders(
+  orders: NormalizedOrder[],
+  mode: {
+    isPaginatedBookingsListMode: boolean;
+  },
+) {
+  const nextOrders = [...orders];
+
+  nextOrders.sort((left, right) => {
+    if (mode.isPaginatedBookingsListMode) {
+      const leftUpdatedAt = Date.parse(left.updatedAt || left.createdAt || "") || 0;
+      const rightUpdatedAt =
+        Date.parse(right.updatedAt || right.createdAt || "") || 0;
+      return rightUpdatedAt - leftUpdatedAt;
+    }
+
+    const leftDate = normalizeDateInput(left.deliveryDate) ?? left.deliveryDate;
+    const rightDate = normalizeDateInput(right.deliveryDate) ?? right.deliveryDate;
+    if (leftDate !== rightDate) {
+      return leftDate.localeCompare(rightDate);
+    }
+
+    return (left.deliverySlot || "").localeCompare(right.deliverySlot || "");
+  });
+
+  return nextOrders;
+}
+
+function shiftIsoDate(date: string, offsetDays: number) {
+  const match = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return date;
+
+  const shifted = new Date(
+    Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])),
+  );
+  shifted.setUTCDate(shifted.getUTCDate() + offsetDays);
+  return shifted.toISOString().slice(0, 10);
+}
+
 async function upsertOrdersSnapshot(
   db: SnapshotStore,
   params: {
@@ -3204,6 +3364,19 @@ export async function GET(request: NextRequest) {
     const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
     const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") || "50", 10)));
     const offset = (page - 1) * limit;
+    const isUnfilteredHydrationRequest =
+      !isFinancialMode &&
+      !isCalendarMode &&
+      !isDashboardMode &&
+      !isPaginatedBookingsListMode &&
+      savedView === "all" &&
+      !searchQuery &&
+      !statusFilter &&
+      !dateFilter &&
+      !courierFilter &&
+      !orderSourceFilter &&
+      !startDate &&
+      !endDate;
 
     // 3. Muat pemetaan token produk (tidak diperlukan pada financial mode)
     const productTokenLookup = isFinancialMode || isPaginatedBookingsListMode
@@ -3985,6 +4158,60 @@ export async function GET(request: NextRequest) {
 
         // 9. Kembalikan data list bersama metadata pagination
         const rowUpdatedAt = orderRows[0]?.updated_at?.toISOString() ?? null;
+
+        if (isUnfilteredHydrationRequest) {
+          const snapshotDoc = await readOrdersSnapshot(businessId).catch(
+            () => null,
+          );
+          const snapshotOrders = filterSnapshotOrders({
+            orders: parseNormalizedSnapshotOrders(snapshotDoc?.content),
+            savedView,
+            todayFilter,
+            searchQuery,
+            statusFilter,
+            dateFilter,
+            startDate,
+            endDate,
+            implicitStartDate: shiftIsoDate(todayFilter, -14),
+            implicitEndDate: shiftIsoDate(todayFilter, 90),
+            courierFilter,
+            orderSourceFilter,
+          });
+
+          if (
+            snapshotDoc &&
+            snapshotOrders.length > 0 &&
+            (!rowUpdatedAt ||
+              snapshotDoc.updatedAt.getTime() > Date.parse(rowUpdatedAt)) &&
+            !snapshotMatchesRowOrders(
+              snapshotOrders,
+              orders.map((order) => ({ id: order.id })),
+            )
+          ) {
+            const sortedSnapshotOrders = sortSnapshotOrders(snapshotOrders, {
+              isPaginatedBookingsListMode,
+            });
+
+            return NextResponse.json({
+              success: true,
+              data: {
+                source: "snapshot-newer-than-rows",
+                orders: sortedSnapshotOrders,
+                updatedAt: snapshotDoc.updatedAt.toISOString(),
+                pagination: {
+                  totalCount: sortedSnapshotOrders.length,
+                  page,
+                  limit,
+                  totalPages: Math.max(
+                    1,
+                    Math.ceil(sortedSnapshotOrders.length / limit),
+                  ),
+                },
+              },
+            });
+          }
+        }
+
         return NextResponse.json({
           success: true,
           data: {
@@ -4015,6 +4242,75 @@ export async function GET(request: NextRequest) {
           ...detail,
         },
       );
+    }
+
+    if (!isFinancialMode) {
+      const snapshotDoc = await readOrdersSnapshot(businessId).catch(() => null);
+      const snapshotOrders = parseNormalizedSnapshotOrders(snapshotDoc?.content);
+
+      if (snapshotDoc && snapshotOrders.length > 0) {
+        const filteredSnapshotOrders = filterSnapshotOrders({
+          orders: snapshotOrders,
+          savedView,
+          todayFilter,
+          searchQuery,
+          statusFilter,
+          dateFilter,
+          startDate,
+          endDate,
+          implicitStartDate:
+            !isCalendarMode &&
+            !isDashboardMode &&
+            !isPaginatedBookingsListMode &&
+            !isFinancialMode &&
+            !searchQuery &&
+            !statusFilter &&
+            !dateFilter &&
+            !startDate &&
+            !endDate
+              ? shiftIsoDate(todayFilter, -14)
+              : undefined,
+          implicitEndDate:
+            !isCalendarMode &&
+            !isDashboardMode &&
+            !isPaginatedBookingsListMode &&
+            !isFinancialMode &&
+            !searchQuery &&
+            !statusFilter &&
+            !dateFilter &&
+            !startDate &&
+            !endDate
+              ? shiftIsoDate(todayFilter, 90)
+              : undefined,
+          courierFilter,
+          orderSourceFilter,
+        });
+        const sortedSnapshotOrders = sortSnapshotOrders(filteredSnapshotOrders, {
+          isPaginatedBookingsListMode,
+        });
+        const paginatedSnapshotOrders = isPaginatedBookingsListMode
+          ? sortedSnapshotOrders.slice(offset, offset + limit)
+          : sortedSnapshotOrders;
+        const snapshotTotalCount = sortedSnapshotOrders.length;
+
+        return NextResponse.json({
+          success: true,
+          data: {
+            source: "snapshot-fallback",
+            orders: paginatedSnapshotOrders,
+            updatedAt: snapshotDoc.updatedAt.toISOString(),
+            pagination: {
+              totalCount: snapshotTotalCount,
+              page,
+              limit,
+              totalPages: Math.max(
+                1,
+                Math.ceil(snapshotTotalCount / limit),
+              ),
+            },
+          },
+        });
+      }
     }
 
     // Jika kosong, kembalikan array kosong dengan metadata pagination

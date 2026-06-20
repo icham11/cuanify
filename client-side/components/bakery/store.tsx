@@ -2852,7 +2852,6 @@ export function OrdersProvider({
           [newOrder],
           [id],
           {
-            skipWhatsAppNotification: true,
             partialOrders: true,
           },
         );
@@ -2881,13 +2880,13 @@ export function OrdersProvider({
         });
 
         toast.success(`Booking masuk produksi: ${bookingCode}`);
-        void runAutomationsForOrder("order_created", id);
         if (isHistoricalBackfill) {
           toast.message(
             "Booking backfill historis disimpan. Laporan dan kalender internal akan ikut terbarui tanpa trigger operasional baru.",
           );
           return id;
         }
+        void runAutomationsForOrder("order_calendar_sync", id);
         if (isScheduledShipmentOrder(newOrder)) {
           const todayJakarta = getJakartaTodayIsoDate();
           if (isDueForScheduledShipment(newOrder, todayJakarta)) {
