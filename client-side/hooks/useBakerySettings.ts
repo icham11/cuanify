@@ -121,6 +121,13 @@ async function fetchBakerySettingsFromApi(
     return cachedSettings;
   }
 
+  // Do not persist transient default fallback into memory/session cache.
+  // Otherwise a brief DB timeout can make legacy defaults "come back"
+  // for the next 5 minutes even after the API recovers.
+  if (payload.stale === true && payload.source === "default-fallback") {
+    return payload.data;
+  }
+
   cachedSettings = payload.data;
   cachedSettingsFetchedAt = Date.now();
   writeSettingsToStorage(scope, payload.data, cachedSettingsFetchedAt);

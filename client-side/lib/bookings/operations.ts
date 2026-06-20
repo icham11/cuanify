@@ -300,13 +300,14 @@ export function isDateBlockedForOrdering(
   const blockedDates = context?.blockedDates ?? BAKERY_BLOCKED_DATES;
   const allowHistoricalBackfill = context?.allowHistoricalBackfill === true;
 
+  if (blockedDates.includes(normalized)) {
+    return true;
+  }
+
   if (allowHistoricalBackfill && isPastDate(normalized, now)) {
     return false;
   }
 
-  if (isOrderingBlockedToday(now, blockedDates)) {
-    return true;
-  }
   return isNextDayCutoffBlocked(
     normalized,
     now,

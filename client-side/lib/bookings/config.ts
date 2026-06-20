@@ -10,18 +10,10 @@ const DEFAULT_TOKEN_MULTIPLIER_COOKIES = 1;
 const DEFAULT_TOKEN_MULTIPLIER_CUPCAKES = 1.1;
 const DEFAULT_TOKEN_MULTIPLIER_BUKET = 1.25;
 const DEFAULT_TOKEN_MULTIPLIER_CAKE_TOWER = 1.4;
-const DEFAULT_BLOCKED_DATES = [
-  "2026-04-14",
-  "2026-04-15",
-  "2026-04-16",
-  "2026-04-17",
-  "2026-04-18",
-  "2026-04-19",
-  "2026-04-20",
-  "2026-04-21",
-  "2026-04-22",
-  "2026-04-23",
-];
+// Source of truth for blocked dates lives in bakery business settings.
+// Keep code-level defaults empty so transient settings fallback does not
+// silently re-block legacy holiday dates.
+const DEFAULT_BLOCKED_DATES: string[] = [];
 
 function clampPercent(value: number): number {
   if (!Number.isFinite(value)) return DEFAULT_DOWN_PAYMENT_PERCENT;
@@ -70,7 +62,7 @@ function parseBlockedDates(): string[] {
     .map((item) => item.trim())
     .filter((item) => /^\d{4}-\d{2}-\d{2}$/.test(item));
 
-  return Array.from(new Set([...DEFAULT_BLOCKED_DATES, ...parsed]));
+  return Array.from(new Set(parsed));
 }
 
 export const BAKERY_DOWN_PAYMENT_PERCENT = parseDownPaymentPercent();
