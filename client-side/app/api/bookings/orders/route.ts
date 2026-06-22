@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
+export const maxDuration = 300;
 import crypto from "crypto";
 import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
@@ -6260,95 +6261,93 @@ export async function POST(request: NextRequest) {
         shouldSendWhatsAppNotification &&
         createdOrdersForWhatsApp.length > 0
       ) {
-        const waSettledResults = await Promise.allSettled(
-          createdOrdersForWhatsApp.map(
-            async (notification: QueuedWhatsAppNotification) => {
-            const result = await sendOrderToWhatsApp(notification.payload);
+        after(async () => {
+          const waSettledResults = await Promise.allSettled(
+            createdOrdersForWhatsApp.map(
+              async (notification: QueuedWhatsAppNotification) => {
+              const result = await sendOrderToWhatsApp(notification.payload);
+              return {
+                orderId: notification.orderId,
+                bookingCode: notification.bookingCode,
+                ...result,
+              } satisfies PersistedWhatsAppNotificationResult;
+              },
+            ),
+          );
+          const waNotificationResults = waSettledResults.map((result, index) => {
+            if (result.status === "fulfilled") {
+              return result.value;
+            }
+
             return {
-              orderId: notification.orderId,
-              bookingCode: notification.bookingCode,
-              ...result,
+              orderId: createdOrdersForWhatsApp[index]?.orderId ?? "",
+              bookingCode:
+                createdOrdersForWhatsApp[index]?.bookingCode ??
+                createdOrdersForWhatsApp[index]?.orderId ??
+                "",
+              ok: false,
+              stage: "send" as const,
+              message:
+                result.reason instanceof Error
+                  ? result.reason.message
+                  : String(result.reason),
             } satisfies PersistedWhatsAppNotificationResult;
-            },
-          ),
-        );
-        const waNotificationResults = waSettledResults.map((result, index) => {
-          if (result.status === "fulfilled") {
-            return result.value;
+          });
+
+          try {
+            await persistWhatsAppNotificationResults({
+              businessId,
+              results: waNotificationResults,
+            });
+          } catch (statusPersistError) {
+            console.error(
+              "[api/bookings/orders] failed to persist WA notification status",
+              {
+                businessId,
+                userId,
+                error:
+                  statusPersistError instanceof Error
+                    ? statusPersistError.message
+                    : String(statusPersistError),
+              },
+            );
           }
 
-          return {
-            orderId: createdOrdersForWhatsApp[index]?.orderId ?? "",
-            bookingCode:
-              createdOrdersForWhatsApp[index]?.bookingCode ??
-              createdOrdersForWhatsApp[index]?.orderId ??
-              "",
-            ok: false,
-            stage: "send" as const,
-            message:
-              result.reason instanceof Error
-                ? result.reason.message
-                : String(result.reason),
-          } satisfies PersistedWhatsAppNotificationResult;
-        });
+          const failedResults = waNotificationResults.filter(
+            (result) => !result.ok,
+          );
+          const waNotificationMode =
+            failedResults.length === 0
+              ? "sent"
+              : failedResults.length === waNotificationResults.length
+                ? "failed"
+                : "partial";
 
-        try {
-          await persistWhatsAppNotificationResults({
-            businessId,
-            results: waNotificationResults,
-          });
-        } catch (statusPersistError) {
-          console.error(
-            "[api/bookings/orders] failed to persist WA notification status",
+          if (failedResults.length > 0) {
+            console.error("[api/bookings/orders] WA notification failures", {
+              businessId,
+              userId,
+              failureCount: failedResults.length,
+              failures: failedResults.map((failure) => ({
+                orderId: failure.orderId,
+                bookingCode: failure.bookingCode,
+                stage: failure.stage,
+                message: failure.message,
+              })),
+            });
+          }
+
+          console.info(
+            "[api/bookings/orders] WA notification dispatch completed.",
             {
               businessId,
               userId,
-              error:
-                statusPersistError instanceof Error
-                  ? statusPersistError.message
-                  : String(statusPersistError),
+              count: waNotificationResults.length,
+              failedCount: failedResults.length,
+              mode: waNotificationMode,
             },
           );
-        }
-
-        const failedResults = waNotificationResults.filter(
-          (result) => !result.ok,
-        );
-        const waNotificationMode =
-          failedResults.length === 0
-            ? "sent"
-            : failedResults.length === waNotificationResults.length
-              ? "failed"
-              : "partial";
-        const warnings = failedResults.map(
-          (failure) =>
-            `WA produksi belum terkirim untuk ${failure.bookingCode || failure.orderId}: ${failure.message}`,
-        );
-
-        if (failedResults.length > 0) {
-          console.error("[api/bookings/orders] WA notification failures", {
-            businessId,
-            userId,
-            failureCount: failedResults.length,
-            failures: failedResults.map((failure) => ({
-              orderId: failure.orderId,
-              bookingCode: failure.bookingCode,
-              stage: failure.stage,
-              message: failure.message,
-            })),
-          });
-        }
-
-        console.info(
-          "[api/bookings/orders] WA notification dispatch completed.",
-          {
-            businessId,
-            userId,
-            count: waNotificationResults.length,
-            failedCount: failedResults.length,
-            mode: waNotificationMode,
-          },
-        );
+        });
 
         return NextResponse.json({
           success: true,
@@ -6357,11 +6356,11 @@ export async function POST(request: NextRequest) {
             itemCount: orders.length,
             durationMs,
             ...summaryStats,
-            waNotificationMode,
+            waNotificationMode: "queued_background",
             waNotificationEligible: createdOrdersForWhatsApp.length,
             waNotificationQueued: createdOrdersForWhatsApp.length,
-            waNotificationResults,
-            warnings,
+            waNotificationResults: [],
+            warnings: [],
             skipWhatsAppNotification: false,
           },
         });
