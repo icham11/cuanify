@@ -2,10 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Menu, MessageCircle, Search, Star, Users } from "lucide-react";
-import { useOrders } from "@/components/bakery/store";
+import { MessageCircle, Search, Star, Users } from "lucide-react";
 import { useRole } from "@/context/RoleContext";
 import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
+import { apiFetch } from "@/lib/api/client";
+import { ACTIVE_BUSINESS_CHANGED_EVENT } from "@/lib/api/business";
+import { BAKERY_ORDERS_UPDATED_EVENT } from "@/lib/bookings/client-events";
 
 type CustomerSegment = "all" | "vip" | "repeat" | "new";
 
@@ -20,6 +22,8 @@ type CustomerRow = {
   lastDeliverySlot: string;
   segment: Exclude<CustomerSegment, "all">;
 };
+
+type CustomerApiRow = Omit<CustomerRow, "segment">;
 
 const VIP_THRESHOLD = 10_000_000;
 
@@ -108,9 +112,11 @@ function getSegmentLabel(segment: CustomerRow["segment"]): string {
 export default function BakeryCustomersPage() {
   const router = useRouter();
   const { isOwner, loading: roleLoading } = useRole();
-  const { orders } = useOrders();
   const [query, setQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState<CustomerSegment>("all");
+  const [customerRows, setCustomerRows] = useState<CustomerApiRow[]>([]);
+  const [isLoadingCustomers, setIsLoadingCustomers] = useState(true);
+  const [customersError, setCustomersError] = useState("");
 
   useEffect(() => {
     if (roleLoading) return;
@@ -119,65 +125,84 @@ export default function BakeryCustomersPage() {
     }
   }, [isOwner, roleLoading, router]);
 
-  if (roleLoading || !isOwner) {
-    return null;
-  }
+  useEffect(() => {
+    if (roleLoading || !isOwner) return;
+    if (typeof window === "undefined") return;
 
-  const allCustomers = useMemo<CustomerRow[]>(() => {
-    const grouped = new Map<string, Omit<CustomerRow, "segment">>();
+    let cancelled = false;
 
-    orders.forEach((order) => {
-      const name = (order.customerName || "").trim();
-      const phone = normalizePhone(order.customerPhone || "");
-      const address =
-        order.deliveryAddresses?.[0]?.addressLine?.trim() ||
-        order.customerAddress?.trim() ||
-        "-";
+    const loadCustomers = async () => {
+      setIsLoadingCustomers(true);
 
-      if (!name && !phone) return;
+      try {
+        const payload = (await apiFetch("/api/bookings/orders?mode=customers", {
+          cache: "no-store",
+        })) as {
+          success?: boolean;
+          data?: { customers?: CustomerApiRow[] };
+          error?: string;
+        };
 
-      const keyBase = `${name.toLowerCase()}||${phone.toLowerCase()}`;
-      const key = keyBase || `${address.toLowerCase()}||unknown`;
-      const orderTotal = Math.max(0, Number(order.totalPrice || 0));
-      const deliveryDate = (order.deliveryDate || "").trim();
-      const existing = grouped.get(key);
+        if (cancelled) return;
 
-      if (!existing) {
-        grouped.set(key, {
-          key,
-          name: name || "Customer",
-          phone: phone || "-",
-          address,
-          orderCount: 1,
-          totalSpent: orderTotal,
-          lastOrderDate: deliveryDate,
-          lastDeliverySlot: (order.deliverySlot || "").trim(),
-        });
-        return;
-      }
-
-      existing.orderCount += 1;
-      existing.totalSpent += orderTotal;
-
-      if (deliveryDate && deliveryDate > existing.lastOrderDate) {
-        existing.lastOrderDate = deliveryDate;
-        existing.lastDeliverySlot = (order.deliverySlot || "").trim();
-        existing.address = address || existing.address;
-      }
-    });
-
-    return Array.from(grouped.values())
-      .map((customer) => ({
-        ...customer,
-        segment: getCustomerSegment(customer),
-      }))
-      .sort((left, right) => {
-        if (right.totalSpent !== left.totalSpent) {
-          return right.totalSpent - left.totalSpent;
+        if (!payload.success) {
+          throw new Error(payload.error || "Gagal memuat data customer.");
         }
-        return left.name.localeCompare(right.name, "id");
-      });
-  }, [orders]);
+
+        setCustomerRows(
+          Array.isArray(payload.data?.customers) ? payload.data.customers : [],
+        );
+        setCustomersError("");
+      } catch (error) {
+        if (cancelled) return;
+        setCustomersError(
+          error instanceof Error
+            ? error.message
+            : "Gagal memuat data customer.",
+        );
+      } finally {
+        if (!cancelled) {
+          setIsLoadingCustomers(false);
+        }
+      }
+    };
+
+    const handleRefresh = () => {
+      void loadCustomers();
+    };
+
+    void loadCustomers();
+    window.addEventListener(
+      ACTIVE_BUSINESS_CHANGED_EVENT,
+      handleRefresh as EventListener,
+    );
+    window.addEventListener(
+      BAKERY_ORDERS_UPDATED_EVENT,
+      handleRefresh as EventListener,
+    );
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener(
+        ACTIVE_BUSINESS_CHANGED_EVENT,
+        handleRefresh as EventListener,
+      );
+      window.removeEventListener(
+        BAKERY_ORDERS_UPDATED_EVENT,
+        handleRefresh as EventListener,
+      );
+    };
+  }, [isOwner, roleLoading]);
+
+  const allCustomers = useMemo<CustomerRow[]>(
+    () =>
+      customerRows.map((customer) => ({
+        ...customer,
+        phone: normalizePhone(customer.phone || ""),
+        segment: getCustomerSegment(customer),
+      })),
+    [customerRows],
+  );
 
   const summary = useMemo(() => {
     const vipCount = allCustomers.filter(
@@ -216,6 +241,10 @@ export default function BakeryCustomersPage() {
   }, [activeFilter, allCustomers, query]);
 
   const todayLabel = useMemo(() => formatHeaderDate(new Date()), []);
+
+  if (roleLoading || !isOwner) {
+    return null;
+  }
 
   return (
     <div className="mx-auto max-w-7xl space-y-4 pb-10">
@@ -311,7 +340,21 @@ export default function BakeryCustomersPage() {
         </div>
 
         <div className="mt-2.5 grid gap-3 xl:grid-cols-2">
-          {filteredCustomers.length === 0 ? (
+          {customersError ? (
+            <div className="rounded-[24px] border border-[#e9c8be] bg-[#fff4f1] px-5 py-4 text-sm text-[#a44f37] shadow-[0_18px_42px_-30px_rgba(103,66,39,0.5)]">
+              {customersError}
+            </div>
+          ) : null}
+
+          {isLoadingCustomers && filteredCustomers.length === 0 ? (
+            <div className="rounded-[24px] border border-[#dcc7b5] bg-[#fffaf6] px-5 py-10 text-center text-sm text-[#94755f] shadow-[0_18px_42px_-30px_rgba(103,66,39,0.5)]">
+              Memuat seluruh data customer dari database...
+            </div>
+          ) : null}
+
+          {!isLoadingCustomers &&
+          !customersError &&
+          filteredCustomers.length === 0 ? (
             <div className="rounded-[24px] border border-[#dcc7b5] bg-[#fffaf6] px-5 py-10 text-center text-sm text-[#94755f] shadow-[0_18px_42px_-30px_rgba(103,66,39,0.5)]">
               Tidak ada data customer untuk filter ini.
             </div>

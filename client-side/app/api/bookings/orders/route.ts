@@ -37,10 +37,16 @@ import {
   type CourierFilter as BookingCourierFilter,
 } from "@/lib/bookings/courier-filter";
 import {
-  sendOrderToWhatsApp,
   type SendOrderToWhatsAppResult,
   type SendOrderToWhatsAppInput,
 } from "@/lib/whatsapp/sendOrderToWhatsApp";
+import { runBookingAutomations } from "@/lib/bookings/automation-service";
+import type {
+  BookingAutomationChangeInfo,
+  BookingAutomationEvent,
+  BookingAutomationOrderPayload,
+  BookingAutomationResponse,
+} from "@/lib/bookings/automation-types";
 import { syncBakeryOrderInventory } from "@/lib/bookings/inventory-sync";
 import {
   detailFieldDefinitions,
@@ -274,6 +280,30 @@ export interface DbOrderRow {
   payment_transactions: unknown;
   created_at: Date;
   updated_at: Date;
+}
+
+interface DbCustomerRow {
+  external_id: string;
+  booking_code: string | null;
+  customer_name: string | null;
+  customer_phone: string | null;
+  customer_address: string | null;
+  delivery_date: string | null;
+  delivery_slot: string | null;
+  total_price: unknown;
+  created_at: Date;
+  updated_at: Date;
+}
+
+interface CustomerListRow {
+  key: string;
+  name: string;
+  phone: string;
+  address: string;
+  orderCount: number;
+  totalSpent: number;
+  lastOrderDate: string;
+  lastDeliverySlot: string;
 }
 
 export interface DbItemRow {
@@ -542,6 +572,95 @@ function asBoolean(value: unknown): boolean {
 function asNumber(value: unknown): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizeCustomerPhoneKey(value: string): string {
+  const digits = value.replace(/\D/g, "");
+  if (!digits) return "";
+  if (digits.startsWith("62")) return digits;
+  if (digits.startsWith("0")) return `62${digits.slice(1)}`;
+  return digits;
+}
+
+function buildCustomerGroupingKey(input: {
+  name: string;
+  phone: string;
+  address: string;
+  fallbackId: string;
+}): string {
+  const normalizedName = input.name.trim().toLowerCase();
+  const normalizedPhone = normalizeCustomerPhoneKey(input.phone);
+  const normalizedAddress = input.address.trim().toLowerCase();
+
+  if (normalizedName || normalizedPhone) {
+    return `${normalizedName}||${normalizedPhone}`;
+  }
+
+  if (normalizedAddress) {
+    return `${normalizedAddress}||unknown`;
+  }
+
+  return `unknown||${input.fallbackId}`;
+}
+
+function aggregateCustomerRows(rows: DbCustomerRow[]): CustomerListRow[] {
+  const grouped = new Map<string, CustomerListRow>();
+
+  for (const row of rows) {
+    const name = asString(row.customer_name).trim();
+    const phone = asString(row.customer_phone).trim();
+    const address = asString(row.customer_address).trim() || "-";
+    const deliveryDate = normalizeDateInput(row.delivery_date) ?? "";
+    const totalPrice = Math.max(0, asNumber(row.total_price));
+    const key = buildCustomerGroupingKey({
+      name,
+      phone,
+      address,
+      fallbackId: row.external_id,
+    });
+    const existing = grouped.get(key);
+
+    if (!existing) {
+      grouped.set(key, {
+        key,
+        name: name || "Customer",
+        phone: phone || "-",
+        address,
+        orderCount: 1,
+        totalSpent: totalPrice,
+        lastOrderDate: deliveryDate,
+        lastDeliverySlot: asString(row.delivery_slot).trim(),
+      });
+      continue;
+    }
+
+    existing.orderCount += 1;
+    existing.totalSpent += totalPrice;
+
+    if (deliveryDate && (!existing.lastOrderDate || deliveryDate > existing.lastOrderDate)) {
+      existing.lastOrderDate = deliveryDate;
+      existing.lastDeliverySlot = asString(row.delivery_slot).trim();
+      if (address && address !== "-") {
+        existing.address = address;
+      }
+      if (name) {
+        existing.name = name;
+      }
+      if (phone) {
+        existing.phone = phone;
+      }
+    }
+  }
+
+  return [...grouped.values()].sort((left, right) => {
+    if (right.totalSpent !== left.totalSpent) {
+      return right.totalSpent - left.totalSpent;
+    }
+    if (right.orderCount !== left.orderCount) {
+      return right.orderCount - left.orderCount;
+    }
+    return left.name.localeCompare(right.name, "id");
+  });
 }
 
 function resolveOrderFinancialFields(input: {
@@ -1453,10 +1572,18 @@ class DuplicateOrderError extends Error {
   }
 }
 
-type QueuedWhatsAppNotification = {
+type QueuedOrderAutomation = {
   orderId: string;
   bookingCode: string;
-  payload: SendOrderToWhatsAppInput;
+  eventType: BookingAutomationEvent;
+  order: BookingAutomationOrderPayload;
+};
+
+type PersistedOrderAutomationResult = {
+  orderId: string;
+  bookingCode: string;
+  eventType: BookingAutomationEvent;
+  response: BookingAutomationResponse;
 };
 
 type PersistedWhatsAppNotificationResult = SendOrderToWhatsAppResult & {
@@ -1464,19 +1591,60 @@ type PersistedWhatsAppNotificationResult = SendOrderToWhatsAppResult & {
   bookingCode: string;
 };
 
-function buildWhatsAppNotificationSummary(
-  result: PersistedWhatsAppNotificationResult,
-): string {
-  if (result.ok) {
-    return "WA produksi berhasil dikirim.";
+function summarizeAutomationResult(result: BookingAutomationResponse): {
+  success: boolean;
+  message: string;
+} {
+  const actions = [
+    { name: "Calendar", result: result.calendar },
+    { name: "WA Produksi", result: result.fonnteProduction },
+    { name: "WA Customer", result: result.fonnteCustomer },
+    { name: "Sheets", result: result.sheets },
+  ];
+  const effective = actions.filter((item) => !item.result.skipped);
+  const successCount = effective.filter((item) => item.result.ok).length;
+  const failCount = effective.length - successCount;
+
+  if (effective.length === 0) {
+    return {
+      success: true,
+      message: "Tidak ada automasi aktif untuk event ini.",
+    };
   }
 
-  return `WA produksi gagal: ${result.message}`;
+  if (failCount === 0) {
+    return {
+      success: true,
+      message: `Automasi berhasil (${successCount}/${effective.length}).`,
+    };
+  }
+
+  const failedDetails = effective
+    .filter((item) => !item.result.ok)
+    .map((item) => `${item.name}: ${item.result.message}`)
+    .join(" | ");
+
+  return {
+    success: false,
+    message: `Automasi selesai dengan kendala (${successCount} berhasil, ${failCount} gagal). ${failedDetails}`,
+  };
 }
 
-async function persistWhatsAppNotificationResults(params: {
+function toLegacyWhatsAppNotificationResult(
+  result: PersistedOrderAutomationResult,
+): PersistedWhatsAppNotificationResult {
+  return {
+    orderId: result.orderId,
+    bookingCode: result.bookingCode,
+    ok: result.response.fonnteProduction.ok,
+    stage: "send",
+    message: result.response.fonnteProduction.message,
+  };
+}
+
+async function persistAutomationRunResults(params: {
   businessId: number;
-  results: PersistedWhatsAppNotificationResult[];
+  results: PersistedOrderAutomationResult[];
 }) {
   const { businessId, results } = params;
   if (results.length === 0) return;
@@ -1503,27 +1671,47 @@ async function persistWhatsAppNotificationResults(params: {
     if (!existing) continue;
 
     const timestamp = new Date().toISOString();
-    const summary = buildWhatsAppNotificationSummary(result);
+    const summary = summarizeAutomationResult(result.response);
     const currentSimulations = asRecord(existing.simulations) ?? {};
     const nextSimulations: JsonRecord = {
       ...currentSimulations,
-      productionWhatsappSent: result.ok,
-      lastAutomationMessage: summary,
+      productionWhatsappSent:
+        asBoolean(currentSimulations.productionWhatsappSent) ||
+        result.response.fonnteProduction.ok,
+      customerWhatsappSent:
+        asBoolean(currentSimulations.customerWhatsappSent) ||
+        result.response.fonnteCustomer.ok,
+      calendarEventCreated:
+        asBoolean(currentSimulations.calendarEventCreated) ||
+        result.response.calendar.ok,
+      googleSheetsSynced:
+        asBoolean(currentSimulations.googleSheetsSynced) ||
+        result.response.sheets.ok,
+      lastAutomationMessage: summary.message,
       lastAutomationAt: timestamp,
     };
-    if (result.ok) {
+    if (result.response.fonnteProduction.ok || result.response.fonnteCustomer.ok) {
       nextSimulations.whatsappSent =
         asBoolean(currentSimulations.whatsappSent) || true;
+    }
+    if (result.response.calendar.externalId) {
+      nextSimulations.calendarEventId = result.response.calendar.externalId;
+    }
+    if (result.response.calendar.externalLink) {
+      nextSimulations.calendarEventLink = result.response.calendar.externalLink;
+    }
+    if (result.response.sheets.externalId) {
+      nextSimulations.googleSheetsRange = result.response.sheets.externalId;
     }
 
     const nextAutomationLogs = [
       ...asArrayOfRecords(existing.automation_logs),
       {
         id: `automation-${result.orderId}-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-        eventType: "order_created",
+        eventType: result.eventType,
         timestamp,
-        success: result.ok,
-        summary,
+        success: summary.success,
+        summary: summary.message,
       },
     ];
 
@@ -2275,6 +2463,159 @@ function toWhatsAppPayload(order: NormalizedOrder): SendOrderToWhatsAppInput {
     slotNotes: buildTemplateSlotNotes(order),
     customerNotes: buildWhatsAppCustomerNotes(order),
     designNotes: buildWhatsAppDesignNotes(order),
+  };
+}
+
+function toBookingAutomationPayload(
+  order: NormalizedOrder,
+  changeInfo?: BookingAutomationChangeInfo,
+): BookingAutomationOrderPayload {
+  const whatsAppPayload = toWhatsAppPayload(order);
+
+  return {
+    id: order.id,
+    bookingCode: order.bookingCode || "",
+    resi: order.resi || "",
+    customerName: order.customerName || "",
+    customerPhone: order.customerPhone || "",
+    customerAddress: order.customerAddress || "",
+    deliveryDate: normalizeDateInput(order.deliveryDate) || order.deliveryDate || "",
+    deliverySlot: order.deliverySlot || "",
+    deliveryMethod: whatsAppPayload.shippingMethod || "",
+    paymentStatus: order.paymentStatus || "Pending",
+    orderStatus: order.orderStatus || "Inquiry",
+    totalPrice: asNumber(order.totalPrice),
+    manualAdjustment: asNumber(order.manualAdjustment),
+    deliveryFee: asNumber(order.deliveryFee),
+    downPaymentAmount: asNumber(order.downPaymentAmount),
+    remainingBalance: asNumber(order.remainingBalance),
+    notes: order.notes || "",
+    items: order.items.map((item, index) => {
+      const record = asRecord(item);
+      return {
+        id: asString(record?.id) || `item-${index + 1}`,
+        category: asString(record?.category),
+        subcategory: asString(record?.subcategory),
+        productName: asString(record?.productName),
+        size: asString(record?.size),
+        quantity: asNumber(record?.quantity),
+        tokenDifficulty:
+          (asString(record?.tokenDifficulty) as
+            | "SIMPLE"
+            | "NORMAL"
+            | "HARD"
+            | "ADVANCED"
+            | "EXPERT"
+            | "MEDIUM"
+            | "DIFFICULT"
+            | "") || undefined,
+        notes: asString(record?.notes) || undefined,
+        productType:
+          (asString(record?.productType) as
+            | "COOKIE"
+            | "BOUQUET"
+            | "CAKE"
+            | "CUPCAKE"
+            | "TOWER"
+            | "") || undefined,
+        selectedPrice:
+          record?.selectedPrice === undefined
+            ? undefined
+            : asNumber(record?.selectedPrice),
+        basePrice:
+          record?.basePrice === undefined ? undefined : asNumber(record?.basePrice),
+        cookiePrice:
+          record?.cookiePrice === undefined
+            ? undefined
+            : asNumber(record?.cookiePrice),
+        designCount:
+          record?.designCount === undefined
+            ? undefined
+            : Math.round(asNumber(record?.designCount)),
+        additionalDesignCount:
+          record?.additionalDesignCount === undefined
+            ? undefined
+            : Math.round(asNumber(record?.additionalDesignCount)),
+        additionalCost:
+          record?.additionalCost === undefined
+            ? undefined
+            : asNumber(record?.additionalCost),
+        bouquetType:
+          (asString(record?.bouquetType) as "HAND" | "STANDING" | "") || undefined,
+        bouquetCost:
+          record?.bouquetCost === undefined
+            ? undefined
+            : asNumber(record?.bouquetCost),
+        cakeDiameterCm:
+          record?.cakeDiameterCm === undefined
+            ? undefined
+            : Math.round(asNumber(record?.cakeDiameterCm)),
+        cakeHeightCm:
+          record?.cakeHeightCm === undefined
+            ? undefined
+            : Math.round(asNumber(record?.cakeHeightCm)),
+        cakeType:
+          (asString(record?.cakeType) as "DUMMY" | "REAL" | "") || undefined,
+        cupcakePackType:
+          (asString(record?.cupcakePackType) as "DOZEN" | "INDIVIDUAL" | "") ||
+          undefined,
+        hasCookieTopper:
+          typeof record?.hasCookieTopper === "boolean"
+            ? record?.hasCookieTopper
+            : undefined,
+        lineTotal:
+          record?.lineTotal === undefined ? undefined : asNumber(record?.lineTotal),
+      };
+    }),
+    deliveryAddresses: order.deliveryAddresses.map((address, index) => {
+      const record = asRecord(address);
+      return {
+        id: asString(record?.id) || `addr-${index + 1}`,
+        label: asString(record?.label),
+        area: asString(record?.area),
+        addressLine: asString(record?.addressLine),
+        postalCode: asString(record?.postalCode) || undefined,
+      };
+    }),
+    imageUrl: whatsAppPayload.imageUrl || order.imageUrl || "",
+    imageUrls: whatsAppPayload.imageUrls ?? order.imageUrls ?? [],
+    referenceImages:
+      whatsAppPayload.referenceImages ??
+      (Array.isArray(order.referenceImages) ? order.referenceImages : []),
+    changeInfo,
+    shippingQuote: order.shippingQuote ?? null,
+    shipment: order.shipment ?? null,
+    whatsAppParsedData: order.whatsAppParsedData ?? null,
+  };
+}
+
+function buildRescheduleChangeInfo(params: {
+  previousDate: unknown;
+  previousSlot: unknown;
+  nextDate: string;
+  nextSlot: string;
+}): BookingAutomationChangeInfo | undefined {
+  const previousDate =
+    normalizeDateInput(params.previousDate) || asString(params.previousDate);
+  const nextDate = normalizeDateInput(params.nextDate) || params.nextDate;
+  const previousSlot = asString(params.previousSlot);
+  const nextSlot = params.nextSlot;
+  const lines: string[] = [];
+
+  if (previousDate && previousDate !== nextDate) {
+    lines.push(`Tanggal Pengiriman: ${previousDate} -> ${nextDate}`);
+  }
+  if (previousSlot && previousSlot !== nextSlot) {
+    lines.push(`Jam Pengiriman: ${previousSlot} -> ${nextSlot}`);
+  }
+
+  if (lines.length === 0) {
+    return undefined;
+  }
+
+  return {
+    summary: "Jadwal booking diperbarui.",
+    lines,
   };
 }
 
@@ -3338,6 +3679,7 @@ export async function GET(request: NextRequest) {
     const url = new URL(request.url);
     const mode = url.searchParams.get("mode") || "list";
     const savedView = url.searchParams.get("view") || "all";
+    const isCustomersMode = mode === "customers";
     const isFinancialMode = mode === "financial";
     const isCalendarMode = mode === "calendar";
     const isDashboardMode = mode === "dashboard";
@@ -3377,6 +3719,39 @@ export async function GET(request: NextRequest) {
       !orderSourceFilter &&
       !startDate &&
       !endDate;
+
+    if (isCustomersMode) {
+      await ensureBakeryTables();
+
+      const customerRows = await prisma.$queryRaw<DbCustomerRow[]>`
+        SELECT
+          external_id,
+          booking_code,
+          customer_name,
+          customer_phone,
+          customer_address,
+          delivery_date,
+          delivery_slot,
+          total_price,
+          created_at,
+          updated_at
+        FROM bakery_orders
+        WHERE business_id = ${businessId}
+          AND deleted_at IS NULL
+        ORDER BY
+          COALESCE(delivery_date, created_at::date::text) DESC,
+          updated_at DESC
+      `;
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          source: "rows",
+          customers: aggregateCustomerRows(customerRows),
+          updatedAt: customerRows[0]?.updated_at?.toISOString() ?? null,
+        },
+      });
+    }
 
     // 3. Muat pemetaan token produk (tidak diperlukan pada financial mode)
     const productTokenLookup = isFinancialMode || isPaginatedBookingsListMode
@@ -5321,7 +5696,7 @@ export async function POST(request: NextRequest) {
         insertedItemCount: number;
         insertedAddressCount: number;
         inventoryWarnings: string[];
-        createdOrdersForWhatsApp: QueuedWhatsAppNotification[];
+        queuedAutomationJobs: QueuedOrderAutomation[];
       };
       const maxDbRetries = Number(process.env.DB_RETRY_COUNT ?? 2);
       let _attempt = 0;
@@ -5336,7 +5711,7 @@ export async function POST(request: NextRequest) {
               let insertedAddressCount = 0;
               let capacityReconcileNeeded = false;
               const inventoryWarnings = new Set<string>();
-              const createdOrdersForWhatsApp: QueuedWhatsAppNotification[] = [];
+              const queuedAutomationJobs: QueuedOrderAutomation[] = [];
               const auditDocuments: Prisma.BusinessDocumentCreateManyInput[] =
                 [];
 
@@ -5574,6 +5949,17 @@ export async function POST(request: NextRequest) {
                     )
                   : false;
                 const existingDeliverySlot = existingOrder?.delivery_slot ?? "";
+                const normalizedExistingDeliveryDate =
+                  normalizeDateInput(existingOrder?.delivery_date) ??
+                  asString(existingOrder?.delivery_date);
+                const normalizedNextDeliveryDate =
+                  normalizeDateInput(order.deliveryDate) || order.deliveryDate || "";
+                const scheduleChangedForAutomation =
+                  Boolean(existingOrder) &&
+                  wasActive &&
+                  isActiveStatus &&
+                  (normalizedExistingDeliveryDate !== normalizedNextDeliveryDate ||
+                    existingDeliverySlot !== (order.deliverySlot || ""));
 
                 const shouldValidateSchedule =
                   hasCapacityChange &&
@@ -6102,10 +6488,26 @@ export async function POST(request: NextRequest) {
                 const isBecomingActive = wasInactive && isActiveStatus;
 
                 if (isBecomingActive) {
-                  createdOrdersForWhatsApp.push({
+                  queuedAutomationJobs.push({
                     orderId: order.id,
                     bookingCode: order.bookingCode || order.resi || order.id,
-                    payload: toWhatsAppPayload(order),
+                    eventType: "order_created",
+                    order: toBookingAutomationPayload(order),
+                  });
+                } else if (scheduleChangedForAutomation) {
+                  queuedAutomationJobs.push({
+                    orderId: order.id,
+                    bookingCode: order.bookingCode || order.resi || order.id,
+                    eventType: "order_rescheduled",
+                    order: toBookingAutomationPayload(
+                      order,
+                      buildRescheduleChangeInfo({
+                        previousDate: existingOrder?.delivery_date,
+                        previousSlot: existingDeliverySlot,
+                        nextDate: normalizedNextDeliveryDate,
+                        nextSlot: order.deliverySlot || "",
+                      }),
+                    ),
                   });
                 }
 
@@ -6201,7 +6603,7 @@ export async function POST(request: NextRequest) {
                 insertedItemCount,
                 insertedAddressCount,
                 inventoryWarnings: Array.from(inventoryWarnings),
-                createdOrdersForWhatsApp,
+                queuedAutomationJobs,
               };
             },
             {
@@ -6227,79 +6629,111 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      const { createdOrdersForWhatsApp, ...summaryStats } = transactionSummary;
+      const { queuedAutomationJobs, ...summaryStats } = transactionSummary;
+      const createdOrderAutomationJobs = queuedAutomationJobs.filter(
+        (job) => job.eventType === "order_created",
+      );
 
       console.info("[api/bookings/orders] database upsert complete", {
         businessId,
         userId,
         durationMs,
         ...summaryStats,
-        waNotificationEligible: createdOrdersForWhatsApp.length,
+        automationEligible: queuedAutomationJobs.length,
+        waNotificationEligible: createdOrderAutomationJobs.length,
         waNotificationQueued: shouldSendWhatsAppNotification
-          ? createdOrdersForWhatsApp.length
+          ? createdOrderAutomationJobs.length
           : 0,
         waNotificationMode: shouldSendWhatsAppNotification ? "sent" : "skipped",
       });
 
-      if (!shouldSendWhatsAppNotification) {
+      if (queuedAutomationJobs.length === 0) {
+        console.info("[api/bookings/orders] no booking automations queued", {
+          businessId,
+          userId,
+          waEligibleCount: createdOrderAutomationJobs.length,
+        });
+      } else {
         console.info(
-          "[api/bookings/orders] WA notification skipped by request",
-          {
-            businessId,
-            userId,
-            eligibleCount: createdOrdersForWhatsApp.length,
-          },
-        );
-      } else if (createdOrdersForWhatsApp.length > 0) {
-        console.info(
-          `[api/bookings/orders] Awaiting ${createdOrdersForWhatsApp.length} WA notifications...`,
+          `[api/bookings/orders] Awaiting ${queuedAutomationJobs.length} booking automations...`,
         );
       }
 
-      if (
-        shouldSendWhatsAppNotification &&
-        createdOrdersForWhatsApp.length > 0
-      ) {
-        const waSettledResults = await Promise.allSettled(
-          createdOrdersForWhatsApp.map(
-            async (notification: QueuedWhatsAppNotification) => {
-            const result = await sendOrderToWhatsApp(notification.payload);
+      if (queuedAutomationJobs.length > 0) {
+        const automationSettledResults = await Promise.allSettled(
+          queuedAutomationJobs.map(async (job: QueuedOrderAutomation) => {
+            const effectiveEventType =
+              !shouldSendWhatsAppNotification &&
+              (job.eventType === "order_created" ||
+                job.eventType === "order_rescheduled")
+                ? "order_calendar_sync"
+                : job.eventType;
+
+            const response = await runBookingAutomations(
+              effectiveEventType,
+              job.order,
+              businessId,
+            );
+
             return {
-              orderId: notification.orderId,
-              bookingCode: notification.bookingCode,
-              ...result,
-            } satisfies PersistedWhatsAppNotificationResult;
-            },
-          ),
+              orderId: job.orderId,
+              bookingCode: job.bookingCode,
+              eventType: effectiveEventType,
+              response,
+            } satisfies PersistedOrderAutomationResult;
+          }),
         );
-        const waNotificationResults = waSettledResults.map((result, index) => {
+
+        const automationResults = automationSettledResults.map((result, index) => {
           if (result.status === "fulfilled") {
             return result.value;
           }
 
+          const fallbackJob = queuedAutomationJobs[index];
+          const failureMessage =
+            result.reason instanceof Error
+              ? result.reason.message
+              : String(result.reason);
+
           return {
-            orderId: createdOrdersForWhatsApp[index]?.orderId ?? "",
+            orderId: fallbackJob?.orderId ?? "",
             bookingCode:
-              createdOrdersForWhatsApp[index]?.bookingCode ??
-              createdOrdersForWhatsApp[index]?.orderId ??
-              "",
-            ok: false,
-            stage: "send" as const,
-            message:
-              result.reason instanceof Error
-                ? result.reason.message
-                : String(result.reason),
-          } satisfies PersistedWhatsAppNotificationResult;
+              fallbackJob?.bookingCode ?? fallbackJob?.orderId ?? "",
+            eventType: fallbackJob?.eventType ?? "order_calendar_sync",
+            response: {
+              success: true,
+              eventType: fallbackJob?.eventType ?? "order_calendar_sync",
+              fonnteCustomer: {
+                ok: false,
+                skipped: true,
+                message: "Automation aborted before customer WA execution.",
+              },
+              fonnteProduction: {
+                ok: false,
+                skipped: true,
+                message: "Automation aborted before production WA execution.",
+              },
+              calendar: {
+                ok: false,
+                message: failureMessage,
+              },
+              sheets: {
+                ok: false,
+                skipped: true,
+                message: "Automation aborted before Sheets execution.",
+              },
+            },
+          } satisfies PersistedOrderAutomationResult;
         });
 
         try {
-          await persistWhatsAppNotificationResults({
+          await persistAutomationRunResults({
             businessId,
-            results: waNotificationResults,
+            results: automationResults,
           });
         } catch (statusPersistError) {
           console.error(
-            "[api/bookings/orders] failed to persist WA notification status",
+            "[api/bookings/orders] failed to persist automation status",
             {
               businessId,
               userId,
@@ -6311,42 +6745,51 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        const failedResults = waNotificationResults.filter(
-          (result) => !result.ok,
-        );
+        const waNotificationResults = automationResults
+          .filter((result) => result.eventType === "order_created")
+          .map((result) => toLegacyWhatsAppNotificationResult(result));
+        const failedResults = automationResults
+          .map((result) => ({
+            ...result,
+            summary: summarizeAutomationResult(result.response),
+          }))
+          .filter((result) => !result.summary.success);
+        const waFailures = waNotificationResults.filter((result) => !result.ok);
         const waNotificationMode =
-          failedResults.length === 0
-            ? "sent"
-            : failedResults.length === waNotificationResults.length
-              ? "failed"
-              : "partial";
+          waNotificationResults.length === 0
+            ? "skipped"
+            : waFailures.length === 0
+              ? "sent"
+              : waFailures.length === waNotificationResults.length
+                ? "failed"
+                : "partial";
         const warnings = failedResults.map(
           (failure) =>
-            `WA produksi belum terkirim untuk ${failure.bookingCode || failure.orderId}: ${failure.message}`,
+            `Automasi booking ${failure.bookingCode || failure.orderId} bermasalah: ${failure.summary.message}`,
         );
 
         if (failedResults.length > 0) {
-          console.error("[api/bookings/orders] WA notification failures", {
+          console.error("[api/bookings/orders] automation failures", {
             businessId,
             userId,
             failureCount: failedResults.length,
             failures: failedResults.map((failure) => ({
               orderId: failure.orderId,
               bookingCode: failure.bookingCode,
-              stage: failure.stage,
-              message: failure.message,
+              eventType: failure.eventType,
+              message: failure.summary.message,
             })),
           });
         }
 
         console.info(
-          "[api/bookings/orders] WA notification dispatch completed.",
+          "[api/bookings/orders] booking automation dispatch completed.",
           {
             businessId,
             userId,
-            count: waNotificationResults.length,
+            count: automationResults.length,
             failedCount: failedResults.length,
-            mode: waNotificationMode,
+            waMode: waNotificationMode,
           },
         );
 
@@ -6358,11 +6801,13 @@ export async function POST(request: NextRequest) {
             durationMs,
             ...summaryStats,
             waNotificationMode,
-            waNotificationEligible: createdOrdersForWhatsApp.length,
-            waNotificationQueued: createdOrdersForWhatsApp.length,
+            waNotificationEligible: createdOrderAutomationJobs.length,
+            waNotificationQueued: shouldSendWhatsAppNotification
+              ? createdOrderAutomationJobs.length
+              : 0,
             waNotificationResults,
             warnings,
-            skipWhatsAppNotification: false,
+            skipWhatsAppNotification: !shouldSendWhatsAppNotification,
           },
         });
       }
@@ -6375,7 +6820,7 @@ export async function POST(request: NextRequest) {
           durationMs,
           ...summaryStats,
           waNotificationMode: "skipped",
-          waNotificationEligible: createdOrdersForWhatsApp.length,
+          waNotificationEligible: createdOrderAutomationJobs.length,
           waNotificationQueued: 0,
           waNotificationResults: [],
           skipWhatsAppNotification: true,
@@ -6487,13 +6932,17 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json({
-      success: true,
+      error:
+        "Gagal menyimpan booking ke database utama. Data sementara disimpan lokal/snapshot dan harus disinkron ulang.",
+      details:
+        "Booking belum dianggap aman untuk trigger calendar dan WhatsApp sampai sinkron server berhasil.",
       data: {
         mode: "snapshot-fallback",
         itemCount: orders.length,
         durationMs,
+        recoveryStoredInSnapshot: true,
       },
-    });
+    }, { status: 503 });
   } catch (error) {
     if (error instanceof AuthError) {
       return NextResponse.json({ error: error.message }, { status: 401 });

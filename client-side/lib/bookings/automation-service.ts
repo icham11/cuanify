@@ -1,5 +1,6 @@
 import { createSign } from "crypto";
 import prisma from "@/lib/prisma";
+import { normalizeDateInput } from "@/lib/helpers/date-normalization";
 import {
   buildProductionCaption,
   sendOrderToWhatsApp,
@@ -24,6 +25,14 @@ type GoogleCalendarOAuthMetadata = {
   refreshToken?: string;
   calendarId?: string;
 };
+
+function getBookingCalendarSyncMode(): "internal" | "google" {
+  return String(process.env.BOOKING_CALENDAR_SYNC_MODE || "internal")
+    .trim()
+    .toLowerCase() === "google"
+    ? "google"
+    : "internal";
+}
 
 function formatCurrency(value: number): string {
   return `Rp ${Number(value || 0).toLocaleString("id-ID")}`;
@@ -59,7 +68,9 @@ function base64UrlEncode(value: Buffer | string): string {
 }
 
 function getDeliverySummary(order: BookingAutomationOrderPayload): string {
-  return `${order.deliveryDate} ${order.deliverySlot}`;
+  const normalizedDeliveryDate =
+    normalizeDateInput(order.deliveryDate) || order.deliveryDate;
+  return `${normalizedDeliveryDate} ${order.deliverySlot}`;
 }
 
 function getPrimaryAddress(order: BookingAutomationOrderPayload): string {
@@ -193,7 +204,7 @@ function toNormalizedAutomationOrder(
       order.customerAddress ||
       order.deliveryAddresses[0]?.addressLine ||
       "",
-    deliveryDate: order.deliveryDate || "",
+    deliveryDate: normalizeDateInput(order.deliveryDate) || order.deliveryDate || "",
     deliverySlot: order.deliverySlot || "",
     notes: order.notes || "",
     basePrice: 0,
@@ -594,11 +605,13 @@ async function upsertGoogleCalendarEvent(
     };
   }
 
-  if (!order.deliveryDate || !order.deliverySlot) {
+  const normalizedDeliveryDate = normalizeDateInput(order.deliveryDate);
+
+  if (!normalizedDeliveryDate || !order.deliverySlot) {
     return {
       ok: false,
       skipped: true,
-      message: "Skipped: jadwal delivery belum lengkap.",
+      message: "Skipped: jadwal delivery belum lengkap atau format tanggal tidak valid.",
     };
   }
 
@@ -620,11 +633,11 @@ async function upsertGoogleCalendarEvent(
     summary: `${bookingCode} - ${order.customerName}`,
     description: buildCalendarDescription(order),
     start: {
-      dateTime: `${order.deliveryDate}T${startTime}:00`,
+      dateTime: `${normalizedDeliveryDate}T${startTime}:00`,
       timeZone: "Asia/Jakarta",
     },
     end: {
-      dateTime: `${order.deliveryDate}T${endTime}:00`,
+      dateTime: `${normalizedDeliveryDate}T${endTime}:00`,
       timeZone: "Asia/Jakarta",
     },
     reminders: {
@@ -750,6 +763,14 @@ async function appendGoogleSheet(
   };
 }
 
+function buildInternalCalendarSyncResult(): AutomationActionResult {
+  return {
+    ok: true,
+    skipped: true,
+    message: "Calendar internal otomatis mengikuti data booking server.",
+  };
+}
+
 export async function runBookingAutomations(
   eventType: BookingAutomationEvent,
   order: BookingAutomationOrderPayload,
@@ -765,6 +786,7 @@ export async function runBookingAutomations(
   const shouldSendProductionTextOnConfirm =
     String(process.env.FONNTE_SEND_PRODUCTION_TEXT_ON_CONFIRM || "false") ===
     "true";
+  const bookingCalendarSyncMode = getBookingCalendarSyncMode();
 
   let fonnteCustomer: AutomationActionResult = {
     ok: false,
@@ -793,15 +815,18 @@ export async function runBookingAutomations(
     eventType === "order_rescheduled" ||
     eventType === "order_calendar_sync"
   ) {
-    calendar = await upsertGoogleCalendarEvent(order, businessId).catch(
-      (error: unknown) => ({
-        ok: false,
-        message:
-          error instanceof Error
-            ? error.message
-            : "Failed to create Google Calendar event.",
-      }),
-    );
+    calendar =
+      bookingCalendarSyncMode === "google"
+        ? await upsertGoogleCalendarEvent(order, businessId).catch(
+            (error: unknown) => ({
+              ok: false,
+              message:
+                error instanceof Error
+                  ? error.message
+                  : "Failed to create Google Calendar event.",
+            }),
+          )
+        : buildInternalCalendarSyncResult();
   }
 
   if (eventType === "order_confirmed") {

@@ -19,8 +19,6 @@ import {
 import { getOrderItemsSummary } from "@/lib/bookings/order-display";
 import {
   buildOrderRecapWhatsAppText,
-  formatWhatsAppDeliveryDate,
-  formatWhatsAppDeliveryTime,
 } from "@/lib/bookings/whatsapp-message-template";
 import type {
   BookingAutomationEvent,
@@ -1151,98 +1149,6 @@ function buildAutomationPayload(
     shippingQuote: order.shippingQuote ?? null,
     shipment: order.shipment ?? null,
     whatsAppParsedData: order.whatsAppParsedData ?? null,
-  };
-}
-
-function normalizeBookingChangeValue(value?: string | null): string {
-  const normalized = (value || "").replace(/\s+/g, " ").trim();
-  return normalized || "-";
-}
-
-function buildBookingEditChangeInfo(params: {
-  currentOrder: BakeryOrder;
-  nextOrder: Pick<
-    BakeryOrder,
-    | "customerName"
-    | "customerPhone"
-    | "customerAddress"
-    | "deliveryDate"
-    | "deliverySlot"
-    | "items"
-    | "product"
-    | "deliveryAddresses"
-  >;
-  previousDeliveryMethod?: string | null;
-  nextDeliveryMethod?: string | null;
-}): NonNullable<BookingAutomationOrderPayload["changeInfo"]> {
-  const { currentOrder, nextOrder, previousDeliveryMethod, nextDeliveryMethod } =
-    params;
-  const lines: string[] = [];
-  const currentItemSummary = getOrderItemsSummary(
-    currentOrder.items ?? [],
-    currentOrder.product || "Order",
-  );
-  const nextItemSummary = getOrderItemsSummary(
-    nextOrder.items ?? [],
-    nextOrder.product || "Order",
-  );
-  const currentAddress =
-    currentOrder.deliveryAddresses?.[0]?.addressLine ||
-    currentOrder.customerAddress ||
-    "";
-  const nextAddress =
-    nextOrder.deliveryAddresses?.[0]?.addressLine ||
-    nextOrder.customerAddress ||
-    "";
-
-  if (currentOrder.deliveryDate !== nextOrder.deliveryDate) {
-    lines.push(
-      `Tanggal Pengiriman: ${formatWhatsAppDeliveryDate(currentOrder.deliveryDate)} -> ${formatWhatsAppDeliveryDate(nextOrder.deliveryDate)}`,
-    );
-  }
-
-  if (currentOrder.deliverySlot !== nextOrder.deliverySlot) {
-    lines.push(
-      `Jam Pengiriman: ${formatWhatsAppDeliveryTime(currentOrder.deliverySlot)} -> ${formatWhatsAppDeliveryTime(nextOrder.deliverySlot)}`,
-    );
-  }
-
-  if (currentItemSummary !== nextItemSummary) {
-    lines.push(
-      `Order: ${normalizeBookingChangeValue(currentItemSummary)} -> ${normalizeBookingChangeValue(nextItemSummary)}`,
-    );
-  }
-
-  if (currentOrder.customerName !== nextOrder.customerName) {
-    lines.push(
-      `Nama penerima: ${normalizeBookingChangeValue(currentOrder.customerName)} -> ${normalizeBookingChangeValue(nextOrder.customerName)}`,
-    );
-  }
-
-  if (currentOrder.customerPhone !== nextOrder.customerPhone) {
-    lines.push(
-      `No. telp penerima: ${normalizeBookingChangeValue(currentOrder.customerPhone)} -> ${normalizeBookingChangeValue(nextOrder.customerPhone)}`,
-    );
-  }
-
-  if (normalizeBookingChangeValue(currentAddress) !== normalizeBookingChangeValue(nextAddress)) {
-    lines.push(
-      `Alamat lengkap: ${normalizeBookingChangeValue(currentAddress)} -> ${normalizeBookingChangeValue(nextAddress)}`,
-    );
-  }
-
-  if (
-    normalizeBookingChangeValue(previousDeliveryMethod) !==
-    normalizeBookingChangeValue(nextDeliveryMethod)
-  ) {
-    lines.push(
-      `Metode Pengiriman: ${normalizeBookingChangeValue(previousDeliveryMethod)} -> ${normalizeBookingChangeValue(nextDeliveryMethod)}`,
-    );
-  }
-
-  return {
-    summary: "Booking order diperbarui.",
-    lines,
   };
 }
 
@@ -2701,11 +2607,16 @@ export function OrdersProvider({
         const timestampId = Date.now();
         const id = String(Math.max(localMaxId + 1, timestampId));
         createdOrderId = id;
-        const sequence = getDailyBookingSequence(baseOrders, order.deliveryDate);
+        const normalizedDeliveryDate =
+          normalizeDateInput(order.deliveryDate) ?? order.deliveryDate;
+        const sequence = getDailyBookingSequence(
+          baseOrders,
+          normalizedDeliveryDate,
+        );
         const bookingCode = generateBookingCode(
           order.customerName,
           order.customerPhone,
-          order.deliveryDate,
+          normalizedDeliveryDate,
           sequence,
         );
 
@@ -2737,10 +2648,13 @@ export function OrdersProvider({
             ? "Paid"
             : inferPaymentStatus(normalizedTotalPrice, normalizedTotalPaid);
         const isHistoricalBackfill = isHistoricalBackfillOrder(
-          order.deliveryDate,
+          normalizedDeliveryDate,
         );
         const historicalTimestamp = isHistoricalBackfill
-          ? buildHistoricalOrderTimestamp(order.deliveryDate, order.deliverySlot)
+          ? buildHistoricalOrderTimestamp(
+              normalizedDeliveryDate,
+              order.deliverySlot,
+            )
           : null;
         const eventTimestamp = historicalTimestamp || new Date().toISOString();
 
@@ -2753,7 +2667,7 @@ export function OrdersProvider({
           customerName: order.customerName,
           customerPhone: order.customerPhone,
           customerAddress: order.deliveryAddresses[0]?.addressLine ?? "",
-          deliveryDate: order.deliveryDate,
+          deliveryDate: normalizedDeliveryDate,
           deliverySlot: order.deliverySlot,
           notes: order.notes,
           basePrice: financialBreakdown.basePrice,
@@ -2886,7 +2800,6 @@ export function OrdersProvider({
           );
           return id;
         }
-        void runAutomationsForOrder("order_calendar_sync", id);
         if (isScheduledShipmentOrder(newOrder)) {
           const todayJakarta = getJakartaTodayIsoDate();
           if (isDueForScheduledShipment(newOrder, todayJakarta)) {
@@ -2963,7 +2876,6 @@ export function OrdersProvider({
     },
     [
       actorIdentity,
-      runAutomationsForOrder,
       createShipmentForOrder,
       syncOrdersToServer,
       fetchLatestOrdersFromServer,
@@ -3706,21 +3618,6 @@ export function OrdersProvider({
       const nextOrders = latestOrders.map((order) =>
         order.id === id ? nextOrder : order,
       );
-      const changeInfo = buildBookingEditChangeInfo({
-        currentOrder: existingOrder,
-        nextOrder: {
-          customerName: nextCustomerName,
-          customerPhone: nextCustomerPhone,
-          customerAddress: nextPrimaryAddress,
-          deliveryDate: nextDeliveryDate,
-          deliverySlot: nextDeliverySlot,
-          items: nextItems,
-          product: getOrderItemsSummary(nextItems, existingOrder.product || "Order"),
-          deliveryAddresses: nextDeliveryAddresses,
-        },
-        previousDeliveryMethod: previousResolvedMethod,
-        nextDeliveryMethod,
-      });
       persistOrders(nextOrders, { syncToServer: false });
 
       try {
@@ -3730,12 +3627,6 @@ export function OrdersProvider({
         });
         const syncedOrder =
           latestSyncedOrders?.find((order) => order.id === id) ?? nextOrder;
-
-        void runAutomationsForOrder("order_calendar_sync", id);
-
-        if (scheduleChanged) {
-          void runAutomationsForOrder("order_rescheduled", id, { changeInfo });
-        }
 
         if (
           scheduleChanged &&
@@ -3761,7 +3652,6 @@ export function OrdersProvider({
       hydrateOrdersFromServer,
       persistOrders,
       replaceLocalOrdersWithServer,
-      runAutomationsForOrder,
       syncOrdersToServer,
     ],
   );
@@ -4002,7 +3892,6 @@ export function OrdersProvider({
 
       persistOrders(nextOrders);
       toast.success("Order schedule updated");
-      void runAutomationsForOrder("order_rescheduled", id);
 
       const updatedOrder = nextOrders.find((order) => order.id === id);
       if (
@@ -4015,7 +3904,6 @@ export function OrdersProvider({
     [
       orders,
       persistOrders,
-      runAutomationsForOrder,
       actorIdentity,
       createShipmentForOrder,
     ],

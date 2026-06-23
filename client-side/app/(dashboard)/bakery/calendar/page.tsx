@@ -34,7 +34,6 @@ import {
   BookOpen,
 } from "lucide-react";
 import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
-import { toast } from "sonner";
 import {
   DEFAULT_MAX_TOKEN,
   getCalendarStatus,
@@ -65,21 +64,7 @@ type CalendarOrderEvent = {
   title: string;
   start: Date;
   end: Date;
-  resource:
-    | { source: "internal"; order: BakeryOrder }
-    | { source: "google"; htmlLink?: string; status?: string };
-};
-
-type GoogleCalendarApiEvent = {
-  id?: string;
-  summary?: string;
-  htmlLink?: string;
-  status?: string;
-  start?: { dateTime?: string; date?: string };
-  end?: { dateTime?: string; date?: string };
-  extendedProperties?: {
-    private?: { bookingId?: string; bookingCode?: string };
-  };
+  resource: { source: "internal"; order: BakeryOrder };
 };
 
 function toDateKey(value: Date) {
@@ -226,14 +211,6 @@ function getCalendarRange(date: Date, view: View) {
   };
 }
 
-function getCalendarRangeISO(date: Date, view: View) {
-  const range = getCalendarRange(date, view);
-  return {
-    timeMin: range.start.toISOString(),
-    timeMax: range.end.toISOString(),
-  };
-}
-
 function CalendarEventItem({ event }: EventProps<CalendarOrderEvent>) {
   return (
     <div className="truncate text-[11px] font-semibold">{event.title}</div>
@@ -296,33 +273,15 @@ export default function BakeryCalendarPage() {
   const router = useRouter();
   const { orders } = useOrders();
   const { business } = useBusiness();
-  const { isOwner, isAdmin, loading: isRoleLoading } = useRole();
-  const canManageCalendarConnection = isOwner || isAdmin;
+  const { loading: isRoleLoading } = useRole();
   const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
   const [isDateOrdersPopupOpen, setIsDateOrdersPopupOpen] = useState(false);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [currentView, setCurrentView] = useState<View>(Views.MONTH);
-  const [isOAuthLoading, setIsOAuthLoading] = useState(true);
-  const [isDisconnectingOAuth, setIsDisconnectingOAuth] = useState(false);
-  const [calendarViewMode, setCalendarViewMode] = useState<
-    "internal" | "google"
-  >("internal");
-  const [listFilterMode, setListFilterMode] = useState<
-    "all" | "needs-sync" | "synced"
-  >("all");
-  const [googleEvents, setGoogleEvents] = useState<GoogleCalendarApiEvent[]>(
-    [],
-  );
-  const [isLoadingGoogleEvents, setIsLoadingGoogleEvents] = useState(false);
   const [calendarRangeOrders, setCalendarRangeOrders] = useState<BakeryOrder[]>(
     [],
   );
   const [loadedCalendarRangeKey, setLoadedCalendarRangeKey] = useState("");
-  const [oauthStatus, setOauthStatus] = useState<{
-    connected: boolean;
-    connectedEmail: string | null;
-    calendarId: string | null;
-  }>({ connected: false, connectedEmail: null, calendarId: null });
   const didAutoFocusInitialPeriodRef = useRef(false);
 
   const calendarRange = useMemo(
@@ -519,117 +478,6 @@ export default function BakeryCalendarPage() {
     ? (statusByDate.get(selectedDateKey) ?? "AVAILABLE")
     : "AVAILABLE";
 
-  const loadOAuthStatus = async () => {
-    setIsOAuthLoading(true);
-    try {
-      const response = await fetch("/api/bookings/google-calendar/status", {
-        cache: "no-store",
-      });
-      const payload = (await response.json().catch(() => ({}))) as {
-        connected?: boolean;
-        connectedEmail?: string | null;
-        calendarId?: string | null;
-      };
-      if (!response.ok) return;
-      setOauthStatus({
-        connected: Boolean(payload.connected),
-        connectedEmail: payload.connectedEmail || null,
-        calendarId: payload.calendarId || null,
-      });
-    } finally {
-      setIsOAuthLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void loadOAuthStatus();
-  }, []);
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const gcal = params.get("gcal");
-    if (!gcal) return;
-    if (gcal === "connected") {
-      toast.success("Google Calendar OAuth connected.");
-      void loadOAuthStatus();
-      params.delete("gcal");
-      params.delete("reason");
-      const next = params.toString();
-      window.history.replaceState(
-        {},
-        "",
-        next ? `?${next}` : window.location.pathname,
-      );
-      return;
-    }
-    if (gcal === "error") {
-      const reason = params.get("reason") || "unknown";
-      toast.error(`Google OAuth failed: ${reason}`);
-      params.delete("gcal");
-      params.delete("reason");
-      const next = params.toString();
-      window.history.replaceState(
-        {},
-        "",
-        next ? `?${next}` : window.location.pathname,
-      );
-    }
-  }, []);
-
-  const connectGoogleCalendar = () => {
-    window.location.href = "/api/bookings/google-calendar/connect";
-  };
-
-  const disconnectGoogleCalendar = async () => {
-    if (isDisconnectingOAuth) return;
-    setIsDisconnectingOAuth(true);
-    try {
-      const response = await fetch("/api/bookings/google-calendar/disconnect", {
-        method: "POST",
-      });
-      if (!response.ok) {
-        toast.error("Failed to disconnect Google Calendar.");
-        return;
-      }
-      toast.success("Google Calendar disconnected.");
-      await loadOAuthStatus();
-    } finally {
-      setIsDisconnectingOAuth(false);
-    }
-  };
-
-  const fetchGoogleEvents = async (date: Date, view: View) => {
-    const { timeMin, timeMax } = getCalendarRangeISO(date, view);
-    setIsLoadingGoogleEvents(true);
-    try {
-      const params = new URLSearchParams({
-        timeMin,
-        timeMax,
-        maxResults: "500",
-      });
-      const response = await fetch(
-        `/api/bookings/google-calendar/events?${params.toString()}`,
-        { cache: "no-store" },
-      );
-      const payload = (await response.json().catch(() => ({}))) as {
-        events?: GoogleCalendarApiEvent[];
-        error?: string;
-      };
-      if (!response.ok) {
-        toast.error(payload.error || "Failed to load Google Calendar events.");
-        return;
-      }
-      setGoogleEvents(payload.events || []);
-    } finally {
-      setIsLoadingGoogleEvents(false);
-    }
-  };
-
-  useEffect(() => {
-    if (calendarViewMode !== "google") return;
-    void fetchGoogleEvents(currentDate, currentView);
-  }, [calendarViewMode, currentDate, currentView]);
-
   useEffect(() => {
     if (didAutoFocusInitialPeriodRef.current) return;
     if (orders.length === 0) return;
@@ -638,26 +486,18 @@ export default function BakeryCalendarPage() {
     didAutoFocusInitialPeriodRef.current = true;
     if (!focusedDate) return;
 
-    setCurrentDate(focusedDate);
-    setSelectedDate(focusedDate);
+    const frameId = window.requestAnimationFrame(() => {
+      setCurrentDate(focusedDate);
+      setSelectedDate(focusedDate);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
   }, [orders]);
 
-  const filteredInternalOrders = useMemo(() => {
-    if (listFilterMode === "needs-sync") {
-      return scopedCalendarOrders.filter(
-        (order) => !order.simulations?.calendarEventCreated,
-      );
-    }
-    if (listFilterMode === "synced") {
-      return scopedCalendarOrders.filter((order) =>
-        Boolean(order.simulations?.calendarEventCreated),
-      );
-    }
-    return scopedCalendarOrders;
-  }, [listFilterMode, scopedCalendarOrders]);
-
   const internalEvents = useMemo<CalendarOrderEvent[]>(() => {
-    return filteredInternalOrders.flatMap((order) => {
+    return scopedCalendarOrders.flatMap((order) => {
       const effectiveDate = resolveCalendarOrderDateKey(order);
       const start = parseOrderDateTime(effectiveDate, order.deliverySlot);
       if (!start) return [];
@@ -669,39 +509,12 @@ export default function BakeryCalendarPage() {
         resource: { source: "internal" as const, order },
       };
     });
-  }, [filteredInternalOrders]);
-
-  const googleCalendarEvents = useMemo<CalendarOrderEvent[]>(() => {
-    const mapped: CalendarOrderEvent[] = [];
-    googleEvents.forEach((event) => {
-      const startRaw = event.start?.dateTime || event.start?.date;
-      const endRaw = event.end?.dateTime || event.end?.date;
-      if (!startRaw) return;
-      const start = new Date(startRaw);
-      const end = endRaw ? new Date(endRaw) : addHours(start, 1);
-      if (!Number.isFinite(start.getTime())) return;
-      mapped.push({
-        id: event.id || `google-${startRaw}`,
-        title: event.summary || "Google Calendar Event",
-        start,
-        end,
-        resource: {
-          source: "google" as const,
-          htmlLink: event.htmlLink,
-          status: event.status,
-        },
-      });
-    });
-    return mapped;
-  }, [googleEvents]);
-
-  const events =
-    calendarViewMode === "google" ? googleCalendarEvents : internalEvents;
-  const visibleEvents = currentView === Views.MONTH ? [] : events;
+  }, [scopedCalendarOrders]);
+  const visibleEvents = currentView === Views.MONTH ? [] : internalEvents;
 
   const ordersByDate = useMemo(() => {
     const result = new Map<string, BakeryOrder[]>();
-    filteredInternalOrders.forEach((order) => {
+    scopedCalendarOrders.forEach((order) => {
       const normalizedDate = resolveCalendarOrderDateKey(order);
       if (!normalizedDate) return;
 
@@ -710,7 +523,7 @@ export default function BakeryCalendarPage() {
       result.set(normalizedDate, dateOrders);
     });
     return result;
-  }, [filteredInternalOrders]);
+  }, [scopedCalendarOrders]);
 
   const currentPeriodOrderDates = useMemo(() => {
     const startKey = safeToDateKey(calendarRange.start);
@@ -790,33 +603,6 @@ export default function BakeryCalendarPage() {
   const internalTodayCount = orders.filter(
     (order) => resolveCalendarOrderDateKey(order) === todayKey,
   ).length;
-  const needsSyncCount = orders.filter(
-    (order) => !order.simulations?.calendarEventCreated,
-  ).length;
-  const googleTodayCount = googleCalendarEvents.filter(
-    (entry) => safeToDateKey(entry.start) === todayKey,
-  ).length;
-
-  const mismatchCount = useMemo(() => {
-    const bookingIdsOnGoogle = new Set(
-      googleEvents
-        .map((event) => event.extendedProperties?.private?.bookingId)
-        .filter((value): value is string => Boolean(value)),
-    );
-    if (bookingIdsOnGoogle.size === 0) return null;
-    const { timeMin, timeMax } = getCalendarRangeISO(currentDate, currentView);
-    const minDate = safeToDateKey(new Date(timeMin));
-    const maxDate = safeToDateKey(new Date(timeMax));
-    if (!minDate || !maxDate) return null;
-    return orders.filter((order) => {
-      const normalizedDate = resolveCalendarOrderDateKey(order);
-      if (!normalizedDate) return false;
-      if (normalizedDate < minDate || normalizedDate > maxDate) return false;
-      if (["Cancelled", "Delivered", "Completed"].includes(order.orderStatus))
-        return false;
-      return !bookingIdsOnGoogle.has(order.id);
-    }).length;
-  }, [googleEvents, currentDate, currentView, orders]);
 
   const selectedStatusMessage = useMemo(() => {
     if (!selectedCapacity) return "";
@@ -848,24 +634,7 @@ export default function BakeryCalendarPage() {
       )
     : 0;
 
-  const activeModeSubtitle =
-    calendarViewMode === "google"
-      ? "Google calendar aktif"
-      : "Order internal aktif";
-
-  void canManageCalendarConnection;
-  void isOAuthLoading;
-  void setCalendarViewMode;
-  void setListFilterMode;
-  void isLoadingGoogleEvents;
-  void oauthStatus;
-  void connectGoogleCalendar;
-  void disconnectGoogleCalendar;
   void internalTodayCount;
-  void needsSyncCount;
-  void googleTodayCount;
-  void mismatchCount;
-  void activeModeSubtitle;
 
   const openDateOrdersPopup = (date: Date) => {
     setSelectedDate(date);
@@ -1005,26 +774,15 @@ export default function BakeryCalendarPage() {
                       openDateOrdersPopup(slotInfo.start);
                     }}
                     onSelectEvent={(event) => {
-                      if (event.resource.source === "internal") {
-                        router.push(
-                          `/bakery/bookings/${event.resource.order.id}`,
-                        );
-                        return;
-                      }
-                      if (event.resource.htmlLink) {
-                        window.open(
-                          event.resource.htmlLink,
-                          "_blank",
-                          "noopener,noreferrer",
-                        );
-                      }
+                      router.push(
+                        `/bakery/bookings/${event.resource.order.id}`,
+                      );
                     }}
                     eventPropGetter={(event) => ({
                       style: {
-                        backgroundColor:
-                          event.resource.source === "internal"
-                            ? statusColor(event.resource.order.orderStatus)
-                            : "#0ea5e9",
+                        backgroundColor: statusColor(
+                          event.resource.order.orderStatus,
+                        ),
                         color: "#ffffff",
                         border: "none",
                         borderRadius: "6px",

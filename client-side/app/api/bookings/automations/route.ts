@@ -211,9 +211,17 @@ export async function POST(request: NextRequest) {
 export async function GET() {
   try {
     await requireAuth();
+    const bookingCalendarSyncMode =
+      String(process.env.BOOKING_CALENDAR_SYNC_MODE || "internal")
+        .trim()
+        .toLowerCase() === "google"
+        ? "google"
+        : "internal";
     return NextResponse.json({
       status: "ok",
       integrations: {
+        bookingCalendarSyncMode,
+        internalCalendarBackedByBookings: true,
         fonnteConfigured: Boolean(process.env.FONNTE_TOKEN),
         productionTargetConfigured: Boolean(
           process.env.FONNTE_PRODUCTION_TARGET,
