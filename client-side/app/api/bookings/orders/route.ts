@@ -3739,7 +3739,7 @@ export async function GET(request: NextRequest) {
         WHERE business_id = ${businessId}
           AND deleted_at IS NULL
         ORDER BY
-          COALESCE(delivery_date, created_at::date::text) DESC,
+          COALESCE(delivery_date, created_at::date) DESC,
           updated_at DESC
       `;
 

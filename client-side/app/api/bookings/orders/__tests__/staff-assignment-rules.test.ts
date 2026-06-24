@@ -364,13 +364,13 @@ describe("Orders API projected daily token limit for staff assignment", () => {
         id: "ORD-1",
         assignedStaffUserId: 22,
         deliveryDate: "2026-04-10",
-        items: [{ category: "Cake", quantity: 300, tokenDifficulty: "simple" }],
+        items: [{ category: "Cake", quantity: 3, tokenDifficulty: "simple" }],
       }),
       makeOrder({
         id: "ORD-2",
         assignedStaffUserId: 22,
         deliveryDate: "2026-04-10",
-        items: [{ category: "Cake", quantity: 260, tokenDifficulty: "simple" }],
+        items: [{ category: "Cake", quantity: 3, tokenDifficulty: "simple" }],
       }),
     ];
 
@@ -400,13 +400,13 @@ describe("Orders API projected daily token limit for staff assignment", () => {
         id: "ORD-1",
         assignedStaffUserId: 22,
         deliveryDate: "2026-04-10",
-        items: [{ category: "Cake", quantity: 250, tokenDifficulty: "simple" }],
+        items: [{ category: "Cake", quantity: 3, tokenDifficulty: "simple" }],
       }),
       makeOrder({
         id: "ORD-2",
         assignedStaffUserId: 22,
         deliveryDate: "2026-04-10",
-        items: [{ category: "Cake", quantity: 250, tokenDifficulty: "simple" }],
+        items: [{ category: "Cake", quantity: 2, tokenDifficulty: "simple" }],
       }),
     ];
 
@@ -435,14 +435,14 @@ describe("Orders API projected daily token limit for staff assignment", () => {
         orderStatus: "Delivered",
         assignedStaffUserId: 22,
         deliveryDate: "2026-04-10",
-        items: [{ category: "Cake", quantity: 600, tokenDifficulty: "simple" }],
+        items: [{ category: "Cake", quantity: 6, tokenDifficulty: "simple" }],
       }),
       makeOrder({
         id: "ORD-2",
         orderStatus: "Inquiry",
         assignedStaffUserId: 22,
         deliveryDate: "2026-04-10",
-        items: [{ category: "Cake", quantity: 100, tokenDifficulty: "simple" }],
+        items: [{ category: "Cake", quantity: 1, tokenDifficulty: "simple" }],
       }),
     ];
 

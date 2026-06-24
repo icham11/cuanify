@@ -8,10 +8,12 @@ import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
 import { useRole } from "@/context/RoleContext";
 import {
   BAKERY_SETTINGS_UPDATED_EVENT,
+  hydrateBakerySettingsCache,
   invalidateBakerySettingsCache,
   useBakerySettings,
 } from "@/hooks/useBakerySettings";
 import type {
+  BakeryBusinessSettings,
   BakeryHolidaySetting,
   BakeryOperationalExpenseSetting,
   BakeryStaffSetting,
@@ -680,9 +682,7 @@ export default function BakerySettingsPage() {
 
     const payload = (await response.json().catch(() => ({}))) as {
       error?: string;
-      data?: {
-        productionStageProfiles?: EditableProductionStageProfile[];
-      };
+      data?: BakeryBusinessSettings;
     };
 
     if (!response.ok) {
@@ -691,6 +691,10 @@ export default function BakerySettingsPage() {
 
     invalidateBakerySettingsCache();
 
+    if (payload.data) {
+      hydrateBakerySettingsCache(payload.data);
+    }
+
     if (payload.data?.productionStageProfiles) {
       setProductionStageProfiles(payload.data.productionStageProfiles);
       setProductionStageProfilesSavedSnapshot(
@@ -698,7 +702,11 @@ export default function BakerySettingsPage() {
       );
     }
 
-    window.dispatchEvent(new Event(BAKERY_SETTINGS_UPDATED_EVENT));
+    window.dispatchEvent(
+      new CustomEvent(BAKERY_SETTINGS_UPDATED_EVENT, {
+        detail: { settings: payload.data ?? null },
+      }),
+    );
 
     return payload;
   };
@@ -956,6 +964,7 @@ export default function BakerySettingsPage() {
                             min={1}
                             max={10000}
                             value={entry.dailyTokenLimit}
+                            data-testid={`staff-token-input-${entry.userId}`}
                             disabled={!isOwner}
                             onChange={(event) =>
                               updateStaffSetting(entry.userId, {
@@ -1088,6 +1097,7 @@ export default function BakerySettingsPage() {
                   <input
                     type="time"
                     value={attendanceWindowStart}
+                    data-testid="attendance-window-start-input"
                     disabled={!isOwner}
                     onChange={(event) =>
                       setAttendanceWindowStart(event.target.value)
@@ -1103,6 +1113,7 @@ export default function BakerySettingsPage() {
                   <input
                     type="time"
                     value={attendanceWindowEnd}
+                    data-testid="attendance-window-end-input"
                     disabled={!isOwner}
                     onChange={(event) =>
                       setAttendanceWindowEnd(event.target.value)
@@ -1119,6 +1130,7 @@ export default function BakerySettingsPage() {
                 ⏰ Cut-off Time Order (H-1)
                 <select
                   value={cutoffHour}
+                  data-testid="cutoff-hour-select"
                   disabled={!isOwner}
                   onChange={(event) =>
                     setCutoffHour(Number(event.target.value))
@@ -1186,6 +1198,7 @@ export default function BakerySettingsPage() {
                   min={0}
                   max={100}
                   value={defaultDpPercentage}
+                  data-testid="default-dp-input"
                   disabled={!isOwner}
                   onChange={(event) =>
                     setDefaultDpPercentage(Number(event.target.value || 0))
@@ -1209,6 +1222,7 @@ export default function BakerySettingsPage() {
                 <input
                   type="checkbox"
                   checked={notifyProductionWhatsapp}
+                  data-testid="notify-production-whatsapp-checkbox"
                   disabled={!isOwner}
                   onChange={(event) =>
                     setNotifyProductionWhatsapp(event.target.checked)
@@ -1225,6 +1239,7 @@ export default function BakerySettingsPage() {
                     min={1}
                     max={10000}
                     value={dailyProductionTokenLimit}
+                    data-testid="daily-production-token-input"
                     disabled={!isOwner}
                     onChange={(event) =>
                       setDailyProductionTokenLimit(
@@ -1241,6 +1256,7 @@ export default function BakerySettingsPage() {
                     min={1}
                     max={10000}
                     value={staffDailyTokenLimit}
+                    data-testid="staff-default-token-input"
                     disabled={!isOwner}
                     onChange={(event) =>
                       setStaffDailyTokenLimit(Number(event.target.value || 0))
@@ -1275,6 +1291,7 @@ export default function BakerySettingsPage() {
                   Main Category Product
                   <select
                     value={selectedProductionStageCategory}
+                    data-testid="production-stage-category-select"
                     onChange={(event) =>
                       setSelectedProductionStageCategory(event.target.value)
                     }
@@ -1343,6 +1360,7 @@ export default function BakerySettingsPage() {
                           <input
                             type="text"
                             value={stage.label}
+                            data-testid={`production-stage-label-${stage.stage}`}
                             disabled={!isOwner}
                             onChange={(event) =>
                               updateProductionStageRow(
@@ -1446,6 +1464,7 @@ export default function BakerySettingsPage() {
                 type="button"
                 disabled={!isOwner}
                 onClick={addCustomExpense}
+                data-testid="add-monthly-expense-button"
                 className="inline-flex items-center gap-1 rounded-full border border-[#cb6837] bg-[#fff0df] px-3 py-1.5 text-xs font-bold text-[#cb6837] disabled:opacity-50"
               >
                 <Plus className="h-3.5 w-3.5" />
@@ -1457,12 +1476,14 @@ export default function BakerySettingsPage() {
                 {monthlyExpenses.map((entry) => (
                   <div
                     key={entry.id}
+                    data-testid={`monthly-expense-card-${entry.id}`}
                     className="rounded-[20px] border border-[#e2d1c3] bg-[#f8efe6] p-4"
                   >
                     <div className="mb-2 flex items-center gap-3">
                       <input
                         type="text"
                         value={entry.name}
+                        data-testid={`monthly-expense-name-${entry.id}`}
                         disabled={!isOwner || entry.category !== "custom"}
                         onChange={(event) =>
                           updateExpense(entry.id, { name: event.target.value })
@@ -1483,6 +1504,7 @@ export default function BakerySettingsPage() {
                       type="number"
                       min={0}
                       value={entry.amount}
+                      data-testid={`monthly-expense-amount-${entry.id}`}
                       disabled={!isOwner}
                       onChange={(event) =>
                         updateExpense(entry.id, {
@@ -1515,6 +1537,7 @@ export default function BakerySettingsPage() {
                 <input
                   type="date"
                   value={newHolidayDate}
+                  data-testid="holiday-date-input"
                   disabled={!isOwner}
                   onChange={(event) => setNewHolidayDate(event.target.value)}
                   className="h-11 rounded-2xl border border-[#dcc7b8] bg-[#fbf4ed] px-3 text-sm outline-none"
@@ -1523,6 +1546,7 @@ export default function BakerySettingsPage() {
                   type="button"
                   disabled={!isOwner}
                   onClick={addHoliday}
+                  data-testid="add-holiday-button"
                   className="rounded-2xl bg-[#cb6837] px-4 text-sm font-bold text-white disabled:opacity-50"
                 >
                   Tambah
@@ -1531,6 +1555,7 @@ export default function BakerySettingsPage() {
               <input
                 type="text"
                 value={newHolidayLabel}
+                data-testid="holiday-label-input"
                 disabled={!isOwner}
                 onChange={(event) => setNewHolidayLabel(event.target.value)}
                 placeholder="Contoh: Lebaran, Nyepi, Libur keluarga"
@@ -1593,6 +1618,7 @@ export default function BakerySettingsPage() {
             type="button"
             onClick={handleSave}
             disabled={!isOwner || isSaving}
+            data-testid="save-bakery-settings-button"
             className="inline-flex w-full items-center justify-center gap-2 rounded-[20px] bg-[#cb6837] px-4 py-3.5 text-sm font-bold text-white shadow-[0_14px_24px_-20px_rgba(200,96,48,0.8)] disabled:opacity-50"
           >
             {isSaving ? (

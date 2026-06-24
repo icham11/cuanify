@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { apiFetch, invalidateApiCache } from "@/lib/api/client";
+import { apiFetch, invalidateApiCache, primeApiCache } from "@/lib/api/client";
 import type { BakeryBusinessSettings } from "@/lib/bakery/settings";
 
 export const BAKERY_SETTINGS_UPDATED_EVENT = "bakery-settings-updated";
@@ -94,6 +94,21 @@ export function invalidateBakerySettingsCache() {
   } catch {
     // Ignore storage errors.
   }
+}
+
+export function hydrateBakerySettingsCache(data: BakeryBusinessSettings) {
+  const scope = getActiveBusinessScope();
+  ensureSettingsCacheScope(scope);
+
+  cachedSettings = data;
+  cachedSettingsFetchedAt = Date.now();
+  writeSettingsToStorage(scope, data, cachedSettingsFetchedAt);
+  primeApiCache(
+    "/api/bakery/settings",
+    { success: true, data },
+    undefined,
+    SETTINGS_CACHE_TTL_MS,
+  );
 }
 
 async function fetchBakerySettingsFromApi(

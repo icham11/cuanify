@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
 
-export default {
+const config = {
   resolve: {
     alias: {
       "@": rootDir,
@@ -11,5 +11,8 @@ export default {
   },
   test: {
     environment: "node",
+    globals: true,
   },
 };
+
+export default config;

@@ -94,6 +94,7 @@
     "eslint-config-next": "16.1.6",
     "prisma": "^7.4.0",
     "tailwindcss": "^4.2.0",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.9"
   }
 }
