@@ -27,6 +27,51 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+type CatalogConfigCacheEntry = {
+  expiresAt: number;
+  data: ReturnType<typeof normalizeCatalogAdminState> | null;
+};
+
+const CATALOG_CONFIG_CACHE_TTL_MS = 60_000;
+const globalForCatalogConfigCache = globalThis as typeof globalThis & {
+  __catalogConfigResponseCache?: Map<number, CatalogConfigCacheEntry>;
+};
+
+function getCatalogConfigResponseCache() {
+  if (!globalForCatalogConfigCache.__catalogConfigResponseCache) {
+    globalForCatalogConfigCache.__catalogConfigResponseCache = new Map();
+  }
+  return globalForCatalogConfigCache.__catalogConfigResponseCache;
+}
+
+function readCatalogConfigResponseCache(businessId: number) {
+  const entry = getCatalogConfigResponseCache().get(businessId);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    getCatalogConfigResponseCache().delete(businessId);
+    return null;
+  }
+  return entry.data;
+}
+
+function writeCatalogConfigResponseCache(
+  businessId: number,
+  data: ReturnType<typeof normalizeCatalogAdminState> | null,
+) {
+  getCatalogConfigResponseCache().set(businessId, {
+    data,
+    expiresAt: Date.now() + CATALOG_CONFIG_CACHE_TTL_MS,
+  });
+}
+
+function invalidateCatalogConfigResponseCache(businessId?: number) {
+  if (typeof businessId === "number") {
+    getCatalogConfigResponseCache().delete(businessId);
+    return;
+  }
+  getCatalogConfigResponseCache().clear();
+}
+
 const catalogStateSchema = z.object({
   productVariantPriceOverrides: z.record(z.string(), z.number()),
   addOnPriceOverrides: z.record(z.string(), z.number()),
@@ -86,6 +131,10 @@ export async function GET() {
   try {
     throwIfPrismaTimeoutCooldownActive();
     const { businessId } = await requireAuth();
+    const cached = readCatalogConfigResponseCache(businessId);
+    if (cached) {
+      return NextResponse.json({ success: true, data: cached }, { status: 200 });
+    }
 
     const rows = await prisma.$queryRaw<
       Array<{ id: number; metadata: unknown }>
@@ -97,6 +146,7 @@ export async function GET() {
        LIMIT 1`;
 
     if (!rows[0]) {
+      writeCatalogConfigResponseCache(businessId, null);
       return NextResponse.json({ success: true, data: null }, { status: 200 });
     }
 
@@ -113,6 +163,7 @@ export async function GET() {
     }
 
     const normalizedState = normalizeCatalogAdminState(parsed.data);
+    writeCatalogConfigResponseCache(businessId, normalizedState);
 
     if (JSON.stringify(normalizedState) !== JSON.stringify(parsed.data)) {
       const content = "bakery catalog config";
@@ -220,6 +271,7 @@ export async function PUT(request: NextRequest) {
     }
 
     revalidateTag("catalog", "max");
+    invalidateCatalogConfigResponseCache(businessId);
     invalidateEffectiveBookingCatalogCache(businessId);
     invalidateOrderProductTokenLookupCache(businessId);
     invalidateProductTokenMapCache(businessId);

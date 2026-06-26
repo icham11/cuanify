@@ -31,14 +31,46 @@ type StaffListResponseData = {
 };
 
 const globalForStaffCache = globalThis as typeof globalThis & {
-  __staffListCache?: Map<string, StaffListResponseData>;
+  __staffListCache?: Map<
+    string,
+    { expiresAt: number; data: StaffListResponseData }
+  >;
 };
+
+const STAFF_LIST_CACHE_TTL_MS = 60_000;
 
 function getStaffListCache() {
   if (!globalForStaffCache.__staffListCache) {
     globalForStaffCache.__staffListCache = new Map();
   }
   return globalForStaffCache.__staffListCache;
+}
+
+function readStaffListCache(key: string) {
+  const entry = getStaffListCache().get(key);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    getStaffListCache().delete(key);
+    return null;
+  }
+  return entry.data;
+}
+
+function writeStaffListCache(key: string, data: StaffListResponseData) {
+  getStaffListCache().set(key, {
+    data,
+    expiresAt: Date.now() + STAFF_LIST_CACHE_TTL_MS,
+  });
+}
+
+function invalidateStaffListCacheForUser(userId: number) {
+  const cache = getStaffListCache();
+  for (const key of [...cache.keys()]) {
+    const [, keyUserId] = key.split(":");
+    if (Number(keyUserId) === userId) {
+      cache.delete(key);
+    }
+  }
 }
 
 function getStaffCacheKey(auth: {
@@ -67,6 +99,12 @@ export async function GET() {
       auth.role !== "Cashier"
     ) {
       throw new ForbiddenError("Akses ditolak.");
+    }
+
+    const cacheKey = getStaffCacheKey(auth);
+    const cached = readStaffListCache(cacheKey);
+    if (cached) {
+      return NextResponse.json({ success: true, data: cached });
     }
 
     const businesses =
@@ -121,7 +159,7 @@ export async function GET() {
       })),
     };
 
-    getStaffListCache().set(getStaffCacheKey(auth), responseData);
+    writeStaffListCache(cacheKey, responseData);
 
     return NextResponse.json({
       success: true,
@@ -135,7 +173,7 @@ export async function GET() {
       isPrismaConnectionTimeout(error)
     ) {
       const auth = await requireAuth().catch(() => null);
-      const cached = auth ? getStaffListCache().get(getStaffCacheKey(auth)) : null;
+      const cached = auth ? readStaffListCache(getStaffCacheKey(auth)) : null;
 
       if (cached) {
         return NextResponse.json({
@@ -242,6 +280,9 @@ export async function POST(request: NextRequest) {
         role: normalizedRole,
       },
     });
+
+    invalidateStaffListCacheForUser(auth.userId);
+    invalidateStaffListCacheForUser(targetUser.id);
 
     return NextResponse.json({
       success: true,
@@ -361,6 +402,9 @@ export async function PATCH(request: NextRequest) {
       });
     }
 
+    invalidateStaffListCacheForUser(auth.userId);
+    invalidateStaffListCacheForUser(member.userId);
+
     // Fetch updated data
     const updatedUser = await prisma.user.findUnique({
       where: { id: member.userId },
@@ -419,6 +463,8 @@ export async function DELETE(request: NextRequest) {
     }
 
     await prisma.businessMember.delete({ where: { id: member.id } });
+    invalidateStaffListCacheForUser(auth.userId);
+    invalidateStaffListCacheForUser(member.userId);
 
     return NextResponse.json({ success: true });
   } catch (error) {

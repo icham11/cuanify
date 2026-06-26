@@ -122,6 +122,10 @@ function normalizeAttendanceReconciliationInput(
 export async function GET() {
   try {
     const auth = await requireAuth();
+    const cachedSettings = getCachedBakeryBusinessSettings(auth.businessId);
+    if (cachedSettings) {
+      return NextResponse.json({ success: true, data: cachedSettings });
+    }
 
     const settings = await getBakeryBusinessSettings(auth.businessId);
     rememberBakeryBusinessSettings(auth.businessId, settings);
