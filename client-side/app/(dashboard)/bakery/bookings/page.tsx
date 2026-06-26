@@ -173,7 +173,7 @@ export default function BookingListPage() {
   const fetchCurrentPageOrders = useMemo(
     () => async (
       pageOverride = currentPage,
-      options?: { signal?: AbortSignal },
+      options?: { signal?: AbortSignal; forceFresh?: boolean },
     ) =>
       fetchPaginatedOrders({
         page: pageOverride,
@@ -185,6 +185,7 @@ export default function BookingListPage() {
         today,
         courier: courierFilter,
         orderSource: orderSourceFilter,
+        forceFresh: options?.forceFresh,
         signal: options?.signal,
       }),
     [
@@ -450,7 +451,57 @@ export default function BookingListPage() {
       });
   };
 
-  const handleOrderStatusUpdated = async () => {
+  const handleOrderStatusUpdated = async (params?: {
+    orderId: string;
+    nextStatus?: string;
+    nextPaymentStatus?: string;
+  }) => {
+    if (params) {
+      const existingOrder = ordersList.find((order) => order.id === params.orderId);
+
+      if (existingOrder) {
+        const nextOrderStatus = params.nextStatus ?? existingOrder.orderStatus;
+        const nextPaymentStatus =
+          params.nextPaymentStatus ?? existingOrder.paymentStatus;
+        const nextNormalizedStatus = normalizeOrderStatus(nextOrderStatus);
+        const isClosedStatus = [
+          "Delivery",
+          "Delivered",
+          "Completed",
+          "Cancelled",
+        ].includes(nextNormalizedStatus);
+        const shouldRemoveFromCurrentList =
+          (activeSavedView === "late" && isClosedStatus) ||
+          (activeSavedView === "active" && isClosedStatus) ||
+          (statusFilter &&
+            !matchesBookingStatusFilter(
+              nextOrderStatus,
+              statusFilter,
+              nextPaymentStatus,
+            ));
+
+        if (shouldRemoveFromCurrentList) {
+          setOrdersList((currentOrders) =>
+            currentOrders.filter((order) => order.id !== params.orderId),
+          );
+          setTotalCount((count) => Math.max(0, count - 1));
+        } else {
+          setOrdersList((currentOrders) =>
+            currentOrders.map((order) =>
+              order.id === params.orderId
+                ? {
+                    ...order,
+                    orderStatus: nextOrderStatus as typeof order.orderStatus,
+                    paymentStatus:
+                      nextPaymentStatus as typeof order.paymentStatus,
+                  }
+                : order,
+            ),
+          );
+        }
+      }
+    }
+
     const fallbackPage =
       displayOrders.length === 1 && currentPage > 1
         ? currentPage - 1
@@ -463,7 +514,9 @@ export default function BookingListPage() {
 
     setIsLoading(true);
     try {
-      const res = await fetchCurrentPageOrders(fallbackPage);
+      const res = await fetchCurrentPageOrders(fallbackPage, {
+        forceFresh: true,
+      });
       setOrdersList(res.orders);
       setTotalCount(res.pagination.totalCount);
       setTotalPages(res.pagination.totalPages);

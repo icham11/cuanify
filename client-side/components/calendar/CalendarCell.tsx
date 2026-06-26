@@ -81,21 +81,31 @@ export default function CalendarCell({
     onDateClick(date);
   };
 
+  const dateLabelClassName = `max-w-full rounded-md px-0.5 text-left text-[9px] font-semibold leading-none sm:px-1 sm:text-[13px] ${
+    ui.disabled
+      ? "text-[#8d837c]"
+      : "text-[#2f1e13]"
+  }`;
+
   return (
     <div className="flex min-h-[44px] w-full flex-col overflow-hidden rounded-md border border-transparent px-0.5 py-0.5 sm:min-h-[64px] sm:px-1 sm:py-1">
       <div className="flex items-start justify-between gap-1">
-        <button
-          type="button"
-          onClick={handleClick}
-          title={tooltipText}
-          className={`max-w-full rounded-md px-0.5 text-left text-[9px] font-semibold leading-none transition sm:px-1 sm:text-[13px] ${
-            ui.disabled
-              ? "text-[#8d837c] hover:bg-[#f3ece7]"
-              : "text-[#2f1e13] hover:bg-[#fff0de]"
-          }`}
-        >
-          {label}
-        </button>
+        {onDateClick ? (
+          <button
+            type="button"
+            onClick={handleClick}
+            title={tooltipText}
+            className={`${dateLabelClassName} transition ${
+              ui.disabled ? "hover:bg-[#f3ece7]" : "hover:bg-[#fff0de]"
+            }`}
+          >
+            {label}
+          </button>
+        ) : (
+          <span title={tooltipText} className={dateLabelClassName}>
+            {label}
+          </span>
+        )}
       </div>
 
       <div className="mt-0.5 min-h-[16px]">

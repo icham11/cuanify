@@ -211,7 +211,7 @@ export default function AdminDailyOmzetPage() {
         <CardHeader className="p-6 pb-2">
           <CardTitle>Daftar Booking Dibayar Pada Tanggal Ini</CardTitle>
           <p className="text-xs text-gray-500">
-            Booking yang menerima DP 50% atau pelunasan di tanggal terpilih akan muncul di sini.
+            Booking yang menerima DP atau pelunasan di tanggal terpilih akan muncul di sini.
           </p>
         </CardHeader>
         <CardContent className="px-6 pb-6 pt-0">

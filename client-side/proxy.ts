@@ -68,6 +68,7 @@ const CASHIER_BLOCKED_PATHS = [
 
 const STAFF_ALLOWED_PAGE_PREFIXES = [
   "/bakery/production",
+  "/bakery/calendar",
   "/bakery/attendance",
 ];
 
@@ -103,6 +104,7 @@ const STAFF_ALLOWED_API_RULES: Array<{
 
   // Booking orders — Staff perlu baca, sync, dan update status order yang mereka pegang
   { prefix: "/api/bookings/orders", methods: ["GET", "POST", "PATCH"] },
+  { prefix: "/api/bookings/capacity", methods: ["GET"] },
 
   // Booking automations — Staff perlu trigger notif produksi
   { prefix: "/api/bookings/automations", methods: ["GET", "POST"] },
@@ -127,7 +129,7 @@ const ADMIN_ALLOWED_API_RULES: Array<{
   { prefix: "/api/bakery/settings", methods: ["GET"] },
   { prefix: "/api/bakery/production/staff-tokens", methods: ["GET"] },
   { prefix: "/api/bakery/attendance", methods: ["GET", "POST"] },
-  { prefix: "/api/bookings/orders", methods: ["GET", "POST", "DELETE"] },
+  { prefix: "/api/bookings/orders", methods: ["GET", "POST", "PATCH", "DELETE"] },
   { prefix: "/api/bookings/automations", methods: ["GET", "POST"] },
   { prefix: "/api/bookings/capacity", methods: ["GET"] },
   { prefix: "/api/bookings/catalog-config", methods: ["GET", "PUT"] },

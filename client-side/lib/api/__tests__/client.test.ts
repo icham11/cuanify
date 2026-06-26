@@ -72,4 +72,47 @@ describe("apiFetch stale cache fallback", () => {
       data: [{ id: 13, name: "Crumbella" }],
     });
   });
+
+  it("drops matching in-flight GET entries after invalidation", async () => {
+    let resolveFirst: ((value: Response) => void) | null = null;
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          if (!resolveFirst) {
+            resolveFirst = resolve;
+            return;
+          }
+
+          resolve(
+            new Response(JSON.stringify({ success: true, data: "fresh" }), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            }),
+          );
+        }),
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const firstRequest = apiFetch("/api/bookings/orders?page=1&limit=10");
+    invalidateApiCache(/\/api\/bookings\/orders/);
+    const secondRequest = apiFetch("/api/bookings/orders?page=1&limit=10");
+
+    resolveFirst?.(
+      new Response(JSON.stringify({ success: true, data: "stale" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    await expect(firstRequest).resolves.toEqual({
+      success: true,
+      data: "stale",
+    });
+    await expect(secondRequest).resolves.toEqual({
+      success: true,
+      data: "fresh",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 });

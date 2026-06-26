@@ -202,6 +202,12 @@ export function invalidateApiCache(
     removeApiCacheStorage(cacheKey);
   }
 
+  const inFlightKeys = [...apiInFlightRequests.keys()];
+  for (const cacheKey of inFlightKeys) {
+    if (!matches(cacheKey)) continue;
+    apiInFlightRequests.delete(cacheKey);
+  }
+
   if (typeof window === "undefined") return;
 
   try {

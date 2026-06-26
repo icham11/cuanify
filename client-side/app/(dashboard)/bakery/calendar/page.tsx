@@ -273,7 +273,8 @@ export default function BakeryCalendarPage() {
   const router = useRouter();
   const { orders } = useOrders();
   const { business } = useBusiness();
-  const { loading: isRoleLoading } = useRole();
+  const { loading: isRoleLoading, isStaff } = useRole();
+  const isReadOnlyCalendar = isStaff;
   const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
   const [isDateOrdersPopupOpen, setIsDateOrdersPopupOpen] = useState(false);
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -381,7 +382,12 @@ export default function BakeryCalendarPage() {
     return () => {
       controller.abort();
     };
-  }, [calendarRangeEndKey, calendarRangeKey, calendarRangeStartKey]);
+  }, [
+    calendarRangeEndKey,
+    calendarRangeKey,
+    calendarRangeStartKey,
+    capacitySyncKey,
+  ]);
 
   const scopedCalendarOrders = useMemo(() => {
     if (loadedCalendarRangeKey === calendarRangeKey) {
@@ -586,6 +592,7 @@ export default function BakeryCalendarPage() {
   }, [scopedCalendarOrders, selectedDateKey]);
 
   const openSelectedDateInBookings = () => {
+    if (isReadOnlyCalendar) return;
     if (!selectedDateKey) return;
 
     const nextParams = new URLSearchParams({
@@ -677,7 +684,7 @@ export default function BakeryCalendarPage() {
     <div className="mx-auto max-w-7xl space-y-4 pb-10 text-[#2f1e13]">
       <GradientPageHeader
         title="Calendar"
-        description={`Kapasitas ${calendarMaxToken} tok/hari${business?.name ? ` · ${business.name}` : ""}`}
+        description={`Kapasitas ${calendarMaxToken} tok/hari${business?.name ? ` · ${business.name}` : ""}${isReadOnlyCalendar ? " · Mode lihat saja" : ""}`}
         icon={IconCalendar}
       />
 
@@ -738,6 +745,8 @@ export default function BakeryCalendarPage() {
 
               <div
                 className={`bakery-calendar-shell w-full max-w-full rounded-xl border border-[#e2d1c3] bg-white overscroll-contain ${
+                  isReadOnlyCalendar ? "read-only-calendar" : ""
+                } ${
                   currentView === Views.MONTH
                     ? "month-view h-auto overflow-visible"
                     : "week-view overflow-x-auto overflow-y-hidden touch-pan-x touch-pan-y h-[25rem] sm:h-[30rem] md:h-[34rem] lg:h-[38rem]"
@@ -774,6 +783,10 @@ export default function BakeryCalendarPage() {
                       openDateOrdersPopup(slotInfo.start);
                     }}
                     onSelectEvent={(event) => {
+                      if (isReadOnlyCalendar) {
+                        openDateOrdersPopup(event.start);
+                        return;
+                      }
                       router.push(
                         `/bakery/bookings/${event.resource.order.id}`,
                       );
@@ -875,22 +888,24 @@ export default function BakeryCalendarPage() {
                     {selectedStatusMessage}
                   </p>
                 </div>
-                <div className="flex w-full flex-wrap items-center justify-end gap-2 md:w-auto">
-                  <button
-                    type="button"
-                    onClick={openSelectedDateInBookings}
-                    className="shrink-0 rounded-full border border-[#e6d1be] bg-[#fff7f0] px-3 py-2 text-xs font-semibold text-[#8a4b22] transition hover:bg-[#ffefdf] md:px-4 md:py-2.5 md:text-sm"
-                  >
-                    Lihat Booking
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => router.push("/bakery/bookings/new")}
-                    className="shrink-0 rounded-full bg-[#cb6837] px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#b15a31] md:px-4 md:py-2.5 md:text-sm"
-                  >
-                    + Booking
-                  </button>
-                </div>
+                {!isReadOnlyCalendar ? (
+                  <div className="flex w-full flex-wrap items-center justify-end gap-2 md:w-auto">
+                    <button
+                      type="button"
+                      onClick={openSelectedDateInBookings}
+                      className="shrink-0 rounded-full border border-[#e6d1be] bg-[#fff7f0] px-3 py-2 text-xs font-semibold text-[#8a4b22] transition hover:bg-[#ffefdf] md:px-4 md:py-2.5 md:text-sm"
+                    >
+                      Lihat Booking
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => router.push("/bakery/bookings/new")}
+                      className="shrink-0 rounded-full bg-[#cb6837] px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#b15a31] md:px-4 md:py-2.5 md:text-sm"
+                    >
+                      + Booking
+                    </button>
+                  </div>
+                ) : null}
               </div>
 
               <div className="grid grid-cols-2 gap-2 px-4 py-4 text-center md:gap-3 md:px-5 md:py-5 lg:grid-cols-2">
@@ -1029,7 +1044,7 @@ export default function BakeryCalendarPage() {
                   ) : null}
                 </div>
                 <div className="flex items-center gap-2">
-                  {selectedDate ? (
+                  {selectedDate && !isReadOnlyCalendar ? (
                     <button
                       type="button"
                       className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-[#ffd8b7] bg-[#fff4df] px-3 text-[11px] font-semibold text-[#8a4b22] transition hover:bg-[#ffedd1]"
@@ -1060,11 +1075,35 @@ export default function BakeryCalendarPage() {
                     Tidak ada order pada tanggal ini.
                   </div>
                 ) : (
-                  selectedDateOrdersAll.map((order) => (
-                    <button
+                  selectedDateOrdersAll.map((order) => {
+                    const itemClassName =
+                      "flex w-full flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-100 bg-gray-50/70 px-4 py-3 text-left";
+
+                    return isReadOnlyCalendar ? (
+                      <div key={order.id} className={itemClassName}>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate font-semibold text-gray-900">
+                            {order.customerName}
+                          </p>
+                          <p className="mt-1 truncate text-xs text-gray-500">
+                            {getCalendarOrderItemSummary(order)} -{" "}
+                            {order.deliverySlot || "-"}
+                          </p>
+                        </div>
+                        <span
+                          className="rounded-full px-3 py-1 text-xs font-semibold text-white"
+                          style={{
+                            backgroundColor: statusColor(order.orderStatus),
+                          }}
+                        >
+                          {order.orderStatus}
+                        </span>
+                      </div>
+                    ) : (
+                      <button
                       key={order.id}
                       type="button"
-                      className="flex w-full flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-100 bg-gray-50/70 px-4 py-3 text-left transition hover:border-[#ffd8b7] hover:bg-[#fff4df]"
+                      className={`${itemClassName} transition hover:border-[#ffd8b7] hover:bg-[#fff4df]`}
                       onClick={() => {
                         setIsDateOrdersPopupOpen(false);
                         router.push(`/bakery/bookings/${order.id}`);
@@ -1088,7 +1127,8 @@ export default function BakeryCalendarPage() {
                         {order.orderStatus}
                       </span>
                     </button>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </div>
@@ -1180,6 +1220,11 @@ export default function BakeryCalendarPage() {
         .rbc-day-slot .rbc-background-event {
           box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
           border-radius: 4px !important;
+        }
+
+        .read-only-calendar .rbc-event,
+        .read-only-calendar .rbc-slot-selection {
+          cursor: default;
         }
 
         .rbc-month-row {

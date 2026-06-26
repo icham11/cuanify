@@ -66,13 +66,6 @@ export default function PriceSummaryCard({
   );
   const isFullyPaid =
     paymentStatus === "Paid" || normalizedRemainingAmount <= 0;
-  const effectiveDpPercent =
-    !isFullyPaid && totalPrice > 0
-      ? Math.max(
-          0,
-          Math.min(100, Math.round((normalizedPaidAmount / totalPrice) * 100)),
-        )
-      : 0;
 
   const renderCategoryEntries = (
     entries: NonNullable<PriceSummaryCardProps["categoryBreakdown"]>,
@@ -199,7 +192,7 @@ export default function PriceSummaryCard({
               <span>
                 {isFullyPaid
                   ? "Pembayaran (Lunas)"
-                  : `Pembayaran (DP ${effectiveDpPercent}%)`}
+                  : "Pembayaran (DP)"}
               </span>
               <span className="font-semibold text-gray-900">
                 {formatCurrency(normalizedPaidAmount)}

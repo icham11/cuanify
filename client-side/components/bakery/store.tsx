@@ -80,6 +80,7 @@ import {
   BAKERY_ORDERS_STORAGE_KEY,
   BAKERY_ORDERS_UPDATED_EVENT,
 } from "@/lib/bookings/client-events";
+import { resolveStoredDownPaymentAmount } from "@/lib/bookings/down-payment";
 
 export type OrderStatus =
   | "Inquiry"
@@ -364,6 +365,7 @@ interface OrdersContextValue {
     today?: string;
     courier?: string;
     orderSource?: string;
+    forceFresh?: boolean;
     signal?: AbortSignal;
   }) => Promise<{
     orders: BakeryOrder[];
@@ -1507,7 +1509,6 @@ export function OrdersProvider({
   enabled?: boolean;
 }) {
   const { settings: bakerySettings } = useBakerySettings({ enabled });
-  const defaultDpPercentage = bakerySettings?.defaultDpPercentage ?? 50;
   const snapshot = useSyncExternalStore(
     subscribe,
     getSnapshot,
@@ -2134,6 +2135,22 @@ export function OrdersProvider({
       readOrdersSnapshotFromStorage() ?? INITIAL_SNAPSHOT;
     return parseSnapshot(currentSnapshot);
   }, [orders]);
+
+  const syncQueuedOrderWithLatestSnapshot = useCallback(
+    (orderId: string, latestOrders: BakeryOrder[]) => {
+      const queuedOrders = syncQueuedOrdersRef.current;
+      if (!queuedOrders) return;
+
+      const latestOrder = latestOrders.find((order) => order.id === orderId);
+      if (!latestOrder) return;
+
+      syncChangedOrderIdsRef.current.add(orderId);
+      syncQueuedOrdersRef.current = queuedOrders.map((order) =>
+        order.id === orderId ? latestOrder : order,
+      );
+    },
+    [],
+  );
 
   const runAutomationsForOrder = useCallback(
     async (
@@ -2992,12 +3009,14 @@ export function OrdersProvider({
         };
       });
 
-      if (!hasChanged) return;
-      persistOrders(nextOrders, { syncToServer: false });
-      if (requestedStatus === "In Production") {
-        toast.success("Order masuk produksi. Menjalankan automasi...");
-      } else {
-        toast.message("Order status updated");
+      if (!hasChanged && targetOrder) return;
+      if (hasChanged) {
+        persistOrders(nextOrders, { syncToServer: false });
+        if (requestedStatus === "In Production") {
+          toast.success("Order masuk produksi. Menjalankan automasi...");
+        } else {
+          toast.message("Order status updated");
+        }
       }
 
       try {
@@ -3028,14 +3047,19 @@ export function OrdersProvider({
         invalidateApiCache(
           /\/api\/(bookings\/orders|bakery\/settings|products|businesses|sales|ingredients|debts)/,
         );
+        if (hasChanged) {
+          syncQueuedOrderWithLatestSnapshot(id, nextOrders);
+        }
         void hydrateOrdersFromServer(true);
 
         if (triggeredEvent) {
           void runAutomationsForOrder(triggeredEvent, id);
         }
       } catch (error) {
-        writeOrdersSnapshot(latestOrders);
-        lastLocalWriteAtRef.current = 0;
+        if (hasChanged) {
+          writeOrdersSnapshot(latestOrders);
+          lastLocalWriteAtRef.current = 0;
+        }
         void hydrateOrdersFromServer(true);
 
         const message =
@@ -3051,6 +3075,7 @@ export function OrdersProvider({
       hydrateOrdersFromServer,
       persistOrders,
       runAutomationsForOrder,
+      syncQueuedOrderWithLatestSnapshot,
       actorIdentity,
     ],
   );
@@ -3658,15 +3683,17 @@ export function OrdersProvider({
 
   const updatePaymentStatus = useCallback(
     async (id: string, status: PaymentStatus) => {
-      const targetOrder = orders.find((order) => order.id === id);
+      const latestOrders = getLatestOrdersSnapshot();
+      const targetOrder = latestOrders.find((order) => order.id === id);
       const hasGojekGrabTag = targetOrder
         ? isGrabOrGojekOrder(targetOrder)
         : false;
+      let hasLocalChange = false;
 
-      const nextOrders: BakeryOrder[] = orders.map((order) => {
-        if (order.id !== id) return order;
+      const nextOrders: BakeryOrder[] = latestOrders.map((order) => {
+        if (order.id !== id || order.paymentStatus === status) return order;
+        hasLocalChange = true;
         const total = normalizeMoney(order.totalPrice);
-        const suggestedDp = Math.round(total * (defaultDpPercentage / 100));
         const previousDpPaid = normalizeMoney(order.dpPaidAmount);
         const previousFinalPaid = normalizeMoney(order.finalPaidAmount);
         let dpPaidAmount = previousDpPaid;
@@ -3677,10 +3704,11 @@ export function OrdersProvider({
           dpPaidAmount = 0;
           finalPaidAmount = 0;
         } else if (status === "DP Paid") {
-          dpPaidAmount = Math.min(
-            total,
-            previousDpPaid > 0 ? previousDpPaid : suggestedDp,
-          );
+          dpPaidAmount = resolveStoredDownPaymentAmount({
+            downPaymentAmount: order.downPaymentAmount,
+            dpPaidAmount: previousDpPaid,
+            totalPrice: total,
+          });
           finalPaidAmount = 0;
         } else {
           dpPaidAmount = preservedDpPaid;
@@ -3744,13 +3772,51 @@ export function OrdersProvider({
           ],
         };
       });
-      persistOrders(nextOrders);
-      
+
+      if (targetOrder && !hasLocalChange) return;
+      if (hasLocalChange) {
+        persistOrders(nextOrders, { syncToServer: false });
+      }
+
       try {
-        await syncOrdersToServer(nextOrders, [id]);
-        await replaceLocalOrdersWithServer({ force: true });
+        const response = await fetch(`/api/bookings/orders/${id}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            paymentStatus: status,
+            actorName: actorIdentity.name,
+          }),
+        });
+        const payload = (await response.json().catch(() => ({}))) as {
+          success?: boolean;
+          error?: string;
+        };
+
+        if (!response.ok || !payload.success) {
+          throw new Error(
+            payload.error || "Gagal menyimpan perubahan status pembayaran.",
+          );
+        }
+
+        invalidateApiCache(
+          /\/api\/(bookings\/orders|bakery\/settings|products|businesses|sales|ingredients|debts)/,
+        );
+        void hydrateOrdersFromServer(true);
       } catch (error) {
-        console.error("Failed to sync payment status immediately", error);
+        if (hasLocalChange) {
+          writeOrdersSnapshot(latestOrders);
+          lastLocalWriteAtRef.current = 0;
+        }
+        void hydrateOrdersFromServer(true);
+
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Gagal menyimpan perubahan status pembayaran.";
+        toast.error(`Perubahan pembayaran dibatalkan: ${message}`);
+        throw error;
       }
 
       toast.message(
@@ -3759,7 +3825,12 @@ export function OrdersProvider({
           : "Payment status updated",
       );
     },
-    [orders, persistOrders, syncOrdersToServer, replaceLocalOrdersWithServer, actorIdentity, defaultDpPercentage],
+    [
+      actorIdentity,
+      getLatestOrdersSnapshot,
+      hydrateOrdersFromServer,
+      persistOrders,
+    ],
   );
 
   const recordPayment = useCallback(
@@ -3939,12 +4010,11 @@ export function OrdersProvider({
       const order = orders.find((item) => item.id === id);
       if (!order) return "Order not found.";
 
-      const dpAmount =
-        order.downPaymentAmount ??
-        Math.round(
-          Math.max(0, Number(order.totalPrice ?? 0)) *
-            (defaultDpPercentage / 100),
-        );
+      const dpAmount = resolveStoredDownPaymentAmount({
+        downPaymentAmount: order.downPaymentAmount,
+        dpPaidAmount: order.dpPaidAmount,
+        totalPrice: order.totalPrice,
+      });
       const remainingBalance =
         order.paymentStatus === "Paid"
           ? 0
@@ -3987,7 +4057,7 @@ export function OrdersProvider({
         fullAddress: resolveFullAddress(order),
       });
     },
-    [orders, defaultDpPercentage],
+    [orders],
   );
 
   const fetchOrderById = useCallback(
@@ -4040,6 +4110,7 @@ export function OrdersProvider({
       today?: string;
       courier?: string;
       orderSource?: string;
+      forceFresh?: boolean;
       signal?: AbortSignal;
     }) => {
       try {
@@ -4059,10 +4130,15 @@ export function OrdersProvider({
 
         const payload = (await apiFetch(
           `${ORDERS_SYNC_ENDPOINT}?${queryParams.toString()}`,
-          {
-            signal: params.signal,
-            cacheTtlMs: ORDERS_LIST_CACHE_TTL_MS,
-          },
+          params.forceFresh
+            ? {
+                signal: params.signal,
+                cache: "no-store",
+              }
+            : {
+                signal: params.signal,
+                cacheTtlMs: ORDERS_LIST_CACHE_TTL_MS,
+              },
         )) as {
           success?: boolean;
           data?: {

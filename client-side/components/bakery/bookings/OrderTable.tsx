@@ -33,7 +33,11 @@ import {
 interface OrderTableProps {
   orders: BakeryOrder[];
   onOrderDeleted?: (deletedOrderId: string) => void | Promise<void>;
-  onOrderStatusUpdated?: () => void | Promise<void>;
+  onOrderStatusUpdated?: (params?: {
+    orderId: string;
+    nextStatus?: BakeryOrder["orderStatus"];
+    nextPaymentStatus?: BakeryOrder["paymentStatus"];
+  }) => void | Promise<void>;
 }
 
 type Highlight = {
@@ -420,17 +424,28 @@ export default function OrderTable({
                     setPendingPaymentOrderId(order.id);
                     try {
                       await updatePaymentStatus(order.id, nextStatus);
-                      await onOrderStatusUpdated?.();
+                      await onOrderStatusUpdated?.({
+                        orderId: order.id,
+                        nextPaymentStatus: nextStatus,
+                      });
+                    } catch {
+                      // Toast sudah ditangani store; hindari unhandled rejection di UI tabel.
                     } finally {
                       setPendingPaymentOrderId(null);
                     }
                   }}
-                  className="h-8 rounded-xl border border-[var(--crumbella-border)] bg-white px-2 text-[11px] font-semibold text-[var(--foreground)]"
+                  className="h-8 rounded-xl border border-[var(--crumbella-border)] bg-white px-2 text-[11px] font-semibold text-[var(--foreground)] disabled:cursor-wait disabled:bg-[#f7f0e8] disabled:text-[var(--crumbella-muted)]"
                 >
                   <option value="Pending">Pending</option>
                   <option value="DP Paid">DP</option>
                   <option value="Paid">Lunas</option>
                 </select>
+                {isUpdatingPayment ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-[#fff1e3] px-2 py-1 text-[10px] font-semibold text-[var(--crumbella-primary)]">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Menyimpan...
+                  </span>
+                ) : null}
               </label>
               <label
                 className="flex items-center gap-2"
@@ -454,14 +469,17 @@ export default function OrderTable({
                     setPendingStatusOrderId(order.id);
                     try {
                       await updateOrderStatus(order.id, nextStatus);
-                      await onOrderStatusUpdated?.();
+                      await onOrderStatusUpdated?.({
+                        orderId: order.id,
+                        nextStatus,
+                      });
                     } catch {
                       // Toast sudah ditangani store; hindari unhandled rejection di UI tabel.
                     } finally {
                       setPendingStatusOrderId(null);
                     }
                   }}
-                  className="h-8 rounded-xl border border-[var(--crumbella-border)] bg-white px-2 text-[11px] font-semibold text-[var(--foreground)]"
+                  className="h-8 rounded-xl border border-[var(--crumbella-border)] bg-white px-2 text-[11px] font-semibold text-[var(--foreground)] disabled:cursor-wait disabled:bg-[#f7f0e8] disabled:text-[var(--crumbella-muted)]"
                 >
                   {BOOKING_STATUS_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -469,6 +487,12 @@ export default function OrderTable({
                     </option>
                   ))}
                 </select>
+                {isUpdatingStatus ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-[#fff1e3] px-2 py-1 text-[10px] font-semibold text-[var(--crumbella-primary)]">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Menyimpan...
+                  </span>
+                ) : null}
               </label>
               <Link
                 href={`/bakery/bookings/${order.id}`}

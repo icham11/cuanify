@@ -103,6 +103,10 @@ import {
   resolveDeliveryMethodLabel,
   resolveOrderDeliveryMethod,
 } from "@/lib/bookings/delivery-method";
+import {
+  clampExplicitDownPaymentAmount,
+  resolveStoredDownPaymentAmount,
+} from "@/lib/bookings/down-payment";
 import { useCalendarCapacity } from "@/hooks/useCalendarCapacity";
 import { useBakerySettings } from "@/hooks/useBakerySettings";
 import {
@@ -581,7 +585,11 @@ function buildBookingFormValuesFromOrder(
     sales_channel: order.sales_channel || "direct",
     customNotes: extractCustomBookingNotes(order.notes),
     paymentStatus: order.paymentStatus === "Paid" ? "Paid" : "DP Paid",
-    dpPaidAmount: Math.max(0, Number(order.dpPaidAmount || 0)),
+    dpPaidAmount: resolveStoredDownPaymentAmount({
+      downPaymentAmount: order.downPaymentAmount,
+      dpPaidAmount: order.dpPaidAmount,
+      totalPrice: order.totalPrice,
+    }),
     finalPaidAmount: Math.max(0, Number(order.finalPaidAmount || 0)),
     wholesaleDiscountPercent: ([0, 10, 15, 20] as const).includes(
       parseWholesaleDiscountPercent(order.notes) as 0 | 10 | 15 | 20,
@@ -592,6 +600,12 @@ function buildBookingFormValuesFromOrder(
     nonProductAdjustment: Math.round(
       Number(order.nonProductAdjustment ?? (order.manualAdjustment || 0)) || 0,
     ),
+    isManualDpOverride: true,
+    manualDpAmount: resolveStoredDownPaymentAmount({
+      downPaymentAmount: order.downPaymentAmount,
+      dpPaidAmount: order.dpPaidAmount,
+      totalPrice: order.totalPrice,
+    }),
     items: normalizedItems,
     deliveryAddresses: normalizedAddresses,
   };
@@ -806,7 +820,7 @@ const bookingSchema = z
       .min(1, "At least one address is required"),
     isManualShippingOverride: z.boolean().default(false),
     manualShippingFee: z.number().default(0),
-    isManualDpOverride: z.boolean().default(false),
+    isManualDpOverride: z.boolean().default(true),
     manualDpAmount: z.number().default(0),
   })
   .superRefine((values, ctx) => {
@@ -3831,7 +3845,7 @@ export default function BookingForm({
       nonProductAdjustment: 0,
       isManualShippingOverride: false,
       manualShippingFee: 0,
-      isManualDpOverride: false,
+      isManualDpOverride: true,
       manualDpAmount: 0,
       items: [
         {
@@ -4179,8 +4193,6 @@ export default function BookingForm({
     useWatch({ control, name: "nonProductAdjustment" }) ?? 0;
   const selectedPaymentStatus =
     useWatch({ control, name: "paymentStatus" }) ?? "DP Paid";
-  const isManualDpOverride =
-    useWatch({ control, name: "isManualDpOverride" }) ?? false;
   const manualDpAmount =
     useWatch({ control, name: "manualDpAmount" }) ?? 0;
   const isManualShippingOverride =
@@ -4325,7 +4337,6 @@ export default function BookingForm({
   );
   const blockedDates = bakerySettings?.blockedDates ?? BAKERY_BLOCKED_DATES;
   const cutoffHour = bakerySettings?.cutoffHour ?? 10;
-  const defaultDpPercentage = bakerySettings?.defaultDpPercentage ?? 50;
   const canBackfillPastOrders = !isRoleLoading && (isOwner || isAdmin);
   const allowHistoricalBackfillForSelectedDate =
     canBackfillPastOrders &&
@@ -5188,12 +5199,9 @@ export default function BookingForm({
   const wholesaleDiscountAmount = orderFinancialBreakdown.productDiscountAmount;
   const productSubtotal = orderFinancialBreakdown.productSubtotal;
   const totalPrice = orderFinancialBreakdown.totalPrice;
-  const suggestedDownPaymentAmount = Math.round(
-    Math.max(0, Number(totalPrice || 0)) * (defaultDpPercentage / 100),
-  );
   const effectiveDpPaidAmount =
     selectedPaymentStatus === "DP Paid"
-      ? (isManualDpOverride ? manualDpAmount : suggestedDownPaymentAmount)
+      ? clampExplicitDownPaymentAmount(manualDpAmount, totalPrice)
       : 0;
   const effectiveFinalPaidAmount =
     selectedPaymentStatus === "Paid" ? totalPrice : 0;
@@ -7006,17 +7014,17 @@ export default function BookingForm({
           shouldValidate: true,
         },
       );
-      if ("isManualDpOverride" in draft && draft.isManualDpOverride !== undefined) {
-        setValue("isManualDpOverride", Boolean(draft.isManualDpOverride), {
-          shouldValidate: true,
-        });
-      }
-      if ("manualDpAmount" in draft && draft.manualDpAmount !== undefined) {
-        setValue("manualDpAmount", Math.max(0, Number(draft.manualDpAmount || 0)), {
-          shouldValidate: true,
-        });
-      }
-      setValue("dpPaidAmount", Math.max(0, Number(draft.dpPaidAmount || 0)), {
+      const normalizedDraftDpAmount = resolveStoredDownPaymentAmount({
+        downPaymentAmount: (draft as { downPaymentAmount?: number }).downPaymentAmount,
+        dpPaidAmount: draft.dpPaidAmount,
+      });
+      setValue("isManualDpOverride", true, {
+        shouldValidate: true,
+      });
+      setValue("manualDpAmount", normalizedDraftDpAmount, {
+        shouldValidate: true,
+      });
+      setValue("dpPaidAmount", normalizedDraftDpAmount, {
         shouldValidate: true,
       });
       setValue(
@@ -10700,22 +10708,14 @@ export default function BookingForm({
                   </div>
 
                   <div className="space-y-3">
-                    <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
-                      <input
-                        type="checkbox"
-                        {...register("isManualDpOverride")}
-                        className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-600"
-                      />
-                      Gunakan nominal DP manual
-                    </label>
-                    {isManualDpOverride && selectedPaymentStatus === "DP Paid" && (
+                    {selectedPaymentStatus === "DP Paid" && (
                       <label className="grid gap-2 text-sm font-medium text-gray-700">
-                        Nominal DP Manual
+                        Nominal DP
                         <Input
                           type="number"
                           step="1000"
                           min="0"
-                          placeholder="Masukkan DP manual..."
+                          placeholder="Masukkan nominal DP..."
                           {...register("manualDpAmount", {
                             valueAsNumber: true,
                           })}
@@ -10729,7 +10729,7 @@ export default function BookingForm({
                   <label className="grid gap-2 text-sm font-medium text-gray-700">
                     Payment Status
                     <Select {...register("paymentStatus")}>
-                      <option value="DP Paid">DP {defaultDpPercentage}%</option>
+                      <option value="DP Paid">DP</option>
                       <option value="Paid">Lunas</option>
                     </Select>
                   </label>
@@ -10778,9 +10778,7 @@ export default function BookingForm({
                   <p className="mt-1">
                     {selectedPaymentStatus === "Paid"
                       ? "Jika pilih Lunas, sistem otomatis set pembayaran 100% dari total pesanan."
-                      : `Jika pilih DP ${defaultDpPercentage}%, sistem otomatis set DP sebesar ${formatCurrency(
-                          suggestedDownPaymentAmount,
-                        )}.`}
+                      : "Jika pilih DP, nominal DP mengikuti angka yang diinput admin."}
                   </p>
                 </div>
 
@@ -10950,7 +10948,7 @@ export default function BookingForm({
                   <span className="ml-auto shrink-0 rounded-full bg-[#fff1d9] px-[10px] py-[3px] text-[10px] font-semibold text-[var(--crumbella-primary)]">
                     {selectedPaymentStatus === "Paid"
                       ? "Lunas"
-                      : `DP ${defaultDpPercentage}%`}
+                      : "DP"}
                   </span>
                 </div>
                 <div className="grid grid-cols-2 px-[14px] py-[11px]">
@@ -11216,7 +11214,7 @@ export default function BookingForm({
                     <span className="text-[12.5px] font-semibold text-[var(--foreground)]">
                       {selectedPaymentStatus === "Paid"
                         ? "Lunas"
-                        : `DP ${defaultDpPercentage}%`}
+                        : "DP"}
                     </span>
                   </div>
                   <div className="flex items-center justify-between border-b border-[var(--crumbella-border)] px-[14px] py-[11px]">

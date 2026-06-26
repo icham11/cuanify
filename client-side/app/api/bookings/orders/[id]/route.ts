@@ -43,10 +43,12 @@ import {
   isDateInPreviousMonth,
   normalizeDateInput,
 } from "@/lib/helpers/date-normalization";
+import { canUpdateLockedHistoricalOrderStatus } from "@/lib/bookings/historical-order-status-lock";
 import {
   buildBookingAuditDocument,
   buildBookingAuditOrderSummary,
 } from "@/lib/bookings/booking-audit";
+import { resolveStoredDownPaymentAmount } from "@/lib/bookings/down-payment";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -60,6 +62,18 @@ const PATCHABLE_ORDER_STATUSES = new Set([
   "Completed",
   "Cancelled",
 ]);
+
+const PATCHABLE_PAYMENT_STATUSES = new Set(["Pending", "DP Paid", "Paid"]);
+
+type PaymentPatchResult = {
+  paymentStatus: string;
+  dpPaidAmount: number;
+  finalPaidAmount: number;
+  totalPaidAmount: number;
+  downPaymentAmount: number;
+  remainingBalance: number;
+  paymentTransactions: Array<Record<string, unknown>>;
+};
 
 function appendStatusHistory(
   currentValue: unknown,
@@ -220,6 +234,151 @@ async function updateOrderStatusInSnapshot(
       orderStatus: params.orderStatus,
       updatedAt: params.updatedAt,
       statusHistory: params.statusHistory,
+    };
+  });
+
+  if (!hasChanged) return;
+
+  const metadataRecord = asRecord(existingSnapshot.metadata) ?? {};
+  await db.businessDocument.update({
+    where: { id: existingSnapshot.id },
+    data: {
+      content: JSON.stringify(nextOrders),
+      metadata: {
+        ...metadataRecord,
+        itemCount: nextOrders.length,
+        updatedAt: params.updatedAt,
+        source: "rows",
+      },
+    },
+  });
+}
+
+function normalizeMoney(value: unknown): number {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) return 0;
+  return Math.max(0, Math.round(numericValue));
+}
+
+function buildPaymentPatch(params: {
+  orderId: string;
+  requestedPaymentStatus: string;
+  totalPrice: unknown;
+  dpPaidAmount: unknown;
+  finalPaidAmount: unknown;
+  downPaymentAmount: unknown;
+  remainingBalance: unknown;
+  paymentTransactions: unknown;
+  actorUserId: number | null;
+  actorName: string;
+}): PaymentPatchResult {
+  const total = normalizeMoney(params.totalPrice);
+  const previousDpPaid = normalizeMoney(params.dpPaidAmount);
+  const previousFinalPaid = normalizeMoney(params.finalPaidAmount);
+  let dpPaidAmount = previousDpPaid;
+  let finalPaidAmount = previousFinalPaid;
+  const preservedDpPaid = Math.min(total, previousDpPaid);
+
+  if (params.requestedPaymentStatus === "Pending") {
+    dpPaidAmount = 0;
+    finalPaidAmount = 0;
+  } else if (params.requestedPaymentStatus === "DP Paid") {
+    dpPaidAmount = resolveStoredDownPaymentAmount({
+      downPaymentAmount: params.downPaymentAmount,
+      dpPaidAmount: previousDpPaid,
+      totalPrice: total,
+    });
+    finalPaidAmount = 0;
+  } else {
+    dpPaidAmount = preservedDpPaid;
+    finalPaidAmount = Math.max(0, total - preservedDpPaid);
+  }
+
+  const totalPaidAmount = Math.min(total, dpPaidAmount + finalPaidAmount);
+  const remainingBalance = Math.max(0, total - totalPaidAmount);
+  const deltaDp = normalizeMoney(dpPaidAmount - previousDpPaid);
+  const deltaFinal = normalizeMoney(finalPaidAmount - previousFinalPaid);
+  const paymentTransactions = asArrayOfRecords(
+    parseJsonField(params.paymentTransactions),
+  );
+  const nowIso = new Date().toISOString();
+  const appendedTransactions: Array<Record<string, unknown>> = [];
+
+  if (deltaDp !== 0) {
+    appendedTransactions.push({
+      id: `pay-${params.orderId}-dp-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      timestamp: nowIso,
+      amount: deltaDp,
+      type: "DP",
+      note: `Status set to ${params.requestedPaymentStatus}`,
+      userId: params.actorUserId,
+      actorName: params.actorName,
+    });
+  }
+
+  if (deltaFinal !== 0) {
+    appendedTransactions.push({
+      id: `pay-${params.orderId}-final-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      timestamp: nowIso,
+      amount: deltaFinal,
+      type: "Final",
+      note: `Status set to ${params.requestedPaymentStatus}`,
+      userId: params.actorUserId,
+      actorName: params.actorName,
+    });
+  }
+
+  return {
+    paymentStatus: params.requestedPaymentStatus,
+    dpPaidAmount,
+    finalPaidAmount,
+    totalPaidAmount,
+    downPaymentAmount: dpPaidAmount,
+    remainingBalance,
+    paymentTransactions: [...paymentTransactions, ...appendedTransactions],
+  };
+}
+
+async function updatePaymentStatusInSnapshot(
+  db: SnapshotStore,
+  params: {
+    businessId: number;
+    orderId: string;
+    updatedAt: string;
+    payment: PaymentPatchResult;
+  },
+) {
+  const existingSnapshot = await db.businessDocument.findFirst({
+    where: {
+      businessId: params.businessId,
+      sourceType: SNAPSHOT_SOURCE_TYPE,
+    },
+    orderBy: { updatedAt: "desc" },
+    select: {
+      id: true,
+      content: true,
+      metadata: true,
+    },
+  });
+
+  if (!existingSnapshot) return;
+
+  let hasChanged = false;
+  const currentOrders = parseSnapshotOrders(existingSnapshot.content);
+  const nextOrders = currentOrders.map((entry) => {
+    const record = asRecord(entry);
+    if (!record || record.id !== params.orderId) return entry;
+    hasChanged = true;
+    return {
+      ...record,
+      paymentStatus: params.payment.paymentStatus,
+      dpPaidAmount: params.payment.dpPaidAmount,
+      finalPaidAmount: params.payment.finalPaidAmount,
+      totalPaidAmount: params.payment.totalPaidAmount,
+      downPaymentAmount: params.payment.downPaymentAmount,
+      remainingBalance: params.payment.remainingBalance,
+      paymentTransactions: params.payment.paymentTransactions,
+      updatedAt: params.updatedAt,
     };
   });
 
@@ -564,13 +723,36 @@ export async function PATCH(
 
     const body = (await request.json().catch(() => ({}))) as {
       orderStatus?: unknown;
+      paymentStatus?: unknown;
       actorName?: unknown;
     };
-    const requestedStatus = normalizeOrderStatus(asString(body.orderStatus));
+    const rawOrderStatus = asString(body.orderStatus).trim();
+    const rawPaymentStatus = asString(body.paymentStatus).trim();
+    const requestedStatus = rawOrderStatus
+      ? normalizeOrderStatus(rawOrderStatus)
+      : null;
+    const requestedPaymentStatus = rawPaymentStatus || null;
 
-    if (!PATCHABLE_ORDER_STATUSES.has(requestedStatus)) {
+    if (!requestedStatus && !requestedPaymentStatus) {
+      return NextResponse.json(
+        { error: "Tidak ada perubahan status yang dikirim." },
+        { status: 400 },
+      );
+    }
+
+    if (requestedStatus && !PATCHABLE_ORDER_STATUSES.has(requestedStatus)) {
       return NextResponse.json(
         { error: "Status order tidak valid untuk disimpan." },
+        { status: 400 },
+      );
+    }
+
+    if (
+      requestedPaymentStatus &&
+      !PATCHABLE_PAYMENT_STATUSES.has(requestedPaymentStatus)
+    ) {
+      return NextResponse.json(
+        { error: "Status pembayaran tidak valid untuk disimpan." },
         { status: 400 },
       );
     }
@@ -582,8 +764,16 @@ export async function PATCH(
         booking_code: string | null;
         customer_name: string | null;
         order_status: string | null;
+        payment_status: string | null;
         delivery_date: string | null;
         status_history: unknown;
+        payment_transactions: unknown;
+        total_price: unknown;
+        dp_paid_amount: unknown;
+        final_paid_amount: unknown;
+        total_paid_amount: unknown;
+        down_payment_amount: unknown;
+        remaining_balance: unknown;
         assigned_staff_user_id: number | null;
       }>
     >`
@@ -593,8 +783,16 @@ export async function PATCH(
         booking_code,
         customer_name,
         order_status,
+        payment_status,
         delivery_date,
         status_history,
+        payment_transactions,
+        total_price,
+        dp_paid_amount,
+        final_paid_amount,
+        total_paid_amount,
+        down_payment_amount,
+        remaining_balance,
         assigned_staff_user_id
       FROM bakery_orders
       WHERE business_id = ${businessId}
@@ -616,23 +814,41 @@ export async function PATCH(
       fallbackLabel: existingOrder.booking_code || id,
     });
 
-    // Mencegah modifikasi data untuk order di bulan-bulan sebelumnya demi integritas laporan
-    if (existingOrder.delivery_date) { // Pastikan delivery date tidak null
-      if (isDateInPreviousMonth(existingOrder.delivery_date)) { // Jika pesanan terdeteksi sebagai bulan sebelumnya
+    // Historical orders stay locked for status edits, except allowed closures.
+    if (requestedStatus && existingOrder.delivery_date) {
+      if (
+        isDateInPreviousMonth(existingOrder.delivery_date) &&
+        !canUpdateLockedHistoricalOrderStatus({
+          deliveryDate: existingOrder.delivery_date,
+          currentStatus: existingOrder.order_status,
+          requestedStatus,
+        })
+      ) {
         throw new ForbiddenError(
-          "Tidak dapat mengubah status order dari bulan sebelumnya. Data telah dikunci."
-        ); // Tolak request dan berikan error
+          "Tidak dapat mengubah status order ini. Data historis tetap dikunci untuk detail order, namun perubahan status operasional harus diproses lewat endpoint status.",
+        );
       }
     }
 
     const currentStatus = normalizeOrderStatus(existingOrder.order_status);
-    if (currentStatus === requestedStatus) {
+    const currentPaymentStatus = existingOrder.payment_status ?? "Pending";
+    const isOrderStatusChanged =
+      Boolean(requestedStatus) && currentStatus !== requestedStatus;
+    const isPaymentStatusChanged =
+      Boolean(requestedPaymentStatus) &&
+      currentPaymentStatus !== requestedPaymentStatus;
+
+    if (!isOrderStatusChanged && !isPaymentStatusChanged) {
       return NextResponse.json({
         success: true,
         data: {
-          orderStatus: requestedStatus,
+          orderStatus: requestedStatus ?? currentStatus,
+          paymentStatus: requestedPaymentStatus ?? currentPaymentStatus,
           statusHistory: asArrayOfRecords(
             parseJsonField(existingOrder.status_history),
+          ),
+          paymentTransactions: asArrayOfRecords(
+            parseJsonField(existingOrder.payment_transactions),
           ),
           updatedAt: new Date().toISOString(),
         },
@@ -642,7 +858,13 @@ export async function PATCH(
     const roleName = String(role);
     const isPrivilegedRequest = roleName === "Owner" || roleName === "Admin";
 
-    if (!isPrivilegedRequest) {
+    if (requestedPaymentStatus && !isPrivilegedRequest) {
+      throw new ForbiddenError(
+        "Anda tidak diizinkan mengubah status pembayaran order ini.",
+      );
+    }
+
+    if (isOrderStatusChanged && !isPrivilegedRequest) {
       const isAssignedStaff = existingOrder.assigned_staff_user_id === userId;
       let ownsProductionStage = false;
       const orderUuid = existingOrder.order_uuid;
@@ -666,40 +888,81 @@ export async function PATCH(
     }
 
     const actorName = asString(body.actorName).trim() || `User #${userId}`;
+    const nextUpdatedAt = new Date().toISOString();
     const note =
       requestedStatus === "In Production"
         ? "Order masuk produksi"
         : `Status changed to ${requestedStatus}`;
-    const nextStatusHistory = appendStatusHistory(
-      existingOrder.status_history,
-      {
-        status: requestedStatus,
-        note,
-        userId,
-        actorName,
-      },
-    );
-    const nextUpdatedAt = new Date().toISOString();
+    const nextStatusHistory =
+      isOrderStatusChanged && requestedStatus
+        ? appendStatusHistory(existingOrder.status_history, {
+            status: requestedStatus,
+            note,
+            userId,
+            actorName,
+          })
+        : asArrayOfRecords(parseJsonField(existingOrder.status_history));
+    const paymentPatch =
+      isPaymentStatusChanged && requestedPaymentStatus
+        ? buildPaymentPatch({
+            orderId: id,
+            requestedPaymentStatus,
+            totalPrice: existingOrder.total_price,
+            dpPaidAmount: existingOrder.dp_paid_amount,
+            finalPaidAmount: existingOrder.final_paid_amount,
+            downPaymentAmount: existingOrder.down_payment_amount,
+            remainingBalance: existingOrder.remaining_balance,
+            paymentTransactions: existingOrder.payment_transactions,
+            actorUserId: userId,
+            actorName,
+          })
+        : null;
 
     await prisma.$transaction(
       async (tx) => {
-        await tx.$executeRaw`
-          UPDATE bakery_orders
-          SET
-            order_status = ${requestedStatus},
-            status_history = ${JSON.stringify(nextStatusHistory)}::jsonb,
-            updated_at = NOW()
-          WHERE business_id = ${businessId}
-            AND external_id = ${id}
-        `;
+        if (isOrderStatusChanged && requestedStatus) {
+          await tx.$executeRaw`
+            UPDATE bakery_orders
+            SET
+              order_status = ${requestedStatus},
+              status_history = ${JSON.stringify(nextStatusHistory)}::jsonb,
+              updated_at = NOW()
+            WHERE business_id = ${businessId}
+              AND external_id = ${id}
+          `;
 
-        await updateOrderStatusInSnapshot(tx, {
-          businessId,
-          orderId: id,
-          orderStatus: requestedStatus,
-          updatedAt: nextUpdatedAt,
-          statusHistory: nextStatusHistory,
-        });
+          await updateOrderStatusInSnapshot(tx, {
+            businessId,
+            orderId: id,
+            orderStatus: requestedStatus,
+            updatedAt: nextUpdatedAt,
+            statusHistory: nextStatusHistory,
+          });
+        }
+
+        if (paymentPatch) {
+          await tx.$executeRaw`
+            UPDATE bakery_orders
+            SET
+              payment_status = ${paymentPatch.paymentStatus},
+              dp_paid_amount = ${paymentPatch.dpPaidAmount},
+              final_paid_amount = ${paymentPatch.finalPaidAmount},
+              total_paid_amount = ${paymentPatch.totalPaidAmount},
+              down_payment_amount = ${paymentPatch.downPaymentAmount},
+              remaining_balance = ${paymentPatch.remainingBalance},
+              payment_transactions = ${JSON.stringify(paymentPatch.paymentTransactions)}::jsonb,
+              updated_at = NOW()
+            WHERE business_id = ${businessId}
+              AND external_id = ${id}
+          `;
+
+          await updatePaymentStatusInSnapshot(tx, {
+            businessId,
+            orderId: id,
+            updatedAt: nextUpdatedAt,
+            payment: paymentPatch,
+          });
+        }
 
         await tx.businessDocument.create({
           data: buildBookingAuditDocument({
@@ -716,7 +979,7 @@ export async function PATCH(
           }),
         });
 
-        if (existingOrder.delivery_date) {
+        if (isOrderStatusChanged && existingOrder.delivery_date) {
           await recalculateProductionCapacityForDate(tx, {
             businessId,
             deliveryDate: existingOrder.delivery_date,
@@ -732,8 +995,26 @@ export async function PATCH(
     return NextResponse.json({
       success: true,
       data: {
-        orderStatus: requestedStatus,
+        orderStatus: requestedStatus ?? currentStatus,
+        paymentStatus: paymentPatch?.paymentStatus ?? currentPaymentStatus,
+        dpPaidAmount:
+          paymentPatch?.dpPaidAmount ?? asNumber(existingOrder.dp_paid_amount),
+        finalPaidAmount:
+          paymentPatch?.finalPaidAmount ??
+          asNumber(existingOrder.final_paid_amount),
+        totalPaidAmount:
+          paymentPatch?.totalPaidAmount ??
+          asNumber(existingOrder.total_paid_amount),
+        downPaymentAmount:
+          paymentPatch?.downPaymentAmount ??
+          asNumber(existingOrder.down_payment_amount),
+        remainingBalance:
+          paymentPatch?.remainingBalance ??
+          asNumber(existingOrder.remaining_balance),
         statusHistory: nextStatusHistory,
+        paymentTransactions:
+          paymentPatch?.paymentTransactions ??
+          asArrayOfRecords(parseJsonField(existingOrder.payment_transactions)),
         updatedAt: nextUpdatedAt,
       },
     });

@@ -78,6 +78,7 @@ import {
 } from "@/lib/bookings/production-stages";
 import { calculateOrderFinancialBreakdown } from "@/lib/bookings/financial-breakdown";
 import { buildDashboardProductName } from "@/lib/products/dashboard-name";
+import { shouldPreserveExistingOrderStatusForStaleSync } from "@/lib/bookings/order-status-sync-guard";
 import {
   bookingStatusFilterMatchesBlank,
   getBookingPaymentStatusFilterAliases,
@@ -5662,8 +5663,10 @@ export async function POST(request: NextRequest) {
                   delivery_slot: string | null;
                   token_used: number;
                   order_status: string | null;
+                  status_history: unknown;
                   assigned_staff_user_id: number | null;
                   simulations: unknown;
+                  updated_at: Date;
                 }[]
               >`
           SELECT
@@ -5673,8 +5676,10 @@ export async function POST(request: NextRequest) {
             delivery_slot,
             token_used,
             order_status,
+            status_history,
             assigned_staff_user_id,
-            simulations
+            simulations,
+            updated_at
           FROM bakery_orders
           WHERE business_id = ${businessId}
         `;
@@ -5839,6 +5844,21 @@ export async function POST(request: NextRequest) {
                     order.deliveryAddresses,
                   );
                 const existingRowCheck = existingOrderMap.get(order.id);
+                const preserveExistingStatusForStaleSync =
+                  shouldPreserveExistingOrderStatusForStaleSync({
+                    incomingStatus: order.orderStatus,
+                    incomingUpdatedAt: order.updatedAt,
+                    existingStatus: existingRowCheck?.order_status,
+                    existingUpdatedAt: existingRowCheck?.updated_at,
+                  });
+                const persistedOrderStatus = preserveExistingStatusForStaleSync
+                  ? (existingRowCheck?.order_status ?? order.orderStatus ?? "")
+                  : (order.orderStatus || "");
+                const persistedStatusHistory = preserveExistingStatusForStaleSync
+                  ? asArrayOfRecords(
+                      parseJsonField(existingRowCheck?.status_history),
+                    )
+                  : (order.statusHistory ?? []);
                 if (
                   existingRowCheck?.delivery_date &&
                   isDateInPreviousMonth(existingRowCheck.delivery_date)
@@ -5851,7 +5871,7 @@ export async function POST(request: NextRequest) {
                     persistedFingerprint !== incomingFingerprint;
                   const statusChanged =
                     (existingRowCheck.order_status ?? "Inquiry") !==
-                    (order.orderStatus || "Inquiry");
+                    (persistedOrderStatus || "Inquiry");
 
                   if (detailChanged || statusChanged) {
                     throw new ForbiddenError(
@@ -5880,7 +5900,7 @@ export async function POST(request: NextRequest) {
                 // ── Handle token changes for existing orders ──
                 const existingOrder = existingOrderMap.get(order.id);
                 const isActiveStatus = !INACTIVE_STATUSES.includes(
-                  order.orderStatus || "",
+                  persistedOrderStatus,
                 );
                 const wasActive = existingOrder
                   ? !INACTIVE_STATUSES.includes(
@@ -6199,7 +6219,7 @@ export async function POST(request: NextRequest) {
               ${insuranceFee},
               ${order.sales_channel},
               ${order.paymentStatus || null},
-              ${order.orderStatus || null},
+              ${persistedOrderStatus || null},
               ${order.assignedStaffUserId},
               ${order.assignedStaffName || null},
               ${order.productionAssignedAt ? new Date(order.productionAssignedAt) : null},
@@ -6207,7 +6227,7 @@ export async function POST(request: NextRequest) {
               ${JSON.stringify(order.shipment ?? null)}::jsonb,
               ${JSON.stringify(order.simulations ?? null)}::jsonb,
               ${JSON.stringify(order.whatsAppParsedData ?? null)}::jsonb,
-              ${JSON.stringify(order.statusHistory ?? [])}::jsonb,
+              ${JSON.stringify(persistedStatusHistory)}::jsonb,
               ${JSON.stringify(order.automationLogs ?? [])}::jsonb,
               ${JSON.stringify(order.paymentTransactions ?? [])}::jsonb,
               ${difficulty},
@@ -6389,12 +6409,12 @@ export async function POST(request: NextRequest) {
                 if (
                   shouldRewriteOrderItems ||
                   (existingOrder?.order_status ?? null) !==
-                    (order.orderStatus || null)
+                    (persistedOrderStatus || null)
                 ) {
                   const inventorySync = await syncBakeryOrderInventory(tx, {
                     businessId,
                     orderId: order.id,
-                    orderStatus: order.orderStatus || "",
+                    orderStatus: persistedOrderStatus,
                     items: order.items.map((item) => ({
                       category:
                         typeof item.category === "string" ? item.category : "",
@@ -6456,9 +6476,11 @@ export async function POST(request: NextRequest) {
                   delivery_date: order.deliveryDate || null,
                   delivery_slot: order.deliverySlot || null,
                   token_used: finalTokenUsed,
-                  order_status: order.orderStatus || null,
+                  order_status: persistedOrderStatus || null,
+                  status_history: persistedStatusHistory,
                   assigned_staff_user_id: order.assignedStaffUserId ?? null,
                   simulations: order.simulations ?? null,
+                  updated_at: new Date(),
                 });
               }
 

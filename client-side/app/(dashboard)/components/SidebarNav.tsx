@@ -95,6 +95,14 @@ export default function SidebarNav() {
               active={isActive("/bakery/dashboard")}
             />
           )}
+          {isStaff ? (
+            <SidebarLink
+              href="/bakery/calendar"
+              icon={CalendarDays}
+              label="Calendar"
+              active={isActive("/bakery/calendar")}
+            />
+          ) : null}
           {isBakeryManager && (
             <>
               <SidebarLink

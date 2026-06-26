@@ -116,6 +116,15 @@ export default function MobileNav({ jwtUserName, jwtUserEmail }: MobileNavProps)
                       onClick={() => setIsDrawerOpen(false)}
                     />
                   ) : null}
+                  {isStaff ? (
+                    <NavLink
+                      href="/bakery/calendar"
+                      icon={CalendarDays}
+                      label="Calendar"
+                      active={isActive("/bakery/calendar")}
+                      onClick={() => setIsDrawerOpen(false)}
+                    />
+                  ) : null}
                   {isBakeryManager ? (
                     <>
                       <NavLink
