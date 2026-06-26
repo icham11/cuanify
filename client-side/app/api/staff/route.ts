@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { normalizeEmail } from "@/lib/auth/email";
 import { requireAuth, requireRole, AuthError, ForbiddenError } from "@/lib/auth/session";
 import {
   DatabaseTemporarilyUnavailableError,
@@ -176,7 +177,9 @@ export async function POST(request: NextRequest) {
     requireRole(auth, "Owner");
 
     const body = await request.json();
-    const { email, role = "Staff", businessId } = body;
+    const role = body?.role ?? "Staff";
+    const email = normalizeEmail(body?.email);
+    const { businessId } = body;
     const targetBusinessId = businessId ? Number(businessId) : auth.businessId;
     const normalizedRole =
       typeof role === "string" && ALLOWED_MEMBER_ROLES.includes(role as ManagedMemberRole)
@@ -203,7 +206,14 @@ export async function POST(request: NextRequest) {
     }
 
     // Find user by email
-    const targetUser = await prisma.user.findUnique({ where: { email } });
+    const targetUser = await prisma.user.findFirst({
+      where: {
+        email: {
+          equals: email,
+          mode: "insensitive",
+        },
+      },
+    });
     if (!targetUser) {
       return NextResponse.json(
         { error: "User dengan email tersebut belum terdaftar. Minta mereka register dulu." },

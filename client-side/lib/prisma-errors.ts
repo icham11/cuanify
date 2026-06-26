@@ -20,6 +20,14 @@ export class DatabaseTemporarilyUnavailableError extends Error {
   }
 }
 
+export function isPrismaQuotaExceededError(error: unknown): boolean {
+  const message = getErrorMessage(error).toLowerCase();
+  return (
+    message.includes("data transfer quota") ||
+    message.includes("exceeded the data transfer quota")
+  );
+}
+
 export function isPrismaConnectionTimeout(error: unknown): boolean {
   // Jika error sudah merupakan instansiasi dari DatabaseTemporarilyUnavailableError, langsung return true
   if (error instanceof DatabaseTemporarilyUnavailableError) {
@@ -63,6 +71,7 @@ export function isPrismaConnectionTimeout(error: unknown): boolean {
     message.includes("max clients reached in session mode") ||
     message.includes("emaxconnsession") ||
     message.includes("too many clients") ||
+    isPrismaQuotaExceededError(error) ||
     message.includes("websocket") ||
     message.includes("1006") ||
     message.includes("etimedout") ||
@@ -117,6 +126,17 @@ export async function withPrismaRetry<T>(
     } catch (error) {
       // Simpan referensi error terakhir
       lastError = error;
+
+      // Cooldown aktif tidak akan pulih dengan retry dalam request yang sama.
+      if (error instanceof DatabaseTemporarilyUnavailableError) {
+        throw error;
+      }
+
+      // Quota/limit infra bukan transient singkat; aktifkan cooldown dan fail fast.
+      if (isPrismaQuotaExceededError(error)) {
+        markPrismaTimeoutCooldown();
+        throw error;
+      }
 
       // Jika error terdeteksi sebagai masalah koneksi transient (misalnya timeout/cold-start)
       if (isPrismaConnectionTimeout(error)) {

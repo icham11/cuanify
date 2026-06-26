@@ -15,6 +15,7 @@ import {
 } from "@/lib/products/uniqueness";
 import { getProductFieldAvailability } from "@/lib/products/prisma-product-capabilities";
 import { invalidateProductTokenMapCache } from "@/lib/products/product-token-map-cache";
+import { invalidateOrderProductTokenLookupCache } from "@/app/api/bookings/orders/order-helpers";
 import { recipeItemSchema } from "@/lib/validations/product";
 import { normalizeDirectCogs } from "@/lib/cogs/config";
 import {
@@ -182,6 +183,7 @@ export async function PATCH(
     });
 
     invalidateProductTokenMapCache(businessId);
+    invalidateOrderProductTokenLookupCache(businessId);
 
     return NextResponse.json({ success: true, data: result });
   } catch (error: unknown) {
@@ -257,6 +259,7 @@ export async function DELETE(
     });
 
     invalidateProductTokenMapCache(businessId);
+    invalidateOrderProductTokenLookupCache(businessId);
 
     return NextResponse.json({ success: true });
   } catch (error: unknown) {

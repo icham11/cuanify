@@ -275,6 +275,12 @@ export async function apiFetch(
         if (signal.aborted) {
           throw createAbortError();
         }
+        if (cacheKey) {
+          const staleEntry = getApiCacheEntry(cacheKey, { allowStale: true });
+          if (staleEntry) {
+            return staleEntry.data;
+          }
+        }
         throw error;
       }
 
@@ -283,6 +289,13 @@ export async function apiFetch(
       }
 
       if (!res.ok) {
+        if (cacheKey && res.status >= 500) {
+          const staleEntry = getApiCacheEntry(cacheKey, { allowStale: true });
+          if (staleEntry) {
+            return staleEntry.data;
+          }
+        }
+
         const errorText = await res.text();
         throw new Error(errorText || "API Error");
       }

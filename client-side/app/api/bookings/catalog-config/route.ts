@@ -15,6 +15,8 @@ import {
   normalizeCatalogAdminState,
 } from "@/lib/bookings/catalog-state";
 import { syncBakeryCatalogToDashboardProducts } from "@/lib/bookings/product-sync";
+import { invalidateEffectiveBookingCatalogCache } from "@/lib/bookings/catalog-config-server";
+import { invalidateOrderProductTokenLookupCache } from "@/app/api/bookings/orders/order-helpers";
 import { invalidateProductTokenMapCache } from "@/lib/products/product-token-map-cache";
 import {
   isPrismaConnectionTimeout,
@@ -218,6 +220,8 @@ export async function PUT(request: NextRequest) {
     }
 
     revalidateTag("catalog", "max");
+    invalidateEffectiveBookingCatalogCache(businessId);
+    invalidateOrderProductTokenLookupCache(businessId);
     invalidateProductTokenMapCache(businessId);
 
     return NextResponse.json(

@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import prisma from "@/lib/prisma";
 import { requireAuth, AuthError } from "@/lib/auth/session";
+import { verifyToken } from "@/lib/auth/jwt";
+import {
+  DatabaseTemporarilyUnavailableError,
+  isPrismaConnectionTimeout,
+} from "@/lib/prisma-errors";
 
 export const dynamic = "force-dynamic";
 
@@ -17,27 +23,65 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     const auth = await requireAuth();
+    const cookieStore = await cookies();
+    const decoded = verifyToken(cookieStore.get("token")?.value || "");
+    const tokenPayload =
+      decoded && typeof decoded === "object"
+        ? (decoded as Record<string, unknown>)
+        : null;
 
-    const user = await prisma.user.findUnique({
-      where: { id: auth.userId },
-      select: { name: true, email: true },
-    });
+    let name =
+      typeof tokenPayload?.name === "string" && tokenPayload.name.trim()
+        ? tokenPayload.name
+        : "User";
+    let email =
+      typeof tokenPayload?.email === "string" ? tokenPayload.email : "";
+    let businessName = "";
 
-    // Also fetch the active business name for context
-    const business = await prisma.business.findUnique({
-      where: { id: auth.businessId },
-      select: { name: true },
-    });
+    try {
+      const shouldLoadUser =
+        !name || name === "User" || !email;
+
+      const [user, business] = await Promise.all([
+        shouldLoadUser
+          ? prisma.user.findUnique({
+              where: { id: auth.userId },
+              select: { name: true, email: true },
+            })
+          : Promise.resolve(null),
+        prisma.business.findUnique({
+          where: { id: auth.businessId },
+          select: { name: true },
+        }),
+      ]);
+
+      if (user?.name) {
+        name = user.name;
+      }
+      if (user?.email) {
+        email = user.email;
+      }
+      if (business?.name) {
+        businessName = business.name;
+      }
+    } catch (error) {
+      if (
+        !(error instanceof DatabaseTemporarilyUnavailableError) &&
+        !isPrismaConnectionTimeout(error)
+      ) {
+        throw error;
+      }
+    }
 
     return NextResponse.json({
       success: true,
       data: {
         userId: auth.userId,
         businessId: auth.businessId,
-        businessName: business?.name || "",
+        businessName,
         role: auth.role,
-        name: user?.name || "User",
-        email: user?.email || "",
+        name,
+        email,
       },
     });
   } catch (error) {

@@ -76,10 +76,8 @@ import {
   type ProductionStageAssignment,
   type ProductionStage,
 } from "@/lib/bookings/production-stages";
-import { loadEffectiveBookingCatalog } from "@/lib/bookings/catalog-config-server";
-import { flattenCatalogProductsForDashboard } from "@/lib/bookings/product-sync";
-import { buildDashboardProductName } from "@/lib/products/dashboard-name";
 import { calculateOrderFinancialBreakdown } from "@/lib/bookings/financial-breakdown";
+import { buildDashboardProductName } from "@/lib/products/dashboard-name";
 import {
   bookingStatusFilterMatchesBlank,
   getBookingPaymentStatusFilterAliases,
@@ -90,6 +88,7 @@ import {
   buildBookingAuditDocument,
   buildBookingAuditOrderSummary,
 } from "@/lib/bookings/booking-audit";
+import { loadOrderProductTokenLookup } from "./order-helpers";
 
 // ─── Custom Error for capacity-full rejections ───────────────────────────────
 
@@ -754,66 +753,6 @@ function getProductTokenLookupKeys(item: {
   return [...variants]
     .map((value) => normalizeProductTokenLookupKey(value))
     .filter(Boolean);
-}
-
-async function loadOrderProductTokenLookup(
-  businessId: number, // ID bisnis UMKM yang terikat
-): Promise<Map<string, number>> { // Mengembalikan peta nama produk ke nilai token kapasitas
-  const lookup = new Map<string, number>(); // Inisialisasi Map kosong untuk pencarian token
-
-  try { // Mulai blok penanganan kesalahan kueri database
-    // Ambil data produk secara sequential dari database untuk menghindari race condition pool koneksi
-    const products = await prisma.product.findMany({
-      where: {
-        businessId, // Filter berdasarkan ID bisnis aktif
-        deletedAt: null, // Hanya ambil produk yang belum dihapus secara soft-delete
-      },
-      select: {
-        name: true, // Ambil properti nama produk
-        productionToken: true, // Ambil properti kapasitas token produksi harian
-      },
-    });
-
-    // Iterasi daftar produk untuk dimasukkan ke Map pencarian token
-    for (const product of products) {
-      // Ambil nilai token produksi, pastikan minimal bernilai 0
-      const token = Math.max(0, Number(product.productionToken || 0));
-      // Jika token tidak bernilai positif, lewati produk ini
-      if (token <= 0) continue;
-      // Normalisasi nama produk sebagai kunci pencarian di Map
-      lookup.set(normalizeProductTokenLookupKey(product.name), token);
-    }
-  } catch (dbError) { // Tangkap kesalahan jika kueri database gagal
-    // Cetak log peringatan agar dev mengetahui adanya kegagalan kueri produk db
-    console.warn(`[loadOrderProductTokenLookup] DB query failed, using catalog fallback:`, dbError);
-  }
-
-  try { // Mulai blok penanganan kesalahan untuk loading booking catalog
-    // Muat konfigurasi catalog produk efektif secara sequential (tidak paralel)
-    const effectiveCatalog = await loadEffectiveBookingCatalog(businessId);
-
-    // Iterasi produk katalog yang sudah di-flatten untuk melengkapi Map pencarian token
-    for (const item of flattenCatalogProductsForDashboard(
-      effectiveCatalog.productCatalog, // Gunakan product catalog dari konfigurasi efektif
-    )) {
-      // Ambil nilai token produksi dari item catalog, pastikan minimal bernilai 0
-      const token = Math.max(0, Number(item.productionToken || 0));
-      // Jika token tidak bernilai positif, lewati item ini
-      if (token <= 0) continue;
-      // Normalisasi nama produk sebagai kunci pencarian
-      const key = normalizeProductTokenLookupKey(item.name);
-      // Jika Map belum memiliki kunci tersebut, tambahkan nilainya
-      if (!lookup.has(key)) {
-        lookup.set(key, token);
-      }
-    }
-  } catch (catalogError) { // Tangkap kesalahan jika pemuatan catalog gagal
-    // Cetak log peringatan agar kegagalan catalog dapat dianalisis di terminal
-    console.warn(`[loadOrderProductTokenLookup] Catalog config load failed:`, catalogError);
-  }
-
-  // Kembalikan Map hasil pencarian token yang berhasil di-resolve
-  return lookup;
 }
 
 function hydrateOrderItemWithProductToken<T extends JsonRecord>(

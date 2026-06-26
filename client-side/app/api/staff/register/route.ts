@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
+import { isValidEmail, normalizeEmail } from "@/lib/auth/email";
 import { requireAuth, requireRole, AuthError, ForbiddenError } from "@/lib/auth/session";
 
 export const dynamic = "force-dynamic";
@@ -27,7 +28,8 @@ export async function POST(request: NextRequest) {
     requireRole(auth, "Owner");
 
     const body = await request.json();
-    const { name, email, password, businessId, role = "Staff" } = body;
+    const { name, password, businessId, role = "Staff" } = body;
+    const email = normalizeEmail(body?.email);
     const targetBusinessId = businessId ? Number(businessId) : auth.businessId;
     const normalizedRole =
       typeof role === "string" && ALLOWED_MEMBER_ROLES.includes(role as ManagedMemberRole)
@@ -56,8 +58,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Basic email format check
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email.trim())) {
+    if (!isValidEmail(email)) {
       return NextResponse.json({ error: "Format email tidak valid" }, { status: 400 });
     }
 
@@ -71,8 +72,13 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Check if email is already taken ──
-    const existingUser = await prisma.user.findUnique({
-      where: { email: email.trim().toLowerCase() },
+    const existingUser = await prisma.user.findFirst({
+      where: {
+        email: {
+          equals: email,
+          mode: "insensitive",
+        },
+      },
     });
 
     if (existingUser) {
@@ -137,7 +143,7 @@ export async function POST(request: NextRequest) {
       const newUser = await tx.user.create({
         data: {
           name: name.trim(),
-          email: email.trim().toLowerCase(),
+          email,
           password: hashedPassword,
         },
       });

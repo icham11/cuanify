@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
+import { isValidEmail, normalizeEmail } from "@/lib/auth/email";
 import { signToken } from "@/lib/auth/jwt";
 
 /**
@@ -19,14 +20,25 @@ import { signToken } from "@/lib/auth/jwt";
  */
 export async function POST(req: Request) {
   const body = await req.json();
-  const { name, email, password } = body;
+  const name = typeof body?.name === "string" ? body.name.trim() : "";
+  const email = normalizeEmail(body?.email);
+  const password = typeof body?.password === "string" ? body.password : "";
 
   if (!name || !email || !password) {
     return new NextResponse("Missing fields", { status: 400 });
   }
 
-  const existingUser = await prisma.user.findUnique({
-    where: { email },
+  if (!isValidEmail(email)) {
+    return new NextResponse("Invalid email", { status: 400 });
+  }
+
+  const existingUser = await prisma.user.findFirst({
+    where: {
+      email: {
+        equals: email,
+        mode: "insensitive",
+      },
+    },
   });
 
   if (existingUser) {
@@ -43,7 +55,11 @@ export async function POST(req: Request) {
     },
   });
 
-  const token = signToken({ userId: user.id });
+  const token = signToken({
+    userId: user.id,
+    name: user.name,
+    email: user.email,
+  });
 
   const response = NextResponse.json({ success: true });
 

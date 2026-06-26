@@ -20,6 +20,7 @@ import { invalidateProductTokenMapCache } from "@/lib/products/product-token-map
 import { ensureOwnerDefaultProducts } from "@/lib/bookings/owner-product-bootstrap";
 import { loadEffectiveBookingCatalog } from "@/lib/bookings/catalog-config-server";
 import { flattenCatalogProductsForDashboard } from "@/lib/bookings/product-sync";
+import { invalidateOrderProductTokenLookupCache } from "@/app/api/bookings/orders/order-helpers";
 import {
   isPrismaConnectionTimeout,
   prismaConnectionErrorResponse,
@@ -703,6 +704,7 @@ export async function POST(request: NextRequest) {
       });
 
       invalidateProductTokenMapCache(businessId);
+      invalidateOrderProductTokenLookupCache(businessId);
       return NextResponse.json({ success: true, data: result }, { status: 201 });
     }
 
@@ -814,6 +816,7 @@ export async function POST(request: NextRequest) {
     });
 
     invalidateProductTokenMapCache(businessId);
+    invalidateOrderProductTokenLookupCache(businessId);
     return NextResponse.json({ success: true, data: result }, { status: 201 });
   } catch (error: unknown) {
     if (isAuthError(error)) {
@@ -891,6 +894,7 @@ export async function DELETE(request: NextRequest) {
     await prisma.product.updateMany({ where: { id: { in: ids }, businessId }, data: { deletedAt: now } });
 
     invalidateProductTokenMapCache(businessId);
+    invalidateOrderProductTokenLookupCache(businessId);
     return NextResponse.json({ success: true, deleted: ids.length });
   } catch (error) {
     if (isAuthError(error)) {

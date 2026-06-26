@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
+import { normalizeEmail } from "@/lib/auth/email";
 import { signToken } from "@/lib/auth/jwt";
 import {
   isPrismaConnectionTimeout,
@@ -27,8 +28,7 @@ export const runtime = "nodejs";
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => null);
-    const email =
-      typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
+    const email = normalizeEmail(body?.email);
     const password = typeof body?.password === "string" ? body.password : "";
 
     if (!email || !password) {
@@ -39,8 +39,13 @@ export async function POST(req: Request) {
     }
 
     const user = await withPrismaRetry(() =>
-      prisma.user.findUnique({
-        where: { email },
+      prisma.user.findFirst({
+        where: {
+          email: {
+            equals: email,
+            mode: "insensitive",
+          },
+        },
       }),
     );
 
@@ -67,6 +72,17 @@ export async function POST(req: Request) {
       );
     }
 
+    if (user.email !== email) {
+      void withPrismaRetry(() =>
+        prisma.user.update({
+          where: { id: user.id },
+          data: { email },
+        }),
+      ).catch((error) => {
+        console.warn("[auth/login] Failed to normalize user email:", error);
+      });
+    }
+
     const ownedBusiness = await withPrismaRetry(() =>
       prisma.business.findFirst({
         where: { userId: user.id },
@@ -91,7 +107,7 @@ export async function POST(req: Request) {
     const token = signToken({
       userId: user.id,
       name: user.name,
-      email: user.email,
+      email,
       ...(role ? { role } : {}),
       ...(businessId ? { businessId } : {}),
     });

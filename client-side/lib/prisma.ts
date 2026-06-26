@@ -10,10 +10,10 @@ const globalForPrisma = globalThis as unknown as {
 };
 
 function createPrismaClient() {
-  const databaseUrl = process.env.DATABASE_URL;
+  const databaseUrl = process.env.DIRECT_URL || process.env.DATABASE_URL;
 
   if (!databaseUrl) {
-    throw new Error("DATABASE_URL is not set");
+    throw new Error("DIRECT_URL or DATABASE_URL is not set");
   }
 
   // To reduce connection overhead in serverless environments like Vercel,

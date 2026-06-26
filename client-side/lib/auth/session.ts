@@ -3,6 +3,7 @@ import { cookies, headers } from "next/headers"
 import { getServerSession } from "next-auth"
 import { getToken } from "next-auth/jwt"
 import { authOptions } from "@/lib/auth"
+import { normalizeEmail } from "@/lib/auth/email"
 import { verifyToken } from "@/lib/auth/jwt"
 import prisma from "@/lib/prisma"
 import {
@@ -35,6 +36,23 @@ type BusinessAccessResult =
   | { businessId: number; role: UserRole }
   | null
 
+type CacheEntry<T> = {
+  expiresAt: number
+  value: T
+}
+
+type MembershipSnapshot = {
+  businessId: number
+  role: UserRole
+}
+
+const AUTH_LOOKUP_CACHE_TTL_MS = 60_000
+const globalForAuthLookupCache = globalThis as typeof globalThis & {
+  __authBusinessAccessCache?: Map<string, CacheEntry<BusinessAccessResult>>
+  __authOwnedBusinessCache?: Map<string, CacheEntry<{ id: number } | null>>
+  __authMembershipCache?: Map<string, CacheEntry<MembershipSnapshot | null>>
+}
+
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) {
     return error.message
@@ -61,6 +79,45 @@ function normalizeNumericId(value: unknown): number | undefined {
     }
   }
   return undefined
+}
+
+function getBusinessAccessCache() {
+  if (!globalForAuthLookupCache.__authBusinessAccessCache) {
+    globalForAuthLookupCache.__authBusinessAccessCache = new Map()
+  }
+  return globalForAuthLookupCache.__authBusinessAccessCache
+}
+
+function getOwnedBusinessCache() {
+  if (!globalForAuthLookupCache.__authOwnedBusinessCache) {
+    globalForAuthLookupCache.__authOwnedBusinessCache = new Map()
+  }
+  return globalForAuthLookupCache.__authOwnedBusinessCache
+}
+
+function getMembershipCache() {
+  if (!globalForAuthLookupCache.__authMembershipCache) {
+    globalForAuthLookupCache.__authMembershipCache = new Map()
+  }
+  return globalForAuthLookupCache.__authMembershipCache
+}
+
+function readCacheEntry<T>(cache: Map<string, CacheEntry<T>>, key: string): T | undefined {
+  const entry = cache.get(key)
+  if (!entry) return undefined
+  if (entry.expiresAt <= Date.now()) {
+    cache.delete(key)
+    return undefined
+  }
+  return entry.value
+}
+
+function writeCacheEntry<T>(cache: Map<string, CacheEntry<T>>, key: string, value: T) {
+  cache.set(key, {
+    value,
+    expiresAt: Date.now() + AUTH_LOOKUP_CACHE_TTL_MS,
+  })
+  return value
 }
 
 async function resolveUserIdFromCustomJwt(
@@ -157,11 +214,17 @@ async function resolvePayloadFromNextAuth(): Promise<{ userId?: number; business
       }
 
       // Jika user ID kosong tetapi email terisi, lakukan kueri pencarian user ke DB secara aman
-      if (!userId && typeof token.email === "string" && token.email.trim() !== "") {
+      const normalizedTokenEmail = normalizeEmail(token.email)
+      if (!userId && normalizedTokenEmail) {
         // Jangan lakukan kueri DB jika status cooldown koneksi aktif
         if (!isPrismaTimeoutCooldownActive()) {
-          const dbUser = await prisma.user.findUnique({
-            where: { email: token.email },
+          const dbUser = await prisma.user.findFirst({
+            where: {
+              email: {
+                equals: normalizedTokenEmail,
+                mode: "insensitive",
+              },
+            },
             select: { id: true },
           })
           if (dbUser) userId = dbUser.id
@@ -170,11 +233,17 @@ async function resolvePayloadFromNextAuth(): Promise<{ userId?: number; business
     }
 
     // 5. Fallback pencarian user ID lewat email dari session jika token tidak lengkap
-    if (!userId && typeof sessionUser?.email === "string" && sessionUser.email.trim() !== "") {
+    const normalizedSessionEmail = normalizeEmail(sessionUser?.email)
+    if (!userId && normalizedSessionEmail) {
       // Jangan lakukan kueri DB jika status cooldown koneksi aktif
       if (!isPrismaTimeoutCooldownActive()) {
-        const dbUser = await prisma.user.findUnique({
-          where: { email: sessionUser.email },
+        const dbUser = await prisma.user.findFirst({
+          where: {
+            email: {
+              equals: normalizedSessionEmail,
+              mode: "insensitive",
+            },
+          },
           select: { id: true },
         })
         if (dbUser) userId = dbUser.id
@@ -194,10 +263,55 @@ async function resolvePayloadFromNextAuth(): Promise<{ userId?: number; business
   return undefined
 }
 
+async function resolveLatestOwnedBusiness(userId: number) {
+  const cacheKey = String(userId)
+  const cached = readCacheEntry(getOwnedBusinessCache(), cacheKey)
+  if (cached !== undefined) {
+    return cached
+  }
+
+  const business = await withPrismaRetry(() =>
+    prisma.business.findFirst({
+      where: { userId },
+      select: { id: true },
+      orderBy: { createdAt: "desc" },
+    }),
+  )
+
+  return writeCacheEntry(getOwnedBusinessCache(), cacheKey, business)
+}
+
+async function resolveLatestMembership(userId: number) {
+  const cacheKey = String(userId)
+  const cached = readCacheEntry(getMembershipCache(), cacheKey)
+  if (cached !== undefined) {
+    return cached
+  }
+
+  const membership = await withPrismaRetry(() =>
+    prisma.businessMember.findFirst({
+      where: { userId },
+      select: {
+        businessId: true,
+        role: true,
+      },
+      orderBy: { createdAt: "desc" },
+    }),
+  )
+
+  return writeCacheEntry(getMembershipCache(), cacheKey, membership)
+}
+
 async function resolveBusinessAccess(args: {
   userId: number // ID pengguna yang sedang diperiksa aksesnya
   businessId: number // ID bisnis yang ingin diakses oleh pengguna
 }): Promise<BusinessAccessResult> { // Mengembalikan informasi hak akses bisnis atau null jika ditolak
+  const cacheKey = `${args.userId}:${args.businessId}`
+  const cached = readCacheEntry(getBusinessAccessCache(), cacheKey)
+  if (cached !== undefined) {
+    return cached
+  }
+
   // Bungkus seluruh operasi kueri dengan helper withPrismaRetry agar tahan terhadap error koneksi transient (misalnya Neon DB cold-start)
   return withPrismaRetry(async () => {
     try { // Mulai blok try-catch untuk mengamankan kueri bisnis owner dari driver pool exhaustion
@@ -212,10 +326,10 @@ async function resolveBusinessAccess(args: {
 
       // Jika ditemukan, kembalikan ID bisnis dengan peran akses sebagai Owner
       if (ownedBusiness) {
-        return {
+        return writeCacheEntry(getBusinessAccessCache(), cacheKey, {
           businessId: ownedBusiness.id,
           role: "Owner" as UserRole,
-        }
+        })
       }
     } catch (err) { // Tangkap kesalahan transient database jika terjadi pool timeout
       // Jika kegagalan disebabkan oleh connection timeout, jangan sembunyikan error tersebut
@@ -242,10 +356,10 @@ async function resolveBusinessAccess(args: {
 
       // Jika ditemukan, kembalikan ID bisnis beserta perannya
       if (membership) {
-        return {
+        return writeCacheEntry(getBusinessAccessCache(), cacheKey, {
           businessId: membership.businessId,
           role: membership.role,
-        }
+        })
       }
     } catch (err) { // Tangkap kesalahan transient database jika terjadi pool timeout
       // Jika kegagalan disebabkan oleh connection timeout, lempar agar dicoba ulang
@@ -257,7 +371,7 @@ async function resolveBusinessAccess(args: {
     }
 
     // Jika tidak memiliki akses apa pun setelah mencoba kueri dengan sukses, kembalikan null
-    return null
+    return writeCacheEntry(getBusinessAccessCache(), cacheKey, null)
   }, 3, 1000) // Lakukan maksimal 3 kali percobaan dengan jeda awal 1000ms (exponential backoff internal)
 }
 
@@ -378,10 +492,8 @@ export const requireAuth = cache(async (): Promise<AuthResult> => {
   // 7. Jika belum berhasil di-resolve, cari bisnis pertama milik user
   if (!business) {
     try { // Mulai blok try-catch untuk mengamankan kueri pencarian bisnis owner
-      business = await prisma.business.findFirst({
-        where: { userId: Number(userId) },
-        orderBy: { createdAt: "desc" },
-      })
+      const ownedBusiness = await resolveLatestOwnedBusiness(Number(userId))
+      business = ownedBusiness ? { id: ownedBusiness.id } : null
     } catch (error) { // Tangkap potensi kesalahan koneksi atau transient TLS database error
       // Konversi error ke format string secara aman
       const errString = getErrorMessage(error)
@@ -419,11 +531,7 @@ export const requireAuth = cache(async (): Promise<AuthResult> => {
   if (!business) {
     let membership = null
     try { // Mulai blok try-catch untuk kueri keanggotaan bisnis secara aman
-      membership = await prisma.businessMember.findFirst({
-        where: { userId: Number(userId) },
-        include: { business: true },
-        orderBy: { createdAt: "desc" },
-      })
+      membership = await resolveLatestMembership(Number(userId))
     } catch (error) { // Tangkap potensi kesalahan koneksi atau transient TLS database error
       // Konversi error ke format string secara aman
       const errString = getErrorMessage(error)

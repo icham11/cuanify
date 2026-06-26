@@ -7,6 +7,71 @@ import type { NormalizedOrder } from "./route";
 
 export type JsonRecord = Record<string, unknown>;
 
+type ProductTokenLookupCacheEntry = {
+  expiresAt: number;
+  value: Map<string, number>;
+};
+
+const ORDER_PRODUCT_TOKEN_LOOKUP_CACHE_TTL_MS = 60_000;
+const globalForOrderProductTokenLookup =
+  globalThis as typeof globalThis & {
+    __orderProductTokenLookupCache?: Map<
+      number,
+      ProductTokenLookupCacheEntry
+    >;
+    __orderProductTokenLookupInFlight?: Map<
+      number,
+      Promise<Map<string, number>>
+    >;
+  };
+
+function getOrderProductTokenLookupCache() {
+  if (!globalForOrderProductTokenLookup.__orderProductTokenLookupCache) {
+    globalForOrderProductTokenLookup.__orderProductTokenLookupCache = new Map();
+  }
+  return globalForOrderProductTokenLookup.__orderProductTokenLookupCache;
+}
+
+function getOrderProductTokenLookupInFlight() {
+  if (!globalForOrderProductTokenLookup.__orderProductTokenLookupInFlight) {
+    globalForOrderProductTokenLookup.__orderProductTokenLookupInFlight =
+      new Map();
+  }
+  return globalForOrderProductTokenLookup.__orderProductTokenLookupInFlight;
+}
+
+function readOrderProductTokenLookupCache(businessId: number) {
+  const entry = getOrderProductTokenLookupCache().get(businessId);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    getOrderProductTokenLookupCache().delete(businessId);
+    return null;
+  }
+  return new Map(entry.value);
+}
+
+function writeOrderProductTokenLookupCache(
+  businessId: number,
+  value: Map<string, number>,
+) {
+  getOrderProductTokenLookupCache().set(businessId, {
+    value: new Map(value),
+    expiresAt: Date.now() + ORDER_PRODUCT_TOKEN_LOOKUP_CACHE_TTL_MS,
+  });
+  return new Map(value);
+}
+
+export function invalidateOrderProductTokenLookupCache(businessId?: number) {
+  if (typeof businessId === "number") {
+    getOrderProductTokenLookupCache().delete(businessId);
+    getOrderProductTokenLookupInFlight().delete(businessId);
+    return;
+  }
+
+  getOrderProductTokenLookupCache().clear();
+  getOrderProductTokenLookupInFlight().clear();
+}
+
 // Helper format data dasar
 export function asRecord(value: unknown): JsonRecord | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -113,47 +178,70 @@ function getProductTokenLookupKeys(item: {
 export async function loadOrderProductTokenLookup(
   businessId: number,
 ): Promise<Map<string, number>> {
-  const lookup = new Map<string, number>();
-
-  try {
-    const products = await prisma.product.findMany({
-      where: {
-        businessId,
-        deletedAt: null,
-      },
-      select: {
-        name: true,
-        productionToken: true,
-      },
-    });
-
-    for (const product of products) {
-      const token = Math.max(0, Number(product.productionToken || 0));
-      if (token <= 0) continue;
-      lookup.set(normalizeProductTokenLookupKey(product.name), token);
-    }
-  } catch (dbError) {
-    console.warn(`[loadOrderProductTokenLookup] DB query failed, using catalog fallback:`, dbError);
+  const cached = readOrderProductTokenLookupCache(businessId);
+  if (cached) {
+    return cached;
   }
 
-  try {
-    const effectiveCatalog = await loadEffectiveBookingCatalog(businessId);
+  const inFlight = getOrderProductTokenLookupInFlight().get(businessId);
+  if (inFlight) {
+    return inFlight.then((value) => new Map(value));
+  }
 
-    for (const item of flattenCatalogProductsForDashboard(
-      effectiveCatalog.productCatalog,
-    )) {
-      const token = Math.max(0, Number(item.productionToken || 0));
-      if (token <= 0) continue;
-      const key = normalizeProductTokenLookupKey(item.name);
-      if (!lookup.has(key)) {
-        lookup.set(key, token);
+  const request = (async () => {
+    const lookup = new Map<string, number>();
+
+    try {
+      const products = await prisma.product.findMany({
+        where: {
+          businessId,
+          deletedAt: null,
+        },
+        select: {
+          name: true,
+          productionToken: true,
+        },
+      });
+
+      for (const product of products) {
+        const token = Math.max(0, Number(product.productionToken || 0));
+        if (token <= 0) continue;
+        lookup.set(normalizeProductTokenLookupKey(product.name), token);
       }
+    } catch (dbError) {
+      console.warn(
+        `[loadOrderProductTokenLookup] DB query failed, using catalog fallback:`,
+        dbError,
+      );
     }
-  } catch (catalogError) {
-    console.warn(`[loadOrderProductTokenLookup] Catalog config load failed:`, catalogError);
-  }
 
-  return lookup;
+    try {
+      const effectiveCatalog = await loadEffectiveBookingCatalog(businessId);
+
+      for (const item of flattenCatalogProductsForDashboard(
+        effectiveCatalog.productCatalog,
+      )) {
+        const token = Math.max(0, Number(item.productionToken || 0));
+        if (token <= 0) continue;
+        const key = normalizeProductTokenLookupKey(item.name);
+        if (!lookup.has(key)) {
+          lookup.set(key, token);
+        }
+      }
+    } catch (catalogError) {
+      console.warn(
+        `[loadOrderProductTokenLookup] Catalog config load failed:`,
+        catalogError,
+      );
+    }
+
+    return writeOrderProductTokenLookupCache(businessId, lookup);
+  })().finally(() => {
+    getOrderProductTokenLookupInFlight().delete(businessId);
+  });
+
+  getOrderProductTokenLookupInFlight().set(businessId, request);
+  return request.then((value) => new Map(value));
 }
 
 function hydrateOrderItemWithProductToken<T extends JsonRecord>(

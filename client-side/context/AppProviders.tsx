@@ -28,7 +28,11 @@ export default function AppProviders({
   }
 
   return (
-    <SessionProvider>
+    <SessionProvider
+      refetchInterval={0}
+      refetchOnWindowFocus={false}
+      refetchWhenOffline={false}
+    >
       {shouldLoadWorkspaceProviders ? (
         <BusinessProvider>
           <RoleProvider>{children}</RoleProvider>

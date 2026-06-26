@@ -46,25 +46,31 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    const normalizedUserId = Number(userId)
     const businesses = await prisma.business.findMany({
-      where: { userId },
+      where: {
+        OR: [
+          { userId: normalizedUserId },
+          {
+            members: {
+              some: {
+                userId: normalizedUserId,
+              },
+            },
+          },
+        ],
+      },
       orderBy: { createdAt: "desc" },
     })
 
-    // Also include businesses where user is a member (e.g. Cashier)
-    const memberships = await prisma.businessMember.findMany({
-      where: { userId: Number(userId) },
-      include: { business: true },
-      orderBy: { createdAt: "desc" },
+    const allBusinesses = [...businesses].sort((left, right) => {
+      const leftOwned = left.userId === normalizedUserId ? 0 : 1
+      const rightOwned = right.userId === normalizedUserId ? 0 : 1
+      if (leftOwned !== rightOwned) {
+        return leftOwned - rightOwned
+      }
+      return right.createdAt.getTime() - left.createdAt.getTime()
     })
-
-    // Merge: owned businesses first, then member businesses (avoid duplicates)
-    const ownedIds = new Set(businesses.map((b) => b.id))
-    const memberBusinesses = memberships
-      .map((m) => m.business)
-      .filter((b) => !ownedIds.has(b.id))
-
-    const allBusinesses = [...businesses, ...memberBusinesses]
 
     return NextResponse.json({ success: true, data: allBusinesses })
   } catch (e) {
