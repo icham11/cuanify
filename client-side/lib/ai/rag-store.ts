@@ -376,9 +376,19 @@ async function buildBusinessChunks(businessId: number): Promise<DocumentChunk[]>
   // ─── 1. Products ───
   const products = await prisma.product.findMany({
     where: { businessId },
-    include: {
-      category: true,
-      recipes: { include: { ingredient: true } },
+    select: {
+      id: true,
+      categoryId: true,
+      name: true,
+      sellingPrice: true,
+      isActive: true,
+      category: { select: { name: true } },
+      recipes: {
+        select: {
+          quantity: true,
+          ingredient: { select: { name: true, unit: true } },
+        },
+      },
     },
   });
 
@@ -412,10 +422,19 @@ async function buildBusinessChunks(businessId: number): Promise<DocumentChunk[]>
   // ─── 2. Ingredients + stock ───
   const ingredients = await prisma.ingredient.findMany({
     where: { businessId },
-    include: {
+    select: {
+      id: true,
+      name: true,
+      unit: true,
+      minStock: true,
       inventoryBatches: {
         where: { remainingQty: { gt: 0 } },
         orderBy: { receivedAt: "desc" },
+        select: {
+          remainingQty: true,
+          costPerUnit: true,
+          expirationDate: true,
+        },
       },
     },
   });
@@ -479,7 +498,22 @@ async function buildBusinessChunks(businessId: number): Promise<DocumentChunk[]>
 
   const sales = await prisma.sale.findMany({
     where: { businessId, createdAt: { gte: ninetyDaysAgo } },
-    include: { saleItems: { include: { product: true } } },
+    select: {
+      createdAt: true,
+      transactionNumber: true,
+      customerName: true,
+      totalRevenue: true,
+      totalCost: true,
+      paymentMethod: true,
+      paymentStatus: true,
+      saleItems: {
+        select: {
+          quantity: true,
+          priceAtSale: true,
+          product: { select: { name: true } },
+        },
+      },
+    },
     orderBy: { createdAt: "desc" },
   });
 
@@ -624,17 +658,35 @@ async function buildBusinessChunks(businessId: number): Promise<DocumentChunk[]>
   // ─── 3d. Kasbon / Piutang (Debts) ───
   const debts = await prisma.debt.findMany({
     where: { businessId },
-    include: {
+    select: {
+      customerName: true,
+      customerPhone: true,
+      totalAmount: true,
+      paidAmount: true,
+      status: true,
+      dueDate: true,
+      notes: true,
       sale: {
         select: {
           transactionNumber: true,
           createdAt: true,
           saleItems: {
-            include: { product: { select: { id: true, name: true } } },
+            select: {
+              quantity: true,
+              priceAtSale: true,
+              product: { select: { name: true } },
+            },
           },
         },
       },
-      payments: { orderBy: { createdAt: "desc" } },
+      payments: {
+        orderBy: { createdAt: "desc" },
+        select: {
+          amount: true,
+          createdAt: true,
+          notes: true,
+        },
+      },
     },
     orderBy: { createdAt: "desc" },
   });
@@ -856,7 +908,12 @@ async function buildBusinessChunks(businessId: number): Promise<DocumentChunk[]>
   // ─── 6. Cross-reference recipes ───
   const recipes = await prisma.recipe.findMany({
     where: { product: { businessId } },
-    include: { product: true, ingredient: true },
+    select: {
+      productId: true,
+      quantity: true,
+      product: { select: { name: true } },
+      ingredient: { select: { name: true, unit: true } },
+    },
   });
 
   const byProduct: Record<string, { id: number; items: string[] }> = {};
@@ -885,7 +942,14 @@ async function buildBusinessChunks(businessId: number): Promise<DocumentChunk[]>
   // ─── 7. Inventory Batches (FIFO detail per ingredient) ───
   const allBatches = await prisma.inventoryBatch.findMany({
     where: { ingredient: { businessId } },
-    include: { ingredient: { select: { id: true, name: true, unit: true } } },
+    select: {
+      ingredientId: true,
+      receivedAt: true,
+      remainingQty: true,
+      costPerUnit: true,
+      expirationDate: true,
+      ingredient: { select: { id: true, name: true, unit: true } },
+    },
     orderBy: { receivedAt: "desc" },
   });
 
@@ -956,9 +1020,12 @@ async function buildBusinessChunks(businessId: number): Promise<DocumentChunk[]>
       stockDocument: { businessId },
       createdAt: { gte: sixtyDaysAgo },
     },
-    include: {
-      ingredient: { select: { id: true, name: true, unit: true } },
-      stockDocument: { select: { type: true, notes: true } },
+    select: {
+      quantity: true,
+      costPerUnit: true,
+      type: true,
+      ingredient: { select: { name: true, unit: true } },
+      stockDocument: { select: { type: true } },
     },
     orderBy: { createdAt: "desc" },
   });
@@ -1048,9 +1115,16 @@ async function buildBusinessChunks(businessId: number): Promise<DocumentChunk[]>
   // ─── 9. Stock Documents (purchase / waste records — last 60 days) ───
   const stockDocs = await prisma.stockDocument.findMany({
     where: { businessId, createdAt: { gte: sixtyDaysAgo } },
-    include: {
+    select: {
+      type: true,
+      notes: true,
+      createdAt: true,
       inventoryMovements: {
-        include: { ingredient: { select: { name: true, unit: true } } },
+        select: {
+          quantity: true,
+          costPerUnit: true,
+          ingredient: { select: { name: true, unit: true } },
+        },
         take: 10,
       },
     },
@@ -1117,7 +1191,15 @@ async function buildBusinessChunks(businessId: number): Promise<DocumentChunk[]>
       product: { businessId },
       date: { gte: thirtyAgo },
     },
-    include: { product: { select: { id: true, name: true, sellingPrice: true } } },
+    select: {
+      productId: true,
+      date: true,
+      quantitySold: true,
+      revenue: true,
+      cost: true,
+      profit: true,
+      product: { select: { name: true } },
+    },
     orderBy: { date: "desc" },
   });
 
@@ -1227,7 +1309,13 @@ async function buildBusinessChunks(businessId: number): Promise<DocumentChunk[]>
       product: { businessId },
       date: { gte: new Date() },
     },
-    include: { product: { select: { name: true } } },
+    select: {
+      date: true,
+      predictedQty: true,
+      confidenceScore: true,
+      recommendedProduction: true,
+      product: { select: { name: true } },
+    },
     orderBy: { date: "asc" },
   });
 
@@ -1253,7 +1341,9 @@ async function buildBusinessChunks(businessId: number): Promise<DocumentChunk[]>
   // ─── 12. Categories summary ───
   const categories = await prisma.category.findMany({
     where: { businessId },
-    include: {
+    select: {
+      id: true,
+      name: true,
       _count: { select: { products: true } },
     },
   });
@@ -1294,10 +1384,16 @@ async function buildBusinessChunks(businessId: number): Promise<DocumentChunk[]>
   // ─── 13. Business Info + Staff ───
   const business = await prisma.business.findUnique({
     where: { id: businessId },
-    include: {
+    select: {
+      name: true,
+      location: true,
+      createdAt: true,
       user: { select: { name: true, email: true } },
       members: {
-        include: { user: { select: { name: true, email: true } } },
+        select: {
+          role: true,
+          user: { select: { name: true, email: true } },
+        },
       },
     },
   });
@@ -1348,8 +1444,10 @@ async function buildBusinessChunks(businessId: number): Promise<DocumentChunk[]>
   // ─── 14. Debt Payments (riwayat cicilan kasbon) ───
   const debtPayments = await prisma.debtPayment.findMany({
     where: { debt: { businessId } },
-    include: {
-      debt: { select: { customerName: true, totalAmount: true, status: true } },
+    select: {
+      amount: true,
+      createdAt: true,
+      debt: { select: { customerName: true } },
     },
     orderBy: { createdAt: "desc" },
     take: 50,

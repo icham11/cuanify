@@ -22,6 +22,12 @@ type CatalogCacheEntry = {
   value: EffectiveBookingCatalog;
 };
 
+type DynamicCatalogProduct = {
+  name: string;
+  sellingPrice: unknown;
+  category: { name: string } | null;
+};
+
 const EFFECTIVE_BOOKING_CATALOG_CACHE_TTL_MS = 60_000;
 const globalForEffectiveBookingCatalog =
   globalThis as typeof globalThis & {
@@ -129,11 +135,15 @@ export async function loadEffectiveBookingCatalog(
       effectiveProductCatalog.map((entry) => entry.category),
     );
 
-    let dbProducts: any[] = [];
+    let dbProducts: DynamicCatalogProduct[] = [];
     try {
       dbProducts = await prisma.product.findMany({
         where: { businessId, isActive: true, deletedAt: null },
-        include: { category: true },
+        select: {
+          name: true,
+          sellingPrice: true,
+          category: { select: { name: true } },
+        },
       });
     } catch (error) {
       console.warn(

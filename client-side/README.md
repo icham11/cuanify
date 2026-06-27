@@ -117,6 +117,30 @@ NEXT_PUBLIC_BAKERY_TOKEN_MULTIPLIER_BUKET=1.25
 NEXT_PUBLIC_BAKERY_TOKEN_MULTIPLIER_CAKE_TOWER=1.4
 ```
 
+## Neon Cost Optimization
+
+App ini memakai `@prisma/adapter-neon` dengan pool kecil dan idle timeout pendek supaya koneksi database tidak dibiarkan hidup lama setelah request selesai. Env opsional:
+
+```bash
+NEON_POOL_MAX_CONNECTIONS=3
+NEON_POOL_IDLE_TIMEOUT_MS=10000
+NEON_POOL_CONNECTION_TIMEOUT_MS=15000
+```
+
+Untuk penghematan yang berada di luar source code, cek Neon Console: aktifkan scale to zero untuk environment non-produksi/intermittent, right-size autoscaling compute, pendekkan history window jika PITR panjang tidak dibutuhkan, hapus branch preview/dev yang tidak dipakai, dan gunakan branch expiration untuk branch sementara.
+
+Untuk network transfer, pantau `public_network_transfer_bytes` di Neon Console atau Consumption API. Jika ada spike, cek query yang mengirim banyak row dengan `pg_stat_statements`:
+
+```sql
+SELECT query, calls, rows AS total_rows, rows / calls AS avg_rows_per_call
+FROM pg_stat_statements
+WHERE calls > 0
+ORDER BY rows DESC
+LIMIT 10;
+```
+
+Hindari backup terjadwal via `pg_dump` untuk kebutuhan rutin karena seluruh data tetap keluar dari Neon sebelum dikompresi. Pakai Neon snapshots/scheduled backups bila backup tidak perlu disimpan di luar Neon.
+
 ## Bakery Catalog Management
 
 - Buka menu `Bakery > Catalog` untuk edit harga varian produk.

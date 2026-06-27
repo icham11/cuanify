@@ -24,18 +24,34 @@ export async function GET(request: NextRequest) {
           ? { customerName: { contains: search, mode: "insensitive" as const } }
           : {}),
       },
-      include: {
+      select: {
+        id: true,
+        saleId: true,
+        customerName: true,
+        customerPhone: true,
+        totalAmount: true,
+        paidAmount: true,
+        status: true,
+        notes: true,
+        dueDate: true,
+        createdAt: true,
         sale: {
           select: {
             transactionNumber: true,
             createdAt: true,
             saleItems: {
-              include: { product: { select: { name: true } } },
+              select: { product: { select: { name: true } } },
             },
           },
         },
         payments: {
           orderBy: { createdAt: "desc" },
+          select: {
+            id: true,
+            amount: true,
+            notes: true,
+            createdAt: true,
+          },
         },
       },
       orderBy: { createdAt: "desc" },

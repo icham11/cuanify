@@ -33,13 +33,15 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
     console.log("Business ID:", businessId);
     console.log("Ingredient ID:", ingredientId);
 
-    const allIngredients = await prisma.ingredient.findMany();
-    console.log("ALL INGREDIENTS:", allIngredients);
     // ✅ Validate ingredient belongs to business
     const ingredient = await prisma.ingredient.findFirst({
       where: {
         id: ingredientId,
         businessId,
+      },
+      select: {
+        name: true,
+        unit: true,
       },
     });
 

@@ -35,9 +35,25 @@ export async function POST(
     // Fetch sale
     const sale = await prisma.sale.findUnique({
       where: { id: saleId },
-      include: {
+      select: {
+        id: true,
+        businessId: true,
+        paymentStatus: true,
+        transactionNumber: true,
+        totalRevenue: true,
         saleItems: {
-          include: { product: true },
+          select: {
+            id: true,
+            productId: true,
+            quantity: true,
+            priceAtSale: true,
+            product: {
+              select: {
+                productType: true,
+                cogs: true,
+              },
+            },
+          },
         },
       },
     });

@@ -213,7 +213,17 @@ async function getAttendanceRows(
 ) {
   if (userId) {
     return prisma.$queryRaw<AttendanceRow[]>`
-      SELECT *
+      SELECT
+        id,
+        business_id,
+        user_id,
+        attendance_date,
+        status,
+        check_in_at,
+        check_out_at,
+        notes,
+        created_at,
+        updated_at
       FROM bakery_attendance
       WHERE business_id = ${businessId}
         AND user_id = ${userId}
@@ -224,7 +234,17 @@ async function getAttendanceRows(
   }
 
   return prisma.$queryRaw<AttendanceRow[]>`
-    SELECT *
+    SELECT
+      id,
+      business_id,
+      user_id,
+      attendance_date,
+      status,
+      check_in_at,
+      check_out_at,
+      notes,
+      created_at,
+      updated_at
     FROM bakery_attendance
     WHERE business_id = ${businessId}
       AND attendance_date >= ${start}::date
@@ -499,7 +519,17 @@ export async function POST(request: NextRequest) {
     const note = typeof body.notes === "string" ? body.notes.trim().slice(0, 200) : null;
 
     const todayRows = await prisma.$queryRaw<AttendanceRow[]>`
-      SELECT *
+      SELECT
+        id,
+        business_id,
+        user_id,
+        attendance_date,
+        status,
+        check_in_at,
+        check_out_at,
+        notes,
+        created_at,
+        updated_at
       FROM bakery_attendance
       WHERE business_id = ${auth.businessId}
         AND user_id = ${auth.userId}
@@ -556,7 +586,17 @@ export async function POST(request: NextRequest) {
     }
 
     const rows = await prisma.$queryRaw<AttendanceRow[]>`
-      SELECT *
+      SELECT
+        id,
+        business_id,
+        user_id,
+        attendance_date,
+        status,
+        check_in_at,
+        check_out_at,
+        notes,
+        created_at,
+        updated_at
       FROM bakery_attendance
       WHERE business_id = ${auth.businessId}
         AND user_id = ${auth.userId}

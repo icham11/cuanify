@@ -231,14 +231,36 @@ export async function getMenuRecommendations(businessId: number): Promise<MenuRe
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
   const [products, sales, ingredients] = await Promise.all([
-    prisma.product.findMany({ where: { businessId }, include: { category: true } }),
+    prisma.product.findMany({
+      where: { businessId },
+      select: {
+        id: true,
+        name: true,
+        sellingPrice: true,
+        isActive: true,
+        category: { select: { name: true } },
+      },
+    }),
     prisma.sale.findMany({
       where: { businessId, createdAt: { gte: thirtyDaysAgo } },
-      include: { saleItems: { include: { product: true } } },
+      select: {
+        saleItems: {
+          select: {
+            productId: true,
+            quantity: true,
+          },
+        },
+      },
     }),
     prisma.ingredient.findMany({
       where: { businessId },
-      include: { inventoryBatches: { where: { remainingQty: { gt: 0 } } } },
+      select: {
+        name: true,
+        inventoryBatches: {
+          where: { remainingQty: { gt: 0 } },
+          select: { remainingQty: true },
+        },
+      },
     }),
   ]);
   const salesMap: Record<number, number> = {};
@@ -260,7 +282,16 @@ export async function getProfitOptimization(businessId: number): Promise<ProfitO
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
   const sales = await prisma.sale.findMany({
     where: { businessId, createdAt: { gte: thirtyDaysAgo } },
-    include: { saleItems: { include: { product: true } } },
+    select: {
+      saleItems: {
+        select: {
+          quantity: true,
+          priceAtSale: true,
+          costAtSale: true,
+          product: { select: { name: true } },
+        },
+      },
+    },
   });
   const agg: Record<string, { revenue: number; cost: number; qty: number }> = {};
   sales.forEach((s) => s.saleItems.forEach((si) => {

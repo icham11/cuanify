@@ -348,7 +348,12 @@ export async function PATCH(request: NextRequest) {
 
     const member = await prisma.businessMember.findFirst({
       where: { id: Number(memberId), businessId: { in: ownedIds } },
-      include: { user: true },
+      select: {
+        id: true,
+        userId: true,
+        businessId: true,
+        role: true,
+      },
     });
 
     if (!member) {
