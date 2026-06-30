@@ -61,6 +61,7 @@ import {
   type CatalogSelection,
   type PricelistCategory,
 } from "@/lib/bookings/pricelist";
+import { splitRecapPriceComponents } from "@/lib/bookings/order-item-pricing";
 import {
   getFlavorAddOnIdsByCategory,
   getFlavorOptionsByCategory,
@@ -2588,6 +2589,35 @@ function getItemBasePrice(
 ): number {
   const parsedSubtotal = getParsedSubtotalOverride(item);
   if (parsedSubtotal !== null) {
+    const parsedUnitPrice = getParsedUnitPriceOverride(item);
+    const quantity = Number(item.quantity) || 0;
+
+    if (parsedUnitPrice !== null && quantity > 0) {
+      const parsedBase = parsedUnitPrice * quantity;
+      if (isCustomCookieItem(item)) {
+        const additionalDesignCount =
+          getCookieAdditionalDesignCountFromItem(item);
+        const cookieAdditionalDesignUnitPrice =
+          options?.cookieAdditionalDesignUnitPrice ??
+          COOKIE_ADDITIONAL_DESIGN_PRICE;
+        return (
+          parsedBase + additionalDesignCount * cookieAdditionalDesignUnitPrice
+        );
+      }
+
+      return parsedBase;
+    }
+
+    const catalogUnit = getUnitPriceFromCatalog(catalog, {
+      category: item.category,
+      subcategory: item.subcategory,
+      productName: item.productName,
+      size: item.size,
+    });
+    if (catalogUnit > 0 && quantity > 0) {
+      return catalogUnit * quantity;
+    }
+
     if (isCustomCookieItem(item)) {
       const additionalDesignCount =
         getCookieAdditionalDesignCountFromItem(item);
@@ -3047,14 +3077,31 @@ function getDraftItemPriceBreakdown(args: {
           ),
         )
       : null;
-  // Hitung add-on amount dari katalog (selalu, termasuk untuk recap)
-  const computedAddOnAmount = Math.max(0, Math.round(catalogAddOnAmount));
+  const parsedSubtotalOverride = getParsedSubtotalOverride(item);
+  const recapSplit = hasParsedRecapPrice
+    ? splitRecapPriceComponents({
+        parsedSubtotal:
+          recapTotalOverride ?? parsedSubtotalOverride ?? baseBeforeSplit,
+        parsedUnitPrice: getParsedUnitPriceOverride(item),
+        quantity,
+        catalogBaseAmount: baseBeforeSplit,
+        computedAddOnAmount: catalogAddOnAmount,
+        designAdjustmentAmount:
+          recapTotalOverride !== null ? 0 : customCookieAdditionalDesignCharge,
+      })
+    : null;
+  // Hitung add-on amount dari katalog. Untuk recap WA, jika add-on belum
+  // berhasil dipetakan ke katalog, pakai selisih subtotal recap - base.
+  const computedAddOnAmount = Math.max(
+    0,
+    Math.round(
+      recapSplit
+        ? recapSplit.addOnAmount
+        : catalogAddOnAmount,
+    ),
+  );
   const totalAmount = hasParsedRecapPrice
-    ? (() => {
-        // Untuk item recap: base dari subtotal + add-on yang ter-parse
-        const recapBase = recapTotalOverride ?? Math.max(0, Math.round(baseBeforeSplit));
-        return recapBase + computedAddOnAmount;
-      })()
+    ? (recapSplit?.totalAmount ?? computedAddOnAmount)
     : Math.max(
         0,
         Math.round(
@@ -3064,7 +3111,7 @@ function getDraftItemPriceBreakdown(args: {
         ),
       );
   const baseAmount = hasParsedRecapPrice
-    ? (recapTotalOverride ?? Math.max(0, Math.round(baseBeforeSplit)))
+    ? (recapSplit?.baseAmount ?? 0)
     : catalogBaseAmount;
   const addOnAmount = computedAddOnAmount;
   const designAdjustmentAmount = hasParsedRecapPrice
@@ -3084,48 +3131,9 @@ function getDraftItemPriceBreakdown(args: {
   };
 }
 
-function toBookingDatePart(deliveryDate: string): string {
-  const normalizedDate = normalizeDateInput(deliveryDate);
-  if (!normalizedDate) return "000000";
-
-  const isoMatch = normalizedDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!isoMatch) return "000000";
-
-  const yearShort = isoMatch[1].slice(-2);
-  return `${isoMatch[3]}${isoMatch[2]}${yearShort}`;
-}
-
-function extractSequenceForDate(code: string, datePart: string): number {
-  const normalized = code.replace(/\s+/g, "").toUpperCase();
-  if (!normalized || !datePart || datePart === "000000") return 0;
-  const pattern = new RegExp(`^[A-Z]{2}\\d{3}-${datePart}-(\\d{3})$`);
-  const match = normalized.match(pattern);
-  if (!match?.[1]) return 0;
-  const parsed = Number(match[1]);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function getDailyBookingSequence(
-  orders: BakeryOrder[],
-  deliveryDate: string,
-): number {
-  const datePart = toBookingDatePart(deliveryDate);
-  const max = orders.reduce((currentMax, order) => {
-    const fromBooking = extractSequenceForDate(
-      order.bookingCode || "",
-      datePart,
-    );
-    const fromResi = extractSequenceForDate(order.resi || "", datePart);
-    return Math.max(currentMax, fromBooking, fromResi);
-  }, 0);
-  return max + 1;
-}
-
 function generateBookingCode(
   customerName: string,
   customerPhone: string,
-  _deliveryDate: string, // Unused in new simple format
-  _sequence: number, // Unused in new simple format
 ): string {
   try {
     const nameStr = (customerName || "").trim().replace(/[^a-zA-Z]/g, "");
@@ -6318,8 +6326,6 @@ export default function BookingForm({
     const predictedBookingCode = generateBookingCode(
       values.customerName,
       values.phoneNumber,
-      normalizedDeliveryDate,
-      getDailyBookingSequence(orders, normalizedDeliveryDate),
     );
 
     if (!skipDuplicateTemplateWarning && canWarnDuplicateTemplate) {

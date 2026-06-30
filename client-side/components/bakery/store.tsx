@@ -47,6 +47,11 @@ import {
 } from "@/lib/bookings/product-weight";
 import { calculateOrderFinancialBreakdown } from "@/lib/bookings/financial-breakdown";
 import {
+  resolveOrderItemAddOnAmount,
+  resolveOrderItemBaseAmount,
+  resolveOrderItemLineTotal,
+} from "@/lib/bookings/order-item-pricing";
+import {
   resolveDeliveryMethodLabel,
   resolveOrderDeliveryMethod,
 } from "@/lib/bookings/delivery-method";
@@ -1036,16 +1041,6 @@ function inferPaymentStatus(
   if (totalPaidAmount <= 0) return "Pending";
   if (totalPaidAmount >= Math.max(0, normalizeMoney(totalPrice))) return "Paid";
   return "DP Paid";
-}
-
-function resolveOrderItemBaseAmount(item: OrderItem): number {
-  const lineTotal = normalizeMoney(item.lineTotal);
-  if (lineTotal > 0) return lineTotal;
-  return normalizeMoney(item.basePrice);
-}
-
-function resolveOrderItemAddOnAmount(item: OrderItem): number {
-  return normalizeMoney(item.addOnTotal);
 }
 
 function resolveOrderFinancialFields(order: {
@@ -3376,8 +3371,13 @@ export function OrdersProvider({
 
       const nextItems = payload.items.map((rawItem, index) => {
         const quantity = Math.max(0, Math.round(Number(rawItem.quantity) || 0));
-        const lineTotal = resolveOrderItemBaseAmount(rawItem);
+        const baseAmount = resolveOrderItemBaseAmount(rawItem);
         const addOnTotal = resolveOrderItemAddOnAmount(rawItem);
+        const lineTotal = resolveOrderItemLineTotal({
+          ...rawItem,
+          basePrice: baseAmount,
+          addOnTotal,
+        });
         const addOnQuantities = Object.fromEntries(
           Object.entries(rawItem.addOnQuantities ?? {}).flatMap(([key, value]) => {
             const normalizedKey = String(key || "").trim();
@@ -3402,7 +3402,7 @@ export function OrdersProvider({
               ? undefined
               : normalizeMoney(rawItem.customTokenPerUnit),
           lineTotal,
-          basePrice: lineTotal,
+          basePrice: baseAmount,
           addOns: [...new Set((rawItem.addOns ?? []).map((entry) => String(entry || "").trim()).filter(Boolean))],
           addOnQuantities,
           addOnTotal,

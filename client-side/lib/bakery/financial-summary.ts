@@ -91,6 +91,20 @@ export type BakeryCogsBreakdown = {
   totalCogs: number;
 };
 
+export type BakeryFinancialItemRow = {
+  productName: string;
+  category: string;
+  subcategory: string;
+  quantity: number;
+  unitRevenue: number;
+  revenue: number;
+  cogsPerItem: number;
+  totalCogs: number;
+  grossProfit: number;
+  margin: number;
+  isCancelled: boolean;
+};
+
 export type BakeryFinancialSummary = {
   filteredOrders: BakeryFinancialOrder[];
   totalOrders: number;
@@ -461,6 +475,106 @@ function resolveFinancialItemQuantity(item: BakeryFinancialOrderItem): number {
       quantity: item.quantity,
     }),
   );
+}
+
+function getItemGrossRevenue(item: BakeryFinancialOrderItem): number {
+  const baseRevenue =
+    Number(
+      item.lineTotal ||
+        item.selectedPrice ||
+        Number(item.basePrice || 0) * resolveFinancialItemQuantity(item) ||
+        0,
+    ) || 0;
+  const addOnRevenue = Number(item.addOnTotal || 0);
+  return Math.max(0, baseRevenue + addOnRevenue);
+}
+
+function allocateRoundedAmount(total: number, weights: number[]): number[] {
+  if (weights.length === 0) return [];
+
+  const roundedTotal = Math.round(Number(total || 0));
+  const totalWeight = weights.reduce((sum, value) => sum + Math.max(0, value), 0);
+  let allocated = 0;
+
+  return weights.map((weight, index) => {
+    if (index === weights.length - 1) {
+      return roundedTotal - allocated;
+    }
+
+    const share =
+      totalWeight > 0 ? Math.max(0, weight) / totalWeight : 1 / weights.length;
+    const amount = Math.round(roundedTotal * share);
+    allocated += amount;
+    return amount;
+  });
+}
+
+export function calculateBakeryFinancialItemRows(args: {
+  order: BakeryFinancialOrder;
+  products: BakeryFinancialProduct[];
+  fromDate: string;
+  toDate: string;
+}): BakeryFinancialItemRow[] {
+  const revenueAmountInRange = getRevenueAmountInRange(
+    args.order,
+    args.fromDate,
+    args.toDate,
+  );
+
+  if (revenueAmountInRange === 0) return [];
+
+  const productCostMap = buildProductCostMap(args.products);
+  const productCostEntries = buildProductCostEntries(args.products);
+  const orderIsCancelled = isCancelledOrder(args.order);
+  const items =
+    (args.order.items || []).length > 0
+      ? args.order.items || []
+      : [
+          {
+            productName: args.order.product || "Produk",
+            quantity: 1,
+            lineTotal: revenueAmountInRange,
+          },
+        ];
+  const itemGrossRevenueEntries = items.map(getItemGrossRevenue);
+  const allocatedRevenue = allocateRoundedAmount(
+    revenueAmountInRange,
+    itemGrossRevenueEntries,
+  );
+
+  return items.map((item, index) => {
+    const quantity = resolveFinancialItemQuantity(item);
+    const productName =
+      String(item.productName || "").trim() ||
+      String(args.order.product || "").trim() ||
+      "Produk";
+    const matchedCogs = resolveMatchedCogs({
+      item,
+      orderProductName: args.order.product,
+      productCostMap,
+      productCostEntries,
+    });
+    const revenue = (orderIsCancelled ? -1 : 1) * (allocatedRevenue[index] || 0);
+    const totalCogs = orderIsCancelled ? 0 : matchedCogs * quantity;
+    const grossProfit = revenue - totalCogs;
+
+    return {
+      productName,
+      category: String(item.category || ""),
+      subcategory:
+        String(item.size || "").trim() ||
+        String(item.subcategory || "").trim() ||
+        (item.addOns || []).join(", "),
+      quantity,
+      unitRevenue: quantity > 0 ? Math.round(revenue / quantity) : revenue,
+      revenue,
+      cogsPerItem: matchedCogs,
+      totalCogs,
+      grossProfit,
+      margin: revenue > 0 ? grossProfit / revenue : 0,
+      isCancelled: orderIsCancelled,
+    };
+  });
 }
 
 export function filterBakeryOrdersByDateRange(

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  calculateBakeryFinancialItemRows,
   calculateBakeryFinancialSummary,
   filterBakeryOrdersByDateRange,
   type BakeryFinancialOrder,
@@ -417,6 +418,100 @@ describe("Revenue vs Cashflow Calculation", () => {
     expect(bookingPeriod.totalRevenue).toBe(0);
     expect(deliveryPeriod.totalRevenue).toBe(125000);
     expect(deliveryPeriod.totalCashFlowIn).toBe(0);
+  });
+
+  it("should allocate export item revenue from dashboard net revenue instead of raw line totals", () => {
+    const order: BakeryFinancialOrder = {
+      deliveryDate: "2024-05-10",
+      createdAt: new Date("2024-05-01"),
+      basePrice: 100000,
+      designAdjustmentTotal: 10000,
+      addOnTotal: 20000,
+      productSubtotal: 130000,
+      productDiscountAmount: 5000,
+      deliveryFee: 15000,
+      insuranceFee: 5000,
+      serviceCharge: 10000,
+      totalPrice: 155000,
+      totalPaidAmount: 155000,
+      paymentStatus: "Paid",
+      orderStatus: "Completed",
+      items: [
+        {
+          productName: "Kue Coklat",
+          quantity: 1,
+          basePrice: 110000,
+          lineTotal: 110000,
+        },
+        {
+          productName: "Roti Tawar",
+          quantity: 1,
+          basePrice: 20000,
+          lineTotal: 20000,
+        },
+      ],
+    };
+
+    const summary = calculateBakeryFinancialSummary({
+      orders: [order],
+      products: mockProducts,
+      fromDate: "2024-05-10",
+      toDate: "2024-05-10",
+    });
+    const rows = calculateBakeryFinancialItemRows({
+      order,
+      products: mockProducts,
+      fromDate: "2024-05-10",
+      toDate: "2024-05-10",
+    });
+
+    expect(rows.reduce((sum, row) => sum + row.revenue, 0)).toBe(
+      summary.totalRevenue,
+    );
+    expect(rows.reduce((sum, row) => sum + row.totalCogs, 0)).toBe(
+      summary.cogsCost,
+    );
+    expect(summary.totalRevenue).toBe(125000);
+  });
+
+  it("should export cancelled delivered orders as negative revenue rows", () => {
+    const order: BakeryFinancialOrder = {
+      deliveryDate: "2026-05-10",
+      totalPrice: 300000,
+      totalPaidAmount: 300000,
+      paymentStatus: "Paid",
+      orderStatus: "Cancelled",
+      createdAt: new Date("2026-05-01"),
+      items: [
+        {
+          productName: "Kue Coklat",
+          quantity: 1,
+          basePrice: 300000,
+          lineTotal: 300000,
+        },
+      ],
+    };
+
+    const summary = calculateBakeryFinancialSummary({
+      orders: [order],
+      products: mockProducts,
+      fromDate: "2026-05-01",
+      toDate: "2026-05-31",
+    });
+    const rows = calculateBakeryFinancialItemRows({
+      order,
+      products: mockProducts,
+      fromDate: "2026-05-01",
+      toDate: "2026-05-31",
+    });
+
+    expect(rows.reduce((sum, row) => sum + row.revenue, 0)).toBe(
+      summary.totalRevenue,
+    );
+    expect(rows.reduce((sum, row) => sum + row.totalCogs, 0)).toBe(
+      summary.cogsCost,
+    );
+    expect(rows[0].revenue).toBe(-300000);
   });
 
   it("should recognize monthly revenue on delivery month, not booking month", () => {

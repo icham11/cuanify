@@ -54,6 +54,11 @@ import {
   resolveOrderDeliveryMethod,
 } from "@/lib/bookings/delivery-method";
 import { calculateOrderFinancialBreakdown } from "@/lib/bookings/financial-breakdown";
+import {
+  resolveOrderItemAddOnAmount,
+  resolveOrderItemBaseAmount,
+  resolveOrderItemLineTotal,
+} from "@/lib/bookings/order-item-pricing";
 
 function formatDisplayDate(value?: string): string {
   if (!value) return "-";
@@ -186,12 +191,27 @@ export default function OrderDetailPage() {
     : "Status order tanpa assignment staff hanya bisa diubah oleh owner atau admin.";
 
   const totalPrice = order?.totalPrice ?? 0;
+  const itemFinancialTotals = useMemo(
+    () => ({
+      basePrice:
+        order?.items?.reduce(
+          (sum, item) => sum + resolveOrderItemBaseAmount(item),
+          0,
+        ) ?? 0,
+      addOnTotal:
+        order?.items?.reduce(
+          (sum, item) => sum + resolveOrderItemAddOnAmount(item),
+          0,
+        ) ?? 0,
+    }),
+    [order?.items],
+  );
   const orderFinancialBreakdown = useMemo(
     () =>
       calculateOrderFinancialBreakdown({
-        basePrice: order?.basePrice,
+        basePrice: itemFinancialTotals.basePrice || order?.basePrice,
         designAdjustmentTotal: order?.designAdjustmentTotal,
-        addOnTotal: order?.addOnTotal,
+        addOnTotal: itemFinancialTotals.addOnTotal || order?.addOnTotal,
         productAdjustment: order?.productAdjustment,
         nonProductAdjustment: order?.nonProductAdjustment,
         productSubtotal: order?.productSubtotal,
@@ -216,6 +236,9 @@ export default function OrderDetailPage() {
       order?.productDiscountAmount,
       order?.productSubtotal,
       order?.serviceCharge,
+      order?.totalPrice,
+      itemFinancialTotals.addOnTotal,
+      itemFinancialTotals.basePrice,
     ],
   );
   const messagePreview = order ? getCustomerMessagePreview(order.id) : "";
@@ -454,12 +477,7 @@ export default function OrderDetailPage() {
     !["Completed", "Delivered", "Cancelled"].includes(normalizedOrderStatus);
   const itemRows = (order.items ?? []).map((item) => {
     const quantity = Math.max(1, Number(item.quantity || 1));
-    const baseAmount = Math.max(
-      0,
-      Math.round(Number(item.lineTotal ?? item.basePrice ?? 0)),
-    );
-    const addOnAmount = Math.max(0, Math.round(Number(item.addOnTotal || 0)));
-    const lineTotal = Math.max(0, baseAmount + addOnAmount);
+    const lineTotal = resolveOrderItemLineTotal(item);
     const unitPrice = quantity > 0 ? Math.round(lineTotal / quantity) : lineTotal;
     const details = [
       item.size ? `${item.size}` : "",

@@ -1,5 +1,8 @@
 import type { BakeryOrder, OrderItem } from "@/components/bakery/store";
 import { parseServiceChargeFromNotes } from "@/lib/bookings/delivery-rules";
+import {
+  resolveOrderItemLineTotal,
+} from "@/lib/bookings/order-item-pricing";
 import { parseSafeDate } from "@/lib/helpers/date-normalization";
 
 // ==================== KONSTANTA ====================
@@ -165,16 +168,7 @@ export function buildInvoiceData(order: BakeryOrder): InvoiceData {
     (item: OrderItem) => {
       const quantity = Math.max(1, Number(item.quantity) || 1);
 
-      // Nilai item pada data order sudah disimpan sebagai line total (bukan unit).
-      const baseLineTotal = Math.max(
-        0,
-        Math.round(Number(item.lineTotal ?? item.basePrice ?? 0)),
-      );
-      const addOnLineTotal = Math.max(
-        0,
-        Math.round(Number(item.addOnTotal ?? 0)),
-      );
-      const total = Math.max(0, baseLineTotal + addOnLineTotal);
+      const total = resolveOrderItemLineTotal(item);
 
       // Harga yang ditampilkan pada kolom Price adalah harga per unit.
       const unitPrice =

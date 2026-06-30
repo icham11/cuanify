@@ -11,6 +11,7 @@ import { generateExcel } from "@/lib/export/excel";
 import { useOrders, type BakeryOrder } from "@/components/bakery/store";
 import { calculateOrderTokenFromItems } from "@/lib/bookings/order-token-calculator";
 import {
+  calculateBakeryFinancialItemRows,
   calculateBakeryOrderNetRevenue,
   calculateBakeryFinancialSummary,
   getMonthKeyFromDateValue,
@@ -904,58 +905,37 @@ export default function ReportsPage() {
   }, [filteredOrders, products, bakerySettings]);
 
   const templatePenjualanData = useMemo(() => {
-    let totalSubtotal = 0;
-    let totalTotalCogs = 0;
-    let totalLabaKotor = 0;
-
     const rows = filteredOrders.flatMap((order) => {
-      if (normalizeOrderStatus(order.orderStatus) === "Cancelled") return [];
       const d = String(order.deliveryDate || "").split("T")[0] || "";
       if (!d) return [];
 
-      const s = calculateBakeryFinancialSummary({
-        orders: [order],
+      return calculateBakeryFinancialItemRows({
+        order,
         products,
-        settings: bakerySettings,
         fromDate: d,
         toDate: d,
-      });
-
-      return (order.items || []).map((item) => {
-        const productName = String(item.productName || "").trim() || String(order.product || "").trim() || "Produk";
-        const breakdown = s.cogsBreakdown.find(b => b.productName === productName);
-        const cogsPerItem = breakdown ? breakdown.cogsPerItem : 0;
-        
-        const qty = Number(item.quantity || 0);
-        const lineTotal = Number(item.lineTotal || 0);
-        const hargaSatuan = qty > 0 ? Math.round(lineTotal / qty) : 0;
-        const subtotal = lineTotal;
-        const itemTotalCogs = cogsPerItem * qty;
-        const labaKotor = subtotal - itemTotalCogs;
-        const margin = subtotal > 0 ? (labaKotor / subtotal) : 0;
-
-        totalSubtotal += subtotal;
-        totalTotalCogs += itemTotalCogs;
-        totalLabaKotor += labaKotor;
-
+      }).map((itemRow) => {
         return {
           idSales: order.bookingCode || order.resi || order.id,
           tanggal: d,
-          namaProduk: productName,
-          kategori: item.category || "",
-          subkategori: item.size || (item.addOns || []).join(", "),
-          qty: qty,
-          hargaSatuan: hargaSatuan,
-          cogsSatuan: cogsPerItem,
-          subtotal: subtotal,
-          totalCogs: itemTotalCogs,
-          labaKotor: labaKotor,
-          margin: `${(margin * 100).toFixed(0)}%`,
+          namaProduk: itemRow.productName,
+          kategori: itemRow.category,
+          subkategori: itemRow.subcategory,
+          qty: itemRow.quantity,
+          hargaSatuan: itemRow.unitRevenue,
+          cogsSatuan: itemRow.cogsPerItem,
+          subtotal: itemRow.revenue,
+          totalCogs: itemRow.totalCogs,
+          labaKotor: itemRow.grossProfit,
+          margin: `${(itemRow.margin * 100).toFixed(0)}%`,
           statusBayar: order.paymentStatus || "Pending",
         };
       });
     });
 
+    const totalSubtotal = rows.reduce((sum, row) => sum + row.subtotal, 0);
+    const totalTotalCogs = rows.reduce((sum, row) => sum + row.totalCogs, 0);
+    const totalLabaKotor = rows.reduce((sum, row) => sum + row.labaKotor, 0);
     const totalMargin = totalSubtotal > 0 ? (totalLabaKotor / totalSubtotal) : 0;
 
     const summaryRow = [
@@ -963,7 +943,7 @@ export default function ReportsPage() {
     ];
 
     return { rows, summaryRow };
-  }, [filteredOrders, products, bakerySettings]);
+  }, [filteredOrders, products]);
 
   const exportExcel = async (
     type: "bookings" | "items" | "customers" | "financial-transactions" | "template-penjualan",
