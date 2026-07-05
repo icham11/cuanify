@@ -959,6 +959,23 @@ function resolveParsedBookingReferenceForOrder(order: {
   return normalized;
 }
 
+function withOrderBookingCodeInParsedData(
+  parsedData: ParsedWhatsAppOrder | undefined,
+  bookingCode: string,
+): ParsedWhatsAppOrder | undefined {
+  if (!parsedData) return parsedData;
+  const normalizedBookingCode = bookingCode.trim();
+  if (!normalizedBookingCode) return parsedData;
+
+  return {
+    ...parsedData,
+    common: {
+      ...(parsedData.common ?? {}),
+      bookingCode: normalizedBookingCode,
+    },
+  };
+}
+
 function buildNewOrderSubmissionFingerprint(order: NewOrderInput): string {
   return JSON.stringify({
     customerName: normalizeBookingFingerprintText(order.customerName),
@@ -1295,7 +1312,10 @@ function preserveLocalRichOrderFields(
 
   return {
     ...serverOrder,
-    whatsAppParsedData: nextWhatsAppParsedData,
+    whatsAppParsedData: withOrderBookingCodeInParsedData(
+      nextWhatsAppParsedData,
+      serverOrder.bookingCode || localOrder.bookingCode,
+    ),
     imageUrl:
       serverOrder.imageUrl ||
       localOrder.imageUrl ||
@@ -2746,7 +2766,10 @@ export function OrdersProvider({
           assignedStaffName: "",
           productionAssignedAt: null,
           productionStages: [],
-          whatsAppParsedData: order.whatsAppParsedData,
+          whatsAppParsedData: withOrderBookingCodeInParsedData(
+            order.whatsAppParsedData,
+            bookingCode,
+          ),
           imageUrl: order.imageUrl ?? order.whatsAppParsedData?.imageUrl,
           imageUrls:
             order.imageUrls ?? order.whatsAppParsedData?.uploadedImageUrls ?? [],
@@ -2995,6 +3018,10 @@ export function OrdersProvider({
           resi,
           orderStatus: requestedStatus,
           updatedAt: new Date().toISOString(),
+          whatsAppParsedData: withOrderBookingCodeInParsedData(
+            order.whatsAppParsedData,
+            bookingCode,
+          ),
           statusHistory: appendStatusLog(
             order.statusHistory,
             requestedStatus,
@@ -3552,6 +3579,7 @@ export function OrdersProvider({
 
       const parsedCommon = {
         ...(existingOrder.whatsAppParsedData?.common ?? {}),
+        bookingCode: nextBookingCode,
         recipientName: nextCustomerName,
         recipientPhone: nextCustomerPhone,
         fullAddress: nextPrimaryAddress,
@@ -3948,6 +3976,7 @@ export function OrdersProvider({
             ...(order.whatsAppParsedData ?? {}),
             common: {
               ...(order.whatsAppParsedData?.common ?? {}),
+              bookingCode: nextBookingCode,
               deliveryDate,
               deliveryTime: deliverySlot,
             },

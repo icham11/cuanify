@@ -132,6 +132,94 @@ describe("dashboard cashflow helpers", () => {
     expect(result.breakdownByDate.get("2026-04-15")).toBeDefined();
   });
 
+  it("keeps cashflow available across June and July month filters", () => {
+    const orders: BakeryOrder[] = [
+      createOrder({
+        id: "june-order",
+        bookingCode: "JU-001",
+        customerName: "Juni Customer",
+        paymentTransactions: [
+          {
+            id: "tx-june",
+            timestamp: "2026-06-20T03:00:00.000Z",
+            amount: 250000,
+            type: "DP",
+          },
+        ],
+      }),
+      createOrder({
+        id: "july-order",
+        bookingCode: "JL-001",
+        customerName: "Juli Customer",
+        paymentTransactions: [
+          {
+            id: "tx-july",
+            timestamp: "2026-07-01T03:00:00.000Z",
+            amount: 300000,
+            type: "Final",
+          },
+        ],
+      }),
+    ];
+
+    const allMonths = buildCashFlowHistory(orders, { limit: 3660 });
+    const june = buildCashFlowHistory(orders, { monthKey: "2026-06" });
+    const july = buildCashFlowHistory(orders, { monthKey: "2026-07" });
+
+    expect(allMonths.history.map((entry) => entry.dateKey)).toEqual([
+      "2026-07-01",
+      "2026-06-20",
+    ]);
+    expect(june.history).toHaveLength(1);
+    expect(june.history[0]).toMatchObject({
+      dateKey: "2026-06-20",
+      totalAmount: 250000,
+    });
+    expect(july.history).toHaveLength(1);
+    expect(july.history[0]).toMatchObject({
+      dateKey: "2026-07-01",
+      totalAmount: 300000,
+    });
+    expect(allMonths.breakdownByDate.get("2026-06-20")?.[0]?.customerName).toBe(
+      "Juni Customer",
+    );
+  });
+
+  it("can build cashflow history for every month in a year", () => {
+    const orders: BakeryOrder[] = Array.from({ length: 12 }, (_, index) => {
+      const month = String(index + 1).padStart(2, "0");
+      return createOrder({
+        id: `order-${month}`,
+        bookingCode: `BK-${month}`,
+        customerName: `Customer ${month}`,
+        paymentTransactions: [
+          {
+            id: `tx-${month}`,
+            timestamp: `2026-${month}-15T03:00:00.000Z`,
+            amount: (index + 1) * 10000,
+            type: "DP",
+          },
+        ],
+      });
+    });
+
+    for (let monthNumber = 1; monthNumber <= 12; monthNumber += 1) {
+      const month = String(monthNumber).padStart(2, "0");
+      const result = buildCashFlowHistory(orders, {
+        monthKey: `2026-${month}`,
+      });
+
+      expect(result.history).toHaveLength(1);
+      expect(result.history[0]).toMatchObject({
+        dateKey: `2026-${month}-15`,
+        totalAmount: monthNumber * 10000,
+      });
+      expect(
+        result.breakdownByDate.get(`2026-${month}-15`)?.[0]?.customerName,
+      ).toBe(`Customer ${month}`);
+    }
+  });
+
   it("converts timestamps into Jakarta date keys", () => {
     expect(toJakartaDateKey("2026-05-15T18:30:00.000Z")).toBe("2026-05-16");
     expect(toJakartaDateKey("")).toBe("");

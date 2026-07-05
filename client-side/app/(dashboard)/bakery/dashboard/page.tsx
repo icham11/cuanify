@@ -113,6 +113,16 @@ function formatDisplayDate(value: string) {
   }).format(date);
 }
 
+function formatDisplayMonth(value: string) {
+  if (!/^\d{4}-\d{2}$/.test(value)) return value;
+  const date = parseSafeDate(`${value}-01`);
+  if (!date) return value;
+  return new Intl.DateTimeFormat("id-ID", {
+    month: "long",
+    year: "numeric",
+  }).format(date);
+}
+
 function parseNumericId(value: unknown): number | null {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
@@ -182,6 +192,9 @@ export default function BakeryDashboardPage() {
     useState<SummaryCardKey | null>(null);
   const [cashFlowView, setCashFlowView] = useState<"today" | "history">("today");
   const [selectedCashFlowDate, setSelectedCashFlowDate] = useState(today);
+  const [selectedCashFlowMonthKey, setSelectedCashFlowMonthKey] = useState(
+    today.slice(0, 7),
+  );
   const [summaryOrdersPage, setSummaryOrdersPage] = useState(1);
   const [attendanceSummary, setAttendanceSummary] =
     useState<DashboardAttendanceState | null>(null);
@@ -189,7 +202,7 @@ export default function BakeryDashboardPage() {
   const [isAttendanceSubmitting, setIsAttendanceSubmitting] = useState(false);
   const [attendanceFeedback, setAttendanceFeedback] = useState("");
   const [attendanceRefreshToken, setAttendanceRefreshToken] = useState(0);
-  const activeCashFlowMonthKey = today.slice(0, 7);
+  const currentCashFlowMonthKey = today.slice(0, 7);
 
   const staffDailyTokenLimit =
     bakerySettings?.staffDailyTokenLimit ?? BAKERY_STAFF_DAILY_TOKEN_LIMIT;
@@ -379,20 +392,50 @@ export default function BakeryDashboardPage() {
   }, [orders, today]);
 
   const cashFlowHistoryData = useMemo(() => {
-    return buildCashFlowHistory(orders, {
-      limit: 31,
-      monthKey: activeCashFlowMonthKey,
-    });
-  }, [activeCashFlowMonthKey, orders]);
+    return buildCashFlowHistory(orders, { limit: 3660 });
+  }, [orders]);
 
   const cashFlowBreakdownByDate = cashFlowHistoryData.breakdownByDate;
-  const cashFlowHistory: CashFlowHistoryEntry[] = cashFlowHistoryData.history;
+  const cashFlowMonthKeys = useMemo(() => {
+    const monthKeys = new Set(
+      cashFlowHistoryData.history
+        .map((entry) => entry.dateKey.slice(0, 7))
+        .filter((monthKey) => /^\d{4}-\d{2}$/.test(monthKey)),
+    );
+    monthKeys.add(currentCashFlowMonthKey);
+    return Array.from(monthKeys).sort((left, right) =>
+      right.localeCompare(left),
+    );
+  }, [cashFlowHistoryData.history, currentCashFlowMonthKey]);
+  const cashFlowHistory: CashFlowHistoryEntry[] = useMemo(() => {
+    return cashFlowHistoryData.history
+      .filter((entry) =>
+        entry.dateKey.startsWith(`${selectedCashFlowMonthKey}-`),
+      )
+      .slice(0, 31);
+  }, [cashFlowHistoryData.history, selectedCashFlowMonthKey]);
 
   useEffect(() => {
     if (!isCashInModalOpen) return;
     setCashFlowView("today");
     setSelectedCashFlowDate(today);
-  }, [isCashInModalOpen, today]);
+    setSelectedCashFlowMonthKey(currentCashFlowMonthKey);
+  }, [currentCashFlowMonthKey, isCashInModalOpen, today]);
+
+  useEffect(() => {
+    if (cashFlowView !== "history") return;
+    if (cashFlowHistory.some((entry) => entry.dateKey === selectedCashFlowDate)) {
+      return;
+    }
+    setSelectedCashFlowDate(
+      cashFlowHistory[0]?.dateKey ?? `${selectedCashFlowMonthKey}-01`,
+    );
+  }, [
+    cashFlowHistory,
+    cashFlowView,
+    selectedCashFlowDate,
+    selectedCashFlowMonthKey,
+  ]);
 
   const summaryOrderCollections = useMemo(
     () => ({
@@ -893,7 +936,17 @@ export default function BakeryDashboardPage() {
                   type="button"
                   onClick={() => {
                     setCashFlowView("history");
-                    setSelectedCashFlowDate(cashFlowHistory[0]?.dateKey ?? today);
+                    const nextMonthKey = cashFlowMonthKeys.includes(
+                      selectedCashFlowMonthKey,
+                    )
+                      ? selectedCashFlowMonthKey
+                      : currentCashFlowMonthKey;
+                    const nextDate =
+                      cashFlowHistoryData.history.find((entry) =>
+                        entry.dateKey.startsWith(`${nextMonthKey}-`),
+                      )?.dateKey ?? `${nextMonthKey}-01`;
+                    setSelectedCashFlowMonthKey(nextMonthKey);
+                    setSelectedCashFlowDate(nextDate);
                   }}
                   className={`inline-flex h-10 items-center justify-center rounded-full border px-4 text-xs font-semibold transition ${
                     cashFlowView === "history"
@@ -907,10 +960,39 @@ export default function BakeryDashboardPage() {
 
               {cashFlowView === "history" ? (
                 <>
+                  <div className="flex items-center justify-between gap-3 rounded-[20px] border border-[var(--crumbella-border)] bg-white px-3 py-2">
+                    <label
+                      htmlFor="cashflow-month"
+                      className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--crumbella-muted)]"
+                    >
+                      Bulan
+                    </label>
+                    <select
+                      id="cashflow-month"
+                      value={selectedCashFlowMonthKey}
+                      onChange={(event) => {
+                        const monthKey = event.target.value;
+                        const nextDate =
+                          cashFlowHistoryData.history.find((entry) =>
+                            entry.dateKey.startsWith(`${monthKey}-`),
+                          )?.dateKey ?? `${monthKey}-01`;
+                        setSelectedCashFlowMonthKey(monthKey);
+                        setSelectedCashFlowDate(nextDate);
+                      }}
+                      className="min-w-0 flex-1 rounded-full border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] px-3 py-2 text-right text-xs font-semibold text-[var(--foreground)] outline-none focus:border-[var(--crumbella-accent)]"
+                    >
+                      {cashFlowMonthKeys.map((monthKey) => (
+                        <option key={monthKey} value={monthKey}>
+                          {formatDisplayMonth(monthKey)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
                   <div className="space-y-2">
                     {cashFlowHistory.length === 0 ? (
                       <div className="rounded-[22px] border border-dashed border-[var(--crumbella-border)] bg-[var(--crumbella-accent-soft)]/35 px-4 py-6 text-center text-sm text-[var(--crumbella-muted)]">
-                        Belum ada history cashflow di bulan ini.
+                        Belum ada history cashflow untuk {formatDisplayMonth(selectedCashFlowMonthKey)}.
                       </div>
                     ) : (
                       cashFlowHistory.map((entry) => {

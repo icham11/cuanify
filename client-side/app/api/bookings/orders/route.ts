@@ -949,6 +949,25 @@ function resolveParsedBookingReference(
   return normalized;
 }
 
+function syncParsedBookingCode<T extends { bookingCode: string; whatsAppParsedData: unknown }>(
+  order: T,
+): T {
+  const bookingCode = order.bookingCode.trim();
+  const parsedData = asRecord(order.whatsAppParsedData);
+  if (!bookingCode || !parsedData) return order;
+
+  return {
+    ...order,
+    whatsAppParsedData: {
+      ...parsedData,
+      common: {
+        ...(asRecord(parsedData.common) ?? {}),
+        bookingCode,
+      },
+    },
+  };
+}
+
 function buildParsedOrderFingerprint(order: {
   customerName?: unknown;
   customerPhone?: unknown;
@@ -4780,6 +4799,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    orders = orders.map(syncParsedBookingCode);
+
     const roleName = role as unknown as string;
     const isStaffRequest = roleName === "Staff";
     const isPrivilegedRequest = roleName === "Owner" || roleName === "Admin";
@@ -5590,18 +5611,20 @@ export async function POST(request: NextRequest) {
       assignableStaffUserIds,
     });
 
-    orders = orders.map((order) => ({
-      ...order,
-      assignedStaffName: order.assignedStaffUserId
-        ? (assignableStaffNameByUserId.get(order.assignedStaffUserId) ??
-          order.assignedStaffName)
-        : "",
-      insuranceFee: computeInsuranceFee({
-        shippingQuote: order.shippingQuote,
-        shipment: order.shipment,
-        totalPrice: order.totalPrice,
+    orders = orders.map((order) =>
+      syncParsedBookingCode({
+        ...order,
+        assignedStaffName: order.assignedStaffUserId
+          ? (assignableStaffNameByUserId.get(order.assignedStaffUserId) ??
+            order.assignedStaffName)
+          : "",
+        insuranceFee: computeInsuranceFee({
+          shippingQuote: order.shippingQuote,
+          shipment: order.shipment,
+          totalPrice: order.totalPrice,
         }),
-    }));
+      }),
+    );
 
     const existingOrdersById = new Map(
       existingOrders.map((order) => [order.id, order]),
