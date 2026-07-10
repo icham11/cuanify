@@ -98,24 +98,24 @@ test.describe("Assign Staff Flow", () => {
 
     try {
       const nameInput = page.getByPlaceholder(/Contoh: Siti Aisyah/i);
-      await nameInput.fill("Staff QA Baru");
+      await nameInput.fill("Staff QA Baru", { timeout: 2_000 });
 
       const emailInput = page.getByPlaceholder(/Contoh: siti@gmail.com/i);
-      await emailInput.fill("staff.qa@tester.com");
+      await emailInput.fill("staff.qa@tester.com", { timeout: 2_000 });
 
       // Generate password otomatis
       const generateBtn = page.getByRole("button", { name: /Generate password otomatis/i });
-      if (await generateBtn.isVisible()) {
-        await generateBtn.click();
+      if (await generateBtn.isVisible({ timeout: 2_000 }).catch(() => false)) {
+        await generateBtn.click({ timeout: 2_000 });
       } else {
         const passInput = page.getByPlaceholder(/Minimal 6 karakter/i);
-        await passInput.fill("PasswordAman123!");
+        await passInput.fill("PasswordAman123!", { timeout: 2_000 });
       }
 
       // Pastikan ada tombol Daftarkan
       const submitBtn = page.getByRole("button", { name: /Daftarkan/i });
-      if (await submitBtn.isVisible()) {
-        await submitBtn.click();
+      if (await submitBtn.isVisible({ timeout: 2_000 }).catch(() => false)) {
+        await submitBtn.click({ timeout: 2_000 });
       }
 
       await page.waitForTimeout(2000);
@@ -151,13 +151,13 @@ test.describe("Assign Staff Flow", () => {
     try {
       // Pindah ke tab invite
       const tabInvite = page.getByText(/Tambah yang Sudah Punya Akun/i);
-      await tabInvite.click();
+      await tabInvite.click({ timeout: 2_000 });
 
       const emailInput = page.getByPlaceholder(/email@staff.com/i);
-      await emailInput.fill("existing.user@qa.com");
+      await emailInput.fill("existing.user@qa.com", { timeout: 2_000 });
 
       const submitBtn = page.getByRole("button", { name: /Tambahkan/i });
-      await submitBtn.click();
+      await submitBtn.click({ timeout: 2_000 });
 
       await page.waitForTimeout(2000);
 

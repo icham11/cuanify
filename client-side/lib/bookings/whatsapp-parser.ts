@@ -1087,7 +1087,8 @@ function parseOrderRecap(
         category;
       const size = cleanupValue(sizeValue);
       const designNotes = cleanupValue(designNotesValue);
-      const rawQuantity = extractPositiveInteger(quantityValue) ?? 1;
+      const explicitQuantity = extractPositiveInteger(quantityValue);
+      const rawQuantity = explicitQuantity ?? 1;
       const bouquetIsiQuantity =
         category === "Buket"
           ? extractBouquetIsiQuantity(
@@ -1096,9 +1097,10 @@ function parseOrderRecap(
                 .join(" | "),
             )
           : null;
-      // Gunakan kuantitas baku dari input tanpa melakukan override dengan jumlah isi buket
-      // Hal ini mencegah error dimana 1 buket isi 20 terdeteksi sebagai 20 buket
-      const quantity = rawQuantity;
+      const quantity =
+        bouquetIsiQuantity && (!explicitQuantity || explicitQuantity === 1)
+          ? bouquetIsiQuantity
+          : rawQuantity;
       const addOn = cleanupValue(addOnValue);
       const unitPrice = parseCurrencyAmount(unitPriceValue) ?? undefined;
       const totalItemCost =
@@ -1112,40 +1114,28 @@ function parseOrderRecap(
 
       if (!category && !productName) return [];
       if (breakdownEntries.length > 0) {
-        const breakdownQuantity = breakdownEntries.reduce(
-          (sum, entry) => sum + Math.max(0, entry.quantity),
-          0,
-        );
-        const breakdownSubtotal = breakdownEntries.reduce((sum, entry) => {
-          return sum + Math.max(0, entry.subtotal ?? 0);
-        }, 0);
-        const breakdownSummary = buildCookieBreakdownSummary(breakdownEntries);
-        const mergedDesignNotes = [
-          designNotes,
-          breakdownSummary ? `Breakdown: ${breakdownSummary}` : "",
-        ]
-          .filter(Boolean)
-          .join(" | ");
+        return breakdownEntries.map((entry) => {
+          const entrySummary = buildCookieBreakdownSummary([entry]);
+          const mergedDesignNotes = [
+            designNotes,
+            entrySummary ? `Breakdown: ${entrySummary}` : "",
+          ]
+            .filter(Boolean)
+            .join(" | ");
 
-        return [
-          {
+          return {
             itemNumber: block.itemNumber,
             category,
             productName:
               category === "Cookies" ? "Custom Cookies" : productName,
-            quantity: breakdownQuantity > 0 ? breakdownQuantity : quantity,
-            size: breakdownSummary ? "MIX_VARIANT" : size,
+            quantity: entry.quantity > 0 ? entry.quantity : quantity,
+            size: cleanupValue(entry.size) || size,
             designNotes: mergedDesignNotes,
             addOn,
-            unitPrice:
-              breakdownEntries.length === 1
-                ? breakdownEntries[0]?.unitPrice
-                : undefined,
-            subtotal:
-              totalItemCost ??
-              (breakdownSubtotal > 0 ? breakdownSubtotal : subtotal),
-          } satisfies ParsedWhatsAppOrderRecapItem,
-        ];
+            unitPrice: entry.unitPrice,
+            subtotal: entry.subtotal ?? subtotal,
+          } satisfies ParsedWhatsAppOrderRecapItem;
+        });
       }
 
       return [
@@ -1272,11 +1262,30 @@ function readFieldValue(
     return matchedValues.join(" | ");
   }
 
+  const trimAtNextKnownLabel = (value: string): string => {
+    const effectiveAllFields = getEffectiveAllFieldDefinitions(dynamicTemplates);
+    const labelPatterns = [
+      ...effectiveAllFields,
+      ...recapItemFieldDefinitions,
+      ...recapTotalFieldDefinitions,
+    ]
+      .flatMap((field) => field.aliases)
+      .map((alias) => escapeRegExp(alias).replace(/\s+/g, "\\s+"));
+    if (labelPatterns.length === 0) return value;
+
+    const nextLabel = new RegExp(
+      `\\s+(?:${labelPatterns.join("|")})\\s*[:=-]`,
+      "i",
+    );
+    const match = value.match(nextLabel);
+    return match?.index === undefined ? value : value.slice(0, match.index);
+  };
+
   // Fallback membaca text raw jika tidak tertangkap block parser
   for (const alias of definition.aliases) {
     const aliasPattern = escapeRegExp(alias).replace(/\s+/g, "\\s+");
     const regex = new RegExp(
-      `(?:^|\\n)\\s*${aliasPattern}\\s*[:=-]?\\s*([^\\n]+)`,
+      `(?:^|\\n)\\s*${aliasPattern}(?:\\s*[:=-][^\\S\\n]*|\\s+)([^\\n]+)`,
       "i",
     );
     const match = rawText.match(regex);
@@ -1284,8 +1293,20 @@ function readFieldValue(
       const value = match[1].trim();
       // Jangan ambil value jika value tersebut ternyata adalah header field lain
       if (!looksLikeLabeledLine(value, { dynamicTemplates })) {
-        const cleaned = cleanupValue(value);
+        const cleaned = cleanupValue(trimAtNextKnownLabel(value));
         if (cleaned) return cleaned;
+      }
+    }
+
+    const embeddedRegex = new RegExp(
+      `\\s${aliasPattern}\\s*[:=-][^\\S\\n]*([^\\n]+)`,
+      "i",
+    );
+    const embeddedMatch = rawText.match(embeddedRegex);
+    if (embeddedMatch?.[1]) {
+      const cleaned = cleanupValue(trimAtNextKnownLabel(embeddedMatch[1]));
+      if (cleaned && !looksLikeLabeledLine(cleaned, { dynamicTemplates })) {
+        return cleaned;
       }
     }
   }
@@ -2718,6 +2739,30 @@ function parseCurrencyAmount(value: string): number | null {
   return Math.round(parsed);
 }
 
+function parseLabeledCurrencyAmountFromText(
+  rawText: string,
+  labels: string[],
+  signed = false,
+): number | undefined {
+  const labelPattern = labels
+    .map((label) => escapeRegExp(label).replace(/\s+/g, "\\s+"))
+    .join("|");
+  const regex = new RegExp(
+    `(?:^|\\n)\\s*(?:${labelPattern})\\s*[:=-][^\\S\\n]*([^\\n]*)`,
+    "i",
+  );
+  const match = rawText.match(regex);
+  if (!match) return undefined;
+
+  const value = cleanupValue(match[1] || "");
+  if (!value) return undefined;
+
+  const parsed = signed
+    ? parseSignedCurrencyAmount(value)
+    : parseCurrencyAmount(value);
+  return parsed === null ? undefined : parsed;
+}
+
 function extractBouquetCookiePriceHint(value: string): number | null {
   const text = value.trim();
   if (!text) return null;
@@ -3088,6 +3133,13 @@ function chooseQuantity(parsed: ParsedWhatsAppOrder): number {
   if (parsed.orderType === "buket") {
     // Ambil string nama produk order untuk pengecekan kata kunci tambahan
     const orderText = parsed.common.order ?? "";
+
+    const bouquetCookieCount =
+      extractPositiveInteger(parsed.details.cookieCount ?? "") ??
+      extractBouquetIsiQuantity(orderText);
+    if (bouquetCookieCount) {
+      return bouquetCookieCount;
+    }
     
     // Cari kuantitas berdasarkan awalan kuantitas sebelum kata kunci buket yang sering dipakai
     // Contoh: "2x hbq", "2 standing bouquet"
@@ -3361,6 +3413,12 @@ function inferOneTierCakeVariantFromLooseSize(value: string): string | undefined
   return `D${diameter}-T${inferredHeight}`;
 }
 
+function formatOneTierCakeVariantLabel(sizeLabel: string): string {
+  const match = sizeLabel.match(/^D\s*(\d+)\s*[-x/]\s*T\s*(\d+)$/i);
+  if (!match?.[1] || !match[2]) return sizeLabel;
+  return `Diameter ${Number(match[1])} cm x Tinggi ${Number(match[2])} cm`;
+}
+
 function resolveGenericRecapCakeSelection(args: {
   productName: string;
   size: string;
@@ -3393,7 +3451,7 @@ function resolveGenericRecapCakeSelection(args: {
   );
   const isDummyCake = normalizedSource.includes("dummy");
 
-  return ensureCatalogSelectionFromCatalog(
+  const selection = ensureCatalogSelectionFromCatalog(
     args.catalogContext?.productCatalog ?? BOOKING_PRODUCT_CATALOG,
     {
       category: "Cake",
@@ -3402,6 +3460,15 @@ function resolveGenericRecapCakeSelection(args: {
       size: inferredSize,
     },
   );
+
+  if (/-T15$/i.test(selection.size)) {
+    return {
+      ...selection,
+      size: `${selection.size} | ${formatOneTierCakeVariantLabel(selection.size)}`,
+    };
+  }
+
+  return selection;
 }
 
 function createAutoFillItemFromCategory(args: {
@@ -3715,8 +3782,10 @@ function buildRecapAutoFillItems(
           inferTokenDifficultyFromCookiePrice(item.unitPrice)
         : undefined;
     const cookieDesignCount =
-      orderType === "cookies"
-        ? inferCookieDesignCountFromText(orderTypeDetails.cookieDesign || "")
+      orderType === "cookies" && /custom\s*card/i.test(item.addOn || "")
+        ? inferCookieDesignCountFromText(
+            item.designNotes || orderTypeDetails.cookieDesign || "",
+          )
         : undefined;
     const autoFillItem = createAutoFillItemFromCategory({
       category: resolvedCategory,
@@ -4056,6 +4125,15 @@ function buildDefaultAutoFillItems(
           darkColorButtercreamColors: [] as string[],
           darkColorButtercreamColor: undefined,
         };
+  const cakeAddOns =
+    catalog.category === "Cake"
+      ? detectCakeAddOnsFromText(parsed.rawText)
+      : {
+          addOns: [] as string[],
+          addOnQuantities: undefined,
+          addOnPriceOverrides: undefined,
+          customAddOns: undefined,
+        };
 
   return [
     {
@@ -4071,7 +4149,14 @@ function buildDefaultAutoFillItems(
         typeof cookieDesignCount === "number"
           ? Math.max(0, cookieDesignCount - COOKIE_INCLUDED_DESIGN_LIMIT)
           : undefined,
-      addOns: mergeUniqueAddOnIds(flavorAddOns, cupcakeDarkColor.addOns),
+      addOns: mergeUniqueAddOnIds(
+        flavorAddOns,
+        cupcakeDarkColor.addOns,
+        cakeAddOns.addOns,
+      ),
+      addOnQuantities: cakeAddOns.addOnQuantities,
+      addOnPriceOverrides: cakeAddOns.addOnPriceOverrides,
+      customAddOns: cakeAddOns.customAddOns,
       darkColorButtercreamColors: cupcakeDarkColor.darkColorButtercreamColors,
       darkColorButtercreamColor: cupcakeDarkColor.darkColorButtercreamColor,
       notes: itemNotes,
@@ -4531,20 +4616,47 @@ export function buildBookingAutoFillFromParsed(
   const deliveryMethod = mapDeliveryMethodToFormValue(
     parsed.common.deliveryMethod,
   );
-  const manualAdjustment = Number(recapTotals?.adjustment || 0);
+  const manualAdjustment = Number(
+    recapTotals?.adjustment ??
+      parseLabeledCurrencyAmountFromText(parsed.rawText, ["ADJUSTMENT"], true) ??
+      0,
+  );
+  const rawDownPaymentAmount = parseLabeledCurrencyAmountFromText(
+    parsed.rawText,
+    ["DP"],
+  );
+  const hasRawDownPaymentLabel = /(?:^|\n)\s*DP\s*[:=-]/i.test(
+    parsed.rawText,
+  );
   const parsedDownPaymentAmount = Math.max(
     0,
-    Number(recapTotals?.downPayment || 0),
+    Number(
+      hasRawDownPaymentLabel
+        ? (rawDownPaymentAmount ?? 0)
+        : (recapTotals?.downPayment ?? 0),
+    ),
   );
   const hasExplicitDownPayment = parsedDownPaymentAmount > 0;
   const remainingBalance =
     recapTotals?.remainingBalance !== undefined
       ? Math.max(0, Number(recapTotals.remainingBalance || 0))
-      : undefined;
+      : parseLabeledCurrencyAmountFromText(parsed.rawText, ["SISA"]) !==
+          undefined
+        ? Math.max(
+            0,
+            Number(parseLabeledCurrencyAmountFromText(parsed.rawText, ["SISA"]) || 0),
+          )
+        : undefined;
   const totalFromRecap =
     recapTotals?.total !== undefined
       ? Math.max(0, Number(recapTotals.total || 0))
-      : undefined;
+      : parseLabeledCurrencyAmountFromText(parsed.rawText, ["TOTAL"]) !==
+          undefined
+        ? Math.max(
+            0,
+            Number(parseLabeledCurrencyAmountFromText(parsed.rawText, ["TOTAL"]) || 0),
+          )
+        : undefined;
   const totalPaidFromRecap =
     totalFromRecap !== undefined && remainingBalance !== undefined
       ? Math.max(0, totalFromRecap - remainingBalance)

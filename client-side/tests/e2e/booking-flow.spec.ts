@@ -132,6 +132,7 @@ async function fillBaseBookingForm(page: Page) {
   const deliverySlotSelect = page.locator('select[name="deliverySlot"]');
   await expect(deliverySlotSelect.locator("option")).toHaveCount(25);
   await deliverySlotSelect.selectOption({ label: "10:00 - AVAILABLE" });
+  await page.locator('input[name="manualDpAmount"]').fill("50000");
 }
 
 test.describe("New Booking Flow - Comprehensive E2E", () => {

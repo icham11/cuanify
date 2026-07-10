@@ -80,8 +80,8 @@
   --font-geist-mono: var(--font-crumbella-mono), "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   --crumbella-primary: #7c3410;
   --crumbella-primary-soft: #a84820;
-  --crumbella-accent: #c86030;
-  --crumbella-accent-hover: #a84820;
+  --crumbella-accent: #a84820;
+  --crumbella-accent-hover: #7c3410;
   --crumbella-accent-soft: #f5e0d0;
   --crumbella-sun: #9a6b10;
   --crumbella-teal: #1a3d6b;

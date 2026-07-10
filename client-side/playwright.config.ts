@@ -1,11 +1,12 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const baseURL = process.env.VISUAL_BASE_URL || "http://localhost:3001";
+const baseURL = process.env.VISUAL_BASE_URL || "http://localhost:3000";
 const useManagedWebServer = !process.env.VISUAL_BASE_URL;
 
 export default defineConfig({
   testDir: "./tests",
   fullyParallel: false,
+  workers: 1,
   retries: process.env.CI ? 2 : 0,
   reporter: [["list"], ["html", { open: "never" }]],
   snapshotPathTemplate:
@@ -33,7 +34,7 @@ export default defineConfig({
   ],
   webServer: useManagedWebServer
     ? {
-        command: "npm run dev:webpack -- --port 3001",
+        command: "npm run dev:webpack -- --port 3000",
         url: baseURL,
         reuseExistingServer: !process.env.CI,
         timeout: 180_000,

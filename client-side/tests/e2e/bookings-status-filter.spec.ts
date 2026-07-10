@@ -245,9 +245,7 @@ async function waitForBookingsApi(page: Page, expectedCustomerName: string) {
 }
 
 function getStatusSelect(page: Page) {
-  return page.locator("select").filter({
-    has: page.locator('option[value="Inquiry"]'),
-  });
+  return page.getByLabel("Filter status order");
 }
 
 async function applyStatusFilter(page: Page, status: string) {
@@ -294,54 +292,59 @@ test.describe.serial("Bookings status filter", () => {
     await expect(page.getByText(/^7 order$/)).toBeVisible({ timeout: 30000 });
 
     await expect(getStatusSelect(page).locator('option[value="Quoted"]')).toHaveCount(0);
-    await expect(getStatusSelect(page).locator('option[value="DP Paid"]')).toHaveCount(0);
+    await expect(getStatusSelect(page).locator('option[value="DP Paid"]')).toHaveCount(1);
     await expect(getStatusSelect(page).locator('option[value="Confirmed"]')).toHaveCount(0);
 
     const cases = [
       {
-        status: "Inquiry",
-        visible: "QA Inquiry Null",
-        hidden: "QA In Production",
-      },
-      {
         status: "In Production",
-        visible: "QA In Production",
+        visible: ["QA Inquiry Null", "QA In Production"],
         hidden: "QA Ready",
+        count: 2,
       },
       {
         status: "Ready",
-        visible: "QA Ready",
+        visible: ["QA Ready"],
         hidden: "QA Delivery",
+        count: 1,
       },
       {
         status: "Delivery",
-        visible: "QA Delivery",
+        visible: ["QA Delivery"],
         hidden: "QA Delivered",
+        count: 1,
       },
       {
         status: "Delivered",
-        visible: "QA Delivered",
+        visible: ["QA Delivered"],
         hidden: "QA Delivery",
+        count: 1,
       },
       {
         status: "Completed",
-        visible: "QA Complete Alias",
+        visible: ["QA Complete Alias"],
         hidden: "QA Canceled Alias",
+        count: 1,
       },
       {
         status: "Cancelled",
-        visible: "QA Canceled Alias",
+        visible: ["QA Canceled Alias"],
         hidden: "QA Complete Alias",
+        count: 1,
       },
     ] as const;
 
     for (const filterCase of cases) {
       await applyStatusFilter(page, filterCase.status);
-      await expect(page.getByText(filterCase.visible)).toBeVisible({
-        timeout: 30000,
-      });
+      for (const visibleOrder of filterCase.visible) {
+        await expect(page.getByText(visibleOrder)).toBeVisible({
+          timeout: 30000,
+        });
+      }
       await expect(page.getByText(filterCase.hidden)).toHaveCount(0);
-      await expect(page.getByText(/^1 order$/)).toBeVisible();
+      await expect(
+        page.getByText(new RegExp(`^${filterCase.count} order$`)),
+      ).toBeVisible();
     }
   });
 });

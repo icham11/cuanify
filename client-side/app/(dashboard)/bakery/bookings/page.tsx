@@ -688,6 +688,7 @@ export default function BookingListPage() {
 
         <div className="grid gap-2 sm:grid-cols-[1fr,1fr,auto]">
           <Select
+            aria-label="Filter status order"
             value={statusFilter}
             onChange={(event) => {
               setStatusFilter(event.target.value);

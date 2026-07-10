@@ -51,13 +51,12 @@ describe("sendOrderToWhatsApp production caption", () => {
 
     expect(caption).toBe(
       [
-        "Tanggal Pengiriman :",
-        "30 Mei 2026",
+        "Tanggal Pengiriman : 30 Mei 2026",
         "",
         "KODE BOOKING : TA540-300526-004",
         "",
-        "Order :",
-        "7x Hand Bouquet (7-10 pcs)",
+        "Order: ",
+        "\u2022 7pcs Hand Bouquet (7-10 pcs)",
         "",
         "Design :",
         "1. Shape bulat, background bebas, tulisan Happy birthday natassja",
@@ -112,14 +111,13 @@ describe("sendOrderToWhatsApp production caption", () => {
 
     expect(caption).toBe(
       [
-        "Tanggal Pengiriman :",
-        "31 Mei 2026",
+        "Tanggal Pengiriman : 31 Mei 2026",
         "",
         "KODE BOOKING : VI136-310526-005",
         "",
-        "Order :",
-        "13x Custom Cookies",
-        "7x Custom Cookies",
+        "Order: ",
+        "\u2022 13pcs Custom Cookies",
+        "\u2022 7pcs Custom Cookies",
         "",
         "Design :",
         "1. pinguin",

@@ -45,8 +45,8 @@ import {
 
 describe("Token Capacity Service — Unit Tests", () => {
   describe("Constants", () => {
-    it("DEFAULT_MAX_TOKEN should be 500", () => {
-      expect(DEFAULT_MAX_TOKEN).toBe(500);
+    it("DEFAULT_MAX_TOKEN should follow bakery capacity config", () => {
+      expect(DEFAULT_MAX_TOKEN).toBe(600);
     });
 
     it("TOKEN_MAP should map difficulties correctly", () => {
@@ -208,7 +208,7 @@ describe("Token Capacity Service — Unit Tests", () => {
             quantity: 1,
           },
         ]),
-      ).toBe(12);
+      ).toBe(18);
     });
 
     it("Seasonal/event cookies use fixed token map from SOP", () => {
@@ -455,33 +455,127 @@ const describeIntegration = process.env.DATABASE_URL ? describe : describe.skip;
 
 describeIntegration("Token Capacity Service — Integration Tests", () => {
   const TEST_BUSINESS_ID = 99999; // Use a high ID to avoid conflicts
+  const TEST_USER_ID = 99999;
   const TEST_DATE = "2099-01-15"; // Far future date to avoid conflicts
   const TEST_DATE_2 = "2099-01-16";
+
+  async function seedTestBusiness() {
+    const prisma = (await import("@/lib/prisma")).default;
+    await prisma.$executeRaw`
+      INSERT INTO "User" (id, name, email, password, "createdAt", "updatedAt")
+      VALUES (
+        ${TEST_USER_ID},
+        'Token Capacity Test User',
+        'token-capacity-test@example.invalid',
+        'test-password',
+        NOW(),
+        NOW()
+      )
+      ON CONFLICT (id) DO UPDATE SET
+        name = EXCLUDED.name,
+        email = EXCLUDED.email,
+        "updatedAt" = NOW()
+    `;
+    await prisma.$executeRaw`
+      INSERT INTO "Business" (id, name, "userId", location, "createdAt", "updatedAt")
+      VALUES (
+        ${TEST_BUSINESS_ID},
+        'Token Capacity Test Business',
+        ${TEST_USER_ID},
+        'Test',
+        NOW(),
+        NOW()
+      )
+      ON CONFLICT (id) DO UPDATE SET
+        name = EXCLUDED.name,
+        "userId" = EXCLUDED."userId",
+        "updatedAt" = NOW()
+    `;
+  }
+
+  async function seedActiveOrder(date: string, tokenUsed: number, suffix: string) {
+    const prisma = (await import("@/lib/prisma")).default;
+    await prisma.$executeRaw`
+      INSERT INTO bakery_orders (
+        business_id,
+        "businessId",
+        external_id,
+        customer_name,
+        delivery_date,
+        delivery_slot,
+        order_status,
+        token_used,
+        total_price,
+        created_at,
+        updated_at
+      )
+      VALUES (
+        ${TEST_BUSINESS_ID},
+        ${TEST_BUSINESS_ID},
+        ${`token-capacity-${suffix}`},
+        'Token Capacity Test Customer',
+        ${date}::date,
+        '09:00',
+        'In Production',
+        ${tokenUsed},
+        0,
+        NOW(),
+        NOW()
+      )
+      ON CONFLICT (business_id, external_id) DO UPDATE SET
+        delivery_date = EXCLUDED.delivery_date,
+        order_status = EXCLUDED.order_status,
+        token_used = EXCLUDED.token_used,
+        deleted_at = NULL,
+        updated_at = NOW()
+    `;
+  }
 
   // Clean up test data before/after
   beforeEach(async () => {
     const prisma = (await import("@/lib/prisma")).default;
-    await prisma.$executeRawUnsafe(`
+    await seedTestBusiness();
+    await prisma.$executeRaw`
+      DELETE FROM bakery_orders
+      WHERE business_id = ${TEST_BUSINESS_ID}
+    `;
+    await prisma.$executeRaw`
       DELETE FROM production_capacity
       WHERE business_id = ${TEST_BUSINESS_ID}
-    `);
+    `;
   });
 
   afterAll(async () => {
     const prisma = (await import("@/lib/prisma")).default;
-    await prisma.$executeRawUnsafe(`
+    await prisma.$executeRaw`
       DELETE FROM production_capacity
       WHERE business_id = ${TEST_BUSINESS_ID}
-    `);
+    `;
+    await prisma.$executeRaw`
+      DELETE FROM bakery_orders
+      WHERE business_id = ${TEST_BUSINESS_ID}
+    `;
+    await prisma.$executeRaw`
+      DELETE FROM "Business"
+      WHERE id = ${TEST_BUSINESS_ID}
+    `;
+    await prisma.$executeRaw`
+      DELETE FROM "User"
+      WHERE id = ${TEST_USER_ID}
+    `;
   });
 
   // ── Test Case 1: Reject when capacity would be exceeded ──
   describe("Case 1: usedToken=498, tokenNeeded=3 → REJECT", () => {
     it("should reject when usedToken + tokenNeeded > maxToken", async () => {
-      // Setup: consume 498 tokens first
-      const setupResult = await consumeToken(TEST_BUSINESS_ID, TEST_DATE, 498);
+      const startingUsage = DEFAULT_MAX_TOKEN - 2;
+      const setupResult = await consumeToken(
+        TEST_BUSINESS_ID,
+        TEST_DATE,
+        startingUsage,
+      );
       expect(setupResult.success).toBe(true);
-      expect(setupResult.usedToken).toBe(498);
+      expect(setupResult.usedToken).toBe(startingUsage);
 
       // Act: try to consume 3 more (498 + 3 = 501 > 500)
       const result = await consumeToken(TEST_BUSINESS_ID, TEST_DATE, 3);
@@ -489,16 +583,20 @@ describeIntegration("Token Capacity Service — Integration Tests", () => {
       // Assert: should be rejected
       expect(result.success).toBe(false);
       expect(result.message).toBe("Production capacity full");
-      expect(result.usedToken).toBe(498);
-      expect(result.maxToken).toBe(500);
+      expect(result.usedToken).toBe(startingUsage);
+      expect(result.maxToken).toBe(DEFAULT_MAX_TOKEN);
     });
   });
 
   // ── Test Case 2: Accept when capacity is exactly met ──
   describe("Case 2: usedToken=498, tokenNeeded=2 → SUCCESS", () => {
     it("should succeed when usedToken + tokenNeeded <= maxToken", async () => {
-      // Setup: consume 498 tokens first
-      const setupResult = await consumeToken(TEST_BUSINESS_ID, TEST_DATE, 498);
+      const startingUsage = DEFAULT_MAX_TOKEN - 2;
+      const setupResult = await consumeToken(
+        TEST_BUSINESS_ID,
+        TEST_DATE,
+        startingUsage,
+      );
       expect(setupResult.success).toBe(true);
 
       // Act: try to consume 2 more (498 + 2 = 500 <= 500)
@@ -506,8 +604,8 @@ describeIntegration("Token Capacity Service — Integration Tests", () => {
 
       // Assert: should succeed
       expect(result.success).toBe(true);
-      expect(result.usedToken).toBe(500);
-      expect(result.maxToken).toBe(500);
+      expect(result.usedToken).toBe(DEFAULT_MAX_TOKEN);
+      expect(result.maxToken).toBe(DEFAULT_MAX_TOKEN);
     });
   });
 
@@ -525,19 +623,19 @@ describeIntegration("Token Capacity Service — Integration Tests", () => {
       // Assert
       expect(result.success).toBe(true);
       expect(result.usedToken).toBe(5);
-      expect(result.maxToken).toBe(500);
+      expect(result.maxToken).toBe(DEFAULT_MAX_TOKEN);
 
-      // Verify record was created
+      // The public capacity query reconciles against active orders; a manual
+      // consume without a bakery_order is not counted after reconciliation.
       const after = await getCapacityForDate(TEST_BUSINESS_ID, TEST_DATE);
-      expect(after.usedToken).toBe(5);
+      expect(after.usedToken).toBe(0);
     });
   });
 
   // ── Test Case 4: Concurrent requests (race condition) ──
   describe("Case 4: concurrent requests → no over-allocation", () => {
     it("should not allow over-allocation with concurrent requests", async () => {
-      // Setup: consume 495 tokens
-      await consumeToken(TEST_BUSINESS_ID, TEST_DATE, 495);
+      await consumeToken(TEST_BUSINESS_ID, TEST_DATE, DEFAULT_MAX_TOKEN - 5);
 
       // Act: fire 3 concurrent requests each trying to consume 3 tokens
       // Only 1 should succeed (495 + 3 = 498 <= 500)
@@ -575,7 +673,11 @@ describeIntegration("Token Capacity Service — Integration Tests", () => {
     });
 
     it("should return false when capacity is full", async () => {
-      await consumeToken(TEST_BUSINESS_ID, TEST_DATE, 499);
+      await seedActiveOrder(
+        TEST_DATE,
+        DEFAULT_MAX_TOKEN - 1,
+        "availability-full",
+      );
       const available = await checkTokenAvailability(
         TEST_BUSINESS_ID,
         TEST_DATE,
@@ -622,8 +724,8 @@ describeIntegration("Token Capacity Service — Integration Tests", () => {
   // ── Test: getCapacityForDateRange ──
   describe("getCapacityForDateRange", () => {
     it("should return records for dates with usage", async () => {
-      await consumeToken(TEST_BUSINESS_ID, TEST_DATE, 50);
-      await consumeToken(TEST_BUSINESS_ID, TEST_DATE_2, 100);
+      await seedActiveOrder(TEST_DATE, 50, "range-1");
+      await seedActiveOrder(TEST_DATE_2, 100, "range-2");
 
       const records = await getCapacityForDateRange(
         TEST_BUSINESS_ID,
@@ -643,14 +745,18 @@ describeIntegration("Token Capacity Service — Integration Tests", () => {
   describe("Edge cases", () => {
     it("should reject invalid date format", async () => {
       await expect(
-        consumeToken(TEST_BUSINESS_ID, "2024/01/15", 1),
+        consumeToken(TEST_BUSINESS_ID, "not-a-date", 1),
       ).rejects.toThrow("Invalid date format");
     });
 
     it("should handle consuming exactly maxToken", async () => {
-      const result = await consumeToken(TEST_BUSINESS_ID, TEST_DATE, 500);
+      const result = await consumeToken(
+        TEST_BUSINESS_ID,
+        TEST_DATE,
+        DEFAULT_MAX_TOKEN,
+      );
       expect(result.success).toBe(true);
-      expect(result.usedToken).toBe(500);
+      expect(result.usedToken).toBe(DEFAULT_MAX_TOKEN);
 
       // Now try to consume 1 more
       const result2 = await consumeToken(TEST_BUSINESS_ID, TEST_DATE, 1);

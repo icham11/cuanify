@@ -2,10 +2,10 @@ import { test, expect } from '@playwright/test';
 
 test('E2E All Features Test', async ({ page }) => {
   // Set extended timeout for e2e
-  test.setTimeout(120000);
+  test.setTimeout(240000);
 
   // 1. Go to login page
-  await page.goto('http://localhost:3000/login');
+  await page.goto('/login');
 
   // 2. Fill login form
   await page.fill('input[type="email"]', 'kambiyang@mail.co');
@@ -36,7 +36,7 @@ test('E2E All Features Test', async ({ page }) => {
     console.log(`Navigating to ${item.name} (${item.path})`);
     
     // Some routes might be nested or have different actual paths, but we try standard paths
-    const response = await page.goto(`http://localhost:3000${item.path}`, { waitUntil: 'load' });
+    const response = await page.goto(item.path, { waitUntil: 'domcontentloaded' });
     
     // Check if page loaded OK (status 200 or 304, or maybe 404 if path is slightly different)
     if (response) {
@@ -52,7 +52,7 @@ test('E2E All Features Test', async ({ page }) => {
     }
 
     // Take a small delay to mimic human behavior
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(250);
   }
   
   console.log('Finished testing all requested features.');

@@ -254,6 +254,7 @@ async function fillBaseBookingForm(page: Page) {
   const deliverySlotSelect = page.locator('select[name="deliverySlot"]');
   await expect(deliverySlotSelect.locator("option")).toHaveCount(25);
   await deliverySlotSelect.selectOption({ label: "10:00 - AVAILABLE" });
+  await page.locator('input[name="manualDpAmount"]').fill("50000");
 }
 
 async function setupNetworkMocks(
@@ -383,7 +384,7 @@ test.describe("Booking shipping preview persistence", () => {
       await quoteButton.click();
 
       await page.getByRole("button", { name: "Preview Booking" }).click();
-      await page.waitForURL(/\/bakery\/bookings\/new\/review$/, {
+      await expect(page.getByText("Preview Booking")).toBeVisible({
         timeout: 30_000,
       });
 

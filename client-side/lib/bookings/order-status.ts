@@ -89,7 +89,8 @@ export function getBookingPaymentStatusFilterAliases(
 export function bookingStatusFilterMatchesBlank(
   status?: string | null,
 ): boolean {
-  return (typeof status === "string" ? status.trim() : "") === "Inquiry";
+  const normalized = typeof status === "string" ? status.trim() : "";
+  return normalized === "Inquiry" || normalized === "In Production";
 }
 
 export function isBookingPaymentStatusFilter(status?: string | null): boolean {
@@ -116,12 +117,13 @@ export function matchesBookingStatusFilter(
   const normalizedCurrent =
     typeof currentStatus === "string" ? currentStatus.trim() : "";
 
-  if (bookingStatusFilterMatchesBlank(normalizedSelected)) {
-    return !normalizedCurrent || normalizedCurrent === "Inquiry";
+  const allowedStatuses = getBookingStatusFilterAliases(normalizedSelected);
+  if (allowedStatuses.includes(normalizedCurrent)) {
+    return true;
   }
 
-  return getBookingStatusFilterAliases(normalizedSelected).includes(
-    normalizedCurrent,
+  return (
+    bookingStatusFilterMatchesBlank(normalizedSelected) && !normalizedCurrent
   );
 }
 

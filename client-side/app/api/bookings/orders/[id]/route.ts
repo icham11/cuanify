@@ -1171,10 +1171,10 @@ export async function DELETE(
     );
     if (deliveryDate) {
       const INACTIVE_STATUSES = [
-        "Completed",
-        "Delivered",
         "Cancelled",
-        "Inquiry",
+        "Completed",
+        "Delivery",
+        "Delivered",
       ] as const;
       transactionSteps.push(
         prisma.$executeRaw`

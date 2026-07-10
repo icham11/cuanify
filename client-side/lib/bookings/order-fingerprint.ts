@@ -25,11 +25,28 @@ type FingerprintAddressInput = {
   addressLine?: unknown;
 };
 
+type FingerprintShippingQuoteInput = {
+  deliveryMethod?: unknown;
+  provider?: unknown;
+  courier?: unknown;
+  courierCode?: unknown;
+  courierServiceCode?: unknown;
+  courierServiceName?: unknown;
+  serviceName?: unknown;
+  serviceType?: unknown;
+  price?: unknown;
+  fee?: unknown;
+  totalFee?: unknown;
+  eta?: unknown;
+  distanceKm?: unknown;
+};
+
 export type OrderFingerprintInput = {
   customerName?: unknown;
   customerPhone?: unknown;
   deliveryDate?: unknown;
   deliverySlot?: unknown;
+  deliveryMethod?: unknown;
   notes?: unknown;
   basePrice?: unknown;
   addOnTotal?: unknown;
@@ -43,6 +60,7 @@ export type OrderFingerprintInput = {
   salesChannel?: unknown;
   items?: FingerprintItemInput[] | unknown[];
   deliveryAddresses?: FingerprintAddressInput[] | unknown[];
+  shippingQuote?: FingerprintShippingQuoteInput | unknown;
 };
 
 export function normalizeBookingFingerprintText(value: unknown): string {
@@ -87,6 +105,25 @@ function normalizeFingerprintRecordNumbers(value: unknown) {
     .sort((left, right) => left.key.localeCompare(right.key));
 }
 
+function normalizeFingerprintShippingQuote(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+
+  const quote = value as FingerprintShippingQuoteInput;
+  return {
+    deliveryMethod: normalizeBookingFingerprintText(quote.deliveryMethod),
+    provider: normalizeBookingFingerprintText(
+      quote.provider ?? quote.courier ?? quote.courierCode,
+    ),
+    serviceCode: normalizeBookingFingerprintText(quote.courierServiceCode),
+    serviceName: normalizeBookingFingerprintText(
+      quote.courierServiceName ?? quote.serviceName ?? quote.serviceType,
+    ),
+    price: normalizeFingerprintMoney(quote.price ?? quote.fee ?? quote.totalFee),
+    eta: normalizeBookingFingerprintText(quote.eta),
+    distanceKm: normalizeFingerprintMoney(quote.distanceKm),
+  };
+}
+
 export function buildOrderFingerprint(order: OrderFingerprintInput): string {
   const items = (Array.isArray(order.items) ? order.items : []) as FingerprintItemInput[];
   const deliveryAddresses = (Array.isArray(order.deliveryAddresses)
@@ -100,6 +137,7 @@ export function buildOrderFingerprint(order: OrderFingerprintInput): string {
       normalizeBookingFingerprintText(order.deliveryDate).slice(0, 10) ||
       String(order.deliveryDate ?? ""),
     deliverySlot: normalizeBookingFingerprintText(order.deliverySlot),
+    deliveryMethod: normalizeBookingFingerprintText(order.deliveryMethod),
     notes: normalizeBookingFingerprintText(order.notes),
     basePrice: normalizeFingerprintMoney(order.basePrice),
     addOnTotal: normalizeFingerprintMoney(order.addOnTotal),
@@ -146,5 +184,6 @@ export function buildOrderFingerprint(order: OrderFingerprintInput): string {
       area: normalizeBookingFingerprintText(address?.area),
       addressLine: normalizeBookingFingerprintText(address?.addressLine),
     })),
+    shippingQuote: normalizeFingerprintShippingQuote(order.shippingQuote),
   });
 }

@@ -2153,8 +2153,15 @@ export function getDraftItemPriceBreakdown(args: {
     normalizedCustomAddOns,
     primaryProductQuantity,
   );
-  const actualAddOnFromSelection =
-    actualSelectedAddOnAmount + customAddOnAmount;
+  const hasExplicitAddOnQuantities =
+    Object.keys(normalizedAddOnQuantities).length > 0 ||
+    Object.keys(normalizedAddOnPriceOverrides).length > 0 ||
+    normalizedCustomAddOns.length > 0;
+  const shouldApplySelectedAddOns =
+    !hasParsedRecapPrice || hasExplicitAddOnQuantities;
+  const actualAddOnFromSelection = shouldApplySelectedAddOns
+    ? actualSelectedAddOnAmount + customAddOnAmount
+    : 0;
   const catalogAddOnAmount =
     catalogSelectedAddOnAmount + customAddOnAmount;
 
@@ -2182,21 +2189,25 @@ export function getDraftItemPriceBreakdown(args: {
   const addOnDetails: string[] = [];
   const selectedAddOnIds = Array.isArray(item.addOns) ? item.addOns : [];
 
-  selectedAddOnIds.forEach((addOnId: string) => {
-    let addOn = categoryAddOns.find((entry) => entry.id === addOnId);
-    if (!addOn && item.category && BOOKING_ADD_ON_CATALOG[item.category]) {
-      addOn = BOOKING_ADD_ON_CATALOG[item.category].find((entry) => entry.id === addOnId);
-    }
-    if (!addOn) return;
+  if (shouldApplySelectedAddOns) {
+    selectedAddOnIds.forEach((addOnId: string) => {
+      let addOn = categoryAddOns.find((entry) => entry.id === addOnId);
+      if (!addOn && item.category && BOOKING_ADD_ON_CATALOG[item.category]) {
+        addOn = BOOKING_ADD_ON_CATALOG[item.category].find(
+          (entry) => entry.id === addOnId,
+        );
+      }
+      if (!addOn) return;
 
-    const quantityMultiplier = getAddOnUnitMultiplier({
-      category: item.category || "",
-      addonId: addOnId,
-      addOnQuantities: normalizedAddOnQuantities,
+      const quantityMultiplier = getAddOnUnitMultiplier({
+        category: item.category || "",
+        addonId: addOnId,
+        addOnQuantities: normalizedAddOnQuantities,
+      });
+      const qtyText = quantityMultiplier > 1 ? ` x${quantityMultiplier}` : "";
+      addOnDetails.push(`${addOn.label}${qtyText}`);
     });
-    const qtyText = quantityMultiplier > 1 ? ` x${quantityMultiplier}` : "";
-    addOnDetails.push(`${addOn.label}${qtyText}`);
-  });
+  }
 
   normalizedCustomAddOns.forEach((entry) => {
     if (!entry.label.trim()) return;

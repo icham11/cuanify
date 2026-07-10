@@ -21,6 +21,7 @@ import {
   getCalendarStatus,
   isPastDate,
 } from "@/lib/calendar/getCalendarStatus";
+import { mergeCalendarOrdersForDisplay } from "@/lib/calendar/calendar-orders";
 import {
   extractIsoDateFromBookingReference,
   isDateInPreviousMonth,
@@ -968,11 +969,35 @@ function syncParsedBookingCode<T extends { bookingCode: string; whatsAppParsedDa
   };
 }
 
+function resolveOrderDeliveryMethodLabelForFingerprint(order: {
+  deliveryMethod?: unknown;
+  notes?: unknown;
+  shippingQuote?: unknown;
+  whatsAppParsedData?: unknown;
+}): string {
+  const parsedData = asRecord(order.whatsAppParsedData);
+  const common = asRecord(parsedData?.common);
+  const rawDeliveryMethod =
+    asString(order.deliveryMethod).trim() ||
+    asString(common?.deliveryMethod).trim();
+  const deliveryMethod = resolveOrderDeliveryMethod({
+    deliveryMethod: asString(order.deliveryMethod).trim(),
+    parsedDeliveryMethod: asString(common?.deliveryMethod).trim(),
+    notes: asString(order.notes),
+    shippingQuote: asRecord(order.shippingQuote),
+  });
+
+  return deliveryMethod
+    ? resolveDeliveryMethodLabel(deliveryMethod)
+    : rawDeliveryMethod;
+}
+
 function buildParsedOrderFingerprint(order: {
   customerName?: unknown;
   customerPhone?: unknown;
   deliveryDate?: unknown;
   deliverySlot?: unknown;
+  deliveryMethod?: unknown;
   notes?: unknown;
   basePrice?: unknown;
   designAdjustmentTotal?: unknown;
@@ -991,6 +1016,8 @@ function buildParsedOrderFingerprint(order: {
   sales_channel?: unknown;
   items?: unknown[];
   deliveryAddresses?: unknown[];
+  shippingQuote?: unknown;
+  whatsAppParsedData?: unknown;
 }): string {
   const rawDeliveryDate =
     order.deliveryDate instanceof Date
@@ -1006,6 +1033,7 @@ function buildParsedOrderFingerprint(order: {
     customerPhone: order.customerPhone,
     deliveryDate: normalizedDeliveryDate,
     deliverySlot: order.deliverySlot,
+    deliveryMethod: resolveOrderDeliveryMethodLabelForFingerprint(order),
     notes: order.notes,
     basePrice: order.basePrice,
     addOnTotal: order.addOnTotal,
@@ -1020,6 +1048,7 @@ function buildParsedOrderFingerprint(order: {
     deliveryAddresses: Array.isArray(order.deliveryAddresses)
       ? order.deliveryAddresses
       : [],
+    shippingQuote: order.shippingQuote,
   });
 }
 
@@ -1536,6 +1565,7 @@ type QueuedOrderAutomation = {
   bookingCode: string;
   eventType: BookingAutomationEvent;
   order: BookingAutomationOrderPayload;
+  forceProductionNotification?: boolean;
 };
 
 type PersistedOrderAutomationResult = {
@@ -2575,6 +2605,49 @@ function buildRescheduleChangeInfo(params: {
   return {
     summary: "Jadwal booking diperbarui.",
     lines,
+  };
+}
+
+function buildOrderUpdateChangeInfo(params: {
+  previousOrder?: {
+    deliveryDate?: unknown;
+    deliverySlot?: unknown;
+    deliveryMethod?: unknown;
+    notes?: unknown;
+    shippingQuote?: unknown;
+    whatsAppParsedData?: unknown;
+  };
+  nextOrder: {
+    deliveryDate?: unknown;
+    deliverySlot?: unknown;
+    deliveryMethod?: unknown;
+    notes?: unknown;
+    shippingQuote?: unknown;
+    whatsAppParsedData?: unknown;
+  };
+  scheduleChangeInfo?: BookingAutomationChangeInfo;
+}): BookingAutomationChangeInfo {
+  const lines = [...(params.scheduleChangeInfo?.lines ?? [])];
+  const previousMethod = params.previousOrder
+    ? resolveOrderDeliveryMethodLabelForFingerprint(params.previousOrder)
+    : "";
+  const nextMethod = resolveOrderDeliveryMethodLabelForFingerprint(
+    params.nextOrder,
+  );
+
+  if (previousMethod && nextMethod && previousMethod !== nextMethod) {
+    lines.push(`Metode Pengiriman: ${previousMethod} -> ${nextMethod}`);
+  }
+
+  if (lines.length === 0) {
+    lines.push("Detail order diperbarui. Cek rekap terbaru di pesan ini.");
+  }
+
+  return {
+    summary: params.scheduleChangeInfo
+      ? "Booking order diperbarui."
+      : "Detail booking diperbarui.",
+    lines: Array.from(new Set(lines)),
   };
 }
 
@@ -3651,12 +3724,39 @@ export async function GET(request: NextRequest) {
     // Parameter pencarian & filter (server-side)
     const searchQuery = url.searchParams.get("query") || "";
     const statusFilter = url.searchParams.get("status") || "";
-    const dateFilter = url.searchParams.get("date") || "";
+    const rawDateFilter = url.searchParams.get("date") || "";
+    const normalizedDateFilter = rawDateFilter
+      ? normalizeDateInput(rawDateFilter)
+      : null;
+    if (rawDateFilter && !normalizedDateFilter) {
+      return NextResponse.json(
+        { error: "Invalid date format. Use YYYY-MM-DD." },
+        { status: 400 },
+      );
+    }
+    const dateFilter = normalizedDateFilter ?? "";
     const courierFilter = parseCourierFilter(url.searchParams.get("courier")) ?? "";
     const orderSourceFilter =
       parseBookingOrderSourceFilter(url.searchParams.get("orderSource")) ?? "";
-    const startDate = url.searchParams.get("startDate") || "";
-    const endDate = url.searchParams.get("endDate") || "";
+    const rawStartDate = url.searchParams.get("startDate") || "";
+    const rawEndDate = url.searchParams.get("endDate") || "";
+    const normalizedStartDate = rawStartDate
+      ? normalizeDateInput(rawStartDate)
+      : null;
+    const normalizedEndDate = rawEndDate
+      ? normalizeDateInput(rawEndDate)
+      : null;
+    if (
+      (rawStartDate && !normalizedStartDate) ||
+      (rawEndDate && !normalizedEndDate)
+    ) {
+      return NextResponse.json(
+        { error: "Invalid date range format. Use YYYY-MM-DD." },
+        { status: 400 },
+      );
+    }
+    const startDate = normalizedStartDate ?? "";
+    const endDate = normalizedEndDate ?? "";
     const todayFilter =
       normalizeDateInput(url.searchParams.get("today") || "") ||
       getJakartaTodayIsoDate();
@@ -4472,13 +4572,54 @@ export async function GET(request: NextRequest) {
             ...resolvePersistedImageFields(order),
           };
         });
-        const filteredOrders = needsPostHydrationBookingFilters
+        let filteredOrders: NormalizedOrder[] = needsPostHydrationBookingFilters
           ? hydratedOrders.filter(
               (order) =>
                 matchesBookingCourierFilter(order, courierFilter) &&
                 matchesBookingOrderSourceFilter(order, orderSourceFilter),
             )
           : hydratedOrders;
+        let responseSource = "rows";
+
+        if (isCalendarMode || isDashboardMode) {
+          const snapshotDoc = await readOrdersSnapshot(businessId).catch(
+            () => null,
+          );
+          const snapshotOrders = filterSnapshotOrders({
+            orders: parseNormalizedSnapshotOrders(snapshotDoc?.content),
+            savedView,
+            todayFilter,
+            searchQuery,
+            statusFilter,
+            dateFilter,
+            startDate,
+            endDate,
+            courierFilter,
+            orderSourceFilter,
+          });
+
+          if (snapshotOrders.length > 0) {
+            const mergedOrders = mergeCalendarOrdersForDisplay(
+              filteredOrders,
+              snapshotOrders,
+              {
+                startDate,
+                endDate,
+              },
+            );
+
+            if (
+              mergedOrders.length !== filteredOrders.length ||
+              mergedOrders.some(
+                (order, index) => order !== filteredOrders[index],
+              )
+            ) {
+              responseSource = "rows+snapshot";
+              filteredOrders = mergedOrders;
+            }
+          }
+        }
+
         const orders = needsPostHydrationBookingFilters
           ? filteredOrders.slice(offset, offset + limit)
           : filteredOrders;
@@ -4549,7 +4690,7 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({
           success: true,
           data: {
-            source: "rows",
+            source: responseSource,
             orders,
             updatedAt: rowUpdatedAt,
             pagination: {
@@ -5032,6 +5173,7 @@ export async function POST(request: NextRequest) {
         final_paid_amount: unknown;
         total_price: unknown;
         sales_channel: string | null;
+        shipping_quote: unknown;
         whatsapp_parsed_data: unknown;
       }[]
     >`
@@ -5059,6 +5201,7 @@ export async function POST(request: NextRequest) {
         final_paid_amount,
         total_price,
         sales_channel,
+        shipping_quote,
         whatsapp_parsed_data
       FROM bakery_orders
       WHERE business_id = ${businessId}
@@ -5110,6 +5253,8 @@ export async function POST(request: NextRequest) {
         finalPaidAmount: row.final_paid_amount,
         totalPrice: row.total_price,
         sales_channel: row.sales_channel,
+        shippingQuote: parseJsonField(row.shipping_quote),
+        whatsAppParsedData: row.whatsapp_parsed_data,
         items: existingCapacityItemsMap.get(row.external_id) ?? [],
         deliveryAddresses: existingAddressesMap.get(row.external_id) ?? [],
       });
@@ -5882,14 +6027,13 @@ export async function POST(request: NextRequest) {
                       parseJsonField(existingRowCheck?.status_history),
                     )
                   : (order.statusHistory ?? []);
+                const persistedFingerprint =
+                  existingOrderFingerprintById.get(order.id) ?? "";
+                const incomingFingerprint = buildParsedOrderFingerprint(order);
                 if (
                   existingRowCheck?.delivery_date &&
                   isDateInPreviousMonth(existingRowCheck.delivery_date)
                 ) {
-                  const persistedFingerprint =
-                    existingOrderFingerprintById.get(order.id) ?? "";
-                  const incomingFingerprint =
-                    buildParsedOrderFingerprint(order);
                   const detailChanged =
                     persistedFingerprint !== incomingFingerprint;
                   const statusChanged =
@@ -5942,6 +6086,11 @@ export async function POST(request: NextRequest) {
                   isActiveStatus &&
                   (normalizedExistingDeliveryDate !== normalizedNextDeliveryDate ||
                     existingDeliverySlot !== (order.deliverySlot || ""));
+                const detailsChangedForAutomation =
+                  Boolean(existingOrder) &&
+                  wasActive &&
+                  isActiveStatus &&
+                  persistedFingerprint !== incomingFingerprint;
 
                 const shouldValidateSchedule =
                   hasCapacityChange &&
@@ -6476,18 +6625,29 @@ export async function POST(request: NextRequest) {
                     eventType: "order_created",
                     order: toBookingAutomationPayload(order),
                   });
-                } else if (scheduleChangedForAutomation) {
-                  queuedAutomationJobs.push({
-                    orderId: order.id,
-                    bookingCode: order.bookingCode || order.resi || order.id,
-                    eventType: "order_rescheduled",
-                    order: toBookingAutomationPayload(
-                      order,
-                      buildRescheduleChangeInfo({
+                } else if (
+                  scheduleChangedForAutomation ||
+                  detailsChangedForAutomation
+                ) {
+                  const scheduleChangeInfo = scheduleChangedForAutomation
+                    ? buildRescheduleChangeInfo({
                         previousDate: existingOrder?.delivery_date,
                         previousSlot: existingDeliverySlot,
                         nextDate: normalizedNextDeliveryDate,
                         nextSlot: order.deliverySlot || "",
+                      })
+                    : undefined;
+                  queuedAutomationJobs.push({
+                    orderId: order.id,
+                    bookingCode: order.bookingCode || order.resi || order.id,
+                    eventType: "order_rescheduled",
+                    forceProductionNotification: true,
+                    order: toBookingAutomationPayload(
+                      order,
+                      buildOrderUpdateChangeInfo({
+                        previousOrder: existingOrdersById.get(order.id),
+                        nextOrder: order,
+                        scheduleChangeInfo,
                       }),
                     ),
                   });
@@ -6648,6 +6808,7 @@ export async function POST(request: NextRequest) {
           queuedAutomationJobs.map(async (job: QueuedOrderAutomation) => {
             const effectiveEventType =
               !shouldSendWhatsAppNotification &&
+              !job.forceProductionNotification &&
               (job.eventType === "order_created" ||
                 job.eventType === "order_rescheduled")
                 ? "order_calendar_sync"

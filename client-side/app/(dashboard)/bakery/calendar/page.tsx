@@ -47,7 +47,11 @@ import { useBusiness } from "@/context/BusinessContext";
 import { useRole } from "@/context/RoleContext";
 import { summarizeProductionTokensByItems } from "@/lib/bookings/operations";
 import { getOrderItemsSummary } from "@/lib/bookings/order-display";
-import { normalizeOrderStatus } from "@/lib/bookings/order-status";
+import {
+  isClosedOrderStatus,
+  normalizeOrderStatus,
+} from "@/lib/bookings/order-status";
+import { mergeCalendarOrdersForDisplay } from "@/lib/calendar/calendar-orders";
 
 const locales = { id: localeId };
 
@@ -391,16 +395,17 @@ export default function BakeryCalendarPage() {
 
   const scopedCalendarOrders = useMemo(() => {
     if (loadedCalendarRangeKey === calendarRangeKey) {
-      return calendarRangeOrders;
+      return mergeCalendarOrdersForDisplay(calendarRangeOrders, orders, {
+        startDate: calendarRangeStartKey,
+        endDate: calendarRangeEndKey,
+        resolveDateKey: resolveCalendarOrderDateKey,
+      });
     }
 
-    return orders.filter((order) => {
-      const dateKey = resolveCalendarOrderDateKey(order);
-      return (
-        Boolean(dateKey) &&
-        dateKey >= calendarRangeStartKey &&
-        dateKey <= calendarRangeEndKey
-      );
+    return mergeCalendarOrdersForDisplay([], orders, {
+      startDate: calendarRangeStartKey,
+      endDate: calendarRangeEndKey,
+      resolveDateKey: resolveCalendarOrderDateKey,
     });
   }, [
     calendarRangeEndKey,
@@ -418,8 +423,7 @@ export default function BakeryCalendarPage() {
       const normalizedDate = resolveCalendarOrderDateKey(order);
       if (!normalizedDate) continue;
 
-      const normalizedStatus = normalizeOrderStatus(order.orderStatus);
-      if (normalizedStatus === "Cancelled") {
+      if (isClosedOrderStatus(order.orderStatus)) {
         continue;
       }
 

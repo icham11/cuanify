@@ -60,6 +60,8 @@ describe("order status helpers", () => {
     expect(isBookingPaymentStatusFilter("DP Paid")).toBe(true);
     expect(isBookingPaymentStatusFilter("Paid")).toBe(true);
     expect(matchesBookingStatusFilter(undefined, "Inquiry")).toBe(true);
+    expect(bookingStatusFilterMatchesBlank("In Production")).toBe(true);
+    expect(matchesBookingStatusFilter(undefined, "In Production")).toBe(true);
     expect(matchesBookingStatusFilter("Inquiry", "Inquiry")).toBe(true);
     expect(matchesBookingStatusFilter("Complete", "Completed")).toBe(true);
     expect(matchesBookingStatusFilter("Canceled", "Cancelled")).toBe(true);
