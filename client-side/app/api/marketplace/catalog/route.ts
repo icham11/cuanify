@@ -7,6 +7,10 @@ import {
   syncBakeryCatalogToDashboardProducts,
 } from "@/lib/bookings/product-sync";
 import { normalizeProductNameKey } from "@/lib/products/uniqueness";
+import {
+  resolveMainProductCategory,
+  shouldIgnoreProductCategory,
+} from "@/lib/products/main-category";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -50,6 +54,11 @@ export async function GET() {
         sellingPrice: true,
         cogs: true,
         minimumOrder: true,
+        category: {
+          select: {
+            name: true,
+          },
+        },
       },
     });
 
@@ -83,6 +92,47 @@ export async function GET() {
         };
       },
     );
+
+    // Ensure every category shown on /dashboard/products also appears here.
+    // Add active Products not already covered by the booking catalog, grouped by
+    // the same main-category resolver so the marketplace selection matches the
+    // products page. Each entry keeps its real productId so it stays sellable.
+    const coveredProductIds = new Set(
+      variants
+        .map((variant) => variant.productId)
+        .filter((id): id is number => id !== null),
+    );
+    const coveredNameKeys = new Set(
+      variants.map((variant) => normalizeProductNameKey(variant.displayName)),
+    );
+
+    products.forEach((product) => {
+      if (coveredProductIds.has(product.id)) return;
+
+      const subcategoryName = product.category?.name?.trim() ?? "";
+      if (!subcategoryName || shouldIgnoreProductCategory(subcategoryName)) {
+        return;
+      }
+
+      const mainCategory = resolveMainProductCategory(subcategoryName);
+      if (!mainCategory) return;
+
+      const nameKey = normalizeProductNameKey(product.name);
+      if (coveredNameKeys.has(nameKey)) return;
+      coveredNameKeys.add(nameKey);
+
+      variants.push({
+        category: mainCategory,
+        subcategory: subcategoryName,
+        productName: product.name,
+        size: "Reguler",
+        displayName: product.name,
+        price: Number(product.sellingPrice ?? 0),
+        cogs: Number(product.cogs ?? 0),
+        minimumOrder: Number(product.minimumOrder ?? 0),
+        productId: product.id,
+      });
+    });
 
     return NextResponse.json({
       success: true,
