@@ -2,14 +2,10 @@ import path from "path";
 import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
 import { PrismaClient } from "@prisma/client";
-import { PrismaNeon } from "@prisma/adapter-neon";
-import { neonConfig } from "@neondatabase/serverless";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { expect, test, type Page } from "@playwright/test";
-import ws from "ws";
 
 dotenv.config({ path: path.resolve(process.cwd(), ".env") });
-
-neonConfig.webSocketConstructor = ws;
 
 const databaseUrl = process.env.DATABASE_URL;
 
@@ -18,7 +14,7 @@ if (!databaseUrl) {
 }
 
 const prisma = new PrismaClient({
-  adapter: new PrismaNeon({ connectionString: databaseUrl }),
+  adapter: new PrismaPg({ connectionString: databaseUrl, ssl: { rejectUnauthorized: false } }),
 });
 const PASSWORD = "QaStatusFilter123!";
 

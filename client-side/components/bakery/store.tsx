@@ -1377,6 +1377,41 @@ function mergeOrdersPreferLatestLocal(
   return mergedOrders;
 }
 
+/**
+ * Menggabungkan respons delta sync ke snapshot lokal: order yang berubah
+ * ditimpa, order yang dihapus dibuang, sisanya dibiarkan apa adanya. Urutan
+ * lokal dipertahankan supaya `areOrdersSnapshotsEqual` tidak menganggapnya
+ * berubah hanya karena posisi bergeser.
+ */
+function mergeDeltaOrders(
+  localOrders: BakeryOrder[],
+  changedOrders: BakeryOrder[],
+  deletedIds: Set<string>,
+): BakeryOrder[] {
+  const changedById = new Map(changedOrders.map((order) => [order.id, order]));
+  const mergedOrders: BakeryOrder[] = [];
+
+  for (const localOrder of localOrders) {
+    if (deletedIds.has(localOrder.id)) continue;
+
+    const changedOrder = changedById.get(localOrder.id);
+    if (!changedOrder) {
+      mergedOrders.push(localOrder);
+      continue;
+    }
+
+    mergedOrders.push(preserveLocalRichOrderFields(changedOrder, localOrder));
+    changedById.delete(localOrder.id);
+  }
+
+  for (const newOrder of changedById.values()) {
+    if (deletedIds.has(newOrder.id)) continue;
+    mergedOrders.push(newOrder);
+  }
+
+  return mergedOrders;
+}
+
 function isAuthoritativeOrdersSource(source: unknown): boolean {
   return (
     source === "rows" ||
@@ -1541,6 +1576,9 @@ export function OrdersProvider({
     name: "System",
   });
   const hydrationInFlightRef = useRef(false);
+  // Cursor delta sync: `data.updatedAt` dari respons hydration terakhir.
+  // Selama cursor terisi, polling hanya meminta order yang berubah sejak itu.
+  const hydrationCursorRef = useRef<string | null>(null);
   const lastLocalWriteAtRef = useRef(0);
   const syncDebounceTimerRef = useRef<number | null>(null);
   const syncQueuedOrdersRef = useRef<BakeryOrder[] | null>(null);
@@ -1864,17 +1902,84 @@ export function OrdersProvider({
       const localSnapshot = readOrdersSnapshotFromStorage();
       const localOrders = parseSnapshot(localSnapshot ?? INITIAL_SNAPSHOT);
 
-      try {
-        const response = await fetch(ORDERS_SYNC_ENDPOINT, {
+      type HydrationPayload = {
+        success?: boolean;
+        data?: {
+          orders?: BakeryOrder[];
+          source?: string;
+          mode?: string;
+          deletedIds?: string[];
+          updatedAt?: string | null;
+          pagination?: { totalCount?: number };
+        };
+      };
+
+      const requestOrders = async (cursor: string | null) => {
+        const endpoint = cursor
+          ? `${ORDERS_SYNC_ENDPOINT}?since=${encodeURIComponent(cursor)}`
+          : ORDERS_SYNC_ENDPOINT;
+        const response = await fetch(endpoint, {
           method: "GET",
           cache: "no-store",
         });
-        const payload = (await response.json().catch(() => ({}))) as {
-          success?: boolean;
-          data?: { orders?: BakeryOrder[]; source?: string };
-        };
+        const payload = (await response
+          .json()
+          .catch(() => ({}))) as HydrationPayload;
 
-        if (!response.ok || !payload.success) return;
+        if (!response.ok || !payload.success) return null;
+        return payload;
+      };
+
+      const isRecentlyChangedLocally = () =>
+        !force &&
+        Date.now() - lastLocalWriteAtRef.current < LOCAL_WRITE_STALE_GUARD_MS;
+
+      try {
+        // Cursor hanya dipakai bila snapshot lokal sudah terisi. Hydrate paksa
+        // (ganti bisnis / pasca-aksi) selalu menarik ulang seluruh window.
+        const cursor =
+          force || localOrders.length === 0 ? null : hydrationCursorRef.current;
+        let payload = await requestOrders(cursor);
+        if (!payload) return;
+
+        if (payload.data?.mode === "delta") {
+          // Cursor sengaja tidak dimajukan saat tulisan lokal masih baru;
+          // delta yang sama akan diambil ulang pada polling berikutnya.
+          if (isRecentlyChangedLocally()) return;
+
+          const changedOrders = Array.isArray(payload.data.orders)
+            ? payload.data.orders
+            : [];
+          const deletedIds = new Set(
+            Array.isArray(payload.data.deletedIds)
+              ? payload.data.deletedIds
+              : [],
+          );
+          const mergedOrders = mergeDeltaOrders(
+            localOrders,
+            changedOrders,
+            deletedIds,
+          );
+          const windowTotalCount = payload.data.pagination?.totalCount;
+          const hasDrifted =
+            typeof windowTotalCount === "number" &&
+            mergedOrders.length !== windowTotalCount;
+
+          // Delta tidak bisa melihat order yang keluar dari window tanggal.
+          // Saat jumlahnya tidak cocok, sekali tarik ulang penuh untuk sinkron.
+          if (!hasDrifted) {
+            if (!areOrdersSnapshotsEqual(localOrders, mergedOrders)) {
+              writeOrdersSnapshot(mergedOrders);
+            }
+            hydrationCursorRef.current =
+              payload.data.updatedAt || hydrationCursorRef.current;
+            return;
+          }
+
+          hydrationCursorRef.current = null;
+          payload = await requestOrders(null);
+          if (!payload) return;
+        }
 
         const serverOrders = Array.isArray(payload.data?.orders)
           ? payload.data.orders
@@ -1882,13 +1987,16 @@ export function OrdersProvider({
         const shouldReplaceLocalSnapshot = isAuthoritativeOrdersSource(
           payload.data?.source,
         );
+        // Cursor hanya valid bila berasal dari baris database. Timestamp
+        // snapshot-fallback berasal dari dokumen lain dan tidak sebanding
+        // dengan `bakery_orders.updated_at`.
+        const nextCursor =
+          payload.data?.source === "rows"
+            ? (payload.data?.updatedAt ?? null)
+            : null;
 
         if (serverOrders.length > 0) {
-          const recentlyChangedLocally =
-            !force &&
-            Date.now() - lastLocalWriteAtRef.current <
-              LOCAL_WRITE_STALE_GUARD_MS;
-          if (recentlyChangedLocally) return;
+          if (isRecentlyChangedLocally()) return;
 
           const mergedOrders = shouldReplaceLocalSnapshot
             ? serverOrders
@@ -1897,6 +2005,7 @@ export function OrdersProvider({
           if (!areOrdersSnapshotsEqual(localOrders, mergedOrders)) {
             writeOrdersSnapshot(mergedOrders);
           }
+          hydrationCursorRef.current = nextCursor;
           return;
         }
 
@@ -1904,6 +2013,7 @@ export function OrdersProvider({
           if (localOrders.length > 0) {
             writeOrdersSnapshot([]);
           }
+          hydrationCursorRef.current = nextCursor;
           return;
         }
 
@@ -1930,6 +2040,8 @@ export function OrdersProvider({
 
     const handleBusinessChanged = () => {
       lastLocalWriteAtRef.current = 0;
+      // Cursor delta terikat pada satu bisnis; buang saat bisnis aktif berganti.
+      hydrationCursorRef.current = null;
       void hydrateOrdersFromServer(true);
     };
 

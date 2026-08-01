@@ -1,9 +1,5 @@
 import { PrismaClient } from "@prisma/client";
-import { PrismaNeon } from "@prisma/adapter-neon";
-import { neonConfig } from "@neondatabase/serverless";
-import ws from "ws";
-
-neonConfig.webSocketConstructor = ws;
+import { PrismaPg } from "@prisma/adapter-pg";
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
@@ -28,30 +24,29 @@ function createPrismaClient() {
     throw new Error("DIRECT_URL or DATABASE_URL is not set");
   }
 
-  const maxConnections = readPositiveIntegerEnv(
-    "NEON_POOL_MAX_CONNECTIONS",
-    3,
-  );
+  const maxConnections = readPositiveIntegerEnv("DB_POOL_MAX_CONNECTIONS", 3);
   const idleTimeoutMillis = readPositiveIntegerEnv(
-    "NEON_POOL_IDLE_TIMEOUT_MS",
+    "DB_POOL_IDLE_TIMEOUT_MS",
     10_000,
   );
   const connectionTimeoutMillis = readPositiveIntegerEnv(
-    "NEON_POOL_CONNECTION_TIMEOUT_MS",
+    "DB_POOL_CONNECTION_TIMEOUT_MS",
     15_000,
   );
 
-  // To reduce connection overhead in serverless environments like Vercel,
-  // we use Neon's serverless adapter over WebSockets.
+  // Supabase is reached over plain TCP with node-postgres. Its pooler presents a
+  // certificate signed by Supabase's own CA, which is not in Node's trust store,
+  // so verification is disabled while the connection stays TLS-encrypted.
   // Keep the pool intentionally small and release idle sockets quickly so
-  // Neon can scale to zero after traffic stops.
-  const adapter = new PrismaNeon({
+  // serverless instances do not hold connections open after traffic stops.
+  const adapter = new PrismaPg({
     connectionString: databaseUrl,
     max: maxConnections,
     min: 0,
     idleTimeoutMillis,
     connectionTimeoutMillis,
     allowExitOnIdle: true,
+    ssl: { rejectUnauthorized: false },
   });
 
   return new PrismaClient({

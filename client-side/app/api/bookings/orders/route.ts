@@ -526,29 +526,6 @@ function parseOrdersContent(content: string | null | undefined): unknown[] {
   }
 }
 
-function snapshotMatchesRowOrders(
-  snapshotOrders: unknown[],
-  rowOrders: Array<{ id: string }>,
-): boolean {
-  if (snapshotOrders.length !== rowOrders.length) {
-    return false;
-  }
-
-  const snapshotIds = new Set(
-    snapshotOrders
-      .map((entry) => asRecord(entry))
-      .filter((entry): entry is JsonRecord => Boolean(entry))
-      .map((entry) => asString(entry.id).trim())
-      .filter(Boolean),
-  );
-
-  if (snapshotIds.size !== rowOrders.length) {
-    return false;
-  }
-
-  return rowOrders.every((order) => snapshotIds.has(order.id));
-}
-
 function asRecord(value: unknown): JsonRecord | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return value as JsonRecord;
@@ -3765,19 +3742,30 @@ export async function GET(request: NextRequest) {
     const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
     const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") || "50", 10)));
     const offset = (page - 1) * limit;
-    const isUnfilteredHydrationRequest =
-      !isFinancialMode &&
+
+    // Delta sync: klien hydration mengirim cursor `since` berisi `data.updatedAt`
+    // dari respons sebelumnya, sehingga server cukup mengirim order yang berubah
+    // sejak saat itu. Mayoritas polling akan mengembalikan nol baris.
+    // Hanya berlaku pada jalur hydration (tanpa param `page`); mode lain punya
+    // filter sendiri dan tidak menyimpan cursor di klien.
+    const isHydrationListMode =
+      !url.searchParams.has("page") &&
       !isCalendarMode &&
       !isDashboardMode &&
-      !isPaginatedBookingsListMode &&
-      savedView === "all" &&
-      !searchQuery &&
-      !statusFilter &&
-      !dateFilter &&
-      !courierFilter &&
-      !orderSourceFilter &&
-      !startDate &&
-      !endDate;
+      !isFinancialMode &&
+      !isCustomersMode;
+    const rawSince = url.searchParams.get("since") || "";
+    const parsedSinceMs = rawSince ? Date.parse(rawSince) : Number.NaN;
+    if (rawSince && !Number.isFinite(parsedSinceMs)) {
+      return NextResponse.json(
+        { error: "Invalid `since` cursor. Use an ISO timestamp." },
+        { status: 400 },
+      );
+    }
+    const deltaSince =
+      isHydrationListMode && Number.isFinite(parsedSinceMs)
+        ? new Date(parsedSinceMs)
+        : null;
 
     if (isCustomersMode) {
       await ensureBakeryTables();
@@ -3910,6 +3898,13 @@ export async function GET(request: NextRequest) {
         );
       }
 
+      // WHERE tanpa filter delta. Dipakai untuk menghitung total & cursor atas
+      // seluruh window, supaya klien tetap bisa mendeteksi drift walau respons
+      // delta kosong.
+      const baseWhere = Prisma.sql`WHERE ${Prisma.join(whereClauses, " AND ")}`;
+      if (deltaSince) {
+        whereClauses.push(Prisma.sql`updated_at > ${deltaSince}`);
+      }
       const where = Prisma.sql`WHERE ${Prisma.join(whereClauses, " AND ")}`;
 
       // Guard khusus mode production (list tanpa param page):
@@ -3933,6 +3928,47 @@ export async function GET(request: NextRequest) {
         `;
         totalCount = Number(countRows[0]?.count || 0);
         totalPages = totalCount > 0 ? Math.ceil(totalCount / limit) : 0;
+      }
+
+      // Metadata delta: total baris pada window penuh (untuk deteksi drift di
+      // klien), cursor berikutnya, dan id yang di-soft-delete sejak cursor lama
+      // agar klien bisa membuang entri yang sudah tidak berlaku.
+      let deltaWindowTotalCount = 0;
+      let deltaCursor = rawSince;
+      let deltaDeletedIds: string[] = [];
+
+      if (deltaSince) {
+        const statsRows = await prisma.$queryRaw<
+          Array<{ count: bigint; max_updated: Date | null }>
+        >`
+          SELECT COUNT(*)::bigint AS count, MAX(updated_at) AS max_updated
+          FROM bakery_orders
+          ${baseWhere}
+        `;
+        deltaWindowTotalCount = Number(statsRows[0]?.count || 0);
+
+        // Cursor diambil sebelum query baris dijalankan. Urutan ini disengaja:
+        // baris yang berubah di antara kedua query akan ikut terkirim sekarang
+        // dan terkirim ulang pada delta berikutnya — aman. Urutan sebaliknya
+        // bisa memajukan cursor melewati baris yang belum sempat terkirim.
+        // Cursor juga dijaga tidak mundur, karena baris paling baru bisa keluar
+        // dari window tanggal dan menurunkan MAX(updated_at).
+        const maxUpdatedMs = statsRows[0]?.max_updated?.getTime() ?? 0;
+        deltaCursor =
+          maxUpdatedMs > parsedSinceMs
+            ? new Date(maxUpdatedMs).toISOString()
+            : new Date(parsedSinceMs).toISOString();
+
+        const deletedRows = await prisma.$queryRaw<
+          Array<{ external_id: string }>
+        >`
+          SELECT external_id
+          FROM bakery_orders
+          WHERE business_id = ${businessId}
+            AND deleted_at IS NOT NULL
+            AND deleted_at > ${deltaSince}
+        `;
+        deltaDeletedIds = deletedRows.map((row) => row.external_id);
       }
 
       // 6. Ambil data baris pesanan dari database (kolom ringan, tidak memuat JSONB besar)
@@ -4083,7 +4119,15 @@ export async function GET(request: NextRequest) {
             `;
           }
         } else {
-          // Default list: gunakan server-side pagination (LIMIT/OFFSET)
+          // Default list: gunakan server-side pagination (LIMIT/OFFSET).
+          // `simulations` dan `payment_transactions` sengaja tidak diambil di
+          // jalur ini: keduanya kolom JSONB terbesar (~52% payload baris) dan
+          // tidak dipakai daftar booking. Hasil jalur paginated hanya masuk
+          // state komponen halaman bookings — tidak pernah masuk snapshot store
+          // maupun dikirim balik lewat POST — jadi aman untuk tidak diambil.
+          // Jalur hydration di bawah tetap mengambilnya karena store memakai
+          // `simulations` sebagai penanda automasi (agar WA tidak terkirim dua
+          // kali) dan `paymentTransactions` dibaca halaman reports & dashboard.
           if (needsPostHydrationBookingFilters) {
             orderRows = await prisma.$queryRaw<DbOrderRow[]>`
               SELECT
@@ -4123,8 +4167,6 @@ export async function GET(request: NextRequest) {
                 production_assigned_at,
                 shipping_quote,
                 shipment,
-                simulations,
-                payment_transactions,
                 created_at,
                 updated_at
               FROM bakery_orders
@@ -4170,8 +4212,6 @@ export async function GET(request: NextRequest) {
                 production_assigned_at,
                 shipping_quote,
                 shipment,
-                simulations,
-                payment_transactions,
                 created_at,
                 updated_at
               FROM bakery_orders
@@ -4211,6 +4251,35 @@ export async function GET(request: NextRequest) {
         effectiveTotalPages =
           effectiveTotalCount > 0 ? Math.ceil(effectiveTotalCount / limit) : 0;
         orderRows = filteredOrderRows.slice(offset, offset + limit);
+      }
+
+      // Respons delta: hanya order yang berubah sejak cursor, ditambah id yang
+      // dihapus dan total window agar klien bisa merge tanpa menarik ulang semua.
+      const buildDeltaResponse = (deltaOrders: unknown[]) =>
+        NextResponse.json({
+          success: true,
+          data: {
+            source: "rows",
+            mode: "delta",
+            orders: deltaOrders,
+            deletedIds: deltaDeletedIds,
+            updatedAt: deltaCursor,
+            pagination: {
+              totalCount: deltaWindowTotalCount,
+              page,
+              limit,
+              totalPages: Math.max(
+                1,
+                Math.ceil(deltaWindowTotalCount / limit),
+              ),
+            },
+          },
+        });
+
+      // Tidak ada perubahan sejak cursor — ini jalur yang paling sering terjadi
+      // pada polling, dan berhenti di sini sebelum query items/alamat/stage.
+      if (deltaSince && orderRows.length === 0) {
+        return buildDeltaResponse([]);
       }
 
       // 7. Jika ada baris order yang ditemukan, muat items, alamat, dan tahapan produksinya
@@ -4632,61 +4701,26 @@ export async function GET(request: NextRequest) {
         );
 
         // 9. Kembalikan data list bersama metadata pagination
-        const rowUpdatedAt = orderRows[0]?.updated_at?.toISOString() ?? null;
+        // `updated_at` diambil dari baris terbaru, bukan orderRows[0]. Urutan
+        // query di sini adalah delivery_date ASC (atau updated_at DESC pada mode
+        // paginated), jadi elemen pertama belum tentu baris yang paling baru
+        // di-update dan tidak bisa dipakai sebagai penanda kesegaran data.
+        const rowUpdatedAtMs = orderRows.reduce((latest, row) => {
+          const timestamp = row.updated_at?.getTime();
+          return timestamp && timestamp > latest ? timestamp : latest;
+        }, 0);
+        const rowUpdatedAt =
+          rowUpdatedAtMs > 0 ? new Date(rowUpdatedAtMs).toISOString() : null;
 
-        if (isUnfilteredHydrationRequest) {
-          const snapshotDoc = await readOrdersSnapshot(businessId).catch(
-            () => null,
-          );
-          const snapshotOrders = filterSnapshotOrders({
-            orders: parseNormalizedSnapshotOrders(snapshotDoc?.content),
-            savedView,
-            todayFilter,
-            searchQuery,
-            statusFilter,
-            dateFilter,
-            startDate,
-            endDate,
-            implicitStartDate: shiftIsoDate(todayFilter, -14),
-            implicitEndDate: shiftIsoDate(todayFilter, 90),
-            courierFilter,
-            orderSourceFilter,
-          });
-
-          if (
-            snapshotDoc &&
-            snapshotOrders.length > 0 &&
-            (!rowUpdatedAt ||
-              snapshotDoc.updatedAt.getTime() > Date.parse(rowUpdatedAt)) &&
-            !snapshotMatchesRowOrders(
-              snapshotOrders,
-              orders.map((order) => ({ id: order.id })),
-            )
-          ) {
-            const sortedSnapshotOrders = sortSnapshotOrders(snapshotOrders, {
-              isPaginatedBookingsListMode,
-            });
-
-            return NextResponse.json({
-              success: true,
-              data: {
-                source: "snapshot-newer-than-rows",
-                orders: sortedSnapshotOrders,
-                updatedAt: snapshotDoc.updatedAt.toISOString(),
-                pagination: {
-                  totalCount: sortedSnapshotOrders.length,
-                  page,
-                  limit,
-                  totalPages: Math.max(
-                    1,
-                    Math.ceil(sortedSnapshotOrders.length / limit),
-                  ),
-                },
-              },
-            });
-          }
+        if (deltaSince) {
+          return buildDeltaResponse(orders);
         }
 
+        // Baris database adalah satu-satunya sumber kebenaran ketika query rows
+        // berhasil. Snapshot JSON hanya dipakai sebagai fallback saat pembacaan
+        // rows gagal (lihat blok catch di bawah), karena isinya ditulis oleh
+        // sync client dan bisa membawa status usang order lain lewat
+        // `mergeWithExisting` di upsertOrdersSnapshot.
         return NextResponse.json({
           success: true,
           data: {

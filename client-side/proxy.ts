@@ -102,6 +102,10 @@ const STAFF_ALLOWED_API_RULES: Array<{
   // Bakery settings — dibutuhkan oleh useBakerySettings (token limit, dll)
   { prefix: "/api/bakery/settings", methods: ["GET"] },
 
+  // Direktori nama rekan satu bisnis (hanya userId + nama + role),
+  // dipakai UI produksi untuk menampilkan pemegang tiap stage.
+  { prefix: "/api/staff/directory", methods: ["GET"] },
+
   // Booking orders — Staff perlu baca, sync, dan update status order yang mereka pegang
   { prefix: "/api/bookings/orders", methods: ["GET", "POST", "PATCH"] },
   { prefix: "/api/bookings/capacity", methods: ["GET"] },
