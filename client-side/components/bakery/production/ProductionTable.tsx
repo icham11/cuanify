@@ -63,6 +63,41 @@ const MONTH_OPTIONS = [
 ] as const;
 
 const STAFF_DAILY_TOKEN_LIMIT_FALLBACK = BAKERY_STAFF_DAILY_TOKEN_LIMIT;
+const HEAVY_ORDER_TOKEN_THRESHOLD = 50;
+
+type QuickFilterValue = "all" | "mine" | "unassigned" | "today" | "heavy";
+
+/**
+ * Chip filter di kotak filter hanya berisi penyaring tambahan, bukan penentu
+ * scope. Untuk Staff, scope (Tersedia / Tugas Saya / Selesai) sudah dipegang
+ * oleh tab list order, jadi chip "Tugas Saya" dan "Belum Assigned" dihilangkan
+ * supaya tidak duplikat dengan tab.
+ */
+const MANAGER_QUICK_FILTERS: Array<{
+    value: QuickFilterValue;
+    label: string;
+}> = [
+    { value: "all", label: "Semua" },
+    { value: "mine", label: "Tugas Saya" },
+    { value: "unassigned", label: "Belum Assigned" },
+    { value: "today", label: "Due Hari Ini" },
+    {
+        value: "heavy",
+        label: `Heavy (${HEAVY_ORDER_TOKEN_THRESHOLD}+ token)`,
+    },
+];
+
+const STAFF_QUICK_FILTERS: Array<{
+    value: QuickFilterValue;
+    label: string;
+}> = [
+    { value: "all", label: "Semua" },
+    { value: "today", label: "Due Hari Ini" },
+    {
+        value: "heavy",
+        label: `Heavy (${HEAVY_ORDER_TOKEN_THRESHOLD}+ token)`,
+    },
+];
 const EMPTY_STAGE_STAFF_SELECTIONS: Record<ProductionStage, string> = {
     lining: "",
     filling: "",
@@ -557,9 +592,7 @@ export default function ProductionTable() {
     const [filterYear, setFilterYear] = useState<string>("all");
     const [filterDate, setFilterDate] = useState<string>("");
     const [query, setQuery] = useState<string>("");
-    const [quickFilter, setQuickFilter] = useState<
-        "all" | "mine" | "unassigned" | "heavy"
-    >("all");
+    const [quickFilter, setQuickFilter] = useState<QuickFilterValue>("all");
     const [staffViewTab, setStaffViewTab] = useState<
         "available" | "mine" | "completed"
     >("available");
@@ -610,6 +643,18 @@ export default function ProductionTable() {
             }
         };
     }, []);
+
+    const quickFilterOptions = isStaff
+        ? STAFF_QUICK_FILTERS
+        : MANAGER_QUICK_FILTERS;
+
+    useEffect(() => {
+        if (
+            !quickFilterOptions.some((option) => option.value === quickFilter)
+        ) {
+            setQuickFilter("all");
+        }
+    }, [quickFilter, quickFilterOptions]);
 
     useEffect(() => {
         setIsListTransitioning(true);
@@ -1216,39 +1261,69 @@ export default function ProductionTable() {
         staffViewTab,
     ]);
 
-    const visibleOrders = useMemo(() => {
-        return currentScopeOrders.filter((order) => {
-            if (!matchesDateFilter(order.deliveryDate)) return false;
-            if (!orderMatchesSearch(order, normalizedQuery)) return false;
+    /**
+     * Penyaring tambahan (tanggal, pencarian, chip) yang berlaku sama untuk
+     * semua scope. Dipakai juga untuk menghitung angka pada tab list order
+     * supaya counter tab konsisten dengan jumlah order yang benar-benar tampil.
+     */
+    const refineOrders = useCallback(
+        (list: BakeryOrder[]): BakeryOrder[] =>
+            list.filter((order) => {
+                if (!matchesDateFilter(order.deliveryDate)) return false;
+                if (!orderMatchesSearch(order, normalizedQuery)) return false;
 
-            if (quickFilter === "mine") {
-                if (
-                    !viewer?.userId ||
-                    !getOrderClaimedStaffIds(order).includes(viewer.userId)
-                ) {
-                    return false;
+                if (quickFilter === "mine") {
+                    if (
+                        !viewer?.userId ||
+                        !getOrderClaimedStaffIds(order).includes(viewer.userId)
+                    ) {
+                        return false;
+                    }
                 }
-            }
 
-            if (quickFilter === "unassigned") {
-                if (!isOrderFullyUnassigned(order)) return false;
-            }
+                if (quickFilter === "unassigned") {
+                    if (!isOrderFullyUnassigned(order)) return false;
+                }
 
-            if (quickFilter === "heavy") {
-                const token = summarizeProductionTokensByItems(
-                    order.items ?? [],
-                );
-                if (token < 15) return false;
-            }
+                if (quickFilter === "today") {
+                    if ((order.deliveryDate || "").trim() !== todayDateKey) {
+                        return false;
+                    }
+                }
 
-            return true;
-        });
+                if (quickFilter === "heavy") {
+                    const token = summarizeProductionTokensByItems(
+                        order.items ?? [],
+                    );
+                    if (token < HEAVY_ORDER_TOKEN_THRESHOLD) return false;
+                }
+
+                return true;
+            }),
+        [matchesDateFilter, normalizedQuery, quickFilter, todayDateKey, viewer],
+    );
+
+    const visibleOrders = useMemo(
+        () => refineOrders(currentScopeOrders),
+        [currentScopeOrders, refineOrders],
+    );
+
+    const staffTabCounts = useMemo(() => {
+        if (!isStaff) {
+            return { available: 0, mine: 0, completed: 0 };
+        }
+
+        return {
+            available: refineOrders(staffAvailableOrders).length,
+            mine: refineOrders(staffAssignedOrders).length,
+            completed: refineOrders(staffCompletedOrders).length,
+        };
     }, [
-        currentScopeOrders,
-        matchesDateFilter,
-        normalizedQuery,
-        quickFilter,
-        viewer,
+        isStaff,
+        refineOrders,
+        staffAssignedOrders,
+        staffAvailableOrders,
+        staffCompletedOrders,
     ]);
 
     const hasActiveFilters = useMemo(
@@ -2670,50 +2745,20 @@ export default function ProductionTable() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
-                    <button
-                        type="button"
-                        onClick={() => setQuickFilter("all")}
-                        className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-                            quickFilter === "all"
-                                ? "bg-[var(--crumbella-accent)] text-white"
-                                : "border border-[var(--crumbella-border)] bg-white text-[var(--foreground)] hover:bg-[var(--crumbella-accent-soft)]"
-                        }`}
-                    >
-                        Semua
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => setQuickFilter("mine")}
-                        className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-                            quickFilter === "mine"
-                                ? "bg-[var(--crumbella-accent)] text-white"
-                                : "border border-[var(--crumbella-border)] bg-white text-[var(--foreground)] hover:bg-[var(--crumbella-accent-soft)]"
-                        }`}
-                    >
-                        Tugas Saya
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => setQuickFilter("unassigned")}
-                        className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-                            quickFilter === "unassigned"
-                                ? "bg-[var(--crumbella-accent)] text-white"
-                                : "border border-[var(--crumbella-border)] bg-white text-[var(--foreground)] hover:bg-[var(--crumbella-accent-soft)]"
-                        }`}
-                    >
-                        Belum Assigned
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => setQuickFilter("heavy")}
-                        className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-                            quickFilter === "heavy"
-                                ? "bg-[var(--crumbella-accent)] text-white"
-                                : "border border-[var(--crumbella-border)] bg-white text-[var(--foreground)] hover:bg-[var(--crumbella-accent-soft)]"
-                        }`}
-                    >
-                        Heavy (15+ token)
-                    </button>
+                    {quickFilterOptions.map((option) => (
+                        <button
+                            key={option.value}
+                            type="button"
+                            onClick={() => setQuickFilter(option.value)}
+                            className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                                quickFilter === option.value
+                                    ? "bg-[var(--crumbella-accent)] text-white"
+                                    : "border border-[var(--crumbella-border)] bg-white text-[var(--foreground)] hover:bg-[var(--crumbella-accent-soft)]"
+                            }`}
+                        >
+                            {option.label}
+                        </button>
+                    ))}
 
                     {loadingMeta ? (
                         <span className="ml-auto inline-flex items-center gap-1.5 text-xs text-slate-500">
@@ -2927,7 +2972,7 @@ export default function ProductionTable() {
                                     : "border border-[var(--crumbella-border)] bg-white text-[var(--foreground)] hover:bg-[var(--crumbella-accent-soft)]"
                             }`}
                         >
-                            Belum Assigned ({staffAvailableOrders.length})
+                            Tersedia ({staffTabCounts.available})
                         </button>
                         <button
                             type="button"
@@ -2938,7 +2983,7 @@ export default function ProductionTable() {
                                     : "border border-[var(--crumbella-border)] bg-white text-[var(--foreground)] hover:bg-[var(--crumbella-accent-soft)]"
                             }`}
                         >
-                            Assignment ({staffAssignedOrders.length})
+                            Tugas Saya ({staffTabCounts.mine})
                         </button>
                         <button
                             type="button"
@@ -2949,7 +2994,7 @@ export default function ProductionTable() {
                                     : "border border-[var(--crumbella-border)] bg-white text-[var(--foreground)] hover:bg-[var(--crumbella-accent-soft)]"
                             }`}
                         >
-                            Completed ({staffCompletedOrders.length})
+                            Selesai ({staffTabCounts.completed})
                         </button>
                     </div>
 
@@ -2958,7 +3003,7 @@ export default function ProductionTable() {
                             {staffViewTab === "available"
                                 ? "Order tersedia untuk di-assign"
                                 : staffViewTab === "mine"
-                                  ? "Assignment saya"
+                                  ? "Tugas saya"
                                   : "Riwayat proses selesai"}
                         </h4>
                         <p className="mt-1 text-[11px] text-[var(--crumbella-muted)]">
@@ -2967,6 +3012,9 @@ export default function ProductionTable() {
                                 : staffViewTab === "mine"
                                   ? "Pantau order yang sedang kamu pegang dan lanjutkan status saat proses selesai."
                                   : "Order yang pernah kamu pegang dan sudah masuk tahap akhir."}
+                            {hasActiveFilters
+                                ? " Angka pada tab mengikuti filter yang sedang aktif."
+                                : ""}
                         </p>
                     </div>
                 </div>
