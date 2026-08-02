@@ -17,6 +17,7 @@ import {
   calculateOrderTokenFromItems,
 } from "@/lib/bookings/token-capacity-service";
 import { BAKERY_STAFF_DAILY_TOKEN_LIMIT } from "@/lib/bookings/config";
+import { toJsonb } from "@/lib/bookings/json-safe";
 import {
   getCalendarStatus,
   isPastDate,
@@ -1684,8 +1685,8 @@ async function persistAutomationRunResults(params: {
     await prisma.$executeRaw`
       UPDATE bakery_orders
       SET
-        simulations = ${JSON.stringify(nextSimulations)}::jsonb,
-        automation_logs = ${JSON.stringify(nextAutomationLogs)}::jsonb,
+        simulations = ${toJsonb(nextSimulations)}::jsonb,
+        automation_logs = ${toJsonb(nextAutomationLogs)}::jsonb,
         updated_at = NOW()
       WHERE business_id = ${businessId}
         AND external_id = ${result.orderId}
@@ -3892,9 +3893,25 @@ export async function GET(request: NextRequest) {
           Prisma.sql`delivery_date >= (CURRENT_DATE - INTERVAL '365 days')::date`
         );
       } else if (!url.searchParams.has("page") && !isCalendarMode && !isDashboardMode && !isFinancialMode && !searchQuery) {
+        // Guard mode produksi: batasi window tanggal agar tidak full table scan.
+        //
+        // Order yang masih AKTIF selalu ikut, berapa pun jauh tanggal kirimnya.
+        // Tanpa pengecualian ini, order dengan delivery date lebih dari 90 hari ke
+        // depan tidak pernah sampai ke store — sementara menu Bookings tetap
+        // menampilkannya karena mengirim `page` dan lolos dari guard ini. Gejalanya:
+        // order terlihat di Bookings tapi hilang dari menu Produksi.
+        //
+        // Jumlah order aktif dibatasi alur kerja (selesai lalu keluar dari status
+        // aktif), jadi ini tidak membuka full table scan atas seluruh riwayat.
         whereClauses.push(
-          Prisma.sql`delivery_date >= (CURRENT_DATE - INTERVAL '14 days')::date
-            AND delivery_date <= (CURRENT_DATE + INTERVAL '90 days')::date`,
+          Prisma.sql`(
+            (
+              delivery_date >= (CURRENT_DATE - INTERVAL '14 days')::date
+              AND delivery_date <= (CURRENT_DATE + INTERVAL '90 days')::date
+            )
+            OR order_status IS NULL
+            OR order_status NOT IN ('Delivery', 'Delivered', 'Completed', 'Cancelled')
+          )`,
         );
       }
 
@@ -6429,13 +6446,13 @@ export async function POST(request: NextRequest) {
               ${order.assignedStaffUserId},
               ${order.assignedStaffName || null},
               ${order.productionAssignedAt ? new Date(order.productionAssignedAt) : null},
-              ${JSON.stringify(order.shippingQuote ?? null)}::jsonb,
-              ${JSON.stringify(order.shipment ?? null)}::jsonb,
-              ${JSON.stringify(order.simulations ?? null)}::jsonb,
-              ${JSON.stringify(order.whatsAppParsedData ?? null)}::jsonb,
-              ${JSON.stringify(persistedStatusHistory)}::jsonb,
-              ${JSON.stringify(order.automationLogs ?? [])}::jsonb,
-              ${JSON.stringify(order.paymentTransactions ?? [])}::jsonb,
+              ${toJsonb(order.shippingQuote ?? null)}::jsonb,
+              ${toJsonb(order.shipment ?? null)}::jsonb,
+              ${toJsonb(order.simulations ?? null)}::jsonb,
+              ${toJsonb(order.whatsAppParsedData ?? null)}::jsonb,
+              ${toJsonb(persistedStatusHistory)}::jsonb,
+              ${toJsonb(order.automationLogs ?? [])}::jsonb,
+              ${toJsonb(order.paymentTransactions ?? [])}::jsonb,
               ${difficulty},
               ${finalTokenUsed},
               NOW()
@@ -6543,7 +6560,7 @@ export async function POST(request: NextRequest) {
                   ${businessId},
                   ${order.id},
                   ${index},
-                  ${JSON.stringify(item)}::jsonb
+                  ${toJsonb(item)}::jsonb
                 )
               `;
                     insertedItemCount += 1;
@@ -6572,7 +6589,7 @@ export async function POST(request: NextRequest) {
                   ${businessId},
                   ${order.id},
                   ${index},
-                  ${JSON.stringify(address)}::jsonb
+                  ${toJsonb(address)}::jsonb
                 )
               `;
                     insertedAddressCount += 1;

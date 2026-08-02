@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { StockDocumentType, InventoryMovementType, Prisma } from "@prisma/client";
 import { simulateFIFOCost, deductFIFO } from "@/lib/inventory/engine";
 import { buildDashboardProductName } from "@/lib/products/dashboard-name";
+import { toJsonb } from "./json-safe";
 
 const BAKERY_ORDER_INVENTORY_SOURCE_TYPE = "bakery_order_inventory_sync";
 const INVENTORY_PENDING_STATUSES = new Set(["Inquiry", "Quoted", "Cancelled"]);
@@ -155,7 +156,7 @@ async function persistInventoryState(
   },
 ) {
   const content = `bakery-order:${params.orderId}`;
-  const metadataJson = JSON.stringify(params.state);
+  const metadataJson = toJsonb(params.state);
 
   if (params.existingId) {
     await tx.$executeRaw`

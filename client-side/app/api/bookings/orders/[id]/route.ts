@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
+import { toJsonb } from "@/lib/bookings/json-safe";
 import { AuthError, ForbiddenError, requireAuth } from "@/lib/auth/session";
 import {
   isPrismaConnectionTimeout,
@@ -925,7 +926,7 @@ export async function PATCH(
             UPDATE bakery_orders
             SET
               order_status = ${requestedStatus},
-              status_history = ${JSON.stringify(nextStatusHistory)}::jsonb,
+              status_history = ${toJsonb(nextStatusHistory)}::jsonb,
               updated_at = NOW()
             WHERE business_id = ${businessId}
               AND external_id = ${id}
@@ -950,7 +951,7 @@ export async function PATCH(
               total_paid_amount = ${paymentPatch.totalPaidAmount},
               down_payment_amount = ${paymentPatch.downPaymentAmount},
               remaining_balance = ${paymentPatch.remainingBalance},
-              payment_transactions = ${JSON.stringify(paymentPatch.paymentTransactions)}::jsonb,
+              payment_transactions = ${toJsonb(paymentPatch.paymentTransactions)}::jsonb,
               updated_at = NOW()
             WHERE business_id = ${businessId}
               AND external_id = ${id}

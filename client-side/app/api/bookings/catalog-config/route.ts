@@ -3,6 +3,7 @@ import { revalidateTag } from "next/cache";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
+import { toJsonb } from "@/lib/bookings/json-safe";
 import {
   requireAuth,
   AuthError,
@@ -174,7 +175,7 @@ export async function GET() {
         UPDATE "BusinessDocument"
         SET content = ${content},
             "contentHash" = ${contentHash},
-            metadata = ${JSON.stringify(normalizedState)}::jsonb,
+            metadata = ${toJsonb(normalizedState)}::jsonb,
             "updatedAt" = NOW()
         WHERE id = ${rows[0].id}`;
     }
@@ -224,7 +225,7 @@ export async function PUT(request: NextRequest) {
     const contentHash = createHash("sha256")
       .update(JSON.stringify(payload))
       .digest("hex");
-    const metadataJson = JSON.stringify(payload);
+    const metadataJson = toJsonb(payload);
 
     const existing = await prisma.$queryRaw<Array<{ id: number }>>`
       SELECT id
