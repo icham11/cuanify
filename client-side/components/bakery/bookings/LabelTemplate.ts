@@ -131,6 +131,22 @@ function resolveShippingMethod(order: BakeryOrder): string {
   return resolveDeliveryMethodLabel(method, "PICKUP").toUpperCase();
 }
 
+function resolveShippingServiceVariant(order: BakeryOrder): string {
+  const source = order.shippingQuote ?? order.shipment;
+  const serviceName = normalizeText(source?.courierServiceName).replace(
+    /\s*\(fallback\)\s*/i,
+    "",
+  );
+  if (!serviceName) return "";
+
+  const provider = normalizeText(source?.provider);
+  if (!provider || serviceName.toLowerCase().includes(provider.toLowerCase())) {
+    return serviceName;
+  }
+
+  return `${provider} ${serviceName}`;
+}
+
 function resolveShippingEmoji(method: string): string {
   if (method === "PICKUP") return "🏪";
   if (method === "GOJEK / GRAB") return "🛵";
@@ -330,6 +346,7 @@ function buildLabelHtml(order: BakeryOrder): string {
   const bookingCode = resolveLabelBookingCode(recipientName, recipientPhone);
   const shippingMethod = resolveShippingMethod(order);
   const shippingEmoji = resolveShippingEmoji(shippingMethod);
+  const shippingServiceVariant = resolveShippingServiceVariant(order);
   const fullAddress = resolveFullAddress(order);
   const greetingNote = resolveGreetingNote(order);
   const footerDate = formatShortDate(order.deliveryDate);
@@ -452,6 +469,17 @@ function buildLabelHtml(order: BakeryOrder): string {
       font-size: 13px;
       line-height: 1;
       letter-spacing: 0;
+    }
+
+    .shipping-variant {
+      background: #f0f0f0;
+      color: #333333;
+      text-align: center;
+      padding: 4px 10px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      border-bottom: 1px solid #d8d8d8;
     }
 
     .section {
@@ -583,6 +611,11 @@ function buildLabelHtml(order: BakeryOrder): string {
       <span class="shipping-emoji">${shippingEmoji}</span>
       <span>${escapeHtml(shippingMethod)}</span>
     </div>
+    ${
+      shippingServiceVariant
+        ? `<div class="shipping-variant">${escapeHtml(shippingServiceVariant)}</div>`
+        : ""
+    }
     <div class="section">
       <div class="section-title">Penerima ✨</div>
       <div class="recipient-name">${escapeHtml(recipientName)}</div>
