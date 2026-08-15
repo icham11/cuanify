@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { MessageCircle, Search, Star, Users } from "lucide-react";
 import { useRole } from "@/context/RoleContext";
 import GradientPageHeader from "@/components/bakery/shared/GradientPageHeader";
@@ -11,7 +11,7 @@ import { BAKERY_ORDERS_UPDATED_EVENT } from "@/lib/bookings/client-events";
 
 type CustomerSegment = "all" | "vip" | "repeat" | "new";
 
-type CustomerRow = {
+type CustomerApiRow = {
   key: string;
   name: string;
   phone: string;
@@ -20,12 +20,15 @@ type CustomerRow = {
   totalSpent: number;
   lastOrderDate: string;
   lastDeliverySlot: string;
-  segment: Exclude<CustomerSegment, "all">;
 };
 
-type CustomerApiRow = Omit<CustomerRow, "segment">;
+type CustomerRow = CustomerApiRow & {
+  isVip: boolean;
+  isRepeat: boolean;
+};
 
 const VIP_THRESHOLD = 10_000_000;
+const CUSTOMERS_PAGE_SIZE = 10;
 
 function normalizePhone(value: string): string {
   return value.replace(/\s+/g, "").trim();
@@ -87,13 +90,12 @@ function formatHeaderDate(value: Date): string {
   }).format(value);
 }
 
-function getCustomerSegment(customer: {
-  totalSpent: number;
-  orderCount: number;
-}): CustomerRow["segment"] {
-  if (customer.totalSpent >= VIP_THRESHOLD) return "vip";
-  if (customer.orderCount > 1) return "repeat";
-  return "new";
+function isCustomerVip(customer: { totalSpent: number }): boolean {
+  return customer.totalSpent >= VIP_THRESHOLD;
+}
+
+function isCustomerRepeat(customer: { orderCount: number }): boolean {
+  return customer.orderCount > 1;
 }
 
 function getInitials(name: string): string {
@@ -103,17 +105,54 @@ function getInitials(name: string): string {
   return parts.map((part) => part[0]?.toUpperCase() || "").join("");
 }
 
-function getSegmentLabel(segment: CustomerRow["segment"]): string {
-  if (segment === "vip") return "VIP";
-  if (segment === "repeat") return "Repeat";
+function getPageNumbers(currentPage: number, totalPages: number): (number | "ellipsis")[] {
+  const siblingCount = 1;
+  const start = Math.max(2, currentPage - siblingCount);
+  const end = Math.min(totalPages - 1, currentPage + siblingCount);
+
+  const pages: (number | "ellipsis")[] = [1];
+
+  if (start > 2) pages.push("ellipsis");
+  for (let page = start; page <= end; page += 1) {
+    pages.push(page);
+  }
+  if (end < totalPages - 1) pages.push("ellipsis");
+  if (totalPages > 1) pages.push(totalPages);
+
+  return pages;
+}
+
+function getSegmentLabel(customer: {
+  isVip: boolean;
+  isRepeat: boolean;
+}): string {
+  if (customer.isVip) return "VIP";
+  if (customer.isRepeat) return "Repeat";
   return "New";
 }
 
+const VALID_SEGMENT_FILTERS: CustomerSegment[] = ["all", "vip", "repeat", "new"];
+
 export default function BakeryCustomersPage() {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { isOwner, loading: roleLoading } = useRole();
-  const [query, setQuery] = useState("");
-  const [activeFilter, setActiveFilter] = useState<CustomerSegment>("all");
+
+  const initialQuery = searchParams.get("query") ?? "";
+  const initialFilterParam = searchParams.get("filter") ?? "all";
+  const initialFilter = (
+    VALID_SEGMENT_FILTERS as string[]
+  ).includes(initialFilterParam)
+    ? (initialFilterParam as CustomerSegment)
+    : "all";
+  const requestedPage = Number.parseInt(searchParams.get("page") ?? "1", 10);
+  const initialPage =
+    Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+
+  const [query, setQuery] = useState(initialQuery);
+  const [activeFilter, setActiveFilter] = useState<CustomerSegment>(initialFilter);
+  const [page, setPage] = useState(initialPage);
   const [customerRows, setCustomerRows] = useState<CustomerApiRow[]>([]);
   const [isLoadingCustomers, setIsLoadingCustomers] = useState(true);
   const [customersError, setCustomersError] = useState("");
@@ -199,17 +238,16 @@ export default function BakeryCustomersPage() {
       customerRows.map((customer) => ({
         ...customer,
         phone: normalizePhone(customer.phone || ""),
-        segment: getCustomerSegment(customer),
+        isVip: isCustomerVip(customer),
+        isRepeat: isCustomerRepeat(customer),
       })),
     [customerRows],
   );
 
   const summary = useMemo(() => {
-    const vipCount = allCustomers.filter(
-      (customer) => customer.segment === "vip",
-    ).length;
+    const vipCount = allCustomers.filter((customer) => customer.isVip).length;
     const repeatCount = allCustomers.filter(
-      (customer) => customer.segment === "repeat",
+      (customer) => customer.isRepeat,
     ).length;
     const revenue = allCustomers.reduce(
       (sum, customer) => sum + customer.totalSpent,
@@ -229,7 +267,13 @@ export default function BakeryCustomersPage() {
 
     return allCustomers.filter((customer) => {
       const matchesFilter =
-        activeFilter === "all" ? true : customer.segment === activeFilter;
+        activeFilter === "all"
+          ? true
+          : activeFilter === "vip"
+            ? customer.isVip
+            : activeFilter === "repeat"
+              ? customer.isRepeat
+              : !customer.isVip && !customer.isRepeat;
 
       if (!matchesFilter) return false;
       if (!normalizedQuery) return true;
@@ -239,6 +283,52 @@ export default function BakeryCustomersPage() {
       );
     });
   }, [activeFilter, allCustomers, query]);
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredCustomers.length / CUSTOMERS_PAGE_SIZE),
+  );
+  const safePage = Math.min(page, totalPages);
+
+  const pageCustomers = useMemo(() => {
+    const start = (safePage - 1) * CUSTOMERS_PAGE_SIZE;
+    return filteredCustomers.slice(start, start + CUSTOMERS_PAGE_SIZE);
+  }, [filteredCustomers, safePage]);
+
+  const topCustomerKey = filteredCustomers[0]?.key;
+
+  useEffect(() => {
+    if (isLoadingCustomers) return;
+    if (page !== safePage) {
+      setPage(safePage);
+    }
+  }, [isLoadingCustomers, page, safePage]);
+
+  useEffect(() => {
+    if (isLoadingCustomers) return;
+
+    const params = new URLSearchParams();
+    const trimmedQuery = query.trim();
+
+    if (trimmedQuery) params.set("query", trimmedQuery);
+    if (activeFilter !== "all") params.set("filter", activeFilter);
+    if (safePage > 1) params.set("page", String(safePage));
+
+    const queryString = params.toString();
+    router.replace(queryString ? `${pathname}?${queryString}` : pathname, {
+      scroll: false,
+    });
+  }, [activeFilter, isLoadingCustomers, pathname, query, router, safePage]);
+
+  const handleQueryChange = (value: string) => {
+    setQuery(value);
+    setPage(1);
+  };
+
+  const handleFilterChange = (filter: CustomerSegment) => {
+    setActiveFilter(filter);
+    setPage(1);
+  };
 
   const todayLabel = useMemo(() => formatHeaderDate(new Date()), []);
 
@@ -265,7 +355,7 @@ export default function BakeryCustomersPage() {
             <Search className="h-[15px] w-[15px] text-[#dc6f2d]" />
             <input
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => handleQueryChange(event.target.value)}
               placeholder="Cari nama customer..."
               className="w-full bg-transparent text-[14px] leading-none text-[#765443] outline-none placeholder:text-[#cf8f6d]"
             />
@@ -285,7 +375,7 @@ export default function BakeryCustomersPage() {
                   key={filter.value}
                   type="button"
                   onClick={() =>
-                    setActiveFilter(filter.value as CustomerSegment)
+                    handleFilterChange(filter.value as CustomerSegment)
                   }
                   className={`inline-flex h-9 items-center gap-1.5 rounded-full border px-4 text-[13px] font-semibold transition ${
                     isActive
@@ -332,7 +422,12 @@ export default function BakeryCustomersPage() {
 
         <div className="mt-4 flex items-center justify-between px-0.5 text-sm">
           <p className="text-[15px] font-semibold text-[#2e1d14]">
-            {filteredCustomers.length} customer
+            {filteredCustomers.length > 0
+              ? `${(safePage - 1) * CUSTOMERS_PAGE_SIZE + 1}-${Math.min(
+                  safePage * CUSTOMERS_PAGE_SIZE,
+                  filteredCustomers.length,
+                )} dari ${filteredCustomers.length} customer`
+              : "0 customer"}
           </p>
           <p className="text-[15px] font-semibold text-[#b75c23]">
             {filteredCustomers.length > 0 ? "1 Terbesar" : ""}
@@ -360,8 +455,8 @@ export default function BakeryCustomersPage() {
             </div>
           ) : null}
 
-          {filteredCustomers.map((customer, index) => {
-            const isVip = customer.segment === "vip";
+          {pageCustomers.map((customer) => {
+            const isVip = customer.isVip;
             const whatsAppPhone = normalizePhoneForWhatsApp(customer.phone);
             const averageSpend =
               customer.orderCount > 0
@@ -401,7 +496,7 @@ export default function BakeryCustomersPage() {
                           </span>
                         ) : (
                           <span className="rounded-full bg-[#f8ede2] px-2 py-[2px] text-[9px] font-bold uppercase tracking-[0.02em] text-[#9b6038]">
-                            {getSegmentLabel(customer.segment)}
+                            {getSegmentLabel(customer)}
                           </span>
                         )}
                       </div>
@@ -461,7 +556,7 @@ export default function BakeryCustomersPage() {
                   </div>
                 </div>
 
-                {index === 0 ? (
+                {customer.key === topCustomerKey ? (
                   <div className="flex items-center gap-2 border-t border-dashed border-[#edd8c8] px-[14px] py-2 text-[10px] font-semibold text-[#b5662b]">
                     <Users className="h-3 w-3" />
                     Customer dengan total spend terbesar saat ini
@@ -471,6 +566,53 @@ export default function BakeryCustomersPage() {
             );
           })}
         </div>
+
+        {filteredCustomers.length > CUSTOMERS_PAGE_SIZE ? (
+          <div className="flex flex-wrap items-center justify-center gap-1.5 pt-1">
+            <button
+              type="button"
+              onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+              disabled={safePage === 1}
+              className="rounded-full border border-[#dec9b9] bg-white px-3.5 py-2 text-[13px] font-semibold text-[#7a4928] transition disabled:opacity-40"
+            >
+              Sebelumnya
+            </button>
+
+            {getPageNumbers(safePage, totalPages).map((entry, index) =>
+              entry === "ellipsis" ? (
+                <span
+                  key={`ellipsis-${index}`}
+                  className="px-1.5 text-[13px] font-semibold text-[#b08a71]"
+                >
+                  …
+                </span>
+              ) : (
+                <button
+                  key={entry}
+                  type="button"
+                  onClick={() => setPage(entry)}
+                  aria-current={entry === safePage ? "page" : undefined}
+                  className={`h-9 min-w-9 rounded-full px-2 text-[13px] font-semibold transition ${
+                    entry === safePage
+                      ? "bg-[#d96d28] text-white shadow-[0_8px_18px_-14px_rgba(217,109,40,0.9)]"
+                      : "border border-[#dec9b9] bg-white text-[#7a4928]"
+                  }`}
+                >
+                  {entry}
+                </button>
+              ),
+            )}
+
+            <button
+              type="button"
+              onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
+              disabled={safePage === totalPages}
+              className="rounded-full border border-[#dec9b9] bg-white px-3.5 py-2 text-[13px] font-semibold text-[#7a4928] transition disabled:opacity-40"
+            >
+              Berikutnya
+            </button>
+          </div>
+        ) : null}
       </section>
     </div>
   );
