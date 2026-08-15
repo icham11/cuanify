@@ -186,11 +186,11 @@ function buildInvoiceHtml(data: InvoiceData): string {
     }
 
     .content-wrap {
-      flex: 0 0 auto;
+      flex: 1 1 auto;
       display: flex;
       flex-direction: column;
       justify-content: flex-start;
-      padding: 14px var(--content-padding-x) 0;
+      padding: 14px var(--content-padding-x) 24px;
       page-break-inside: avoid;
       break-inside: avoid;
     }
@@ -349,9 +349,9 @@ function buildInvoiceHtml(data: InvoiceData): string {
     /* ==================== CLOSING / TANDA TANGAN ==================== */
     .bottom-meta-row {
       display: flex;
-      justify-content: space-between;
+      justify-content: flex-end;
       align-items: flex-end;
-      margin-top: -6px;
+      margin-top: auto;
       page-break-inside: avoid;
       break-inside: avoid;
     }
@@ -393,10 +393,9 @@ function buildInvoiceHtml(data: InvoiceData): string {
     .footer-image-wrap {
       width: 400px;
       height: var(--footer-height);
-      margin-top: 0;
-      margin-left: calc(-1 * var(--content-padding-x));
-      align-self: flex-end;
-      flex-shrink: 0;
+      position: absolute;
+      left: 0;
+      bottom: 0;
       line-height: 0;
       overflow: hidden;
       page-break-inside: avoid;
