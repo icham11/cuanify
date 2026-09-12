@@ -26,6 +26,7 @@ import {
   resolveProductionStageTemplatesForCategory,
 } from "@/lib/bookings/production-stages";
 import {
+  getIsoMonthKey,
   parseSafeDate,
   toIsoDateString,
 } from "@/lib/helpers/date-normalization";
@@ -245,7 +246,7 @@ export default function OrderTable({
   const [pendingPaymentOrderId, setPendingPaymentOrderId] = useState<
     string | null
   >(null);
-  const canDeleteOrder = !roleLoading && (isOwner || isAdmin);
+  const currentMonthKey = getJakartaTodayIsoDate().slice(0, 7);
 
   const highlightMap = useMemo<Map<string, Highlight>>(() => {
     const today = getJakartaTodayIsoDate();
@@ -303,6 +304,12 @@ export default function OrderTable({
         );
         const isUpdatingStatus = pendingStatusOrderId === order.id;
         const isUpdatingPayment = pendingPaymentOrderId === order.id;
+        const orderMonthKey = getIsoMonthKey(order.deliveryDate);
+        const isPastMonthOrder =
+          orderMonthKey !== null && orderMonthKey < currentMonthKey;
+        const canEditOrder = !isPastMonthOrder || (!roleLoading && isOwner);
+        const canDeleteOrder =
+          !roleLoading && (isOwner || (isAdmin && !isPastMonthOrder));
         const stageEntries =
           order.productionStages && order.productionStages.length > 0
             ? order.productionStages
@@ -501,14 +508,25 @@ export default function OrderTable({
               >
                 Detail
               </Link>
-              <Link
-                href={`/bakery/bookings/${order.id}/edit`}
-                onClick={(event) => event.stopPropagation()}
-                className="inline-flex h-8 items-center justify-center gap-1 rounded-xl border border-[var(--crumbella-border)] px-3 text-[11px] font-semibold text-[var(--foreground)]"
-              >
-                <Pencil size={13} />
-                Edit
-              </Link>
+              {canEditOrder ? (
+                <Link
+                  href={`/bakery/bookings/${order.id}/edit`}
+                  onClick={(event) => event.stopPropagation()}
+                  className="inline-flex h-8 items-center justify-center gap-1 rounded-xl border border-[var(--crumbella-border)] px-3 text-[11px] font-semibold text-[var(--foreground)]"
+                >
+                  <Pencil size={13} />
+                  Edit
+                </Link>
+              ) : (
+                <span
+                  onClick={(event) => event.stopPropagation()}
+                  title="Order bulan lalu, hanya Owner yang bisa mengedit"
+                  className="inline-flex h-8 cursor-not-allowed items-center justify-center gap-1 rounded-xl border border-[var(--crumbella-border)] px-3 text-[11px] font-semibold text-[var(--crumbella-muted)] opacity-50"
+                >
+                  <Pencil size={13} />
+                  Edit
+                </span>
+              )}
               {canDeleteOrder && (
                 <button
                   type="button"
