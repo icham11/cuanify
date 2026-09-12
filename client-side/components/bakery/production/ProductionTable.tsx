@@ -1196,6 +1196,38 @@ export default function ProductionTable() {
         viewer?.userId,
     ]);
 
+    // Token yang benar-benar "milik" staff: hanya bertambah saat tugas
+    // ditandai selesai, tidak langsung saat di-assign (itu cuma kapasitas).
+    const staffEarnedTokenTotalByStaffId = useMemo(() => {
+        const totals = new Map<number, number>();
+
+        for (const order of orders) {
+            if (normalizeOrderStatus(order.orderStatus) === "Cancelled") {
+                continue;
+            }
+
+            for (const stage of order.productionStages ?? []) {
+                const staffId = parseNumericId(stage.staffId);
+                if (!staffId || !stage.completedAt) continue;
+
+                const token = Math.max(
+                    0,
+                    Math.round(Number(stage.tokenAmount) || 0),
+                );
+                if (token <= 0) continue;
+
+                totals.set(staffId, (totals.get(staffId) ?? 0) + token);
+            }
+        }
+
+        return totals;
+    }, [orders]);
+
+    const currentViewerEarnedToken = useMemo(() => {
+        if (!viewer?.userId) return 0;
+        return staffEarnedTokenTotalByStaffId.get(viewer.userId) ?? 0;
+    }, [staffEarnedTokenTotalByStaffId, viewer?.userId]);
+
     const staffAvailableOrders = useMemo(() => {
         if (!isStaff) return [] as typeof activeOrders;
         return activeOrders.filter((order) =>
@@ -2581,12 +2613,32 @@ export default function ProductionTable() {
                         <div className="flex items-start justify-between gap-3">
                             <div>
                                 <p className="text-[11px] font-medium text-[var(--crumbella-muted)]">
+                                    Token Kamu
+                                </p>
+                                <p className="mt-1 text-[11px] text-[var(--crumbella-muted)]">
+                                    Token masuk ke akunmu setelah kamu tandai
+                                    tugas selesai. Assignment yang baru
+                                    di-assign belum dihitung sebagai token
+                                    milikmu.
+                                </p>
+                            </div>
+                            <p className="text-lg font-extrabold text-[#1f6a43]">
+                                {currentViewerEarnedToken} token
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="rounded-[22px] border border-[var(--crumbella-border)] bg-white p-4 shadow-[0_10px_18px_-20px_rgba(30,18,10,0.7)]">
+                        <div className="flex items-start justify-between gap-3">
+                            <div>
+                                <p className="text-[11px] font-medium text-[var(--crumbella-muted)]">
                                     Kapasitas assignment hari ini
                                 </p>
                                 <p className="mt-1 text-[11px] text-[var(--crumbella-muted)]">
                                     Sisa {currentViewerRemainingTodayToken}{" "}
-                                    token berdasarkan assignment yang dibuat
-                                    hari ini.{" "}
+                                    token kapasitas berdasarkan assignment yang
+                                    dibuat hari ini (belum termasuk token
+                                    milikmu — lihat kartu di atas).{" "}
                                     {staffAvailableOrders.length > 0
                                         ? `Masih ada ${staffAvailableOrders.length} order yang belum di-assign.`
                                         : "Tap Assign untuk menambah tugas."}
@@ -2609,7 +2661,7 @@ export default function ProductionTable() {
                                           : "bg-[#7ca693]"
                                 }`}
                                 style={{
-                                    width: `${Math.min(100, Math.max(6, currentViewerTodayTokenPct || 0))}%`,
+                                    width: `${Math.min(100, Math.max(0, currentViewerTodayTokenPct || 0))}%`,
                                 }}
                             />
                         </div>
@@ -2913,7 +2965,7 @@ export default function ProductionTable() {
                                             <div
                                                 className={`h-full rounded-full transition-all duration-500 ${progressBarClass}`}
                                                 style={{
-                                                    width: `${Math.min(100, Math.max(6, dailyPct || 0))}%`,
+                                                    width: `${Math.min(100, Math.max(0, dailyPct || 0))}%`,
                                                 }}
                                             />
                                         </div>

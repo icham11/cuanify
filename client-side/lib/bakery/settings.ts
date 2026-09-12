@@ -469,6 +469,66 @@ export function getStaffTokenLimitForUser(args: {
   );
 }
 
+// Dipanggil saat seorang anggota tim dihapus dari daftar anggota (BusinessMember).
+// Menghapus entry token/gaji & rekonsiliasi absensi milik staff tsb dari roster
+// AKTIF supaya tidak lagi muncul di "Token & Gaji per Staff". Snapshot histori
+// payroll (staffPayrollHistory) SENGAJA tidak disentuh — itu catatan gaji yang
+// sudah dibayarkan di bulan-bulan lalu dan harus tetap akurat untuk laporan.
+export async function removeStaffFromBakerySettings(
+  businessId: number,
+  staffUserId: number,
+  client: Prisma.TransactionClient | typeof prisma = prisma,
+): Promise<void> {
+  const doc = await client.businessDocument.findFirst({
+    where: { businessId, sourceType: BAKERY_SETTINGS_SOURCE_TYPE },
+    orderBy: { updatedAt: "desc" },
+    select: { id: true, metadata: true },
+  });
+  if (!doc) return;
+
+  const settings = parseMetadataToSettings(doc.metadata);
+  const nextStaffSettings = settings.staffSettings.filter(
+    (entry) => entry.userId !== staffUserId,
+  );
+  const nextAttendanceReconciliation = settings.attendanceReconciliation.filter(
+    (entry) => entry.staffUserId !== staffUserId,
+  );
+
+  if (
+    nextStaffSettings.length === settings.staffSettings.length &&
+    nextAttendanceReconciliation.length ===
+      settings.attendanceReconciliation.length
+  ) {
+    return;
+  }
+
+  const rawMetadata =
+    doc.metadata && typeof doc.metadata === "object" && !Array.isArray(doc.metadata)
+      ? (doc.metadata as Record<string, unknown>)
+      : {};
+
+  const nextSettings: BakeryBusinessSettings = {
+    ...settings,
+    staffSettings: nextStaffSettings,
+    attendanceReconciliation: nextAttendanceReconciliation,
+  };
+
+  const metadata = JSON.parse(
+    JSON.stringify({
+      ...rawMetadata,
+      ...nextSettings,
+      updatedAt: new Date().toISOString(),
+    }),
+  ) as Prisma.InputJsonValue;
+
+  await client.businessDocument.update({
+    where: { id: doc.id },
+    data: { metadata },
+  });
+
+  rememberBakeryBusinessSettings(businessId, nextSettings);
+}
+
 export async function getBakeryBusinessSettings(
   businessId: number,
 ): Promise<BakeryBusinessSettings> {

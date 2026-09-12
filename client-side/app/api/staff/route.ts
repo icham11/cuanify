@@ -7,6 +7,8 @@ import {
   isPrismaConnectionTimeout,
   prismaConnectionErrorResponse,
 } from "@/lib/prisma-errors";
+import { removeStaffFromBakerySettings } from "@/lib/bakery/settings";
+import { staffUuid } from "@/lib/bookings/order-api-helpers";
 
 export const dynamic = "force-dynamic";
 
@@ -467,7 +469,48 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "Anggota tim tidak ditemukan" }, { status: 404 });
     }
 
-    await prisma.businessMember.delete({ where: { id: member.id } });
+    const removedStaffUuid = staffUuid(member.userId);
+
+    await prisma.$transaction(async (tx) => {
+      await tx.businessMember.delete({ where: { id: member.id } });
+
+      // Bersihkan referensi staff yang dihapus dari data terkait supaya tidak
+      // lagi muncul sebagai anggota aktif di halaman lain, sambil tetap
+      // mempertahankan catatan historis (payroll bulan lalu, absensi, dan
+      // tahap produksi yang SUDAH selesai) untuk keperluan audit/laporan.
+      await removeStaffFromBakerySettings(member.businessId, member.userId, tx);
+
+      // "Assign per Staff": lepaskan penugasan staff yang belum selesai
+      // dikerjakan supaya orderan tidak lagi menampilkan nama anggota yang
+      // sudah dihapus sebagai PIC produksi.
+      await tx.$executeRaw`
+        UPDATE bakery_orders
+        SET assigned_staff_user_id = NULL,
+            assigned_staff_name = NULL,
+            production_assigned_at = NULL
+        WHERE business_id = ${member.businessId}
+          AND assigned_staff_user_id = ${member.userId}
+      `;
+
+      if (removedStaffUuid) {
+        await tx.$executeRaw`
+          UPDATE production_tasks pt
+          SET staff_id = NULL
+          FROM bakery_orders bo
+          WHERE pt.order_id = bo.order_uuid
+            AND bo.business_id = ${member.businessId}
+            AND pt.staff_id = ${removedStaffUuid}::uuid
+            AND pt.completed_at IS NULL
+        `;
+      }
+
+      await tx.$executeRaw`
+        DELETE FROM bakery_staff_monthly_token_resets
+        WHERE business_id = ${member.businessId}
+          AND staff_user_id = ${member.userId}
+      `;
+    });
+
     invalidateStaffListCacheForUser(auth.userId);
     invalidateStaffListCacheForUser(member.userId);
 
