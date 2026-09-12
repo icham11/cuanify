@@ -1172,6 +1172,7 @@ function resolveCourierFetchScope(
           postal: HYBRID_COURIERS.join(","),
         },
       };
+    case "ASSISTED_INSTANT":
     case "ASSISTED_GOCAR":
     case "ASSISTED_GRAB":
       return {

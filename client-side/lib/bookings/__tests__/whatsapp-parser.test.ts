@@ -742,7 +742,7 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
     const autoFill = buildBookingAutoFillFromParsed(parsed);
 
     const primaryAddress = autoFill.deliveryAddresses[0];
-    expect(autoFill.deliveryMethod).toBe("ASSISTED_GOSEND");
+    expect(autoFill.deliveryMethod).toBe("ASSISTED_INSTANT");
     expect(primaryAddress?.area).toBe("");
   });
 
@@ -751,7 +751,7 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
     expect(autoFill.deliveryMethod).toBe("ASSISTED_GOCAR");
   });
 
-  it("keeps explicit customer-arranged courier as customer app courier", () => {
+  it("keeps explicit customer-arranged courier as pickup", () => {
     const text = [
       "Tanggal Pengiriman : (9/4/26)",
       "KODE BOOKING : GA-57",
@@ -770,7 +770,7 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
     });
     const autoFill = buildBookingAutoFillFromParsed(parsed);
 
-    expect(autoFill.deliveryMethod).toBe("CUSTOMER_APP_COURIER");
+    expect(autoFill.deliveryMethod).toBe("PICKUP");
   });
 
   it("maps same day wording to assisted same day", () => {
@@ -1077,6 +1077,7 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
     });
     const displayFields = getDisplayFields(parsed);
     const preview = formatParsedWhatsAppForNotes(parsed);
+    const autoFill = buildBookingAutoFillFromParsed(parsed);
 
     expect(parsed.orderRecap?.totals.serviceCharge).toBe(10000);
     expect(
@@ -1086,6 +1087,36 @@ describe("WhatsApp Parser — Mixed Order Autofill", () => {
       ),
     ).toBe(true);
     expect(preview.includes("Service Charge: Rp 10.000")).toBe(true);
+    expect(autoFill.isManualShippingOverride).toBe(true);
+    expect(autoFill.manualShippingFee).toBe(25000);
+  });
+
+  it("does not set a manual shipping override when Ongkir is absent from the recap", () => {
+    const text = [
+      "REKAP ORDER",
+      "ITEM 1",
+      "Nama Produk: Custom Cake",
+      "Qty: 1",
+      "Harga Satuan: 450000",
+      "Subtotal: 450000",
+      "",
+      "Subtotal Produk: 450000",
+      "Total: 450000",
+      "",
+      "Metode Pengiriman: JNE/J&T",
+      "Nama penerima: Sansan",
+      "No. telp penerima: 08174922926",
+      "Alamat lengkap: Tangerang",
+    ].join("\n");
+
+    const parsed = parseWhatsAppOrderText(text, {
+      preferredOrderType: "unknown",
+      sourceType: "manual",
+    });
+    const autoFill = buildBookingAutoFillFromParsed(parsed);
+
+    expect(autoFill.isManualShippingOverride).toBe(false);
+    expect(autoFill.manualShippingFee).toBe(0);
   });
 
   it("marks recap as paid when DP field is empty", () => {

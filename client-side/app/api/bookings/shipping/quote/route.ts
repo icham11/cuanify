@@ -22,6 +22,7 @@ const quoteSchema = z.object({
     .enum([
       "REGULAR_JNE_JNT",
       "ASSISTED_PAXEL",
+      "ASSISTED_INSTANT",
       "ASSISTED_GOSEND",
       "ASSISTED_GOCAR",
       "ASSISTED_GRAB",

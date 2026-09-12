@@ -77,6 +77,7 @@ export const bookingSchema = z
     deliveryMethod: z.enum([
       "PICKUP",
       "CUSTOMER_APP_COURIER",
+      "ASSISTED_INSTANT",
       "ASSISTED_GOSEND",
       "ASSISTED_GRAB",
       "ASSISTED_GOCAR",

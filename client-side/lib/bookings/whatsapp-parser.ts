@@ -481,6 +481,7 @@ export interface BookingFormAutoFill {
   deliveryMethod:
     | "PICKUP"
     | "CUSTOMER_APP_COURIER"
+    | "ASSISTED_INSTANT"
     | "ASSISTED_GOSEND"
     | "ASSISTED_GRAB"
     | "ASSISTED_GOCAR"
@@ -493,6 +494,8 @@ export interface BookingFormAutoFill {
   finalPaidAmount: number;
   isManualDpOverride?: boolean;
   manualDpAmount?: number;
+  isManualShippingOverride?: boolean;
+  manualShippingFee?: number;
   manualAdjustment: number;
   deliveryAddresses: Array<{
     label: string;
@@ -1520,15 +1523,15 @@ function mapDeliveryMethodToFormValue(
   const isCustomerArranged = isExplicitCustomerCourierMethod(normalized);
 
   if (normalized.includes("gocar") || normalized.includes("go car")) {
-    return isCustomerArranged ? "CUSTOMER_APP_COURIER" : "ASSISTED_GOCAR";
+    return isCustomerArranged ? "PICKUP" : "ASSISTED_GOCAR";
   }
 
   if (normalized.includes("grab")) {
-    return isCustomerArranged ? "CUSTOMER_APP_COURIER" : "ASSISTED_GRAB";
+    return isCustomerArranged ? "PICKUP" : "ASSISTED_INSTANT";
   }
 
   if (normalized.includes("gosend") || normalized.includes("gojek")) {
-    return "ASSISTED_GOSEND";
+    return "ASSISTED_INSTANT";
   }
 
   if (
@@ -4637,6 +4640,10 @@ export function buildBookingAutoFillFromParsed(
     ),
   );
   const hasExplicitDownPayment = parsedDownPaymentAmount > 0;
+  const hasExplicitShippingFee = recapTotals?.shippingFee !== undefined;
+  const manualShippingFee = hasExplicitShippingFee
+    ? Math.max(0, Number(recapTotals?.shippingFee || 0))
+    : 0;
   const remainingBalance =
     recapTotals?.remainingBalance !== undefined
       ? Math.max(0, Number(recapTotals.remainingBalance || 0))
@@ -4685,6 +4692,8 @@ export function buildBookingAutoFillFromParsed(
     finalPaidAmount,
     isManualDpOverride: hasExplicitDownPayment,
     manualDpAmount: hasExplicitDownPayment ? parsedDownPaymentAmount : 0,
+    isManualShippingOverride: hasExplicitShippingFee,
+    manualShippingFee,
     manualAdjustment,
     deliveryAddresses: [
       {

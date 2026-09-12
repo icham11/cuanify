@@ -796,6 +796,7 @@ const bookingSchema = z
     deliveryMethod: z.enum([
       "PICKUP",
       "CUSTOMER_APP_COURIER",
+      "ASSISTED_INSTANT",
       "ASSISTED_GOSEND",
       "ASSISTED_GRAB",
       "ASSISTED_GOCAR",
@@ -968,6 +969,7 @@ const BOUQUET_EXTRA_6_FLOWER_ADDON_ID = "bouquet-extra-6-flower";
 const FRAGILE_ORDER_ALLOWED_METHODS: DeliveryMethod[] = [
   "PICKUP",
   "CUSTOMER_APP_COURIER",
+  "ASSISTED_INSTANT",
   "ASSISTED_GOSEND",
   "ASSISTED_GRAB",
   "ASSISTED_GOCAR",
@@ -976,7 +978,7 @@ const FRAGILE_ORDER_ALLOWED_METHODS: DeliveryMethod[] = [
   "REGULAR_JNE_JNT",
 ];
 const FRAGILE_ORDER_ALLOWED_METHODS_TEXT =
-  "Pickup, Grab/GoCar (pesan customer), GoSend admin, Grab admin, GoCar admin, Paxel admin, Same Day admin, atau JNE/J&T reguler.";
+  "Pickup (dari customer), Instant admin, GoCar admin, Paxel admin, Sameday admin, atau JNE/JNT reguler.";
 
 function normalizeDarkButtercreamColors(value: unknown): string[] {
   const rawValues = Array.isArray(value) ? value : [value];
@@ -4813,7 +4815,8 @@ export default function BookingForm({
   const isPickupMethod = effectiveDeliveryMethod === "PICKUP";
   const isCarRideHailingMethod =
     effectiveDeliveryMethod === "ASSISTED_GOCAR" ||
-    effectiveDeliveryMethod === "ASSISTED_GRAB";
+    effectiveDeliveryMethod === "ASSISTED_GRAB" ||
+    (effectiveDeliveryMethod === "ASSISTED_INSTANT" && isFragileOrder);
   const hasBouquetItems = useMemo(
     () => watchedItems.some((item) => isBouquetItem(item)),
     [watchedItems],
@@ -4890,6 +4893,41 @@ export default function BookingForm({
         (quote) => quote.provider === "PAXEL",
       );
       return paxelQuotes;
+    }
+
+    if (effectiveDeliveryMethod === "ASSISTED_INSTANT") {
+      if (isFragileOrder) {
+        // Fragile/heavy items need a car, so pick the same way ASSISTED_GRAB does.
+        if (grabQuotes.length > 0) {
+          return grabQuotes;
+        }
+
+        const gojekCarQuotes = gojekQuotes.filter(isCarService);
+        if (gojekCarQuotes.length > 0) {
+          return gojekCarQuotes;
+        }
+
+        const gojekNonBikeQuotes = gojekQuotes.filter(
+          (quote) => !isBikeService(quote),
+        );
+        if (gojekNonBikeQuotes.length > 0) {
+          return gojekNonBikeQuotes;
+        }
+
+        return gojekQuotes;
+      }
+
+      // Otherwise a bike is fine, so pick the same way ASSISTED_GOSEND does.
+      const gojekBikeQuotes = gojekQuotes.filter(isBikeService);
+      if (gojekBikeQuotes.length > 0) {
+        return gojekBikeQuotes;
+      }
+
+      if (gojekQuotes.length > 0) {
+        return gojekQuotes;
+      }
+
+      return sameDayQuotes;
     }
 
     if (effectiveDeliveryMethod === "ASSISTED_GRAB") {
@@ -4983,11 +5021,13 @@ export default function BookingForm({
   }, [
     effectiveDeliveryMethod,
     hasBouquetItems,
+    isFragileOrder,
     shippingQuotes,
     shouldUseShippingEngine,
   ]);
 
   const isStrictDeliveryMethod =
+    effectiveDeliveryMethod === "ASSISTED_INSTANT" ||
     effectiveDeliveryMethod === "ASSISTED_PAXEL" ||
     effectiveDeliveryMethod === "ASSISTED_GOSEND" ||
     effectiveDeliveryMethod === "ASSISTED_GRAB" ||
@@ -5056,6 +5096,9 @@ export default function BookingForm({
   const shippingFallbackMessage = useMemo(() => {
     if (!isShippingFallbackActive) return "";
 
+    if (effectiveDeliveryMethod === "ASSISTED_INSTANT") {
+      return "Layanan Instant belum tersedia untuk alamat ini. Pilih metode lain atau ubah alamat penerima.";
+    }
     if (effectiveDeliveryMethod === "ASSISTED_PAXEL") {
       return "Layanan Paxel belum tersedia untuk alamat ini. Pilih metode lain atau ubah alamat penerima.";
     }
@@ -6998,6 +7041,18 @@ export default function BookingForm({
           shouldDirty: true,
           shouldValidate: true,
         });
+      }
+      if (draft.isManualShippingOverride) {
+        setValue("isManualShippingOverride", true, {
+          shouldValidate: true,
+        });
+        setValue(
+          "manualShippingFee",
+          Math.max(0, Number(draft.manualShippingFee || 0)),
+          {
+            shouldValidate: true,
+          },
+        );
       }
       if (draft.customNotes) setValue("customNotes", draft.customNotes);
       setValue("paymentStatus", draft.paymentStatus, {

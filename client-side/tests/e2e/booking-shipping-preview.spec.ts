@@ -95,7 +95,7 @@ const mockQuoteDefinitions: MockQuoteDefinition[] = [
 
 const shippingMethodCases: ShippingMethodCase[] = [
   {
-    method: "ASSISTED_GOSEND",
+    method: "ASSISTED_INSTANT",
     expectedQuote: mockQuoteDefinitions[0],
     visibleQuoteLabel: /GOJEK - GoSend Instant/i,
   },
@@ -103,11 +103,6 @@ const shippingMethodCases: ShippingMethodCase[] = [
     method: "ASSISTED_GOCAR",
     expectedQuote: mockQuoteDefinitions[1],
     visibleQuoteLabel: /GOJEK - GoCar SUV/i,
-  },
-  {
-    method: "ASSISTED_GRAB",
-    expectedQuote: mockQuoteDefinitions[2],
-    visibleQuoteLabel: /GRAB - GrabCar Express/i,
   },
   {
     method: "ASSISTED_PAXEL",

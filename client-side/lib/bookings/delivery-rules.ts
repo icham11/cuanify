@@ -1,6 +1,7 @@
 export type DeliveryMethod =
   | "PICKUP"
   | "CUSTOMER_APP_COURIER"
+  | "ASSISTED_INSTANT"
   | "ASSISTED_GOSEND"
   | "ASSISTED_GRAB"
   | "ASSISTED_GOCAR"
@@ -17,6 +18,7 @@ export interface DeliveryMethodOption {
 export const ADMIN_ASSISTED_SERVICE_CHARGE = 10_000;
 
 const SERVICE_CHARGE_DELIVERY_METHODS = new Set<DeliveryMethod>([
+  "ASSISTED_INSTANT",
   "ASSISTED_GOSEND",
   "ASSISTED_GRAB",
   "ASSISTED_GOCAR",
@@ -59,44 +61,35 @@ const BOUQUET_COOKIE_QTY_MAX = 20;
 
 export const DELIVERY_METHOD_OPTIONS: DeliveryMethodOption[] = [
   {
-    value: "PICKUP",
-    label: "Pickup",
-    description: "Pengambilan langsung oleh customer.",
-  },
-  {
-    value: "CUSTOMER_APP_COURIER",
-    label: "Grab/GoCar (pesan customer)",
-    description: "Customer pesan kurir sendiri via aplikasi.",
-  },
-  {
-    value: "ASSISTED_GOSEND",
-    label: "GoSend (dibantu admin)",
-    description: "Admin bantu pemesanan GoSend same-day.",
-  },
-  {
-    value: "ASSISTED_GRAB",
-    label: "Grab (dibantu admin)",
-    description: "Admin bantu pemesanan Grab same-day.",
-  },
-  {
-    value: "ASSISTED_GOCAR",
-    label: "GoCar (dibantu admin)",
-    description: "Admin bantu pemesanan GoCar same-day.",
-  },
-  {
-    value: "ASSISTED_PAXEL",
-    label: "Paxel (dibantu admin)",
-    description: "Admin bantu pengiriman khusus Paxel.",
+    value: "ASSISTED_INSTANT",
+    label: "Instant",
+    description:
+      "Admin bantu pilih GoSend/Grab terbaik untuk pengiriman instant.",
   },
   {
     value: "ASSISTED_SAME_DAY",
-    label: "Same Day (dibantu admin)",
+    label: "Sameday",
     description: "Admin bantu pilih layanan same-day terbaik (GoSend/Grab/Paxel).",
   },
   {
     value: "REGULAR_JNE_JNT",
-    label: "JNE/J&T (pengiriman reguler)",
+    label: "JNE/JNT",
     description: "Dibantu admin dengan opsi reguler antarkota.",
+  },
+  {
+    value: "ASSISTED_PAXEL",
+    label: "Paxel",
+    description: "Admin bantu pengiriman khusus Paxel.",
+  },
+  {
+    value: "ASSISTED_GOCAR",
+    label: "Gocar",
+    description: "Admin bantu pemesanan GoCar same-day.",
+  },
+  {
+    value: "PICKUP",
+    label: "Pickup (dari customer)",
+    description: "Customer ambil/pesan kurir sendiri (ambil di toko atau pesan Grab/GoCar sendiri via aplikasi).",
   },
 ];
 
@@ -292,6 +285,7 @@ export function getGrabCarOnlyReasons(items: DeliveryRuleItem[]): string[] {
 
 export function usesShippingEngine(method: DeliveryMethod): boolean {
   return (
+    method === "ASSISTED_INSTANT" ||
     method === "ASSISTED_SAME_DAY" ||
     method === "ASSISTED_GOSEND" ||
     method === "ASSISTED_GRAB" ||

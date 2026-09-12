@@ -278,6 +278,7 @@ function mapParsedShippingMethodToMarketplace(
         case "PICKUP":
             return "Pickup Point";
         case "CUSTOMER_APP_COURIER":
+        case "ASSISTED_INSTANT":
         case "ASSISTED_GOSEND":
         case "ASSISTED_GRAB":
         case "ASSISTED_GOCAR":

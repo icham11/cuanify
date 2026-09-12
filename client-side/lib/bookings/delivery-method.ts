@@ -40,14 +40,7 @@ export function normalizeDeliveryMethodCode(
     normalized.includes("pesan customer") ||
     normalized.includes("customer")
   ) {
-    return "CUSTOMER_APP_COURIER";
-  }
-  if (
-    normalized === "assisted_gosend" ||
-    normalized.includes("gosend") ||
-    normalized.includes("go send")
-  ) {
-    return "ASSISTED_GOSEND";
+    return "PICKUP";
   }
   if (
     normalized === "assisted_gocar" ||
@@ -57,10 +50,15 @@ export function normalizeDeliveryMethodCode(
     return "ASSISTED_GOCAR";
   }
   if (
+    normalized === "assisted_instant" ||
+    normalized === "assisted_gosend" ||
     normalized === "assisted_grab" ||
-    normalized.includes("grab")
+    normalized.includes("gosend") ||
+    normalized.includes("go send") ||
+    normalized.includes("grab") ||
+    normalized.includes("instant")
   ) {
-    return "ASSISTED_GRAB";
+    return "ASSISTED_INSTANT";
   }
   if (
     normalized === "assisted_paxel" ||
@@ -125,7 +123,7 @@ export function inferDeliveryMethodFromQuote(
   if (!raw) return null;
 
   if (raw.includes("paxel")) return "ASSISTED_PAXEL";
-  if (raw.includes("grab")) return "ASSISTED_GRAB";
+  if (raw.includes("grab")) return "ASSISTED_INSTANT";
   if (raw.includes("jne") || raw.includes("j&t") || raw.includes("jnt")) {
     return "REGULAR_JNE_JNT";
   }
@@ -150,7 +148,7 @@ export function inferDeliveryMethodFromQuote(
     raw.includes("sameday") ||
     raw.includes("2w")
   ) {
-    return "ASSISTED_GOSEND";
+    return "ASSISTED_INSTANT";
   }
 
   return null;
