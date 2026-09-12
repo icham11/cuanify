@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
+import { toast } from "sonner";
 import {
   Plus,
   AlertTriangle,
@@ -13,6 +14,7 @@ import {
   Trash2,
   X,
   Loader2,
+  RotateCcw,
   Search,
   ArrowUpDown,
 } from "lucide-react";
@@ -21,6 +23,8 @@ import {
   getCategoryOptionsCached,
   deleteProduct,
   bulkDeleteProducts,
+  getRestorableProductCount,
+  restoreDeletedProducts,
   peekCachedCategoryOptions,
   peekCachedProducts,
 } from "@/lib/api/products";
@@ -567,6 +571,8 @@ export default function ProductsPage() {
   const [addProductModalOpen, setAddProductModalOpen] = useState(false);
   const [selectedProductIds, setSelectedProductIds] = useState<Set<number>>(new Set());
   const [bulkDeleteModalOpen, setBulkDeleteModalOpen] = useState(false);
+  const [restorableCount, setRestorableCount] = useState(0);
+  const [restoring, setRestoring] = useState(false);
   const activeFetchControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -777,6 +783,34 @@ export default function ProductsPage() {
   }, []);
 
   useEffect(() => {
+    if (!canManageProducts) return;
+    getRestorableProductCount()
+      .then(setRestorableCount)
+      .catch(() => setRestorableCount(0));
+  }, [canManageProducts]);
+
+  const handleRestoreDeletedProducts = async () => {
+    setRestoring(true);
+    try {
+      const restored = await restoreDeletedProducts();
+      if (restored > 0) {
+        toast.success(`${restored} produk berhasil dipulihkan.`);
+        await refreshProducts();
+        await refreshCategories();
+      } else {
+        toast.info("Tidak ada produk yang perlu dipulihkan.");
+      }
+      setRestorableCount(0);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Gagal memulihkan produk.",
+      );
+    } finally {
+      setRestoring(false);
+    }
+  };
+
+  useEffect(() => {
     if (!categoryFilter) return;
     if (
       filteredSubcategoryOptions.some(
@@ -838,14 +872,31 @@ export default function ProductsPage() {
           icon={Package}
           actions={
             canManageProducts ? (
-              <button
-                type="button"
-                onClick={() => setAddProductModalOpen(true)}
-                className="inline-flex h-9 items-center justify-center gap-1 rounded-full bg-[var(--crumbella-accent)] px-4 text-xs font-semibold text-white transition hover:bg-[var(--crumbella-accent-hover)]"
-              >
-                <Plus size={16} />
-                Tambah
-              </button>
+              <div className="flex items-center gap-2">
+                {restorableCount > 0 ? (
+                  <button
+                    type="button"
+                    onClick={handleRestoreDeletedProducts}
+                    disabled={restoring}
+                    className="inline-flex h-9 items-center justify-center gap-1 rounded-full border border-[var(--crumbella-accent)] px-4 text-xs font-semibold text-[var(--crumbella-accent)] transition hover:bg-[var(--crumbella-accent)]/10 disabled:opacity-60"
+                  >
+                    {restoring ? (
+                      <Loader2 size={16} className="animate-spin" />
+                    ) : (
+                      <RotateCcw size={16} />
+                    )}
+                    Pulihkan {restorableCount} Produk
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => setAddProductModalOpen(true)}
+                  className="inline-flex h-9 items-center justify-center gap-1 rounded-full bg-[var(--crumbella-accent)] px-4 text-xs font-semibold text-white transition hover:bg-[var(--crumbella-accent-hover)]"
+                >
+                  <Plus size={16} />
+                  Tambah
+                </button>
+              </div>
             ) : null
           }
         />

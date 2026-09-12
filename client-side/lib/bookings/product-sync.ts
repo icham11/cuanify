@@ -193,6 +193,14 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
   deduplicateExistingProducts?: boolean;
   updateExistingProducts?: boolean;
   reactivateDeletedProducts?: boolean;
+  // Off by default: this sync runs from a shared, code-defined base catalog
+  // (BOOKING_PRODUCT_CATALOG) that changes across deploys as seasonal SKUs
+  // rotate (e.g. Christmas 2025 -> Christmas 2026). Auto-pruning against that
+  // snapshot would soft-delete a business's historical dashboard products
+  // (with real sale/production history) any time the shared catalog changes
+  // or this sync runs incidentally (e.g. on a read-only GET). Only enable
+  // this for a flow that is explicitly, deliberately removing products.
+  pruneMissingProducts?: boolean;
 }) {
   const products = flattenCatalogProductsForDashboard(args.productCatalog);
   const duplicateCatalogNames = collectDuplicateProductNames(
@@ -361,19 +369,30 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
         });
       }
 
-      const allowedProductNames = new Set(
-        products.map((product) => normalizeProductName(product.name)),
-      );
-      await tx.product.updateMany({
-        where: {
-          businessId: args.businessId,
-          deletedAt: null,
-          name: { notIn: Array.from(allowedProductNames) },
-        },
-        data: {
-          deletedAt: new Date(),
-        },
-      });
+      let deletedCount = 0;
+      if (args.pruneMissingProducts) {
+        const allowedProductNames = new Set(
+          products.map((product) => normalizeProductName(product.name)),
+        );
+        // Scope pruning to categories present in this sync's own payload, so a
+        // catalog snapshot that only covers some categories can never wipe out
+        // products that live in categories it never mentioned.
+        const syncedCategoryIds = Array.from(
+          new Set(Array.from(categoryIds.values()).filter((id) => id > 0)),
+        );
+        const pruned = await tx.product.updateMany({
+          where: {
+            businessId: args.businessId,
+            deletedAt: null,
+            categoryId: { in: syncedCategoryIds },
+            name: { notIn: Array.from(allowedProductNames) },
+          },
+          data: {
+            deletedAt: new Date(),
+          },
+        });
+        deletedCount = pruned.count;
+      }
 
       if (productsToCreate.length > 0) {
         const created = await tx.product.createMany({
@@ -383,7 +402,7 @@ export async function syncBakeryCatalogToDashboardProducts(args: {
       }
 
       return {
-        deletedCount: 0,
+        deletedCount,
         createdCount,
         updatedCount,
         reactivatedCount,

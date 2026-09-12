@@ -410,6 +410,34 @@ export async function bulkDeleteProducts(ids: number[]): Promise<void> {
   invalidateApiCache(PRODUCT_API_CACHE_INVALIDATION_PATTERN);
 }
 
+/** GET /api/products/restore-deleted — count products eligible to be restored */
+export async function getRestorableProductCount(): Promise<number> {
+  const res = await fetch("/api/products/restore-deleted", {
+    credentials: "include",
+  });
+  if (!res.ok) return 0;
+  const data = await res.json().catch(() => ({}));
+  return typeof data.restorableCount === "number" ? data.restorableCount : 0;
+}
+
+/** POST /api/products/restore-deleted — restore products soft-deleted by the catalog sync bug */
+export async function restoreDeletedProducts(): Promise<number> {
+  const res = await fetch("/api/products/restore-deleted", {
+    method: "POST",
+    credentials: "include",
+  });
+  if (!res.ok) {
+    const errorMessage = await extractApiErrorMessage(
+      res,
+      "Failed to restore products",
+    );
+    throw new Error(errorMessage);
+  }
+  const data = await res.json();
+  invalidateApiCache(PRODUCT_API_CACHE_INVALIDATION_PATTERN);
+  return typeof data.restored === "number" ? data.restored : 0;
+}
+
 /** POST /api/ingredients - create a new ingredient (find-or-create), always seats an initial batch */
 export async function createIngredient(data: {
   name: string;
