@@ -48,6 +48,11 @@ export interface BakeryStaffSetting {
   isActive: boolean;
 }
 
+export interface BakeryStaffPayrollSnapshot {
+  monthKey: string; // YYYY-MM, bulan mulai berlakunya snapshot payroll ini
+  staff: BakeryStaffSetting[]; // salinan beku staffSettings pada saat disimpan
+}
+
 export interface BakeryOperationalExpenseSetting {
   id: string;
   monthKey: string;
@@ -85,6 +90,7 @@ export interface BakeryBusinessSettings {
   blockedDates: string[];
   holidayEntries: BakeryHolidaySetting[];
   staffSettings: BakeryStaffSetting[];
+  staffPayrollHistory: BakeryStaffPayrollSnapshot[];
   monthlyExpenses: BakeryOperationalExpenseSetting[];
   attendanceReconciliation: BakeryAttendanceReconciliation[];
   productionStageProfiles: ProductionStageCategoryProfile[];
@@ -156,6 +162,24 @@ function normalizeMonthKey(value: unknown): string {
   return /^\d{4}-\d{2}$/.test(raw) ? raw : "";
 }
 
+const BUSINESS_TIME_ZONE = "Asia/Jakarta";
+
+// Bulan berjalan (YYYY-MM) menurut zona waktu bisnis, dipakai sebagai titik efektif
+// saat menyimpan snapshot payroll staff agar histori bulan-bulan sebelumnya tidak ikut berubah.
+function getCurrentMonthKey(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: BUSINESS_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+  }).format(new Date());
+}
+
+function getPreviousMonthKey(monthKey: string): string {
+  const [year, month] = monthKey.split("-").map(Number);
+  const date = new Date(year, month - 1 - 1, 1);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
 function normalizeBlockedDates(value: unknown): string[] {
   if (!Array.isArray(value)) return [...BAKERY_BLOCKED_DATES];
 
@@ -221,6 +245,30 @@ function normalizeStaffSettings(value: unknown): BakeryStaffSetting[] {
     })
     .filter((entry): entry is BakeryStaffSetting => Boolean(entry))
     .sort((left, right) => left.name.localeCompare(right.name, "id"));
+}
+
+function normalizeStaffPayrollHistory(
+  value: unknown,
+): BakeryStaffPayrollSnapshot[] {
+  if (!Array.isArray(value)) return [];
+
+  const byMonth = new Map<string, BakeryStaffPayrollSnapshot>();
+
+  value.forEach((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return;
+    const record = entry as Record<string, unknown>;
+    const monthKey = normalizeMonthKey(record.monthKey);
+    if (!monthKey) return;
+
+    byMonth.set(monthKey, {
+      monthKey,
+      staff: normalizeStaffSettings(record.staff),
+    });
+  });
+
+  return Array.from(byMonth.values()).sort((left, right) =>
+    left.monthKey.localeCompare(right.monthKey),
+  );
 }
 
 function normalizeMonthlyExpenses(
@@ -321,6 +369,7 @@ export function getDefaultBakerySettings(): BakeryBusinessSettings {
     blockedDates: holidayEntries.map((entry) => entry.date),
     holidayEntries,
     staffSettings: [],
+    staffPayrollHistory: [],
     monthlyExpenses: [],
     attendanceReconciliation: [],
     productionStageProfiles: [],
@@ -396,6 +445,9 @@ function parseMetadataToSettings(metadata: unknown): BakeryBusinessSettings {
     blockedDates: holidayEntries.map((entry) => entry.date),
     holidayEntries,
     staffSettings: normalizeStaffSettings(record.staffSettings),
+    staffPayrollHistory: normalizeStaffPayrollHistory(
+      record.staffPayrollHistory,
+    ),
     monthlyExpenses: normalizeMonthlyExpenses(record.monthlyExpenses),
     attendanceReconciliation: normalizeAttendanceReconciliation(
       record.attendanceReconciliation,
@@ -438,6 +490,10 @@ export async function upsertBakeryBusinessSettings(args: {
   businessId: number;
   userId: number;
   input: Partial<BakeryBusinessSettings>;
+  // Bulan spesifik (YYYY-MM) yang ingin diedit gajinya oleh owner lewat month
+  // picker di halaman settings. Kosongkan/biarkan undefined untuk berarti
+  // "bulan berjalan" (perilaku default/lama).
+  payrollEffectiveMonthKey?: string;
 }): Promise<BakeryBusinessSettings> {
   const current = await getBakeryBusinessSettings(args.businessId);
   const holidayEntries =
@@ -448,8 +504,24 @@ export async function upsertBakeryBusinessSettings(args: {
     args.input.staffDailyTokenLimit !== undefined
       ? clampStaffTokenLimit(args.input.staffDailyTokenLimit)
       : current.staffDailyTokenLimit;
+
+  const currentMonthKey = getCurrentMonthKey();
+  const requestedPayrollMonthKey = normalizeMonthKey(
+    args.payrollEffectiveMonthKey,
+  );
+  // Owner memilih bulan LAIN (bukan bulan berjalan) lewat month picker untuk
+  // mengisi/memperbaiki gaji bulan tsb secara spesifik. Dalam mode ini:
+  // - Roster staff yang sedang berjalan (nama/role/token limit/status aktif)
+  //   TIDAK ikut berubah.
+  // - Snapshot bulan berjalan & bulan lainnya TIDAK ikut tersentuh.
+  // - Hanya satu entry staffPayrollHistory untuk bulan yang dipilih yang ditimpa.
+  const isEditingSpecificPastOrFutureMonth =
+    args.input.staffSettings !== undefined &&
+    requestedPayrollMonthKey !== "" &&
+    requestedPayrollMonthKey !== currentMonthKey;
+
   const nextStaffSettingsSource =
-    args.input.staffSettings !== undefined
+    args.input.staffSettings !== undefined && !isEditingSpecificPastOrFutureMonth
       ? normalizeStaffSettings(args.input.staffSettings)
       : current.staffSettings;
   // Logika Sinkronisasi Batas Token Pegawai:
@@ -466,6 +538,52 @@ export async function upsertBakeryBusinessSettings(args: {
         dailyTokenLimit: nextStaffDailyTokenLimit, // Timpa dengan default baru jika owner sengaja mengubah default umum
       }))
     : nextStaffSettingsSource; // Gunakan set kustom staff yang dikirim dari form tanpa overwrite jika tidak ada perubahan default umum
+
+  // Snapshot Histori Payroll:
+  // Setiap kali staffSettings (gaji/take-home pay) disimpan untuk BULAN BERJALAN,
+  // bekukan nilainya sebagai snapshot bulan itu saja. Snapshot bulan-bulan
+  // sebelumnya tidak disentuh, sehingga laporan bulan lalu tetap memakai angka
+  // payroll yang berlaku saat itu dan tidak ikut berubah ketika owner mengubah
+  // gaji staff di kemudian hari.
+  // Migrasi Sekali-Jalan: jika belum ada satupun snapshot untuk bulan SEBELUM bulan
+  // berjalan (baik karena bisnis ini baru upgrade ke fitur ini, atau save sebelumnya
+  // hanya sempat membuat snapshot untuk bulan berjalan itu sendiri tanpa bulan lalu),
+  // bekukan nilai staffSettings SEBELUM perubahan ini sebagai baseline bulan lalu.
+  // Tanpa ini, bulan-bulan lalu akan ikut fallback ke snapshot bulan berjalan yang baru
+  // saja ditimpa, sehingga terlihat "semua bulan sama".
+  const hasHistoryBeforeCurrentMonth = current.staffPayrollHistory.some(
+    (entry) => entry.monthKey < currentMonthKey,
+  );
+  const payrollBackfillEntries: BakeryStaffPayrollSnapshot[] =
+    args.input.staffSettings !== undefined &&
+    !isEditingSpecificPastOrFutureMonth &&
+    !hasHistoryBeforeCurrentMonth
+      ? [
+          {
+            monthKey: getPreviousMonthKey(currentMonthKey),
+            staff: current.staffSettings,
+          },
+        ]
+      : [];
+
+  let nextStaffPayrollHistory = current.staffPayrollHistory;
+  if (isEditingSpecificPastOrFutureMonth) {
+    const targetMonthStaff = normalizeStaffSettings(args.input.staffSettings);
+    nextStaffPayrollHistory = [
+      ...current.staffPayrollHistory.filter(
+        (entry) => entry.monthKey !== requestedPayrollMonthKey,
+      ),
+      { monthKey: requestedPayrollMonthKey, staff: targetMonthStaff },
+    ].sort((left, right) => left.monthKey.localeCompare(right.monthKey));
+  } else if (args.input.staffSettings !== undefined) {
+    nextStaffPayrollHistory = [
+      ...payrollBackfillEntries,
+      ...current.staffPayrollHistory.filter(
+        (entry) => entry.monthKey !== currentMonthKey,
+      ),
+      { monthKey: currentMonthKey, staff: nextStaffSettings },
+    ].sort((left, right) => left.monthKey.localeCompare(right.monthKey));
+  }
 
   const nextSettings: BakeryBusinessSettings = {
     dailyProductionTokenLimit:
@@ -510,6 +628,7 @@ export async function upsertBakeryBusinessSettings(args: {
     blockedDates: holidayEntries.map((entry) => entry.date),
     holidayEntries,
     staffSettings: nextStaffSettings,
+    staffPayrollHistory: nextStaffPayrollHistory,
     monthlyExpenses:
       args.input.monthlyExpenses !== undefined
         ? normalizeMonthlyExpenses(args.input.monthlyExpenses)

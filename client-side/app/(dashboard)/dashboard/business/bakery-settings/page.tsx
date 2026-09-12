@@ -19,6 +19,7 @@ import type {
     BakeryStaffSetting,
     BakeryAttendanceReconciliation,
 } from "@/lib/bakery/settings";
+import { resolveStaffPayrollForMonth } from "@/lib/bakery/financial-summary";
 import type { ProductionStageCategoryProfile } from "@/lib/bookings/production-stages";
 import {
     getDefaultProductionStageTemplates,
@@ -29,6 +30,9 @@ import {
     normalizeMainCategoryKey,
     resolveMainProductCategory,
 } from "@/lib/products/main-category";
+import MonthYearPicker, {
+    buildSelectableMonthKeys,
+} from "@/components/bakery/shared/MonthYearPicker";
 import AttendanceReconciliation from "./AttendanceReconciliation";
 
 type StaffApiResponse = {
@@ -184,6 +188,43 @@ function mergeStaffSettings(
     );
 }
 
+// Untuk bulan BERJALAN, roster & gaji sama-sama datang dari staffSettings (live).
+// Untuk bulan LAIN (lalu/mendatang) yang dipilih lewat month picker, roster (nama/
+// role/token/status aktif) tetap mengikuti live settings — hanya field gaji
+// (monthlySalary/mealAllowance/takeHomePay) yang diganti dengan snapshot histori
+// payroll bulan tsb, supaya owner mengisi/mengedit gaji SPESIFIK untuk bulan itu
+// saja tanpa mengubah roster hari ini.
+function mergeStaffSettingsForSelectedMonth(args: {
+    members: Array<{ userId: number; name: string; role: string }>;
+    liveStaffSettings: BakeryStaffSetting[];
+    historicalStaffForMonth: BakeryStaffSetting[];
+    defaultDailyTokenLimit: number;
+    isCurrentMonth: boolean;
+}): EditableStaff[] {
+    const liveMerged = mergeStaffSettings(
+        args.members,
+        args.liveStaffSettings,
+        args.defaultDailyTokenLimit,
+    );
+
+    if (args.isCurrentMonth) return liveMerged;
+
+    const historicalByUserId = new Map(
+        args.historicalStaffForMonth.map((entry) => [entry.userId, entry]),
+    );
+
+    return liveMerged.map((entry) => {
+        const historical = historicalByUserId.get(entry.userId);
+        if (!historical) return entry;
+        return {
+            ...entry,
+            monthlySalary: historical.monthlySalary,
+            mealAllowance: historical.mealAllowance,
+            takeHomePay: historical.takeHomePay,
+        };
+    });
+}
+
 function getRoleTone(role: string) {
     if (role === "Admin") return "bg-[#ffe4cf] text-[#ae5d2d]";
     if (role === "Cashier") return "bg-[#e7eefc] text-[#405c9c]";
@@ -298,7 +339,13 @@ export default function BakerySettingsPage() {
     const [staffRoleFilter, setStaffRoleFilter] =
         useState<StaffRoleFilter>("Semua");
 
-    const currentMonthKey = useMemo(() => getMonthKey(new Date()), []);
+    const todayMonthKey = useMemo(() => getMonthKey(new Date()), []);
+    // Bulan yang sedang dilihat/diedit untuk Gaji Staff & Biaya Operasional
+    // Bulanan lewat month picker. Default ke bulan berjalan; owner bisa
+    // pindah ke bulan lain (lalu/mendatang) untuk mengisi/memperbaiki data
+    // bulan tsb secara spesifik tanpa memengaruhi bulan lainnya.
+    const [settingsMonthKey, setSettingsMonthKey] = useState(todayMonthKey);
+    const isEditingCurrentMonth = settingsMonthKey === todayMonthKey;
 
     const [dailyProductionTokenLimit, setDailyProductionTokenLimit] =
         useState(500);
@@ -314,7 +361,7 @@ export default function BakerySettingsPage() {
         useState(true);
     const [staffSettings, setStaffSettings] = useState<EditableStaff[]>([]);
     const [monthlyExpenses, setMonthlyExpenses] = useState<EditableExpense[]>(
-        defaultMonthlyExpenses(currentMonthKey),
+        defaultMonthlyExpenses(settingsMonthKey),
     );
     const [holidayEntries, setHolidayEntries] = useState<EditableHoliday[]>([]);
     const [newHolidayDate, setNewHolidayDate] = useState("");
@@ -436,27 +483,35 @@ export default function BakerySettingsPage() {
 
         const monthExpenses = settings.monthlyExpenses.filter(
             (entry) =>
-                entry.monthKey === currentMonthKey &&
+                entry.monthKey === settingsMonthKey &&
                 String(entry.category) !== "refund",
         );
         setMonthlyExpenses(
             monthExpenses.length > 0
                 ? monthExpenses
-                : defaultMonthlyExpenses(currentMonthKey),
+                : defaultMonthlyExpenses(settingsMonthKey),
         );
-    }, [settings, currentMonthKey]);
+    }, [settings, settingsMonthKey]);
 
     useEffect(() => {
         if (!settings) return;
+        const historicalStaffForMonth = isEditingCurrentMonth
+            ? []
+            : resolveStaffPayrollForMonth({
+                  settings,
+                  monthKey: settingsMonthKey,
+              });
         setStaffSettings(
-            mergeStaffSettings(
-                staffOptions,
-                settings.staffSettings,
-                settings.staffDailyTokenLimit,
-            ),
+            mergeStaffSettingsForSelectedMonth({
+                members: staffOptions,
+                liveStaffSettings: settings.staffSettings,
+                historicalStaffForMonth,
+                defaultDailyTokenLimit: settings.staffDailyTokenLimit,
+                isCurrentMonth: isEditingCurrentMonth,
+            }),
         );
         setAttendanceReconciliation(settings.attendanceReconciliation || []);
-    }, [settings, staffOptions]);
+    }, [settings, staffOptions, settingsMonthKey, isEditingCurrentMonth]);
 
     useEffect(() => {
         if (
@@ -569,8 +624,24 @@ export default function BakerySettingsPage() {
         }
     }, [availableProductionCategoryOptions, selectedProductionStageCategory]);
 
-    const currentMonthExpenseLabel = getMonthLabel(currentMonthKey);
     const currentMonthHolidayCount = holidayEntries.length;
+
+    const selectableSettingsMonthKeys = useMemo(
+        () =>
+            buildSelectableMonthKeys({
+                monthsBack: 18,
+                monthsForward: 5,
+                includeMonthKeys: [
+                    ...(settings?.monthlyExpenses ?? []).map(
+                        (entry) => entry.monthKey,
+                    ),
+                    ...(settings?.staffPayrollHistory ?? []).map(
+                        (entry) => entry.monthKey,
+                    ),
+                ],
+            }),
+        [settings?.monthlyExpenses, settings?.staffPayrollHistory],
+    );
 
     const updateStaffSetting = (
         userId: number,
@@ -598,12 +669,12 @@ export default function BakerySettingsPage() {
     };
 
     const addCustomExpense = () => {
-        const nextId = `${currentMonthKey}-custom-${Date.now()}`;
+        const nextId = `${settingsMonthKey}-custom-${Date.now()}`;
         setMonthlyExpenses((current) => [
             ...current,
             {
                 id: nextId,
-                monthKey: currentMonthKey,
+                monthKey: settingsMonthKey,
                 name: "Biaya Custom",
                 amount: 0,
                 category: "custom",
@@ -772,7 +843,7 @@ export default function BakerySettingsPage() {
                 allExpenses: (settings?.monthlyExpenses ?? []).filter(
                     (entry) => String(entry.category) !== "refund",
                 ),
-                monthKey: currentMonthKey,
+                monthKey: settingsMonthKey,
                 monthExpenses: monthlyExpenses,
             });
 
@@ -794,6 +865,10 @@ export default function BakerySettingsPage() {
                         entry.mealAllowance,
                     ),
                 })),
+                // Bulan spesifik yang gajinya sedang diedit lewat month picker.
+                // Server hanya menimpa snapshot histori bulan ini saja jika bukan
+                // bulan berjalan — roster & bulan lain tidak ikut berubah.
+                payrollEffectiveMonthKey: settingsMonthKey,
                 monthlyExpenses: mergedMonthlyExpenses,
                 attendanceReconciliation,
                 productionStageProfiles,
@@ -903,6 +978,38 @@ export default function BakerySettingsPage() {
                             </NextLink>
                         </div>
 
+                        <div className="border-b border-[#e8d6c8] px-4 py-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                <p className="text-xs font-semibold text-[#8a6047]">
+                                    Mengatur gaji untuk bulan:
+                                </p>
+                                <MonthYearPicker
+                                    value={settingsMonthKey}
+                                    onChange={setSettingsMonthKey}
+                                    monthKeys={selectableSettingsMonthKeys}
+                                    formatLabel={getMonthLabel}
+                                    buttonClassName="justify-between border-[#dcc7b8] bg-[#fbf4ed] text-[#2f1e13]"
+                                />
+                            </div>
+                            {!isEditingCurrentMonth && (
+                                <p className="mt-2 rounded-xl bg-[#fff0df] px-3 py-2 text-[11px] leading-5 text-[#9f5129]">
+                                    ⚠️ Gaji yang kamu ubah di bawah ini hanya
+                                    akan tersimpan untuk bulan{" "}
+                                    <strong>
+                                        {getMonthLabel(settingsMonthKey)}
+                                    </strong>
+                                    . Laporan bulan berjalan (
+                                    {getMonthLabel(todayMonthKey)}) dan
+                                    bulan-bulan lainnya tidak akan berubah.
+                                    Khusus Token/Hari &amp; status Aktif staff,
+                                    pindah dulu ke bulan berjalan untuk
+                                    mengubahnya — dua hal itu selalu mengikuti
+                                    bulan berjalan, tidak bisa diatur per
+                                    bulan.
+                                </p>
+                            )}
+                        </div>
+
                         <div className="space-y-3 px-4 py-4">
                             <div className="grid gap-3">
                                 <label className="relative">
@@ -995,11 +1102,21 @@ export default function BakerySettingsPage() {
                                                             : "Pegawai nonaktif"}
                                                     </p>
                                                 </div>
-                                                <label className="flex shrink-0 items-center gap-2 text-xs font-medium text-[#8a6047]">
+                                                <label
+                                                    className={`flex shrink-0 items-center gap-2 text-xs font-medium text-[#8a6047] ${!isEditingCurrentMonth ? "opacity-50" : ""}`}
+                                                    title={
+                                                        isEditingCurrentMonth
+                                                            ? undefined
+                                                            : "Status aktif hanya bisa diubah untuk bulan berjalan"
+                                                    }
+                                                >
                                                     <input
                                                         type="checkbox"
                                                         checked={entry.isActive}
-                                                        disabled={!isOwner}
+                                                        disabled={
+                                                            !isOwner ||
+                                                            !isEditingCurrentMonth
+                                                        }
                                                         onChange={(event) =>
                                                             updateStaffSetting(
                                                                 entry.userId,
@@ -1018,7 +1135,14 @@ export default function BakerySettingsPage() {
                                             </div>
 
                                             <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                                                <label className="grid gap-1 text-[11px] font-semibold uppercase text-[#b58872]">
+                                                <label
+                                                    className={`grid gap-1 text-[11px] font-semibold uppercase text-[#b58872] ${!isEditingCurrentMonth ? "opacity-50" : ""}`}
+                                                    title={
+                                                        isEditingCurrentMonth
+                                                            ? undefined
+                                                            : "Token/hari hanya bisa diubah untuk bulan berjalan"
+                                                    }
+                                                >
                                                     Token/Hari
                                                     <input
                                                         type="number"
@@ -1028,7 +1152,10 @@ export default function BakerySettingsPage() {
                                                             entry.dailyTokenLimit
                                                         }
                                                         data-testid={`staff-token-input-${entry.userId}`}
-                                                        disabled={!isOwner}
+                                                        disabled={
+                                                            !isOwner ||
+                                                            !isEditingCurrentMonth
+                                                        }
                                                         onChange={(event) =>
                                                             updateStaffSetting(
                                                                 entry.userId,
@@ -1618,7 +1745,7 @@ export default function BakerySettingsPage() {
                                     🧾 Biaya Operasional Bulanan
                                 </h2>
                                 <p className="text-xs text-[#b58872]">
-                                    {currentMonthExpenseLabel}
+                                    Iklan & biaya custom per bulan
                                 </p>
                             </div>
                             <button
@@ -1626,11 +1753,38 @@ export default function BakerySettingsPage() {
                                 disabled={!isOwner}
                                 onClick={addCustomExpense}
                                 data-testid="add-monthly-expense-button"
-                                className="inline-flex items-center gap-1 rounded-full border border-[#cb6837] bg-[#fff0df] px-3 py-1.5 text-xs font-bold text-[#cb6837] disabled:opacity-50"
+                                className="inline-flex shrink-0 items-center gap-1 rounded-full border border-[#cb6837] bg-[#fff0df] px-3 py-1.5 text-xs font-bold text-[#cb6837] disabled:opacity-50"
                             >
                                 <Plus className="h-3.5 w-3.5" />
                                 Tambah
                             </button>
+                        </div>
+
+                        <div className="border-b border-[#e8d6c8] px-4 py-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                <p className="text-xs font-semibold text-[#8a6047]">
+                                    Mengatur biaya untuk bulan:
+                                </p>
+                                <MonthYearPicker
+                                    value={settingsMonthKey}
+                                    onChange={setSettingsMonthKey}
+                                    monthKeys={selectableSettingsMonthKeys}
+                                    formatLabel={getMonthLabel}
+                                    buttonClassName="justify-between border-[#dcc7b8] bg-[#fbf4ed] text-[#2f1e13]"
+                                />
+                            </div>
+                            {!isEditingCurrentMonth && (
+                                <p className="mt-2 rounded-xl bg-[#fff0df] px-3 py-2 text-[11px] leading-5 text-[#9f5129]">
+                                    ⚠️ Biaya yang kamu isi/ubah di bawah ini
+                                    hanya akan tersimpan untuk bulan{" "}
+                                    <strong>
+                                        {getMonthLabel(settingsMonthKey)}
+                                    </strong>
+                                    . Laporan bulan berjalan (
+                                    {getMonthLabel(todayMonthKey)}) dan
+                                    bulan-bulan lainnya tidak akan berubah.
+                                </p>
+                            )}
                         </div>
                         <div className="space-y-3 px-4 py-4">
                             <div className="grid gap-3 xl:grid-cols-2">
@@ -1793,7 +1947,7 @@ export default function BakerySettingsPage() {
                             reconciliationData={attendanceReconciliation}
                             onUpdate={setAttendanceReconciliation}
                             staffSettings={staffSettings}
-                            currentMonthKey={currentMonthKey}
+                            currentMonthKey={todayMonthKey}
                         />
                     </section>
                 </div>

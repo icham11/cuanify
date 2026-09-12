@@ -565,6 +565,7 @@ export default function ProductionTable() {
                             blockedDates: [],
                             holidayEntries: [],
                             staffSettings: [],
+                            staffPayrollHistory: [],
                             monthlyExpenses: [],
                             attendanceReconciliation: [],
                             productionStageProfiles: [],

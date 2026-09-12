@@ -246,6 +246,10 @@ export async function PATCH(request: NextRequest) {
             ? normalizeAttendanceReconciliationInput(body.attendanceReconciliation)
             : undefined,
       },
+      payrollEffectiveMonthKey:
+        typeof body.payrollEffectiveMonthKey === "string"
+          ? body.payrollEffectiveMonthKey
+          : undefined,
     });
 
     if (body.dailyProductionTokenLimit !== undefined) {

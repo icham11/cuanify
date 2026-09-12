@@ -1,7 +1,10 @@
 import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 import { resolveShippingParcelCount } from "@/lib/bookings/delivery-rules";
 import { buildDashboardProductName } from "@/lib/products/dashboard-name";
-import type { BakeryBusinessSettings } from "@/lib/bakery/settings";
+import type {
+  BakeryBusinessSettings,
+  BakeryStaffSetting,
+} from "@/lib/bakery/settings";
 import { calculateOrderFinancialBreakdown } from "@/lib/bookings/financial-breakdown";
 
 const BUSINESS_TIME_ZONE = "Asia/Jakarta";
@@ -591,6 +594,34 @@ export function filterBakeryOrdersByDateRange(
   });
 }
 
+// Resolusi payroll staff yang berlaku untuk satu bulan tertentu berdasarkan histori
+// snapshot (staffPayrollHistory), bukan settings staff yang sedang berjalan/live.
+// Aturan: pakai snapshot ber-monthKey terbaru yang <= bulan target (nilai tetap berlaku
+// sampai owner mengubahnya lagi di bulan berikutnya). Untuk bulan sebelum snapshot
+// tertua yang pernah ada, pakai snapshot tertua itu sebagai baseline historis.
+// Jika belum pernah ada snapshot sama sekali, fallback ke staffSettings live (data lama
+// sebelum fitur histori ini ada).
+export function resolveStaffPayrollForMonth(args: {
+  settings: BakeryBusinessSettings | null;
+  monthKey: string;
+}): BakeryStaffSetting[] {
+  const history = args.settings?.staffPayrollHistory ?? [];
+  if (history.length === 0) {
+    return args.settings?.staffSettings ?? [];
+  }
+
+  const sortedMonthKeys = Array.from(
+    new Set(history.map((entry) => entry.monthKey)),
+  ).sort();
+  const anchorMonthKey =
+    [...sortedMonthKeys].reverse().find((monthKey) => monthKey <= args.monthKey) ??
+    sortedMonthKeys[0];
+
+  return (
+    history.find((entry) => entry.monthKey === anchorMonthKey)?.staff ?? []
+  );
+}
+
 export function calculateOperationalCostForDateRange(args: {
   settings: BakeryBusinessSettings | null;
   fromDate: string;
@@ -599,14 +630,26 @@ export function calculateOperationalCostForDateRange(args: {
   const months = getMonthKeysInRange(args.fromDate, args.toDate);
   const monthSet = new Set(months);
   const settings = args.settings;
-  const staffPayrollRows = (settings?.staffSettings ?? []).filter(
-    (entry) => entry.isActive,
-  );
-  const staffCostPerMonth = staffPayrollRows.reduce(
-    (sum, entry) => sum + Number(entry.takeHomePay || 0),
-    0,
-  );
-  const staffCost = staffCostPerMonth * months.length;
+
+  const staffCost = months.reduce((sum, monthKey) => {
+    const payrollForMonth = resolveStaffPayrollForMonth({
+      settings,
+      monthKey,
+    }).filter((entry) => entry.isActive);
+    const monthlyStaffCost = payrollForMonth.reduce(
+      (rowSum, entry) => rowSum + Number(entry.takeHomePay || 0),
+      0,
+    );
+    return sum + monthlyStaffCost;
+  }, 0);
+
+  const lastMonthKey = months[months.length - 1];
+  const staffPayrollRows = lastMonthKey
+    ? resolveStaffPayrollForMonth({ settings, monthKey: lastMonthKey }).filter(
+        (entry) => entry.isActive,
+      )
+    : [];
+
   const expenseRows = (settings?.monthlyExpenses ?? []).filter((entry) =>
     monthSet.has(entry.monthKey),
   );

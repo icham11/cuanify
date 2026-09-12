@@ -36,6 +36,7 @@ function makeCurrentSettings(overrides: Partial<ReturnType<typeof getDefaultBake
 async function persistSettings(
   input: SettingsInput,
   currentOverrides: Partial<ReturnType<typeof getDefaultBakerySettings>> = {},
+  extra: { payrollEffectiveMonthKey?: string } = {},
 ) {
   prismaMock.businessDocument.findFirst
     .mockResolvedValueOnce({
@@ -48,6 +49,7 @@ async function persistSettings(
     businessId: 12,
     userId: 88,
     input,
+    ...extra,
   });
 }
 
@@ -163,46 +165,69 @@ describe("bakery settings regression coverage", () => {
   });
 
   it("propagates monthly operational expenses to business and report calculations", async () => {
-    const saved = await persistSettings({
-      staffSettings: [
-        {
-          userId: 44,
-          name: "Dina",
-          role: "Staff",
-          dailyTokenLimit: 200,
-          monthlySalary: 2_000_000,
-          mealAllowance: 250_000,
-          takeHomePay: 2_250_000,
-          isActive: true,
-        },
-      ],
-      monthlyExpenses: [
-        {
-          id: "2026-07-ads",
-          monthKey: "2026-07",
-          name: "Biaya Iklan",
-          amount: 500_000,
-          category: "ads",
-          note: "Meta Ads",
-        },
-        {
-          id: "2026-07-packaging",
-          monthKey: "2026-07",
-          name: "Packaging Tambahan",
-          amount: 300_000,
-          category: "custom",
-          note: "Ribbon dan box",
-        },
-        {
-          id: "2026-08-ads",
-          monthKey: "2026-08",
-          name: "Biaya Iklan",
-          amount: 999_000,
-          category: "ads",
-          note: "Bulan lain",
-        },
-      ],
-    });
+    const saved = await persistSettings(
+      {
+        staffSettings: [
+          {
+            userId: 44,
+            name: "Dina",
+            role: "Staff",
+            dailyTokenLimit: 200,
+            monthlySalary: 2_000_000,
+            mealAllowance: 250_000,
+            takeHomePay: 2_250_000,
+            isActive: true,
+          },
+        ],
+        monthlyExpenses: [
+          {
+            id: "2026-07-ads",
+            monthKey: "2026-07",
+            name: "Biaya Iklan",
+            amount: 500_000,
+            category: "ads",
+            note: "Meta Ads",
+          },
+          {
+            id: "2026-07-packaging",
+            monthKey: "2026-07",
+            name: "Packaging Tambahan",
+            amount: 300_000,
+            category: "custom",
+            note: "Ribbon dan box",
+          },
+          {
+            id: "2026-08-ads",
+            monthKey: "2026-08",
+            name: "Biaya Iklan",
+            amount: 999_000,
+            category: "ads",
+            note: "Bulan lain",
+          },
+        ],
+      },
+      {
+        // Bisnis ini sudah punya histori payroll untuk 2026-07, jadi save di atas
+        // tidak dianggap migrasi pertama kali (tidak backfill bulan sebelumnya).
+        staffPayrollHistory: [
+          {
+            monthKey: "2026-07",
+            staff: [
+              {
+                userId: 44,
+                name: "Dina",
+                role: "Staff",
+                dailyTokenLimit: 200,
+                monthlySalary: 2_000_000,
+                mealAllowance: 250_000,
+                takeHomePay: 2_250_000,
+                isActive: true,
+              },
+            ],
+          },
+        ],
+      },
+    );
 
     const breakdown = calculateOperationalCostForDateRange({
       settings: saved,
@@ -216,6 +241,170 @@ describe("bakery settings regression coverage", () => {
     expect(breakdown.customExpenseTotal).toBe(300_000);
     expect(breakdown.totalOperationalCost).toBe(3_050_000);
     expect(breakdown.expenseRows).toHaveLength(2);
+  });
+
+  it("keeps a past month's staff payroll frozen when payroll changes in a later month", async () => {
+    const saved = await persistSettings(
+      {
+        staffSettings: [
+          {
+            userId: 44,
+            name: "Dina",
+            role: "Staff",
+            dailyTokenLimit: 200,
+            monthlySalary: 2_500_000,
+            mealAllowance: 250_000,
+            takeHomePay: 2_750_000,
+            isActive: true,
+          },
+        ],
+      },
+      {
+        staffPayrollHistory: [
+          {
+            monthKey: "2026-07",
+            staff: [
+              {
+                userId: 44,
+                name: "Dina",
+                role: "Staff",
+                dailyTokenLimit: 200,
+                monthlySalary: 2_000_000,
+                mealAllowance: 250_000,
+                takeHomePay: 2_250_000,
+                isActive: true,
+              },
+            ],
+          },
+        ],
+      },
+    );
+
+    // Kenaikan gaji baru saja disimpan (untuk bulan berjalan), tapi laporan Juli
+    // (bulan yang sudah lewat) harus tetap memakai angka gaji lama.
+    const julyBreakdown = calculateOperationalCostForDateRange({
+      settings: saved,
+      fromDate: "2026-07-01",
+      toDate: "2026-07-31",
+    });
+    expect(julyBreakdown.staffCost).toBe(2_250_000);
+  });
+
+  it("backfills last month's payroll even when history only ever had a current-month entry", async () => {
+    // Reproduksi bug: save pertama (sebelum backfill ada) sudah sempat membuat
+    // satu-satunya entry histori untuk bulan berjalan itu sendiri, tanpa bulan lalu.
+    // Save berikutnya (menaikkan gaji lagi) harus tetap membekukan nilai LAMA untuk
+    // bulan lalu, bukan ikut memakai nilai baru di semua bulan.
+    const currentMonthKey = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Jakarta",
+      year: "numeric",
+      month: "2-digit",
+    }).format(new Date());
+    const [year, month] = currentMonthKey.split("-").map(Number);
+    const prevDate = new Date(year, month - 1 - 1, 1);
+    const previousMonthKey = `${prevDate.getFullYear()}-${String(
+      prevDate.getMonth() + 1,
+    ).padStart(2, "0")}`;
+
+    const oldStaffSetting = {
+      userId: 44,
+      name: "Dina",
+      role: "Staff",
+      dailyTokenLimit: 200,
+      monthlySalary: 2_000_000,
+      mealAllowance: 250_000,
+      takeHomePay: 2_250_000,
+      isActive: true,
+    };
+
+    const saved = await persistSettings(
+      {
+        staffSettings: [
+          {
+            ...oldStaffSetting,
+            monthlySalary: 3_000_000,
+            takeHomePay: 3_250_000,
+          },
+        ],
+      },
+      {
+        staffSettings: [oldStaffSetting],
+        staffPayrollHistory: [
+          { monthKey: currentMonthKey, staff: [oldStaffSetting] },
+        ],
+      },
+    );
+
+    const previousMonthBreakdown = calculateOperationalCostForDateRange({
+      settings: saved,
+      fromDate: `${previousMonthKey}-01`,
+      toDate: `${previousMonthKey}-28`,
+    });
+    expect(previousMonthBreakdown.staffCost).toBe(2_250_000);
+
+    const currentMonthBreakdown = calculateOperationalCostForDateRange({
+      settings: saved,
+      fromDate: `${currentMonthKey}-01`,
+      toDate: `${currentMonthKey}-28`,
+    });
+    expect(currentMonthBreakdown.staffCost).toBe(3_250_000);
+  });
+
+  it("lets an owner fix a specific missed month's payroll without touching the live roster or current month", async () => {
+    const liveStaffSetting = {
+      userId: 44,
+      name: "Dina",
+      role: "Staff",
+      dailyTokenLimit: 200,
+      monthlySalary: 3_000_000,
+      mealAllowance: 250_000,
+      takeHomePay: 3_250_000,
+      isActive: true,
+    };
+    const missedMonthStaffSetting = {
+      ...liveStaffSetting,
+      monthlySalary: 1_800_000,
+      mealAllowance: 200_000,
+      takeHomePay: 2_000_000,
+    };
+
+    const saved = await persistSettings(
+      { staffSettings: [missedMonthStaffSetting] },
+      {
+        staffSettings: [liveStaffSetting],
+        staffPayrollHistory: [
+          { monthKey: "2026-07", staff: [liveStaffSetting] },
+          { monthKey: "2026-08", staff: [liveStaffSetting] },
+        ],
+      },
+      { payrollEffectiveMonthKey: "2026-06" },
+    );
+
+    // Roster/live settings untouched — the edit targeted June specifically.
+    expect(saved.staffSettings).toEqual([liveStaffSetting]);
+    // June now has its own frozen entry; July/August (already tracked) are untouched.
+    expect(
+      saved.staffPayrollHistory.find((entry) => entry.monthKey === "2026-06")
+        ?.staff,
+    ).toEqual([missedMonthStaffSetting]);
+    expect(
+      saved.staffPayrollHistory.find((entry) => entry.monthKey === "2026-07")
+        ?.staff,
+    ).toEqual([liveStaffSetting]);
+
+    const juneBreakdown = calculateOperationalCostForDateRange({
+      settings: saved,
+      fromDate: "2026-06-01",
+      toDate: "2026-06-30",
+    });
+    expect(juneBreakdown.staffCost).toBe(2_000_000);
+
+    const julyBreakdown = calculateOperationalCostForDateRange({
+      settings: saved,
+      fromDate: "2026-07-01",
+      toDate: "2026-07-31",
+    });
+    expect(julyBreakdown.staffCost).toBe(3_250_000);
   });
 
   it("propagates holiday calendar entries to ordering and attendance consumers", async () => {
