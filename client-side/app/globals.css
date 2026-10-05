@@ -82,6 +82,10 @@
   --crumbella-primary-soft: #a84820;
   --crumbella-accent: #a84820;
   --crumbella-accent-hover: #7c3410;
+  /* Warna hover tombol: dipakai lewat hover:bg-[var(--crumbella-*-strong)].
+     Tanpa definisi ini latar hover jadi transparan dan tombol "menghilang". */
+  --crumbella-accent-strong: var(--crumbella-accent-hover);
+  --crumbella-primary-strong: #5e260b;
   --crumbella-accent-soft: #f5e0d0;
   --crumbella-sun: #9a6b10;
   --crumbella-teal: #1a3d6b;
