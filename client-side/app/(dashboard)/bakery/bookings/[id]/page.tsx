@@ -115,11 +115,13 @@ export default function OrderDetailPage() {
     getCustomerMessagePreview,
     setOrderShipment,
     fetchOrderById,
+    resendProductionWhatsApp,
   } = useOrders();
   const params = useParams();
   const canGenerateInvoice = true;
   const orderId = typeof params?.id === "string" ? params.id : "";
   const [isCreatingResi, setIsCreatingResi] = useState(false);
+  const [isResendingWhatsApp, setIsResendingWhatsApp] = useState(false);
   const [statusDraft, setStatusDraft] = useState("");
   const [isLoadingDetail, setIsLoadingDetail] = useState(true);
   const [detailError, setDetailError] = useState<string | null>(null);
@@ -247,6 +249,27 @@ export default function OrderDetailPage() {
     if (!normalizedOrderStatus) return;
     setStatusDraft(normalizedOrderStatus);
   }, [normalizedOrderStatus]);
+
+  const isProductionWhatsAppPending = Boolean(
+    order &&
+      order.simulations?.productionWhatsappSent === false &&
+      !["Cancelled", "Completed", "Delivery", "Delivered"].includes(
+        order.orderStatus || "",
+      ),
+  );
+
+  const handleResendProductionWhatsApp = async () => {
+    if (!order || isResendingWhatsApp) return;
+    if (!window.confirm("Kirim ulang rekap order ini ke grup WA produksi?")) {
+      return;
+    }
+    setIsResendingWhatsApp(true);
+    try {
+      await resendProductionWhatsApp(order.id);
+    } finally {
+      setIsResendingWhatsApp(false);
+    }
+  };
 
   const handlePrintLabel = () => {
     if (!order) return;
@@ -799,6 +822,42 @@ export default function OrderDetailPage() {
               {isCreatingResi ? "Membuat Resi..." : "Kurir"}
             </Button>
           </div>
+
+          {isProductionWhatsAppPending && (
+            <Card className="overflow-hidden rounded-[24px] border-rose-200 bg-rose-50 shadow-none">
+              <CardContent className="space-y-3 px-4 py-4">
+                <div className="flex items-start gap-2">
+                  <MessageCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
+                  <div>
+                    <p className="font-semibold text-rose-700">
+                      WA produksi belum terkirim ke grup
+                    </p>
+                    {order.simulations?.lastAutomationMessage && (
+                      <p className="text-sm text-rose-600">
+                        {order.simulations.lastAutomationMessage}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-11 w-full rounded-2xl border-rose-300 bg-white text-rose-700 hover:bg-rose-100"
+                  disabled={isResendingWhatsApp}
+                  onClick={handleResendProductionWhatsApp}
+                >
+                  {isResendingWhatsApp ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <MessageCircle className="mr-2 h-4 w-4" />
+                  )}
+                  {isResendingWhatsApp
+                    ? "Mengirim ulang..."
+                    : "Kirim ulang WA Produksi"}
+                </Button>
+              </CardContent>
+            </Card>
+          )}
 
           <Card className="overflow-hidden rounded-[24px] border-[var(--crumbella-border)] shadow-none">
             <CardHeader className="border-b border-[var(--crumbella-border)] px-4 py-4">

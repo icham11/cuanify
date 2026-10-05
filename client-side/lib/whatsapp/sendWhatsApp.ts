@@ -1,4 +1,8 @@
-const FONNTE_ENDPOINT = "https://api.fonnte.com/send";
+import {
+  describeFetchError,
+  postToFonnte,
+  type FonnteFields,
+} from "./fonnteTransport";
 
 /**
  * Validasi apakah string adalah URL HTTP/HTTPS yang valid
@@ -56,7 +60,9 @@ type FonnteOutboundMessage = {
   imageUrl?: string;
 };
 
-const FONNTE_MAX_ATTEMPTS = 3;
+// Gangguan jaringan Vercel → Fonnte bisa berlangsung beberapa detik ("fetch failed"),
+// jadi beri jeda bertingkat 2s, 4s, 8s (total ~14 detik) sebelum menyerah.
+const FONNTE_MAX_ATTEMPTS = 4;
 const FONNTE_RETRY_DELAY_MS = 2_000;
 
 function waitBeforeRetry(delayMs: number): Promise<void> {
@@ -105,16 +111,17 @@ async function sendFonnteMessage(
   // Fonnte API WAJIB menggunakan multipart/form-data (FormData) untuk pengiriman gambar via URL.
   // Jika menggunakan JSON (application/json), Fonnte tidak dapat membaca field 'url' dan
   // hanya mengirimkan teks saja tanpa gambar.
-  const formData = new FormData();
-  formData.set("target", normalizedTarget);
-  formData.set("message", message);
-  formData.set("delay", String(Math.max(0, Math.round(delaySeconds))));
+  const fields: FonnteFields = {
+    target: normalizedTarget,
+    message,
+    delay: String(Math.max(0, Math.round(delaySeconds))),
+  };
 
   if (imageUrl) {
     // Menggunakan field 'url' untuk mengirimkan link publik gambar ke Fonnte
-    formData.set("url", imageUrl);
+    fields.url = imageUrl;
     // Field 'filename' diperlukan Fonnte agar gambar tidak ditolak WA sebagai dokumen
-    formData.set("filename", "referensi.jpg");
+    fields.filename = "referensi.jpg";
   }
 
   console.debug(`${logLabel} FormData yang akan dikirim ke Fonnte:`, {
@@ -128,15 +135,7 @@ async function sendFonnteMessage(
 
   for (let attempt = 1; attempt <= FONNTE_MAX_ATTEMPTS; attempt += 1) {
     try {
-      const response = await fetch(FONNTE_ENDPOINT, {
-        method: "POST",
-        // Tidak set Content-Type header secara manual saat pakai FormData:
-        // browser/Node akan otomatis set multipart/form-data + boundary yang benar
-        headers: {
-          Authorization: token,
-        },
-        body: formData,
-      });
+      const response = await postToFonnte(token, fields);
 
       const rawText = await response.text();
 
@@ -152,7 +151,7 @@ async function sendFonnteMessage(
           attempt < FONNTE_MAX_ATTEMPTS &&
           shouldRetryFonnteHttpStatus(response.status)
         ) {
-          await waitBeforeRetry(FONNTE_RETRY_DELAY_MS * attempt);
+          await waitBeforeRetry(FONNTE_RETRY_DELAY_MS * 2 ** (attempt - 1));
           continue;
         }
 
@@ -178,8 +177,7 @@ async function sendFonnteMessage(
       });
       return;
     } catch (error) {
-      lastError =
-        error instanceof Error ? error : new Error(String(error || "Unknown"));
+      lastError = new Error(describeFetchError(error));
 
       const message = lastError.message.toLowerCase();
       const isRetryableNetworkIssue =
@@ -195,7 +193,7 @@ async function sendFonnteMessage(
           nextAttempt: attempt + 1,
           error: lastError.message,
         });
-        await waitBeforeRetry(FONNTE_RETRY_DELAY_MS * attempt);
+        await waitBeforeRetry(FONNTE_RETRY_DELAY_MS * 2 ** (attempt - 1));
         continue;
       }
 
@@ -248,10 +246,11 @@ export async function sendWhatsAppSequence(
     ...(entry.imageUrl ? { url: entry.imageUrl } : {}),
   }));
 
-  const formData = new FormData();
-  formData.set("data", JSON.stringify(sequencePayload));
-  formData.set("sequence", "true");
-  formData.set("countryCode", "0");
+  const fields: FonnteFields = {
+    data: JSON.stringify(sequencePayload),
+    sequence: "true",
+    countryCode: "0",
+  };
 
   console.info("[sendWhatsAppSequence] Mengirim batch WA berurutan:", {
     target: normalizedTarget,
@@ -263,13 +262,7 @@ export async function sendWhatsAppSequence(
 
   for (let attempt = 1; attempt <= FONNTE_MAX_ATTEMPTS; attempt += 1) {
     try {
-      const response = await fetch(FONNTE_ENDPOINT, {
-        method: "POST",
-        headers: {
-          Authorization: token,
-        },
-        body: formData,
-      });
+      const response = await postToFonnte(token, fields);
 
       const rawText = await response.text();
 
@@ -285,7 +278,7 @@ export async function sendWhatsAppSequence(
           attempt < FONNTE_MAX_ATTEMPTS &&
           shouldRetryFonnteHttpStatus(response.status)
         ) {
-          await waitBeforeRetry(FONNTE_RETRY_DELAY_MS * attempt);
+          await waitBeforeRetry(FONNTE_RETRY_DELAY_MS * 2 ** (attempt - 1));
           continue;
         }
 
@@ -304,8 +297,7 @@ export async function sendWhatsAppSequence(
       });
       return;
     } catch (error) {
-      lastError =
-        error instanceof Error ? error : new Error(String(error || "Unknown"));
+      lastError = new Error(describeFetchError(error));
 
       const message = lastError.message.toLowerCase();
       const isRetryableNetworkIssue =
@@ -316,7 +308,7 @@ export async function sendWhatsAppSequence(
         message.includes("socket hang up");
 
       if (attempt < FONNTE_MAX_ATTEMPTS && isRetryableNetworkIssue) {
-        await waitBeforeRetry(FONNTE_RETRY_DELAY_MS * attempt);
+        await waitBeforeRetry(FONNTE_RETRY_DELAY_MS * 2 ** (attempt - 1));
         continue;
       }
 

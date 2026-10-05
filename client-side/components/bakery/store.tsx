@@ -353,6 +353,7 @@ interface OrdersContextValue {
     deliverySlot: string,
   ) => void;
   syncOrderCalendar: (id: string) => Promise<void>;
+  resendProductionWhatsApp: (id: string) => Promise<void>;
   getCustomerMessagePreview: (id: string) => string;
   setOrderShipment: (id: string, shipment: ShippingShipment) => void;
   reloadOrdersFromServer: () => Promise<void>;
@@ -4128,6 +4129,14 @@ export function OrdersProvider({
     [runAutomationsForOrder],
   );
 
+  // Kirim ulang WA produksi saat pengiriman awal gagal (mis. gangguan jaringan ke Fonnte).
+  const resendProductionWhatsApp = useCallback(
+    async (id: string) => {
+      await runAutomationsForOrder("order_created", id);
+    },
+    [runAutomationsForOrder],
+  );
+
   const setOrderShipment = useCallback(
     (id: string, shipment: ShippingShipment) => {
       const nextOrders: BakeryOrder[] = orders.map((order) => {
@@ -4340,6 +4349,7 @@ export function OrdersProvider({
       recordPayment,
       updateOrderSchedule,
       syncOrderCalendar,
+      resendProductionWhatsApp,
       getCustomerMessagePreview,
       setOrderShipment,
       reloadOrdersFromServer: () => hydrateOrdersFromServer(true),
@@ -4360,6 +4370,7 @@ export function OrdersProvider({
       recordPayment,
       updateOrderSchedule,
       syncOrderCalendar,
+      resendProductionWhatsApp,
       getCustomerMessagePreview,
       setOrderShipment,
       hydrateOrdersFromServer,

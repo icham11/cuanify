@@ -5,6 +5,11 @@ import {
   buildProductionCaption,
   sendOrderToWhatsApp,
 } from "@/lib/whatsapp/sendOrderToWhatsApp";
+import {
+  describeFetchError,
+  postToFonnte,
+  type FonnteFields,
+} from "@/lib/whatsapp/fonnteTransport";
 import type {
   AutomationActionResult,
   BookingAutomationEvent,
@@ -19,7 +24,6 @@ import {
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const GOOGLE_CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar";
 const GOOGLE_SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
-const FONNTE_API_URL = "https://api.fonnte.com/send";
 
 type GoogleCalendarOAuthMetadata = {
   refreshToken?: string;
@@ -467,26 +471,17 @@ async function sendFonnteMessage(
     };
   }
 
-  const payload: {
-    target: string;
-    message: string;
-    url?: string;
-  } = {
+  const fields: FonnteFields = {
     target,
     message,
   };
 
   if (imageUrl) {
-    payload.url = imageUrl;
+    fields.url = imageUrl;
   }
 
-  const response = await fetch(FONNTE_API_URL, {
-    method: "POST",
-    headers: {
-      Authorization: token,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
+  const response = await postToFonnte(token, fields).catch((error: unknown) => {
+    throw new Error(describeFetchError(error));
   });
 
   const data = (await response.json().catch(() => ({}))) as {
