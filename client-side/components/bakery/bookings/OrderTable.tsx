@@ -4,12 +4,23 @@ import { useMemo, useState, useRef } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { MessageCircle, Pencil, Trash2, Loader2 } from "lucide-react";
+import {
+  CheckSquare,
+  MessageCircle,
+  Pencil,
+  Trash2,
+  Loader2,
+  X,
+} from "lucide-react";
+import { toast } from "sonner";
 import { useRole } from "@/context/RoleContext";
 
 import OrderHighlightBadge from "@/components/bakery/bookings/OrderHighlightBadge";
 import { type BakeryOrder, useOrdersActions } from "@/components/bakery/store";
-import { getBookingStatusOptionsFor } from "@/lib/bookings/order-status";
+import {
+  BOOKING_STATUS_OPTIONS,
+  getBookingStatusOptionsFor,
+} from "@/lib/bookings/order-status";
 import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 import { getOrderItemsSummary } from "@/lib/bookings/order-display";
 import {
@@ -235,8 +246,12 @@ export default function OrderTable({
   const { settings } = useBakerySettings();
   // Gunakan useOrdersActions — OrderTable menerima orders sebagai props dari parent,
   // sehingga tidak perlu subscribe ke seluruh orders context.
-  const { getCustomerMessagePreview, updateOrderStatus, updatePaymentStatus } =
-    useOrdersActions();
+  const {
+    getCustomerMessagePreview,
+    updateOrderStatus,
+    updateOrdersStatusBulk,
+    updatePaymentStatus,
+  } = useOrdersActions();
   const { isOwner, isAdmin, loading: roleLoading } = useRole();
   const router = useRouter();
   const [deleteModal, setDeleteModal] = useState<BakeryOrder | null>(null);
@@ -247,6 +262,74 @@ export default function OrderTable({
     string | null
   >(null);
   const currentMonthKey = getJakartaTodayIsoDate().slice(0, 7);
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [bulkStatus, setBulkStatus] =
+    useState<BakeryOrder["orderStatus"]>("Completed");
+  const [bulkProgress, setBulkProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
+  const isBulkUpdating = bulkProgress !== null;
+  const visibleSelectedIds = orders
+    .map((order) => order.id)
+    .filter((id) => selectedIds.has(id));
+  const isAllSelected =
+    orders.length > 0 && visibleSelectedIds.length === orders.length;
+
+  const exitSelectionMode = () => {
+    setIsSelectionMode(false);
+    setSelectedIds(new Set());
+  };
+
+  const toggleSelected = (orderId: string) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(orderId)) next.delete(orderId);
+      else next.add(orderId);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    setSelectedIds(
+      isAllSelected ? new Set() : new Set(orders.map((order) => order.id)),
+    );
+  };
+
+  const handleApplyBulkStatus = async () => {
+    const targetIds = visibleSelectedIds;
+    if (targetIds.length === 0 || isBulkUpdating) return;
+    if (
+      !window.confirm(
+        `Ubah status ${targetIds.length} order menjadi ${bulkStatus}?`,
+      )
+    ) {
+      return;
+    }
+
+    setBulkProgress({ done: 0, total: targetIds.length });
+    try {
+      const result = await updateOrdersStatusBulk(
+        targetIds,
+        bulkStatus,
+        (done, total) => setBulkProgress({ done, total }),
+      );
+      if (result.failed.length === 0) {
+        toast.success(
+          `${result.succeeded.length} order diubah menjadi ${bulkStatus}.`,
+        );
+      } else {
+        toast.warning(
+          `${result.succeeded.length} order berhasil, ${result.failed.length} gagal diubah. ${result.failed[0]?.message ?? ""}`,
+        );
+      }
+      exitSelectionMode();
+      await onOrderStatusUpdated?.();
+    } finally {
+      setBulkProgress(null);
+    }
+  };
 
   const highlightMap = useMemo<Map<string, Highlight>>(() => {
     const today = getJakartaTodayIsoDate();
@@ -285,284 +368,385 @@ export default function OrderTable({
   }
 
   return (
-    <div className="grid gap-3 xl:grid-cols-2">
-      {orders.map((order) => {
-        const messagePhone = buildWhatsappPhone(order.customerPhone);
-        const message = getCustomerMessagePreview(order.id);
-        const messageLink = messagePhone ? `https://wa.me/${messagePhone}?text=${encodeURIComponent(message)}` : null;
-        const highlight = highlightMap.get(order.id);
-        const productSummary = compactText(
-          getOrderItemsSummary(order.items, order.product || "Custom Cake"),
-        );
-        const normalizedStatus = normalizeOrderStatus(order.orderStatus);
-        const difficultyLabel = inferDifficultyLabel(order);
-        const stageLabels = getProductionStageLabels(
-          resolveProductionStageTemplatesForCategory({
-            category: resolvePrimaryProductionCategory(order.items ?? []),
-            profiles: settings?.productionStageProfiles,
-          }),
-        );
-        const isUpdatingStatus = pendingStatusOrderId === order.id;
-        const isUpdatingPayment = pendingPaymentOrderId === order.id;
-        const orderMonthKey = getIsoMonthKey(order.deliveryDate);
-        const isPastMonthOrder =
-          orderMonthKey !== null && orderMonthKey < currentMonthKey;
-        const canEditOrder = !isPastMonthOrder || (!roleLoading && isOwner);
-        const canDeleteOrder =
-          !roleLoading && (isOwner || (isAdmin && !isPastMonthOrder));
-        const stageEntries =
-          order.productionStages && order.productionStages.length > 0
-            ? order.productionStages
-            : PRODUCTION_STAGE_ORDER.map((stage) => ({
-                stage,
-                staffId: null,
-                tokenAmount: 0,
-              }));
-
-        return (
-          <div
-            key={order.id}
-            role="button"
-            tabIndex={0}
-            onClick={() => router.push(`/bakery/bookings/${order.id}`)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                router.push(`/bakery/bookings/${order.id}`);
-              }
-            }}
-            className="cursor-pointer rounded-[24px] border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] shadow-[0_14px_26px_-24px_rgba(30,18,10,0.62)] transition hover:-translate-y-0.5 hover:shadow-[0_18px_34px_-24px_rgba(30,18,10,0.74)] focus:outline-none focus:ring-2 focus:ring-[var(--crumbella-focus)]"
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2 rounded-[18px] border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] px-3 py-2">
+        {!isSelectionMode ? (
+          <button
+            type="button"
+            onClick={() => setIsSelectionMode(true)}
+            className="inline-flex h-9 items-center gap-2 rounded-xl border border-[var(--crumbella-border)] bg-white px-3 text-xs font-semibold text-[var(--foreground)] hover:bg-[var(--crumbella-accent-soft)]"
           >
-            <div className="flex items-start justify-between gap-3 border-b border-[var(--crumbella-border)] px-4 py-3">
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="truncate text-[1.05rem] font-bold leading-none text-[var(--foreground)]">
-                    {order.customerName || "Walk-in Customer"}
+            <CheckSquare className="h-4 w-4" />
+            Pilih order untuk ubah status
+          </button>
+        ) : (
+          <>
+            <label className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-xl border border-[var(--crumbella-border)] bg-white px-3 text-xs font-semibold text-[var(--foreground)]">
+              <input
+                type="checkbox"
+                checked={isAllSelected}
+                disabled={isBulkUpdating}
+                onChange={toggleSelectAll}
+                className="h-4 w-4 accent-[var(--crumbella-accent)]"
+              />
+              Pilih semua ({orders.length})
+            </label>
+            <span className="text-xs font-semibold text-[var(--crumbella-muted)]">
+              {visibleSelectedIds.length} dipilih
+            </span>
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              <select
+                value={bulkStatus}
+                disabled={isBulkUpdating}
+                onChange={(event) =>
+                  setBulkStatus(
+                    event.target.value as BakeryOrder["orderStatus"],
+                  )
+                }
+                aria-label="Status tujuan"
+                className="h-9 rounded-xl border border-[var(--crumbella-border)] bg-white px-2 text-xs font-semibold text-[var(--foreground)]"
+              >
+                {BOOKING_STATUS_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => void handleApplyBulkStatus()}
+                disabled={visibleSelectedIds.length === 0 || isBulkUpdating}
+                className="inline-flex h-9 items-center gap-2 rounded-xl bg-[var(--crumbella-accent)] px-3 text-xs font-semibold text-white hover:bg-[var(--crumbella-accent-strong)] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isBulkUpdating ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Memproses {bulkProgress?.done}/{bulkProgress?.total}
+                  </>
+                ) : (
+                  `Ubah status (${visibleSelectedIds.length})`
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={exitSelectionMode}
+                disabled={isBulkUpdating}
+                aria-label="Batal pilih order"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-[var(--crumbella-border)] bg-white text-[var(--crumbella-muted)] hover:bg-[var(--crumbella-accent-soft)] disabled:opacity-50"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+
+      <div className="grid gap-3 xl:grid-cols-2">
+        {orders.map((order) => {
+          const messagePhone = buildWhatsappPhone(order.customerPhone);
+          const message = getCustomerMessagePreview(order.id);
+          const messageLink = messagePhone ? `https://wa.me/${messagePhone}?text=${encodeURIComponent(message)}` : null;
+          const highlight = highlightMap.get(order.id);
+          const productSummary = compactText(
+            getOrderItemsSummary(order.items, order.product || "Custom Cake"),
+          );
+          const normalizedStatus = normalizeOrderStatus(order.orderStatus);
+          const difficultyLabel = inferDifficultyLabel(order);
+          const stageLabels = getProductionStageLabels(
+            resolveProductionStageTemplatesForCategory({
+              category: resolvePrimaryProductionCategory(order.items ?? []),
+              profiles: settings?.productionStageProfiles,
+            }),
+          );
+          const isUpdatingStatus = pendingStatusOrderId === order.id;
+          const isSelected = isSelectionMode && selectedIds.has(order.id);
+          const isUpdatingPayment = pendingPaymentOrderId === order.id;
+          const orderMonthKey = getIsoMonthKey(order.deliveryDate);
+          const isPastMonthOrder =
+            orderMonthKey !== null && orderMonthKey < currentMonthKey;
+          const canEditOrder = !isPastMonthOrder || (!roleLoading && isOwner);
+          const canDeleteOrder =
+            !roleLoading && (isOwner || (isAdmin && !isPastMonthOrder));
+          const stageEntries =
+            order.productionStages && order.productionStages.length > 0
+              ? order.productionStages
+              : PRODUCTION_STAGE_ORDER.map((stage) => ({
+                  stage,
+                  staffId: null,
+                  tokenAmount: 0,
+                }));
+
+          return (
+            <div
+              key={order.id}
+              role="button"
+              tabIndex={0}
+              aria-pressed={isSelectionMode ? isSelected : undefined}
+              onClick={() => {
+                if (isSelectionMode) {
+                  if (!isBulkUpdating) toggleSelected(order.id);
+                  return;
+                }
+                router.push(`/bakery/bookings/${order.id}`);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  if (isSelectionMode) {
+                    if (!isBulkUpdating) toggleSelected(order.id);
+                    return;
+                  }
+                  router.push(`/bakery/bookings/${order.id}`);
+                }
+              }}
+              className={`cursor-pointer rounded-[24px] border bg-[var(--crumbella-surface)] ${
+                isSelected
+                  ? "border-[var(--crumbella-accent)] ring-2 ring-[var(--crumbella-accent)]"
+                  : "border-[var(--crumbella-border)]"
+              } shadow-[0_14px_26px_-24px_rgba(30,18,10,0.62)] transition hover:-translate-y-0.5 hover:shadow-[0_18px_34px_-24px_rgba(30,18,10,0.74)] focus:outline-none focus:ring-2 focus:ring-[var(--crumbella-focus)]`}
+            >
+              <div className="flex items-start justify-between gap-3 border-b border-[var(--crumbella-border)] px-4 py-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {isSelectionMode ? (
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        disabled={isBulkUpdating}
+                        onClick={(event) => event.stopPropagation()}
+                        onChange={() => toggleSelected(order.id)}
+                        aria-label={`Pilih order ${order.customerName || order.id}`}
+                        className="h-4 w-4 shrink-0 accent-[var(--crumbella-accent)]"
+                      />
+                    ) : null}
+                    <p className="truncate text-[1.05rem] font-bold leading-none text-[var(--foreground)]">
+                      {order.customerName || "Walk-in Customer"}
+                    </p>
+                    {order.paymentStatus !== "Paid" ? (
+                      <span className="inline-flex rounded-full bg-[#fbf0d8] px-2 py-0.5 text-[10px] font-semibold text-[#9a6b10]">
+                        DP
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="mt-1 text-[10px] text-[var(--crumbella-muted)]">
+                    {order.bookingCode || order.resi || `Draft-${order.id}`}
                   </p>
-                  {order.paymentStatus !== "Paid" ? (
-                    <span className="inline-flex rounded-full bg-[#fbf0d8] px-2 py-0.5 text-[10px] font-semibold text-[#9a6b10]">
-                      DP
+                </div>
+
+                <div className="shrink-0 text-right">
+                  <p className="text-[10px] text-[var(--crumbella-muted)]">Delivery</p>
+                  <p className="text-[13px] font-semibold leading-tight text-[var(--foreground)]">
+                    {formatDeliveryDate(order.deliveryDate)}
+                  </p>
+                  {highlight?.label ? (
+                    <div className="mt-1 flex justify-end">
+                      <OrderHighlightBadge label={highlight.label} tone={highlight.tone} />
+                    </div>
+                  ) : (
+                    <div className="mt-1 flex justify-end">
+                      <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusPillClass(normalizedStatus)}`}>
+                        {normalizedStatus}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-1 px-4 py-3">
+                <p className="text-[1rem] font-medium leading-snug text-[var(--foreground)]">
+                  {productSummary}
+                </p>
+                <p className="text-[11px] text-[var(--crumbella-muted)]">
+                  {buildFulfillmentLabel(order)}
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between gap-3 border-t border-[var(--crumbella-border)] px-4 py-3">
+                <div className="flex flex-wrap gap-2">
+                  {stageEntries.map((stage) => {
+                    const stageKey = normalizeProductionStageKey(stage.stage);
+                    const stageLabel =
+                      stageKey
+                        ? stageLabels[stageKey]
+                        : String(stage.stage || "");
+                    const isAssigned = Boolean(stage.staffId);
+
+                    return (
+                      <span
+                        key={`${order.id}-${stageKey}`}
+                        className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-semibold ${stagePillClass(isAssigned)}`}
+                      >
+                        {stageLabel}
+                      </span>
+                    );
+                  })}
+                </div>
+
+                {difficultyLabel ? (
+                  <span className="inline-flex rounded-full bg-[#fff1e3] px-2 py-0.5 text-[10px] font-semibold text-[var(--crumbella-primary)]">
+                    {difficultyLabel}
+                  </span>
+                ) : isGrabOrGojekOrder(order) ? (
+                  <span className="inline-flex rounded-full bg-[#fff1e3] px-2 py-0.5 text-[10px] font-semibold text-[var(--crumbella-primary)]">
+                    Express
+                  </span>
+                ) : null}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 border-t border-[var(--crumbella-border)] px-4 py-3">
+                <label
+                  className="flex items-center gap-2"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <span className="text-[10px] font-semibold text-[var(--crumbella-muted)]">
+                    Bayar
+                  </span>
+                  <select
+                    value={order.paymentStatus}
+                    disabled={isUpdatingPayment}
+                    onChange={async (event) => {
+                      event.stopPropagation();
+                      const nextStatus = event.target.value as
+                        | "Pending"
+                        | "DP Paid"
+                        | "Paid";
+                      if (nextStatus === order.paymentStatus) return;
+                      setPendingPaymentOrderId(order.id);
+                      try {
+                        await updatePaymentStatus(order.id, nextStatus);
+                        await onOrderStatusUpdated?.({
+                          orderId: order.id,
+                          nextPaymentStatus: nextStatus,
+                        });
+                      } catch {
+                        // Toast sudah ditangani store; hindari unhandled rejection di UI tabel.
+                      } finally {
+                        setPendingPaymentOrderId(null);
+                      }
+                    }}
+                    className="h-8 rounded-xl border border-[var(--crumbella-border)] bg-white px-2 text-[11px] font-semibold text-[var(--foreground)] disabled:cursor-wait disabled:bg-[#f7f0e8] disabled:text-[var(--crumbella-muted)]"
+                  >
+                    <option value="Pending">Pending</option>
+                    <option value="DP Paid">DP</option>
+                    <option value="Paid">Lunas</option>
+                  </select>
+                  {isUpdatingPayment ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-[#fff1e3] px-2 py-1 text-[10px] font-semibold text-[var(--crumbella-primary)]">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Menyimpan...
                     </span>
                   ) : null}
-                </div>
-                <p className="mt-1 text-[10px] text-[var(--crumbella-muted)]">
-                  {order.bookingCode || order.resi || `Draft-${order.id}`}
-                </p>
-              </div>
-
-              <div className="shrink-0 text-right">
-                <p className="text-[10px] text-[var(--crumbella-muted)]">Delivery</p>
-                <p className="text-[13px] font-semibold leading-tight text-[var(--foreground)]">
-                  {formatDeliveryDate(order.deliveryDate)}
-                </p>
-                {highlight?.label ? (
-                  <div className="mt-1 flex justify-end">
-                    <OrderHighlightBadge label={highlight.label} tone={highlight.tone} />
-                  </div>
-                ) : (
-                  <div className="mt-1 flex justify-end">
-                    <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusPillClass(normalizedStatus)}`}>
-                      {normalizedStatus}
-                    </span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="space-y-1 px-4 py-3">
-              <p className="text-[1rem] font-medium leading-snug text-[var(--foreground)]">
-                {productSummary}
-              </p>
-              <p className="text-[11px] text-[var(--crumbella-muted)]">
-                {buildFulfillmentLabel(order)}
-              </p>
-            </div>
-
-            <div className="flex items-center justify-between gap-3 border-t border-[var(--crumbella-border)] px-4 py-3">
-              <div className="flex flex-wrap gap-2">
-                {stageEntries.map((stage) => {
-                  const stageKey = normalizeProductionStageKey(stage.stage);
-                  const stageLabel =
-                    stageKey
-                      ? stageLabels[stageKey]
-                      : String(stage.stage || "");
-                  const isAssigned = Boolean(stage.staffId);
-
-                  return (
-                    <span
-                      key={`${order.id}-${stageKey}`}
-                      className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-semibold ${stagePillClass(isAssigned)}`}
-                    >
-                      {stageLabel}
-                    </span>
-                  );
-                })}
-              </div>
-
-              {difficultyLabel ? (
-                <span className="inline-flex rounded-full bg-[#fff1e3] px-2 py-0.5 text-[10px] font-semibold text-[var(--crumbella-primary)]">
-                  {difficultyLabel}
-                </span>
-              ) : isGrabOrGojekOrder(order) ? (
-                <span className="inline-flex rounded-full bg-[#fff1e3] px-2 py-0.5 text-[10px] font-semibold text-[var(--crumbella-primary)]">
-                  Express
-                </span>
-              ) : null}
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2 border-t border-[var(--crumbella-border)] px-4 py-3">
-              <label
-                className="flex items-center gap-2"
-                onClick={(event) => event.stopPropagation()}
-              >
-                <span className="text-[10px] font-semibold text-[var(--crumbella-muted)]">
-                  Bayar
-                </span>
-                <select
-                  value={order.paymentStatus}
-                  disabled={isUpdatingPayment}
-                  onChange={async (event) => {
-                    event.stopPropagation();
-                    const nextStatus = event.target.value as
-                      | "Pending"
-                      | "DP Paid"
-                      | "Paid";
-                    if (nextStatus === order.paymentStatus) return;
-                    setPendingPaymentOrderId(order.id);
-                    try {
-                      await updatePaymentStatus(order.id, nextStatus);
-                      await onOrderStatusUpdated?.({
-                        orderId: order.id,
-                        nextPaymentStatus: nextStatus,
-                      });
-                    } catch {
-                      // Toast sudah ditangani store; hindari unhandled rejection di UI tabel.
-                    } finally {
-                      setPendingPaymentOrderId(null);
-                    }
-                  }}
-                  className="h-8 rounded-xl border border-[var(--crumbella-border)] bg-white px-2 text-[11px] font-semibold text-[var(--foreground)] disabled:cursor-wait disabled:bg-[#f7f0e8] disabled:text-[var(--crumbella-muted)]"
+                </label>
+                <label
+                  className="flex items-center gap-2"
+                  onClick={(event) => event.stopPropagation()}
                 >
-                  <option value="Pending">Pending</option>
-                  <option value="DP Paid">DP</option>
-                  <option value="Paid">Lunas</option>
-                </select>
-                {isUpdatingPayment ? (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-[#fff1e3] px-2 py-1 text-[10px] font-semibold text-[var(--crumbella-primary)]">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    Menyimpan...
+                  <span className="text-[10px] font-semibold text-[var(--crumbella-muted)]">
+                    Produksi
                   </span>
-                ) : null}
-              </label>
-              <label
-                className="flex items-center gap-2"
-                onClick={(event) => event.stopPropagation()}
-              >
-                <span className="text-[10px] font-semibold text-[var(--crumbella-muted)]">
-                  Produksi
-                </span>
-                <select
-                  value={normalizedStatus}
-                  disabled={isUpdatingStatus}
-                  onChange={async (event) => {
-                    event.stopPropagation();
-                    const nextStatus = event.target.value as
-                      | "In Production"
-                      | "Ready"
-                      | "Delivery"
-                      | "Completed"
-                      | "Cancelled";
-                    if (nextStatus === normalizedStatus) return;
-                    setPendingStatusOrderId(order.id);
-                    try {
-                      await updateOrderStatus(order.id, nextStatus);
-                      await onOrderStatusUpdated?.({
-                        orderId: order.id,
-                        nextStatus,
-                      });
-                    } catch {
-                      // Toast sudah ditangani store; hindari unhandled rejection di UI tabel.
-                    } finally {
-                      setPendingStatusOrderId(null);
-                    }
-                  }}
-                  className="h-8 rounded-xl border border-[var(--crumbella-border)] bg-white px-2 text-[11px] font-semibold text-[var(--foreground)] disabled:cursor-wait disabled:bg-[#f7f0e8] disabled:text-[var(--crumbella-muted)]"
-                >
-                  {getBookingStatusOptionsFor(normalizedStatus).map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-                {isUpdatingStatus ? (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-[#fff1e3] px-2 py-1 text-[10px] font-semibold text-[var(--crumbella-primary)]">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    Menyimpan...
-                  </span>
-                ) : null}
-              </label>
-              <Link
-                href={`/bakery/bookings/${order.id}`}
-                onClick={(event) => event.stopPropagation()}
-                className="inline-flex h-8 items-center justify-center rounded-xl border border-[var(--crumbella-border)] px-3 text-[11px] font-semibold text-[var(--foreground)]"
-              >
-                Detail
-              </Link>
-              {canEditOrder ? (
+                  <select
+                    value={normalizedStatus}
+                    disabled={isUpdatingStatus}
+                    onChange={async (event) => {
+                      event.stopPropagation();
+                      const nextStatus = event.target.value as
+                        | "In Production"
+                        | "Ready"
+                        | "Delivery"
+                        | "Completed"
+                        | "Cancelled";
+                      if (nextStatus === normalizedStatus) return;
+                      setPendingStatusOrderId(order.id);
+                      try {
+                        await updateOrderStatus(order.id, nextStatus);
+                        await onOrderStatusUpdated?.({
+                          orderId: order.id,
+                          nextStatus,
+                        });
+                      } catch {
+                        // Toast sudah ditangani store; hindari unhandled rejection di UI tabel.
+                      } finally {
+                        setPendingStatusOrderId(null);
+                      }
+                    }}
+                    className="h-8 rounded-xl border border-[var(--crumbella-border)] bg-white px-2 text-[11px] font-semibold text-[var(--foreground)] disabled:cursor-wait disabled:bg-[#f7f0e8] disabled:text-[var(--crumbella-muted)]"
+                  >
+                    {getBookingStatusOptionsFor(normalizedStatus).map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  {isUpdatingStatus ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-[#fff1e3] px-2 py-1 text-[10px] font-semibold text-[var(--crumbella-primary)]">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Menyimpan...
+                    </span>
+                  ) : null}
+                </label>
                 <Link
-                  href={`/bakery/bookings/${order.id}/edit`}
+                  href={`/bakery/bookings/${order.id}`}
                   onClick={(event) => event.stopPropagation()}
-                  className="inline-flex h-8 items-center justify-center gap-1 rounded-xl border border-[var(--crumbella-border)] px-3 text-[11px] font-semibold text-[var(--foreground)]"
+                  className="inline-flex h-8 items-center justify-center rounded-xl border border-[var(--crumbella-border)] px-3 text-[11px] font-semibold text-[var(--foreground)]"
                 >
-                  <Pencil size={13} />
-                  Edit
+                  Detail
                 </Link>
-              ) : (
-                <span
-                  onClick={(event) => event.stopPropagation()}
-                  title="Order bulan lalu, hanya Owner yang bisa mengedit"
-                  className="inline-flex h-8 cursor-not-allowed items-center justify-center gap-1 rounded-xl border border-[var(--crumbella-border)] px-3 text-[11px] font-semibold text-[var(--crumbella-muted)] opacity-50"
-                >
-                  <Pencil size={13} />
-                  Edit
-                </span>
-              )}
-              {canDeleteOrder && (
-                <button
-                  type="button"
-                  data-testid={`delete-booking-${order.id}`}
+                {canEditOrder ? (
+                  <Link
+                    href={`/bakery/bookings/${order.id}/edit`}
+                    onClick={(event) => event.stopPropagation()}
+                    className="inline-flex h-8 items-center justify-center gap-1 rounded-xl border border-[var(--crumbella-border)] px-3 text-[11px] font-semibold text-[var(--foreground)]"
+                  >
+                    <Pencil size={13} />
+                    Edit
+                  </Link>
+                ) : (
+                  <span
+                    onClick={(event) => event.stopPropagation()}
+                    title="Order bulan lalu, hanya Owner yang bisa mengedit"
+                    className="inline-flex h-8 cursor-not-allowed items-center justify-center gap-1 rounded-xl border border-[var(--crumbella-border)] px-3 text-[11px] font-semibold text-[var(--crumbella-muted)] opacity-50"
+                  >
+                    <Pencil size={13} />
+                    Edit
+                  </span>
+                )}
+                {canDeleteOrder && (
+                  <button
+                    type="button"
+                    data-testid={`delete-booking-${order.id}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setDeleteModal(order);
+                    }}
+                    className="inline-flex h-8 items-center justify-center gap-1 rounded-xl border border-[var(--crumbella-border)] px-3 text-[11px] font-semibold text-[#a83030] hover:bg-red-50"
+                  >
+                    <Trash2 size={13} />
+                    Hapus
+                  </button>
+                )}
+                <a
+                  href={messageLink ?? "#"}
+                  target={messageLink ? "_blank" : undefined}
+                  rel={messageLink ? "noopener noreferrer" : undefined}
+                  aria-disabled={!messageLink}
                   onClick={(event) => {
                     event.stopPropagation();
-                    setDeleteModal(order);
+                    if (!messageLink) event.preventDefault();
                   }}
-                  className="inline-flex h-8 items-center justify-center gap-1 rounded-xl border border-[var(--crumbella-border)] px-3 text-[11px] font-semibold text-[#a83030] hover:bg-red-50"
+                  className={`inline-flex h-8 items-center justify-center gap-1 rounded-xl px-3 text-[11px] font-semibold ${
+                    messageLink
+                      ? "border border-[var(--crumbella-border)] text-[var(--crumbella-primary)]"
+                      : "pointer-events-none border border-[var(--crumbella-border)] text-[var(--crumbella-muted)]/50"
+                  }`}
                 >
-                  <Trash2 size={13} />
-                  Hapus
-                </button>
-              )}
-              <a
-                href={messageLink ?? "#"}
-                target={messageLink ? "_blank" : undefined}
-                rel={messageLink ? "noopener noreferrer" : undefined}
-                aria-disabled={!messageLink}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  if (!messageLink) event.preventDefault();
-                }}
-                className={`inline-flex h-8 items-center justify-center gap-1 rounded-xl px-3 text-[11px] font-semibold ${
-                  messageLink
-                    ? "border border-[var(--crumbella-border)] text-[var(--crumbella-primary)]"
-                    : "pointer-events-none border border-[var(--crumbella-border)] text-[var(--crumbella-muted)]/50"
-                }`}
-              >
-                <MessageCircle size={13} />
-                WA
-              </a>
+                  <MessageCircle size={13} />
+                  WA
+                </a>
+              </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
 
       {deleteModal && (
         <DeleteConfirmModal

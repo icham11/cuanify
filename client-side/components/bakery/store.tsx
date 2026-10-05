@@ -88,6 +88,16 @@ import {
 } from "@/lib/bookings/client-events";
 import { resolveStoredDownPaymentAmount } from "@/lib/bookings/down-payment";
 
+export type UpdateOrderStatusOptions = {
+  /** Tanpa toast per order & tanpa reload server — dipakai saat ubah status massal. */
+  silent?: boolean;
+};
+
+export type BulkOrderStatusResult = {
+  succeeded: string[];
+  failed: Array<{ id: string; message: string }>;
+};
+
 export type OrderStatus =
   | "Inquiry"
   | "Quoted"
@@ -316,7 +326,16 @@ interface OrdersContextValue {
   orders: BakeryOrder[];
   addOrder: (order: NewOrderInput) => Promise<string>;
   updateOrder: (id: string, payload: UpdateOrderInput) => Promise<BakeryOrder>;
-  updateOrderStatus: (id: string, status: OrderStatus) => Promise<void>;
+  updateOrderStatus: (
+    id: string,
+    status: OrderStatus,
+    options?: UpdateOrderStatusOptions,
+  ) => Promise<void>;
+  updateOrdersStatusBulk: (
+    ids: string[],
+    status: OrderStatus,
+    onProgress?: (done: number, total: number) => void,
+  ) => Promise<BulkOrderStatusResult>;
   deleteOrder: (id: string) => Promise<void>;
   assignOrderToStaff: (
     id: string,
@@ -2287,6 +2306,7 @@ export function OrdersProvider({
       orderId: string,
       options?: {
         changeInfo?: BookingAutomationOrderPayload["changeInfo"];
+        silent?: boolean;
       },
     ) => {
       if (typeof window === "undefined") return;
@@ -2364,10 +2384,10 @@ export function OrdersProvider({
         });
 
         persistOrders(nextOrders);
-        if (summary.success) {
-          toast.success(summary.message);
-        } else {
+        if (!summary.success) {
           toast.warning(summary.message);
+        } else if (!options?.silent) {
+          toast.success(summary.message);
         }
       } catch (error) {
         const message =
@@ -3103,7 +3123,12 @@ export function OrdersProvider({
   );
 
   const updateOrderStatus = useCallback(
-    async (id: string, status: OrderStatus) => {
+    async (
+      id: string,
+      status: OrderStatus,
+      options?: UpdateOrderStatusOptions,
+    ) => {
+      const silent = Boolean(options?.silent);
       const requestedStatus = normalizeOrderStatus(status) as OrderStatus;
       const latestOrders = getLatestOrdersSnapshot();
       const targetOrder = latestOrders.find((order) => order.id === id);
@@ -3166,7 +3191,9 @@ export function OrdersProvider({
       if (!hasChanged && targetOrder) return;
       if (hasChanged) {
         persistOrders(nextOrders, { syncToServer: false });
-        if (requestedStatus === "In Production") {
+        if (silent) {
+          // Ringkasan ditampilkan sekali oleh pemanggil (ubah status massal).
+        } else if (requestedStatus === "In Production") {
           toast.success("Order masuk produksi. Menjalankan automasi...");
         } else {
           toast.message("Order status updated");
@@ -3204,23 +3231,29 @@ export function OrdersProvider({
         if (hasChanged) {
           syncQueuedOrderWithLatestSnapshot(id, nextOrders);
         }
-        void hydrateOrdersFromServer(true);
+        if (!silent) {
+          void hydrateOrdersFromServer(true);
+        }
 
         if (triggeredEvent) {
-          void runAutomationsForOrder(triggeredEvent, id);
+          void runAutomationsForOrder(triggeredEvent, id, { silent });
         }
       } catch (error) {
         if (hasChanged) {
           writeOrdersSnapshot(latestOrders);
           lastLocalWriteAtRef.current = 0;
         }
-        void hydrateOrdersFromServer(true);
+        if (!silent) {
+          void hydrateOrdersFromServer(true);
+        }
 
         const message =
           error instanceof Error
             ? error.message
             : "Gagal menyimpan perubahan status order.";
-        toast.error(`Perubahan status dibatalkan: ${message}`);
+        if (!silent) {
+          toast.error(`Perubahan status dibatalkan: ${message}`);
+        }
         throw error;
       }
     },
@@ -3232,6 +3265,39 @@ export function OrdersProvider({
       syncQueuedOrderWithLatestSnapshot,
       actorIdentity,
     ],
+  );
+
+  // Ubah status banyak order sekaligus. Diproses berurutan agar perhitungan
+  // token harian di server tidak saling tabrakan, lalu reload server sekali.
+  const updateOrdersStatusBulk = useCallback(
+    async (
+      ids: string[],
+      status: OrderStatus,
+      onProgress?: (done: number, total: number) => void,
+    ): Promise<BulkOrderStatusResult> => {
+      const uniqueIds = Array.from(new Set(ids));
+      const result: BulkOrderStatusResult = { succeeded: [], failed: [] };
+
+      for (const [index, id] of uniqueIds.entries()) {
+        try {
+          await updateOrderStatus(id, status, { silent: true });
+          result.succeeded.push(id);
+        } catch (error) {
+          result.failed.push({
+            id,
+            message:
+              error instanceof Error
+                ? error.message
+                : "Gagal menyimpan perubahan status order.",
+          });
+        }
+        onProgress?.(index + 1, uniqueIds.length);
+      }
+
+      void hydrateOrdersFromServer(true);
+      return result;
+    },
+    [updateOrderStatus, hydrateOrdersFromServer],
   );
 
   const assignOrderToStaff = useCallback(
@@ -4358,6 +4424,7 @@ export function OrdersProvider({
       addOrder,
       updateOrder,
       updateOrderStatus,
+      updateOrdersStatusBulk,
       deleteOrder,
       assignOrderToStaff,
       assignProductionStageStaff,
@@ -4379,6 +4446,7 @@ export function OrdersProvider({
       addOrder,
       updateOrder,
       updateOrderStatus,
+      updateOrdersStatusBulk,
       deleteOrder,
       assignOrderToStaff,
       assignProductionStageStaff,
