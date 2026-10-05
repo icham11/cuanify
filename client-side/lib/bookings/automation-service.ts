@@ -173,6 +173,8 @@ function buildEditedBookingProductionMessage(
   ].join("\n");
 }
 
+const UPDATE_ORDER_HEADER = "*UPDATE ORDER*";
+
 function toNormalizedAutomationOrder(
   order: BookingAutomationOrderPayload,
 ): NormalizedOrder {
@@ -899,17 +901,24 @@ export async function runBookingAutomations(
       String(process.env.FONNTE_NOTIFY_RESCHEDULE_PRODUCTION || "true") ===
       "true";
     if (shouldNotifyReschedule) {
-      const rescheduleMessage = buildEditedBookingProductionMessage(order);
-      fonnteProduction = await sendFonnteMessage(
-        productionTarget,
-        rescheduleMessage,
-      ).catch((error: unknown) => ({
+      // Kirim seperti saat create: rekap order terbaru (+ daftar perubahan),
+      // lalu foto design terbaru, ke grup produksi.
+      const rescheduleMessage = `${UPDATE_ORDER_HEADER}\n\n${buildEditedBookingProductionMessage(order)}`;
+      const result = await sendOrderToWhatsApp({
+        ...toWhatsAppPayload(toNormalizedAutomationOrder(order)),
+        recapTextOverride: rescheduleMessage,
+      }).catch((error: unknown) => ({
         ok: false,
         message:
           error instanceof Error
             ? error.message
             : "Failed to send reschedule WhatsApp produksi.",
       }));
+      fonnteProduction = {
+        ok: result.ok,
+        skipped: false,
+        message: result.message,
+      };
     } else {
       fonnteProduction = {
         ok: false,

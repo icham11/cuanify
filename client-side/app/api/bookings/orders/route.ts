@@ -970,6 +970,33 @@ function resolveOrderDeliveryMethodLabelForFingerprint(order: {
     : rawDeliveryMethod;
 }
 
+/**
+ * Sidik konten WA order: teks hasil parsing + foto design. Sengaja terpisah dari
+ * buildParsedOrderFingerprint (dipakai juga untuk deteksi duplikat) — dipakai hanya
+ * untuk memutuskan apakah update order perlu dikirim ulang ke grup WA produksi.
+ * Hanya membaca whatsAppParsedData karena hanya itu yang tersimpan apa adanya di DB;
+ * field gambar level atas tidak dipersist, jadi membandingkannya akan selalu
+ * terlihat "berubah" dan memicu kirim WA berulang.
+ */
+function buildOrderWhatsAppContentSignature(
+  whatsAppParsedData: unknown,
+): { rawText: string; images: string } {
+  const parsed = asRecord(whatsAppParsedData);
+  const references = extractNotificationReferenceImages({
+    whatsAppParsedData,
+    imageUrl: "",
+    imageUrls: [],
+    referenceImages: [],
+    items: [],
+  } as unknown as NormalizedOrder);
+  return {
+    rawText: asString(parsed?.rawText).trim(),
+    images: JSON.stringify(
+      references.map((reference) => `${reference.url}|${reference.note ?? ""}`),
+    ),
+  };
+}
+
 function buildParsedOrderFingerprint(order: {
   customerName?: unknown;
   customerPhone?: unknown;
@@ -2604,8 +2631,12 @@ function buildOrderUpdateChangeInfo(params: {
     whatsAppParsedData?: unknown;
   };
   scheduleChangeInfo?: BookingAutomationChangeInfo;
+  designImagesChanged?: boolean;
 }): BookingAutomationChangeInfo {
   const lines = [...(params.scheduleChangeInfo?.lines ?? [])];
+  if (params.designImagesChanged) {
+    lines.push("Foto design diperbarui. Cek foto terbaru di bawah.");
+  }
   const previousMethod = params.previousOrder
     ? resolveOrderDeliveryMethodLabelForFingerprint(params.previousOrder)
     : "";
@@ -6137,11 +6168,36 @@ export async function POST(request: NextRequest) {
                   isActiveStatus &&
                   (normalizedExistingDeliveryDate !== normalizedNextDeliveryDate ||
                     existingDeliverySlot !== (order.deliverySlot || ""));
+                // Update hasil parsing WA / foto design tidak masuk fingerprint
+                // detail, tapi tetap harus mengirim rekap terbaru ke grup produksi.
+                // Hanya untuk order yang memang diedit di request ini (changedOrderIds).
+                const isExplicitlyChangedOrder =
+                  changedOrderIdsSet?.has(order.id) ?? false;
+                const previousContentSignature =
+                  isExplicitlyChangedOrder && existingOrdersById.has(order.id)
+                  ? buildOrderWhatsAppContentSignature(
+                      existingOrdersById.get(order.id)?.whatsAppParsedData,
+                    )
+                  : null;
+                const incomingContentSignature =
+                  buildOrderWhatsAppContentSignature(order.whatsAppParsedData);
+                const designImagesChangedForAutomation = Boolean(
+                  previousContentSignature &&
+                    previousContentSignature.images !==
+                      incomingContentSignature.images,
+                );
+                const parsedTextChangedForAutomation = Boolean(
+                  previousContentSignature &&
+                    previousContentSignature.rawText !==
+                      incomingContentSignature.rawText,
+                );
                 const detailsChangedForAutomation =
                   Boolean(existingOrder) &&
                   wasActive &&
                   isActiveStatus &&
-                  persistedFingerprint !== incomingFingerprint;
+                  (persistedFingerprint !== incomingFingerprint ||
+                    designImagesChangedForAutomation ||
+                    parsedTextChangedForAutomation);
 
                 const shouldValidateSchedule =
                   hasCapacityChange &&
@@ -6699,6 +6755,7 @@ export async function POST(request: NextRequest) {
                         previousOrder: existingOrdersById.get(order.id),
                         nextOrder: order,
                         scheduleChangeInfo,
+                        designImagesChanged: designImagesChangedForAutomation,
                       }),
                     ),
                   });

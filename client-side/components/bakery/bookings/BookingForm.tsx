@@ -6469,6 +6469,12 @@ export default function BookingForm({
           dpPaidAmount: effectiveDpPaidAmount,
           finalPaidAmount: effectiveFinalPaidAmount,
           sales_channel: values.sales_channel,
+          // Simpan hasil parsing WA & foto design terbaru agar rekap update ke
+          // grup produksi memakai data terbaru (sama seperti saat create).
+          whatsAppParsedData: submissionPayload.whatsAppParsedData,
+          imageUrl: submissionPayload.imageUrl,
+          imageUrls: submissionPayload.imageUrls,
+          referenceImages: submissionPayload.referenceImages,
         });
         setSubmitSuccess("Booking berhasil diperbarui.");
         setSubmitSuccessMeta({

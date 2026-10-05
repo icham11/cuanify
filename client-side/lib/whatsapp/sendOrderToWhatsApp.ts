@@ -28,6 +28,8 @@ export interface SendOrderToWhatsAppInput extends WhatsAppOrderImagePayload {
   downPaymentAmount?: number;
   remainingBalance?: number;
   captionItems?: WhatsAppRecapItem[];
+  /** Pengganti teks rekap pertama (mis. rekap update order + daftar perubahan). */
+  recapTextOverride?: string;
 }
 
 export interface SendOrderToWhatsAppResult {
@@ -441,7 +443,8 @@ async function sendOrderToWhatsAppImmediately(
   }
 
   const outboundMessages: OutboundWhatsAppMessage[] = [];
-  const recapText = buildProductionCaption(order);
+  const recapText =
+    order.recapTextOverride?.trim() || buildProductionCaption(order);
   outboundMessages.push({ message: recapText });
   const slotNotes = Array.isArray(order.slotNotes) ? order.slotNotes : [];
   const requestedImageLabels = Array.isArray(order.requestedImageLabels)

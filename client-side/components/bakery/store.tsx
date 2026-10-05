@@ -320,6 +320,11 @@ export interface UpdateOrderInput {
   dpPaidAmount?: number;
   finalPaidAmount?: number;
   sales_channel?: "direct" | "tokopedia" | "shopee";
+  /** Hasil parsing WA terbaru dari form edit (termasuk teks WA & foto design). */
+  whatsAppParsedData?: ParsedWhatsAppOrder | null;
+  imageUrl?: string;
+  imageUrls?: string[];
+  referenceImages?: ParsedWhatsAppOrder["referenceImages"];
 }
 
 interface OrdersContextValue {
@@ -3775,8 +3780,13 @@ export function OrdersProvider({
             )
           : existingOrder.bookingCode;
 
+      // Root Cause: edit order tidak menyimpan hasil parsing WA / foto design baru,
+      // jadi rekap WA ke grup produksi tetap memakai teks & foto lama.
+      // Solution: pakai hasil parsing dari form edit bila dikirim.
+      const baseParsedData =
+        payload.whatsAppParsedData ?? existingOrder.whatsAppParsedData;
       const parsedCommon = {
-        ...(existingOrder.whatsAppParsedData?.common ?? {}),
+        ...(baseParsedData?.common ?? {}),
         bookingCode: nextBookingCode,
         recipientName: nextCustomerName,
         recipientPhone: nextCustomerPhone,
@@ -3850,9 +3860,21 @@ export function OrdersProvider({
             ? ""
             : existingOrder.resi,
         whatsAppParsedData: {
-          ...(existingOrder.whatsAppParsedData ?? {}),
+          ...(baseParsedData ?? {}),
           common: parsedCommon,
         } as ParsedWhatsAppOrder,
+        imageUrl:
+          payload.imageUrl !== undefined
+            ? payload.imageUrl
+            : existingOrder.imageUrl,
+        imageUrls:
+          payload.imageUrls !== undefined
+            ? payload.imageUrls
+            : existingOrder.imageUrls,
+        referenceImages:
+          payload.referenceImages !== undefined
+            ? payload.referenceImages
+            : existingOrder.referenceImages,
         productionStages: nextProductionStages,
         assignedStaffUserId: nextAssignedStaffUserId,
         assignedStaffName: nextAssignedStaffName,
