@@ -451,45 +451,14 @@ function buildStatusChangeConfirmation(params: {
         };
     }
 
-    if (nextStatus === "Ready") {
-        return {
-            title: "Tandai order siap?",
-            description: `Status order ${orderLabel} berubah dari ${currentStatus} jadi Ready.`,
-            effects: [
-                "Order dianggap selesai diproduksi dan pindah ke tab Ready / Delivery.",
-                "Order hilang dari tab Queue Aktif, tetapi token staff masih dihitung sampai order masuk tahap Delivery.",
-                ...sharedEffects,
-            ],
-            confirmLabel: "Ya, Tandai Ready",
-            tone: "success",
-            onConfirm,
-        };
-    }
-
-    if (nextStatus === "Delivery") {
-        return {
-            title: "Kirim order ke tahap pengiriman?",
-            description: `Status order ${orderLabel} berubah dari ${currentStatus} jadi Delivery.`,
-            effects: [
-                "Order keluar dari perhitungan produksi dan masuk tahap pengiriman.",
-                "Token order dilepas dari kapasitas harian staff yang mengerjakannya, jadi kuota mereka kembali longgar.",
-                "Proses yang belum ditandai selesai tidak bisa lagi diubah dari halaman produksi.",
-                ...sharedEffects,
-            ],
-            confirmLabel: "Ya, Lanjut Delivery",
-            tone: "primary",
-            onConfirm,
-        };
-    }
-
     if (nextStatus === "Completed") {
         return {
             title: "Selesaikan order ini?",
             description: `Status order ${orderLabel} berubah dari ${currentStatus} jadi Completed.`,
             effects: [
-                "Order ditutup sebagai selesai dan keluar dari queue produksi.",
+                "Order dianggap selesai diproduksi, keluar dari Queue Aktif, dan pindah ke tab Selesai.",
+                "Token order dilepas dari kapasitas harian staff yang mengerjakannya, jadi kuota mereka kembali longgar.",
                 "Automasi order completed dijalankan: data order dikirim ke Google Sheets untuk rekap.",
-                "Token order dilepas dari kapasitas harian staff yang mengerjakannya.",
                 ...sharedEffects,
             ],
             confirmLabel: "Ya, Selesaikan",
@@ -1528,34 +1497,20 @@ export default function ProductionTable() {
     const updateStatus = (id: string, status: string) => {
         void updateOrderStatus(
             id,
-            status as
-                | "In Production"
-                | "Ready"
-                | "Delivery"
-                | "Completed"
-                | "Cancelled",
+            status as "In Production" | "Completed" | "Cancelled",
         ).catch(() => {});
     };
 
+    // Alur status: In Production → Completed. Order lama yang masih Ready/Delivery
+    // tetap menampilkan status itu agar bisa langsung dipindah ke Completed.
     const getStatusOptions = (status: string, canCancel: boolean) => {
         const withCancellation = (options: string[]) =>
             canCancel ? [...options, "Cancelled"] : options;
 
-        if (status === "In Production") {
-            return withCancellation(["In Production", "Ready", "Delivery"]);
+        if (status === "Ready" || status === "Delivery") {
+            return withCancellation([status, "Completed"]);
         }
-        if (status === "Ready") {
-            return withCancellation(["Ready", "Delivery"]);
-        }
-        if (status === "Delivery") {
-            return withCancellation(["Delivery", "Completed"]);
-        }
-        return withCancellation([
-            "In Production",
-            "Ready",
-            "Delivery",
-            "Completed",
-        ]);
+        return withCancellation(["In Production", "Completed"]);
     };
 
     const handleClaimStage = (orderId: string, stage: ProductionStage) => {
@@ -3093,7 +3048,7 @@ export default function ProductionTable() {
                                 : "border border-[var(--crumbella-border)] bg-white text-[var(--foreground)] hover:bg-[var(--crumbella-accent-soft)]"
                         }`}
                     >
-                        Ready / Delivery ({readyOrders.length})
+                        Selesai ({readyOrders.length})
                     </button>
                 </div>
             )}

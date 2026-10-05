@@ -9,7 +9,7 @@ import { useRole } from "@/context/RoleContext";
 
 import OrderHighlightBadge from "@/components/bakery/bookings/OrderHighlightBadge";
 import { type BakeryOrder, useOrdersActions } from "@/components/bakery/store";
-import { BOOKING_STATUS_OPTIONS } from "@/lib/bookings/order-status";
+import { getBookingStatusOptionsFor } from "@/lib/bookings/order-status";
 import { normalizeOrderStatus } from "@/lib/bookings/order-status";
 import { getOrderItemsSummary } from "@/lib/bookings/order-display";
 import {
@@ -488,7 +488,7 @@ export default function OrderTable({
                   }}
                   className="h-8 rounded-xl border border-[var(--crumbella-border)] bg-white px-2 text-[11px] font-semibold text-[var(--foreground)] disabled:cursor-wait disabled:bg-[#f7f0e8] disabled:text-[var(--crumbella-muted)]"
                 >
-                  {BOOKING_STATUS_OPTIONS.map((option) => (
+                  {getBookingStatusOptionsFor(normalizedStatus).map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
                     </option>

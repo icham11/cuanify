@@ -39,7 +39,7 @@ import {
   getProductLookupKeyFromItem,
 } from "@/lib/bookings/product-weight";
 import {
-  BOOKING_STATUS_OPTIONS,
+  getBookingStatusOptionsFor,
   normalizeOrderStatus,
 } from "@/lib/bookings/order-status";
 import {
@@ -482,17 +482,15 @@ export default function OrderDetailPage() {
   );
   const isFullyPaid =
     normalizedPaymentStatus === "Paid" || remainingBalanceAmount <= 0;
-  const statusSteps = [
-    "Order Created",
-    "In Production",
-    "Ready",
-    "Delivery",
-    "Completed",
-  ] as const;
+  const statusSteps = ["Order Created", "In Production", "Completed"] as const;
+  // Status lama Ready/Delivery dianggap masih di tahap In Production.
+  const stepperStatus = ["Ready", "Delivery"].includes(normalizedOrderStatus)
+    ? "In Production"
+    : normalizedOrderStatus;
   const activeStatusIndex = Math.max(
     0,
     statusSteps.findIndex(
-      (status) => status.toLowerCase() === normalizedOrderStatus.toLowerCase(),
+      (status) => status.toLowerCase() === stepperStatus.toLowerCase(),
     ),
   );
   const isLateOrder =
@@ -563,7 +561,7 @@ export default function OrderDetailPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4 px-4 pb-4 pt-0">
-              <div className="grid grid-cols-5 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 {statusSteps.map((step, index) => {
                   const isDone = index < activeStatusIndex;
                   const isActive = index === activeStatusIndex;
@@ -601,7 +599,7 @@ export default function OrderDetailPage() {
               </div>
               <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
                 <Select value={statusDraft} onChange={(event) => setStatusDraft(event.target.value)}>
-                  {BOOKING_STATUS_OPTIONS.map((option) => (
+                  {getBookingStatusOptionsFor(normalizedOrderStatus).map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
                     </option>

@@ -6,7 +6,10 @@ import {
   BOOKING_COURIER_FILTER_OPTIONS,
   type CourierFilter,
 } from "@/lib/bookings/courier-filter";
-import { BOOKING_STATUS_OPTIONS } from "@/lib/bookings/order-status";
+import {
+  BOOKING_STATUS_OPTIONS,
+  LEGACY_BOOKING_STATUS_OPTIONS,
+} from "@/lib/bookings/order-status";
 
 interface OrderFiltersProps {
   query: string;
@@ -100,7 +103,7 @@ export default function OrderFilters({
             className="h-10 rounded-xl border-[var(--crumbella-border)] bg-white"
           >
             <option value="">All status</option>
-            {BOOKING_STATUS_OPTIONS.map((option) => (
+            {[...BOOKING_STATUS_OPTIONS, ...LEGACY_BOOKING_STATUS_OPTIONS].map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>

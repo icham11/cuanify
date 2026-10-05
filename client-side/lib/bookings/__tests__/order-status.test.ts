@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   bookingStatusFilterMatchesBlank,
   BOOKING_STATUS_FILTER_OPTIONS,
+  BOOKING_STATUS_OPTIONS,
+  getBookingStatusOptionsFor,
   getBookingPaymentStatusFilterAliases,
   getBookingStatusFilterAliases,
   isBookingPaymentStatusFilter,
@@ -84,5 +86,30 @@ describe("order status helpers", () => {
     expect(BOOKING_STATUS_FILTER_OPTIONS).not.toEqual(
       expect.arrayContaining([{ value: "Inquiry", label: "Inquiry" }]),
     );
+  });
+});
+
+describe("simplified booking status flow", () => {
+  it("only offers In Production, Completed and Cancelled", () => {
+    expect(BOOKING_STATUS_OPTIONS.map((option) => option.value)).toEqual([
+      "In Production",
+      "Completed",
+      "Cancelled",
+    ]);
+    expect(
+      getBookingStatusOptionsFor("In Production").map((option) => option.value),
+    ).toEqual(["In Production", "Completed", "Cancelled"]);
+  });
+
+  it("keeps a legacy Ready/Delivery status selectable for existing orders", () => {
+    expect(getBookingStatusOptionsFor("Ready").map((option) => option.value)).toEqual([
+      "In Production",
+      "Completed",
+      "Cancelled",
+      "Ready",
+    ]);
+    expect(
+      getBookingStatusOptionsFor("Delivered").map((option) => option.value),
+    ).toContain("Delivery");
   });
 });

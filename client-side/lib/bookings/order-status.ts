@@ -1,13 +1,38 @@
+// Alur status disederhanakan: In Production → Completed (atau Cancelled).
+// Ready & Delivery tidak dipakai lagi, tapi order lama yang masih berstatus itu
+// tetap ditampilkan agar bisa dipindah ke Completed.
 export const BOOKING_STATUS_OPTIONS = [
   { value: "In Production", label: "In Production" },
-  { value: "Ready", label: "Ready" },
-  { value: "Delivery", label: "Delivery" },
   { value: "Completed", label: "Completed" },
   { value: "Cancelled", label: "Cancelled" },
 ] as const;
 
+export const LEGACY_BOOKING_STATUS_OPTIONS = [
+  { value: "Ready", label: "Ready (lama)" },
+  { value: "Delivery", label: "Delivery (lama)" },
+] as const;
+
+export type BookingStatusOption = { value: string; label: string };
+
+/**
+ * Opsi dropdown status untuk satu order. Kalau order masih berstatus lama
+ * (Ready/Delivery), status itu ikut ditampilkan supaya nilai select tetap valid.
+ */
+export function getBookingStatusOptionsFor(
+  currentStatus?: string | null,
+): BookingStatusOption[] {
+  const normalized = normalizeOrderStatus(currentStatus);
+  const legacyOption = LEGACY_BOOKING_STATUS_OPTIONS.find(
+    (option) => option.value === normalized,
+  );
+  return legacyOption
+    ? [...BOOKING_STATUS_OPTIONS, legacyOption]
+    : [...BOOKING_STATUS_OPTIONS];
+}
+
 export const BOOKING_STATUS_FILTER_OPTIONS = [
   ...BOOKING_STATUS_OPTIONS,
+  ...LEGACY_BOOKING_STATUS_OPTIONS,
   { value: "Delivered", label: "Delivered" },
   { value: "DP Paid", label: "DP" },
   { value: "Paid", label: "Lunas" },

@@ -7,13 +7,7 @@ interface StatusDropdownProps {
   disabled?: boolean;
 }
 
-const defaultOptions = [
-  "In Production",
-  "Ready",
-  "Delivery",
-  "Completed",
-  "Cancelled",
-];
+const defaultOptions = ["In Production", "Completed", "Cancelled"];
 
 export default function StatusDropdown({
   value,
