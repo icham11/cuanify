@@ -1,4 +1,5 @@
 import type { BakeryOrder } from "@/components/bakery/store";
+import { isLegacyBackfillOrder } from "@/lib/bookings/legacy-backfill";
 
 export type CashFlowCustomerEntry = {
   customerName: string;
@@ -36,6 +37,11 @@ export function toJakartaDateKey(value: string | null | undefined) {
   return `${year}-${month}-${day}`;
 }
 
+// Order lama (> 1 bulan saat diinput) bukan uang masuk riil — jangan masuk cashflow.
+function isCashflowEligibleOrder(order: BakeryOrder): boolean {
+  return !isLegacyBackfillOrder(order.deliveryDate, order.createdAt);
+}
+
 function getFallbackCashflowAmount(order: BakeryOrder): number {
   const totalPrice = Math.max(0, Number(order.totalPrice || 0));
   const totalPaidAmount = Math.max(
@@ -71,6 +77,8 @@ export function buildCashFlowBreakdownForDate(
   >();
 
   for (const order of orders) {
+    if (!isCashflowEligibleOrder(order)) continue;
+
     const datedTransactions = (order.paymentTransactions ?? []).filter(
       (transaction) => toJakartaDateKey(transaction.timestamp) === dateKey,
     );
@@ -161,6 +169,8 @@ export function buildCashFlowHistory(
   const dateKeys = new Set<string>();
 
   orders.forEach((order) => {
+    if (!isCashflowEligibleOrder(order)) return;
+
     const transactions = order.paymentTransactions ?? [];
     if (transactions.length > 0) {
       transactions.forEach((transaction) => {

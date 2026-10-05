@@ -1,4 +1,5 @@
 import prisma from "@/lib/prisma";
+import { isLegacyBackfillOrder } from "@/lib/bookings/legacy-backfill";
 
 export const BUSINESS_TIME_ZONE = "Asia/Jakarta";
 const JAKARTA_UTC_OFFSET_HOURS = 7;
@@ -250,6 +251,9 @@ export async function buildDailyOmzetSnapshot(
   const bakeryPaymentsDetail: DailyOmzetSnapshot["payments"] = [];
 
   for (const row of bakeryOrderRows) {
+    // Order lama (> 1 bulan saat diinput) bukan uang masuk riil — jangan masuk omzet.
+    if (isLegacyBackfillOrder(row.delivery_date, row.created_at)) continue;
+
     const createdToday = isInRange(row.created_at, startUtc, endUtc);
 
     const reference =

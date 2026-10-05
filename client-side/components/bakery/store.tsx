@@ -66,6 +66,7 @@ import {
   isScheduledShipmentOrder,
 } from "@/lib/bookings/shipping-schedule";
 import { normalizeDateInput } from "@/lib/helpers/date-normalization";
+import { isLegacyBackfillOrder } from "@/lib/bookings/legacy-backfill";
 import { useBakerySettings } from "@/hooks/useBakerySettings";
 import { fetchAuthMe } from "@/lib/auth/auth-me-client";
 import {
@@ -2802,6 +2803,15 @@ export function OrdersProvider({
             )
           : null;
         const eventTimestamp = historicalTimestamp || new Date().toISOString();
+        // Order lama (> 1 bulan sebelum hari input) hanya pencatatan historis:
+        // langsung Completed dan tidak dihitung di cashflow / omzet harian.
+        const isLegacyBackfill = isLegacyBackfillOrder(
+          normalizedDeliveryDate,
+          getJakartaTodayIsoDate(),
+        );
+        const initialOrderStatus: OrderStatus = isLegacyBackfill
+          ? "Completed"
+          : "In Production";
 
         const newOrder: BakeryOrder = {
           id,
@@ -2874,7 +2884,7 @@ export function OrdersProvider({
           totalPrice: normalizedTotalPrice,
           sales_channel: order.sales_channel,
           paymentStatus: inferredPaymentStatus,
-          orderStatus: "In Production",
+          orderStatus: initialOrderStatus,
           assignedStaffUserId: null,
           assignedStaffName: "",
           productionAssignedAt: null,
@@ -2894,9 +2904,11 @@ export function OrdersProvider({
           statusHistory: [
             {
               id: `log-${id}-created`,
-              status: "In Production",
+              status: initialOrderStatus,
               timestamp: eventTimestamp,
-              note: "Booking dibuat dan langsung masuk produksi",
+              note: isLegacyBackfill
+                ? "Order lama (> 1 bulan) diinput langsung sebagai Completed; tidak dihitung di cashflow/omzet harian"
+                : "Booking dibuat dan langsung masuk produksi",
               userId: actorIdentity.userId,
               actorName: actorIdentity.name,
             },
@@ -2941,6 +2953,13 @@ export function OrdersProvider({
           at: Date.now(),
         });
 
+        if (isLegacyBackfill) {
+          toast.success(`Order lama disimpan sebagai Completed: ${bookingCode}`);
+          toast.message(
+            "Order lebih dari 1 bulan lalu tidak dihitung di cashflow maupun omzet harian.",
+          );
+          return id;
+        }
         toast.success(`Booking masuk produksi: ${bookingCode}`);
         if (isHistoricalBackfill) {
           toast.message(

@@ -6,6 +6,7 @@ import type {
   BakeryStaffSetting,
 } from "@/lib/bakery/settings";
 import { calculateOrderFinancialBreakdown } from "@/lib/bookings/financial-breakdown";
+import { isLegacyBackfillOrder } from "@/lib/bookings/legacy-backfill";
 
 const BUSINESS_TIME_ZONE = "Asia/Jakarta";
 
@@ -342,6 +343,12 @@ function getCashFlowInAmountInRange(
   fromDate: string,
   toDate: string,
 ): number {
+  // Order lama (> 1 bulan saat diinput) bukan uang masuk riil. Pendapatannya tetap
+  // diakui di bulan tanggal kirim (getRevenueAmountInRange), tapi tidak di cashflow.
+  if (isLegacyBackfillOrder(order.deliveryDate, order.createdAt)) {
+    return 0;
+  }
+
   // Cashflow in this report follows when the booking is created.
   const bookingDateKey =
     toBusinessDateKey(order.createdAt) || toBusinessDateKey(order.updatedAt);
