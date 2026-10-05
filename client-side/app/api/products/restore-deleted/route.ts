@@ -6,6 +6,7 @@ import {
   normalizeProductNameKey,
 } from "@/lib/products/uniqueness";
 import { invalidateProductTokenMapCache } from "@/lib/products/product-token-map-cache";
+import { invalidateEffectiveBookingCatalogCache } from "@/lib/bookings/catalog-config-server";
 import { invalidateOrderProductTokenLookupCache } from "@/app/api/bookings/orders/order-helpers";
 import {
   isPrismaConnectionTimeout,
@@ -106,6 +107,7 @@ export async function POST() {
 
     if (restored > 0) {
       invalidateProductTokenMapCache(businessId);
+      invalidateEffectiveBookingCatalogCache(businessId);
       invalidateOrderProductTokenLookupCache(businessId);
     }
 

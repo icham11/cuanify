@@ -15,6 +15,7 @@ import {
 } from "@/lib/products/uniqueness";
 import { getProductFieldAvailability } from "@/lib/products/prisma-product-capabilities";
 import { invalidateProductTokenMapCache } from "@/lib/products/product-token-map-cache";
+import { invalidateEffectiveBookingCatalogCache } from "@/lib/bookings/catalog-config-server";
 import { invalidateOrderProductTokenLookupCache } from "@/app/api/bookings/orders/order-helpers";
 import { recipeItemSchema } from "@/lib/validations/product";
 import { normalizeDirectCogs } from "@/lib/cogs/config";
@@ -183,6 +184,7 @@ export async function PATCH(
     });
 
     invalidateProductTokenMapCache(businessId);
+    invalidateEffectiveBookingCatalogCache(businessId);
     invalidateOrderProductTokenLookupCache(businessId);
 
     return NextResponse.json({ success: true, data: result });
@@ -259,6 +261,7 @@ export async function DELETE(
     });
 
     invalidateProductTokenMapCache(businessId);
+    invalidateEffectiveBookingCatalogCache(businessId);
     invalidateOrderProductTokenLookupCache(businessId);
 
     return NextResponse.json({ success: true });

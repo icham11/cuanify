@@ -3620,7 +3620,9 @@ export default function BookingForm({
   const { addOrder, updateOrder, orders, getCustomerMessagePreview } =
     useOrders();
   const { isOwner, isAdmin, loading: isRoleLoading } = useRole();
-  const { productCatalog, addOnCatalog } = useCatalogAdminState();
+  const { productCatalog, addOnCatalog } = useCatalogAdminState({
+    keepItems: initialOrder?.items,
+  });
   const [composerStep, setComposerStep] = useState<"input" | "preview">(
     isReviewPage ? "preview" : "input",
   );

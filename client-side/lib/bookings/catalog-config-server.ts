@@ -2,7 +2,9 @@ import prisma from "@/lib/prisma";
 import {
   buildEffectiveAddOnCatalog,
   buildEffectiveProductCatalog,
+  makeVariantKey,
   normalizeCatalogAdminState,
+  removeCatalogVariants,
 } from "@/lib/bookings/catalog-state";
 import {
   BOOKING_ADD_ON_CATALOG,
@@ -10,6 +12,7 @@ import {
   type CatalogAddOn,
   type PricelistCategory,
 } from "@/lib/bookings/pricelist";
+import { buildDashboardProductName } from "@/lib/products/dashboard-name";
 import { normalizeProductNameKey } from "@/lib/products/uniqueness";
 
 export interface EffectiveBookingCatalog {
@@ -27,6 +30,79 @@ type DynamicCatalogProduct = {
   sellingPrice: unknown;
   category: { name: string } | null;
 };
+
+type ProductPresence = {
+  name: string;
+  isActive: boolean;
+  deletedAt: Date | null;
+};
+
+/**
+ * Root Cause: katalog booking dibangun dari katalog bawaan di kode, sedangkan
+ * menghapus/menonaktifkan produk di menu Produk hanya mengubah tabel Product.
+ * Akibatnya produk yang sudah dihapus (mis. DIY Mini/Reguler) tetap muncul di booking.
+ * Solution: varian katalog yang produk dashboard-nya sudah dihapus/nonaktif — dan
+ * tidak ada produk aktif bernama sama — dianggap dihapus. Produk yang belum pernah
+ * tersinkron ke menu Produk tidak disentuh.
+ */
+export function collectRemovedCatalogVariantKeys(
+  catalog: PricelistCategory[],
+  products: ProductPresence[],
+): string[] {
+  const activeNames = new Set<string>();
+  const removedNames = new Set<string>();
+  for (const product of products) {
+    const key = normalizeProductNameKey(product.name);
+    if (product.isActive && !product.deletedAt) activeNames.add(key);
+    else removedNames.add(key);
+  }
+  if (removedNames.size === 0) return [];
+
+  const removedVariantKeys: string[] = [];
+  for (const category of catalog) {
+    for (const subcategory of category.subcategories) {
+      for (const product of subcategory.products) {
+        for (const variant of product.variants) {
+          // Sama seperti sync produk: produk satu varian juga bisa tersimpan
+          // dengan nama dasarnya saja (mis. "Mini DIY").
+          const nameKeys = [
+            buildDashboardProductName({
+              productName: product.name,
+              variantLabel: variant.label,
+              variantCount: product.variants.length,
+            }),
+            ...(product.variants.length === 1 ? [product.name] : []),
+          ].map(normalizeProductNameKey);
+          const isRemoved =
+            nameKeys.some((key) => removedNames.has(key)) &&
+            !nameKeys.some((key) => activeNames.has(key));
+          if (isRemoved) {
+            removedVariantKeys.push(
+              makeVariantKey(
+                category.category,
+                subcategory.name,
+                product.name,
+                variant.label,
+              ),
+            );
+          }
+        }
+      }
+    }
+  }
+  return removedVariantKeys;
+}
+
+export async function loadRemovedCatalogVariantKeys(
+  businessId: number,
+  catalog: PricelistCategory[],
+): Promise<string[]> {
+  const products = await prisma.product.findMany({
+    where: { businessId },
+    select: { name: true, isActive: true, deletedAt: true },
+  });
+  return collectRemovedCatalogVariantKeys(catalog, products);
+}
 
 const EFFECTIVE_BOOKING_CATALOG_CACHE_TTL_MS = 60_000;
 const globalForEffectiveBookingCatalog =
@@ -124,7 +200,7 @@ export async function loadEffectiveBookingCatalog(
     const rawState = rows[0]?.metadata;
     const state = rawState ? normalizeCatalogAdminState(rawState) : null;
 
-    const effectiveProductCatalog = state
+    const baseProductCatalog = state
       ? buildEffectiveProductCatalog(state)
       : BOOKING_PRODUCT_CATALOG;
 
@@ -132,16 +208,18 @@ export async function loadEffectiveBookingCatalog(
       ? buildEffectiveAddOnCatalog(state)
       : BOOKING_ADD_ON_CATALOG;
     const allowedCategories = new Set(
-      effectiveProductCatalog.map((entry) => entry.category),
+      baseProductCatalog.map((entry) => entry.category),
     );
 
-    let dbProducts: DynamicCatalogProduct[] = [];
+    let allDbProducts: Array<DynamicCatalogProduct & ProductPresence> = [];
     try {
-      dbProducts = await prisma.product.findMany({
-        where: { businessId, isActive: true, deletedAt: null },
+      allDbProducts = await prisma.product.findMany({
+        where: { businessId },
         select: {
           name: true,
           sellingPrice: true,
+          isActive: true,
+          deletedAt: true,
           category: { select: { name: true } },
         },
       });
@@ -151,6 +229,13 @@ export async function loadEffectiveBookingCatalog(
         error,
       );
     }
+    const dbProducts: DynamicCatalogProduct[] = allDbProducts.filter(
+      (product) => product.isActive && !product.deletedAt,
+    );
+    const effectiveProductCatalog = removeCatalogVariants(
+      baseProductCatalog,
+      collectRemovedCatalogVariantKeys(baseProductCatalog, allDbProducts),
+    );
 
     const existingNames = new Set<string>();
     for (const category of effectiveProductCatalog) {

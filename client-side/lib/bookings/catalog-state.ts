@@ -220,6 +220,51 @@ export function makeAddOnKey(category: string, addOnId: string): string {
   return [category, addOnId].join("||");
 }
 
+/**
+ * Buang varian katalog yang produknya sudah dihapus/nonaktif di menu Produk
+ * (lihat loadRemovedCatalogVariantKeys). Produk tanpa varian tersisa ikut dibuang.
+ */
+export function removeCatalogVariants(
+  catalog: PricelistCategory[],
+  removedVariantKeys: readonly string[],
+): PricelistCategory[] {
+  if (removedVariantKeys.length === 0) return catalog;
+  const removed = new Set(removedVariantKeys);
+
+  return catalog.map((category) => ({
+    ...category,
+    subcategories: category.subcategories.map((subcategory) => ({
+      ...subcategory,
+      products: subcategory.products.flatMap((product) => {
+        const variants = product.variants.filter(
+          (variant) =>
+            !removed.has(
+              makeVariantKey(
+                category.category,
+                subcategory.name,
+                product.name,
+                variant.label,
+              ),
+            ),
+        );
+        if (variants.length === product.variants.length) return [product];
+        if (variants.length === 0) return [];
+        return [
+          {
+            ...product,
+            variants,
+            defaultVariant: variants.some(
+              (variant) => variant.label === product.defaultVariant,
+            )
+              ? product.defaultVariant
+              : variants[0].label,
+          },
+        ];
+      }),
+    })),
+  }));
+}
+
 function cloneCatalog(base: PricelistCategory[]): PricelistCategory[] {
   return base.map((category) => ({
     ...category,

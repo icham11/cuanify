@@ -17,6 +17,7 @@ import {
 } from "@/lib/products/uniqueness";
 import { getProductFieldAvailability } from "@/lib/products/prisma-product-capabilities";
 import { invalidateProductTokenMapCache } from "@/lib/products/product-token-map-cache";
+import { invalidateEffectiveBookingCatalogCache } from "@/lib/bookings/catalog-config-server";
 import { ensureOwnerDefaultProducts } from "@/lib/bookings/owner-product-bootstrap";
 import { loadEffectiveBookingCatalog } from "@/lib/bookings/catalog-config-server";
 import { flattenCatalogProductsForDashboard } from "@/lib/bookings/product-sync";
@@ -704,6 +705,7 @@ export async function POST(request: NextRequest) {
       });
 
       invalidateProductTokenMapCache(businessId);
+      invalidateEffectiveBookingCatalogCache(businessId);
       invalidateOrderProductTokenLookupCache(businessId);
       return NextResponse.json({ success: true, data: result }, { status: 201 });
     }
@@ -816,6 +818,7 @@ export async function POST(request: NextRequest) {
     });
 
     invalidateProductTokenMapCache(businessId);
+    invalidateEffectiveBookingCatalogCache(businessId);
     invalidateOrderProductTokenLookupCache(businessId);
     return NextResponse.json({ success: true, data: result }, { status: 201 });
   } catch (error: unknown) {
@@ -894,6 +897,7 @@ export async function DELETE(request: NextRequest) {
     await prisma.product.updateMany({ where: { id: { in: ids }, businessId }, data: { deletedAt: now } });
 
     invalidateProductTokenMapCache(businessId);
+    invalidateEffectiveBookingCatalogCache(businessId);
     invalidateOrderProductTokenLookupCache(businessId);
     return NextResponse.json({ success: true, deleted: ids.length });
   } catch (error) {

@@ -16,7 +16,11 @@ import {
   normalizeCatalogAdminState,
 } from "@/lib/bookings/catalog-state";
 import { syncBakeryCatalogToDashboardProducts } from "@/lib/bookings/product-sync";
-import { invalidateEffectiveBookingCatalogCache } from "@/lib/bookings/catalog-config-server";
+import {
+  invalidateEffectiveBookingCatalogCache,
+  loadRemovedCatalogVariantKeys,
+} from "@/lib/bookings/catalog-config-server";
+import { BOOKING_PRODUCT_CATALOG } from "@/lib/bookings/pricelist";
 import { invalidateOrderProductTokenLookupCache } from "@/app/api/bookings/orders/order-helpers";
 import { invalidateProductTokenMapCache } from "@/lib/products/product-token-map-cache";
 import {
@@ -128,13 +132,44 @@ function isExpiredTransactionError(error: unknown): boolean {
   return false;
 }
 
+// Varian katalog yang produknya sudah dihapus/nonaktif di menu Produk, agar form
+// booking ikut menyembunyikannya. Dihitung tiap request (bukan disimpan) supaya
+// produk yang dipulihkan otomatis muncul lagi.
+async function loadRemovedProductVariantsSafe(
+  businessId: number,
+  state: ReturnType<typeof normalizeCatalogAdminState> | null,
+): Promise<string[]> {
+  try {
+    return await loadRemovedCatalogVariantKeys(
+      businessId,
+      state ? buildEffectiveProductCatalog(state) : BOOKING_PRODUCT_CATALOG,
+    );
+  } catch (error) {
+    console.warn(
+      "GET /api/bookings/catalog-config removed product variants error:",
+      error,
+    );
+    return [];
+  }
+}
+
 export async function GET() {
   try {
     throwIfPrismaTimeoutCooldownActive();
     const { businessId } = await requireAuth();
     const cached = readCatalogConfigResponseCache(businessId);
     if (cached) {
-      return NextResponse.json({ success: true, data: cached }, { status: 200 });
+      return NextResponse.json(
+        {
+          success: true,
+          data: cached,
+          removedProductVariants: await loadRemovedProductVariantsSafe(
+            businessId,
+            cached,
+          ),
+        },
+        { status: 200 },
+      );
     }
 
     const rows = await prisma.$queryRaw<
@@ -148,7 +183,17 @@ export async function GET() {
 
     if (!rows[0]) {
       writeCatalogConfigResponseCache(businessId, null);
-      return NextResponse.json({ success: true, data: null }, { status: 200 });
+      return NextResponse.json(
+        {
+          success: true,
+          data: null,
+          removedProductVariants: await loadRemovedProductVariantsSafe(
+            businessId,
+            null,
+          ),
+        },
+        { status: 200 },
+      );
     }
 
     const parsed = catalogStateSchema.safeParse(rows[0].metadata);
@@ -181,7 +226,14 @@ export async function GET() {
     }
 
     return NextResponse.json(
-      { success: true, data: normalizedState },
+      {
+        success: true,
+        data: normalizedState,
+        removedProductVariants: await loadRemovedProductVariantsSafe(
+          businessId,
+          normalizedState,
+        ),
+      },
       { status: 200 },
     );
   } catch (error: unknown) {

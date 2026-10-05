@@ -8,7 +8,10 @@ import {
   type CatalogAddOn,
   type PricelistCategory,
 } from "@/lib/bookings/pricelist";
-import { normalizeCatalogAdminState } from "@/lib/bookings/catalog-state";
+import {
+  normalizeCatalogAdminState,
+  removeCatalogVariants,
+} from "@/lib/bookings/catalog-state";
 
 export interface CustomProductEntry {
   category: string;
@@ -41,6 +44,7 @@ export interface CatalogAdminState {
 export type CatalogSyncStatus = "idle" | "syncing" | "synced" | "error";
 
 const STORAGE_KEY = "bakeryCatalogAdminState";
+const REMOVED_VARIANTS_STORAGE_KEY = "bakeryCatalogRemovedVariants";
 const STORAGE_EVENT = "bakeryCatalogAdminUpdated";
 const CATALOG_CONFIG_API = "/api/bookings/catalog-config";
 const SERVER_REVALIDATE_INTERVAL_MS = 120000;
@@ -94,6 +98,34 @@ function readStateFromStorage(): CatalogAdminState {
   }
 }
 
+// Varian yang produknya sudah dihapus/nonaktif di menu Produk (dihitung server).
+// Disimpan lokal hanya supaya render pertama tidak sempat menampilkan produk lama.
+function readRemovedVariantsFromStorage(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const parsed: unknown = JSON.parse(
+      window.localStorage.getItem(REMOVED_VARIANTS_STORAGE_KEY) || "[]",
+    );
+    return Array.isArray(parsed)
+      ? parsed.filter((entry): entry is string => typeof entry === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeRemovedVariantsToStorage(next: string[]) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      REMOVED_VARIANTS_STORAGE_KEY,
+      JSON.stringify(next),
+    );
+  } catch {
+    // Abaikan: storage penuh/diblokir tidak boleh mengganggu form booking.
+  }
+}
+
 function writeStateToStorage(next: CatalogAdminState) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
@@ -111,7 +143,10 @@ function isCatalogStateEqual(
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-async function loadStateFromServer(): Promise<CatalogAdminState | null> {
+async function loadStateFromServer(): Promise<{
+  state: CatalogAdminState | null;
+  removedProductVariants: string[];
+} | null> {
   try {
     const response = await fetch(CATALOG_CONFIG_API, {
       method: "GET",
@@ -122,10 +157,18 @@ async function loadStateFromServer(): Promise<CatalogAdminState | null> {
     const payload = (await response.json()) as {
       success?: boolean;
       data?: CatalogAdminState | null;
+      removedProductVariants?: unknown;
     };
 
-    if (!payload.success || !payload.data) return null;
-    return payload.data;
+    if (!payload.success) return null;
+    return {
+      state: payload.data ?? null,
+      removedProductVariants: Array.isArray(payload.removedProductVariants)
+        ? payload.removedProductVariants.filter(
+            (entry): entry is string => typeof entry === "string",
+          )
+        : [],
+    };
   } catch {
     return null;
   }
@@ -331,10 +374,27 @@ function buildEffectiveAddOnCatalog(
   return next;
 }
 
-export function useCatalogAdminState() {
+type CatalogItemSelection = {
+  category?: string;
+  subcategory?: string;
+  productName?: string;
+  size?: string;
+};
+
+/**
+ * @param options.keepItems item order yang sedang diedit: variannya tetap ada di
+ *   katalog walaupun produknya sudah dihapus di menu Produk, supaya form tidak
+ *   diam-diam mengganti item lama ke produk lain.
+ */
+export function useCatalogAdminState(options?: {
+  keepItems?: ReadonlyArray<CatalogItemSelection>;
+}) {
   const [state, setState] = useState<CatalogAdminState>(() =>
     readStateFromStorage(),
   );
+  const [removedProductVariants, setRemovedProductVariants] = useState<
+    string[]
+  >(() => readRemovedVariantsFromStorage());
   const [syncStatus, setSyncStatus] = useState<CatalogSyncStatus>("idle");
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   const saveInFlightRef = useRef(false);
@@ -374,7 +434,18 @@ export function useCatalogAdminState() {
         return;
       }
 
-      const fromServer = await loadStateFromServer();
+      const serverPayload = await loadStateFromServer();
+      if (serverPayload) {
+        const nextRemoved = serverPayload.removedProductVariants;
+        setRemovedProductVariants((prev) =>
+          JSON.stringify(prev) === JSON.stringify(nextRemoved)
+            ? prev
+            : nextRemoved,
+        );
+        writeRemovedVariantsToStorage(nextRemoved);
+      }
+
+      const fromServer = serverPayload?.state ?? null;
       if (!fromServer) {
         if (!silent) {
           setSyncStatus("error");
@@ -441,10 +512,26 @@ export function useCatalogAdminState() {
     };
   }, [hydrateFromServer]);
 
-  const productCatalog = useMemo(
-    () => buildEffectiveProductCatalog(state),
-    [state],
-  );
+  const keepVariantKeysSignature = (options?.keepItems ?? [])
+    .map((item) =>
+      makeVariantKey(
+        item.category ?? "",
+        item.subcategory ?? "",
+        item.productName ?? "",
+        item.size ?? "",
+      ),
+    )
+    .join("\n");
+
+  const productCatalog = useMemo(() => {
+    const keepVariantKeys = new Set(
+      keepVariantKeysSignature ? keepVariantKeysSignature.split("\n") : [],
+    );
+    return removeCatalogVariants(
+      buildEffectiveProductCatalog(state),
+      removedProductVariants.filter((key) => !keepVariantKeys.has(key)),
+    );
+  }, [state, removedProductVariants, keepVariantKeysSignature]);
 
   const addOnCatalog = useMemo(
     () => buildEffectiveAddOnCatalog(state),
