@@ -48,6 +48,9 @@ export interface CatalogAddOn {
   // Menentukan apakah harga Add-on dihitung per item atau per order
   // Jika tidak diset, default-nya adalah PER_ITEM
   pricingStrategy?: AddOnPricingStrategy;
+  // true bila harga diubah Owner/Admin di menu Add-ons (bukan harga bawaan kode).
+  // Harga ini wajib dipakai apa adanya di form booking.
+  priceOverridden?: boolean;
 }
 
 function variant(

@@ -1197,22 +1197,6 @@ export function isBouquetFlowerAddOnId(addonId: string): boolean {
   );
 }
 
-export function getBouquetFlowerAddOnUnitPrice(args: {
-  addonId: string;
-  bouquetType: BouquetFormType | null;
-}): number | null {
-  if (!isBouquetFlowerAddOnId(args.addonId)) return null;
-
-  if (args.addonId === BOUQUET_EXTRA_3_FLOWER_ADDON_ID) {
-    return 20000;
-  }
-
-  if (args.addonId === BOUQUET_EXTRA_6_FLOWER_ADDON_ID) {
-    return 35000;
-  }
-
-  return null;
-}
 
 export function normalizeBubblewrapSourceText(value: string): string {
   return value
@@ -1226,6 +1210,8 @@ export function resolveBubblewrapUnitPrice(args: {
   category: string;
   addonId: string;
   defaultPrice: number;
+  /** Harga diubah di menu Add-ons atau diisi manual di form: pakai apa adanya. */
+  priceOverridden?: boolean;
   itemSelection?: Pick<
     BookingItemInput,
     "category" | "subcategory" | "productName" | "size"
@@ -1233,6 +1219,8 @@ export function resolveBubblewrapUnitPrice(args: {
 }): number {
   const roundedDefault = Math.max(0, Math.round(args.defaultPrice));
   if (args.addonId !== "bubblewrap") return roundedDefault;
+  // Tarif bubblewrap per jenis produk di bawah hanya berlaku untuk harga bawaan.
+  if (args.priceOverridden) return roundedDefault;
 
   const source = normalizeBubblewrapSourceText(
     `${args.itemSelection?.category || ""} ${args.itemSelection?.subcategory || ""} ${args.itemSelection?.productName || ""} ${args.itemSelection?.size || ""}`,
@@ -1359,19 +1347,15 @@ export function calculatePerUnitAddOnPrice(args: {
       addOnQuantities: args.addOnQuantities,
     });
     const overriddenPrice = args.addOnPriceOverrides?.[addonId];
-    const baseUnitPrice =
-      Number.isFinite(Number(overriddenPrice)) && Number(overriddenPrice) >= 0
-        ? Number(overriddenPrice)
-        : args.category === "Buket"
-          ? (getBouquetFlowerAddOnUnitPrice({
-              addonId,
-              bouquetType: args.bouquetType ?? null,
-            }) ?? addon.price)
-          : addon.price;
+    const hasManualPrice =
+      Number.isFinite(Number(overriddenPrice)) && Number(overriddenPrice) >= 0;
+    // Harga katalog sudah memuat perubahan dari menu Add-ons.
+    const baseUnitPrice = hasManualPrice ? Number(overriddenPrice) : addon.price;
     const unitPrice = resolveBubblewrapUnitPrice({
       category: args.category,
       addonId,
       defaultPrice: baseUnitPrice,
+      priceOverridden: hasManualPrice || addon.priceOverridden === true,
       itemSelection: args.itemSelection,
     });
     return sum + unitPrice * multiplier;
@@ -1410,19 +1394,15 @@ export function calculateOrderLevelAddOnPrice(args: {
       addOnQuantities: args.addOnQuantities,
     });
     const overriddenPrice = args.addOnPriceOverrides?.[addonId];
-    const baseUnitPrice =
-      Number.isFinite(Number(overriddenPrice)) && Number(overriddenPrice) >= 0
-        ? Number(overriddenPrice)
-        : args.category === "Buket"
-          ? (getBouquetFlowerAddOnUnitPrice({
-              addonId,
-              bouquetType: args.bouquetType ?? null,
-            }) ?? addon.price)
-          : addon.price;
+    const hasManualPrice =
+      Number.isFinite(Number(overriddenPrice)) && Number(overriddenPrice) >= 0;
+    // Harga katalog sudah memuat perubahan dari menu Add-ons.
+    const baseUnitPrice = hasManualPrice ? Number(overriddenPrice) : addon.price;
     const unitPrice = resolveBubblewrapUnitPrice({
       category: args.category,
       addonId,
       defaultPrice: baseUnitPrice,
+      priceOverridden: hasManualPrice || addon.priceOverridden === true,
       itemSelection: args.itemSelection,
     });
     return sum + unitPrice * multiplier;
@@ -2000,10 +1980,7 @@ export function getDraftItemPriceBreakdown(args: {
             const unitPrice =
               overriddenPrice !== undefined
                 ? overriddenPrice
-                : (getBouquetFlowerAddOnUnitPrice({
-                    addonId: addOnId,
-                    bouquetType,
-                  }) ?? addOn.price);
+                : addOn.price;
             return sum + unitPrice;
           }, 0);
 
@@ -2079,10 +2056,7 @@ export function getDraftItemPriceBreakdown(args: {
             const addOn = categoryAddOns.find((entry) => entry.id === addOnId);
             if (!addOn) return sum;
             const unitPrice =
-              getBouquetFlowerAddOnUnitPrice({
-                addonId: addOnId,
-                bouquetType,
-              }) ?? addOn.price;
+              addOn.price;
             return sum + unitPrice;
           }, 0);
 

@@ -418,6 +418,7 @@ export function buildEffectiveAddOnCatalog(
         return {
           ...item,
           price: override !== undefined ? normalizeMoney(override) : item.price,
+          priceOverridden: override !== undefined,
           cogs:
             cogsOverride !== undefined
               ? normalizeMoney(cogsOverride)
