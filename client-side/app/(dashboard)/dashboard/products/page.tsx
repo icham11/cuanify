@@ -1115,10 +1115,12 @@ export default function ProductsPage() {
                       ? Math.round(((sellingPrice - cogs) / sellingPrice) * 100)
                       : null;
                   const productGroup = getProductGroupName(product);
-                  const stock =
-                    product.productType === "ReadyStock"
-                      ? Math.max(0, Number(product.availableStock ?? 0))
-                      : 0;
+                  // Stok manual dari modal edit berlaku untuk semua tipe produk;
+                  // sebelumnya produk PreOrder selalu tampil 0 walau stok diisi.
+                  const stock = Math.max(
+                    0,
+                    Number(product.availableStock ?? product.manualStock ?? 0),
+                  );
                   const status = getProductStatus(product);
 
                   return (

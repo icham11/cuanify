@@ -187,7 +187,19 @@ export async function PATCH(
     invalidateEffectiveBookingCatalogCache(businessId);
     invalidateOrderProductTokenLookupCache(businessId);
 
-    return NextResponse.json({ success: true, data: result });
+    // Samakan bentuk dengan GET /api/products agar kartu langsung menampilkan stok terbaru.
+    return NextResponse.json({
+      success: true,
+      data: result
+        ? {
+            ...result,
+            availableStock: Math.max(
+              0,
+              Number((result as { manualStock?: number }).manualStock ?? 0),
+            ),
+          }
+        : result,
+    });
   } catch (error: unknown) {
     if (isAuthError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
