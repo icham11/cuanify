@@ -21,6 +21,11 @@ import {
     type CatalogSelection,
     type PricelistCategory,
 } from "@/lib/bookings/pricelist";
+import {
+    useOrdersActions,
+    type NewOrderInput,
+    type OrderItem,
+} from "@/components/bakery/store";
 
 type PlatformKey = "tokopedia" | "shopee";
 
@@ -71,6 +76,10 @@ const SHIPPING_METHOD_OPTIONS = [
     "Kurir Toko",
 ];
 const MARKETPLACE_PARSE_TEMPLATE = buildWhatsAppTemplate("buket");
+const DELIVERY_SLOT_OPTIONS = Array.from(
+    { length: 24 },
+    (_, hour) => `${String(hour).padStart(2, "0")}:00`,
+);
 
 function makeId() {
     if (
@@ -541,6 +550,7 @@ function buildProductCatalogFromLiveVariants(
 
 export default function MarketplaceOrderPage() {
     const router = useRouter();
+    const { addOrder } = useOrdersActions();
     const manualSectionRef = useRef<HTMLDivElement | null>(null);
     const [loadingCatalog, setLoadingCatalog] = useState(true);
     const [savingOrder, setSavingOrder] = useState(false);
@@ -550,6 +560,7 @@ export default function MarketplaceOrderPage() {
     const [customerName, setCustomerName] = useState("");
     const [orderDate, setOrderDate] = useState(todayDateInput());
     const [shipDate, setShipDate] = useState(addDays(todayDateInput(), 3));
+    const [deliverySlot, setDeliverySlot] = useState("09:00");
     const [shippingMethod, setShippingMethod] = useState("");
     const [customerNotes, setCustomerNotes] = useState("");
     const [pasteText, setPasteText] = useState("");
@@ -1095,58 +1106,97 @@ export default function MarketplaceOrderPage() {
             return;
         }
 
+        if (totalIncome <= 0) {
+            toast.error("Total order harus lebih dari 0.");
+            return;
+        }
+
         setSavingOrder(true);
         try {
-            const response = await fetch("/api/marketplace/orders", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                    platform,
-                    orderReference,
-                    customerName,
-                    orderDate,
-                    shipDate,
-                    shippingMethod,
-                    customerNotes,
-                    items: items.map((item) => ({
-                        productId: item.productId,
-                        category: item.selection.category,
-                        subcategory: item.selection.subcategory,
-                        productName: item.selection.productName,
-                        size: item.selection.size,
-                        quantity: item.quantity,
-                        unitPrice: item.unitPrice,
-                        unitCost: item.unitCost,
-                        addOns: item.addOns.map((addOn) => ({
-                            id: addOn.id,
-                            label: addOn.label,
-                            quantity: addOn.quantity,
-                            unitPrice: addOn.unitPrice,
-                            unitCost: addOn.unitCost,
-                        })),
-                    })),
-                }),
+            // Order E-commerce disimpan sebagai booking biasa (masuk Bookings,
+            // Calendar & grup WA produksi) dengan sales_channel platform, sehingga
+            // hanya dihitung di Total Revenue — bukan Omset Harian / Cash Flow.
+            const platformLabel = platform === "tokopedia" ? "Tokopedia" : "Shopee";
+            const createdAtMs = Date.now();
+            const mappedItems: OrderItem[] = items.map((item, index) => {
+                const lineTotal = roundMoney(item.quantity * item.unitPrice);
+                const addOnTotal = roundMoney(
+                    item.addOns.reduce(
+                        (sum, addOn) => sum + addOn.quantity * addOn.unitPrice,
+                        0,
+                    ),
+                );
+                return {
+                    id: `item-${createdAtMs}-${index}`,
+                    category: item.selection.category,
+                    subcategory: item.selection.subcategory,
+                    productName: item.selection.productName,
+                    size: item.selection.size,
+                    quantity: item.quantity,
+                    basePrice: lineTotal,
+                    lineTotal,
+                    addOns: item.addOns.map((addOn) => addOn.id),
+                    addOnQuantities: Object.fromEntries(
+                        item.addOns.map((addOn) => [addOn.id, addOn.quantity]),
+                    ),
+                    addOnPriceOverrides: Object.fromEntries(
+                        item.addOns.map((addOn) => [addOn.id, addOn.unitPrice]),
+                    ),
+                    addOnTotal,
+                    notes: item.addOns
+                        .map((addOn) => `${addOn.label} x${addOn.quantity}`)
+                        .join(", "),
+                };
             });
+            const basePrice = mappedItems.reduce(
+                (sum, item) => sum + item.basePrice,
+                0,
+            );
+            const addOnTotal = mappedItems.reduce(
+                (sum, item) => sum + item.addOnTotal,
+                0,
+            );
+            const totalPrice = roundMoney(basePrice + addOnTotal);
 
-            const payload = (await response.json().catch(() => ({}))) as {
-                success?: boolean;
-                data?: { transactionNumber?: string };
-                error?: string;
-                message?: string;
+            const payload: NewOrderInput = {
+                customerName: customerName.trim(),
+                customerPhone: "",
+                deliveryDate: shipDate,
+                deliverySlot,
+                // Kurir dijemput oleh platform marketplace, bukan dipesan admin.
+                deliveryMethod: "PICKUP",
+                notes: [
+                    `Order ${platformLabel}: ${orderReference.trim()}`,
+                    `Tanggal Order Masuk: ${orderDate}`,
+                    `Pengiriman ${platformLabel}: ${shippingMethod}`,
+                    customerNotes.trim(),
+                ]
+                    .filter((line) => line.length > 0)
+                    .join("\n"),
+                items: mappedItems,
+                deliveryAddresses: [],
+                basePrice,
+                designAdjustmentTotal: 0,
+                addOnTotal,
+                productAdjustment: 0,
+                nonProductAdjustment: 0,
+                productSubtotal: totalPrice,
+                productDiscountAmount: 0,
+                serviceCharge: 0,
+                deliveryFee: 0,
+                insuranceFee: 0,
+                manualAdjustment: 0,
+                dpPaidAmount: 0,
+                finalPaidAmount: totalPrice,
+                totalPrice,
+                sales_channel: platform,
+                downPaymentAmount: 0,
+                remainingBalance: 0,
+                paymentStatus: "Paid",
+                shippingQuote: null,
             };
 
-            if (!response.ok || !payload.success) {
-                throw new Error(
-                    payload.error || "Gagal menyimpan order marketplace.",
-                );
-            }
-
-            toast.success(
-                payload.message ||
-                    `Order tersimpan sebagai ${payload.data?.transactionNumber || "transaksi marketplace"}.`,
-            );
+            await addOrder(payload);
 
             setOrderReference("");
             setCustomerName("");
@@ -1155,6 +1205,7 @@ export default function MarketplaceOrderPage() {
             setItems([]);
             setOrderDate(todayDateInput());
             setShipDate(addDays(todayDateInput(), 3));
+            setDeliverySlot("09:00");
             setShippingMethod("");
         } catch (error) {
             toast.error(
@@ -1290,7 +1341,32 @@ export default function MarketplaceOrderPage() {
                                             className="h-11 rounded-[12px] border-[#d7c0ae] bg-white shadow-none"
                                         />
                                     </label>
-                                    <label className="grid gap-1 md:col-span-2">
+                                    <label className="grid gap-1">
+                                        <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#b06e43]">
+                                            Jam Kirim
+                                        </span>
+                                        <Select
+                                            value={deliverySlot}
+                                            onChange={(event) =>
+                                                setDeliverySlot(
+                                                    event.target.value,
+                                                )
+                                            }
+                                            className="h-11 rounded-[12px] border-[#d7c0ae] bg-white shadow-none"
+                                        >
+                                            {DELIVERY_SLOT_OPTIONS.map(
+                                                (option) => (
+                                                    <option
+                                                        key={option}
+                                                        value={option}
+                                                    >
+                                                        {option}
+                                                    </option>
+                                                ),
+                                            )}
+                                        </Select>
+                                    </label>
+                                    <label className="grid gap-1">
                                         <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#b06e43]">
                                             Metode Pengiriman
                                         </span>

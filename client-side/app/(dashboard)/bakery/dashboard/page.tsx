@@ -32,6 +32,7 @@ import {
   buildCashFlowBreakdownForDate,
   buildCashFlowHistory,
   type CashFlowHistoryEntry,
+  isCashflowEligibleOrder,
   toJakartaDateKey,
 } from "@/lib/bakery/dashboard-cashflow";
 import { BAKERY_STAFF_DAILY_TOKEN_LIMIT } from "@/lib/bookings/config";
@@ -375,7 +376,7 @@ export default function BakeryDashboardPage() {
     [orders, today],
   );
   const todayPayments = useMemo(() => {
-    return orders.flatMap((order) =>
+    return orders.filter(isCashflowEligibleOrder).flatMap((order) =>
       (order.paymentTransactions ?? []).filter(
         (transaction) => toJakartaDateKey(transaction.timestamp) === today,
       ),

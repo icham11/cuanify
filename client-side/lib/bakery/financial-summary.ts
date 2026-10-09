@@ -7,6 +7,7 @@ import type {
 } from "@/lib/bakery/settings";
 import { calculateOrderFinancialBreakdown } from "@/lib/bookings/financial-breakdown";
 import { isLegacyBackfillOrder } from "@/lib/bookings/legacy-backfill";
+import { isMarketplaceSalesChannel } from "@/lib/bookings/sales-channel";
 
 const BUSINESS_TIME_ZONE = "Asia/Jakarta";
 
@@ -346,6 +347,11 @@ function getCashFlowInAmountInRange(
   // Order lama (> 1 bulan saat diinput) bukan uang masuk riil. Pendapatannya tetap
   // diakui di bulan tanggal kirim (getRevenueAmountInRange), tapi tidak di cashflow.
   if (isLegacyBackfillOrder(order.deliveryDate, order.createdAt)) {
+    return 0;
+  }
+
+  // Order E-commerce (Tokopedia/Shopee) hanya masuk Total Revenue, bukan cashflow.
+  if (isMarketplaceSalesChannel(order.sales_channel)) {
     return 0;
   }
 

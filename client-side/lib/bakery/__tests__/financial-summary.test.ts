@@ -794,3 +794,38 @@ describe("Revenue vs Cashflow Calculation", () => {
     ]);
   });
 });
+
+describe("E-commerce (marketplace) orders", () => {
+  it("counts tokopedia/shopee orders in total revenue but not in cash flow", () => {
+    const orders: BakeryFinancialOrder[] = [
+      {
+        deliveryDate: "2026-10-12",
+        totalPrice: 150000,
+        totalPaidAmount: 150000,
+        finalPaidAmount: 150000,
+        paymentStatus: "Paid",
+        orderStatus: "In Production",
+        sales_channel: "tokopedia",
+        createdAt: "2026-10-09T03:00:00.000Z",
+        items: [
+          {
+            productName: "Kue Coklat",
+            quantity: 1,
+            basePrice: 150000,
+            lineTotal: 150000,
+          },
+        ],
+      },
+    ];
+
+    const result = calculateBakeryFinancialSummary({
+      orders,
+      products: mockProducts,
+      fromDate: "2026-10-01",
+      toDate: "2026-10-31",
+    });
+
+    expect(result.totalRevenue).toBe(150000);
+    expect(result.totalCashFlowIn).toBe(0);
+  });
+});

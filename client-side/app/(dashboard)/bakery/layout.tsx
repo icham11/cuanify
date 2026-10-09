@@ -11,6 +11,7 @@ function shouldEnableOrdersProvider(pathname: string | null) {
     pathname.startsWith("/bakery/calendar") ||
     pathname.startsWith("/bakery/customers") ||
     pathname.startsWith("/bakery/dashboard") ||
+    pathname.startsWith("/bakery/ecommerce") ||
     pathname.startsWith("/bakery/production") ||
     pathname.startsWith("/bakery/reports")
   );

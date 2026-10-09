@@ -1,5 +1,6 @@
 import type { BakeryOrder } from "@/components/bakery/store";
 import { isLegacyBackfillOrder } from "@/lib/bookings/legacy-backfill";
+import { isMarketplaceSalesChannel } from "@/lib/bookings/sales-channel";
 
 export type CashFlowCustomerEntry = {
   customerName: string;
@@ -38,7 +39,11 @@ export function toJakartaDateKey(value: string | null | undefined) {
 }
 
 // Order lama (> 1 bulan saat diinput) bukan uang masuk riil — jangan masuk cashflow.
-function isCashflowEligibleOrder(order: BakeryOrder): boolean {
+// Order E-commerce (Tokopedia/Shopee) juga tidak masuk cashflow.
+export function isCashflowEligibleOrder(
+  order: Pick<BakeryOrder, "deliveryDate" | "createdAt" | "sales_channel">,
+): boolean {
+  if (isMarketplaceSalesChannel(order.sales_channel)) return false;
   return !isLegacyBackfillOrder(order.deliveryDate, order.createdAt);
 }
 

@@ -260,3 +260,33 @@ describe("dashboard cashflow helpers", () => {
     });
   });
 });
+
+describe("dashboard cashflow for e-commerce orders", () => {
+  it("excludes tokopedia/shopee orders from cash flow", () => {
+    const orders: BakeryOrder[] = [
+      createOrder({
+        id: "order-direct",
+        customerName: "Maya",
+        totalPrice: 100000,
+        sales_channel: "direct",
+        paymentTransactions: [
+          { id: "tx-1", timestamp: "2026-10-09T03:00:00.000Z", amount: 100000, type: "Final" },
+        ],
+      }),
+      createOrder({
+        id: "order-shopee",
+        customerName: "Budi",
+        totalPrice: 80000,
+        sales_channel: "shopee",
+        paymentTransactions: [
+          { id: "tx-2", timestamp: "2026-10-09T04:00:00.000Z", amount: 80000, type: "Final" },
+        ],
+      }),
+    ];
+
+    const breakdown = buildCashFlowBreakdownForDate(orders, "2026-10-09");
+    expect(breakdown).toHaveLength(1);
+    expect(breakdown[0]?.customerName).toBe("Maya");
+    expect(breakdown[0]?.amountToday).toBe(100000);
+  });
+});
