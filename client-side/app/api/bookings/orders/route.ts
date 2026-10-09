@@ -4930,6 +4930,7 @@ export async function POST(request: NextRequest) {
     const body = (await request.json().catch(() => ({}))) as {
       orders?: unknown;
       skipWhatsAppNotification?: unknown;
+      notifyProductionOnUpdate?: unknown;
       changedOrderIds?: string[];
     };
     if (!Array.isArray(body.orders)) {
@@ -4939,6 +4940,12 @@ export async function POST(request: NextRequest) {
       );
     }
     const skipWhatsAppNotification = body.skipWhatsAppNotification === true;
+    // Root Cause: setiap sinkron order (assignment/claim/selesai proses dari menu
+    // Production, hasil automasi, dll.) yang terdeteksi "berubah" ikut mengirim
+    // rekap update ke grup WA produksi.
+    // Solution: rekap update hanya dikirim bila klien menandai request ini sebagai
+    // edit detail order (updateOrder). Sinkron lain cukup sinkron kalender.
+    const notifyProductionOnUpdate = body.notifyProductionOnUpdate === true;
     const changedOrderIdsSet = Array.isArray(body.changedOrderIds)
       ? new Set(body.changedOrderIds)
       : null;
@@ -6747,8 +6754,11 @@ export async function POST(request: NextRequest) {
                   queuedAutomationJobs.push({
                     orderId: order.id,
                     bookingCode: order.bookingCode || order.resi || order.id,
-                    eventType: "order_rescheduled",
-                    forceProductionNotification: true,
+                    // Tanpa tanda edit detail: tetap sinkron kalender, tanpa WA.
+                    eventType: notifyProductionOnUpdate
+                      ? "order_rescheduled"
+                      : "order_calendar_sync",
+                    forceProductionNotification: notifyProductionOnUpdate,
                     order: toBookingAutomationPayload(
                       order,
                       buildOrderUpdateChangeInfo({

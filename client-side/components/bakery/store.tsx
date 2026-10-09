@@ -1692,6 +1692,8 @@ export function OrdersProvider({
     options?: {
       skipWhatsAppNotification?: boolean;
       partialOrders?: boolean;
+      /** Hanya untuk edit detail order: kirim rekap update ke grup WA produksi. */
+      notifyProductionOnUpdate?: boolean;
     },
   ) => {
     if (typeof window === "undefined") {
@@ -1712,6 +1714,8 @@ export function OrdersProvider({
     const requestBody = {
       skipWhatsAppNotification:
         options?.skipWhatsAppNotification === true ? true : undefined,
+      notifyProductionOnUpdate:
+        options?.notifyProductionOnUpdate === true ? true : undefined,
       changedOrderIds: changedOrderIds && changedOrderIds.length > 0 ? changedOrderIds : undefined,
       orders: (ordersForRequest.length > 0 ? ordersForRequest : sanitizedOrders).map((order) => {
         const {
@@ -3894,7 +3898,9 @@ export function OrdersProvider({
       persistOrders(nextOrders, { syncToServer: false });
 
       try {
-        await syncOrdersToServer(nextOrders, [id]);
+        await syncOrdersToServer(nextOrders, [id], {
+          notifyProductionOnUpdate: true,
+        });
         const latestSyncedOrders = await replaceLocalOrdersWithServer({
           force: true,
         });
