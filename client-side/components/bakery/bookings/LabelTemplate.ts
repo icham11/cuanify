@@ -1,3 +1,4 @@
+import { isMarketplaceSalesChannel } from "@/lib/bookings/sales-channel";
 import type { BakeryOrder, OrderItem } from "@/components/bakery/store";
 import { BOOKING_ADD_ON_CATALOG } from "@/lib/bookings/pricelist";
 import {
@@ -65,6 +66,20 @@ function resolveLabelBookingCode(name: string, phone: string): string {
     .padEnd(2, "X");
   const lastTwoDigits = normalizeText(phone).replace(/\D/g, "").slice(-2).padStart(2, "0");
   return `${initials} - ${lastTwoDigits}`;
+}
+
+// Order E-commerce memakai kode booking dari platform (Tokopedia/Shopee) yang
+// diinput admin. Order lama yang belum menyimpan resi dibaca dari notes.
+function resolveMarketplaceBookingCode(order: BakeryOrder): string {
+  if (!isMarketplaceSalesChannel(order.sales_channel)) return "";
+
+  const fromResi = normalizeText(order.resi);
+  if (fromResi) return fromResi;
+
+  const fromNotes = String(order.notes || "").match(
+    /^\s*Order (?:Tokopedia|Shopee)\s*:\s*(.+)$/im,
+  );
+  return normalizeText(fromNotes?.[1]);
 }
 
 function resolveRecipientName(order: BakeryOrder): string {
@@ -223,6 +238,9 @@ function humanizeAddOnId(addOnId: string): string {
 }
 
 function resolveCatalogAddOnLabel(item: OrderItem, addOnId: string): string {
+  const explicitLabel = normalizeText(item.addOnLabels?.[addOnId]);
+  if (explicitLabel) return explicitLabel;
+
   const categoryEntries = BOOKING_ADD_ON_CATALOG[item.category] ?? [];
   const categoryMatch = categoryEntries.find((entry) => entry.id === addOnId);
   if (categoryMatch?.label) return categoryMatch.label;
@@ -340,10 +358,12 @@ function buildItemRows(order: BakeryOrder): string {
   return rows.join("");
 }
 
-function buildLabelHtml(order: BakeryOrder): string {
+export function buildLabelHtml(order: BakeryOrder): string {
   const recipientName = resolveRecipientName(order);
   const recipientPhone = resolveRecipientPhone(order);
-  const bookingCode = resolveLabelBookingCode(recipientName, recipientPhone);
+  const bookingCode =
+    resolveMarketplaceBookingCode(order) ||
+    resolveLabelBookingCode(recipientName, recipientPhone);
   const shippingMethod = resolveShippingMethod(order);
   const shippingEmoji = resolveShippingEmoji(shippingMethod);
   const shippingServiceVariant = resolveShippingServiceVariant(order);

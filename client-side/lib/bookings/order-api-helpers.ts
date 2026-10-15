@@ -1132,17 +1132,27 @@ function buildProductionCaptionDetailLines(
   return lines;
 }
 
+function humanizeAddOnId(value: string): string {
+  if (!/^[a-z0-9]+(?:[-_][a-z0-9]+)*$/.test(value)) return value;
+  return value
+    .split(/[-_]/)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 export function formatCaptionAddOns(item: JsonRecord): string {
   const addOns = asStringArray(item.addOns);
   if (addOns.length === 0) return "";
 
   const quantities = asRecord(item.addOnQuantities);
+  const labels = asRecord(item.addOnLabels);
 
   return addOns
     .map((addOn) => {
+      const label = asString(labels?.[addOn]).trim() || humanizeAddOnId(addOn);
       const quantity = asPositiveIntOrNull(quantities?.[addOn]);
-      if (!quantity || quantity <= 1) return addOn;
-      return `${quantity}x ${addOn}`;
+      if (!quantity || quantity <= 1) return label;
+      return `${quantity}x ${label}`;
     })
     .join(", ");
 }

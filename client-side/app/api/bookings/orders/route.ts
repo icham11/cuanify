@@ -2460,6 +2460,26 @@ function toWhatsAppPayload(order: NormalizedOrder): SendOrderToWhatsAppInput {
   };
 }
 
+function toNumberRecord(value: unknown): Record<string, number> | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  return Object.fromEntries(
+    Object.entries(record)
+      .map(([key, entry]) => [key, asNumber(entry)] as const)
+      .filter(([, entry]) => Number.isFinite(entry)),
+  );
+}
+
+function toStringRecord(value: unknown): Record<string, string> | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  return Object.fromEntries(
+    Object.entries(record)
+      .map(([key, entry]) => [key, asString(entry).trim()] as const)
+      .filter(([, entry]) => entry.length > 0),
+  );
+}
+
 function toBookingAutomationPayload(
   order: NormalizedOrder,
   changeInfo?: BookingAutomationChangeInfo,
@@ -2559,6 +2579,9 @@ function toBookingAutomationPayload(
             : undefined,
         lineTotal:
           record?.lineTotal === undefined ? undefined : asNumber(record?.lineTotal),
+        addOns: asStringArray(record?.addOns),
+        addOnQuantities: toNumberRecord(record?.addOnQuantities),
+        addOnLabels: toStringRecord(record?.addOnLabels),
       };
     }),
     deliveryAddresses: order.deliveryAddresses.map((address, index) => {
@@ -6715,6 +6738,10 @@ export async function POST(request: NextRequest) {
                       size: typeof item.size === "string" ? item.size : "",
                       quantity:
                         typeof item.quantity === "number" ? item.quantity : 0,
+                      productId:
+                        typeof item.productId === "number"
+                          ? item.productId
+                          : null,
                     })),
                   });
 

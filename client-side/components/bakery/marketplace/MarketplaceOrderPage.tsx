@@ -1128,6 +1128,7 @@ export default function MarketplaceOrderPage() {
                 );
                 return {
                     id: `item-${createdAtMs}-${index}`,
+                    productId: item.productId ?? undefined,
                     category: item.selection.category,
                     subcategory: item.selection.subcategory,
                     productName: item.selection.productName,
@@ -1142,10 +1143,10 @@ export default function MarketplaceOrderPage() {
                     addOnPriceOverrides: Object.fromEntries(
                         item.addOns.map((addOn) => [addOn.id, addOn.unitPrice]),
                     ),
+                    addOnLabels: Object.fromEntries(
+                        item.addOns.map((addOn) => [addOn.id, addOn.label]),
+                    ),
                     addOnTotal,
-                    notes: item.addOns
-                        .map((addOn) => `${addOn.label} x${addOn.quantity}`)
-                        .join(", "),
                 };
             });
             const basePrice = mappedItems.reduce(
@@ -1159,6 +1160,8 @@ export default function MarketplaceOrderPage() {
             const totalPrice = roundMoney(basePrice + addOnTotal);
 
             const payload: NewOrderInput = {
+                // Kode booking platform dipakai sebagai kode booking di label.
+                resi: orderReference.trim(),
                 customerName: customerName.trim(),
                 customerPhone: "",
                 deliveryDate: shipDate,

@@ -36,6 +36,10 @@ export interface BookingAutomationItem {
   cupcakePackType?: "DOZEN" | "INDIVIDUAL";
   hasCookieTopper?: boolean;
   lineTotal?: number;
+  addOns?: string[];
+  addOnQuantities?: Record<string, number>;
+  /** Label tampilan per id add-on (mis. dari menu E-commerce). */
+  addOnLabels?: Record<string, string>;
 }
 
 export interface BookingAutomationAddress {

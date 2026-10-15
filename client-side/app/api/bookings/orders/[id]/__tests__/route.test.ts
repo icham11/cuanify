@@ -33,6 +33,10 @@ const mocks = vi.hoisted(() => {
       metadata: {},
     })),
     buildBookingAuditOrderSummary: vi.fn(() => "20x Custom Cookies"),
+    syncBakeryOrderInventoryForStatus: vi.fn(async () => ({
+      changed: true,
+      unresolvedProducts: [],
+    })),
   };
 });
 
@@ -87,6 +91,10 @@ vi.mock("@/lib/bookings/booking-audit", () => ({
   buildBookingAuditOrderSummary: mocks.buildBookingAuditOrderSummary,
 }));
 
+vi.mock("@/lib/bookings/inventory-sync", () => ({
+  syncBakeryOrderInventoryForStatus: mocks.syncBakeryOrderInventoryForStatus,
+}));
+
 import { PATCH } from "../route";
 
 describe("PATCH /api/bookings/orders/[id]", () => {
@@ -115,6 +123,7 @@ describe("PATCH /api/bookings/orders/[id]", () => {
     mocks.tx.businessDocument.create.mockResolvedValue(null);
     mocks.isPrismaConnectionTimeout.mockReset();
     mocks.isPrismaConnectionTimeout.mockReturnValue(false);
+    mocks.syncBakeryOrderInventoryForStatus.mockClear();
   });
 
   afterEach(() => {
@@ -164,6 +173,14 @@ describe("PATCH /api/bookings/orders/[id]", () => {
       });
       expect(mocks.prisma.$transaction).toHaveBeenCalledTimes(1);
       expect(mocks.tx.$executeRaw).toHaveBeenCalled();
+      expect(mocks.syncBakeryOrderInventoryForStatus).toHaveBeenCalledWith(
+        mocks.tx,
+        {
+          businessId: 13,
+          orderId: "HA444-280526-001",
+          orderStatus: nextStatus,
+        },
+      );
     },
   );
 });

@@ -4,6 +4,7 @@ import path from "path";
 import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { toJsonb } from "@/lib/bookings/json-safe";
+import { syncBakeryOrderInventoryForStatus } from "@/lib/bookings/inventory-sync";
 import { AuthError, ForbiddenError, requireAuth } from "@/lib/auth/session";
 import {
   isPrismaConnectionTimeout,
@@ -939,6 +940,13 @@ export async function PATCH(
             updatedAt: nextUpdatedAt,
             statusHistory: nextStatusHistory,
           });
+
+          // Mis. Cancelled -> stok bahan & produk dikembalikan; aktif lagi -> dipotong.
+          await syncBakeryOrderInventoryForStatus(tx, {
+            businessId,
+            orderId: id,
+            orderStatus: requestedStatus,
+          });
         }
 
         if (paymentPatch) {
@@ -1213,6 +1221,25 @@ export async function DELETE(
     }
 
     await prisma.$transaction(transactionSteps);
+
+    // Kembalikan stok bahan & produk yang dipotong order ini (dari state sync
+    // yang tersimpan, jadi tidak butuh item order yang sudah terhapus).
+    try {
+      await prisma.$transaction(
+        (tx) =>
+          syncBakeryOrderInventoryForStatus(tx, {
+            businessId,
+            orderId: id,
+            orderStatus: "Cancelled",
+          }),
+        { maxWait: 10_000, timeout: 60_000 },
+      );
+    } catch (inventoryError) {
+      console.error(
+        "DELETE /api/bookings/orders/[id] inventory restore failed:",
+        inventoryError,
+      );
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {

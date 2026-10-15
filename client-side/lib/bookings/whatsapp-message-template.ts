@@ -200,6 +200,13 @@ function generateAutomatedBookingCode(
   }
 }
 
+type DeliveryDetailOptions = {
+  /** Cetak add-on di bawah tiap item (rekap sudah punya baris Add On sendiri). */
+  includeItemAddOns?: boolean;
+  /** Catatan order, dicetak di akhir pesan. */
+  notes?: string;
+};
+
 function appendOrderDeliveryDetailLines(
   lines: string[],
   input: Pick<
@@ -214,6 +221,7 @@ function appendOrderDeliveryDetailLines(
     | "fullAddress"
     | "postalCode"
   >,
+  options: DeliveryDetailOptions = {},
 ) {
   lines.push(
     `Tanggal Pengiriman : ${formatWhatsAppDeliveryDate(input.deliveryDate)}`,
@@ -238,6 +246,10 @@ function appendOrderDeliveryDetailLines(
     lines.push(
       normalizeInlineValue(`•  ${qtyPrefix}${item.productName || "-"}`),
     );
+    const addOnText = normalizeInlineValue(item.addOnText || "");
+    if (options.includeItemAddOns && addOnText) {
+      lines.push(`    + Add On: ${addOnText}`);
+    }
   }
   lines.push("");
 
@@ -265,6 +277,11 @@ function appendOrderDeliveryDetailLines(
   pushLabeledValue(lines, "Alamat lengkap", input.fullAddress || "-");
   if (input.postalCode) {
     pushLabeledValue(lines, "Kode pos", input.postalCode);
+  }
+
+  if ((options.notes || "").trim()) {
+    lines.push("");
+    pushLabeledValue(lines, "Notes", options.notes);
   }
 }
 
@@ -310,8 +327,9 @@ export function buildOrderDeliveryDetailsWhatsAppText(
     | "fullAddress"
     | "postalCode"
   >,
+  options: DeliveryDetailOptions = {},
 ): string {
   const lines: string[] = [];
-  appendOrderDeliveryDetailLines(lines, input);
+  appendOrderDeliveryDetailLines(lines, input, options);
   return compactEmptyLines(lines).join("\n");
 }

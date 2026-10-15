@@ -151,6 +151,11 @@ export function buildProductionCaption(
     recipientPhone: order.recipientPhone || order.phone || "-",
     fullAddress: order.fullAddress || order.address || "-",
     postalCode: order.postalCode,
+  }, {
+    // Order tanpa teks WA mentah (mis. dari menu E-commerce) tetap membawa
+    // add-on & notes ke grup produksi.
+    includeItemAddOns: true,
+    notes: order.notes,
   });
 }
 

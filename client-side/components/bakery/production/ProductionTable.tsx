@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import StatusDropdown from "@/components/bakery/production/StatusDropdown";
 import BookingAuditLogPopup from "@/components/bakery/production/BookingAuditLogPopup";
+import StaffTokenReport from "@/components/bakery/production/StaffTokenReport";
 import ConfirmActionModal, {
     type ConfirmActionRequest,
 } from "@/components/bakery/production/ConfirmActionModal";
@@ -2696,6 +2697,8 @@ export default function ProductionTable() {
                     </div>
                 </div>
             )}
+
+            {!isStaff && canManageAssignments ? <StaffTokenReport /> : null}
 
             <div className="space-y-3 rounded-[28px] border border-[var(--crumbella-border)] bg-[var(--crumbella-surface)] p-4 shadow-[0_16px_30px_-24px_rgba(30,18,10,0.45)]">
                 <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_140px_120px_170px_auto]">

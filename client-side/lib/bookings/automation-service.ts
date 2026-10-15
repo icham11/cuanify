@@ -175,7 +175,7 @@ function buildEditedBookingProductionMessage(
 
 const UPDATE_ORDER_HEADER = "*UPDATE ORDER*";
 
-function toNormalizedAutomationOrder(
+export function toNormalizedAutomationOrder(
   order: BookingAutomationOrderPayload,
 ): NormalizedOrder {
   const parsedData =
@@ -268,6 +268,9 @@ function toNormalizedAutomationOrder(
       cupcakePackType: item.cupcakePackType,
       hasCookieTopper: item.hasCookieTopper,
       lineTotal: item.lineTotal,
+      addOns: item.addOns ?? [],
+      addOnQuantities: item.addOnQuantities,
+      addOnLabels: item.addOnLabels,
     })),
     deliveryAddresses: order.deliveryAddresses.map((address, index) => ({
       id: address.id || `addr-${index + 1}`,

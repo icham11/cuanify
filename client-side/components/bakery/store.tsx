@@ -141,6 +141,8 @@ export interface OrderAutomationLog {
 
 export interface OrderItem {
   id: string;
+  /** ID Product (halaman Products) bila sudah diketahui, mis. dari menu E-commerce. */
+  productId?: number;
   category: string;
   subcategory: string;
   productName: string;
@@ -172,6 +174,8 @@ export interface OrderItem {
   lineTotal?: number;
   addOns: string[];
   addOnQuantities?: Record<string, number>;
+  /** Label tampilan per id add-on (dipakai WA bila id bukan dari katalog booking). */
+  addOnLabels?: Record<string, string>;
   addOnPriceOverrides?: Record<string, number>;
   customAddOns?: Array<{ label: string; price: number }>;
   darkColorButtercreamColors?: string[];
@@ -266,6 +270,8 @@ export interface BakeryOrder {
 }
 
 export interface NewOrderInput {
+  /** Nomor order/resi platform (order E-commerce); kosong untuk booking biasa. */
+  resi?: string;
   customerName: string;
   customerPhone: string;
   deliveryDate: string;
@@ -1169,6 +1175,9 @@ function buildAutomationPayload(
         Number(item.lineTotal || 0) ||
         Number(item.basePrice || 0) + Number(item.addOnTotal || 0),
       notes: item.notes || "",
+      addOns: item.addOns ?? [],
+      addOnQuantities: item.addOnQuantities,
+      addOnLabels: item.addOnLabels,
     })),
     deliveryAddresses: (order.deliveryAddresses ?? []).map((address) => ({
       id: address.id,
@@ -2844,7 +2853,7 @@ export function OrdersProvider({
 
         const newOrder: BakeryOrder = {
           id,
-          resi: "",
+          resi: order.resi?.trim() || "",
           bookingCode,
           deliveryMethod: order.deliveryMethod,
           shippingReferenceId: generateShippingReferenceId(bookingCode, id),
