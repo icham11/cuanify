@@ -32,6 +32,9 @@ type StaffTokenReportRow = {
     missedTasks: StaffTokenReportTask[];
 };
 
+// Samakan dengan polling data order agar Ready dari staff cepat terlihat.
+const REPORT_REFRESH_INTERVAL_MS = 60_000;
+
 type StaffTokenReportData = {
     date: string;
     month: string;
@@ -123,42 +126,60 @@ export default function StaffTokenReport() {
     const [data, setData] = useState<StaffTokenReportData | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
-    const [expandedStaffId, setExpandedStaffId] = useState<number | null>(
-        null,
-    );
+    const [expandedStaffId, setExpandedStaffId] = useState<number | null>(null);
 
-    const loadReport = useCallback(async (targetDate: string) => {
-        setLoading(true);
-        setError("");
-        try {
-            const response = await fetch(
-                `/api/bakery/production/staff-token-report?date=${encodeURIComponent(targetDate)}`,
-                { cache: "no-store" },
-            );
-            const payload = (await response.json().catch(() => ({}))) as {
-                success?: boolean;
-                data?: StaffTokenReportData;
-                error?: string;
-            };
-            if (!response.ok || !payload.success || !payload.data) {
-                throw new Error(
-                    payload.error || "Gagal memuat laporan token staff.",
+    const loadReport = useCallback(
+        async (targetDate: string, options?: { silent?: boolean }) => {
+            if (!options?.silent) setLoading(true);
+            setError("");
+            try {
+                const response = await fetch(
+                    `/api/bakery/production/staff-token-report?date=${encodeURIComponent(targetDate)}`,
+                    { cache: "no-store" },
                 );
+                const payload = (await response.json().catch(() => ({}))) as {
+                    success?: boolean;
+                    data?: StaffTokenReportData;
+                    error?: string;
+                };
+                if (!response.ok || !payload.success || !payload.data) {
+                    throw new Error(
+                        payload.error || "Gagal memuat laporan token staff.",
+                    );
+                }
+                setData(payload.data);
+            } catch (loadError) {
+                setError(
+                    loadError instanceof Error
+                        ? loadError.message
+                        : "Gagal memuat laporan token staff.",
+                );
+            } finally {
+                setLoading(false);
             }
-            setData(payload.data);
-        } catch (loadError) {
-            setError(
-                loadError instanceof Error
-                    ? loadError.message
-                    : "Gagal memuat laporan token staff.",
-            );
-        } finally {
-            setLoading(false);
-        }
-    }, []);
+        },
+        [],
+    );
 
     useEffect(() => {
         void loadReport(date);
+
+        const refresh = () => {
+            if (document.visibilityState === "visible") {
+                void loadReport(date, { silent: true });
+            }
+        };
+        const intervalId = window.setInterval(
+            refresh,
+            REPORT_REFRESH_INTERVAL_MS,
+        );
+        window.addEventListener("focus", refresh);
+        document.addEventListener("visibilitychange", refresh);
+        return () => {
+            window.clearInterval(intervalId);
+            window.removeEventListener("focus", refresh);
+            document.removeEventListener("visibilitychange", refresh);
+        };
     }, [date, loadReport]);
 
     const staff = data?.staff ?? [];
@@ -288,7 +309,9 @@ export default function StaffTokenReport() {
                                                         <span className="text-[#a83030]">
                                                             {" "}
                                                             · Terlewat:{" "}
-                                                            {entry.missedToken}{" "}
+                                                            {
+                                                                entry.missedToken
+                                                            }{" "}
                                                             tok
                                                         </span>
                                                     ) : null}

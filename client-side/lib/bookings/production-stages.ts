@@ -327,3 +327,38 @@ export function normalizeProductionStageAssignments(args: {
     };
   });
 }
+
+/**
+ * Tanda Ready (completedAt) suatu proses hanya boleh diubah oleh staff yang
+ * memegang proses itu. Payload dari client lain (staff lain di order yang sama
+ * atau Owner/Admin) bisa membawa data lama dan tidak boleh menghapus Ready yang
+ * sudah tersimpan. Jika staff proses diganti, tanda Ready ikut dari payload
+ * (normalisasi sudah meresetnya).
+ */
+export function preservePersistedStageCompletion(args: {
+  incoming: ProductionStageAssignment[];
+  persisted: ProductionStageAssignment[];
+  actorUserId: number | null;
+}): ProductionStageAssignment[] {
+  const persistedByStage = new Map(
+    args.persisted.map((entry) => [normalizeProductionStageKey(entry.stage), entry]),
+  );
+
+  return args.incoming.map((entry) => {
+    const persisted = persistedByStage.get(entry.stage);
+    if (!persisted) return entry;
+
+    const persistedStaffId = persisted.staffId ?? null;
+    const incomingStaffId = entry.staffId ?? null;
+    if (persistedStaffId !== incomingStaffId) return entry;
+    if (incomingStaffId !== null && incomingStaffId === args.actorUserId) {
+      return entry;
+    }
+
+    return {
+      ...entry,
+      completedAt: persisted.completedAt ?? null,
+      completedByUserId: persisted.completedByUserId ?? null,
+    };
+  });
+}

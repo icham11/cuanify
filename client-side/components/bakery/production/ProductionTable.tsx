@@ -126,6 +126,7 @@ function getOrderStaffTokenAssignments(order: BakeryOrder): Array<{
     staffName: string;
     token: number;
     completed: boolean;
+    completedAt: string | null;
 }> {
     const stageAssignments = (order.productionStages ?? [])
         .filter((stage) => stage.staffId && stage.tokenAmount > 0)
@@ -136,6 +137,7 @@ function getOrderStaffTokenAssignments(order: BakeryOrder): Array<{
                 `${stage.stage.charAt(0).toUpperCase()}${stage.stage.slice(1)} staff`,
             token: Math.max(0, Math.round(Number(stage.tokenAmount) || 0)),
             completed: Boolean(stage.completedAt),
+            completedAt: stage.completedAt ?? null,
         }));
 
     if (stageAssignments.length > 0) return stageAssignments;
@@ -149,6 +151,7 @@ function getOrderStaffTokenAssignments(order: BakeryOrder): Array<{
                 `Staff #${order.assignedStaffUserId}`,
             token: summarizeProductionTokensByItems(order.items ?? []),
             completed: false,
+            completedAt: null,
         },
     ];
 }
@@ -1029,15 +1032,21 @@ export default function ProductionTable() {
         }
 
         for (const order of orders) {
-            if (
-                toJakartaDateKey(order.productionAssignedAt) !==
-                effectiveStaffStatsDateKey
-            ) {
-                continue;
-            }
-
+            // "Selesai" mengikuti tanggal Ready (sama dengan Laporan Token
+            // Staff); assignment aktif/in progress tetap mengikuti tanggal assign.
+            const isAssignedOnDate =
+                toJakartaDateKey(order.productionAssignedAt) ===
+                effectiveStaffStatsDateKey;
             const status = normalizeOrderStatus(order.orderStatus);
             for (const assignment of getOrderStaffTokenAssignments(order)) {
+                const isReadyOnDate =
+                    assignment.completed &&
+                    toJakartaDateKey(assignment.completedAt) ===
+                        effectiveStaffStatsDateKey;
+                if (assignment.completed ? !isReadyOnDate : !isAssignedOnDate) {
+                    continue;
+                }
+
                 const current = statsMap.get(assignment.staffUserId) ?? {
                     userId: assignment.staffUserId,
                     name:
@@ -1797,15 +1806,15 @@ export default function ProductionTable() {
             ? formatGroupDate(orderDateKey)
             : "tanpa tanggal delivery";
         /**
-         * Menyimpan assignment (klaim/assign/transfer) menulis ulang seluruh
-         * stage order, sehingga tanda selesai yang sudah ada ikut tereset.
-         * Dipakai untuk menambah baris peringatan pada modal konfirmasi.
+         * Menyimpan assignment (klaim/assign/transfer) mereset tanda selesai
+         * pada proses yang staffnya diganti (server mempertahankan Ready pada
+         * proses lain). Dipakai untuk menambah baris peringatan pada modal.
          */
         const hasCompletedStages = effectiveStages.some((stage) =>
             Boolean(stage.completedAt),
         );
         const assignmentResetEffect = hasCompletedStages
-            ? "Tanda selesai pada proses order ini akan direset ke belum selesai."
+            ? "Tanda Ready hanya direset pada proses yang staffnya diganti; proses lain tetap Ready."
             : null;
 
         const canManagerAssignOrTransfer = canManageAssignments;
@@ -2788,8 +2797,9 @@ export default function ProductionTable() {
                                 Assign per Staff
                             </h4>
                             <p className="mt-1 text-[11px] text-[var(--crumbella-muted)]">
-                                Pantau beban token staff dari filter produksi
-                                aktif.
+                                Token masuk = proses yang ditandai Ready oleh
+                                staff di tanggal ini. Kapasitas assign hanya
+                                batas beban tugas baru, bukan token milik staff.
                             </p>
                         </div>
                         <span className="rounded-full border border-[var(--crumbella-border)] bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--crumbella-muted)]">
@@ -2820,15 +2830,6 @@ export default function ProductionTable() {
                             </div>
                         ) : (
                             staffStats.map((staff) => {
-                                const totalWork =
-                                    staff.doneVisible + staff.inProgress;
-                                const completionPct =
-                                    totalWork <= 0
-                                        ? 0
-                                        : Math.round(
-                                              (staff.doneVisible / totalWork) *
-                                                  100,
-                                          );
                                 const normalizedDailyLimit = Math.max(
                                     1,
                                     staff.limit,
@@ -2871,88 +2872,87 @@ export default function ProductionTable() {
                                           : dailyPct >= 100
                                             ? "Limit tercapai"
                                             : `Sisa ${remainingDailyToken} token`;
-                                const tokenLabel = isViewingTodayAssignments
-                                    ? "Token di-assign hari ini"
-                                    : "Token di-assign di tanggal";
+                                const earnedTokenLabel =
+                                    isViewingTodayAssignments
+                                        ? "Token masuk hari ini"
+                                        : "Token masuk di tanggal";
+                                const capacityLabel = isViewingTodayAssignments
+                                    ? "Kapasitas assign hari ini"
+                                    : "Kapasitas assign di tanggal";
 
                                 return (
                                     <div
                                         key={staff.userId}
                                         className="rounded-[24px] border border-[var(--crumbella-border)] bg-white p-4 shadow-[0_16px_28px_-26px_rgba(45,24,12,0.7)]"
                                     >
-                                        <div className="flex items-start justify-between gap-3">
-                                            <div className="flex min-w-0 items-center gap-3">
-                                                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--crumbella-accent-soft)] text-sm font-semibold text-[var(--crumbella-primary)]">
-                                                    {getInitials(staff.name)}
-                                                </div>
-                                                <div className="min-w-0">
-                                                    <p className="truncate text-sm font-semibold text-[var(--foreground)]">
-                                                        {staff.name}
-                                                    </p>
-                                                    <p className="mt-1 text-[11px] text-[var(--crumbella-muted)]">
-                                                        Assignment aktif{" "}
-                                                        {staff.assignedActive} •
-                                                        In progress{" "}
-                                                        {staff.inProgress}
-                                                    </p>
-                                                </div>
+                                        <div className="flex min-w-0 items-center gap-3">
+                                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--crumbella-accent-soft)] text-sm font-semibold text-[var(--crumbella-primary)]">
+                                                {getInitials(staff.name)}
+                                            </div>
+                                            <p className="truncate text-sm font-semibold text-[var(--foreground)]">
+                                                {staff.name}
+                                            </p>
+                                        </div>
+
+                                        {/* Token milik staff: dari proses yang ditandai Ready */}
+                                        <div className="mt-4 flex items-end justify-between gap-3 rounded-[18px] bg-[#e7f4ec] px-3 py-3">
+                                            <div>
+                                                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#2f6b4a]">
+                                                    {earnedTokenLabel}
+                                                </p>
+                                                <p className="mt-1 text-2xl font-extrabold leading-none text-[#1f6a43]">
+                                                    {staff.doneVisible}{" "}
+                                                    <span className="text-sm font-semibold">
+                                                        token
+                                                    </span>
+                                                </p>
+                                                <p className="mt-1 text-[10px] text-[#2f6b4a]/80">
+                                                    Dari proses yang sudah
+                                                    ditandai Ready
+                                                </p>
+                                            </div>
+                                            <div className="text-right">
+                                                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--crumbella-muted)]">
+                                                    Belum Ready
+                                                </p>
+                                                <p className="mt-1 text-sm font-semibold text-[var(--foreground)]">
+                                                    {staff.inProgress} token
+                                                </p>
                                             </div>
                                         </div>
 
-                                        <div className="mt-4 grid grid-cols-2 gap-3 text-[11px] text-[var(--crumbella-muted)]">
-                                            <div>
-                                                <p className="uppercase tracking-[0.14em]">
-                                                    {tokenLabel}
+                                        {/* Kapasitas: batas beban tugas baru, bukan token yang dikerjakan */}
+                                        <div className="mt-3 rounded-[18px] border border-dashed border-[var(--crumbella-border)] px-3 py-3 text-[11px] text-[var(--crumbella-muted)]">
+                                            <div className="flex items-baseline justify-between gap-3">
+                                                <p className="text-[10px] font-semibold uppercase tracking-[0.14em]">
+                                                    {capacityLabel}
                                                 </p>
-                                                <p className="mt-1 text-lg font-semibold text-[var(--foreground)]">
+                                                <p className="text-sm font-semibold text-[var(--foreground)]">
                                                     {usedDailyToken} /{" "}
                                                     {normalizedDailyLimit}
                                                 </p>
                                             </div>
-                                            <div className="text-right">
-                                                <p className="uppercase tracking-[0.14em]">
-                                                    Sisa
-                                                </p>
-                                                <p className="mt-1 text-lg font-semibold text-[#1f6a43]">
-                                                    {remainingDailyToken}
-                                                </p>
+                                            <p className="mt-1 text-[10px]">
+                                                Batas beban tugas baru yang
+                                                di-assign — bukan token yang
+                                                sudah dikerjakan.
+                                            </p>
+                                            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#eadfd3]">
+                                                <div
+                                                    className={`h-full rounded-full transition-all duration-500 ${progressBarClass}`}
+                                                    style={{
+                                                        width: `${Math.min(100, Math.max(0, dailyPct || 0))}%`,
+                                                    }}
+                                                />
                                             </div>
-                                        </div>
-
-                                        <div className="mt-4 h-2 overflow-hidden rounded-full bg-[#eadfd3]">
-                                            <div
-                                                className={`h-full rounded-full transition-all duration-500 ${progressBarClass}`}
-                                                style={{
-                                                    width: `${Math.min(100, Math.max(0, dailyPct || 0))}%`,
-                                                }}
-                                            />
-                                        </div>
-                                        <div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-[var(--crumbella-muted)]">
-                                            <span>
-                                                {Math.min(999, dailyPct)}%
-                                                terpakai
-                                            </span>
-                                            <span className="text-right">
-                                                {dailyStatusText}
-                                            </span>
-                                        </div>
-
-                                        <div className="mt-3 grid grid-cols-2 gap-3 rounded-[18px] bg-[#fbf5ef] px-3 py-2 text-[11px] text-[var(--crumbella-muted)]">
-                                            <div>
-                                                <p className="uppercase tracking-[0.14em]">
-                                                    Selesai
-                                                </p>
-                                                <p className="mt-1 text-sm font-semibold text-[var(--foreground)]">
-                                                    {staff.doneVisible} token
-                                                </p>
-                                            </div>
-                                            <div className="text-right">
-                                                <p className="uppercase tracking-[0.14em]">
-                                                    Progress
-                                                </p>
-                                                <p className="mt-1 text-sm font-semibold text-[var(--foreground)]">
-                                                    {completionPct}%
-                                                </p>
+                                            <div className="mt-1.5 flex items-center justify-between gap-3">
+                                                <span>
+                                                    {Math.min(999, dailyPct)}%
+                                                    kapasitas terpakai
+                                                </span>
+                                                <span className="text-right">
+                                                    {dailyStatusText}
+                                                </span>
                                             </div>
                                         </div>
                                     </div>
@@ -2965,9 +2965,8 @@ export default function ProductionTable() {
 
             {isStaff && currentViewerStaffStat ? (
                 <div className="rounded-[22px] border border-[var(--crumbella-border)] bg-white px-4 py-3 text-[11px] text-[var(--crumbella-muted)] shadow-[0_10px_18px_-20px_rgba(30,18,10,0.7)]">
-                    Assignment aktif {currentViewerStaffStat.assignedActive} •
-                    In progress {currentViewerStaffStat.inProgress} • Selesai{" "}
-                    {currentViewerStaffStat.doneVisible}
+                    Token masuk hari ini {currentViewerStaffStat.doneVisible} •
+                    Belum Ready {currentViewerStaffStat.inProgress}
                 </div>
             ) : null}
 

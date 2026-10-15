@@ -71,6 +71,7 @@ import {
 import {
   getProductionStagePercentagesFromTemplates,
   normalizeProductionStageAssignments,
+  preservePersistedStageCompletion,
   normalizeProductionStageKey,
   PRODUCTION_STAGE_ORDER,
   resolvePrimaryProductionCategory,
@@ -6085,12 +6086,20 @@ export async function POST(request: NextRequest) {
                   },
                   {} as Record<ProductionStage, number | null>,
                 );
-                const productionStages = normalizeProductionStageAssignments({
-                  totalTokens: tokenForOrder,
-                  stages: order.productionStages,
-                  staffByStage,
-                  percentages:
-                    getProductionStagePercentagesFromTemplates(stageTemplates),
+                const currentPersistedStages =
+                  existingStagesByExternalId.get(order.id) ?? [];
+                // Jangan biarkan payload lama (staff lain / admin) menghapus
+                // tanda Ready yang sudah disimpan staff pemegang proses.
+                const productionStages = preservePersistedStageCompletion({
+                  incoming: normalizeProductionStageAssignments({
+                    totalTokens: tokenForOrder,
+                    stages: order.productionStages,
+                    staffByStage,
+                    percentages:
+                      getProductionStagePercentagesFromTemplates(stageTemplates),
+                  }),
+                  persisted: currentPersistedStages,
+                  actorUserId: userId,
                 });
                 const existingCapacityOrder = existingCapacityById.get(
                   order.id,
@@ -6099,8 +6108,6 @@ export async function POST(request: NextRequest) {
                   existingCapacityItemsMap.get(order.id) ?? [];
                 const currentPersistedAddresses =
                   existingAddressesMap.get(order.id) ?? [];
-                const currentPersistedStages =
-                  existingStagesByExternalId.get(order.id) ?? [];
                 const hasCapacityChange = hasCapacityAffectingChange(
                   existingCapacityOrder,
                   order,
