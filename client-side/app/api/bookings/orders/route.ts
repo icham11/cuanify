@@ -25,7 +25,6 @@ import {
 import { mergeCalendarOrdersForDisplay } from "@/lib/calendar/calendar-orders";
 import {
   extractIsoDateFromBookingReference,
-  isDateInPreviousMonth,
   normalizeDateInput,
   toIsoDateString,
 } from "@/lib/helpers/date-normalization";
@@ -6149,22 +6148,6 @@ export async function POST(request: NextRequest) {
                 const persistedFingerprint =
                   existingOrderFingerprintById.get(order.id) ?? "";
                 const incomingFingerprint = buildParsedOrderFingerprint(order);
-                if (
-                  existingRowCheck?.delivery_date &&
-                  isDateInPreviousMonth(existingRowCheck.delivery_date)
-                ) {
-                  const detailChanged =
-                    persistedFingerprint !== incomingFingerprint;
-                  const statusChanged =
-                    (existingRowCheck.order_status ?? "Inquiry") !==
-                    (persistedOrderStatus || "Inquiry");
-
-                  if (detailChanged || statusChanged) {
-                    throw new ForbiddenError(
-                      "Tidak dapat mengubah detail pesanan dari bulan sebelumnya karena data telah dikunci.",
-                    );
-                  }
-                }
                 const insuranceFee = computeInsuranceFee({
                   shippingQuote: order.shippingQuote,
                   shipment: order.shipment,

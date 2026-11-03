@@ -42,10 +42,8 @@ import {
 } from "@/lib/bookings/production-stages";
 import { calculateOrderFinancialBreakdown } from "@/lib/bookings/financial-breakdown";
 import {
-  isDateInPreviousMonth,
   normalizeDateInput,
 } from "@/lib/helpers/date-normalization";
-import { canUpdateLockedHistoricalOrderStatus } from "@/lib/bookings/historical-order-status-lock";
 import {
   buildBookingAuditDocument,
   buildBookingAuditOrderSummary,
@@ -816,22 +814,6 @@ export async function PATCH(
       fallbackLabel: existingOrder.booking_code || id,
     });
 
-    // Historical orders stay locked for status edits, except allowed closures.
-    if (requestedStatus && existingOrder.delivery_date) {
-      if (
-        isDateInPreviousMonth(existingOrder.delivery_date) &&
-        !canUpdateLockedHistoricalOrderStatus({
-          deliveryDate: existingOrder.delivery_date,
-          currentStatus: existingOrder.order_status,
-          requestedStatus,
-        })
-      ) {
-        throw new ForbiddenError(
-          "Tidak dapat mengubah status order ini. Data historis tetap dikunci untuk detail order, namun perubahan status operasional harus diproses lewat endpoint status.",
-        );
-      }
-    }
-
     const currentStatus = normalizeOrderStatus(existingOrder.order_status);
     const currentPaymentStatus = existingOrder.payment_status ?? "Pending";
     const isOrderStatusChanged =
@@ -1105,15 +1087,6 @@ export async function DELETE(
       orderId: id,
       fallbackLabel: rows[0].booking_code || id,
     });
-
-    // Mencegah penghapusan data untuk order di bulan-bulan sebelumnya demi integritas laporan
-    if (deliveryDate) { // Pastikan pesanan punya delivery date
-      if (isDateInPreviousMonth(deliveryDate)) { // Jika masuk kategori bulan sebelumnya
-        throw new ForbiddenError(
-          "Tidak dapat menghapus order dari bulan sebelumnya. Data telah dikunci."
-        ); // Batalkan proses hapus dan keluarkan peringatan
-      }
-    }
 
     const orderUuid = isUuidLike(rows[0].order_uuid)
       ? rows[0].order_uuid
