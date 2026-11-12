@@ -5,8 +5,8 @@
  *   node scripts/cloudrun-deploy.mjs --project=<gcp-project-id> [options]
  *
  * Options:
- *   --project=ID         GCP project id (default: gcloud's active project)
- *   --region=REGION      default us-east4 (closest to the Neon DB in AWS us-east-1)
+ *   --project=ID         GCP project id (required; set in package.json "deploy")
+ *   --region=REGION      default us-east4; package.json "deploy" uses asia-southeast1 (Supabase prod is ap-southeast-1)
  *   --service=NAME       default cuanify
  *   --env-file=PATH      default .env
  *   --memory=1Gi         instance memory (Chromium image rendering needs >=1Gi)
@@ -43,7 +43,8 @@ const sh = (cmd, cmdArgs, opts = {}) =>
 const gcloud = (cmdArgs) => sh("gcloud", cmdArgs, { stdio: "inherit" });
 const gcloudOut = (cmdArgs) => sh("gcloud", cmdArgs).trim();
 
-const project = args.project || gcloudOut(["config", "get-value", "project"]);
+// No fallback to gcloud's active project: it may point at an unrelated project.
+const project = args.project;
 const region = args.region || "us-east4";
 const service = args.service || "cuanify";
 const envFile = args["env-file"] || ".env";

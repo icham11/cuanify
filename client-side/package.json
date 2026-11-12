@@ -31,7 +31,8 @@
     "smoke:products-catalog": "node ./tmp/run-smoke-products-catalog.js",
     "smoke:regression": "node ./tmp/run-regression-smoke-suite.js",
     "predeploy:smoke": "npm run smoke:regression",
-    "deploy:cloudrun": "node ./scripts/cloudrun-deploy.mjs"
+    "deploy:cloudrun": "npm run deploy --",
+    "deploy": "node ./scripts/cloudrun-deploy.mjs --project=gen-lang-client-0740235284 --region=asia-southeast1 --service=cuanify --nextauth-url=https://admin.crumbella.id --env-file=.env.cloudrun --cron"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

@@ -3485,12 +3485,18 @@ function createAutoFillItemFromCategory(args: {
   cookieDesignCount?: number;
   tokenDifficultyHint?: BookingAutoFillItem["tokenDifficulty"];
   catalogContext?: BookingParserCatalogContext;
+  forcedSelection?: CatalogProductMatch | null;
 }): BookingAutoFillItem {
-  let catalog = chooseCatalogSelectionByText(
-    args.category,
-    args.searchSource,
-    args.catalogContext,
-  );
+  let catalog = args.forcedSelection
+    ? ensureCatalogSelectionFromCatalog(
+        args.catalogContext?.productCatalog ?? BOOKING_PRODUCT_CATALOG,
+        args.forcedSelection,
+      )
+    : chooseCatalogSelectionByText(
+        args.category,
+        args.searchSource,
+        args.catalogContext,
+      );
 
   if (catalog.category === "Cake") {
     const forcedSize = extractSingleCakeSizeCode(
@@ -3519,7 +3525,7 @@ function createAutoFillItemFromCategory(args: {
       : undefined;
   const inferredDifficulty =
     args.tokenDifficultyHint ?? inferTokenDifficultyFromText(args.searchSource);
-  if (catalog.category === "Cookies" && inferredDifficulty) {
+  if (catalog.category === "Cookies" && inferredDifficulty && !args.forcedSelection) {
     catalog = chooseCatalogSelectionByText(
       args.category,
       `${args.searchSource || ""} ${inferredDifficulty}`,
@@ -3715,6 +3721,64 @@ function mergeAutoFillItems(
   return Array.from(byKey.values());
 }
 
+type CatalogProductMatch = {
+  category: string;
+  subcategory: string;
+  productName: string;
+  size: string;
+};
+
+// Generic suffixes admins append to product names ("SET A - Seasonal",
+// "3 in 1 - Seasonal Event", "... (Per pcs)") that customers don't type.
+const CATALOG_NAME_SUFFIX_PATTERN =
+  /(?:\s+(?:seasonal\s+event|seasonal|per\s+pcs|pcs))+$/;
+
+function toCatalogProductMatchKey(value: string): string {
+  return normalizeLabel(value || "").replace(CATALOG_NAME_SUFFIX_PATTERN, "").trim();
+}
+
+/**
+ * Exact (suffix-insensitive) lookup of a recap "Nama Produk" against every
+ * product in the catalog, so names like "Set A" resolve to "SET A - Seasonal"
+ * instead of falling back to the order-type default (e.g. Cake).
+ */
+function findCatalogProductByRecapName(
+  productName: string,
+  catalogContext?: BookingParserCatalogContext,
+  preferredCategory?: string,
+): CatalogProductMatch | null {
+  const key = toCatalogProductMatchKey(productName);
+  if (!key) return null;
+
+  const productCatalog =
+    catalogContext?.productCatalog ?? BOOKING_PRODUCT_CATALOG;
+  const matches: CatalogProductMatch[] = [];
+  for (const category of productCatalog) {
+    for (const subcategory of category.subcategories) {
+      for (const product of subcategory.products) {
+        if (toCatalogProductMatchKey(product.name) !== key) continue;
+        matches.push({
+          category: category.category,
+          subcategory: subcategory.name,
+          productName: product.name,
+          size: product.defaultVariant || product.variants[0]?.label || "",
+        });
+      }
+    }
+  }
+
+  if (matches.length === 0) return null;
+  if (preferredCategory) {
+    const preferred = matches.find(
+      (match) => match.category === preferredCategory,
+    );
+    if (preferred) return preferred;
+  }
+  // Ambiguous across categories without a hint: don't guess.
+  const categories = new Set(matches.map((match) => match.category));
+  return categories.size === 1 ? matches[0] : null;
+}
+
 function buildRecapAutoFillItems(
   parsed: ParsedWhatsAppOrder,
   catalogContext?: BookingParserCatalogContext,
@@ -3722,8 +3786,15 @@ function buildRecapAutoFillItems(
   const recapItems = parsed.orderRecap?.items ?? [];
 
   return recapItems.flatMap((item) => {
+    const explicitCategory = normalizeRecapCategory(item.category);
+    const directProductMatch = findCatalogProductByRecapName(
+      item.productName,
+      catalogContext,
+      explicitCategory || undefined,
+    );
     const resolvedCategory =
-      normalizeRecapCategory(item.category) ||
+      explicitCategory ||
+      directProductMatch?.category ||
       normalizeRecapCategory(item.productName) ||
       getCategoryByOrderType(parsed.orderType);
     if (!resolvedCategory) return [];
@@ -3800,9 +3871,13 @@ function buildRecapAutoFillItems(
       cookieDesignCount,
       tokenDifficultyHint,
       catalogContext,
+      forcedSelection:
+        directProductMatch?.category === resolvedCategory
+          ? directProductMatch
+          : null,
     });
     const recapCakeSelection =
-      resolvedCategory === "Cake"
+      resolvedCategory === "Cake" && !directProductMatch
         ? resolveGenericRecapCakeSelection({
             productName: item.productName,
             size: item.size,
