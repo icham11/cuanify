@@ -17,6 +17,9 @@ const nextConfig: NextConfig = {
 
   outputFileTracingRoot: projectDir,
 
+  // Self-contained server bundle for the Cloud Run Docker image (Vercel ignores this).
+  output: "standalone",
+
   serverExternalPackages: ["@sparticuz/chromium", "puppeteer-core", "ws"],
 
   // Allow Google profile images + ImageKit

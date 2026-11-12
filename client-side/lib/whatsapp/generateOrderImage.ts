@@ -1546,8 +1546,23 @@ export async function generateOrderImage(
     process.env.VERCEL_ENV === "production" ||
     process.env.VERCEL === "1";
 
+  const systemChromiumPath = (process.env.CHROMIUM_PATH || "").trim();
+
   try {
-    if (isProd) {
+    if (systemChromiumPath) {
+      // Container runtime (Cloud Run): use the Chromium installed in the image.
+      browser = await puppeteerCore.launch({
+        executablePath: systemChromiumPath,
+        headless: true,
+        args: [
+          "--no-sandbox",
+          "--disable-setuid-sandbox",
+          "--disable-dev-shm-usage",
+          "--disable-gpu",
+          "--no-zygote",
+        ],
+      });
+    } else if (isProd) {
       // Required for Vercel/AWS Lambda Serverless environments
       const chromiumModule = requireFromHere("@sparticuz/chromium") as
         | ChromiumRuntimeModule

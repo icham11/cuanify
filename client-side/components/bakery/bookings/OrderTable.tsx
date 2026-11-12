@@ -464,9 +464,9 @@ export default function OrderTable({
           const orderMonthKey = getIsoMonthKey(order.deliveryDate);
           const isPastMonthOrder =
             orderMonthKey !== null && orderMonthKey < currentMonthKey;
-          const canEditOrder = !isPastMonthOrder || (!roleLoading && isOwner);
-          const canDeleteOrder =
-            !roleLoading && (isOwner || (isAdmin && !isPastMonthOrder));
+          const canEditOrder =
+            !isPastMonthOrder || (!roleLoading && (isOwner || isAdmin));
+          const canDeleteOrder = !roleLoading && (isOwner || isAdmin);
           const stageEntries =
             order.productionStages && order.productionStages.length > 0
               ? order.productionStages
@@ -703,7 +703,7 @@ export default function OrderTable({
                 ) : (
                   <span
                     onClick={(event) => event.stopPropagation()}
-                    title="Order bulan lalu, hanya Owner yang bisa mengedit"
+                    title="Order bulan lalu, hanya Owner/Admin yang bisa mengedit"
                     className="inline-flex h-8 cursor-not-allowed items-center justify-center gap-1 rounded-xl border border-[var(--crumbella-border)] px-3 text-[11px] font-semibold text-[var(--crumbella-muted)] opacity-50"
                   >
                     <Pencil size={13} />

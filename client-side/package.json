@@ -30,7 +30,8 @@
     "smoke:team-settings": "node ./tmp/run-smoke-team-settings.js",
     "smoke:products-catalog": "node ./tmp/run-smoke-products-catalog.js",
     "smoke:regression": "node ./tmp/run-regression-smoke-suite.js",
-    "predeploy:smoke": "npm run smoke:regression"
+    "predeploy:smoke": "npm run smoke:regression",
+    "deploy:cloudrun": "node ./scripts/cloudrun-deploy.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

@@ -13,6 +13,20 @@ import { requireAuth, AuthError } from "@/lib/auth/session";
  *   - No business → /onboarding
  */
 function getRedirectOrigin(request: NextRequest): string {
+  // Behind Cloud Run the standalone server sees its bind address
+  // (0.0.0.0:8080) as the request URL, so use the public Host header instead.
+  const host = (
+    request.headers.get("x-forwarded-host") || request.headers.get("host") || ""
+  )
+    .split(",")[0]
+    .trim();
+  if (host && !/^(0\.0\.0\.0|\[?::\]?|127\.0\.0\.1)(:\d+)?$/.test(host)) {
+    const proto =
+      request.headers.get("x-forwarded-proto")?.split(",")[0].trim() ||
+      request.nextUrl.protocol.replace(":", "");
+    return `${proto}://${host}`;
+  }
+
   const url = request.nextUrl.clone();
 
   if (url.hostname === "0.0.0.0" || url.hostname === "::") {

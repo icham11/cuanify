@@ -4,12 +4,16 @@ import { logAI } from "@/lib/logger";
 
 const GROQ_CHAT_COMPLETIONS_URL = "https://api.groq.com/openai/v1/chat/completions";
 
-if (!process.env.GROQ_API_KEY) {
+// `next build` imports route modules while collecting page data; secrets are
+// only injected at runtime (Cloud Run), so don't fail the build itself.
+const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
+
+if (!process.env.GROQ_API_KEY && !isBuildPhase) {
   throw new Error("Missing GROQ_API_KEY environment variable");
 }
 
 export const groq = new Groq({
-  apiKey: process.env.GROQ_API_KEY,
+  apiKey: process.env.GROQ_API_KEY || "build-phase-placeholder",
 });
 
 // Model configuration
