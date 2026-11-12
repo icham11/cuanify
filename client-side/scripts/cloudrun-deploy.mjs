@@ -169,13 +169,18 @@ if (args.cron) {
       "--http-method=GET",
       `--update-headers=Authorization=Bearer ${env.CRON_SECRET}`,
       "--attempt-deadline=300s",
+      "--format=none", // the job resource includes the Authorization header
     ];
     let exists = true;
     try {
-      gcloudOut(["scheduler", "jobs", "describe", job.name, `--project=${project}`, `--location=${region}`]);
+      sh("gcloud", [
+        "scheduler", "jobs", "describe", job.name,
+        `--project=${project}`, `--location=${region}`, "--format=value(name)",
+      ], { stdio: ["ignore", "pipe", "ignore"] });
     } catch {
       exists = false;
     }
+    console.log(`${exists ? "Updating" : "Creating"} Scheduler job ${job.name}`);
     gcloud(
       exists
         ? ["scheduler", "jobs", "update", "http", job.name, ...common]
