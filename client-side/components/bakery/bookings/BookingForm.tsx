@@ -302,6 +302,9 @@ function extractParsedSubtotalFromItemNotes(
     return extractMoneyValueFromText(match?.[2] || "");
 }
 
+// Set ke true untuk mengaktifkan lagi cek ongkir live (JNE/Paxel/J&T/dll).
+const LIVE_SHIPPING_QUOTE_ENABLED = false;
+
 function buildBookingFormValuesFromOrder(
     order: BakeryOrder,
     productCatalog: ReturnType<typeof useCatalogAdminState>["productCatalog"],
@@ -655,6 +658,8 @@ function buildBookingFormValuesFromOrder(
             dpPaidAmount: order.dpPaidAmount,
             totalPrice: order.totalPrice,
         }),
+        isManualShippingOverride: true,
+        manualShippingFee: Math.max(0, Number(order.deliveryFee || 0) || 0),
         items: normalizedItems,
         deliveryAddresses: normalizedAddresses,
     };
@@ -3586,66 +3591,146 @@ function collectValidationIssueSummaries(
     return collected;
 }
 
-function getValidationFieldLabel(path: Array<string | number>): string {
-    const [root, index, leaf] = path;
+const ROOT_FIELD_LABELS: Record<string, string> = {
+    customerName: "Nama customer",
+    phoneNumber: "Nomor telepon",
+    deliveryDate: "Tanggal pengiriman",
+    deliverySlot: "Jam pengiriman",
+    deliveryMethod: "Metode pengiriman",
+    sales_channel: "Sales channel",
+    customNotes: "Catatan custom",
+    paymentStatus: "Payment status",
+    dpPaidAmount: "Nominal DP dibayar",
+    finalPaidAmount: "Nominal pelunasan",
+    wholesaleDiscountPercent: "Discount grosir",
+    productAdjustment: "Adjustment Produk (+/-)",
+    nonProductAdjustment: "Adjustment Non-Produk (+/-)",
+    isManualShippingOverride: "Ongkir manual",
+    manualShippingFee: "Ongkir",
+    isManualDpOverride: "DP manual",
+    manualDpAmount: "Nominal DP",
+    items: "Item pesanan",
+    deliveryAddresses: "Alamat pengiriman",
+};
+
+const ITEM_FIELD_LABELS: Record<string, string> = {
+    category: "Kategori",
+    subcategory: "Subkategori",
+    productName: "Produk",
+    size: "Ukuran",
+    quantity: "Qty",
+    tokenDifficulty: "Tingkat kesulitan",
+    customTokenPerUnit: "Token per pcs",
+    bouquetPriceOverride: "Harga bouquet",
+    sharingBoxPriceOverride: "Harga sharing box",
+    cookiePrice: "Harga cookie",
+    designCount: "Jumlah design",
+    additionalDesignCount: "Jumlah design tambahan",
+    addOns: "Add-on",
+    addOnQuantities: "Qty add-on",
+    addOnPriceOverrides: "Harga add-on",
+    customAddOns: "Add-on custom",
+    darkColorButtercreamColors: "Warna buttercream gelap",
+    parsedUnitPrice: "Harga satuan (recap)",
+    parsedSubtotal: "Subtotal (recap)",
+    pricingSource: "Sumber harga",
+    cookieDifficultyBreakdown: "Rincian kesulitan cookie",
+    greetingCard: "Greeting card",
+    bouquetPaperColor: "Warna kertas bouquet",
+    ribbon: "Pita",
+    flowerCount: "Jumlah bunga",
+    flowerColor: "Warna bunga",
+    ribbonColor: "Warna pita",
+    notes: "Catatan item",
+};
+
+const ADDRESS_FIELD_LABELS: Record<string, string> = {
+    label: "Label",
+    area: "Area (Kecamatan/Kota)",
+    postalCode: "Kode pos",
+    addressLine: "Alamat lengkap",
+};
+
+type ValidationLabelContext = {
+    items?: Array<{ productName?: string; category?: string } | undefined>;
+};
+
+function getValidationFieldLabel(
+    path: Array<string | number>,
+    context: ValidationLabelContext = {},
+): string {
+    const [root, index, leaf, subKey, subLeaf] = path;
     const rootKey = typeof root === "string" ? root : "";
 
-    if (rootKey === "deliveryAddresses") {
-        const addressNumber = typeof index === "number" ? index + 1 : 1;
-        const isPrimaryAddress = addressNumber === 1;
-
-        if (leaf === "label") {
-            return isPrimaryAddress
-                ? "Label alamat utama"
-                : `Label alamat ${addressNumber}`;
-        }
-        if (leaf === "area") {
-            return isPrimaryAddress
-                ? "Area pengiriman utama"
-                : `Area alamat ${addressNumber}`;
-        }
-        if (leaf === "postalCode") {
-            return isPrimaryAddress
-                ? "Kode pos alamat utama"
-                : `Kode pos alamat ${addressNumber}`;
-        }
-        if (leaf === "addressLine") {
-            return isPrimaryAddress
-                ? "Alamat utama"
-                : `Alamat ${addressNumber}`;
-        }
+    if (rootKey === "deliveryAddresses" && typeof index === "number") {
+        const addressNumber = index + 1;
+        const addressName =
+            addressNumber === 1 ? "Alamat utama" : `Alamat ${addressNumber}`;
+        const leafLabel =
+            typeof leaf === "string" ? ADDRESS_FIELD_LABELS[leaf] : undefined;
+        return leafLabel ? `${addressName} › ${leafLabel}` : addressName;
     }
 
-    if (rootKey === "items") {
-        const itemNumber = typeof index === "number" ? index + 1 : 1;
-        if (leaf === "productName") return `Produk item ${itemNumber}`;
-        if (leaf === "size") return `Ukuran item ${itemNumber}`;
-        if (leaf === "quantity") return `Qty item ${itemNumber}`;
-        return `Item pesanan ${itemNumber}`;
+    if (rootKey === "items" && typeof index === "number") {
+        const itemNumber = index + 1;
+        const item = context.items?.[index];
+        const productName = (item?.productName || item?.category || "").trim();
+        const itemName = productName
+            ? `Item ${itemNumber} (${productName})`
+            : `Item ${itemNumber}`;
+        if (typeof leaf !== "string") return itemName;
+
+        let leafLabel = ITEM_FIELD_LABELS[leaf] ?? leaf;
+        if (leaf === "customAddOns" && typeof subKey === "number") {
+            leafLabel =
+                subLeaf === "label"
+                    ? `Nama add-on custom ${subKey + 1}`
+                    : `Harga add-on custom ${subKey + 1}`;
+        }
+        return `${itemName} › ${leafLabel}`;
     }
 
-    switch (rootKey) {
-        case "customerName":
-            return "Nama customer";
-        case "phoneNumber":
-            return "Nomor telepon";
-        case "deliveryDate":
-            return "Tanggal pengiriman";
-        case "deliverySlot":
-            return "Jam pengiriman";
-        case "deliveryMethod":
-            return "Metode pengiriman";
-        case "sales_channel":
-            return "Channel penjualan";
-        case "paymentStatus":
-            return "Status pembayaran";
-        case "items":
-            return "Item pesanan";
-        case "deliveryAddresses":
-            return "Alamat pengiriman";
-        default:
-            return "Field form";
+    return ROOT_FIELD_LABELS[rootKey] ?? "Field form";
+}
+
+function formatValidationNumber(raw: string): string {
+    const value = Number(raw);
+    return Number.isFinite(value) ? value.toLocaleString("id-ID") : raw;
+}
+
+// Terjemahkan pesan default Zod (bahasa Inggris) ke bahasa Indonesia yang jelas.
+function translateGenericValidationMessage(lower: string): string | null {
+    if (lower.includes("received nan") || lower.includes("expected number")) {
+        return "Isi dengan angka saja, tanpa titik/koma/huruf (contoh: 15000).";
     }
+    if (lower.includes("expected int")) {
+        return "Isi dengan bilangan bulat (tanpa koma).";
+    }
+
+    let match = lower.match(/too small: expected number to be >=\s*(-?[\d.]+)/);
+    if (match) return `Minimal ${formatValidationNumber(match[1])}.`;
+    match = lower.match(/too small: expected number to be >\s*(-?[\d.]+)/);
+    if (match) return `Harus lebih dari ${formatValidationNumber(match[1])}.`;
+    match = lower.match(/too big: expected number to be <=\s*(-?[\d.]+)/);
+    if (match) return `Maksimal ${formatValidationNumber(match[1])}.`;
+    match = lower.match(/too big: expected number to be <\s*(-?[\d.]+)/);
+    if (match) return `Harus kurang dari ${formatValidationNumber(match[1])}.`;
+    match = lower.match(/too big: expected string to have <=\s*(\d+)/);
+    if (match) return `Maksimal ${match[1]} karakter.`;
+    match = lower.match(/too small: expected string to have >=\s*(\d+)/);
+    if (match) return `Minimal ${match[1]} karakter.`;
+    match = lower.match(/too small: expected array to have >=\s*(\d+)/);
+    if (match) return `Minimal ${match[1]} data.`;
+    match = lower.match(/minimum quantity is (\d+)/);
+    if (match) return `Minimal ${match[1]}.`;
+
+    if (lower.startsWith("invalid option")) {
+        return "Pilihan tidak valid. Pilih salah satu opsi yang tersedia.";
+    }
+    if (lower.includes("expected string") || lower.endsWith("is required")) {
+        return "Wajib diisi.";
+    }
+    return null;
 }
 
 function normalizeValidationIssueMessage(
@@ -3656,7 +3741,7 @@ function normalizeValidationIssueMessage(
     if (!normalized) return "Perlu dilengkapi.";
 
     const lower = normalized.toLowerCase();
-    const [root, index, leaf] = path;
+    const [root] = path;
     const rootKey = typeof root === "string" ? root : "";
 
     if (rootKey === "phoneNumber" && lower === "phone number is required") {
@@ -3680,22 +3765,67 @@ function normalizeValidationIssueMessage(
     ) {
         return "Tambahkan minimal 1 alamat pengiriman.";
     }
-    if (
-        rootKey === "deliveryAddresses" &&
-        leaf === "label" &&
-        lower === "address label is required"
-    ) {
-        const addressNumber = typeof index === "number" ? index + 1 : 1;
-        return addressNumber === 1
-            ? "Isi label alamat utama."
-            : `Isi label alamat ${addressNumber}.`;
+    if (lower === "address label is required") {
+        return "Isi label alamat.";
     }
+
+    const translated = translateGenericValidationMessage(lower);
+    if (translated) return translated;
 
     return normalized.endsWith(".") ? normalized : `${normalized}.`;
 }
 
-function buildValidationFeedbackMessage(error: unknown): string | null {
+type BookingValidationIssue = {
+    /** Nama field react-hook-form, mis. "items.0.quantity". */
+    fieldName: string;
+    label: string;
+    message: string;
+};
+
+function buildBookingValidationIssue(
+    fieldName: string,
+    message: string,
+    context: ValidationLabelContext = {},
+): BookingValidationIssue {
+    const path = fieldName
+        .split(".")
+        .filter(Boolean)
+        .map((segment) => (/^\d+$/.test(segment) ? Number(segment) : segment));
+    return {
+        fieldName,
+        label: getValidationFieldLabel(path, context),
+        message: normalizeValidationIssueMessage(path, message),
+    };
+}
+
+function collectBookingValidationIssues(
+    error: unknown,
+    context: ValidationLabelContext = {},
+): BookingValidationIssue[] {
     const issues = collectValidationIssueSummaries(error);
+    const seen = new Set<string>();
+    const result: BookingValidationIssue[] = [];
+
+    for (const issue of issues) {
+        const fieldName = issue.path.join(".");
+        const signature = `${fieldName}::${issue.message}`;
+        if (seen.has(signature)) continue;
+        seen.add(signature);
+        result.push({
+            fieldName,
+            label: getValidationFieldLabel(issue.path, context),
+            message: normalizeValidationIssueMessage(issue.path, issue.message),
+        });
+    }
+
+    return result;
+}
+
+function buildValidationFeedbackMessage(
+    error: unknown,
+    context: ValidationLabelContext = {},
+): string | null {
+    const issues = collectBookingValidationIssues(error, context);
     if (issues.length === 0) {
         const firstMessage = findFirstFormErrorMessage(error);
         return firstMessage
@@ -3703,25 +3833,10 @@ function buildValidationFeedbackMessage(error: unknown): string | null {
             : null;
     }
 
-    const dedupedIssues = issues.filter((issue, index, array) => {
-        const signature = `${issue.path.join(".")}::${issue.message}`;
-        return (
-            array.findIndex(
-                (entry) =>
-                    `${entry.path.join(".")}::${entry.message}` === signature,
-            ) === index
-        );
-    });
-
-    const lines = dedupedIssues.slice(0, 4).map((issue) => {
-        const label = getValidationFieldLabel(issue.path);
-        const message = normalizeValidationIssueMessage(
-            issue.path,
-            issue.message,
-        );
-        return `• ${label}: ${message}`;
-    });
-    const remainingCount = dedupedIssues.length - lines.length;
+    const lines = issues
+        .slice(0, 4)
+        .map((issue) => `• ${issue.label}: ${issue.message}`);
+    const remainingCount = issues.length - lines.length;
 
     return [
         "Masih ada data yang belum lengkap:",
@@ -3732,6 +3847,76 @@ function buildValidationFeedbackMessage(error: unknown): string | null {
     ]
         .filter((line): line is string => Boolean(line))
         .join("\n");
+}
+
+/** Kolom nominal opsional: kosong dianggap 0, selain itu harus angka. */
+function parseOptionalNumberInput(value: unknown): number {
+    if (typeof value === "number") return value;
+    const text = String(value ?? "").trim();
+    if (!text) return 0;
+    return Number(text);
+}
+
+const FIELD_HIGHLIGHT_CLASSES = [
+    "ring-2",
+    "ring-rose-500",
+    "ring-offset-2",
+    "rounded-md",
+    "transition-shadow",
+];
+
+function isElementVisible(element: HTMLElement): boolean {
+    return element.getClientRects().length > 0;
+}
+
+function openCollapsedAncestors(element: HTMLElement) {
+    let details = element.closest("details:not([open])");
+    while (details) {
+        (details as HTMLDetailsElement).open = true;
+        details = details.parentElement?.closest("details:not([open])") ?? null;
+    }
+}
+
+/**
+ * Cari input berdasarkan nama field react-hook-form lalu scroll + fokus + highlight.
+ * Kalau field persisnya tidak punya input (mis. field turunan), mundur ke
+ * parent path (mis. "items.0.cookiePrice" → "items.0") supaya tetap diarahkan ke
+ * kartu item yang benar. Return false bila tidak ada elemen yang bisa dituju.
+ */
+function focusFormFieldByName(
+    root: ParentNode | null,
+    fieldName: string,
+): boolean {
+    if (!root || !fieldName || typeof window === "undefined") return false;
+
+    const segments = fieldName.split(".").filter(Boolean);
+    for (let length = segments.length; length > 0; length -= 1) {
+        const name = segments.slice(0, length).join(".");
+        const escaped = window.CSS?.escape ? window.CSS.escape(name) : name;
+        const candidates = Array.from(
+            root.querySelectorAll<HTMLElement>(
+                `[name="${escaped}"], [name^="${escaped}."]`,
+            ),
+        );
+
+        for (const candidate of candidates) {
+            openCollapsedAncestors(candidate);
+            if (!isElementVisible(candidate)) continue;
+
+            candidate.scrollIntoView({ behavior: "smooth", block: "center" });
+            candidate.focus({ preventScroll: true });
+
+            const highlightTarget =
+                (candidate.closest("label") as HTMLElement | null) ?? candidate;
+            highlightTarget.classList.add(...FIELD_HIGHLIGHT_CLASSES);
+            window.setTimeout(() => {
+                highlightTarget.classList.remove(...FIELD_HIGHLIGHT_CLASSES);
+            }, 2500);
+            return true;
+        }
+    }
+
+    return false;
 }
 
 export default function BookingForm({
@@ -3827,6 +4012,11 @@ export default function BookingForm({
         null,
     );
     const submitFeedbackRef = useRef<HTMLDivElement | null>(null);
+    const formElementRef = useRef<HTMLFormElement | null>(null);
+    const [submitErrorDetail, setSubmitErrorDetail] = useState<{
+        message: string;
+        issues: BookingValidationIssue[];
+    } | null>(null);
     const importDraftRef = useRef<
         | ((override?: {
               sourceType?: ParserSource;
@@ -3983,6 +4173,7 @@ export default function BookingForm({
         handleSubmit,
         setValue,
         getValues,
+        trigger,
         control,
         reset,
         formState: { errors, isSubmitting },
@@ -4002,7 +4193,7 @@ export default function BookingForm({
             wholesaleDiscountPercent: 0,
             productAdjustment: 0,
             nonProductAdjustment: 0,
-            isManualShippingOverride: false,
+            isManualShippingOverride: true,
             manualShippingFee: 0,
             isManualDpOverride: true,
             manualDpAmount: 0,
@@ -4219,25 +4410,79 @@ export default function BookingForm({
         return selectedShippingQuoteServiceKeyRef.current;
     }, [selectedShippingQuoteId, shippingQuotes]);
 
-    const showSubmitFeedback = useCallback((message: string) => {
-        setSubmitError(message);
-        toast.error(message);
+    const getValidationLabelContext = useCallback(
+        (): ValidationLabelContext => ({
+            items: (getValues("items") ?? []) as ValidationLabelContext["items"],
+        }),
+        [getValues],
+    );
 
-        window.requestAnimationFrame(() => {
-            submitFeedbackRef.current?.scrollIntoView({
-                behavior: "smooth",
-                block: "center",
+    const focusBookingField = useCallback(
+        (fieldName: string) =>
+            focusFormFieldByName(formElementRef.current, fieldName),
+        [],
+    );
+
+    /**
+     * Tampilkan error submit. `target` bisa berupa daftar issue validasi atau
+     * nama field (mis. "deliveryDate") supaya admin bisa langsung diarahkan
+     * ke kolom yang salah.
+     */
+    const showSubmitFeedback = useCallback(
+        (message: string, target?: BookingValidationIssue[] | string) => {
+            const issues =
+                typeof target === "string"
+                    ? [
+                          buildBookingValidationIssue(
+                              target,
+                              message,
+                              getValidationLabelContext(),
+                          ),
+                      ]
+                    : (target ?? []);
+
+            setSubmitError(message);
+            setSubmitErrorDetail({ message, issues });
+
+            const firstIssue = issues[0];
+            toast.error(
+                firstIssue
+                    ? issues.length > 1
+                        ? `${issues.length} kolom perlu diperbaiki. Mulai dari: ${firstIssue.label}`
+                        : `${firstIssue.label}: ${firstIssue.message}`
+                    : message,
+            );
+
+            window.requestAnimationFrame(() => {
+                if (firstIssue && focusBookingField(firstIssue.fieldName)) {
+                    return;
+                }
+                submitFeedbackRef.current?.scrollIntoView({
+                    behavior: "smooth",
+                    block: "center",
+                });
             });
-        });
-    }, []);
+        },
+        [focusBookingField, getValidationLabelContext],
+    );
 
     const openPreviewPage = useCallback(
         (snapshotOverrides?: Partial<BookingDraftSnapshot>) => {
             const parsedValues = bookingSchema.safeParse(getValues());
             if (!parsedValues.success) {
+                // Tandai field yang salah (merah) di form.
+                void trigger();
+                const labelContext = getValidationLabelContext();
                 showSubmitFeedback(
-                    buildValidationFeedbackMessage(parsedValues.error) ||
+                    buildValidationFeedbackMessage(
+                        parsedValues.error,
+                        labelContext,
+                    ) ||
                         "Masih ada field wajib yang belum lengkap. Cek bagian form yang bertanda merah.",
+                    collectBookingValidationIssues(
+                        parsedValues.error,
+                        labelContext,
+                    ),
                 );
                 return;
             }
@@ -4280,6 +4525,7 @@ export default function BookingForm({
         },
         [
             draftImported,
+            getValidationLabelContext,
             getValues,
             isEditMode,
             parsedPreview,
@@ -4296,6 +4542,7 @@ export default function BookingForm({
             shippingQuotes,
             shippingWarning,
             showSubmitFeedback,
+            trigger,
         ],
     );
 
@@ -4991,8 +5238,11 @@ export default function BookingForm({
         );
     }, [watchedItems]);
 
+    // Ongkir otomatis (cek ongkir live) dinonaktifkan; ongkir selalu diisi manual.
     const shouldUseShippingEngine = useMemo(
-        () => usesShippingEngine(effectiveDeliveryMethod),
+        () =>
+            LIVE_SHIPPING_QUOTE_ENABLED &&
+            usesShippingEngine(effectiveDeliveryMethod),
         [effectiveDeliveryMethod],
     );
     const isPickupMethod = effectiveDeliveryMethod === "PICKUP";
@@ -5386,8 +5636,14 @@ export default function BookingForm({
         return null;
     }, [shippingDistanceKm, selectedShippingQuote]);
 
-    const deliveryFee = isManualShippingOverride
-        ? manualShippingFee
+    const normalizedManualShippingFee = Number.isFinite(
+        Number(manualShippingFee),
+    )
+        ? Math.max(0, Number(manualShippingFee))
+        : 0;
+    const deliveryFee =
+        isManualShippingOverride || !LIVE_SHIPPING_QUOTE_ENABLED
+        ? normalizedManualShippingFee
         : shouldUseShippingEngine
           ? (selectedShippingQuote?.priceWithoutInsurance ??
             selectedShippingQuote?.price ??
@@ -5900,23 +6156,8 @@ export default function BookingForm({
         manualCheckShippingTrigger,
     ]);
 
-    useEffect(() => {
-        if (!hasHydratedDraftSnapshot) return;
-        if (!isPreviewStep) return;
-        if (!shippingQuoteSignature) return;
-
-        const controller = new AbortController();
-        void fetchShippingQuotes(controller.signal);
-
-        return () => {
-            controller.abort();
-        };
-    }, [
-        fetchShippingQuotes,
-        hasHydratedDraftSnapshot,
-        isPreviewStep,
-        shippingQuoteSignature,
-    ]);
+    // Cek ongkir otomatis saat masuk step preview dimatikan.
+    // Ongkir hanya dicek lewat tombol "Cek Ongkir" atau diisi manual.
 
     const onSubmit: SubmitHandler<BookingFormValues> = async (rawValues) => {
         const values =
@@ -5942,9 +6183,9 @@ export default function BookingForm({
             skipDuplicateTemplateWarningRef.current = false;
         }
 
-        if (isCheckingShipping) {
+        if (isCheckingShipping && !values.isManualShippingOverride) {
             showSubmitFeedback(
-                "Ongkir masih dihitung otomatis. Tunggu beberapa detik lalu submit ulang.",
+                "Ongkir masih dicek. Tunggu beberapa detik lalu submit ulang.",
             );
             return;
         }
@@ -5956,7 +6197,11 @@ export default function BookingForm({
             return;
         }
 
-        if (shouldUseShippingEngine && !selectedShippingQuote) {
+        if (
+            shouldUseShippingEngine &&
+            !selectedShippingQuote &&
+            !values.isManualShippingOverride
+        ) {
             showSubmitFeedback(
                 shippingFallbackMessage ||
                     "Ongkir live belum tersedia. Lengkapi alamat/item lalu pilih layanan kurir.",
@@ -5967,6 +6212,7 @@ export default function BookingForm({
         if (isBlockedDate) {
             showSubmitFeedback(
                 "Tanggal dipilih tidak tersedia. H-1 hanya bisa booking sampai jam 10:00 pagi atau tanggal sedang diblokir admin.",
+                "deliveryDate",
             );
             return;
         }
@@ -5974,6 +6220,7 @@ export default function BookingForm({
         if (isCalendarDateInvalid) {
             showSubmitFeedback(
                 calendarDateError || "Tanggal dipilih tidak tersedia.",
+                "deliveryDate",
             );
             return;
         }
@@ -5982,12 +6229,13 @@ export default function BookingForm({
         if (!normalizedDeliveryDate) {
             showSubmitFeedback(
                 "Format tanggal tidak valid. Gunakan YYYY-MM-DD.",
+                "deliveryDate",
             );
             return;
         }
 
         if (!canBackfillPastOrders && isPastDate(normalizedDeliveryDate)) {
-            showSubmitFeedback("Tanggal sudah terlewat");
+            showSubmitFeedback("Tanggal sudah terlewat", "deliveryDate");
             return;
         }
 
@@ -5997,6 +6245,7 @@ export default function BookingForm({
         if (selectedSlotStatus === "FULL") {
             showSubmitFeedback(
                 `Jam ${values.deliverySlot} pada tanggal ${normalizedDeliveryDate} sudah penuh (maksimal ${slotLimitPerHour} order). Pilih jam lain.`,
+                "deliverySlot",
             );
             return;
         }
@@ -6101,7 +6350,7 @@ export default function BookingForm({
             );
         }
 
-        for (const item of values.items) {
+        for (const [itemIndex, item] of values.items.entries()) {
             const quantity = Number(item.quantity) || 0;
             const quantityRule = getItemQuantityRule(
                 // Panggil fungsi penentu aturan kuantitas item
@@ -6117,6 +6366,7 @@ export default function BookingForm({
                     item.productName || item.category || "Item";
                 showSubmitFeedback(
                     `${productLabel}: ${getQuantityRuleViolationMessage(quantityRule)}`,
+                    `items.${itemIndex}.quantity`,
                 );
                 return;
             }
@@ -6128,6 +6378,7 @@ export default function BookingForm({
             ) {
                 showSubmitFeedback(
                     "Untuk bouquet via Paxel, varian Medium tidak didukung. Pilih varian Large/XL.",
+                    `items.${itemIndex}.size`,
                 );
                 return;
             }
@@ -6138,6 +6389,7 @@ export default function BookingForm({
             if (!bouquetType) {
                 showSubmitFeedback(
                     "Tipe bouquet belum terbaca. Gunakan product Hand Bouquet atau Standing Bouquet.",
+                    `items.${itemIndex}.productName`,
                 );
                 return;
             }
@@ -6171,7 +6423,7 @@ export default function BookingForm({
             return;
         }
 
-        for (const item of values.items) {
+        for (const [itemIndex, item] of values.items.entries()) {
             if (!isCustomCookieItem(item)) continue;
             const designCount = normalizeCookieDesignCount(item.designCount);
             if (!designCount) {
@@ -6179,12 +6431,13 @@ export default function BookingForm({
                     item.productName || item.category || "Item";
                 showSubmitFeedback(
                     `${productLabel}: isi jumlah design cookies supaya surcharge design tambahan bisa dihitung otomatis.`,
+                    `items.${itemIndex}.designCount`,
                 );
                 return;
             }
         }
 
-        for (const item of values.items) {
+        for (const [itemIndex, item] of values.items.entries()) {
             const flavorOptions = getFlavorOptionsForCategory(item.category);
             if (flavorOptions.length > 0) {
                 const selectedFlavorCount = flavorOptions.filter((option) =>
@@ -6195,6 +6448,7 @@ export default function BookingForm({
                         item.productName || item.category || "Item";
                     showSubmitFeedback(
                         `${productLabel}: pilih maksimal 1 rasa.`,
+                        `items.${itemIndex}.addOns`,
                     );
                     return;
                 }
@@ -6209,6 +6463,7 @@ export default function BookingForm({
                         item.productName || item.category || "Item";
                     showSubmitFeedback(
                         `${productLabel}: pilih maksimal 1 add-on cookie.`,
+                        `items.${itemIndex}.addOns`,
                     );
                     return;
                 }
@@ -6758,12 +7013,16 @@ export default function BookingForm({
                 }, 800);
             }
         } catch (error) {
+            const labelContext = getValidationLabelContext();
             const message =
-                buildValidationFeedbackMessage(error) ||
+                buildValidationFeedbackMessage(error, labelContext) ||
                 (error instanceof Error
                     ? error.message
                     : "Gagal menyimpan booking ke server.");
-            showSubmitFeedback(message);
+            showSubmitFeedback(
+                message,
+                collectBookingValidationIssues(error, labelContext),
+            );
         } finally {
             bookingCreateInFlightRef.current = false;
             setIsBookingCreationInFlight(false);
@@ -6771,14 +7030,63 @@ export default function BookingForm({
     };
 
     const onInvalidSubmit = (invalidErrors: unknown) => {
+        const labelContext = getValidationLabelContext();
         showSubmitFeedback(
-            buildValidationFeedbackMessage(invalidErrors) ||
+            buildValidationFeedbackMessage(invalidErrors, labelContext) ||
                 (findFirstFormErrorMessage(invalidErrors)
                     ? `Masih ada field wajib yang belum lengkap: ${findFirstFormErrorMessage(invalidErrors)}`
                     : "Masih ada field wajib yang belum lengkap. Cek bagian form yang bertanda merah."),
+            collectBookingValidationIssues(invalidErrors, labelContext),
         );
     };
     const submitBookingForm = handleSubmit(onSubmit, onInvalidSubmit);
+
+    const PENDING_FOCUS_FIELD_STORAGE_KEY = "booking-form-pending-focus-field";
+    const goToBookingField = (fieldName: string) => {
+        if (focusBookingField(fieldName)) return;
+        if (!isPreviewStep) {
+            submitFeedbackRef.current?.scrollIntoView({
+                behavior: "smooth",
+                block: "center",
+            });
+            return;
+        }
+
+        // Field ada di step input: kembali ke form lalu fokus setelah render.
+        try {
+            window.sessionStorage.setItem(
+                PENDING_FOCUS_FIELD_STORAGE_KEY,
+                fieldName,
+            );
+        } catch {
+            // abaikan: sessionStorage tidak tersedia
+        }
+        setComposerStep("input");
+        if (!isEditMode && isReviewPage) {
+            router.replace("/bakery/bookings/new");
+        }
+    };
+
+    useEffect(() => {
+        if (isPreviewStep || !hasHydratedDraftSnapshot) return;
+        let pendingFieldName: string | null = null;
+        try {
+            pendingFieldName = window.sessionStorage.getItem(
+                PENDING_FOCUS_FIELD_STORAGE_KEY,
+            );
+            window.sessionStorage.removeItem(PENDING_FOCUS_FIELD_STORAGE_KEY);
+        } catch {
+            pendingFieldName = null;
+        }
+        if (!pendingFieldName) return;
+
+        const fieldName = pendingFieldName;
+        const timeout = window.setTimeout(() => {
+            void trigger();
+            focusBookingField(fieldName);
+        }, 200);
+        return () => window.clearTimeout(timeout);
+    }, [focusBookingField, hasHydratedDraftSnapshot, isPreviewStep, trigger]);
 
     useEffect(() => {
         const pendingAction = pendingReferenceSyncActionRef.current;
@@ -8016,7 +8324,50 @@ export default function BookingForm({
                     ? "Perubahan booking belum bisa disimpan"
                     : "Booking belum bisa dilanjutkan"}
             </p>
-            <p className="mt-1 whitespace-pre-line">{submitError}</p>
+            {submitErrorDetail?.message === submitError &&
+            submitErrorDetail.issues.length > 0 ? (
+                <>
+                    <p className="mt-1">
+                        Klik kolom di bawah untuk langsung menuju field yang
+                        perlu diperbaiki:
+                    </p>
+                    <ul className="mt-2 space-y-1.5">
+                        {submitErrorDetail.issues
+                            .slice(0, 6)
+                            .map((issue) => (
+                                <li key={`${issue.fieldName}::${issue.message}`}>
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                            goToBookingField(issue.fieldName)
+                                        }
+                                        className="group flex w-full items-start gap-2 rounded-lg border border-rose-200 bg-white/80 px-3 py-2 text-left transition hover:border-rose-300 hover:bg-white"
+                                    >
+                                        <span className="min-w-0 flex-1">
+                                            <span className="block font-semibold text-rose-800">
+                                                {issue.label}
+                                            </span>
+                                            <span className="block text-rose-700">
+                                                {issue.message}
+                                            </span>
+                                        </span>
+                                        <span className="shrink-0 pt-0.5 text-xs font-semibold text-rose-600 group-hover:underline">
+                                            Lihat kolom →
+                                        </span>
+                                    </button>
+                                </li>
+                            ))}
+                    </ul>
+                    {submitErrorDetail.issues.length > 6 && (
+                        <p className="mt-2 text-xs">
+                            +{submitErrorDetail.issues.length - 6} kolom lain
+                            juga masih perlu diperbaiki.
+                        </p>
+                    )}
+                </>
+            ) : (
+                <p className="mt-1 whitespace-pre-line">{submitError}</p>
+            )}
         </div>
     ) : null;
 
@@ -8048,7 +8399,12 @@ export default function BookingForm({
         : "Sinkron referensi otomatis sempat gagal. Sistem akan coba lagi saat Anda klik Preview atau Create Booking.";
 
     return (
-        <form onSubmit={submitBookingForm} className="space-y-6">
+        <form
+            ref={formElementRef}
+            onSubmit={submitBookingForm}
+            noValidate
+            className="space-y-6"
+        >
             {!isPreviewStep ? (
                 <>
                     <Card className="overflow-hidden rounded-[32px] border-[var(--crumbella-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(250,244,237,0.95)_100%)] shadow-[0_24px_40px_-30px_rgba(30,18,10,0.5)]">
@@ -12237,12 +12593,6 @@ export default function BookingForm({
                                             </p>
                                         )}
 
-                                        {!shouldUseShippingEngine && (
-                                            <p className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
-                                                Metode ini tidak memakai
-                                                kalkulasi ongkir live.
-                                            </p>
-                                        )}
 
                                         {displayedShippingDistanceKm !==
                                             null && (
@@ -12440,7 +12790,8 @@ export default function BookingForm({
                                             </div>
                                         )}
 
-                                        {!filteredShippingQuotes.length &&
+                                        {LIVE_SHIPPING_QUOTE_ENABLED &&
+                                            !filteredShippingQuotes.length &&
                                             !shippingPayload && (
                                                 <p className="text-xs text-gray-500">
                                                     {shouldUseShippingEngine
@@ -12465,19 +12816,22 @@ export default function BookingForm({
 
                                 <div className="grid gap-3 sm:grid-cols-2">
                                     <div className="space-y-3">
-                                        <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
-                                            <input
-                                                type="checkbox"
-                                                {...register(
-                                                    "isManualShippingOverride",
-                                                )}
-                                                className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-600"
-                                            />
-                                            Gunakan nominal Ongkir manual
-                                        </label>
-                                        {isManualShippingOverride && (
+                                        {LIVE_SHIPPING_QUOTE_ENABLED && (
+                                            <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                                                <input
+                                                    type="checkbox"
+                                                    {...register(
+                                                        "isManualShippingOverride",
+                                                    )}
+                                                    className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-600"
+                                                />
+                                                Gunakan nominal Ongkir manual
+                                            </label>
+                                        )}
+                                        {(isManualShippingOverride ||
+                                            !LIVE_SHIPPING_QUOTE_ENABLED) && (
                                             <label className="grid gap-2 text-sm font-medium text-gray-700">
-                                                Nominal Ongkir Manual
+                                                Ongkir
                                                 <Input
                                                     type="number"
                                                     step="1000"
@@ -12486,7 +12840,8 @@ export default function BookingForm({
                                                     {...register(
                                                         "manualShippingFee",
                                                         {
-                                                            valueAsNumber: true,
+                                                            setValueAs:
+                                                                parseOptionalNumberInput,
                                                         },
                                                     )}
                                                 />
@@ -12556,7 +12911,8 @@ export default function BookingForm({
                                             type="number"
                                             step="1000"
                                             {...register("productAdjustment", {
-                                                valueAsNumber: true,
+                                                setValueAs:
+                                                    parseOptionalNumberInput,
                                             })}
                                         />
                                     </label>
@@ -12569,7 +12925,8 @@ export default function BookingForm({
                                             {...register(
                                                 "nonProductAdjustment",
                                                 {
-                                                    valueAsNumber: true,
+                                                    setValueAs:
+                                                        parseOptionalNumberInput,
                                                 },
                                             )}
                                         />

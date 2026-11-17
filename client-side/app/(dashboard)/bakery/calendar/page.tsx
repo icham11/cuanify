@@ -49,6 +49,7 @@ import { summarizeProductionTokensByItems } from "@/lib/bookings/operations";
 import { getOrderItemsSummary } from "@/lib/bookings/order-display";
 import {
   isClosedOrderStatus,
+  isFulfilledOrderStatus,
   normalizeOrderStatus,
 } from "@/lib/bookings/order-status";
 import { mergeCalendarOrdersForDisplay } from "@/lib/calendar/calendar-orders";
@@ -418,12 +419,22 @@ export default function BakeryCalendarPage() {
 
   const liveUsedTokenByDate = useMemo(() => {
     const result = new Map<string, number>();
+    const todayKey = toDateKey(new Date());
 
     for (const order of scopedCalendarOrders) {
       const normalizedDate = resolveCalendarOrderDateKey(order);
       if (!normalizedDate) continue;
 
-      if (isClosedOrderStatus(order.orderStatus)) {
+      // Past dates show the tokens actually produced that day, so fulfilled
+      // orders (Delivery/Delivered/Completed) still count; only Cancelled is
+      // dropped. Today/future keep the booking-capacity rule (open orders only),
+      // matching the server ledger used to validate new bookings.
+      const isPastDate = normalizedDate < todayKey;
+      const countsTowardToken = isPastDate
+        ? !isClosedOrderStatus(order.orderStatus) ||
+          isFulfilledOrderStatus(order.orderStatus)
+        : !isClosedOrderStatus(order.orderStatus);
+      if (!countsTowardToken) {
         continue;
       }
 
