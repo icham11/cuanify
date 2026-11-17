@@ -409,7 +409,14 @@ function buildBookingFormValuesFromOrder(
                                 addOnQuantities: normalizedAddOnQuantities,
                             })
                           : "";
-                  const cleanedItemNotes =
+                  const storedCustomAddOns = normalizeCustomAddOns(
+                      item.customAddOns,
+                  );
+                  const restoredCustomAddOns =
+                      storedCustomAddOns.length > 0
+                          ? storedCustomAddOns
+                          : parseCustomAddOnsFromItemNotes(rawItemNotes);
+                  const cleanedItemNotesBase =
                       normalized.category === "Cookies"
                           ? removeCookieBreakdownFromNotes(rawItemNotes)
                           : normalized.category === "Buket"
@@ -417,6 +424,14 @@ function buildBookingFormValuesFromOrder(
                                   rawItemNotes,
                               )
                             : rawItemNotes;
+                  // Baris "Custom add-ons:" dibuat ulang otomatis saat simpan,
+                  // jadi dibuang dari catatan supaya tidak dobel.
+                  const cleanedItemNotes =
+                      restoredCustomAddOns.length > 0
+                          ? removeCustomAddOnsLineFromNotes(
+                                cleanedItemNotesBase,
+                            )
+                          : cleanedItemNotesBase;
                   const normalizedQuantity = Number.isFinite(parsedQuantity)
                       ? Math.max(1, Math.round(parsedQuantity))
                       : 1;
@@ -466,7 +481,7 @@ function buildBookingFormValuesFromOrder(
                       addOnPriceOverrides: normalizeAddOnPriceOverrides(
                           item.addOnPriceOverrides,
                       ),
-                      customAddOns: normalizeCustomAddOns(item.customAddOns),
+                      customAddOns: restoredCustomAddOns,
                       darkColorButtercreamColors:
                           normalized.category === "Cupcakes" &&
                           normalizedAddOnIds.includes(
@@ -809,6 +824,7 @@ const itemSchema = z.object({
             z.object({
                 label: z.string().max(80).optional().or(z.literal("")),
                 price: z.number().min(0).max(10_000_000).default(0),
+                pricingMode: z.enum(["flat", "per_item"]).optional(),
             }),
         )
         .optional(),
@@ -1862,10 +1878,18 @@ function normalizeAddOnPriceOverrides(value: unknown): Record<string, number> {
     return next;
 }
 
+/** flat = sekali per item pesanan; per_item = dikali qty produk. */
+type CustomAddOnPricingMode = "flat" | "per_item";
+
 type CustomAddOnInput = {
     label: string;
     price: number;
+    pricingMode: CustomAddOnPricingMode;
 };
+
+function resolveCustomAddOnPricingMode(value: unknown): CustomAddOnPricingMode {
+    return value === "per_item" ? "per_item" : "flat";
+}
 
 function normalizeCustomAddOns(value: unknown): CustomAddOnInput[] {
     if (!Array.isArray(value)) return [];
@@ -1874,7 +1898,7 @@ function normalizeCustomAddOns(value: unknown): CustomAddOnInput[] {
         .map((entry) => {
             const raw =
                 entry && typeof entry === "object"
-                    ? (entry as { label?: unknown; price?: unknown })
+                    ? (entry as { label?: unknown; price?: unknown; pricingMode?: unknown })
                     : undefined;
             const label =
                 typeof raw?.label === "string" ? raw.label.trim() : "";
@@ -1882,17 +1906,110 @@ function normalizeCustomAddOns(value: unknown): CustomAddOnInput[] {
             const price = Number.isFinite(parsedPrice)
                 ? Math.max(0, Math.round(parsedPrice))
                 : 0;
-            return { label, price } satisfies CustomAddOnInput;
+            return {
+                label,
+                price,
+                pricingMode: resolveCustomAddOnPricingMode(raw?.pricingMode),
+            } satisfies CustomAddOnInput;
         })
         .filter((entry) => entry.label.length > 0 || entry.price > 0);
 }
 
+/**
+ * Daftar add-on custom untuk diedit di form: label TIDAK di-trim dan baris
+ * kosong TIDAK dibuang, supaya input tidak hilang/kehilangan fokus saat
+ * admin mengetik. Normalisasi (trim + buang baris kosong) dilakukan saat submit
+ * lewat normalizeCustomAddOns.
+ */
+function getEditableCustomAddOns(value: unknown): CustomAddOnInput[] {
+    if (!Array.isArray(value)) return [];
+
+    return value.map((entry) => {
+        const raw =
+            entry && typeof entry === "object"
+                ? (entry as { label?: unknown; price?: unknown; pricingMode?: unknown })
+                : undefined;
+        const parsedPrice = Number(raw?.price);
+        return {
+            label: typeof raw?.label === "string" ? raw.label : "",
+            price: Number.isFinite(parsedPrice)
+                ? Math.max(0, Math.round(parsedPrice))
+                : 0,
+            pricingMode: resolveCustomAddOnPricingMode(raw?.pricingMode),
+        } satisfies CustomAddOnInput;
+    });
+}
+
+function getCustomAddOnLineTotal(
+    entry: CustomAddOnInput,
+    quantity: number,
+): number {
+    return entry.pricingMode === "per_item"
+        ? entry.price * Math.max(1, quantity || 0)
+        : entry.price;
+}
+
+/** Total add-on custom: "flat" dihitung sekali, "per_item" dikali qty produk. */
 function getCustomAddOnTotal(
     customAddOns: CustomAddOnInput[],
     quantity: number,
 ): number {
-    const perUnit = customAddOns.reduce((sum, entry) => sum + entry.price, 0);
-    return perUnit * Math.max(1, quantity || 0);
+    return customAddOns.reduce(
+        (sum, entry) => sum + getCustomAddOnLineTotal(entry, quantity),
+        0,
+    );
+}
+
+const CUSTOM_ADD_ONS_NOTES_PREFIX = "custom add-ons:";
+
+function isCustomAddOnsNotesLine(line: string): boolean {
+    return line.trim().toLowerCase().startsWith(CUSTOM_ADD_ONS_NOTES_PREFIX);
+}
+
+/**
+ * Fallback untuk order lama yang belum menyimpan field `customAddOns`:
+ * baca ulang dari baris catatan item "Custom add-ons: ...".
+ * Format lama "(Rp x / item)" dianggap dikali qty (perilaku lama), "(Rp x, flat)"
+ * dianggap flat, dan "(Rp x x N = Rp y)" dianggap dikali qty.
+ */
+function parseCustomAddOnsFromItemNotes(notes: string): CustomAddOnInput[] {
+    const line = notes.split("\n").find(isCustomAddOnsNotesLine);
+    if (!line) return [];
+
+    const body = line.trim().slice(CUSTOM_ADD_ONS_NOTES_PREFIX.length).trim();
+    const pattern =
+        /(.+?)\s\(Rp\s?([\d.]+)(,\s*flat|\s*\/\s*item|\s*x\s*\d+\s*=\s*Rp\s?[\d.]+)\)(?:,\s*|$)/g;
+
+    return Array.from(body.matchAll(pattern)).flatMap((match) => {
+        const label = match[1].trim();
+        const price = Number(match[2].replace(/\./g, ""));
+        if (!label || !Number.isFinite(price)) return [];
+        return [
+            {
+                label,
+                price: Math.max(0, Math.round(price)),
+                pricingMode: /flat/.test(match[3]) ? "flat" : "per_item",
+            } satisfies CustomAddOnInput,
+        ];
+    });
+}
+
+function removeCustomAddOnsLineFromNotes(notes: string): string {
+    return notes
+        .split("\n")
+        .filter((line) => !isCustomAddOnsNotesLine(line))
+        .join("\n");
+}
+
+function describeCustomAddOnPrice(
+    entry: CustomAddOnInput,
+    quantity: number,
+): string {
+    if (entry.pricingMode !== "per_item") {
+        return `${formatCurrency(entry.price)}, flat`;
+    }
+    const units = Math.max(1, quantity || 0);
+    return `${formatCurrency(entry.price)} x ${units} = ${formatCurrency(entry.price * units)}`;
 }
 
 function getPrimaryProductQuantityForAddOns(
@@ -3685,7 +3802,9 @@ function getValidationFieldLabel(
             leafLabel =
                 subLeaf === "label"
                     ? `Nama add-on custom ${subKey + 1}`
-                    : `Harga add-on custom ${subKey + 1}`;
+                    : subLeaf === "pricingMode"
+                      ? `Tipe harga add-on custom ${subKey + 1}`
+                      : `Harga add-on custom ${subKey + 1}`;
         }
         return `${itemName} › ${leafLabel}`;
     }
@@ -6658,7 +6777,7 @@ export default function BookingForm({
                     ? `Custom add-ons: ${normalizedCustomAddOns
                           .map(
                               (entry) =>
-                                  `${entry.label} (${formatCurrency(entry.price)} / item)`,
+                                  `${entry.label} (${describeCustomAddOnPrice(entry, primaryProductQuantity)})`,
                           )
                           .join(", ")}`
                     : "",
@@ -6770,6 +6889,7 @@ export default function BookingForm({
                 lineTotal: parsedSubtotalWithDesignCharge ?? itemBasePrice,
                 addOns: item.addOns,
                 addOnQuantities: normalizedAddOnQuantities,
+                customAddOns: normalizedCustomAddOns,
                 addOnTotal: addOnTotalForItem,
                 notes: mergedItemNotes,
             };
@@ -7398,19 +7518,19 @@ export default function BookingForm({
     };
 
     const addCustomAddOn = (itemIndex: number) => {
-        const current = normalizeCustomAddOns(
+        const current = getEditableCustomAddOns(
             watchedItems[itemIndex]?.customAddOns,
         );
         clearParsedPricingOverride(itemIndex);
         setValue(
             `items.${itemIndex}.customAddOns`,
-            [...current, { label: "Add-on Custom", price: 0 }],
+            [...current, { label: "", price: 0, pricingMode: "flat" }],
             { shouldValidate: true },
         );
     };
 
     const removeCustomAddOn = (itemIndex: number, customIndex: number) => {
-        const current = normalizeCustomAddOns(
+        const current = getEditableCustomAddOns(
             watchedItems[itemIndex]?.customAddOns,
         );
         clearParsedPricingOverride(itemIndex);
@@ -7426,7 +7546,7 @@ export default function BookingForm({
         customIndex: number,
         label: string,
     ) => {
-        const current = normalizeCustomAddOns(
+        const current = getEditableCustomAddOns(
             watchedItems[itemIndex]?.customAddOns,
         );
         const next = current.map((entry, index) =>
@@ -7443,7 +7563,7 @@ export default function BookingForm({
         customIndex: number,
         rawPrice: number,
     ) => {
-        const current = normalizeCustomAddOns(
+        const current = getEditableCustomAddOns(
             watchedItems[itemIndex]?.customAddOns,
         );
         const price = Number.isFinite(rawPrice)
@@ -7451,6 +7571,23 @@ export default function BookingForm({
             : 0;
         const next = current.map((entry, index) =>
             index === customIndex ? { ...entry, price } : entry,
+        );
+        clearParsedPricingOverride(itemIndex);
+        setValue(`items.${itemIndex}.customAddOns`, next, {
+            shouldValidate: true,
+        });
+    };
+
+    const setCustomAddOnPricingMode = (
+        itemIndex: number,
+        customIndex: number,
+        pricingMode: CustomAddOnPricingMode,
+    ) => {
+        const current = getEditableCustomAddOns(
+            watchedItems[itemIndex]?.customAddOns,
+        );
+        const next = current.map((entry, index) =>
+            index === customIndex ? { ...entry, pricingMode } : entry,
         );
         clearParsedPricingOverride(itemIndex);
         setValue(`items.${itemIndex}.customAddOns`, next, {
@@ -9546,7 +9683,7 @@ export default function BookingForm({
                                                         item?.addOnPriceOverrides,
                                                     );
                                                 const customAddOns =
-                                                    normalizeCustomAddOns(
+                                                    getEditableCustomAddOns(
                                                         item?.customAddOns,
                                                     );
                                                 const selectedNonFlavorAddOns =
@@ -11928,6 +12065,13 @@ export default function BookingForm({
                                                                         tidak
                                                                         ada di
                                                                         list.
+                                                                        Harga
+                                                                        bisa
+                                                                        flat
+                                                                        (sekali)
+                                                                        atau
+                                                                        dikali
+                                                                        qty.
                                                                     </p>
                                                                 ) : (
                                                                     <div className="space-y-1.5">
@@ -11937,14 +12081,15 @@ export default function BookingForm({
                                                                                 customIndex,
                                                                             ) => (
                                                                                 <div
-                                                                                    key={`${customAddOn.label}-${customIndex}`}
-                                                                                    className="grid gap-1.5 sm:grid-cols-[minmax(0,1fr)_130px_auto]"
+                                                                                    key={`custom-addon-${customIndex}`}
+                                                                                    className="grid grid-cols-[minmax(0,1fr)_auto] gap-1.5 sm:grid-cols-[minmax(0,1fr)_130px_150px_auto]"
                                                                                 >
                                                                                     <Input
                                                                                         value={
                                                                                             customAddOn.label
                                                                                         }
                                                                                         placeholder="Nama add-on custom"
+                                                                                        className="col-span-2 sm:col-span-1"
                                                                                         onChange={(
                                                                                             event,
                                                                                         ) =>
@@ -11966,7 +12111,8 @@ export default function BookingForm({
                                                                                             1
                                                                                         }
                                                                                         value={
-                                                                                            customAddOn.price
+                                                                                            customAddOn.price ||
+                                                                                            ""
                                                                                         }
                                                                                         placeholder="Harga"
                                                                                         onChange={(
@@ -11983,6 +12129,34 @@ export default function BookingForm({
                                                                                             )
                                                                                         }
                                                                                     />
+                                                                                    <Select
+                                                                                        aria-label="Tipe harga add-on custom"
+                                                                                        className="col-span-2 sm:col-span-1"
+                                                                                        value={
+                                                                                            customAddOn.pricingMode
+                                                                                        }
+                                                                                        onChange={(
+                                                                                            event,
+                                                                                        ) =>
+                                                                                            setCustomAddOnPricingMode(
+                                                                                                index,
+                                                                                                customIndex,
+                                                                                                resolveCustomAddOnPricingMode(
+                                                                                                    event
+                                                                                                        .target
+                                                                                                        .value,
+                                                                                                ),
+                                                                                            )
+                                                                                        }
+                                                                                    >
+                                                                                        <option value="flat">
+                                                                                            Flat
+                                                                                            (sekali)
+                                                                                        </option>
+                                                                                        <option value="per_item">
+                                                                                            {`Dikali qty (x${primaryProductQuantity})`}
+                                                                                        </option>
+                                                                                    </Select>
                                                                                     <Button
                                                                                         type="button"
                                                                                         variant="outline"
@@ -12002,45 +12176,60 @@ export default function BookingForm({
                                                                     </div>
                                                                 )}
                                                             </div>
-                                                            <div className="sticky bottom-2 z-10 rounded-xl border border-emerald-200 bg-linear-to-r from-emerald-50 via-white to-emerald-50 px-3 py-2.5 shadow-sm backdrop-blur-sm">
-                                                                <div className="flex flex-wrap items-center justify-between gap-1.5">
+                                                            <div className="sticky bottom-2 z-10 rounded-xl border border-emerald-200 bg-linear-to-r from-emerald-50 via-white to-emerald-50 px-3 py-3 shadow-sm backdrop-blur-sm">
+                                                                <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                                                                     <span className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
                                                                         Total
                                                                         Biaya
                                                                         Item
                                                                     </span>
-                                                                    <span className="text-sm font-bold text-emerald-800 sm:text-base">
+                                                                    <span className="text-base font-bold tabular-nums text-emerald-800 sm:text-lg">
                                                                         {formatCurrency(
                                                                             itemTotalCostDisplay,
                                                                         )}
-                                                                        <span>
-                                                                            Add-on
-                                                                            custom:{" "}
+                                                                    </span>
+                                                                </div>
+                                                                <dl className="mt-2 space-y-1 border-t border-emerald-100 pt-2 text-xs text-slate-600">
+                                                                    <div className="flex items-center justify-between gap-3">
+                                                                        <dt>
+                                                                            Subtotal
+                                                                            produk
+                                                                        </dt>
+                                                                        <dd className="font-medium tabular-nums text-slate-700">
                                                                             {formatCurrency(
-                                                                                customAddOnTotal,
+                                                                                displayLinePrice,
                                                                             )}
-                                                                        </span>
-                                                                    </span>
-                                                                </div>
-                                                                <div className="mt-1 grid gap-1 text-[11px] text-slate-600 sm:grid-cols-3">
-                                                                    <span>
-                                                                        Subtotal
-                                                                        produk:{" "}
-                                                                        {formatCurrency(
-                                                                            displayLinePrice,
-                                                                        )}
-                                                                    </span>
-                                                                    <span>
-                                                                        Total
-                                                                        add-ons
-                                                                        +
-                                                                        surcharge:{" "}
-                                                                        {formatCurrency(
-                                                                            totalAddOnAndSurchargeDisplay,
-                                                                        )}
-                                                                    </span>
-                                                                </div>
-                                                                <p className="mt-1 text-[11px] font-medium text-slate-500">
+                                                                        </dd>
+                                                                    </div>
+                                                                    <div className="flex items-center justify-between gap-3">
+                                                                        <dt>
+                                                                            Add-ons
+                                                                            +
+                                                                            surcharge
+                                                                        </dt>
+                                                                        <dd className="font-medium tabular-nums text-slate-700">
+                                                                            {formatCurrency(
+                                                                                totalAddOnAndSurchargeDisplay,
+                                                                            )}
+                                                                        </dd>
+                                                                    </div>
+                                                                    {customAddOnTotal >
+                                                                        0 && (
+                                                                        <div className="flex items-center justify-between gap-3 pl-3 text-[11px] text-slate-500">
+                                                                            <dt>
+                                                                                termasuk
+                                                                                add-on
+                                                                                custom
+                                                                            </dt>
+                                                                            <dd className="tabular-nums">
+                                                                                {formatCurrency(
+                                                                                    customAddOnTotal,
+                                                                                )}
+                                                                            </dd>
+                                                                        </div>
+                                                                    )}
+                                                                </dl>
+                                                                <p className="mt-2 text-[11px] leading-4 text-slate-500">
                                                                     {hasParsedRecapPrice &&
                                                                     parsedSubtotal
                                                                         ? customCookieAdditionalDesignCharge >
@@ -12057,8 +12246,14 @@ export default function BookingForm({
 
                                                         {(selectedNonFlavorAddOns.length >
                                                             0 ||
-                                                            customAddOns.length >
-                                                                0) && (
+                                                            customAddOns.some(
+                                                                (entry) =>
+                                                                    entry.label.trim()
+                                                                        .length >
+                                                                        0 ||
+                                                                    entry.price >
+                                                                        0,
+                                                            )) && (
                                                             <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
                                                                 {[
                                                                     ...selectedFlowerAddOns.map(
@@ -12088,12 +12283,23 @@ export default function BookingForm({
                                                                                 : addon.label;
                                                                         },
                                                                     ),
-                                                                    ...customAddOns.map(
-                                                                        (
-                                                                            entry,
-                                                                        ) =>
-                                                                            `${entry.label} (${formatCurrency(entry.price)} / item)`,
-                                                                    ),
+                                                                    ...customAddOns
+                                                                        .filter(
+                                                                            (
+                                                                                entry,
+                                                                            ) =>
+                                                                                entry.label.trim()
+                                                                                    .length >
+                                                                                    0 ||
+                                                                                entry.price >
+                                                                                    0,
+                                                                        )
+                                                                        .map(
+                                                                            (
+                                                                                entry,
+                                                                            ) =>
+                                                                                `${entry.label.trim() || "Add-on custom"} (${describeCustomAddOnPrice(entry, primaryProductQuantity)})`,
+                                                                        ),
                                                                 ].join(", ")}
                                                             </div>
                                                         )}

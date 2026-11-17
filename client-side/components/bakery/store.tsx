@@ -177,7 +177,12 @@ export interface OrderItem {
   /** Label tampilan per id add-on (dipakai WA bila id bukan dari katalog booking). */
   addOnLabels?: Record<string, string>;
   addOnPriceOverrides?: Record<string, number>;
-  customAddOns?: Array<{ label: string; price: number }>;
+  /** Add-on custom per item. pricingMode: "flat" = sekali, "per_item" = dikali qty. */
+  customAddOns?: Array<{
+    label: string;
+    price: number;
+    pricingMode?: "flat" | "per_item";
+  }>;
   darkColorButtercreamColors?: string[];
   parsedUnitPrice?: number;
   parsedSubtotal?: number;
